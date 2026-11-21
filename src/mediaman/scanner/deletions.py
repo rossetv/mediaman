@@ -26,6 +26,12 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    claim_due_deletions_under,
+    fetch_media_held_outside_pass,
+    is_latest_audit,
+)
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import (
     DeletionRefused,
@@ -33,6 +39,7 @@ from mediaman.services.infra import (
     delete_path,
     path_within_delete_roots,
 )
+from mediaman.services.infra.storage import delete_root_available
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -66,11 +73,15 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
       must NOT fabricate a "deleted N bytes" audit row (that would corrupt
       the audit trail and the reclaimed-bytes stats — a security
       surface). Reset to ``pending`` and log loudly instead.
+    * File absent **but** its delete root is missing or empty -> the media
+      mount is likely down, so the absence proves nothing. Reset to
+      ``pending``.
     * File present -> the rm never ran. Reset to ``pending`` so the next
       normal run retries cleanly.
 
     Idempotent; safe to call on every startup. Does not itself delete
-    any files — purely a state reconciliation.
+    any files — purely a state reconciliation. Each row is committed before
+    the next row's disk checks, so a hung mount never holds the write lock.
     """
     rows = repository.fetch_stuck_deletions(conn)
     if not rows:
@@ -104,6 +115,15 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
+        elif not delete_root_available(file_path, allowed_roots):
+            logger.error(
+                "engine.delete.recover id=%s path=%r — file absent but its delete "
+                "root is missing or empty (media mount down?); reverting status "
+                "to 'pending' instead of booking it as deleted.",
+                row.id,
+                file_path,
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
         else:
             logger.warning(
                 "engine.delete.recover id=%s path=%r — file already gone, completing cleanup",
@@ -120,7 +140,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 space_bytes=row.file_size_bytes,
             )
             repository.delete_scheduled_action(conn, row.id)
-    conn.commit()
+        conn.commit()
 
 
 # rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
@@ -275,6 +295,16 @@ def _unmonitor_arr(
             )
 
 
+def _log_root_unavailable(row: DeletionRow, path: str) -> None:
+    logger.error(
+        "engine.delete.root_unavailable id=%s path=%r — target is missing and "
+        "its delete root is missing or empty (media mount down?); leaving "
+        "the row pending",
+        row.id,
+        path,
+    )
+
+
 class DeletionExecutor:
     """Executes pending deletions whose grace period has elapsed.
 
@@ -371,24 +401,54 @@ class DeletionExecutor:
                 )
         else:
             for row in rows:
-                if self._delete_one(row, allowed_roots):
+                for closed in self._delete_one(row, allowed_roots, now.isoformat()):
                     deleted_count += 1
-                    reclaimed_bytes += row.file_size_bytes or 0
+                    reclaimed_bytes += closed.file_size_bytes or 0
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
 
-    def _delete_one(self, row: DeletionRow, allowed_roots: list[str]) -> bool:
-        """Delete a single eligible row from disk; return True on success.
+    def _delete_one(
+        self,
+        row: DeletionRow,
+        allowed_roots: list[str],
+        now_iso: str,
+    ) -> list[DeletionRow]:
+        """Delete a single eligible row from disk; return the rows closed as deleted.
 
         Parks a row with an empty/NULL ``file_path`` instead of cycling it
         forever between 'deleting' and 'pending': ``delete_path("")``
         always refuses and recovery always resets to pending, so such a row
         would livelock invisibly. Write a permanent-failure audit and drop
         the action so the operator can see it and it cannot re-enter.
+
+        Two-phase delete: the row is claimed as 'deleting' and committed
+        BEFORE the file is removed. If we crash between that commit and the
+        rm, the next run's recover_stuck_deletions() can inspect the row and
+        decide whether the file is still there (reset to pending) or already
+        gone (mark deleted).
+
+        Due rows of other items stored at or under the path are claimed in
+        the same transaction, since the removal takes their media too, and
+        close with this row; they go back to pending if the removal fails.
         """
-        if not (row.file_path or "").strip():
+        path = row.file_path or ""
+        # Read the disk before the claim opens a write transaction, so a hung
+        # mount cannot hold the database lock.
+        mounted = bool(path.strip()) and (
+            os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        )
+        if not claim_due_deletion(self._conn, row.id, now_iso):
+            self._conn.commit()
+            logger.info(
+                "engine.delete.skipped id=%s media_id=%s — no longer a due deletion",
+                row.id,
+                row.media_item_id,
+            )
+            return []
+
+        if not path.strip():
             logger.error(
                 "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
                 "has no file_path; parking the action so it cannot livelock "
@@ -404,22 +464,73 @@ class DeletionExecutor:
             )
             repository.delete_scheduled_action(self._conn, row.id)
             self._conn.commit()
-            return False
+            return []
 
-        # Two-phase delete: mark the row 'deleting' and commit BEFORE removing
-        # the file. If we crash between this commit and the rm, the next run's
-        # recover_stuck_deletions() can inspect the row and decide whether the
-        # file is still there (reset to pending) or already gone (mark deleted).
+        if not self._may_remove(row, path, now_iso, mounted=mounted):
+            repository.mark_delete_status(self._conn, row.id, "pending")
+            self._conn.commit()
+            return []
+        co_located = claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+        self._conn.commit()
         logger.info(
-            "engine.delete.intent id=%s media_id=%s path=%r",
+            "engine.delete.intent id=%s media_id=%s path=%r also_closes=%s",
             row.id,
             row.media_item_id,
-            row.file_path,
+            path,
+            [other.id for other in co_located],
         )
-        repository.mark_delete_status(self._conn, row.id, "deleting")
-        self._conn.commit()
+        # The mount may have dropped since the check before the claim, and
+        # removing a target that is gone does nothing: check its root again.
+        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
+            _log_root_unavailable(row, path)
+            for claimed in (row, *co_located):
+                repository.mark_delete_status(self._conn, claimed.id, "pending")
+            self._conn.commit()
+            return []
         if not _delete_file_on_disk(self._conn, row, allowed_roots):
+            for other in co_located:
+                repository.mark_delete_status(self._conn, other.id, "pending")
+            self._conn.commit()
+            return []
+        closed = [row, *co_located]
+        for done in closed:
+            _commit_deletion(self._conn, done)
+        for done in closed:
+            _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        return closed
+
+    def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+        """Return False, logging why, when removing *path* now could lose media.
+
+        Runs inside the claim's transaction, so the other items it reads
+        cannot change before the claim commits. *mounted* says whether the
+        target, or else its delete root's content, was on disk; it is read
+        before the transaction opens.
+        """
+        held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
+        if held:
+            names = ", ".join(
+                f"{h['title']} season {h['season_number']}"
+                if h["season_number"] is not None
+                else str(h["title"])
+                for h in held
+            )
+            logger.warning(
+                "engine.delete.shared_path id=%s path=%r — also holds media not due "
+                "for deletion: %s; leaving the row pending",
+                row.id,
+                path,
+                names,
+            )
+            detail = (
+                f"Not deleted: {row.title} — {path} also holds media that is not "
+                f"due for deletion ({names})"
+            )
+            # The refusal repeats every pass until something changes; audit it once.
+            if not is_latest_audit(self._conn, row.media_item_id, "delete_refused", detail):
+                log_audit(self._conn, row.media_item_id, "delete_refused", detail)
             return False
-        _commit_deletion(self._conn, row)
-        _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        if not mounted:
+            _log_root_unavailable(row, path)
+            return False
         return True

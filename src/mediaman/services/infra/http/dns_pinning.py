@@ -23,8 +23,9 @@ This monkeypatch is **process-global**: it replaces the stdlib resolver for
 the *entire interpreter*, so every third-party library that calls
 ``socket.getaddrinfo`` (a logging handler resolving a syslog host, an
 APScheduler job, an unrelated HTTP client) consults the pin table too. The
-collateral is bounded because (a) pins are keyed by the *exact* host string,
-so an unrelated lookup for a different hostname is unaffected, and (b) a pin
+collateral is bounded because (a) pins are keyed by the host's normal form
+(lower case, trailing dot stripped), so an unrelated lookup for a different
+hostname is unaffected, and (b) a pin
 only exists for the duration of a ``pin`` ``with`` block on the *same*
 thread. But any nested call within that block that resolves the *same*
 hostname will receive the pinned IP. The module-level mutable globals
@@ -74,6 +75,20 @@ _PIN_INSTALL_LOCK = threading.Lock()
 _PIN_INSTALLED = False
 
 
+def _pin_key(host: Any) -> Any:
+    """Return the normal form a pin is stored and looked up under.
+
+    The resolver treats ``Host.TLD.`` and ``host.tld`` as one name, and
+    urllib3 hands ``getaddrinfo`` the host exactly as the URL spelled it, so
+    every spelling must reach the same pin.
+    """
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    if isinstance(host, str):
+        return host.rstrip(".").lower()
+    return host
+
+
 def _patched_getaddrinfo(
     host: Any, port: Any, *args: Any, **kwargs: Any
 ) -> Any:  # pragma: no cover - thin wrapper
@@ -90,7 +105,7 @@ def _patched_getaddrinfo(
     """
     pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
     if pins:
-        ip = pins.get(host)
+        ip = pins.get(_pin_key(host))
         if ip is not None:
             family = socket.AF_INET6 if ":" in ip else socket.AF_INET
             requested_family = kwargs.get("family")
@@ -202,12 +217,13 @@ def pin(hostname: str, ip: str) -> Iterator[None]:
     if pins is None:
         pins = {}
         _DNS_PIN_LOCAL.pins = pins
-    previous = pins.get(hostname)
-    pins[hostname] = ip
+    key = _pin_key(hostname)
+    previous = pins.get(key)
+    pins[key] = ip
     try:
         yield
     finally:
         if previous is None:
-            pins.pop(hostname, None)
+            pins.pop(key, None)
         else:
-            pins[hostname] = previous
+            pins[key] = previous

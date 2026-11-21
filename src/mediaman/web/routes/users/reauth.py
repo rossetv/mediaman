@@ -37,8 +37,8 @@ def api_reauth(
 
     The ticket is bound to the SHA-256 hash of the session token, so logout or session
     rotation cascades it away and another session of the same user gets no benefit. Wrong
-    passwords feed the reauth:<admin> lockout namespace so a stolen cookie cannot use this
-    endpoint as a password oracle.
+    passwords feed the re-auth lockout namespace, kept apart from login counters, so a stolen
+    cookie cannot use this endpoint as a password oracle.
     """
     conn = get_db()
     if not session_token:

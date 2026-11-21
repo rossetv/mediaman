@@ -30,7 +30,8 @@ from mediaman.web.auth._password_hash_helpers import (
     _sanitise_log_field,
     _UserVanished,
 )
-from mediaman.web.auth.password_hash._authenticate import authenticate
+from mediaman.web.auth.login_lockout import reauth_key
+from mediaman.web.auth.password_hash._authenticate import verify_password
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +50,21 @@ def _authorise_password_change(
     Returns True when the rotation may proceed, False when it is
     rejected (the reauth namespace is locked, or the old password is
     wrong). Nothing is written to ``admin_users`` on either outcome —
-    only the ``reauth:<username>`` failure counter is bumped on a
-    rejection, mirroring the escalation behaviour of plain login.
+    only *username*'s re-auth failure counter is bumped on a rejection,
+    mirroring the escalation behaviour of plain login. A login lockout
+    never blocks the check and a failure never adds to it; a success
+    clears an unlocked login counter.
 
     Raises:
         ValueError: *new_password* fails the strength policy — only
             when *enforce_policy* is true. Raised before the caller
             opens its transaction, so nothing is written.
     """
-    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+    from mediaman.web.auth.login_lockout import (
+        clear_unlocked_login_failures,
+        is_locked_out,
+        record_failure,
+    )
 
     if namespace and is_locked_out(conn, namespace):
         # Burn a constant-time bcrypt cycle so timing matches the
@@ -71,7 +78,7 @@ def _authorise_password_change(
         )
         return False
 
-    if not authenticate(conn, username, old_password, record_failures=False):
+    if not verify_password(conn, username, old_password):
         if namespace:
             record_failure(conn, namespace)
         logger.warning(
@@ -79,6 +86,7 @@ def _authorise_password_change(
             _sanitise_log_field(username),
         )
         return False
+    clear_unlocked_login_failures(conn, username)
 
     if enforce_policy:
         from mediaman.web.auth.password_policy import password_issues
@@ -91,7 +99,7 @@ def _authorise_password_change(
 
 
 def _clear_reauth_failure_counter(conn: sqlite3.Connection, namespace: str, username: str) -> None:
-    """Best-effort clear of the ``reauth:<username>`` failure counter.
+    """Best-effort clear of *username*'s re-auth failure counter.
 
     Called outside `change_password`'s transaction so a counter
     write failure never blocks a successful rotation. We are already
@@ -132,14 +140,16 @@ def change_password(
     Returns True on success, False if the old password is wrong, the
     user no longer exists (TOCTOU), or the reauth namespace is locked.
 
-    Wrong-old-password attempts are recorded into the
-    ``reauth:<username>`` namespace of `mediaman.web.auth.login_lockout`
-    so a stolen session cannot turn this endpoint into an offline-style
-    password oracle — the same escalating 5/10/15 thresholds that gate
-    plain login also gate ``change_password``. The plain-login counter
-    for *username* is intentionally left untouched: otherwise an
-    attacker with a session cookie could lock the legitimate user out
-    of the login flow without ever knowing the password.
+    Wrong-old-password attempts are recorded under *username*'s re-auth
+    key in `mediaman.web.auth.login_lockout` so a stolen session cannot
+    turn this endpoint into an offline-style password oracle — the same
+    escalating 5/10/15 thresholds that gate plain login also gate
+    ``change_password``. A wrong old password never bumps the plain-login
+    counter for *username*, and a login lockout never blocks the change:
+    otherwise an attacker with a session cookie could lock the legitimate
+    user out of the login flow without ever knowing the password, and an
+    attacker hammering the login form could block a live session's
+    password change.
 
     Audit-in-transaction: when *audit_actor* is supplied (typically the
     same as *username*), a ``sec:<audit_event>`` row is written inside
@@ -148,7 +158,7 @@ def change_password(
     the entire rotation rolls back — we never have a "the password
     changed but no audit trail exists" outcome.
 
-    TOCTOU: between `authenticate` returning True and the UPDATE
+    TOCTOU: between `verify_password` returning True and the UPDATE
     landing, the user could be deleted by another worker. We detect
     that via ``cursor.rowcount`` and roll back with ``return False``
     rather than silently claim success.
@@ -168,13 +178,7 @@ def change_password(
             fail-closed, so a password change never lands without its
             audit row.
     """
-    # Lazy import: ``reauth`` imports ``authenticate`` from this package,
-    # so a module-level import here would close the cycle. The original
-    # ``change_password`` imported ``REAUTH_LOCKOUT_PREFIX`` inside its
-    # body for exactly this reason.
-    from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
-
-    namespace = f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
+    namespace = reauth_key(username) if username else ""
 
     if not _authorise_password_change(
         conn,
@@ -201,7 +205,7 @@ def change_password(
                 "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
                 (new_hash, username),
             )
-            # TOCTOU guard: if the user vanished between authenticate() and
+            # TOCTOU guard: if the user vanished between verify_password() and
             # this UPDATE, rowcount will be zero. Roll back instead of
             # claiming success — we just wrote a no-op and would otherwise
             # also DELETE sessions / mint an audit row for a user who is no

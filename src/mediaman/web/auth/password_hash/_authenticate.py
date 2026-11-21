@@ -1,9 +1,11 @@
 """The credential-verification path.
 
-Owns `authenticate` and its two private helpers. The "constant
-time across the meaningful branches" property — a real-username probe
-and a fake-username probe burn the same bcrypt latency — is implemented
-here: see `_verify_credentials_against_db`'s dummy bcrypt cycle.
+Owns `authenticate` (the login check, gated by the login lockout) and
+`verify_password` (the bare password check behind it, which re-auth and
+password change use with their own counter). The "constant time across
+the meaningful branches" property — a real-username probe and a
+fake-username probe burn the same bcrypt latency — is implemented here:
+see `verify_password`'s dummy bcrypt cycle.
 
 User CRUD lives in `._user_crud`; password rotation in
 `._change_password`.
@@ -27,8 +29,6 @@ logger = logging.getLogger(__name__)
 def _short_circuit_authenticate(
     conn: sqlite3.Connection,
     username: str,
-    *,
-    record_failures: bool,
 ) -> bool | None:
     """Return a definite answer for the no-bcrypt fast paths.
 
@@ -36,18 +36,12 @@ def _short_circuit_authenticate(
     (empty username, or locked account). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
-    The locked branch ALWAYS bumps `record_failure` — regardless
-    of *record_failures* — so the escalation thresholds
-    (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
-    every authentication path, including callers that pass
-    ``record_failures=False`` (``verify_reauth_password``,
-    ``_authorise_password_change``). See ``test_login_lockout.py``.
-    The *record_failures* flag governs only the bcrypt-verify path's
-    decision to count a wrong-password attempt; once an account is
-    already locked, counting the continued hammering is what keeps the
-    anti-DoS band-promotion design reachable, so it must not be skipped.
+    The locked branch bumps `record_failure` so the escalation thresholds
+    (5 → 10 → 15 failures → 15 min / 1 h / 24 h) stay reachable: counting
+    the continued hammering is what keeps the anti-DoS band-promotion
+    design working. See ``test_login_lockout.py``.
     """
-    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+    from mediaman.web.auth.login_lockout import is_locked_out, login_key, record_failure
 
     # Reject empty usernames before touching bcrypt. Otherwise an
     # unauthenticated attacker can stream empty-username requests at
@@ -59,47 +53,47 @@ def _short_circuit_authenticate(
     # Check lockout first. A locked account already has a "no" answer
     # without re-running bcrypt — skip the dummy round and save the
     # CPU. record_failure keeps acquiring the writer lock, which is
-    # the price of the escalation property — and it runs unconditionally
-    # here so escalation bands stay reachable on the ``record_failures=False``
-    # paths too.
-    if is_locked_out(conn, username):
-        record_failure(conn, username)
+    # the price of the escalation property.
+    key = login_key(username)
+    if is_locked_out(conn, key):
+        record_failure(conn, key)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
         return False
 
     return None
 
 
+def verify_password(conn: sqlite3.Connection, username: str, password: str) -> bool:
+    """Check *password* against the stored hash for *username*.
+
+    Reads and writes no failure counter and ignores any lock: callers
+    bring their own. Burns a constant-time dummy bcrypt cycle on the
+    "user not found" path so a real-username probe and a fake-username
+    probe take ~the same wall time — timing cannot enumerate valid
+    usernames.
+    """
+    row = conn.execute(
+        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
+    ).fetchone()
+    if row is None:
+        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+        return False
+    return bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
+
+
 def _verify_credentials_against_db(
     conn: sqlite3.Connection,
     username: str,
     password: str,
-    *,
-    record_failures: bool,
 ) -> bool:
-    """Do the bcrypt-verify dance against the stored hash for *username*.
+    """Run `verify_password` and update the login failure counter."""
+    from mediaman.web.auth.login_lockout import login_key, record_failure, record_success
 
-    Burns a constant-time dummy bcrypt cycle on the "user not found"
-    path so a real-username probe and a fake-username probe take ~the
-    same wall time — timing cannot enumerate valid usernames.
-    """
-    from mediaman.web.auth.login_lockout import record_failure, record_success
-
-    row = conn.execute(
-        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
-    ).fetchone()
-
-    if row is None:
-        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
-        if record_failures:
-            record_failure(conn, username)
-        return False
-
-    ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
+    ok = verify_password(conn, username, password)
     if ok:
-        record_success(conn, username)
-    elif record_failures:
-        record_failure(conn, username)
+        record_success(conn, login_key(username))
+    else:
+        record_failure(conn, login_key(username))
     return ok
 
 
@@ -107,8 +101,6 @@ def authenticate(
     conn: sqlite3.Connection,
     username: str,
     password: str,
-    *,
-    record_failures: bool = True,
 ) -> bool:
     """Verify username/password credentials.
 
@@ -142,7 +134,7 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    short_circuit = _short_circuit_authenticate(conn, username, record_failures=record_failures)
+    short_circuit = _short_circuit_authenticate(conn, username)
     if short_circuit is not None:
         return short_circuit
-    return _verify_credentials_against_db(conn, username, password, record_failures=record_failures)
+    return _verify_credentials_against_db(conn, username, password)

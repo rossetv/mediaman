@@ -201,6 +201,7 @@ class TestTwoPhaseDelete:
 
         root = tmp_path / "library"
         root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         self._insert_item(conn, "r2", file_path=str(root / "x.mkv"))
         self._insert_sched(

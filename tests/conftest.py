@@ -393,3 +393,16 @@ def freezer():
 
     with freeze_time("2026-05-01T12:00:00+00:00") as frozen:
         yield frozen
+
+
+@pytest.fixture(autouse=True)
+def _reset_download_status_cache():
+    """Empty the download status cache before each test.
+
+    The cache is process-wide with a 2.5 s TTL keyed on (service, tmdb_id,
+    key fingerprint), so an earlier test on the same worker polling the same
+    title would otherwise serve its stale item to the next one.
+    """
+    from mediaman.web.routes.download.status import _reset_status_cache_for_tests
+
+    _reset_status_cache_for_tests()

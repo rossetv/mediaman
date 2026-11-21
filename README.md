@@ -3,12 +3,14 @@
 [![CI](https://github.com/rossetv/mediaman/actions/workflows/ci.yml/badge.svg)](https://github.com/rossetv/mediaman/actions/workflows/ci.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rossetv/mediaman)](https://hub.docker.com/r/rossetv/mediaman)
 
-mediaman keeps a self-hosted Plex library from filling up. A scheduled scan queues old, unwatched items for deletion after a grace period; a newsletter email lists them with a signed link to keep each one; and an admin web UI browses the library and drives Sonarr, Radarr and NZBGet.
+mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatched items for deletion, emails a newsletter where readers can keep them, and drives Sonarr, Radarr and NZBGet from a web UI.
+
+![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
 
 ## Run it
 
 ```bash
-openssl rand -hex 32 > mediaman.key   # keep this: it decrypts your stored settings
+openssl rand -hex 32 > mediaman.key   # keep it: encrypted settings need the same key
 
 docker run -d --name mediaman \
   -p 8282:8282 \
@@ -17,63 +19,53 @@ docker run -d --name mediaman \
   -v /path/to/your/media:/media \
   rossetv/mediaman
 
-docker exec -it mediaman mediaman-create-user   # prompts for the first admin's name and password
+docker exec -it mediaman mediaman-create-user   # asks for the first admin; needs a terminal
 ```
 
-Mount your media at the same path Plex uses for it (`/media` here): mediaman deletes the file at the path Plex reports, unchanged. The mount must be writable by uid 1000, the user the container runs as, or every scheduled deletion fails.
+Mount your media at the path Plex uses for it (`/media` here), writable by uid 1000.
 
-No scheduled deletion runs until you set `MEDIAMAN_DELETE_ROOTS`; the Delete button on the Library page works without it. Once you have checked what the first scan schedules under Scheduled for deletion on the Dashboard, recreate the container with your library folders added, separated by `:`, such as `-e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv`. The next scan then deletes everything already past its grace period. `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the standard system directories such as `/etc`, `/usr` and `/var` are refused as roots, and every scheduled deletion is refused with them.
+The session cookie is always `Secure`: before you log in, use HTTPS or add `-e MEDIAMAN_FORCE_SECURE_COOKIES=false` for plain `http://`.
 
-Before you log in, put mediaman behind an HTTPS reverse proxy, or set `MEDIAMAN_FORCE_SECURE_COOKIES=false` on a network you trust. The session cookie is always marked `Secure`, so a browser on plain `http://` to anything but localhost drops it and you cannot stay logged in.
+Open `http://<host>:8282`, log in and add your services under Settings:
 
-Then open `http://<host>:8282` (or your proxy's address), log in, and enter your services under Settings: Plex, Sonarr, Radarr, NZBGet, Mailgun for the newsletter, TMDB and OMDb for metadata, and OpenAI if you want recommendations. Their keys and passwords are stored encrypted in the database in `/data`, under `MEDIAMAN_SECRET_KEY`.
+![mediaman needs Plex to scan; Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and OpenAI are optional. It keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
 
-Scheduled deletions remove files only inside `MEDIAMAN_DELETE_ROOTS`. The Delete button on the Library page is not bound by it: it asks Radarr or Sonarr to delete the files, wherever they are.
-
-The image is built from `main` for amd64 and arm64, tagged `latest` and `sha-<commit>`. `/healthz` answers 200 while the process is up; `/readyz` answers 503 unless the scheduler started and the key matches the one the database was created with.
-
-To upgrade, pull the image and recreate the container with the same key and the same `/data` volume. New tables and indexes are created on start, but existing tables are never altered, so a database last opened by a build from before 13 May 2026 is not supported.
+Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now and check Scheduled for deletion on the Dashboard. Then `docker rm -f mediaman` and rerun your own `docker run` with this line above the image name, naming your library folders separated by `:`. The next scan deletes everything past its grace period, with no newsletter or Keep link unless Mailgun, a Base URL readers can reach and a subscriber are set.
 
 ```bash
-docker pull rossetv/mediaman
-docker rm -f mediaman
-# then the same docker run as above
+  -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
 ```
+
+`/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the system directories are refused as roots, and one refused root stops every scheduled deletion.
+
+To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. A database last opened by a build from before 13 May 2026 is not supported.
+
+`/healthz` answers 200 while the process runs; `/readyz` answers 503 until the scheduler starts, or if the key does not match the database.
 
 ## Environment
 
 | Variable | Default | What it does |
 |---|---|---|
 | `MEDIAMAN_SECRET_KEY` | required | 64+ hex characters or 43+ URL-safe base64; a weak key stops startup |
-| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated library folders scheduled deletions may delete from, as seen inside the container; `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the standard system directories are refused |
-| `MEDIAMAN_PORT` | `8282` | Port to listen on |
-| `MEDIAMAN_DATA_DIR` | `/data` | Where the SQLite database lives |
-| `MEDIAMAN_BIND_HOST` | `0.0.0.0` in a container, else `127.0.0.1` | Address to bind |
-| `MEDIAMAN_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` and `X-Forwarded-Proto` are believed; `*` is refused |
-| `MEDIAMAN_ALLOWED_HOSTS` | any host | Comma-separated `Host` header values to accept |
+| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletion | Library folders scheduled deletion may delete from, as seen inside the container, separated by `:` |
 | `MEDIAMAN_FORCE_SECURE_COOKIES` | unset: always `Secure` | `false` allows login over plain HTTP and also turns HSTS off |
-| `MEDIAMAN_HSTS_ENABLED` | `false` | `true` sends `Strict-Transport-Security` on HTTPS requests |
-| `MEDIAMAN_MAX_REQUEST_BYTES` | `8388608` | Larger request bodies get a 413 |
-| `MEDIAMAN_MEDIA_PATH` | `/media` | Mount point whose disk usage the dashboard and newsletter report |
 
-Service credentials and the rest of the settings are in the web UI. Advanced variables, which most installs leave alone: `MEDIAMAN_STRICT_EGRESS`, `MEDIAMAN_CLOUDFLARE_PROXIES`, `MEDIAMAN_FINGERPRINT_MODE`, `MEDIAMAN_REAUTH_WINDOW_SECONDS`, `MEDIAMAN_HSTS_PRELOAD`, `MEDIAMAN_WORKERS`, `MEDIAMAN_EAGER_APP`.
+[`.env.example`](.env.example) describes the rest, with defaults: port, data folder, reverse proxies, allowed hosts, HSTS and other rarely needed settings.
 
 ## Development
 
-Python 3.12.
+Python 3.12; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pip install "bandit[toml]" pip-audit   # make check also runs these
-
-make check   # ruff, ruff format --check, mypy, bandit, pip-audit, pytest with the coverage floor
+pip install -e ".[dev]" "bandit[toml]" pip-audit
+make check
 
 mkdir -p data
-[ -f mediaman.key ] || openssl rand -hex 32 > mediaman.key   # reuse one key: the database is bound to it
+[ -f mediaman.key ] || openssl rand -hex 32 > mediaman.key   # reuse one key
 export MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" MEDIAMAN_DATA_DIR=./data MEDIAMAN_FORCE_SECURE_COOKIES=false
-mediaman-create-user   # once, for the first admin
+mediaman-create-user   # once
 mediaman               # serves http://127.0.0.1:8282
 ```
 
-`docker-compose.yml` builds the image from source instead of pulling it. See [CONTRIBUTING.md](CONTRIBUTING.md) to send a change and [SECURITY.md](SECURITY.md) to report a vulnerability. MIT licence, see [LICENSE](LICENSE).
+Report vulnerabilities as [SECURITY.md](SECURITY.md) says. MIT licence ([LICENSE](LICENSE)).

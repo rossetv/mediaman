@@ -1,5 +1,5 @@
 # gitleaks false positives: well-formed fake keys in test fixtures (0123456789abcdef,
-# fedcba9876543210, sk-validkey1234) and one src kwarg (record_failures=record_failures).
+# fedcba9876543210, sk-validkey1234) and one src line in password_hash.py.
 # Commit-scoped on purpose: a bare file:rule:line entry would also hide a real key
 # later pasted onto the same line.
 0004db78f3e8d3fab886917a0d38f6d6a5d7bf6b:src/mediaman/web/auth/password_hash.py:generic-api-key:272

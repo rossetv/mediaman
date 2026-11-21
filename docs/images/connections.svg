@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="560" viewBox="0 0 830 560" role="img" aria-labelledby="t d">
+<title id="t">What mediaman connects to</title>
+<desc id="d">mediaman runs in one container. It needs Plex to scan. Radarr, Sonarr and NZBGet on the left and Mailgun, TMDB, OMDb and OpenAI on the right are optional: each feature that uses one is skipped until it is set up. Their keys are entered under Settings and stored encrypted. It keeps its database on the /data volume and deletes files on the media mount.</desc>
+<style>
+  .bg { fill: #fbfbfd; }
+  .card { fill: #ffffff; stroke: #d2d2d7; stroke-width: 1; }
+  .opt { fill: #ffffff; stroke: #aeaeb2; stroke-width: 1; stroke-dasharray: 5 4; }
+  .core { fill: #eef5fd; stroke: #0071e3; stroke-width: 1.5; }
+  .line { fill: none; stroke: #8e8e93; stroke-width: 1.25; }
+  .head { fill: none; stroke: #8e8e93; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+  .h { font: 600 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1d1d1f; }
+  .n { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1d1d1f; }
+  .s { font: 400 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #6e6e73; }
+  .c { font: 600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0058b0; }
+  .m { font: 400 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #1d1d1f; }
+  .ms { fill: #515154; }
+  .mb { font: 600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #1d1d1f; }
+  .icon { fill: none; stroke: #6e6e73; stroke-width: 1.2; stroke-linejoin: round; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #0d1117; }
+    .card, .opt { fill: #1d1d1f; stroke: #3a3a3f; }
+    .opt { stroke: #636366; }
+    .core { fill: #10243b; stroke: #2997ff; }
+    .line, .head { stroke: #8e8e93; }
+    .h, .n, .m, .mb { fill: #f5f5f7; }
+    .s, .ms { fill: #a1a1a6; }
+    .c { fill: #6cb6ff; }
+    .icon { stroke: #a1a1a6; }
+  }
+</style>
+<rect class="bg" width="830" height="560" rx="12"/>
+<text class="h" x="32" y="40">What mediaman connects to</text>
+<text class="m ms" x="32" y="62" textLength="143" lengthAdjust="spacingAndGlyphs">MEDIAMAN_SECRET_KEY</text>
+<text class="s" x="181" y="62">encrypts the keys and passwords you enter for each service under Settings.</text>
+
+<!-- people -->
+<rect class="card" x="245" y="88" width="160" height="56" rx="10"/>
+<text class="n" x="325" y="111" text-anchor="middle">You, in a browser</text>
+<text class="s" x="325" y="130" text-anchor="middle">web UI on port 8282</text>
+<rect class="card" x="425" y="88" width="160" height="56" rx="10"/>
+<text class="n" x="505" y="111" text-anchor="middle">Newsletter reader</text>
+<text class="s" x="505" y="130" text-anchor="middle">opens a Keep link</text>
+<path class="line" d="M325 144 V180"/><path class="head" d="M320 174 L325 180 L330 174"/>
+<path class="line" d="M505 144 V180"/><path class="head" d="M500 174 L505 180 L510 174"/>
+
+<!-- core -->
+<rect class="core" x="290" y="182" width="250" height="266" rx="12"/>
+<text class="c" x="415" y="298" text-anchor="middle">mediaman</text>
+<text class="s" x="415" y="322" text-anchor="middle">one container, uid 1000</text>
+<text class="s" x="415" y="340" text-anchor="middle">scan, web UI, newsletter</text>
+
+<!-- left services -->
+<g>
+  <rect class="card" x="32" y="182" width="196" height="56" rx="10"/>
+  <text class="n" x="48" y="205">Plex</text><text class="s" x="48" y="224">library and watch history</text>
+  <rect class="opt" x="32" y="252" width="196" height="56" rx="10"/>
+  <text class="n" x="48" y="275">Radarr</text><text class="s" x="212" y="275" text-anchor="end">optional</text><text class="s" x="48" y="294">movies: add, search, delete</text>
+  <rect class="opt" x="32" y="322" width="196" height="56" rx="10"/>
+  <text class="n" x="48" y="345">Sonarr</text><text class="s" x="212" y="345" text-anchor="end">optional</text><text class="s" x="48" y="364">TV: add, search, delete</text>
+  <rect class="opt" x="32" y="392" width="196" height="56" rx="10"/>
+  <text class="n" x="48" y="415">NZBGet</text><text class="s" x="212" y="415" text-anchor="end">optional</text><text class="s" x="48" y="434">download queue</text>
+</g>
+<g>
+  <path class="line" d="M290 210 H230"/><path class="head" d="M236 205 L230 210 L236 215"/>
+  <path class="line" d="M290 280 H230"/><path class="head" d="M236 275 L230 280 L236 285"/>
+  <path class="line" d="M290 350 H230"/><path class="head" d="M236 345 L230 350 L236 355"/>
+  <path class="line" d="M290 420 H230"/><path class="head" d="M236 415 L230 420 L236 425"/>
+</g>
+
+<!-- right services -->
+<g>
+  <rect class="opt" x="602" y="182" width="196" height="56" rx="10"/>
+  <text class="n" x="618" y="205">Mailgun</text><text class="s" x="782" y="205" text-anchor="end">optional</text><text class="s" x="618" y="224">sends the newsletter</text>
+  <rect class="opt" x="602" y="252" width="196" height="56" rx="10"/>
+  <text class="n" x="618" y="275">TMDB</text><text class="s" x="782" y="275" text-anchor="end">optional</text><text class="s" x="618" y="294">metadata and posters</text>
+  <rect class="opt" x="602" y="322" width="196" height="56" rx="10"/>
+  <text class="n" x="618" y="345">OMDb</text><text class="s" x="782" y="345" text-anchor="end">optional</text><text class="s" x="618" y="364">ratings</text>
+  <rect class="opt" x="602" y="392" width="196" height="56" rx="10"/>
+  <text class="n" x="618" y="415">OpenAI</text><text class="s" x="782" y="415" text-anchor="end">optional</text><text class="s" x="618" y="434">recommendations</text>
+</g>
+<g>
+  <path class="line" d="M540 210 H600"/><path class="head" d="M594 205 L600 210 L594 215"/>
+  <path class="line" d="M540 280 H600"/><path class="head" d="M594 275 L600 280 L594 285"/>
+  <path class="line" d="M540 350 H600"/><path class="head" d="M594 345 L600 350 L594 355"/>
+  <path class="line" d="M540 420 H600"/><path class="head" d="M594 415 L600 420 L594 425"/>
+</g>
+
+<!-- storage -->
+<path class="line" d="M350 448 V484"/><path class="head" d="M345 478 L350 484 L355 478"/>
+<path class="line" d="M480 448 V484"/><path class="head" d="M475 478 L480 484 L485 478"/>
+<rect class="card" x="130" y="486" width="270" height="50" rx="10"/>
+<path class="icon" d="M146 499 h6 l2 2 h9 v12 h-17 z"/>
+<text class="mb" x="172" y="508" textLength="40" lengthAdjust="spacingAndGlyphs">/data</text>
+<text class="s" x="146" y="527">database and encrypted settings</text>
+<rect class="card" x="430" y="486" width="270" height="50" rx="10"/>
+<path class="icon" d="M446 499 h6 l2 2 h9 v12 h-17 z"/>
+<text class="mb" x="472" y="508" textLength="48" lengthAdjust="spacingAndGlyphs">/media</text>
+<text class="s" x="446" y="527">same path as in Plex, writable by uid 1000</text>
+</svg>

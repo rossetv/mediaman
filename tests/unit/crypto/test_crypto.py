@@ -980,3 +980,23 @@ class TestSaltVanishedAfterFirstRunInsert:
         proxy = _ConnProxy(conn)
         with pytest.raises(CryptoError, match="vanished after first-run insert"):
             _load_or_create_salt(proxy)  # type: ignore[arg-type]
+
+
+def test_keep_token_for_fixed_inputs_is_pinned():
+    """Sent keep links are rebuilt from the stored columns, so the rule and format must not drift."""
+    from datetime import UTC, datetime
+
+    from mediaman.crypto.tokens import keep_token_expiry
+
+    scheduled_at = datetime(2026, 1, 1, tzinfo=UTC)
+    execute_at = datetime(2026, 3, 1, tzinfo=UTC)
+
+    expires_at = keep_token_expiry(scheduled_at, execute_at)
+
+    assert expires_at == 1772409600  # execute_at + 1 day
+    assert generate_keep_token(
+        media_item_id="mi1", action_id=7, expires_at=expires_at, secret_key="0123456789abcdef" * 4
+    ) == (
+        "eyJtZWRpYV9pdGVtX2lkIjoibWkxIiwiYWN0aW9uX2lkIjo3LCJleHAiOjE3NzI0MDk2MDB9"
+        ".bg-c1slWLSIa5DnD9V4rl57Ix9P4-KfQCkIiNpEgKFs"
+    )

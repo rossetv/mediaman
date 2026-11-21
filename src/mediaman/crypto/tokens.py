@@ -31,6 +31,7 @@ import secrets
 import threading
 import time
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import TypedDict, cast
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,10 @@ _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 
+# Already-sent and pending keep links are rebuilt from these, so they must not change.
+_KEEP_TOKEN_MIN_TTL = timedelta(days=30)
+_KEEP_TOKEN_DELETION_MARGIN = timedelta(days=1)
+
 _SUBKEY_CACHE_MAX_ENTRIES = 64
 
 # Per-process HMAC sub-key cache; avoids re-deriving for every token validation.
@@ -190,6 +195,10 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
     return subkey
 
 
+def _b64encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
 def _sign(secret_key: str, purpose: bytes, payload: bytes) -> bytes:
     subkey = _derive_token_subkey(secret_key, purpose)
     return hmac.new(subkey, payload, hashlib.sha256).digest()
@@ -206,9 +215,10 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
        oversize payload should not force the server to compute
        HMAC-SHA256 over megabytes of attacker-controlled bytes before
        the constant-time signature comparison rejects the token.
-    3. Constant-time signature comparison.
-    4. JSON parse + dict-shape check.
-    5. ``exp`` field — must be a non-bool int/float in the future.
+    3. Both parts are canonical unpadded URL-safe base64.
+    4. Constant-time signature comparison.
+    5. JSON parse + dict-shape check.
+    6. ``exp`` field — must be a non-bool int/float in the future.
        (``bool`` is a subclass of ``int`` in Python, so the explicit
        bool-rejection is required to stop ``"exp": True`` slipping
        through as ``int(True) == 1``.)
@@ -228,6 +238,9 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         if len(payload_bytes) > _MAX_PAYLOAD_BYTES:
             return None
         sig = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        # One token, one spelling: the text must be exactly what _encode_signed emits.
+        if _b64encode(payload_bytes) != parts[0] or _b64encode(sig) != parts[1]:
+            return None
         expected_sig = _sign(secret_key, purpose, payload_bytes)
         if not hmac.compare_digest(sig, expected_sig):
             return None
@@ -274,9 +287,7 @@ def _encode_signed(payload: Mapping[str, object], secret_key: str, purpose: byte
     """Encode a ``payload.signature`` token with domain-separated key."""
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
     sig = _sign(secret_key, purpose, payload_bytes)
-    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode().rstrip("=")
-    sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip("=")
-    return f"{payload_b64}.{sig_b64}"
+    return f"{_b64encode(payload_bytes)}.{_b64encode(sig)}"
 
 
 def generate_keep_token(
@@ -288,6 +299,55 @@ def generate_keep_token(
 ) -> str:
     payload = {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_KEEP)
+
+
+def keep_token_expiry(scheduled_at: datetime, execute_at: datetime) -> int:
+    """Return the ``exp`` of the keep token for a deletion scheduled at *scheduled_at*.
+
+    At least 30 days, and always a day past the deletion so the link works until then.
+    For a grace under 30 days this equals the original 30-day rule, so those tokens are
+    unchanged.
+    """
+    return int(
+        max(
+            scheduled_at + _KEEP_TOKEN_MIN_TTL, execute_at + _KEEP_TOKEN_DELETION_MARGIN
+        ).timestamp()
+    )
+
+
+def rebuild_keep_token(
+    *,
+    media_item_id: str,
+    action_id: int,
+    scheduled_at: datetime,
+    execute_at: datetime,
+    token_hash: str | None,
+    secret_key: str,
+) -> str | None:
+    """Re-mint the keep token of a scheduled deletion from its stored columns.
+
+    Only the token's SHA-256 is stored, so the token is regenerated (keep tokens carry
+    no nonce) under the current expiry rule and then the original 30-day rule; the one
+    whose hash equals *token_hash* is returned, or ``None`` when neither matches.
+    """
+    if not token_hash:
+        return None
+    candidates = dict.fromkeys(
+        (
+            keep_token_expiry(scheduled_at, execute_at),
+            int((scheduled_at + _KEEP_TOKEN_MIN_TTL).timestamp()),
+        )
+    )
+    for expires_at in candidates:
+        token = generate_keep_token(
+            media_item_id=media_item_id,
+            action_id=action_id,
+            expires_at=expires_at,
+            secret_key=secret_key,
+        )
+        if hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), token_hash):
+            return token
+    return None
 
 
 def validate_keep_token(token: str, secret_key: str) -> KeepTokenPayload | None:

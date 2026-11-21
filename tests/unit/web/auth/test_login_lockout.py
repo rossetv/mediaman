@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from mediaman.db import init_db
+from mediaman.web.auth import login_lockout
 from mediaman.web.auth.login_lockout import (
     admin_unlock,
+    clear_unlocked_login_failures,
     is_locked_out,
+    login_key,
     record_failure,
     record_success,
 )
-from mediaman.web.auth.password_hash import authenticate, create_user
+from mediaman.web.auth.password_hash import authenticate, change_password, create_user
+from mediaman.web.auth.reauth import verify_reauth_password
 
 
 @pytest.fixture
@@ -177,17 +182,9 @@ class TestAuthenticateIntegration:
         # Now the correct password must also be rejected while locked.
         assert authenticate(conn, "alice", "correct-password-123") is False
 
-    def test_locked_account_records_failure_even_with_record_failures_false(self, conn):
-        """The locked short-circuit must bump the counter
-        regardless of ``record_failures`` so the escalation bands
-        (5 → 10 → 15) stay reachable on EVERY path — including callers that
-        pass ``record_failures=False`` (``verify_reauth_password``,
-        ``_authorise_password_change``).
-
-        Previously a ``record_failures=False`` attempt against a locked
-        account returned ``False`` without incrementing, stalling the
-        escalation for that path.
-        """
+    def test_locked_account_attempt_still_bumps_counter(self, conn):
+        """The locked short-circuit must bump the counter so the
+        escalation bands (5 → 10 → 15) stay reachable."""
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
 
         # Lock the account at the 15-minute band (count == 5).
@@ -202,9 +199,8 @@ class TestAuthenticateIntegration:
             ).fetchone()["failure_count"]
 
         before = _count()
-        # A record_failures=False attempt against the LOCKED account must
-        # still bump the counter via the short-circuit.
-        assert authenticate(conn, "alice", "wrong-password", record_failures=False) is False
+        # An attempt against the LOCKED account must still bump the counter.
+        assert authenticate(conn, "alice", "wrong-password") is False
         assert _count() == before + 1
 
     def test_successful_login_resets_counter(self, conn):
@@ -378,51 +374,6 @@ class TestConcurrentRecordFailure:
         assert row["failure_count"] == 20
 
 
-class TestAuthenticateRecordFailuresFlag:
-    """Change_password must not lock the user out of their own account."""
-
-    def test_record_failures_false_does_not_lock(self, conn):
-        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
-        # 10 failed attempts with record_failures=False — should NOT lock.
-        for _ in range(10):
-            assert (
-                authenticate(
-                    conn,
-                    "alice",
-                    "bad",
-                    record_failures=False,
-                )
-                is False
-            )
-        assert is_locked_out(conn, "alice") is False
-        row = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = ?",
-            ("alice",),
-        ).fetchone()
-        assert row is None
-
-    def test_record_failures_false_still_clears_counter_on_success(self, conn):
-        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
-        # Trip some failures with the normal path.
-        for _ in range(3):
-            authenticate(conn, "alice", "bad")
-        # A correct password via the trusted path must still clear them.
-        assert (
-            authenticate(
-                conn,
-                "alice",
-                "correct-password-123",
-                record_failures=False,
-            )
-            is True
-        )
-        row = conn.execute(
-            "SELECT * FROM login_failures WHERE username = ?",
-            ("alice",),
-        ).fetchone()
-        assert row is None
-
-
 class TestNoExtendWhileLocked:
     """While an account is locked, sub-threshold failures must not
     slide ``locked_until`` forwards.
@@ -544,3 +495,99 @@ class TestAdminUnlock:
         conn.rollback()
         # The lock should still be in place because admin_unlock didn't commit.
         assert is_locked_out(conn, "alice") is True
+
+
+def _seed_login_row(conn, username, *, count, locked_until):
+    conn.execute(
+        "INSERT INTO login_failures (username, failure_count, locked_until) VALUES (?, ?, ?)",
+        (login_key(username), count, locked_until),
+    )
+    conn.commit()
+
+
+def _login_row(conn, username):
+    return conn.execute(
+        "SELECT failure_count, locked_until FROM login_failures WHERE username = ?",
+        (login_key(username),),
+    ).fetchone()
+
+
+class TestLoginCounterAfterProvedPassword:
+    """A password proved by re-auth or password change clears typos, never a lock."""
+
+    @pytest.fixture
+    def user_conn(self, conn):
+        create_user(conn, "alice", "correct-password-99", enforce_policy=False)
+        return conn
+
+    @staticmethod
+    def _prove(kind, conn):
+        if kind == "reauth":
+            assert verify_reauth_password(conn, "alice", "correct-password-99") is True
+        else:
+            assert change_password(
+                conn, "alice", "correct-password-99", "another-password-77", enforce_policy=False
+            )
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    def test_success_clears_unlocked_failures(self, user_conn, kind):
+        _seed_login_row(user_conn, "alice", count=3, locked_until=None)
+        self._prove(kind, user_conn)
+        assert _login_row(user_conn, "alice") is None
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    def test_success_keeps_an_active_lock_and_its_count(self, user_conn, kind):
+        until = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+        _seed_login_row(user_conn, "alice", count=5, locked_until=until)
+        self._prove(kind, user_conn)
+        row = _login_row(user_conn, "alice")
+        assert (row["failure_count"], row["locked_until"]) == (5, until)
+
+    def test_expired_lock_is_cleared(self, user_conn):
+        past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        _seed_login_row(user_conn, "alice", count=5, locked_until=past)
+        clear_unlocked_login_failures(user_conn, "alice")
+        assert _login_row(user_conn, "alice") is None
+
+    def test_corrupt_lock_value_stays_locked(self, user_conn):
+        _seed_login_row(user_conn, "alice", count=5, locked_until="garbage")
+        clear_unlocked_login_failures(user_conn, "alice")
+        assert _login_row(user_conn, "alice") is not None
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    @pytest.mark.parametrize("value", ["1", "2460000", "now"])
+    def test_success_keeps_a_lock_value_that_is_not_a_timestamp(self, user_conn, kind, value):
+        _seed_login_row(user_conn, "alice", count=5, locked_until=value)
+        self._prove(kind, user_conn)
+        row = _login_row(user_conn, "alice")
+        assert (row["failure_count"], row["locked_until"]) == (5, value)
+
+    def test_no_other_writer_gets_in_between_the_check_and_the_clear(
+        self, user_conn, db_path, monkeypatch
+    ):
+        _seed_login_row(user_conn, "alice", count=3, locked_until=None)
+        other = sqlite3.connect(str(db_path), timeout=0)
+        outcome = []
+        real_check = login_lockout.is_locked_out
+
+        def check_then_try_a_write(conn, username):
+            result = real_check(conn, username)
+            try:
+                other.execute("UPDATE login_failures SET failure_count = 9")
+                outcome.append("written")
+            except sqlite3.OperationalError:
+                outcome.append("blocked")
+            return result
+
+        monkeypatch.setattr(login_lockout, "is_locked_out", check_then_try_a_write)
+        clear_unlocked_login_failures(user_conn, "alice")
+        other.close()
+        assert outcome == ["blocked"]
+        assert _login_row(user_conn, "alice") is None
+
+    def test_wrong_passwords_write_no_login_row(self, user_conn):
+        assert verify_reauth_password(user_conn, "alice", "wrong") is False
+        assert not change_password(
+            user_conn, "alice", "wrong", "another-password-77", enforce_policy=False
+        )
+        assert _login_row(user_conn, "alice") is None

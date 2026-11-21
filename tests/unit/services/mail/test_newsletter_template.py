@@ -131,6 +131,8 @@ def test_full_render(env: Environment) -> None:
     assert "14 days left" in html
     assert "Ad Astra" in html
     assert "Westworld S4" in html
+    assert 'href="https://example/keep/tok1"' in html
+    assert 'href="https://example/keep/tok2"' in html
     assert "Previously kept" in html  # re-entry warning
     assert "Dune: Part Two" in html
     assert "Severance S2" in html
