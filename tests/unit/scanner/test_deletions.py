@@ -851,3 +851,66 @@ class TestSharedFolderPathSpelling:
         assert not show.exists()
         assert result == {"deleted": 2, "reclaimed_bytes": 20}
         assert _actions(conn, "s2") == []
+
+
+class TestDiskChecksOutsideWriteLock:
+    """A hung media mount must not hold the database write lock."""
+
+    def _record_transaction_state(self, monkeypatch, conn, seen):
+        import os
+
+        from mediaman.scanner import deletions
+
+        real_lexists = os.path.lexists
+        real_root_available = deletions.delete_root_available
+
+        def lexists(path):
+            seen.append(conn.in_transaction)
+            return real_lexists(path)
+
+        def root_available(path, roots):
+            seen.append(conn.in_transaction)
+            return real_root_available(path, roots)
+
+        monkeypatch.setattr(os.path, "lexists", lexists)
+        monkeypatch.setattr(deletions, "delete_root_available", root_available)
+
+    def test_pass_checks_a_missing_target_with_no_transaction_open(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        (root / "Other").mkdir(parents=True)
+        (root / "Other" / "Other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(root / "M" / "M.mkv"))
+        _due_row(conn, "m")
+        seen = []
+        self._record_transaction_state(monkeypatch, conn, seen)
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert seen and not any(seen)
+
+    def test_recovery_checks_each_stuck_row_with_no_transaction_open(
+        self, conn, tmp_path, monkeypatch
+    ):
+        for media_id in ("a", "b"):
+            target = tmp_path / f"{media_id}.mkv"
+            target.write_bytes(b"x")
+            insert_media_item(conn, id=media_id, plex_rating_key=media_id, file_path=str(target))
+            insert_scheduled_action(
+                conn,
+                media_item_id=media_id,
+                action="scheduled_deletion",
+                token=f"tok-{media_id}",
+                execute_at="2020-01-01",
+                token_used=False,
+                delete_status="deleting",
+            )
+        conn.commit()
+        seen = []
+        self._record_transaction_state(monkeypatch, conn, seen)
+
+        recover_stuck_deletions(conn)
+
+        assert len(seen) == 2 and not any(seen)

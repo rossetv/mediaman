@@ -79,7 +79,8 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
       normal run retries cleanly.
 
     Idempotent; safe to call on every startup. Does not itself delete
-    any files — purely a state reconciliation.
+    any files — purely a state reconciliation. Each row is committed before
+    the next row's disk checks, so a hung mount never holds the write lock.
     """
     rows = repository.fetch_stuck_deletions(conn)
     if not rows:
@@ -138,7 +139,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 space_bytes=row.file_size_bytes,
             )
             repository.delete_scheduled_action(conn, row.id)
-    conn.commit()
+        conn.commit()
 
 
 # rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
@@ -421,6 +422,12 @@ class DeletionExecutor:
         the same transaction, since the removal takes their media too, and
         close with this row; they go back to pending if the removal fails.
         """
+        path = row.file_path or ""
+        # Read the disk before the claim opens a write transaction, so a hung
+        # mount cannot hold the database lock.
+        mounted = bool(path.strip()) and (
+            os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        )
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -430,7 +437,6 @@ class DeletionExecutor:
             )
             return []
 
-        path = row.file_path or ""
         if not path.strip():
             logger.error(
                 "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
@@ -449,7 +455,7 @@ class DeletionExecutor:
             self._conn.commit()
             return []
 
-        if not self._may_remove(row, path, allowed_roots, now_iso):
+        if not self._may_remove(row, path, now_iso, mounted=mounted):
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return []
@@ -474,13 +480,13 @@ class DeletionExecutor:
             _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
         return closed
 
-    def _may_remove(
-        self, row: DeletionRow, path: str, allowed_roots: list[str], now_iso: str
-    ) -> bool:
+    def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
         """Return False, logging why, when removing *path* now could lose media.
 
         Runs inside the claim's transaction, so the other items it reads
-        cannot change before the claim commits.
+        cannot change before the claim commits. *mounted* says whether the
+        target, or else its delete root's content, was on disk; it is read
+        before the transaction opens.
         """
         held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
         if held:
@@ -505,7 +511,7 @@ class DeletionExecutor:
                 f"due for deletion ({names})",
             )
             return False
-        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
+        if not mounted:
             logger.error(
                 "engine.delete.root_unavailable id=%s path=%r — target is missing and "
                 "its delete root is missing or empty (media mount down?); leaving "
