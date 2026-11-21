@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import os
 import re
@@ -131,3 +132,53 @@ def test_bootstrap_db_mkdir_failure_raises_data_dir_not_writable(monkeypatch, tm
     msg = str(excinfo.value)
     assert "could not be created" in msg
     assert "chown" in msg
+
+
+def test_lifespan_logs_an_old_database_without_a_traceback_and_exits(monkeypatch, tmp_path, caplog):
+    """The refusal is one CRITICAL line, not a traceback, and startup stops."""
+    import logging
+    import sqlite3
+
+    from fastapi import FastAPI
+
+    from mediaman.app_factory import lifespan
+
+    monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+    monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(tmp_path))
+    conn = sqlite3.connect(tmp_path / "mediaman.db")
+    conn.execute("PRAGMA user_version=35")
+    conn.close()
+
+    async def start():
+        async with lifespan(FastAPI()):
+            pass
+
+    with caplog.at_level(logging.CRITICAL), pytest.raises(SystemExit) as excinfo:
+        asyncio.run(start())
+
+    assert excinfo.value.code == 1
+    [record] = [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert "schema version 35" in record.getMessage()
+    assert record.exc_info is None
+
+
+def test_bootstrap_db_does_not_log_initialised_when_the_database_is_refused(
+    monkeypatch, tmp_path, caplog
+):
+    import logging
+    import sqlite3
+    from types import SimpleNamespace
+
+    from mediaman.bootstrap.db import bootstrap_db
+    from mediaman.db.connection import SchemaTooOldError
+
+    conn = sqlite3.connect(tmp_path / "mediaman.db")
+    conn.execute("PRAGMA user_version=35")
+    conn.close()
+
+    with caplog.at_level(logging.INFO), pytest.raises(SchemaTooOldError):
+        bootstrap_db(
+            SimpleNamespace(state=SimpleNamespace()), SimpleNamespace(data_dir=str(tmp_path))
+        )
+
+    assert "DB initialised" not in caplog.text

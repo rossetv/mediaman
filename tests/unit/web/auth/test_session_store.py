@@ -141,6 +141,23 @@ class TestClientFingerprint:
         assert "unknown" in fp
 
 
+class TestClientFingerprintIpv4Mapped:
+    def test_mapped_client_gets_the_same_fingerprint_as_its_plain_form(self):
+        for mode in ("loose", "strict"):
+            plain = _client_fingerprint("UA", "203.0.113.5", mode=mode)
+            assert _client_fingerprint("UA", "::ffff:203.0.113.5", mode=mode) == plain
+
+    def test_mapped_clients_in_different_networks_differ(self):
+        fp1 = _client_fingerprint("UA", "::ffff:203.0.113.5", mode="loose")
+        fp2 = _client_fingerprint("UA", "::ffff:198.51.100.9", mode="loose")
+        assert fp1 != fp2
+
+    def test_mapped_clients_in_one_24_share_a_fingerprint_in_loose_mode(self):
+        fp1 = _client_fingerprint("UA", "::ffff:203.0.113.5", mode="loose")
+        fp2 = _client_fingerprint("UA", "::ffff:203.0.113.200", mode="loose")
+        assert fp1 == fp2
+
+
 class TestCreateSession:
     def test_returns_64_hex_chars(self, conn):
         token = create_session(conn, "alice")

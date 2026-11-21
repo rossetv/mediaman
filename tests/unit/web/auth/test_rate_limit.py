@@ -252,6 +252,25 @@ class TestActionRateLimiterSlidingDay:
         assert limiter._daily == {}
 
 
+class TestCatchAllTrustedProxy:
+    @pytest.mark.parametrize(
+        "entry", ["*", "0.0.0.0/0", "::/0", "::ffff:0.0.0.0/96", "0.0.0.0/0.0.0.0", "::0/0"]
+    )
+    def test_refused_like_wildcard(self, monkeypatch, entry):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", f"10.0.0.0/8,{entry}")
+        assert trusted_proxies() == []
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4", "x-real-ip": "5.6.7.8"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "10.0.0.1"
+
+    def test_normal_network_still_trusted(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        assert [str(n) for n in trusted_proxies()] == ["10.0.0.0/8"]
+
+
 class TestGetClientIp:
     def test_ignores_forwarded_headers_when_no_trusted_proxy(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
@@ -633,3 +652,75 @@ class TestCfConnectingIp:
 
         # Untrusted peer → ignore any forwarded header, return the peer.
         assert get_client_ip(FakeRequest()) == "203.0.113.99"
+
+
+class TestIpv4MappedClients:
+    """A dual-stack bind delivers IPv4 clients as ``::ffff:a.b.c.d``."""
+
+    def test_mapped_clients_from_different_networks_get_separate_buckets(self):
+        limiter = RateLimiter(max_attempts=1, window_seconds=60)
+
+        assert limiter.check("::ffff:203.0.113.5") is True
+        assert limiter.check("::ffff:203.0.113.5") is False
+        assert limiter.check("::ffff:198.51.100.9") is True
+
+    def test_mapped_client_shares_its_bucket_with_the_plain_ipv4_form(self):
+        limiter = RateLimiter(max_attempts=1, window_seconds=60)
+
+        assert limiter.check("203.0.113.5") is True
+        assert limiter.check("::ffff:203.0.113.77") is False
+
+    def test_plain_ipv6_addresses_in_one_64_still_share_a_bucket(self):
+        limiter = RateLimiter(max_attempts=1, window_seconds=60)
+
+        assert limiter.check("2001:db8:1:2::1") is True
+        assert limiter.check("2001:db8:1:2::ffff") is False
+        assert limiter.check("2001:db8:1:3::1") is True
+
+    def test_mapped_peer_matches_an_ipv4_trusted_proxy(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": "::ffff:10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_mapped_xff_hop_matches_an_ipv4_trusted_proxy(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4, ::ffff:10.0.0.2"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_mapped_peer_outside_the_trusted_range_is_not_trusted(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": "::ffff:192.0.2.1"})()
+
+        assert get_client_ip(FakeRequest()) == "::ffff:192.0.2.1"
+
+    @pytest.mark.parametrize("peer", ["::ffff:10.0.0.1", "10.0.0.1"])
+    def test_mapped_form_trusted_proxy_entry_matches_mapped_and_plain_peers(
+        self, monkeypatch, peer
+    ):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "::ffff:10.0.0.0/104")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": peer})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_mapped_form_trusted_proxy_entry_does_not_match_outside_its_range(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "::ffff:10.0.0.0/104")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": "192.0.2.1"})()
+
+        assert get_client_ip(FakeRequest()) == "192.0.2.1"

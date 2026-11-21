@@ -24,6 +24,7 @@ import socket
 import sqlite3
 import threading
 from datetime import timedelta
+from pathlib import Path
 
 from mediaman.core.time import now_iso, now_utc
 
@@ -40,15 +41,71 @@ def _configure_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
 
 
+# The removed migration runner stamped PRAGMA user_version; today's code
+# never does, so a database it creates stays at 0. A stamp between 1 and
+# 35 means the runner last saw it before the v36 schema and its upgrade
+# never ran. These images are the last that still shipped each runner.
+_LAST_SCHEMA_VERSION = 36
+_LAST_PRE_SQUASH_VERSION = 34
+_V36_RUNNER_IMAGE = "rossetv/mediaman:sha-8414ba2fff2979d5da43c5d37c4652057e9eecb6"
+_V34_RUNNER_IMAGE = "rossetv/mediaman:sha-7fc9dcbb787b841c02d3ded522f7fbf67f3e41f1"
+
+
+class SchemaTooOldError(RuntimeError):
+    """The database predates schema v36 and this version cannot upgrade it."""
+
+
+def _refuse_old_schema(db_path: str, version: int) -> None:
+    if not 0 < version < _LAST_SCHEMA_VERSION:
+        return
+    if version < _LAST_PRE_SQUASH_VERSION:
+        steps = f"{_V34_RUNNER_IMAGE} and then {_V36_RUNNER_IMAGE}, once each,"
+        each, images = "each", "Those images are"
+    else:
+        steps = f"{_V36_RUNNER_IMAGE} once"
+        each, images = "it", "That image is"
+    raise SchemaTooOldError(
+        f"Database {db_path} is at schema version {version}, older than "
+        f"{_LAST_SCHEMA_VERSION}, and this version of mediaman cannot upgrade it. "
+        f"It has not been changed. To upgrade it, start {steps} on the same "
+        f"data folder, stopping {each} once it has finished starting up, then "
+        f"start this version again. {images} built for amd64 only."
+    )
+
+
+def check_schema_version(db_path: str) -> None:
+    """Raise ``SchemaTooOldError`` if the file at ``db_path`` is stamped 1-35.
+
+    Opens the file read-only, so nothing is written. A missing file is a
+    new install and passes.
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+    _refuse_old_schema(db_path, version)
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     """Initialise the database, creating tables if needed.
 
     The full schema is applied unconditionally via
     ``CREATE … IF NOT EXISTS``, so the call is idempotent on an
     existing database.
+
+    Raises:
+        SchemaTooOldError: The database was last upgraded to a schema
+            before v36. Nothing is written to it.
     """
     conn = sqlite3.connect(db_path)
     try:
+        # Read before _configure_connection or the DDL, so a refused file is
+        # not changed. Read-write, so a leftover rollback journal is replayed.
+        _refuse_old_schema(db_path, conn.execute("PRAGMA user_version").fetchone()[0])
         _configure_connection(conn)
         _set_db_path(db_path)
         conn.executescript(SCHEMA)

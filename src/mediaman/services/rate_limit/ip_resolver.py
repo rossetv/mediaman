@@ -23,7 +23,7 @@ import ipaddress
 import logging
 import os
 from collections.abc import Mapping
-from ipaddress import IPv4Network, IPv6Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Protocol
 
 
@@ -57,11 +57,33 @@ logger = logging.getLogger(__name__)
 _UNKNOWN_PEER = "unknown"
 
 
+def _unmap_network(net: IPv4Network | IPv6Network) -> IPv4Network | IPv6Network:
+    """Rewrite an IPv4-mapped IPv6 network (prefix >= 96) as its IPv4 equivalent.
+
+    Peers are unmapped before the trust check, so a mapped-form entry would
+    otherwise never match.
+    """
+    if isinstance(net, IPv6Network) and net.prefixlen >= 96:
+        mapped = net.network_address.ipv4_mapped
+        if mapped is not None:
+            return IPv4Network((mapped, net.prefixlen - 96))
+    return net
+
+
+def trusts_every_address(net: IPv4Network | IPv6Network) -> bool:
+    """Return True when *net* matches every address, in any spelling.
+
+    Covers ``0.0.0.0/0``, ``::/0``, ``0.0.0.0/0.0.0.0`` and the mapped
+    ``::ffff:0.0.0.0/96``.
+    """
+    return _unmap_network(net).prefixlen == 0
+
+
 def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
     """Parse a comma-separated CIDR/IP list from *env_var*.
 
-    Returns an empty list and logs CRITICAL when the literal ``*`` is
-    present — a wildcard would let any peer spoof forwarded headers and
+    Returns an empty list and logs CRITICAL when the literal ``*`` or a
+    network matching every address (prefix length 0) is present — a wildcard would let any peer spoof forwarded headers and
     completely bypass per-IP rate limiting. Invalid CIDR entries are
     skipped with a WARNING so misconfiguration is loud.
     """
@@ -84,7 +106,7 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
             )
             return []
         try:
-            networks.append(ipaddress.ip_network(token, strict=False))
+            net = ipaddress.ip_network(token, strict=False)
         except ValueError:
             logger.warning(
                 "%s contains invalid CIDR/IP entry %r; skipping. Fix the "
@@ -93,6 +115,17 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
                 token,
             )
             continue
+        if trusts_every_address(net):
+            logger.critical(
+                "%s contains %r, which matches every address; refusing to "
+                "trust any proxy. Set explicit CIDR ranges instead — it "
+                "would allow spoofed forwarded headers from any peer and "
+                "bypass per-IP rate limiting.",
+                env_var,
+                token,
+            )
+            return []
+        networks.append(_unmap_network(net))
     return networks
 
 
@@ -133,11 +166,22 @@ def clear_cache() -> None:
     _cloudflare_proxies_cached.cache_clear()
 
 
+def unmap_ipv4(addr: IPv4Address | IPv6Address) -> IPv4Address | IPv6Address:
+    """Return the IPv4 address inside an IPv4-mapped IPv6 one, else *addr* itself.
+
+    A dual-stack bind hands IPv4 clients over as ``::ffff:a.b.c.d``; without
+    this they would all fall in one IPv6 bucket and never match IPv4 proxies.
+    """
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
 def _ip_in_networks(ip: str, networks: list[IPv4Network | IPv6Network]) -> bool:
     if not ip or not networks:
         return False
     try:
-        addr = ipaddress.ip_address(ip)
+        addr = unmap_ipv4(ipaddress.ip_address(ip))
     except ValueError:
         return False
     return any(addr in net for net in networks)

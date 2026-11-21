@@ -20,6 +20,7 @@ docker run -d --name mediaman \
   rossetv/mediaman
 
 docker exec -it mediaman mediaman-create-user   # asks for the first admin; needs a terminal
+docker exec mediaman mediaman-unlock-user admin  # after 15 failed logins; clears the 24-hour lock
 ```
 
 Mount your media at the path Plex uses for it (`/media` here), writable by uid 1000.
@@ -38,7 +39,7 @@ Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan n
 
 `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the system directories are refused as roots, and one refused root stops every scheduled deletion.
 
-To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. A database last opened by a build from before 13 May 2026 is not supported.
+To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. mediaman refuses to start on a database last opened by a build from before 13 May 2026; the error names the image, or two images in order, to start once to upgrade it (amd64 only).
 
 `/healthz` answers 200 while the process runs; `/readyz` answers 503 until the scheduler starts, or if the key does not match the database.
 

@@ -52,6 +52,21 @@ def _make_canary_audit_callback(conn: sqlite3.Connection):
     return _on_failure
 
 
+def _store_secret(conn: sqlite3.Connection, key: str, plaintext: str, secret: str) -> None:
+    """Write *plaintext* as an encrypted settings row, the way the Settings page does."""
+    ciphertext = encrypt_value(plaintext, secret, conn=conn, aad=key.encode())
+    conn.execute(
+        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=1",
+        (key, ciphertext, "2026-01-01"),
+    )
+    conn.commit()
+
+
+def _canary_value(conn: sqlite3.Connection) -> str:
+    return conn.execute("SELECT value FROM settings WHERE key='aes_kdf_canary'").fetchone()["value"]
+
+
 @pytest.fixture
 def conn(tmp_path) -> sqlite3.Connection:
     db = init_db(str(tmp_path / "mediaman.db"))
@@ -144,10 +159,69 @@ class TestCanary:
 
     def test_returns_false_on_key_mismatch(self, conn, secret_key, caplog):
         is_canary_valid(conn, secret_key)  # seed
+        _store_secret(conn, "plex_token", "tok", secret_key)
         with caplog.at_level("WARNING", logger="mediaman"):
             ok = is_canary_valid(conn, "different-secret-32-chars-YYYYYY")
         assert ok is False
         assert any("AES key mismatch" in rec.message for rec in caplog.records)
+
+
+class TestCanaryRewriteOnKeyChange:
+    """A changed key rewrites the canary only when every secret reads under it."""
+
+    NEW_KEY = "fedcba9876543210" * 4
+
+    def test_key_change_with_no_encrypted_settings_rewrites_the_canary(self, conn, secret_key):
+        is_canary_valid(conn, secret_key)  # seed under the old key
+
+        assert is_canary_valid(conn, self.NEW_KEY) is True
+        assert (
+            decrypt_value(_canary_value(conn), self.NEW_KEY, conn=conn, aad=b"aes_kdf_canary")
+            == "MEDIAMAN_KEY_CANARY"
+        )
+
+    def test_key_change_with_every_secret_reentered_rewrites_the_canary(self, conn, secret_key):
+        is_canary_valid(conn, secret_key)
+        _store_secret(conn, "plex_token", "tok", secret_key)
+        _store_secret(conn, "sonarr_api_key", "son", secret_key)
+        _store_secret(conn, "plex_token", "tok2", self.NEW_KEY)
+        _store_secret(conn, "sonarr_api_key", "son2", self.NEW_KEY)
+
+        assert is_canary_valid(conn, self.NEW_KEY) is True
+        assert is_canary_valid(conn, self.NEW_KEY) is True
+
+    def test_key_change_with_one_secret_under_the_old_key_refuses_and_names_it(
+        self, conn, secret_key, caplog
+    ):
+        is_canary_valid(conn, secret_key)
+        _store_secret(conn, "plex_token", "tok", self.NEW_KEY)
+        _store_secret(conn, "sonarr_api_key", "old-sonarr-secret", secret_key)
+        canary_before = _canary_value(conn)
+
+        with caplog.at_level("WARNING", logger="mediaman"):
+            ok = is_canary_valid(conn, self.NEW_KEY)
+
+        assert ok is False
+        assert _canary_value(conn) == canary_before
+        logged = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "sonarr_api_key" in logged
+        assert "plex_token" not in logged
+        assert "old-sonarr-secret" not in logged
+
+    def test_a_secret_stored_without_its_row_key_as_aad_blocks_the_rewrite(self, conn, secret_key):
+        is_canary_valid(conn, secret_key)
+        ciphertext = encrypt_value("tok", self.NEW_KEY, conn=conn)
+        insert_settings(conn, plex_token=ciphertext, encrypted=1, updated_at="2026-01-01")
+
+        assert is_canary_valid(conn, self.NEW_KEY) is False
+
+    def test_same_key_leaves_the_canary_untouched(self, conn, secret_key):
+        is_canary_valid(conn, secret_key)
+        _store_secret(conn, "plex_token", "tok", secret_key)
+        canary_before = _canary_value(conn)
+
+        assert is_canary_valid(conn, secret_key) is True
+        assert _canary_value(conn) == canary_before
 
 
 class TestKeepTokens:
@@ -315,6 +389,7 @@ class TestSaltCache:
         assert _get_db_path(conn) in _salt_cache
         # Seed canary with correct key.
         is_canary_valid(conn, secret_key)
+        _store_secret(conn, "plex_token", "tok", secret_key)
         # Now fail with a wrong key — cache must be cleared.
         is_canary_valid(conn, "wrong-key-32-chars-padding-xxxxx")
         assert _get_db_path(conn) not in _salt_cache
@@ -553,6 +628,7 @@ class TestCanaryFailureAudits:
 
     def test_canary_key_mismatch_writes_audit_row(self, conn, secret_key):
         is_canary_valid(conn, secret_key)  # seed
+        _store_secret(conn, "plex_token", "tok", secret_key)
         # Fail with a different valid-shape key; supply the audit callback so
         # the failure reason is written to audit_log (audit writing was moved
         # out of crypto/ to the caller layer).

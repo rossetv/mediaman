@@ -284,23 +284,28 @@ def _run_tester_with_timeout(
     request thread for 35 s through stacked timeouts. The response is returned verbatim so
     the caller can cache the body and keep the original HTTP envelope.
     """
+    # No ``with`` block: its exit waits for the hung thread. A thread that outlives the cap
+    # ends when the tester's own HTTP timeout fires; the per-admin rate limit on the route
+    # (10/min, 60/day) bounds how many can be started meanwhile.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(tester, settings)
-            try:
-                return future.result(timeout=_TESTER_TIMEOUT_SECONDS)
-            except concurrent.futures.TimeoutError:
-                logger.warning(
-                    "Service test exceeded %.0fs cap for %s — returning timeout",
-                    _TESTER_TIMEOUT_SECONDS,
-                    service,
-                )
-                payload = {"ok": False, "error": "timeout"}
-                _cache_put(service, payload)
-                return JSONResponse(payload)
+        future = pool.submit(tester, settings)
+        try:
+            return future.result(timeout=_TESTER_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "Service test exceeded %.0fs cap for %s — returning timeout",
+                _TESTER_TIMEOUT_SECONDS,
+                service,
+            )
+            payload = {"ok": False, "error": "timeout"}
+            _cache_put(service, payload)
+            return JSONResponse(payload)
     except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse:

@@ -24,6 +24,8 @@ import threading
 import time
 import weakref
 
+from mediaman.services.rate_limit.ip_resolver import unmap_ipv4
+
 # Cap the per-IP rate-limit dict to prevent unbounded memory growth under
 # a distributed attack. Oldest entries are evicted when the cap is hit.
 # Tuned for a small/medium-sized self-hosted deployment: 10k unique
@@ -155,12 +157,12 @@ class ActionRateLimiter:
 def _bucket_key(ip: str) -> str:
     """Collapse an IP into a network-prefix bucket key (IPv4 /24, IPv6 /64)."""
     try:
-        addr = ipaddress.ip_address(ip)
+        addr = unmap_ipv4(ipaddress.ip_address(ip))
     except ValueError:
         return ip
     if isinstance(addr, ipaddress.IPv6Address):
-        return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address) + "/64"
-    return str(ipaddress.ip_network(f"{ip}/24", strict=False).network_address) + "/24"
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False).network_address) + "/64"
+    return str(ipaddress.ip_network(f"{addr}/24", strict=False).network_address) + "/24"
 
 
 class RateLimiter:

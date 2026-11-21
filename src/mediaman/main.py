@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
 from mediaman.app_factory import create_app
 from mediaman.bootstrap.validators import enforce_single_worker, sanitise_trusted_proxies
 from mediaman.config import ConfigError, load_config
+from mediaman.db.connection import SchemaTooOldError, check_schema_version
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,18 @@ def cli_main() -> None:
         # with the actionable message before uvicorn is even imported.
         print(f"Error: configuration is invalid: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    # The lifespan refuses an old database too, but Starlette turns its
+    # SystemExit into a ~180-line traceback; refuse here, before uvicorn.
+    try:
+        check_schema_version(str(Path(config.data_dir) / "mediaman.db"))
+    except SchemaTooOldError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except sqlite3.Error:
+        # Unreadable here (not writable, corrupt, a directory): let the
+        # lifespan report it with its own message.
+        pass
 
     app = create_app()
 

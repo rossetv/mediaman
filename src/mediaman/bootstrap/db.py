@@ -55,8 +55,8 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
         ) from exc
     assert_data_dir_writable(data_dir)
     db_path = str(Path(config.data_dir) / "mediaman.db")
-    logger.info("DB initialised at %s", db_path)
     conn = init_db(db_path)
+    logger.info("DB initialised at %s", db_path)
     set_connection(conn)
     app.state.config = config
     app.state.db = conn
