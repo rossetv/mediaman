@@ -1,4 +1,4 @@
-# rationale: at 500+ lines this module sits just over the ceiling. The pieces
+# rationale: the pieces
 # (state constants, state computation, cache builders, LazyArrClients, and the
 # attach_download_states orchestrator) are tightly coupled around the ArrCaches
 # shape, and attach_download_states cannot move to web/repository without
@@ -431,8 +431,7 @@ def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCache
 # annotation orchestrator. ``attach_download_states`` arguably belongs nearer
 # the recommendations service, but its ``suggestions``-table UPDATE cannot move
 # into the ``mediaman.web.repository`` layer (the arr package sits below web in
-# the dependency graph and must not import upward). Left here under the 500-line
-# ceiling; split it out only if the file grows past the ceiling.
+# the dependency graph and must not import upward). Left here for that reason.
 def attach_download_states(
     batches: list[dict[str, object]],
     arr: LazyArrClients,

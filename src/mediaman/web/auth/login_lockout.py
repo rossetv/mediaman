@@ -2,7 +2,7 @@
 # a single lockout protocol (table bootstrap, counter UPSERT, decay, escalation,
 # admin unlock + audit).  Splitting by layer (DDL / DML / public API) would
 # fragment the protocol without adding a navigable concept boundary; the file
-# is comfortably under the 500-line ceiling and owns exactly one concept.
+# owns exactly one concept.
 """Persistent per-username login lockout.
 
 The existing rate limiter in `mediaman.web.auth.rate_limit` is per-IP

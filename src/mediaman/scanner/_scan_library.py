@@ -1,5 +1,5 @@
 """Per-library scan helpers — extracted from engine so the
-orchestrator stays under the 500-line file ceiling.
+orchestrator stays small.
 
 These helpers are *module-level functions* that take the
 mediaman.scanner.engine.ScanEngine as their first argument and

@@ -3,7 +3,7 @@ singleton.
 
 The barrel re-exports the public names so existing test patch targets keep working. The flow
 is split across ._redownload_match (shared matcher and audit-ID picker, re-exported here),
-._redownload_radarr and ._redownload_sonarr to stay under the size ceiling.
+._redownload_radarr and ._redownload_sonarr.
 """
 
 from __future__ import annotations

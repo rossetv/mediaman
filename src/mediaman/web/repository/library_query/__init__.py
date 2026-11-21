@@ -1,7 +1,7 @@
 """Library display query — re-export barrel.
 
-Promoted from a single ``library_query.py`` module when it crossed the
-300-line target.  Three private modules, one concept each:
+Promoted from a single ``library_query.py`` module as it grew.
+Three private modules, one concept each:
 
 * `._query` — shared constants (``VALID_SORTS``, ``VALID_TYPES``,
   ``TV_SEASON_TYPES``, ``ANIME_SEASON_TYPES``, ``ALL_SEASON_TYPES``,

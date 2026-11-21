@@ -75,7 +75,7 @@ def _is_secret_key_strong(secret: str) -> bool:
       decode cleanly to 32+ bytes (the shape of
       secrets.token_urlsafe(32)), with at least
       _MIN_URLSAFE_UNIQUE distinct characters. The unique-char
-      floor blocks the audit's ``"abcdefghij" * 4 + "abc"`` example
+      floor blocks the ``"abcdefghij" * 4 + "abc"`` example
       (10 unique) which would otherwise satisfy the structural rule.
 
     Anything else — too short, mixed alphabets, structured repeats —

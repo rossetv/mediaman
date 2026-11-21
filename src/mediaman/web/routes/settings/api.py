@@ -4,14 +4,13 @@ timeout and caching). The package barrel includes this router; tests patch symbo
 owning module.
 """
 
-# rationale: 449 lines, over the 300-line target but under the 500 ceiling.
-# Not split further: this is one concept — the settings JSON API — and its
+# rationale: not split further. This is one concept — the settings JSON API — and its
 # only natural seam, the four-stage tester pipeline (_resolve_tester_dispatch
 # → _load_tester_settings → _run_tester_with_timeout → _cache_tester_response),
 # is a single sequential chain bound to api_test_service; carving it into a
 # sibling would scatter one flow across two files and break the
 # ``settings.api`` monkeypatch surface the tests rely on for no navigability
-# gain. Every function is under the 60-line ceiling.
+# gain.
 
 from __future__ import annotations
 

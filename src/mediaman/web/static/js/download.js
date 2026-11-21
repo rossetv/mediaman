@@ -75,7 +75,7 @@
       });
   }
 
-  /* Delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
+  /* buildHeroCard delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
      duplicating the .dl-hero tree. Values are set via
      textContent / DOM properties — safe by default. */
   function buildHeroCard(wrapper, item) {
@@ -100,7 +100,7 @@
   // raw state string only if the server didn't supply one (defensive — shouldn't
   // happen). The canonical map lives in services/downloads/download_format/_types.py.
 
-  /* Uses setInterval internally; _startPolling / _stopPolling manage the
+  /* Polling uses setInterval internally; _startPolling / _stopPolling manage the
      timer and the visibilitychange pause so the tab doesn't hammer the
      server while hidden. */
   function _startPolling() {

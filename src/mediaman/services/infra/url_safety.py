@@ -52,8 +52,7 @@ The deny-list constants and stateless predicates live in
 public API and the allowlist composition.
 """
 
-# rationale: 451 lines, over the 300-line target (under the 500 ceiling).
-# This file is one cohesive security concept — "the single place in the
+# rationale: this file is one cohesive security concept — "the single place in the
 # codebase that performs SSRF safety analysis" — and the genuinely separable
 # part (the stateless deny-list constants and predicates) has *already* been
 # extracted to ``_url_safety_blocks.py``. What remains does not decompose

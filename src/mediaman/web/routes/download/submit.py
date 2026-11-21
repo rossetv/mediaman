@@ -1,5 +1,4 @@
-# rationale: 430 lines, over the 300-line target but under the 500 ceiling.
-# Not split further: this is one concept — the POST /download/{token} flow —
+# rationale: not split further. This is one concept — the POST /download/{token} flow —
 # and it is already decomposed into small private helpers (token validation,
 # the two-phase claim, the Arr submit branches, the shared success epilogue,
 # the already-exists handler). The Radarr and Sonarr submit helpers share

@@ -179,7 +179,7 @@ def _has_content_to_report(
     return bool(scheduled_items) or has_recommendations
 
 
-def send_newsletter(  # rationale: extracted from send_newsletter to keep the orchestrator under the 60-line ceiling; a single context dataclass (see SendContext) would allow re-merging
+def send_newsletter(  # rationale: extracted from send_newsletter to keep the orchestrator short; a single context dataclass (see SendContext) would allow re-merging
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,

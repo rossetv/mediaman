@@ -1,5 +1,4 @@
-"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel to keep
-it under the size ceiling. The barrel mounts this router and re-exports _DELETE_LIMITER so
+"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel. The barrel mounts this router and re-exports _DELETE_LIMITER so
 the historic test patch targets keep working.
 """
 

@@ -149,7 +149,7 @@ def peer_is_trusted(peer: str | None, trusted: list[IPv4Network | IPv6Network]) 
     return _ip_in_networks(peer, trusted)
 
 
-# rationale: body is 58 executable lines (the ceiling is 60). The function
+# rationale: the function
 # is a single security decision tree: peer trust check → CF header → XFF
 # chain → X-Real-IP → peer fallback. Splitting individual header checks
 # into private helpers would distribute the trust-hierarchy logic across

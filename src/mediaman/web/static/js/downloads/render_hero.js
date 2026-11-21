@@ -56,7 +56,7 @@
     }
   }
 
-  /* Kept in sync because the hero can swap
+  /* The type pill is kept in sync because the hero can swap
         between a series and a movie item between polls. The server-rendered
         pill belongs to whichever item was hero at SSR time; once polling
         promotes a different item to hero we have to repaint this pill or
@@ -139,7 +139,7 @@
     return btn;
   }
 
-  /* Present only when the item is a series
+  /* The episodes section is present only when the item is a series
         with episodes. Add the whole section when missing, remove it when
         the new hero is a movie, and rebuild it when the episode set has
         changed (different show, or pack contents changed). */

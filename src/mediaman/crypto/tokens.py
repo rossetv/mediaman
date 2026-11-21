@@ -16,8 +16,7 @@ constant plus one ``generate_*`` / ``validate_*`` pair.
 # Splitting TypedDicts to _token_types.py and HMAC primitives to
 # _token_hmac.py would scatter the type contract from the signing
 # implementation without reducing complexity; every caller would still
-# import from both. The file sits at ~470 lines — within the 500-line
-# ceiling — so a forced split is not justified.
+# import from both, so a forced split is not justified.
 
 from __future__ import annotations
 

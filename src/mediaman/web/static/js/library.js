@@ -288,7 +288,7 @@
   }
 
   function wire() {
-    /* CSS-class-driven (.is-visible owns the display
+    /* Delete modal: CSS-class-driven (.is-visible owns the display
          rule), close-cancel button uses data-action, body scroll is not
          locked by this modal today. */
     var deleteModalEl = document.getElementById('delete-modal');
@@ -316,7 +316,7 @@
       });
     }
 
-    /* CSS-class-driven (.active owns the display rule).
+    /* Keep dialog: CSS-class-driven (.active owns the display rule).
          The dialog card stops click propagation so a click on it doesn't
          bubble to the overlay's backdrop-close. */
     var keepOverlay = document.getElementById('keep-dialog-overlay');

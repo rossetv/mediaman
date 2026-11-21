@@ -6,7 +6,7 @@
  * `init()` in dependency order. The page bootstrap (`settings.js`)
  * invokes `MM.settings.general.init()` on DOMContentLoaded.
  *
- * After Phase 8B the heavy lifting lives in:
+ * The heavy lifting lives in:
  *   - settings/savebar.js          — dirty tracking, save submit, reauth retry
  *   - settings/disk_thresholds.js  — Plex pills + per-library disk cards
  *   - settings/overview.js         — schedule summary + storage bar

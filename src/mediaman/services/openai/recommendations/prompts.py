@@ -261,7 +261,7 @@ def generate_trending(
     return parse_recommendations(items, "trending")
 
 
-# rationale: body is 49 executable lines (under the 60-line ceiling). The function
+# rationale: the function
 # is kept as one unit because the byte-budget calculation for the Plex data
 # block is a single coherent algorithm whose safety properties (never
 # truncating mid-codepoint, never chopping the closing delimiter) can only

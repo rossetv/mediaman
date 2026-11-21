@@ -5,7 +5,7 @@ and compared" concern; session persistence lives in
 `mediaman.web.auth.session_store`.
 
 This package was promoted from a single ``password_hash.py`` module
-when it crossed the 500-line ceiling. It owned three concepts — the
+as it grew. It owned three concepts — the
 "and" smell — now one private module each:
 
 * `._user_crud` — admin-user CRUD (``create_user``, ``list_users``,

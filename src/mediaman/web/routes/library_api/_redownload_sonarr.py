@@ -1,5 +1,5 @@
-"""Sonarr branch of the redownload flow, split out of .redownload to keep it under the size
-ceiling. The shared lookup matcher and audit-ID picker live in ._redownload_match.
+"""Sonarr branch of the redownload flow, split out of .redownload.
+The shared lookup matcher and audit-ID picker live in ._redownload_match.
 """
 
 from __future__ import annotations
