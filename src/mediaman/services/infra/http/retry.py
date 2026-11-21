@@ -196,6 +196,7 @@ def _handle_transport_error(
     attempt: int,
     attempts: int,
     jitter_strategy: Literal["fixed", "full"],
+    retry_transport_error: Callable[[Exception], bool] | None,
     make_error: Callable[..., Exception],
     state: _LoopState,
 ) -> None:
@@ -204,7 +205,8 @@ def _handle_transport_error(
     Records the exception on *state*, resets the consecutive-5xx streak (a
     transport error breaks any 5xx run), then either sleeps and returns — so
     the caller's loop ``continue``s to the next attempt — or, when the attempt
-    budget is exhausted, raises the ``make_error`` exception.
+    budget is exhausted or *retry_transport_error* rejects the exception,
+    raises the ``make_error`` exception.
     """
     logger.warning(
         "HTTP %s %s transport error: %s",
@@ -215,7 +217,7 @@ def _handle_transport_error(
     state.last_exc = exc
     # Transport errors break any consecutive-5xx streak.
     state.consecutive_5xx = 0
-    if attempt + 1 < attempts:
+    if attempt + 1 < attempts and (retry_transport_error is None or retry_transport_error(exc)):
         time.sleep(_compute_delay(attempt, jitter_strategy=jitter_strategy))
         return
     raise make_error(
@@ -325,6 +327,7 @@ def dispatch_loop(
     jitter_strategy: Literal["fixed", "full"] = "fixed",
     abort_after_consecutive_5xx: int | None = None,
     retryable_statuses: frozenset[int] | None = None,
+    retry_transport_error: Callable[[Exception], bool] | None = None,
 ) -> requests.Response:
     """Issue an HTTP request with transient-failure retry and backoff.
 
@@ -376,6 +379,11 @@ def dispatch_loop(
         retryable_statuses: Override ``_RETRYABLE_STATUSES`` for callers
             with a different transient-set (mailgun adds ``500``).  ``None``
             uses the default set.
+        retry_transport_error: Decides, for each transport exception, whether
+            it is worth another attempt.  ``None`` (default) retries every
+            transport exception, as before.  A caller whose request must not
+            be repeated once it may have been sent (mailgun) passes a
+            predicate that accepts only failures before the request left.
 
     Returns:
         The final ``requests.Response`` on success (2xx status code).
@@ -410,6 +418,7 @@ def dispatch_loop(
                 attempt=attempt,
                 attempts=attempts,
                 jitter_strategy=jitter_strategy,
+                retry_transport_error=retry_transport_error,
                 make_error=make_error,
                 state=state,
             )

@@ -215,3 +215,69 @@ class TestDegenerateAttemptBudget:
             )
         assert excinfo.value.status_code == 0
         assert "attempt budget" in excinfo.value.body_snippet
+
+
+class TestRetryTransportErrorOption:
+    """A caller can narrow which transport errors are worth another attempt."""
+
+    @staticmethod
+    def _run_raising(errors, *, retry_transport_error, attempts=3):
+        calls = []
+        seq = iter(errors)
+
+        def dispatch_fn():
+            calls.append(1)
+            item = next(seq)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        result = dispatch_loop(
+            dispatch_fn=dispatch_fn,
+            read_fn=lambda resp: b"",
+            method="POST",
+            url="http://upstream.example.test/send",
+            attempts=attempts,
+            make_error=_Err,
+            retry_transport_error=retry_transport_error,
+        )
+        return result, len(calls)
+
+    def test_an_error_the_caller_rejects_is_raised_without_another_attempt(self):
+        import requests
+
+        with pytest.raises(_Err) as excinfo:
+            self._run_raising(
+                [requests.Timeout("slow"), _response()],
+                retry_transport_error=lambda exc: False,
+            )
+        assert excinfo.value.status_code == 0
+        assert "transport error" in excinfo.value.body_snippet
+
+    def test_an_error_the_caller_accepts_is_retried(self):
+        import requests
+
+        ok = _response()
+        result, calls = self._run_raising(
+            [requests.Timeout("slow"), ok], retry_transport_error=lambda exc: True
+        )
+        assert result is ok
+        assert calls == 2
+
+    def test_the_predicate_sees_the_exception_raised(self):
+        import requests
+
+        seen = []
+
+        def accept_connect_timeout_only(exc):
+            seen.append(type(exc))
+            return isinstance(exc, requests.ConnectTimeout)
+
+        ok = _response()
+        result, calls = self._run_raising(
+            [requests.ConnectTimeout("a"), requests.ConnectTimeout("b"), ok],
+            retry_transport_error=accept_connect_timeout_only,
+        )
+        assert result is ok
+        assert calls == 3
+        assert seen == [requests.ConnectTimeout, requests.ConnectTimeout]

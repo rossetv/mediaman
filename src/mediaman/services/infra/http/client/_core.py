@@ -15,6 +15,7 @@ through the ``mediaman.services.infra.http.client`` package namespace (via
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from typing import Any, Literal
 
 import requests
@@ -133,11 +134,12 @@ class SafeHTTPClient:
         jitter_strategy: Literal["fixed", "full"] = "fixed",
         abort_after_consecutive_5xx: int | None = None,
         retryable_statuses: frozenset[int] | None = None,
+        retry_transport_error: Callable[[Exception], bool] | None = None,
     ) -> requests.Response:
         """Perform an SSRF-checked POST; no retries unless ``retry=True``.
 
-        ``jitter_strategy``, ``abort_after_consecutive_5xx``, and
-        ``retryable_statuses`` thread through to ``dispatch_loop``
+        ``jitter_strategy``, ``abort_after_consecutive_5xx``,
+        ``retryable_statuses``, and ``retry_transport_error`` thread through to ``dispatch_loop``
         so retry-heavy callers (e.g. the mailgun POST path) can opt into
         full-jitter backoff and an early-abort policy without rolling
         their own retry primitive.
@@ -157,6 +159,7 @@ class SafeHTTPClient:
             jitter_strategy=jitter_strategy,
             abort_after_consecutive_5xx=abort_after_consecutive_5xx,
             retryable_statuses=retryable_statuses,
+            retry_transport_error=retry_transport_error,
         )
 
     def put(
@@ -243,6 +246,7 @@ class SafeHTTPClient:
         jitter_strategy: Literal["fixed", "full"] = "fixed",
         abort_after_consecutive_5xx: int | None = None,
         retryable_statuses: frozenset[int] | None = None,
+        retry_transport_error: Callable[[Exception], bool] | None = None,
     ) -> requests.Response:
         """Dispatch a single HTTP call with all the safety machinery.
 
@@ -312,4 +316,5 @@ class SafeHTTPClient:
                 jitter_strategy=jitter_strategy,
                 abort_after_consecutive_5xx=abort_after_consecutive_5xx,
                 retryable_statuses=retryable_statuses,
+                retry_transport_error=retry_transport_error,
             )
