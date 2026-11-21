@@ -248,6 +248,24 @@ class TestKeepPageRoute:
         assert resp.status_code == 200
         assert "active" in resp.text
 
+    def test_days_left_counts_a_started_day_as_a_day_like_the_email(self, conn, freezer):
+        """1 day 2 hours before the deadline reads 2 days left, as in the newsletter.
+
+        Calendar-day subtraction would say 1 here, because the deadline falls on the next
+        calendar day.
+        """
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) + timedelta(days=1, hours=2)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        client = TestClient(self._make_app(conn), raise_server_exceptions=True)
+
+        resp = client.get(f"/keep/{token}")
+
+        assert resp.json()["days_left"] == "2"
+
 
 class TestKeepSubmitTokenInvalidation:
     """Keep_submit must mark the token as used and reject replays."""

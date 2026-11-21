@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import math
 import sqlite3
 from datetime import datetime
 
 from mediaman.crypto import sign_poster_url
 from mediaman.crypto.tokens import rebuild_keep_token, validate_keep_token
 from mediaman.services.scheduled_actions import parse_execute_at
+from mediaman.services.scheduled_actions.days_left import days_left
 
 from ._time import _parse_days_ago
 from ._types import ScheduledNewsletterItem
@@ -53,8 +53,7 @@ def _days_left(row: sqlite3.Row, now: datetime) -> int:
     A deadline that is already past, or unreadable, counts as 0 (the same "treat as
     expired" fallback the keep page uses).
     """
-    remaining = parse_execute_at(row["execute_at"], default=now) - now
-    return max(0, math.ceil(remaining.total_seconds() / 86400))
+    return days_left(parse_execute_at(row["execute_at"], default=now), now)
 
 
 def _build_scheduled_card(
