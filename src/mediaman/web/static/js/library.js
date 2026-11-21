@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var _keepDialogState = { showRk: '', hasRk: false, showTitle: '', seasonId: '', duration: '30 days' };
+  var _keepDialogState = { showRk: '', hasRk: false, showKept: false, keptSeasonIds: [], showTitle: '', seasonId: '', duration: '30 days' };
 
   /* Modal handles assigned during wire() — both modals are CSS-class
      driven (no inline display:flex), so we pass activeClass to setupDetail.
@@ -77,6 +77,8 @@
       .then(function (data) {
         if (request !== _keepDialogRequest) return;
         document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
+        _keepDialogState.showKept = !!data.show_kept;
+        _keepDialogState.keptSeasonIds = data.seasons.filter(function (s) { return s.kept; }).map(function (s) { return s.id; });
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
@@ -222,16 +224,13 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) return;
-      /* Collect season IDs to remove; check response.ok per request. */
-      var seasonIds = [];
+      /* Remove the show-level keep and each kept season; check response.ok per request. */
       var rk = _keepDialogState.showRk;
-      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        seasonIds.push(cb.dataset.seasonId);
-      });
-
       var allRequests = [];
-      if (rk && _keepDialogState.hasRk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
-      seasonIds.forEach(function (sid) {
+      if (rk && (_keepDialogState.hasRk || _keepDialogState.showKept)) {
+        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+      }
+      _keepDialogState.keptSeasonIds.forEach(function (sid) {
         allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
       });
 
