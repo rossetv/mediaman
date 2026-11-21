@@ -102,7 +102,8 @@ class TestSingleValidationPerRequest:
         # No User-Agent header sent at all.
         resp = client.get("/api/whoami", headers={"User-Agent": ""})
 
-        assert resp.status_code == 200
+        # The session is bound to a UA and IP this request does not carry.
+        assert resp.status_code == 401
         # Only one validation, and its UA input is None (the unified
         # empty-handling), never the empty string the old middleware used.
         assert len(seen_kwargs) == 1

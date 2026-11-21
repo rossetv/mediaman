@@ -137,13 +137,13 @@ def _fingerprint_mismatch(
     replayed through a no-Request path therefore cannot bypass the
     binding.
 
-    When a request *is* supplied, the original in-request tolerance is
-    preserved: the comparison runs only when both UA and IP are present.
-    A live request that legitimately omits a header is not penalised; the
-    bypass being closed is the API-level "no request at all" path, not a
-    real request with a missing field. Mode ``"off"`` (binding disabled)
-    and a legacy row with no stored fingerprint (nothing to bind to) both
-    validate as before.
+    When a request *is* supplied, the comparison always runs. A missing
+    User-Agent or client IP is fingerprinted the same way `create_session`
+    fingerprints it (an empty UA, an ``unknown`` IP bucket), so a session
+    issued to a client without the header still validates for it, and any
+    other client must match the stored binding. Mode ``"off"`` (binding
+    disabled) and a legacy row with no stored fingerprint (nothing to bind
+    to) both validate as before.
     """
     stored_fp = row["fingerprint"]
     mode = _fingerprint_mode()
@@ -158,9 +158,6 @@ def _fingerprint_mismatch(
         )
         _try_delete_session(conn, token_hash, reason="fingerprint_unverifiable")
         return True
-
-    if user_agent is None or client_ip is None:
-        return False
 
     current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
     if current_fp != stored_fp:
