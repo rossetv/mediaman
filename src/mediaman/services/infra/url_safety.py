@@ -18,12 +18,12 @@ Two layers of defence
    self-hosted Sonarr/Radarr/Plex commonly run on loopback or the LAN.
    ``MEDIAMAN_STRICT_EGRESS`` adds RFC1918 and loopback to the deny-list.
 2. **Allowlist (opt-in).** When a caller passes
-   ``allowed_hosts={...}`` to :func:`is_safe_outbound_url` or
-   :func:`resolve_safe_outbound_url`, only hostnames whose IDN-
+   ``allowed_hosts={...}`` to ``is_safe_outbound_url`` or
+   ``resolve_safe_outbound_url``, only hostnames whose IDN-
    normalised form appears in that set OR in
-   :data:`PINNED_EXTERNAL_HOSTS` are accepted, even if they pass the
+   ``PINNED_EXTERNAL_HOSTS`` are accepted, even if they pass the
    deny-list. Callers compose the configured-integration set via
-   :func:`allowed_outbound_hosts`, which reads the current
+   ``allowed_outbound_hosts``, which reads the current
    ``plex_url`` / ``radarr_url`` / ``sonarr_url`` / ``nzbget_url`` and
    the configured integration URLs out of the ``settings`` table.
    Mailgun's regional hostnames are pinned statically — they are not
@@ -48,7 +48,7 @@ Lives under ``services/infra/`` because the implementation depends on
 module belongs alongside its sibling ``services/infra/path_safety.py``.
 
 The deny-list constants and stateless predicates live in
-:mod:`mediaman.services.infra._url_safety_blocks` — this file owns the
+``mediaman.services.infra._url_safety_blocks`` — this file owns the
 public API and the allowlist composition.
 """
 
@@ -91,7 +91,7 @@ logger = logging.getLogger(__name__)
 class SSRFRefused(Exception):
     """Raised when a URL fails the SSRF guard and the caller cannot proceed.
 
-    Distinct from the bool return of :func:`is_safe_outbound_url` — use this
+    Distinct from the bool return of ``is_safe_outbound_url`` — use this
     when the refusal must propagate up the call stack as a typed exception
     rather than a falsy return value.  Callers catch ``SSRFRefused`` to log
     and skip rather than letting a generic ``ValueError`` bubble through
@@ -102,7 +102,7 @@ class SSRFRefused(Exception):
 #: External hosts mediaman speaks to that are NOT configured by the
 #: operator. These are static for the lifetime of the codebase and are
 #: always trusted when the allowlist is enforced. Adding to this list
-#: is a security change — review CODE_GUIDELINES §10.6 first.
+#: is a security change — review it carefully.
 PINNED_EXTERNAL_HOSTS: frozenset[str] = frozenset(
     {
         # TMDB metadata and posters.
@@ -139,7 +139,7 @@ def _extract_host(raw_url: str) -> str | None:
     """Return the IDN-normalised hostname for *raw_url*, or ``None``.
 
     Mirrors the parse + IDN step performed by
-    :func:`resolve_safe_outbound_url` so callers can build the allowlist
+    ``resolve_safe_outbound_url`` so callers can build the allowlist
     without re-implementing the URL parsing rules.
     """
     if not raw_url or not isinstance(raw_url, str):
@@ -161,7 +161,7 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
 
     The allowlist is the union of:
 
-    * :data:`PINNED_EXTERNAL_HOSTS` — TMDB, OMDb, Mailgun (both
+    * ``PINNED_EXTERNAL_HOSTS`` — TMDB, OMDb, Mailgun (both
       regions), OpenAI; static for the lifetime of the codebase.
     * Configured integration URLs in the ``settings`` table —
       ``plex_url``, ``radarr_url``, ``sonarr_url``, ``nzbget_url``.
@@ -175,8 +175,8 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
     plaintext so this is fine.
 
     Design note (not a TODO): integration *URL* settings are stored as
-    plaintext by deliberate schema choice — they are not secrets (§10.3
-    reserves encryption for credentials). If a future schema ever encrypts
+    plaintext by deliberate schema choice — they are not secrets (only
+    credentials are encrypted). If a future schema ever encrypts
     URL fields, this function's signature must grow a ``secret_key``
     parameter so it can decrypt before parsing; that is a schema-coupled
     change to make at the point the schema changes, not a pending action.
@@ -202,9 +202,9 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
             return frozenset(PINNED_EXTERNAL_HOSTS)
         if row is None:
             continue
-        # The connection factory yields ``sqlite3.Row`` per §8.2 — index by
-        # column name directly. A tuple row would be a connection-config bug
-        # (§9.5); fail loud via the resulting error rather than papering over
+        # The connection factory yields ``sqlite3.Row`` — index by
+        # column name directly. A tuple row would be a connection-config bug;
+        # fail loud via the resulting error rather than papering over
         # it with a ``row[0]`` fallback.
         raw = row["value"]
         if not raw:
@@ -232,7 +232,7 @@ def _parse_and_normalise(url: str) -> tuple[bool, str | None, str | None]:
     """Parse and IDN-normalise *url*, applying the DNS-free reject rules.
 
     Returns ``(ok, host, None)`` mirroring
-    :func:`resolve_safe_outbound_url`'s ``(safe, hostname, pinned_ip)``
+    ``resolve_safe_outbound_url``'s ``(safe, hostname, pinned_ip)``
     shape so the caller can forward a reject verbatim:
 
     * On rejection, ``ok`` is ``False`` and the second element is the
@@ -292,11 +292,11 @@ def _check_literal_or_resolved(
     """Resolve *normalised* to a validated pin, or reject it.
 
     Returns the final ``(safe, hostname, pinned_ip)`` for the IP-level
-    portion of :func:`resolve_safe_outbound_url`. *normalised* has already
+    portion of ``resolve_safe_outbound_url``. *normalised* has already
     passed every DNS-free check; this is the part that may touch the
     resolver.
 
-    Two branches, in the original order:
+    Two branches:
 
     * **Literal IP** — when *normalised* is itself an IP literal, it is
       checked directly against the deny-list (no DNS). A safe literal is
@@ -359,7 +359,7 @@ def resolve_safe_outbound_url(
     Returns ``(safe, hostname, pinned_ip)``:
 
     * ``safe`` — ``True`` only if every check in
-      :func:`is_safe_outbound_url` passes.
+      ``is_safe_outbound_url`` passes.
     * ``hostname`` — the IDN-normalised hostname from the URL, or
       ``None`` if the URL was malformed before host extraction. Useful
       to the caller for installing a host-specific DNS pin.
@@ -371,17 +371,17 @@ def resolve_safe_outbound_url(
 
     When *allowed_hosts* is provided, the URL's hostname must appear in
     that set (after IDN normalisation) **or** in
-    :data:`PINNED_EXTERNAL_HOSTS`, otherwise the URL is refused even if
+    ``PINNED_EXTERNAL_HOSTS``, otherwise the URL is refused even if
     the deny-list checks would pass. Pass ``None`` (the default) to
     skip the allowlist check; pass an empty set to refuse every host
     except the pinned externals.
 
     The function is the single place in the codebase that performs
-    SSRF safety analysis; :func:`is_safe_outbound_url` simply discards
+    SSRF safety analysis; ``is_safe_outbound_url`` simply discards
     everything but the bool. The ordering — DNS-free parse-level rejects
-    (:func:`_parse_and_normalise`), then the allowlist check, then the
+    (``_parse_and_normalise``), then the allowlist check, then the
     IP-level checks that may touch the resolver
-    (:func:`_check_literal_or_resolved`) — is itself a security property:
+    (``_check_literal_or_resolved``) — is itself a security property:
     a refused host fails fast without ever reaching ``getaddrinfo``.
     """
     ok, normalised, _ = _parse_and_normalise(url)
@@ -395,7 +395,7 @@ def resolve_safe_outbound_url(
     # ``assert`` is stripped under ``python -O``, which would let a ``None``
     # host flow into ``_check_literal_or_resolved`` →
     # ``ipaddress.ip_address(None)`` → ``TypeError`` instead of a clean
-    # refusal on this security-critical path (M3 / §6.1).
+    # refusal on this security-critical path.
     if normalised is None:
         return False, None, None
 
@@ -461,7 +461,7 @@ def is_safe_outbound_url(
     ``strict_egress=True``) to additionally refuse loopback and RFC1918.
 
     When *allowed_hosts* is provided, the URL's IDN-normalised hostname
-    must appear in that set or in :data:`PINNED_EXTERNAL_HOSTS`. The
+    must appear in that set or in ``PINNED_EXTERNAL_HOSTS``. The
     deny-list checks still apply on top — an allowlisted host that
     resolves to a metadata IP is still refused.
     """

@@ -12,12 +12,12 @@ without dragging in the whole queue module.
 
 Package layout:
 
-* :mod:`._types` — shared :class:`CompletedItem` / :class:`RecentDownloadItem` TypedDicts.
-* :mod:`._verification` — :class:`_ArrLibraryIndex`, :func:`_check_item_verified`,
-  :func:`_batch_insert_completions`, :func:`record_verified_completions`.
-* :mod:`._sync` — :func:`detect_completed`, :func:`cleanup_recent_downloads`,
-  :class:`_PosterLookup`, :func:`_sync_recent_row`,
-  :func:`fetch_and_sync_recent_downloads`.
+* ``_types`` — shared ``CompletedItem`` / ``RecentDownloadItem`` TypedDicts.
+* ``_verification`` — ``_ArrLibraryIndex``, ``_check_item_verified``,
+  ``_batch_insert_completions``, ``record_verified_completions``.
+* ``_sync`` — ``detect_completed``, ``cleanup_recent_downloads``,
+  ``_PosterLookup``, ``_sync_recent_row``,
+  ``fetch_and_sync_recent_downloads``.
 """
 
 from __future__ import annotations

@@ -4,20 +4,19 @@ Centralising these here prevents the same limiter being declared twice
 (once in subscribers.py, once in settings.py) with potentially different
 parameters that silently diverge over time.
 
-Previously lived in ``mediaman.services.infra.rate_limits``.  Moved here
-so that the ``infra`` sub-package does not import from a sibling
-(``services.rate_limit``), violating the intra-services import rules.
+Lives here rather than in ``infra`` so that ``infra`` does not import from
+its sibling ``services.rate_limit``.
 """
 
 from __future__ import annotations
 
 from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 
-# §8.5 — module-level globals required: per-request instantiation would discard
+# Module-level globals required: per-request instantiation would discard
 # the sliding-window state between requests, making the limits ineffective.
-# §1.12 — single-worker invariant: each limiter owns an internal threading.Lock
+# Single-worker invariant: each limiter owns an internal threading.Lock
 # (``self._lock`` in ActionRateLimiter / RateLimiter), which serves as the
-# required §8.5 lock for this mutable module-level state. No additional
+# required lock for this mutable module-level state. No additional
 # module-scope lock is needed because every mutation path goes through that
 # instance lock, not through module-level state changes.
 
@@ -26,8 +25,7 @@ from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
 
 # Settings write limiter — shared by settings.py and settings/crud.py.
-# The two modules previously declared the same parameters independently;
-# this single instance is the canonical version.
+# A single shared instance keeps the parameters in one place.
 SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
 
 # Service-test limiter for /api/settings/test/{service} — bounded so a

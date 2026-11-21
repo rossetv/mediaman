@@ -2,15 +2,15 @@
 
 Owns:
 
-* :func:`detect_completed` — pure diff of two queue snapshots.
-* :func:`cleanup_recent_downloads` — TTL-based row purge.
-* :class:`_PosterLookup` — lazy, call-scoped poster-map for backfill.
-* :func:`_sync_recent_row` — per-row reappearance check + poster backfill.
-* :func:`fetch_and_sync_recent_downloads` — the public read path.
+* ``detect_completed`` — pure diff of two queue snapshots.
+* ``cleanup_recent_downloads`` — TTL-based row purge.
+* ``_PosterLookup`` — lazy, call-scoped poster-map for backfill.
+* ``_sync_recent_row`` — per-row reappearance check + poster backfill.
+* ``fetch_and_sync_recent_downloads`` — the public read path.
 
-The verification helpers (:class:`~._verification._ArrLibraryIndex`,
-:func:`~._verification.record_verified_completions`, etc.) live in
-:mod:`._verification`.
+The verification helpers (``_ArrLibraryIndex``,
+``record_verified_completions``, etc.) live in
+``_verification``.
 """
 
 from __future__ import annotations
@@ -41,12 +41,12 @@ def detect_completed(
     and (when present on the previous-snapshot entry) tmdb_id, ready
     for insertion into recent_downloads.
 
-    The ``tmdb_id`` field on each :class:`CompletedItem` is what
-    :func:`record_verified_completions` uses to disambiguate two
+    The ``tmdb_id`` field on each ``CompletedItem`` is what
+    ``record_verified_completions`` uses to disambiguate two
     same-titled releases.  Callers that build the snapshot map should
     therefore enrich each entry with ``tmdb_id`` before stashing it —
     see ``download_queue/__init__.py`` for the canonical enrichment.
-    The :class:`ArrCard` payload accepted here is duck-typed, so any
+    The ``ArrCard`` payload accepted here is duck-typed, so any
     dict carrying ``title``, ``kind``, ``poster_url`` and (optionally)
     ``tmdb_id`` works.
     """
@@ -82,11 +82,9 @@ class _PosterLookup:
     """Lazy, call-scoped Radarr/Sonarr poster maps for recent-downloads backfill.
 
     Each service's library is fetched at most once per
-    :func:`fetch_and_sync_recent_downloads` call and indexed
+    ``fetch_and_sync_recent_downloads`` call and indexed
     ``{title: poster_url}``. ``None`` signals "not yet fetched"; an empty
-    dict means "fetched, nothing usable found". Replaces the former
-    ``_poster_from_arr`` nested closure — same lazy-load-and-look-up
-    behaviour, hoisted so it is independently testable.
+    dict means "fetched, nothing usable found".
     """
 
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
@@ -96,7 +94,6 @@ class _PosterLookup:
         self._sonarr_posters: dict[str, str] | None = None
 
     def poster_for(self, service: str, title: str) -> str:
-        """Return the poster URL for *title* from *service*, lazy-loading the map."""
         from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
         cache = self._radarr_posters if service == "radarr" else self._sonarr_posters
@@ -137,7 +134,7 @@ def _sync_recent_row(
 ) -> RecentDownloadItem | None:
     """Process one ``recent_downloads`` row; return its item, or ``None`` if dropped.
 
-    Per-row side effects (preserved verbatim from the original loop body):
+    Per-row side effects:
 
     * If the item has reappeared in the active queue, ``DELETE`` the row,
       ``commit()``, and return ``None`` (the caller skips it).
@@ -195,7 +192,7 @@ def fetch_and_sync_recent_downloads(
     Side effects: deletes rows whose item has reappeared in the active queue
     (e.g. Radarr re-grabbed after a bad release) and backfills missing poster
     URLs via Radarr/Sonarr. The per-row work — including the DELETE/UPDATE
-    and their commits — lives in :func:`_sync_recent_row`.
+    and their commits — lives in ``_sync_recent_row``.
     """
     recent_rows = conn.execute(
         "SELECT id, dl_id, title, media_type, poster_url, completed_at"

@@ -8,8 +8,8 @@ compromised-settings attack discoverable after the fact.
 
 The policy logic and its audit guarantees are isolated here, separate
 from the trigger-decision state machine in
-:mod:`mediaman.services.arr.search_trigger` (which calls
-:func:`maybe_auto_abandon` per item).
+``mediaman.services.arr.search_trigger`` (which calls
+``maybe_auto_abandon`` per item).
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _AUTO_ABANDON_RELEASE_GRACE_SECONDS = 30 * 86_400  # 30 d
 class _AbandonDecision:
     """The parsed, guard-cleared inputs an abandon branch needs.
 
-    Produced by :func:`_should_auto_abandon` only when every guard has
+    Produced by ``_should_auto_abandon`` only when every guard has
     passed; carries the values the movie/series branches would otherwise
     re-parse from the raw ``item`` mapping.
     """
@@ -87,8 +87,7 @@ def _should_auto_abandon(
     setting is off, the item is upcoming, its release date is unknown or
     too recent, its ``added_at`` is missing, it hasn't been searching long
     enough, or ``dl_id``/``arr_id`` are missing. Otherwise returns the
-    parsed :class:`_AbandonDecision`. The logic here is lifted verbatim
-    from the original guard preamble of :func:`maybe_auto_abandon`.
+    parsed ``_AbandonDecision``.
     """
     if not get_bool_setting(conn, "auto_abandon_enabled", default=False):
         return None
@@ -233,14 +232,14 @@ def maybe_auto_abandon(
     Release-date guard: items the user can see in the "Coming soon" section
     (``is_upcoming``) and items whose release is too recent to plausibly
     have stalled (``released_at`` within
-    :data:`_AUTO_ABANDON_RELEASE_GRACE_SECONDS`) are never abandoned. When
+    ``_AUTO_ABANDON_RELEASE_GRACE_SECONDS``) are never abandoned. When
     the release date is unknown (``released_at`` is 0) we also skip — we'd
     rather leave a search running than mistakenly bin a coming-soon item
     whose Radarr/Sonarr metadata simply hasn't filled in dates yet.
 
     Abandons via the same service entry-points the manual button uses, so
     semantics (throttle clear, partial-failure behaviour, logging) are
-    identical. The guard cascade lives in :func:`_should_auto_abandon`;
+    identical. The guard cascade lives in ``_should_auto_abandon``;
     each branch emits its ``security_event`` audit row *before* the
     destructive abandon call.
     """

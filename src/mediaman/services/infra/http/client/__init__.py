@@ -2,17 +2,17 @@
 
 Responsibility
 --------------
-Compose :mod:`.dns_pinning`, :mod:`.streaming`, and :mod:`.retry` into a
+Compose ``dns_pinning``, ``streaming``, and ``retry`` into a
 single class that every outbound service call (Radarr, Sonarr, Plex, TMDB,
 OMDb, Mailgun, NZBGet, OpenAI) passes through.
 
 The six safety properties it enforces, in order:
 
-1. **SSRF re-validation** — :func:`~mediaman.services.infra.url_safety.resolve_safe_outbound_url`
+1. **SSRF re-validation** — ``resolve_safe_outbound_url``
    is called on every request, re-resolving DNS so a one-off whitelist check
    cannot be bypassed by a DNS rebind attack.
 2. **DNS pinning** — the IP returned by the SSRF guard is pinned via
-   :func:`~.dns_pinning.pin` for the duration of the request, closing the
+   ``pin`` for the duration of the request, closing the
    window between the safety check and the actual ``socket.getaddrinfo`` call.
 3. **No redirects** — ``allow_redirects=False`` ensures the final response
    comes from the host we validated, not from a redirect target.
@@ -23,7 +23,7 @@ The six safety properties it enforces, in order:
 6. **Retry only on idempotent methods** — GET retries 429/5xx by default;
    POST/PUT/DELETE never retry unless the caller passes ``retry=True``.
 
-Errors are raised as :class:`SafeHTTPError`, which carries the final status
+Errors are raised as ``SafeHTTPError``, which carries the final status
 code, a truncated body snippet, and the URL so callers can log or surface the
 failure without digging into a ``requests.Response``.
 
@@ -32,11 +32,11 @@ Package layout
 This package decomposes the former single ``client.py`` along the seam the
 ``services-infra`` audit named:
 
-* :mod:`._errors` — the :class:`SafeHTTPError` exception type.
-* :mod:`._request` — the single-attempt transport (:func:`_dispatch`) and the
+* ``_errors`` — the ``SafeHTTPError`` exception type.
+* ``_request`` — the single-attempt transport (``_dispatch``) and the
   per-call SSRF / dispatch indirection helpers, plus the timeout / size-cap
   defaults.
-* :mod:`._core` — the :class:`SafeHTTPClient` class, its verb methods, and the
+* ``_core`` — the ``SafeHTTPClient`` class, its verb methods, and the
   ``_request`` orchestration.
 
 This module is the public barrel: ``SafeHTTPClient``, ``SafeHTTPError``, and
@@ -54,7 +54,7 @@ intercepts the actual transport call — otherwise pytest's monkeypatch would
 change the name in the wrong module dict and the original function would still
 be invoked.  The same applies to ``resolve_safe_outbound_url``.  Both names
 are re-exported below (and ``sys.modules`` resolves ``_HTTP_CLIENT_MODULE`` to
-*this* package module), so the dynamic lookup in :mod:`._request` finds the
+*this* package module), so the dynamic lookup in ``_request`` finds the
 patched object.  ``time`` is re-exported for the same reason — tests patch
 ``http_client.time.sleep`` and the retry loop sleeps on the shared module.
 """

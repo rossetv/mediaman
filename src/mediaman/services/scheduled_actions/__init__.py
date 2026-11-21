@@ -1,10 +1,8 @@
 """Shared service helpers for the ``scheduled_actions`` table.
 
-The two keep-route handlers in ``web/routes/keep.py`` and
-``web/routes/kept.py`` previously duplicated the same execute-at parsing,
-token-hash insert into ``keep_tokens_used``, guarded UPDATE for
-snooze/forever, and human-readable expiry formatter.  This package is the
-single source of truth for that logic so the route layer stays thin.
+The single source of truth for execute-at parsing, the token-hash insert
+into ``keep_tokens_used``, the guarded snooze/forever UPDATEs and the
+human-readable expiry formatter, so the route layer stays thin.
 
 All DB-bound helpers take ``conn: sqlite3.Connection`` as the first
 positional argument and never call ``conn.commit()`` themselves —

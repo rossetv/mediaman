@@ -1,5 +1,3 @@
-"""Sonarr queue fetch and pack-aggregate logic."""
-
 from __future__ import annotations
 
 import logging
@@ -47,8 +45,8 @@ def _compute_cluster_keys(eps: list[ArrEpisodeEntry], card_series_id: int) -> li
     * If ``downloadId`` is populated, it IS the cluster key.
     * If it's empty (Sonarr handoff, manually-added grab) we synthesise a
       stable key from ``seriesId + title + label`` so two distinct rows
-      can't collapse into one and double-count pack totals (C19).
-    * The synthesised key joins on :data:`_CLUSTER_SEP` (NUL) so a title
+      can't collapse into one and double-count pack totals.
+    * The synthesised key joins on ``_CLUSTER_SEP`` (NUL) so a title
       literally containing ``:`` (the prior separator) can no longer
       collide.
     * If both title and label are empty the row is unaggregatable; we
@@ -153,7 +151,6 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
 
 
 def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
-    """Phase 1: group Sonarr download-queue episodes into one card per series."""
     items: list[ArrCard] = []
     series_map: dict[int, ArrCard] = {}  # series_id -> grouped card
 
@@ -282,7 +279,7 @@ def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
     Groups queue episodes by series into one card each, then appends
     cards for monitored series still searching. The inner loop over
     ``get_series()`` keeps its own try/except for the same reason as
-    :func:`fetch_radarr_queue`.
+    ``fetch_radarr_queue``.
     """
     items = _build_queue_cards(client)
     queue_series_title_years = {

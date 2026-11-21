@@ -1,15 +1,15 @@
-"""The :class:`SafeHTTPClient` class — the public outbound HTTP surface.
+"""The ``SafeHTTPClient`` class — the public outbound HTTP surface.
 
 This module owns the client class and its near-identical
 ``get``/``post``/``put``/``delete`` verb methods plus the ``_request``
 orchestration that threads each call through the safety machinery. The
 low-level transport, the per-call SSRF / dispatch indirection helpers, and
-the timeout / size-cap defaults live in :mod:`._request`; the error type
-lives in :mod:`._errors`.
+the timeout / size-cap defaults live in ``_request``; the error type
+lives in ``_errors``.
 
 ``_dispatch`` and ``resolve_safe_outbound_url`` are resolved at call time
 through the ``mediaman.services.infra.http.client`` package namespace (via
-``sys.modules``) — see :mod:`._request` for why that seam has to be dynamic.
+``sys.modules``) — see ``_request`` for why that seam has to be dynamic.
 """
 
 from __future__ import annotations
@@ -31,27 +31,23 @@ from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
 
-# ---------------------------------------------------------------------------
-# The client
-# ---------------------------------------------------------------------------
-
 
 class SafeHTTPClient:
-    """SSRF- and size-aware wrapper around :mod:`requests`.
+    """SSRF- and size-aware wrapper around ``requests``.
 
     Instantiate one per logical outbound target so the connection pool
     (``session``) can be reused.  Every call re-validates the target URL via
-    :func:`~mediaman.services.infra.url_safety.resolve_safe_outbound_url`,
+    ``resolve_safe_outbound_url``,
     which re-resolves DNS — this is the DNS-rebind defence.
 
     When *allowed_hosts* is non-``None``, the URL's IDN-normalised hostname
     must additionally appear in that set (or in
-    :data:`~mediaman.services.infra.url_safety.PINNED_EXTERNAL_HOSTS`) for
+    ``PINNED_EXTERNAL_HOSTS``) for
     the call to proceed. The deny-list still applies on top — an
     allowlisted host that resolves to a metadata IP is still refused. When
     ``None`` (the default), only the deny-list is consulted. Callers
     typically derive the set once at the boundary via
-    :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`.
+    ``allowed_outbound_hosts``.
     """
 
     def __init__(
@@ -75,7 +71,7 @@ class SafeHTTPClient:
         # Only override the absent default or the bare ``python-requests/x.y``
         # UA. A caller that pre-seeded a *different* custom UA on the shared
         # session keeps it (deliberate — we respect an explicit choice), so
-        # such a session never gets mediaman branding (M8).
+        # such a session never gets mediaman branding.
         if existing_ua is None or str(existing_ua).startswith("python-requests/"):
             self._session.headers["User-Agent"] = _USER_AGENT
         # Ask compliant servers not to compress the response. The streaming
@@ -91,10 +87,6 @@ class SafeHTTPClient:
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
         self._allowed_hosts = allowed_hosts
-
-    # ------------------------------------------------------------------
-    # Public verb methods
-    # ------------------------------------------------------------------
 
     def get(
         self,
@@ -145,7 +137,7 @@ class SafeHTTPClient:
         """Perform an SSRF-checked POST; no retries unless ``retry=True``.
 
         ``jitter_strategy``, ``abort_after_consecutive_5xx``, and
-        ``retryable_statuses`` thread through to :func:`dispatch_loop`
+        ``retryable_statuses`` thread through to ``dispatch_loop``
         so retry-heavy callers (e.g. the mailgun POST path) can opt into
         full-jitter backoff and an early-abort policy without rolling
         their own retry primitive.
@@ -225,12 +217,7 @@ class SafeHTTPClient:
             expected_content_type=expected_content_type,
         )
 
-    # ------------------------------------------------------------------
-    # Internal machinery
-    # ------------------------------------------------------------------
-
     def _resolve_url(self, path_or_url: str) -> str:
-        """Resolve *path_or_url* against ``base_url`` if it isn't absolute."""
         if path_or_url.startswith(("http://", "https://")):
             return path_or_url
         if not self._base_url:
@@ -276,7 +263,7 @@ class SafeHTTPClient:
                 ``requests`` call.
             expected_content_type: When set, the response's ``Content-Type``
                 header must start with this value (case-insensitive,
-                parameter-stripped).  A mismatch raises :class:`SafeHTTPError`.
+                parameter-stripped).  A mismatch raises ``SafeHTTPError``.
         """
         ensure_hook_installed()
         url = self._resolve_url(path_or_url)

@@ -1,34 +1,34 @@
 """Spec-driven unified client for *arr-family APIs (Sonarr + Radarr).
 
-:class:`ArrClient` is built from a thin chain of mixins so each concern
+``ArrClient`` is built from a thin chain of mixins so each concern
 lives in its own module:
 
-* :class:`~mediaman.services.arr._transport._TransportMixin` — raw HTTP
+* ``_TransportMixin`` — raw HTTP
   helpers (GET/PUT/POST/DELETE) and the shared
-  :func:`_unmonitor_with_retry` loop.
-* :class:`~mediaman.services.arr._lookups._LookupsMixin` — lookup-by-id
+  ``_unmonitor_with_retry`` loop.
+* ``_LookupsMixin`` — lookup-by-id
   helpers and the ``is_reachable`` probe.
-* :class:`~mediaman.services.arr._add._AddFlowMixin` — root folder /
+* ``_AddFlowMixin`` — root folder /
   quality profile pickers cached on the instance.
-* :class:`~mediaman.services.arr._sonarr_methods._SonarrMixin` —
+* ``_SonarrMixin`` —
   ``kind="series"`` operations.
-* :class:`~mediaman.services.arr._radarr_methods._RadarrMixin` —
+* ``_RadarrMixin`` —
   ``kind="movie"`` operations.
 
 Each kind-specific method asserts the client kind via
-:meth:`ArrClient._require_series` / :meth:`ArrClient._require_movie` so
+``ArrClient._require_series`` / ``ArrClient._require_movie`` so
 calling a Sonarr method on a Radarr client (or vice versa) raises
-:exc:`ArrKindMismatch` rather than silently issuing the wrong URL shape.
+``ArrKindMismatch`` rather than silently issuing the wrong URL shape.
 
-All outbound calls route through :class:`SafeHTTPClient` for SSRF
+All outbound calls route through ``SafeHTTPClient`` for SSRF
 re-validation, size capping, redirect refusal, and retry/backoff on
-transient errors (429/502/503/504 on GETs; see :class:`SafeHTTPClient`).
+transient errors (429/502/503/504 on GETs; see ``SafeHTTPClient``).
 
-:attr:`last_error` is ``None`` when the last call succeeded and is set
+``last_error`` is ``None`` when the last call succeeded and is set
 to the exception string on failure so UI layers can display a banner
 instead of silently showing a stale queue.
 
-Back-compat: callers import :data:`_ARR_TIMEOUT_SECONDS` and the
+Back-compat: callers import ``_ARR_TIMEOUT_SECONDS`` and the
 exception classes from this module path.  Each name is re-exported
 below.
 """
@@ -75,15 +75,15 @@ class ArrClient(
 ):
     """Spec-driven unified client for Sonarr and Radarr v3 APIs.
 
-    Pass a :class:`~mediaman.services.arr.spec.ArrSpec` (typically
-    :data:`~mediaman.services.arr.spec.SONARR_SPEC` or
-    :data:`~mediaman.services.arr.spec.RADARR_SPEC`) as the first
+    Pass a ``ArrSpec`` (typically
+    ``SONARR_SPEC`` or
+    ``RADARR_SPEC``) as the first
     argument.  The spec determines which service this client speaks to.
 
     All methods from both Sonarr and Radarr are present on this class.
     Methods that are specific to one service kind raise
-    :exc:`ArrKindMismatch` when called on the wrong variant, e.g.
-    calling :meth:`delete_episode_files` on a Radarr client.
+    ``ArrKindMismatch`` when called on the wrong variant, e.g.
+    calling ``delete_episode_files`` on a Radarr client.
     """
 
     def __init__(self, spec: ArrSpec, url: str, api_key: str):
@@ -92,7 +92,6 @@ class ArrClient(
         self.spec = spec
 
     def _require_series(self, method: str) -> None:
-        """Raise :exc:`ArrKindMismatch` if this client is not a Sonarr (series) client."""
         if self.spec.kind != "series":
             raise ArrKindMismatch(
                 f"{method} is only available on series (Sonarr) clients; "
@@ -100,7 +99,6 @@ class ArrClient(
             )
 
     def _require_movie(self, method: str) -> None:
-        """Raise :exc:`ArrKindMismatch` if this client is not a Radarr (movie) client."""
         if self.spec.kind != "movie":
             raise ArrKindMismatch(
                 f"{method} is only available on movie (Radarr) clients; "

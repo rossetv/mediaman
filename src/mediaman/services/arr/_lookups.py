@@ -25,7 +25,6 @@ class _LookupsMixin:
     """
 
     def lookup_by_tmdb_id(self, tmdb_id: int, *, endpoint: str) -> list[ArrLookupResult]:
-        """Return the lookup results for a given TMDB ID."""
         result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
@@ -60,8 +59,8 @@ class _LookupsMixin:
     def is_reachable(self) -> bool:
         """Return True if ``/api/v3/system/status`` responds.
 
-        Catches :exc:`SafeHTTPError` (non-2xx responses) and
-        :exc:`~requests.RequestException` (network/transport errors)
+        Catches ``SafeHTTPError`` (non-2xx responses) and
+        ``RequestException`` (network/transport errors)
         only — not the broad ``Exception`` which would swallow
         ``SystemExit``, ``KeyboardInterrupt``, and programming errors.
         """

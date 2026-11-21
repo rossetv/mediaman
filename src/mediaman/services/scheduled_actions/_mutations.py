@@ -22,10 +22,6 @@ from mediaman.core.scheduled_action_kinds import (
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.scheduled_actions._types import VerifiedKeepAction
 
-# ---------------------------------------------------------------------------
-# Date / duration parsing
-# ---------------------------------------------------------------------------
-
 
 def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     """Parse a stored ``execute_at`` string and return a tz-aware UTC datetime.
@@ -34,7 +30,7 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     unparseable, or otherwise invalid — this is the same fallback the
     keep routes used inline before extraction.
 
-    Delegates to :func:`mediaman.core.time.parse_iso_strict_utc`, which
+    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, which
     preserves the previous inline ``datetime.fromisoformat`` behaviour
     exactly: any value that the old code treated as "unparseable →
     expired" still is.  Naive datetimes are stamped UTC.
@@ -45,7 +41,7 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
 
 
 def is_pending_unexpired(verified: VerifiedKeepAction, now: datetime) -> bool:
-    """Confirm a :class:`VerifiedKeepAction` is still actionable.
+    """Confirm a ``VerifiedKeepAction`` is still actionable.
 
     Returns ``True`` only when the row is a pending
     ``scheduled_deletion`` (delete_status null or "pending") whose
@@ -60,11 +56,6 @@ def is_pending_unexpired(verified: VerifiedKeepAction, now: datetime) -> bool:
         return False
     delete_status_val = verified.delete_status
     return delete_status_val in (None, "pending")
-
-
-# ---------------------------------------------------------------------------
-# Mutating helpers — guarded UPDATEs
-# ---------------------------------------------------------------------------
 
 
 def apply_keep_snooze(
@@ -108,7 +99,7 @@ def apply_keep_forever(
 ) -> int:
     """Apply a forever-keep to a ``scheduled_deletion`` row.
 
-    Same guards as :func:`apply_keep_snooze`: action, delete_status,
+    Same guards as ``apply_keep_snooze``: action, delete_status,
     token_used and execute_at all checked atomically.  Returns the
     rowcount (0 means nothing happened — caller should respond 409).
     """

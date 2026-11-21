@@ -39,11 +39,11 @@ def format_added_display(raw_added: object) -> str:
     """Format a stored ``added_at`` value for display on the keep page.
 
     Renders as ``"5 May 2026"``-style text via the platform-safe
-    :func:`format_day_month` helper.  Falls back to the first ten
+    ``format_day_month`` helper.  Falls back to the first ten
     characters of the raw string when parsing fails so the template
     still has *something* to render.
 
-    Delegates to :func:`mediaman.core.time.parse_iso_strict_utc`, which
+    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, which
     preserves the previous inline ``datetime.fromisoformat`` behaviour
     exactly: any value that the old code would have routed to the
     string-slice fallback still does.

@@ -1,8 +1,8 @@
 """Module-level in-memory throttle state, lock, backoff constants, and helpers.
 
 All mutable per-item and per-arr-instance state lives here so it can be
-imported by both :mod:`mediaman.services.arr.search_trigger` (decision
-logic) and :mod:`mediaman.services.arr._throttle_persistence` (DB layer)
+imported by both ``mediaman.services.arr.search_trigger`` (decision
+logic) and ``mediaman.services.arr._throttle_persistence`` (DB layer)
 without introducing a circular dependency.
 
 State summary:
@@ -14,7 +14,7 @@ State summary:
 * ``_last_search_trigger_by_arr`` — ``service`` (``"radarr"``/``"sonarr"``)
   → ``(epoch, dl_id)`` of the last trigger for that whole arr instance. This
   is the per-arr-instance fan-out cap: a search is skipped if *another* item
-  on the same instance fired within :data:`_PER_ARR_THROTTLE_SECONDS`. The
+  on the same instance fired within ``_PER_ARR_THROTTLE_SECONDS``. The
   stored ``dl_id`` lets the cap distinguish two cases that must behave
   differently: a *different* dl_id within the window is blocked (caps fan-out
   across distinct items, and closes the title-rename bypass — a renamed
@@ -23,7 +23,7 @@ State summary:
 * ``_state_lock`` — threading.Lock guarding all four dicts above.
 
 All names in this module are re-exported verbatim from
-:mod:`mediaman.services.arr.search_trigger` so existing import paths
+``mediaman.services.arr.search_trigger`` so existing import paths
 and test monkeypatch targets continue to work.
 """
 
@@ -32,8 +32,6 @@ from __future__ import annotations
 import threading
 
 from mediaman.core.backoff import ExponentialBackoff
-
-# ---- Persisted/in-memory throttle state ----
 
 # Maps dl_id -> epoch seconds of last trigger.
 _last_search_trigger: dict[str, float] = {}
@@ -58,7 +56,7 @@ _reservation_tokens: dict[str, str] = {}
 # title-rename bypass (a renamed item presents a fresh dl_id). The stored dl_id
 # is what lets the *same* item keep advancing along its own per-item backoff.
 #
-# §1.12: this is best-effort, in-process, single-worker state — it is NOT
+# This is best-effort, in-process, single-worker state — it is NOT
 # persisted to SQLite and resets to empty on restart (the cap simply re-warms
 # over the next window). The dict is naturally tiny — one entry per configured
 # arr instance, not per library item — and is popped by ``clear_throttle``, so
@@ -70,8 +68,6 @@ _last_search_trigger_by_arr: dict[str, tuple[float, str]] = {}
 # and _last_search_trigger_by_arr.
 _state_lock = threading.Lock()
 
-
-# ---- Backoff configuration ----
 
 # Per-item exponential backoff. interval(n) = base * 2^max(n-1, 0), clamped.
 # n is the number of fires already completed for this dl_id; the gate uses it
@@ -87,9 +83,6 @@ _SEARCH_BACKOFF = ExponentialBackoff(
 )
 
 
-# ---- Internal helpers ----
-
-
 def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
     """Return the wait in seconds before the next fire is allowed.
 
@@ -100,7 +93,7 @@ def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: fl
     The seed encodes ``(dl_id, last_triggered_at)`` — the ``!r`` formatting
     of the float is deliberate and part of the determinism contract: it
     produces a consistent representation across platforms and Python versions,
-    unlike bare ``str(float)``.  See :class:`~mediaman.core.backoff.ExponentialBackoff`
+    unlike bare ``str(float)``.  See ``ExponentialBackoff``
     for why determinism is load-bearing here.
 
     Tests neutralise jitter by monkeypatching

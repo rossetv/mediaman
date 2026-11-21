@@ -8,16 +8,16 @@ mediaman pokes Radarr/Sonarr to search for a stalled monitored item.
 What this module owns:
 
 * Module-level in-memory state dicts and the lock guarding them
-  (sourced from :mod:`mediaman.services.arr._throttle_state`).
+  (sourced from ``mediaman.services.arr._throttle_state``).
 * Per-item and per-arr-instance backoff configuration and helpers.
 * SQLite persistence to/from the ``arr_search_throttle`` table
-  (sourced from :mod:`mediaman.services.arr._throttle_persistence`).
+  (sourced from ``mediaman.services.arr._throttle_persistence``).
 * The reconciliation pass that reaps stranded rows after a TTL.
 * Inspection / reset helpers used by the UI and tests.
-* :func:`maybe_trigger_search` — the reservation-token locking discipline
+* ``maybe_trigger_search`` — the reservation-token locking discipline
   and the per-item throttle gate.
-* :func:`trigger_pending_searches` — the scheduler-driven sweep.
-* :func:`_trigger_sonarr_partial_missing` — the second pass for series with
+* ``trigger_pending_searches`` — the scheduler-driven sweep.
+* ``_trigger_sonarr_partial_missing`` — the second pass for series with
   partial episode coverage.
 
 State and persistence helpers are re-exported here at module level so that
@@ -77,8 +77,6 @@ from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 logger = logging.getLogger(__name__)
 
 
-# ---- Backoff configuration (non-backoff constants kept here) ----
-
 _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
 
 # Per-arr-instance serialiser: don't fire more than one search per Radarr/Sonarr
@@ -87,17 +85,14 @@ _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
 _PER_ARR_THROTTLE_SECONDS = 15 * 60
 
 
-# ---- Public API: trigger decision ----
-
-
 @dataclass(frozen=True, slots=True)
 class _TriggerInputs:
-    """The coerced, guard-cleared inputs :func:`maybe_trigger_search` needs.
+    """The coerced, guard-cleared inputs ``maybe_trigger_search`` needs.
 
-    Produced by :func:`_parse_trigger_inputs` only when every cheap
+    Produced by ``_parse_trigger_inputs`` only when every cheap
     pre-lock guard has passed. ``now`` is captured once here and threaded
     through the lock phase and the commit phase so all three observe an
-    identical timestamp — exactly as the original inline preamble did.
+    identical timestamp.
     """
 
     dl_id: str
@@ -115,10 +110,9 @@ def _parse_trigger_inputs(
 
     Returns ``None`` (skip — do not trigger) when the item is upcoming,
     matched to an NZBGet entry, has no ``secret_key``, has no ``arr_id``,
-    was added less than :data:`_SEARCH_STALE_SECONDS` ago, or has an
+    was added less than ``_SEARCH_STALE_SECONDS`` ago, or has an
     unrecognised ``kind``. This is the input-coercion preamble of
-    :func:`maybe_trigger_search`, lifted verbatim — it touches no shared
-    state and acquires no lock.
+    ``maybe_trigger_search``; it touches no shared state and acquires no lock.
     """
     if item.get("is_upcoming"):
         return None
@@ -170,9 +164,7 @@ def _commit_or_rollback_reservation(
     float-equality on ``now`` could either silently no-op our rollback
     (if the sibling stamped a newer ``now``) or drop the sibling's
     reservation. With the token, we either restore our prior value or
-    quietly defer to whoever beat us to the slot. Lifted verbatim from
-    the original ``finally`` block of :func:`maybe_trigger_search`; the
-    lock scope is unchanged.
+    quietly defer to whoever beat us to the slot.
     """
     dl_id = inputs.dl_id
     now = inputs.now
@@ -234,7 +226,7 @@ def maybe_trigger_search(
     Locking discipline:
 
     * The input coercion and cheap guards run first, in
-      :func:`_parse_trigger_inputs`, with no lock held.
+      ``_parse_trigger_inputs``, with no lock held.
     * The DB read is performed BEFORE acquiring the lock so that a slow
       SQLite query for one dl_id cannot serialise every other dl_id's
       throttle check across all workers — one blocked read would otherwise
@@ -252,7 +244,7 @@ def maybe_trigger_search(
       longer silently no-op the rollback — the token check distinguishes
       our own attempt from a sibling's fresh reservation that landed
       between our phase-1 reserve and phase-3 rollback.
-    * After the network call :func:`_commit_or_rollback_reservation`
+    * After the network call ``_commit_or_rollback_reservation``
       re-acquires the lock to update memory, and either persists the
       success or rolls back the reservation on failure (phase 3).
     """
@@ -283,7 +275,7 @@ def maybe_trigger_search(
         # dl_id is checked so the *same* item is NOT blocked here — it still
         # advances along its own per-item backoff below (a renamed item presents
         # a fresh dl_id and so is correctly blocked). Best-effort in-process
-        # state (§1.12); see _last_search_trigger_by_arr.
+        # state; see _last_search_trigger_by_arr.
         arr_last_epoch, arr_last_dl_id = _last_search_trigger_by_arr.get(
             inputs.arr_throttle_key, (0.0, "")
         )
@@ -366,21 +358,21 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
 
     Two passes:
 
-    1. Iterate everything :func:`fetch_arr_queue` surfaces — covers every
+    1. Iterate everything ``fetch_arr_queue`` surfaces — covers every
        Radarr movie with no file, and every Sonarr series with zero
        episode files.
     2. Hit Sonarr's ``wanted/missing`` endpoint to catch series that
        already have *some* episodes and are missing others — these are
        filtered out of pass 1 by the ``episodeFileCount > 0`` guard in
-       :func:`fetch_arr_queue`.
+       ``fetch_arr_queue``.
 
     Reuses the per-item throttle and ``arr_id == 0`` gate inside
-    :func:`maybe_trigger_search`, so already-queued items and
+    ``maybe_trigger_search``, so already-queued items and
     recently-searched items are skipped automatically.
 
     Args:
         conn: Open SQLite connection with ``row_factory`` set to
-            :class:`sqlite3.Row`.
+            ``sqlite3.Row``.
         secret_key: Application secret used to decrypt stored Radarr/Sonarr
             API keys.
     """
@@ -401,7 +393,7 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         maybe_trigger_search(conn, item, matched_nzb=False, secret_key=secret_key)
         try:
             maybe_auto_abandon(conn, secret_key, item=item, now=now)
-        except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
+        except Exception:  # rationale: scheduler must survive a single bad row
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
             )

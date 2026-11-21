@@ -5,7 +5,7 @@ runs *before* a deletion touches the filesystem: resolving each configured
 root to its canonical form, refusing forbidden top-level paths, and the
 atomic ``O_NOFOLLOW`` symlink check that closes the TOCTOU window. The
 disk-usage / deletion *operations* that consume these validated roots live
-in :mod:`.deletion` and :mod:`.disk_usage`.
+in ``deletion`` and ``disk_usage``.
 
 Threat model: a buggy or compromised Plex part-path must never be able to
 escalate a routine cleanup into a system-wide ``rmtree``. The first line of
@@ -28,14 +28,14 @@ class PathSafetyError(Exception):
     Raised when the allowlist is malformed (e.g. an entry is empty,
     relative, a symlink, or matches a forbidden top-level path), or when
     a deletion target violates the strict-descendant / same-device /
-    no-symlink rules. Distinct from :class:`ValueError` so a generic
+    no-symlink rules. Distinct from ``ValueError`` so a generic
     ``except ValueError`` cannot catch a security refusal — callers that
     want to surface a refusal in the UI must catch this type explicitly.
     """
 
 
 class DeletionRefused(PathSafetyError):
-    """Raised by :func:`delete_path` (and helpers) when a deletion is refused.
+    """Raised by ``delete_path`` (and helpers) when a deletion is refused.
 
     Used uniformly for every safety check during the deletion path:
     invalid allowlist, target not under any allowed root, target is a
@@ -91,7 +91,7 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
 
 
 def _resolve_root_candidate(raw: str) -> Path:
-    """Resolve ``raw`` to its canonical form, raising :class:`DeletionRefused` on error.
+    """Resolve ``raw`` to its canonical form, raising ``DeletionRefused`` on error.
 
     The resolve runs before any forbidden-root check so paths like
     ``/data/..`` (which resolves to ``/``) are caught regardless of
@@ -127,7 +127,7 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
 
     Uses ``os.path.lexists`` (does NOT follow the final symlink) rather than
     ``Path.exists`` (which does): a *broken* symlink root reports
-    ``exists() == False`` but is still a symlink we must reject (L5), so the
+    ``exists() == False`` but is still a symlink we must reject, so the
     follow-based check would otherwise skip it and let a dangling
     ``/media -> /nonexistent`` slip through the symlink-rejection invariant.
     """
@@ -173,7 +173,7 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
 def _validate_single_root(raw: str) -> Path:
     """Resolve and sanity-check a single delete-root entry.
 
-    Returns the resolved :class:`Path`, or raises :class:`DeletionRefused`
+    Returns the resolved ``Path``, or raises ``DeletionRefused``
     if the entry is empty / not a string, relative, a forbidden
     system-root path, or a symlink.
     """
@@ -200,9 +200,9 @@ def _validate_single_root(raw: str) -> Path:
 def _validate_delete_roots(roots: list[str]) -> list[Path]:
     """Resolve and sanity-check the configured delete-root allowlist.
 
-    Returns the list of resolved root paths, or raises :class:`DeletionRefused`
+    Returns the list of resolved root paths, or raises ``DeletionRefused``
     if any root is empty, relative, a symlink, or matches one of the
-    well-known top-level system directories in :data:`_FORBIDDEN_ROOTS`.
+    well-known top-level system directories in ``_FORBIDDEN_ROOTS``.
 
     The resolved-path check runs against the **resolved** form so an
     attacker who manages to set ``delete_allowed_roots = ["/data/.."]``

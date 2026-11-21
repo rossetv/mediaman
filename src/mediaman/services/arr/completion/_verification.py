@@ -1,9 +1,9 @@
 """Arr-library verification helpers for completed download records.
 
-Owns the call-scoped index (:class:`_ArrLibraryIndex`), the per-item
-verification predicate (:func:`_check_item_verified`), the batch DB
-insert (:func:`_batch_insert_completions`), and the public entry point
-(:func:`record_verified_completions`).
+Owns the call-scoped index (``_ArrLibraryIndex``), the per-item
+verification predicate (``_check_item_verified``), the batch DB
+insert (``_batch_insert_completions``), and the public entry point
+(``record_verified_completions``).
 
 Kept separate from the sync/persistence helpers so verification logic
 (which depends on Radarr/Sonarr HTTP) is independently testable and
@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 class _ArrLibraryIndex:
     """Lazy-loaded, call-scoped index of Radarr/Sonarr libraries.
 
-    Fetches each service's library at most once per :func:`record_verified_completions`
+    Fetches each service's library at most once per ``record_verified_completions``
     call and indexes by tmdbId + title for O(1) lookups.  ``None`` signals
     "not yet fetched"; an empty dict means "fetched, nothing found".
 
-    Use :meth:`radarr_by_id` / :meth:`radarr_by_title` / :meth:`sonarr_by_id` /
-    :meth:`sonarr_by_title` to access indexes — each calls the appropriate
+    Use ``radarr_by_id`` / ``radarr_by_title`` / ``sonarr_by_id`` /
+    ``sonarr_by_title`` to access indexes — each calls the appropriate
     ``ensure_*`` method and returns a non-optional dict.
     """
 
@@ -79,31 +79,27 @@ class _ArrLibraryIndex:
         self._sonarr_by_id, self._sonarr_by_title = by_id, by_title
 
     def radarr_index_by_id(self) -> dict[int, RadarrMovie]:
-        """Return the Radarr-by-tmdbId index, fetching it if not yet loaded."""
         self.ensure_radarr()
         # ensure_radarr post-condition: both indexes are set together. An
         # explicit raise (not assert) so the invariant holds under ``-O``,
-        # where asserts are stripped — §6.1 (AssertionError is not a domain error).
+        # where asserts are stripped (AssertionError is not a domain error).
         if self._radarr_by_id is None:
             raise ArrError("Radarr index requested before ensure_radarr populated it")
         return self._radarr_by_id
 
     def radarr_index_by_title(self) -> dict[str, RadarrMovie]:
-        """Return the Radarr-by-title index, fetching it if not yet loaded."""
         self.ensure_radarr()
         if self._radarr_by_title is None:
             raise ArrError("Radarr index requested before ensure_radarr populated it")
         return self._radarr_by_title
 
     def sonarr_index_by_id(self) -> dict[int, SonarrSeries]:
-        """Return the Sonarr-by-tmdbId index, fetching it if not yet loaded."""
         self.ensure_sonarr()
         if self._sonarr_by_id is None:
             raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_id
 
     def sonarr_index_by_title(self) -> dict[str, SonarrSeries]:
-        """Return the Sonarr-by-title index, fetching it if not yet loaded."""
         self.ensure_sonarr()
         if self._sonarr_by_title is None:
             raise ArrError("Sonarr index requested before ensure_sonarr populated it")
@@ -154,7 +150,6 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
 def _batch_insert_completions(
     conn: sqlite3.Connection, to_insert: list[tuple[str, str, str, str]]
 ) -> None:
-    """Insert verified completion rows in a single batch commit."""
     if not to_insert:
         return
     try:
@@ -189,7 +184,7 @@ def record_verified_completions(
     O(1) by ID.  A title-only fallback is used when no ``tmdb_id`` is
     present on the completed item (older entries, NZB-only grabs).  The
     fallback logs a WARNING because two same-titled releases would be
-    silently merged on that path; once :func:`detect_completed` reliably
+    silently merged on that path; once ``detect_completed`` reliably
     propagates ``tmdb_id`` from the queue snapshot, the fallback
     becomes vanishingly rare.
     """

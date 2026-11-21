@@ -13,25 +13,24 @@ guard against that:
 * **Forbidden-root allowlist refusal** — a deletion never starts unless the
   configured ``delete_allowed_roots`` allowlist is well-formed: absolute,
   non-symlink, and not pointing at a system / mount-root directory
-  (:mod:`._delete_roots`).
+  (``_delete_roots``).
 * **Strict-descendant + same-device + no-symlink rules at delete time** — the
   target is re-resolved and re-checked, pinned to the root's filesystem
   device, and walked with fd-based ``os.fwalk(follow_symlinks=False)`` so a
-  TOCTOU symlink swap cannot redirect the deletion (:mod:`.deletion`).
+  TOCTOU symlink swap cannot redirect the deletion (``deletion``).
 
 Package layout
 --------------
-The former single ``storage.py`` decomposes along the seam the
-``services-infra`` audit named:
+The package is split into:
 
-* :mod:`._delete_roots` — the path-safety exception hierarchy
-  (:class:`PathSafetyError`, :class:`DeletionRefused`), :data:`_FORBIDDEN_ROOTS`,
+* ``_delete_roots`` — the path-safety exception hierarchy
+  (``PathSafetyError``, ``DeletionRefused``), ``_FORBIDDEN_ROOTS``,
   and the allowlist *validation* helpers.
-* :mod:`.deletion` — the destructive operation :func:`delete_path` (its
+* ``deletion`` — the destructive operation ``delete_path`` (its
   private recursive remover ``_safe_rmtree`` is intentionally not exported;
   ``delete_path`` is the only public way to trigger a deletion).
-* :mod:`.disk_usage` — the read-only queries :func:`get_aggregate_disk_usage`
-  and :func:`get_directory_size`.
+* ``disk_usage`` — the read-only queries ``get_aggregate_disk_usage``
+  and ``get_directory_size``.
 
 This module is the public barrel: every name previously importable from
 ``mediaman.services.infra.storage`` (including the private helpers and

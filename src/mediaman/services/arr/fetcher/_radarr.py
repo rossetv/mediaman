@@ -1,5 +1,3 @@
-"""Radarr queue fetch logic."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -22,7 +20,6 @@ from mediaman.services.downloads.download_format import (
 
 
 def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
-    """Phase 1: build one card per Radarr download-queue entry."""
     items: list[ArrCard] = []
     for q in client.get_queue():
         movie = q.get("movie") or {}

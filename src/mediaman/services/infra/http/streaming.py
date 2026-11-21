@@ -2,7 +2,7 @@
 
 Responsibility
 --------------
-Read a :class:`requests.Response` body in chunks and enforce two safety
+Read a ``requests.Response`` body in chunks and enforce two safety
 properties before returning the buffered bytes:
 
 1. **Size cap** — abort if the accumulated body would exceed ``max_bytes``.
@@ -13,14 +13,14 @@ properties before returning the buffered bytes:
 2. **Content-type validation** — when the caller supplies
    ``expected_content_type``, the response ``Content-Type`` header (stripped
    of parameters, lowercased) must start with that value.  A mismatch raises
-   :class:`_ContentTypeMismatch` before any body is read, preventing a
+   ``_ContentTypeMismatch`` before any body is read, preventing a
    misconfigured upstream from smuggling HTML or binary data into a JSON
    path.
 
 Both errors are signalled via private exception classes
-(:class:`_SizeCapExceeded`, :class:`_ContentTypeMismatch`) so the caller
-(the retry loop in :mod:`~mediaman.services.infra.http.retry`) can map them
-to :class:`~mediaman.services.infra.http.client.SafeHTTPError` with the
+(``_SizeCapExceeded``, ``_ContentTypeMismatch``) so the caller
+(the retry loop in ``retry``) can map them
+to ``SafeHTTPError`` with the
 appropriate status code and URL context.
 
 Invariants
@@ -42,11 +42,11 @@ import requests
 
 
 class _SizeCapExceeded(Exception):
-    """Internal signal that the streamed body breached the byte cap."""
+    pass
 
 
 class _ContentTypeMismatch(Exception):
-    """Internal signal that the response ``Content-Type`` was unexpected."""
+    pass
 
 
 def _read_capped(
@@ -64,7 +64,7 @@ def _read_capped(
     When *expected_content_type* is non-``None``, the response's
     ``Content-Type`` header (case-insensitive, parameter-stripped) is
     matched against it before any body is read.  A mismatch raises
-    :class:`_ContentTypeMismatch`.  The match is a prefix on the
+    ``_ContentTypeMismatch``.  The match is a prefix on the
     ``type/subtype`` portion so ``"application/json"`` matches both
     ``"application/json"`` and ``"application/json; charset=utf-8"``.
     A response advertising ``Content-Encoding`` other than ``identity``
@@ -107,7 +107,7 @@ def _read_capped(
             continue
         # Check *before* extending so the buffer never exceeds the cap even
         # momentarily — the previous extend-then-check left a peak of
-        # ``max_bytes + chunk_size`` (L4, soft-cap overage).
+        # ``max_bytes + chunk_size``.
         if len(buf) + len(chunk) > max_bytes:
             raise _SizeCapExceeded(f"response body exceeded cap of {max_bytes} bytes")
         buf.extend(chunk)

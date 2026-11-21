@@ -1,9 +1,7 @@
 """Unified reader for DB-backed settings.
 
-Every route and scanner helper used to re-implement the same
-decrypt-then-JSON-unwrap pattern around the ``settings`` table. This
-module is the single home for that logic so fixes (e.g. consistent
-handling of encrypt/decrypt failures) only need to be made once.
+The single home for the decrypt-then-JSON-unwrap logic around the
+``settings`` table, so handling of encrypt/decrypt failures is consistent.
 """
 
 from __future__ import annotations
@@ -68,17 +66,17 @@ def get_setting(
       likely cause is a rotated secret key, which should not crash the
       whole app.
 
-    Return-type caveat (M9): the return type is the **JSON-decoded** type,
+    Return-type caveat: the return type is the **JSON-decoded** type,
     not necessarily a ``str``. A stored value that happens to be valid JSON
     is parsed — so an all-digit credential stored as ``"12345678"`` comes
     back as the ``int`` ``12345678``, and ``"true"`` comes back as a
     ``bool``. Any caller that needs a string (especially a credential /
     API-key field, which can be all-digits) must read it through
-    :func:`get_string_setting`, which coerces the result back to ``str``;
+    ``get_string_setting``, which coerces the result back to ``str``;
     never call ``.strip()`` or other ``str`` methods on a bare
     ``get_setting`` result for such a field.
 
-    Raises :exc:`ConfigDecryptError` when the row is encrypted but no
+    Raises ``ConfigDecryptError`` when the row is encrypted but no
     ``secret_key`` was supplied. Returning the *default* in that case
     silently hides a deployment misconfiguration: an operator that
     forgot to set their secret key would see all their saved
@@ -182,7 +180,7 @@ def get_string_setting(
     secret_key: str | None = None,
     default: str = "",
 ) -> str:
-    """Return a string setting. Wraps :func:`get_setting` and coerces to str."""
+    """Return a string setting. Wraps ``get_setting`` and coerces to str."""
     value = get_setting(conn, key, secret_key=secret_key, default=default)
     if value is None:
         return default
