@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -51,6 +52,10 @@ def cli_main() -> None:
     except SchemaTooOldError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
+    except sqlite3.Error:
+        # Unreadable here (not writable, corrupt, a directory): let the
+        # lifespan report it with its own message.
+        pass
 
     app = create_app()
 

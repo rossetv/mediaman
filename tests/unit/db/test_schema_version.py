@@ -95,3 +95,39 @@ def test_check_schema_version_refuses_an_old_wal_database_without_changing_it(db
 
     # SQLite may leave empty -wal/-shm files beside a WAL database it reads.
     assert db_path.read_bytes() == before
+
+
+def _hot_journal_db(path, version: int) -> None:
+    """Leave ``path`` as a crash would: a rollback-mode file with a hot -journal."""
+    src = path.parent / "src.db"
+    conn = sqlite3.connect(src, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("CREATE TABLE admin_users (id INTEGER PRIMARY KEY, username TEXT)")
+    conn.execute("INSERT INTO admin_users (username) VALUES ('admin')")
+    conn.execute(f"PRAGMA user_version={version}")
+    conn.execute("PRAGMA cache_size=1")
+    conn.execute("BEGIN")
+    conn.execute("CREATE TABLE junk (x)")
+    conn.executemany("INSERT INTO junk VALUES (?)", [("x" * 500,)] * 2000)
+    conn.execute("UPDATE admin_users SET username='changed'")
+    path.write_bytes(src.read_bytes())
+    (path.parent / f"{path.name}-journal").write_bytes(
+        (path.parent / "src.db-journal").read_bytes()
+    )
+    conn.close()
+
+
+def test_a_version_zero_database_with_a_hot_journal_opens(db_path):
+    _hot_journal_db(db_path, 0)
+    assert (db_path.parent / f"{db_path.name}-journal").stat().st_size > 0
+
+    conn = connection.init_db(str(db_path))
+
+    assert conn.execute("SELECT username FROM admin_users").fetchone()[0] == "admin"
+
+
+def test_a_version_35_database_with_a_hot_journal_is_still_refused(db_path):
+    _hot_journal_db(db_path, 35)
+
+    with pytest.raises(connection.SchemaTooOldError, match="version 35"):
+        connection.init_db(str(db_path))

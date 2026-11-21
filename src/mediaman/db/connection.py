@@ -101,9 +101,11 @@ def init_db(db_path: str) -> sqlite3.Connection:
         SchemaTooOldError: The database was last upgraded to a schema
             before v36. Nothing is written to it.
     """
-    check_schema_version(db_path)
     conn = sqlite3.connect(db_path)
     try:
+        # Read before _configure_connection or the DDL, so a refused file is
+        # not changed. Read-write, so a leftover rollback journal is replayed.
+        _refuse_old_schema(db_path, conn.execute("PRAGMA user_version").fetchone()[0])
         _configure_connection(conn)
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
