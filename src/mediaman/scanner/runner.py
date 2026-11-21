@@ -43,6 +43,13 @@ DAY_SETTING_RANGES: dict[str, tuple[int, int]] = {
     "grace_days": (1, 90),
 }
 
+# Value used when a day setting is missing or cannot be read.
+DAY_SETTING_DEFAULTS: dict[str, int] = {
+    "min_age_days": 30,
+    "inactivity_days": 30,
+    "grace_days": 14,
+}
+
 
 def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
     """Return a cleanup day setting held to its allowed range.
@@ -338,9 +345,11 @@ def run_scan_from_db(
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
 
-    min_age = get_day_setting(conn, "min_age_days", default=30)
-    inactivity = get_day_setting(conn, "inactivity_days", default=30)
-    grace = get_day_setting(conn, "grace_days", default=14)
+    min_age = get_day_setting(conn, "min_age_days", default=DAY_SETTING_DEFAULTS["min_age_days"])
+    inactivity = get_day_setting(
+        conn, "inactivity_days", default=DAY_SETTING_DEFAULTS["inactivity_days"]
+    )
+    grace = get_day_setting(conn, "grace_days", default=DAY_SETTING_DEFAULTS["grace_days"])
     dry_run = repository.read_setting(conn, "dry_run") == "true"
 
     engine = ScanEngine(

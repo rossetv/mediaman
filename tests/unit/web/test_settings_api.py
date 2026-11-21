@@ -916,6 +916,21 @@ class TestSettingsPageDayValues:
             90,
         )
 
+    def test_page_shows_the_scanner_default_for_an_unreadable_day_value(
+        self, app_factory, authed_client, conn, templates_stub
+    ):
+        insert_settings(conn, min_age_days="abc", inactivity_days="", grace_days="x")
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        client = authed_client(app, conn)
+
+        shown = client.get("/settings").json()["settings"]
+
+        assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
+            30,
+            30,
+            14,
+        )
+
     def test_page_leaves_stored_day_rows_untouched(
         self, app_factory, authed_client, conn, templates_stub
     ):

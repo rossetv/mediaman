@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.scanner.runner import DAY_SETTING_RANGES, get_day_setting
+from mediaman.scanner.runner import DAY_SETTING_DEFAULTS, DAY_SETTING_RANGES, get_day_setting
 from mediaman.services.arr.build import (
     build_plex_from_db as build_plex_from_db,  # re-exported for flat-import back-compat
 )
@@ -150,7 +150,9 @@ def settings_page(request: Request) -> Response:
     # Show the value the scanner uses so a saved out-of-range row doesn't fail validation.
     for day_key in DAY_SETTING_RANGES:
         if day_key in settings:
-            settings[day_key] = get_day_setting(conn, day_key, default=0)
+            settings[day_key] = get_day_setting(
+                conn, day_key, default=DAY_SETTING_DEFAULTS[day_key]
+            )
 
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
