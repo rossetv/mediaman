@@ -23,7 +23,7 @@ import ipaddress
 import logging
 import os
 from collections.abc import Mapping
-from ipaddress import IPv4Network, IPv6Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Protocol
 
 
@@ -133,11 +133,22 @@ def clear_cache() -> None:
     _cloudflare_proxies_cached.cache_clear()
 
 
+def unmap_ipv4(addr: IPv4Address | IPv6Address) -> IPv4Address | IPv6Address:
+    """Return the IPv4 address inside an IPv4-mapped IPv6 one, else *addr* itself.
+
+    A dual-stack bind hands IPv4 clients over as ``::ffff:a.b.c.d``; without
+    this they would all fall in one IPv6 bucket and never match IPv4 proxies.
+    """
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
 def _ip_in_networks(ip: str, networks: list[IPv4Network | IPv6Network]) -> bool:
     if not ip or not networks:
         return False
     try:
-        addr = ipaddress.ip_address(ip)
+        addr = unmap_ipv4(ipaddress.ip_address(ip))
     except ValueError:
         return False
     return any(addr in net for net in networks)
