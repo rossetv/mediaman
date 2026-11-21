@@ -26,7 +26,7 @@ _DELETED_AT = (_NOW - timedelta(days=2)).isoformat()
 _REDOWNLOAD_AT = (_NOW - timedelta(days=1)).isoformat()
 
 
-class TestF01RedownloadFilterWorks:
+class TestRedownloadFilterWorks:
     """_build_redownload_index must key by media_item_id / plex_rating_key
     so that re-downloaded items are correctly excluded from the deleted-items list.
     """
@@ -146,7 +146,7 @@ class TestF01RedownloadFilterWorks:
         )
 
 
-class TestF07EmptyRecipientsNotFallthrough:
+class TestEmptyRecipientsNotFallthrough:
     """Passing recipients=[] must send to nobody, not to all subscribers."""
 
     _PATCH_STORAGE = "mediaman.services.infra.storage.get_aggregate_disk_usage"
