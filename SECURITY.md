@@ -16,23 +16,26 @@ We aim to acknowledge reports within five working days and to coordinate a fix a
 
 ## Supported versions
 
-mediaman is a single-tracked project; security fixes land on `main` and the latest tagged release. There are no long-term support branches.
+mediaman has no versioned releases. Security fixes land on `main`, and CI publishes each `main` build as the `rossetv/mediaman:latest` Docker image. Only the latest image is supported; there are no long-term support branches.
 
 ## Scope
 
 Anything in this repository is in scope, including:
 
-- Authentication, session handling, and password storage (`src/mediaman/auth/`).
-- Token signing, encryption, and key derivation (`src/mediaman/security/`, anything that consumes `MEDIAMAN_SECRET_KEY`).
+- Authentication, session handling, and password storage (`src/mediaman/web/auth/`).
+- Token signing, encryption, and key derivation (`src/mediaman/crypto/`, anything that consumes `MEDIAMAN_SECRET_KEY`).
 - Web request handling and route input validation (`src/mediaman/web/`).
 - Filesystem operations performed during deletion or scanning.
 - Outbound integrations (Plex, Sonarr, Radarr, NZBGet, Mailgun, TMDB, OMDb, OpenAI).
 
 Out of scope:
 
-- Self-inflicted misconfiguration (e.g. running with a weak `MEDIAMAN_SECRET_KEY`, exposing the admin port to the public internet without a reverse proxy, granting `:rw` mounts to roots not in `MEDIAMAN_DELETE_ROOTS`).
+- Self-inflicted misconfiguration (e.g. running with a weak `MEDIAMAN_SECRET_KEY`, exposing the admin port to the public internet without a reverse proxy, mounting media read-write outside the configured delete roots).
 - Vulnerabilities in third-party services we integrate with — please report those upstream.
 
-## Hardening notes
+## Known limitations
 
-The `Security` section of `README.md` documents the cryptographic primitives, password policy, and known limitations (e.g. `'unsafe-inline'` in CSP, in-process token blacklist requiring single-worker operation). Please skim it before reporting — known limitations are tracked there rather than treated as new findings.
+These are by design, not findings:
+
+- mediaman must run as a single process. It refuses to start when `MEDIAMAN_WORKERS`, `UVICORN_WORKERS` or `WORKERS` is above 1.
+- The Content Security Policy still allows inline `style` attributes (`style-src-attr 'unsafe-inline'`). Scripts are restricted to same-origin files and per-request nonces.

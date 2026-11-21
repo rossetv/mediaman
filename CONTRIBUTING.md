@@ -9,47 +9,54 @@ Thanks for your interest. mediaman is a small self-hosted project; contributions
 
 ## Development setup
 
-mediaman targets Python 3.12 (see `.python-version`).
+mediaman targets Python 3.12 (see `.python-version`). The tests also need Node.js on your `PATH`: one test runs `node --check` over every file in `src/mediaman/web/static/js/`.
 
 ```bash
 git clone https://github.com/rossetv/mediaman.git
 cd mediaman
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pre-commit install   # optional but strongly recommended — see below
 ```
 
-The full quick-start (Docker, environment variables, first-admin creation) lives in the [Development section of `README.md`](README.md#development).
+[`README.md`](README.md) covers running the app: the Docker image, environment variables and creating the first admin.
 
 ## Required local checks
 
-CI rejects PRs that fail any of the following. The `Makefile` wraps the canonical incantations:
+CI rejects PRs that fail any check below. `make check` runs them all, in CI's configuration:
 
 ```bash
-make test        # pytest -q
-make lint        # ruff check
-make format      # ruff format (rewrites files)
-make typecheck   # mypy
+make check
 ```
 
-Or run all checks at once:
+Each check is also its own target:
 
 ```bash
-make test && make lint && make typecheck
+make test          # pytest with coverage (the floor is in pyproject.toml), parallel
+make lint          # ruff check
+make format-check  # ruff format --check
+make typecheck     # mypy src/mediaman
+make bandit        # bandit security scan
+make audit         # pip-audit on requirements.lock
+make format        # ruff format (rewrites files)
 ```
 
-If you want format violations to be caught before commit instead of in CI, install the pre-commit hooks:
+`make bandit` and `make audit` need `bandit` and `pip-audit`, which are not in the `dev` extra: `pip install bandit pip-audit`.
+
+When you change a dependency in `pyproject.toml`, regenerate the lock with `bash scripts/pin-lock.sh` and commit it; CI fails if the lock no longer matches.
+
+To catch format and lint problems before each commit, install the pre-commit hooks:
 
 ```bash
+pip install pre-commit
 pre-commit install
 ```
 
-The hooks run `ruff format` and `ruff check --fix` on staged files. They do not run `mypy` (it's slow); CI does.
+The hooks run `ruff format` and `ruff check --fix` on staged files. They do not run `mypy`; CI does.
 
 ## Coding standards
 
-- Follow the conventions already present in the file you are editing — naming, import ordering, docstring style.
-- Public functions, classes, and modules should have docstrings explaining *what* they do, *why* they exist, and any non-obvious behaviour. Prefer clear names over comments.
+- Follow the conventions already present in the file you are editing — naming and import ordering.
+- Prefer clear names over comments. Write a docstring or comment only for a why the code cannot show: a security reason, a non-obvious invariant, an external quirk. Do not restate the name or signature.
 - New behaviour needs tests. Bug fixes should include a regression test.
 - Keep changes small and focused. One logical change per PR; one logical change per commit.
 
@@ -66,10 +73,10 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `chore
 ## Pull requests
 
 - Branch from `main` using a topical branch name (e.g. `fix/null-crash`, `feat/keep-link-expiry`).
-- Run `make test && make lint && make typecheck` before pushing.
+- Run `make check` before pushing.
 - Keep the PR description focused on **what** changed and **why**. The diff already shows the *how*.
 - Expect review feedback. The repository sets a high bar for correctness, edge-case handling, and security; PRs that ignore failure paths or skip tests will be sent back.
 
 ## Cleaning up
 
-`make clean` removes local `.coverage`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, and `.mypy_cache` artefacts. Run it before commits if you used `pytest --cov` and want to make sure no coverage data leaks into your working tree.
+`make clean` removes local `.coverage` files and the `__pycache__`, `.pytest_cache`, `.ruff_cache` and `.mypy_cache` directories.
