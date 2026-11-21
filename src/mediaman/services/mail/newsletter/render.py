@@ -55,6 +55,8 @@ def _get_jinja_env() -> Environment | None:
 
 
 def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool) -> str:
+    if not scheduled_items:
+        return "[DRY RUN] Mediaman Weekly Report" if dry_run else "Mediaman Weekly Report"
     total_size_bytes = sum(i["file_size_bytes"] for i in scheduled_items)
     if total_size_bytes >= 1 << 40:
         size_str = f"{total_size_bytes / (1 << 40):.1f} TB"

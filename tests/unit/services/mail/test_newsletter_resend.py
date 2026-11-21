@@ -11,7 +11,12 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import send_newsletter
-from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_subscriber
+from tests.helpers.factories import (
+    insert_media_item,
+    insert_scheduled_action,
+    insert_subscriber,
+    insert_suggestion,
+)
 
 _SECRET_KEY = "0123456789abcdef" * 4
 _DISK = {"total_bytes": 10 << 40, "used_bytes": 5 << 40, "free_bytes": 5 << 40}
@@ -43,12 +48,14 @@ class _Outbox:
 
     def __init__(self) -> None:
         self.sent: Counter[str] = Counter()
+        self.html: dict[str, str] = {}
         self.failing: set[str] = set()
 
     def send(self, *, to: str, subject: str, html: str) -> None:
         if to in self.failing:
             raise SafeHTTPError(status_code=503, body_snippet="down", url="u")
         self.sent[to] += 1
+        self.html[to] = html
 
     def scan(self, conn) -> None:
         mailgun = MagicMock()
@@ -106,3 +113,44 @@ def test_a_failed_send_does_not_erase_an_earlier_success_for_the_same_item(conn)
     outbox.scan(conn)
     assert _notified(conn, first) == 1
     assert _notified(conn, second) == 1
+
+
+def test_a_subscriber_already_served_still_gets_new_recommendations_without_the_old_item(conn):
+    _queue(conn, "OldMovie")
+    outbox = _Outbox()
+    outbox.failing = {"bob@example.com"}
+    outbox.scan(conn)  # alice and carol get OldMovie; bob keeps failing
+
+    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+    outbox.scan(conn)
+
+    assert outbox.sent["alice@example.com"] == 2
+    assert "FreshPick" in outbox.html["alice@example.com"]
+    assert "OldMovie" not in outbox.html["alice@example.com"]
+
+
+def test_a_subscriber_already_served_gets_nothing_when_there_is_nothing_new(conn):
+    _queue(conn, "OldMovie")
+    outbox = _Outbox()
+    outbox.failing = {"bob@example.com"}
+    outbox.scan(conn)
+
+    outbox.scan(conn)
+
+    assert outbox.sent["alice@example.com"] == 1
+    assert outbox.sent["carol@example.com"] == 1
+
+
+def test_items_are_marked_notified_once_the_last_subscriber_is_reached(conn):
+    action_id = _queue(conn, "OldMovie")
+    outbox = _Outbox()
+    outbox.failing = {"bob@example.com"}
+    outbox.scan(conn)
+    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+
+    outbox.failing = set()
+    outbox.scan(conn)
+
+    assert _notified(conn, action_id) == 1
+    assert outbox.sent["bob@example.com"] == 1
+    assert "OldMovie" in outbox.html["bob@example.com"]
