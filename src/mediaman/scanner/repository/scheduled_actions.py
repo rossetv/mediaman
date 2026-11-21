@@ -129,6 +129,12 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
 
 
 def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[DeletionRow]:
+    """Return the due deletions, a folder's row before the rows of paths inside it.
+
+    The pass then removes the folder first and closes the rows inside it
+    with it; removing an inner path first would leave its item, no longer
+    due, holding the folder back.
+    """
     rows = conn.execute(
         "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
         "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
@@ -136,7 +142,8 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.action = 'scheduled_deletion' "
         "  AND sa.execute_at <= ? "
-        "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')",
+        "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
+        "ORDER BY mi.file_path, sa.id",
         (now_iso,),
     ).fetchall()
     return [_row_to_deletion_row(row) for row in rows]
