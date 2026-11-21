@@ -29,8 +29,6 @@ logger = logging.getLogger(__name__)
 def _short_circuit_authenticate(
     conn: sqlite3.Connection,
     username: str,
-    *,
-    record_failures: bool,
 ) -> bool | None:
     """Return a definite answer for the no-bcrypt fast paths.
 
@@ -38,15 +36,10 @@ def _short_circuit_authenticate(
     (empty username, or locked account). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
-    The locked branch ALWAYS bumps `record_failure` — regardless
-    of *record_failures* — so the escalation thresholds
-    (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
-    every authentication path, including callers that pass
-    ``record_failures=False``. See ``test_login_lockout.py``.
-    The *record_failures* flag governs only the bcrypt-verify path's
-    decision to count a wrong-password attempt; once an account is
-    already locked, counting the continued hammering is what keeps the
-    anti-DoS band-promotion design reachable, so it must not be skipped.
+    The locked branch bumps `record_failure` so the escalation thresholds
+    (5 → 10 → 15 failures → 15 min / 1 h / 24 h) stay reachable: counting
+    the continued hammering is what keeps the anti-DoS band-promotion
+    design working. See ``test_login_lockout.py``.
     """
     from mediaman.web.auth.login_lockout import is_locked_out, login_key, record_failure
 
@@ -60,9 +53,7 @@ def _short_circuit_authenticate(
     # Check lockout first. A locked account already has a "no" answer
     # without re-running bcrypt — skip the dummy round and save the
     # CPU. record_failure keeps acquiring the writer lock, which is
-    # the price of the escalation property — and it runs unconditionally
-    # here so escalation bands stay reachable on the ``record_failures=False``
-    # paths too.
+    # the price of the escalation property.
     key = login_key(username)
     if is_locked_out(conn, key):
         record_failure(conn, key)
@@ -94,8 +85,6 @@ def _verify_credentials_against_db(
     conn: sqlite3.Connection,
     username: str,
     password: str,
-    *,
-    record_failures: bool,
 ) -> bool:
     """Run `verify_password` and update the login failure counter."""
     from mediaman.web.auth.login_lockout import login_key, record_failure, record_success
@@ -103,7 +92,7 @@ def _verify_credentials_against_db(
     ok = verify_password(conn, username, password)
     if ok:
         record_success(conn, login_key(username))
-    elif record_failures:
+    else:
         record_failure(conn, login_key(username))
     return ok
 
@@ -112,8 +101,6 @@ def authenticate(
     conn: sqlite3.Connection,
     username: str,
     password: str,
-    *,
-    record_failures: bool = True,
 ) -> bool:
     """Verify username/password credentials.
 
@@ -147,7 +134,7 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    short_circuit = _short_circuit_authenticate(conn, username, record_failures=record_failures)
+    short_circuit = _short_circuit_authenticate(conn, username)
     if short_circuit is not None:
         return short_circuit
-    return _verify_credentials_against_db(conn, username, password, record_failures=record_failures)
+    return _verify_credentials_against_db(conn, username, password)

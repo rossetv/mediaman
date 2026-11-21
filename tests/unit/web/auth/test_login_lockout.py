@@ -177,16 +177,9 @@ class TestAuthenticateIntegration:
         # Now the correct password must also be rejected while locked.
         assert authenticate(conn, "alice", "correct-password-123") is False
 
-    def test_locked_account_records_failure_even_with_record_failures_false(self, conn):
-        """The locked short-circuit must bump the counter
-        regardless of ``record_failures`` so the escalation bands
-        (5 → 10 → 15) stay reachable on EVERY path — including callers that
-        pass ``record_failures=False``.
-
-        Previously a ``record_failures=False`` attempt against a locked
-        account returned ``False`` without incrementing, stalling the
-        escalation for that path.
-        """
+    def test_locked_account_attempt_still_bumps_counter(self, conn):
+        """The locked short-circuit must bump the counter so the
+        escalation bands (5 → 10 → 15) stay reachable."""
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
 
         # Lock the account at the 15-minute band (count == 5).
@@ -201,9 +194,8 @@ class TestAuthenticateIntegration:
             ).fetchone()["failure_count"]
 
         before = _count()
-        # A record_failures=False attempt against the LOCKED account must
-        # still bump the counter via the short-circuit.
-        assert authenticate(conn, "alice", "wrong-password", record_failures=False) is False
+        # An attempt against the LOCKED account must still bump the counter.
+        assert authenticate(conn, "alice", "wrong-password") is False
         assert _count() == before + 1
 
     def test_successful_login_resets_counter(self, conn):
@@ -375,51 +367,6 @@ class TestConcurrentRecordFailure:
         ).fetchone()
         c.close()
         assert row["failure_count"] == 20
-
-
-class TestAuthenticateRecordFailuresFlag:
-    """Change_password must not lock the user out of their own account."""
-
-    def test_record_failures_false_does_not_lock(self, conn):
-        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
-        # 10 failed attempts with record_failures=False — should NOT lock.
-        for _ in range(10):
-            assert (
-                authenticate(
-                    conn,
-                    "alice",
-                    "bad",
-                    record_failures=False,
-                )
-                is False
-            )
-        assert is_locked_out(conn, "alice") is False
-        row = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = ?",
-            ("alice",),
-        ).fetchone()
-        assert row is None
-
-    def test_record_failures_false_still_clears_counter_on_success(self, conn):
-        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
-        # Trip some failures with the normal path.
-        for _ in range(3):
-            authenticate(conn, "alice", "bad")
-        # A correct password via the trusted path must still clear them.
-        assert (
-            authenticate(
-                conn,
-                "alice",
-                "correct-password-123",
-                record_failures=False,
-            )
-            is True
-        )
-        row = conn.execute(
-            "SELECT * FROM login_failures WHERE username = ?",
-            ("alice",),
-        ).fetchone()
-        assert row is None
 
 
 class TestNoExtendWhileLocked:
