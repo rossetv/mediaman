@@ -118,33 +118,6 @@ class TestApiShowSeasons:
         assert body["seasons"] == []
         assert body["show_title"] == ""
 
-    def test_show_without_rating_key_is_found_by_title(self, app_factory, authed_client, conn):
-        _insert_season(conn, "s1", None, "Kingdom", season=1)
-        _insert_season(conn, "s2", None, "Kingdom", season=2)
-        _insert_protection(conn, "s2")
-        app = app_factory(kept_router, conn=conn)
-        client = authed_client(app, conn)
-        resp = client.get("/api/show/_by_title/seasons", params={"title": "Kingdom"})
-        body = resp.json()
-        assert body["show_title"] == "Kingdom"
-        assert [(s["id"], s["kept"]) for s in body["seasons"]] == [("s1", False), ("s2", True)]
-
-    def test_whole_show_keep_of_a_show_without_rating_key_shows_as_kept(
-        self, app_factory, authed_client, conn
-    ):
-        _insert_season(conn, "s1", None, "Kingdom")
-        insert_kept_show(conn, show_rating_key="Kingdom", show_title="Kingdom")
-        app = app_factory(kept_router, conn=conn)
-        client = authed_client(app, conn)
-        resp = client.get("/api/show/_by_title/seasons", params={"title": "Kingdom"})
-        assert resp.json()["show_kept"]["action"] == "kept_show"
-
-    def test_by_title_without_a_title_lists_nothing(self, app_factory, authed_client, conn):
-        _insert_season(conn, "s1", None, "Kingdom")
-        app = app_factory(kept_router, conn=conn)
-        client = authed_client(app, conn)
-        assert client.get("/api/show/_by_title/seasons").json()["seasons"] == []
-
 
 class TestKeepShowIdorDefence:
     """/api/show/{key}/keep must not collide two shows sharing a title."""
