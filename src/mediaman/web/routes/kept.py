@@ -145,8 +145,14 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
 # arrives decoded, so the parameter must be allowed to span segments.
 @router.get("/api/show/{show_rating_key:path}/seasons")
 def api_show_seasons(
-    show_rating_key: str, request: Request, admin: str = Depends(get_current_admin)
+    show_rating_key: str,
+    request: Request,
+    title: str = "",
+    admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
+    # The page sends "_by_title" plus the title for a show with no rating key.
+    if show_rating_key == "_by_title" and title:
+        show_rating_key = title
     conn = get_db()
     season_rows = fetch_seasons_for_show(conn, show_rating_key)
 
