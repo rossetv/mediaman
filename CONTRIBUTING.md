@@ -14,7 +14,7 @@ mediaman targets Python 3.12 (see `.python-version`). The tests also need Node.j
 ```bash
 git clone https://github.com/rossetv/mediaman.git
 cd mediaman
-python -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
