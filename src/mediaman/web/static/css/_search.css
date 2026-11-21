@@ -1,14 +1,8 @@
-/* =============================================================
-   SEARCH — search-box wrapper and inputs, plus the keyframe spin
+/* SEARCH — search-box wrapper and inputs, plus the keyframe spin
    animation used by the search spinner. Owns `.search-*` and
    shares `@keyframes spin` with other spinners across the site
-   (CSS keyframes are global). Extracted from _base.css per
-   CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   (CSS keyframes are global). */
 
-/* =============================================================
-   13. SEARCH BOX
-   ============================================================= */
 .search-box,
 .search-wrap {
   position: relative;

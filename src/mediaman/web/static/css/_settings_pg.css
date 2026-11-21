@@ -1,5 +1,4 @@
-/* =============================================================
-   SETTINGS v2 — page chrome and primitives scoped under `.setg-pg`.
+/* SETTINGS v2 — page chrome and primitives scoped under `.setg-pg`.
    Owns the cinematic shell, sticky rail, body/block layout, the
    card/row/input/field/toggle/conn primitives, the sticky savebar
    (with error state), the reauth modal sheet that gates sensitive
@@ -7,17 +6,13 @@
    inline disk-usage badge. Page-specific panel components
    (overview hero, integration cards, library path cards,
    subscribers, recipients, users, inline forms) live in
-   _settings_pg_panels.css.
-   ============================================================= */
+   _settings_pg_panels.css. */
 
-/* =============================================================
-   SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
-   Scoped under .setg-pg so the primitives do not leak elsewhere.
-   ============================================================= */
+/* SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
+   Scoped under .setg-pg so the primitives do not leak elsewhere. */
 .setg-pg { --rail-w: 236px; }
 .setg-pg .container { max-width: 1180px; }
 
-/* Shell ---------------------------------------------------------- */
 .setg-pg .setg-shell {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
@@ -29,7 +24,6 @@
   .setg-pg .setg-shell { grid-template-columns: 1fr; gap: 20px; }
 }
 
-/* Left rail ------------------------------------------------------ */
 .setg-pg .setg-rail {
   position: sticky; top: calc(var(--nav-h) + 28px);
   display: flex; flex-direction: column; gap: 1px;
@@ -125,7 +119,6 @@
 .setg-pg .setg-rail-item .rail-count.warn { background: rgba(255,214,10,.15); color: var(--warning); }
 .setg-pg .setg-rail-item .rail-count.err  { background: rgba(255,69,58,.15);  color: var(--danger);  }
 
-/* Body ----------------------------------------------------------- */
 .setg-pg .setg-body { min-width: 0; }
 .setg-pg .setg-body .ph { padding: 28px 0 8px; }
 .setg-pg .setg-ph-small {
@@ -133,7 +126,6 @@
   text-transform: uppercase; font-weight: 600; margin-bottom: 10px;
 }
 
-/* Block (section) ------------------------------------------------ */
 .setg-pg .setg-block {
   padding-top: 64px;
   scroll-margin-top: calc(var(--nav-h) + 16px);
@@ -163,7 +155,6 @@
   .setg-pg .setg-block-hd h2 { font-size: 20px; }
 }
 
-/* Card ----------------------------------------------------------- */
 .setg-pg .setg-card {
   background: var(--s1);
   border: 1px solid var(--hair);
@@ -187,7 +178,6 @@
 .setg-pg .setg-card-bd { padding: 6px 24px; }
 .setg-pg .setg-card-bd--pad { padding: 22px 24px; }
 
-/* Row (label / control) ----------------------------------------- */
 .setg-pg .setg-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -205,7 +195,6 @@
   .setg-pg .setg-row > :last-child { width: 100%; }
 }
 
-/* Inputs --------------------------------------------------------- */
 .setg-pg .inp {
   background: var(--s2);
   border: 1px solid var(--hair);
@@ -243,7 +232,6 @@
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 
-/* Field primitive (label + input + helper) ---------------------- */
 .setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .setg-pg .fld-lbl {
   font-size: 11px; font-weight: 600; color: var(--t2);
@@ -262,7 +250,6 @@
 .setg-pg .fld-row--full { grid-template-columns: 1fr; }
 @media (max-width: 640px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
 
-/* Toggle --------------------------------------------------------- */
 .setg-pg .tog {
   position: relative; width: 44px; height: 26px;
   background: var(--s4); border-radius: var(--r-pill);
@@ -278,7 +265,6 @@
 .setg-pg .tog.on { background: var(--success); }
 .setg-pg .tog.on::after { transform: translateX(18px); }
 
-/* Connection dot ------------------------------------------------- */
 .setg-pg .conn { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--t2); }
 .setg-pg .conn-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -291,7 +277,6 @@
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
 
-/* Sticky save bar ----------------------------------------------- */
 .setg-pg .savebar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   padding: 14px var(--pad);
@@ -315,7 +300,7 @@
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
 .setg-pg .savebar #save-status:empty { display: none; }
 
-/* Error state — DESIGN.md §2 Semantic Palette: danger red on a tinted chip,
+/* Error state — danger red on a tinted chip,
    never as a saturated background. The dot turns red, the sub-text takes
    the danger colour, and the message gains an "Save failed" label. */
 .setg-pg .savebar.is-error .sb-dot {
@@ -356,7 +341,7 @@
 /* Reauth modal — narrow variant of .modal-sheet for the savebar
    sensitive-settings password gate. The shared inline drawer pattern
    (.pw-prompt) sits before the fixed savebar and ends up with its action
-   row hidden underneath; a centred modal removes the ambiguity. ------ */
+   row hidden underneath; a centred modal removes the ambiguity. */
 .reauth-sheet { max-width: 460px; padding: 28px 28px 24px; }
 .reauth-sheet .reauth-title {
   font-family: var(--font-display);
@@ -380,7 +365,6 @@
   min-height: 1em;
 }
 
-/* Ghost-style test button on card headers ----------------------- */
 .setg-pg .btn-test {
   font-size: 12px; font-weight: 500; padding: 7px 14px;
   background: transparent; border: 1px solid var(--hair-strong);
@@ -391,7 +375,6 @@
 .setg-pg .btn-test:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.3); }
 .setg-pg .btn-test:disabled { opacity: .6; cursor: default; }
 
-/* Disk-usage inline badge (per library) ------------------------- */
 .setg-pg .disk-badge {
   font-size: 11px; font-weight: 500; padding: 3px 10px;
   border-radius: var(--r-pill); background: var(--s3);

@@ -26,9 +26,6 @@
 
     init: function () {
 
-      // ----------------------------------------------------------------
-      // Shared helpers
-      // ----------------------------------------------------------------
       function makeMsg(text, tone) {
         var el = document.createElement('div');
         el.className = 'fld-sub';
@@ -37,9 +34,6 @@
         return el;
       }
 
-      // ----------------------------------------------------------------
-      // Subscriber list
-      // ----------------------------------------------------------------
       function loadSubscribers() {
         MM.api.get('/api/subscribers')
           .then(function (data) { renderSubscribers(data.subscribers || []); })
@@ -92,9 +86,6 @@
           .catch(function () { btn.disabled = false; });
       }
 
-      // ----------------------------------------------------------------
-      // Add subscriber
-      // ----------------------------------------------------------------
       var addSubBtn = document.getElementById('btn-add-subscriber');
       var addSubInp = document.getElementById('new-subscriber-email');
 
@@ -124,9 +115,6 @@
         if (e.key === 'Enter') { e.preventDefault(); submitSubscriber(); }
       });
 
-      // ----------------------------------------------------------------
-      // Newsletter send panel
-      // ----------------------------------------------------------------
       var newsletterPanel   = document.getElementById('newsletter-send-panel');
       var btnSendNL         = document.getElementById('btn-send-newsletter');
       var btnCancelNL       = document.getElementById('btn-cancel-newsletter');
@@ -240,9 +228,6 @@
           });
       });
 
-      // ----------------------------------------------------------------
-      // Boot.
-      // ----------------------------------------------------------------
       loadSubscribers();
     },
   };

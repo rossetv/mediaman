@@ -79,7 +79,7 @@
 
   /* ── Build hero card DOM matching _dl_hero_card.html structure ──
      Delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
-     duplicating the .dl-hero tree (CODE_GUIDELINES §1). Values are set via
+     duplicating the .dl-hero tree. Values are set via
      textContent / DOM properties — safe by default. */
   function buildHeroCard(wrapper, item) {
     var hero = MM.downloads.buildDom.buildHero(item);

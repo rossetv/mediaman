@@ -1,13 +1,8 @@
-/* =============================================================
-   DOWNLOADS — authenticated downloads page primitives: hero card,
+/* DOWNLOADS — authenticated downloads page primitives: hero card,
    compact rows, recent grid, episode drawer, and the abandon-search
    floating button + modal. The public guest confirmation page
-   (download.html) lives in _download_page.css.
-   ============================================================= */
+   (download.html) lives in _download_page.css. */
 
-/* =============================================================
-   20. DOWNLOADS — hero, compact rows, recent grid, episodes
-   ============================================================= */
 .dl-hero {
   position: relative;
   border-radius: var(--r-lg);
@@ -52,9 +47,9 @@
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  box-shadow: var(--shadow-card); /* D33: was bespoke shadow, replaced per DESIGN.md */
+  box-shadow: var(--shadow-card);
   flex-shrink: 0;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
 }
 .dl-hero-poster img { width: 100%; height: 100%; object-fit: cover; }
 .dl-hero-poster-placeholder { width: 100%; height: 100%; }
@@ -158,7 +153,7 @@
   height: 72px;
   border-radius: var(--r-xs);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   flex-shrink: 0;
 }
 .dl-row-poster img,
@@ -226,7 +221,7 @@
 .dl-compact-list { display: flex; flex-direction: column; gap: 8px; }
 
 /* The "nothing downloading" empty state uses the shared .empty primitive
-   (see _base.css §18 / the c.empty() macro) — no bespoke rule here. */
+   (the c.empty() macro) — no bespoke rule here. */
 
 /* Episodes drawer */
 .dl-hero-episodes-toggle,
@@ -327,7 +322,7 @@
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
 }
 .dl-recent-poster img { width: 100%; height: 100%; object-fit: cover; }
 .dl-recent-badge {
@@ -362,8 +357,6 @@
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes fade-out { to { opacity: 0; transform: translateY(-6px); } }
 
-/* ─── Abandon-search button (see DESIGN.md §4 component layer) ─── */
-
 /* Hero card: top-right floating icon button. Above the scrim (z:1) and on
    the same plane as content (z:2). Reuses .btn--icon --ghost / --danger. */
 .dl-hero-abandon {
@@ -397,7 +390,7 @@
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
 
-/* Abandon-search modal body — typography matches DESIGN.md §3 hierarchy. */
+/* Abandon-search modal body — typography follows the page type hierarchy. */
 .abandon-modal-body { padding: 28px; }
 .abandon-modal-body h2 {
   font-family: var(--font-display);

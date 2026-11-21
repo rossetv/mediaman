@@ -12,9 +12,6 @@
 (function () {
   'use strict';
 
-  /* ----------------------------------------------------------------------
-   * Keep dialog state — module-private; not exposed on window.
-   * ---------------------------------------------------------------------- */
   var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
 
   /* Modal handles assigned during wire() — both modals are CSS-class
@@ -242,9 +239,6 @@
     });
   }
 
-  /* ----------------------------------------------------------------------
-   * Delete confirmation modal
-   * ---------------------------------------------------------------------- */
   var _pendingDeleteId = null;
 
   function confirmDelete(mediaId, title) {
@@ -266,9 +260,6 @@
       .catch(function () { /* original failed silently — preserve that. */ });
   }
 
-  /* ----------------------------------------------------------------------
-   * Sort + search-debounce helpers (toolbar wiring)
-   * ---------------------------------------------------------------------- */
   function setSort(value) {
     document.getElementById('sort-input').value = value;
     document.getElementById('toolbar-form').submit();
@@ -296,9 +287,6 @@
     _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
   }
 
-  /* ----------------------------------------------------------------------
-   * Wiring — runs on script load (deferred, so DOM is parsed).
-   * ---------------------------------------------------------------------- */
   function wire() {
     /* ── Delete modal — CSS-class-driven (.is-visible owns the display
          rule), close-cancel button uses data-action, body scroll is not

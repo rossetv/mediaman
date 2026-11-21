@@ -56,9 +56,6 @@
 
     init: function () {
 
-      // ----------------------------------------------------------------
-      // Shared helpers
-      // ----------------------------------------------------------------
       function makeMsg(text, tone) {
         var el = document.createElement('div');
         el.className = 'fld-sub';
@@ -67,9 +64,6 @@
         return el;
       }
 
-      // ----------------------------------------------------------------
-      // User list
-      // ----------------------------------------------------------------
       function loadUsers() {
         MM.api.get('/api/users')
           .then(renderUsers)
@@ -131,13 +125,11 @@
         });
       }
 
-      // ----------------------------------------------------------------
       // Delete user
       //
       // Two-step UX: a destructive-confirm dialog, then the centred
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
-      // ----------------------------------------------------------------
       function deleteUserFlow(user) {
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
@@ -159,9 +151,6 @@
         });
       }
 
-      // ----------------------------------------------------------------
-      // Add user form
-      // ----------------------------------------------------------------
       var addUserForm      = document.getElementById('add-user-form');
       var btnAddUser       = document.getElementById('btn-add-user');
       var btnCancelAddUser = document.getElementById('btn-cancel-add-user');
@@ -218,9 +207,6 @@
         });
       });
 
-      // ----------------------------------------------------------------
-      // Self password-change form
-      // ----------------------------------------------------------------
       var pwForm       = document.getElementById('self-password-form');
       var btnChangePw  = document.getElementById('btn-change-password');
       var btnCancelPw  = document.getElementById('btn-cancel-password');
@@ -285,9 +271,6 @@
         });
       });
 
-      // ----------------------------------------------------------------
-      // Revoke other sessions
-      // ----------------------------------------------------------------
       var btnRevokeOthers = document.getElementById('btn-revoke-others');
       if (btnRevokeOthers) btnRevokeOthers.addEventListener('click', function () {
         var orig = btnRevokeOthers.textContent;
@@ -309,9 +292,6 @@
         });
       });
 
-      // ----------------------------------------------------------------
-      // Password strength meters
-      // ----------------------------------------------------------------
       function uniqueCount(s) { return new Set(s).size; }
       function classCount(s) {
         var n = 0;
@@ -382,11 +362,9 @@
         pw.addEventListener('input', render);
       })();
 
-      // ----------------------------------------------------------------
       // Edit-email drawer (self card).
       // The reauth prompt is provided by MM.reauth.run — no inline
       // password field on this form.
-      // ----------------------------------------------------------------
       function initEmailEditor() {
         var btn = document.getElementById('btn-edit-email');
         var form = document.getElementById('self-email-form');
@@ -448,9 +426,6 @@
         });
       }
 
-      // ----------------------------------------------------------------
-      // Boot.
-      // ----------------------------------------------------------------
       loadUsers();
       initEmailEditor();
     },

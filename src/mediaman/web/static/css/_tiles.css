@@ -1,6 +1,3 @@
-/* =============================================================
-   7. CARDS
-   ============================================================= */
 .card           { background: var(--s2); border-radius: var(--r-lg); overflow: hidden; }
 .card--flat     { background: transparent; }
 .card--bordered { background: var(--s1); border: 1px solid var(--hair); overflow: visible; }
@@ -8,10 +5,8 @@
 .card--bordered > table.tbl > tbody > tr:last-child > td:last-child  { border-bottom-right-radius: var(--r-lg); }
 .card-pad       { padding: 24px; }
 
-/* =============================================================
-   8. TILES (poster + pills + title + meta)
-   Used by dashboard, library grid, search, recommended, downloads.
-   ============================================================= */
+/* 8. TILES (poster + pills + title + meta)
+   Used by dashboard, library grid, search, recommended, downloads. */
 .tile {
   position: relative;
   display: flex;
@@ -53,7 +48,7 @@
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   position: relative;
   transition: box-shadow .25s;
 }
@@ -119,7 +114,7 @@
 .tile-actions .btn { flex: 1; min-width: 0; }
 .tile-actions .btn--icon { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; }
 
-/* ==== /recommended uniform card height ====================================
+/* /recommended uniform card height.
    Recommendation cards have variable-length titles, descriptions, AI reasons
    and optional actions. These rules scope equal-height behaviour to the
    /recommended grid only so other pages using .tile (dashboard, library,
@@ -173,9 +168,6 @@
 .shelf::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 4px; }
 .shelf .tile { flex: 0 0 170px; width: 170px; max-width: 170px; }
 
-/* =============================================================
-   19. RECOMMENDED — uses .tile primitives
-   ============================================================= */
 .rec-disabled-card {
   margin-top: 16px;
   padding: 18px 20px;
@@ -324,7 +316,7 @@
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   transition: box-shadow .25s;
 }
 .poster-card .poster img { width: 100%; height: 100%; object-fit: cover; }

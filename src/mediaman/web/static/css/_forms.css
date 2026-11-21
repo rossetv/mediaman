@@ -1,9 +1,6 @@
-/* =============================================================
-   FORMS — form input primitives (`.inp`, `.form-*`), field rows,
+/* FORMS — form input primitives (`.inp`, `.form-*`), field rows,
    the password reveal toggle, the threshold-row pattern, the
-   button spinner, and the toggle switch (`.tog`).
-   Extracted from _base.css per CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   button spinner, and the toggle switch (`.tog`). */
 
 /* Generic inline spinner for use inside buttons — picks up the button's
    text colour via currentColor so it works on any button variant.
@@ -108,9 +105,6 @@ select.inp,
 .threshold-input { width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
 .threshold-unit  { color: var(--t3); font-size: 13px; }
 
-/* =============================================================
-   14. TOGGLE SWITCH
-   ============================================================= */
 .tog {
   position: relative;
   width: 44px;

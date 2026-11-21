@@ -1,5 +1,4 @@
-/* =============================================================
-   ROW PRIMITIVE INVENTORY
+/* ROW PRIMITIVE INVENTORY
    Three classes handle the canonical horizontal label/control row layout.
    All share --gap-row (20 px) except .form-row which uses 14 px because it
    sits inside a card body where tighter spacing is intentional.
@@ -10,25 +9,19 @@
    Related:   .form-row   — two-column grid (2fr auto on ≥ 640 px), gap 14 px. Used for
               label + input + submit groups. Wider gap would misalign the inline button.
 
-   Do NOT create a fourth variant — extend one of these or add a modifier instead.
-   ============================================================= */
+   Do NOT create a fourth variant — extend one of these or add a modifier instead. */
 
-/* =============================================================
-   FLEX UTILITIES
+/* FLEX UTILITIES
    Minimal display-flex helpers. Add these to elements in templates rather
    than writing inline styles or duplicating flex rules across components.
    These are intentionally narrow — do not expand this set without a second
-   concrete use case. Gaps are pinned to the standard 8 px spacing scale.
-   ============================================================= */
+   concrete use case. Gaps are pinned to the standard 8 px spacing scale. */
 .flex     { display: flex; }
 .flex-col { flex-direction: column; }
 .gap-sm   { gap: 8px; }
 .gap-md   { gap: 16px; }
 .gap-lg   { gap: 24px; }
 
-/* =============================================================
-   2. RESET & BASE
-   ============================================================= */
 *,
 *::before,
 *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -112,9 +105,6 @@ main:focus { outline: none; }
   }
 }
 
-/* =============================================================
-   3. LAYOUT
-   ============================================================= */
 .container {
   max-width: 1320px;
   margin: 0 auto;
@@ -188,9 +178,6 @@ main:focus { outline: none; }
 
 .page-bottom-spacer { height: 96px; }
 
-/* =============================================================
-   15. CONNECTION STATUS DOT
-   ============================================================= */
 .conn {
   display: inline-flex;
   align-items: center;
@@ -214,9 +201,6 @@ main:focus { outline: none; }
 .conn-dot.ok   { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,.6); }
 .conn-dot.err  { background: var(--danger);  box-shadow: 0 0 8px rgba(255,69,58,.6); }
 
-/* =============================================================
-   18. EMPTY STATE
-   ============================================================= */
 .empty {
   padding: 60px 20px;
   text-align: center;

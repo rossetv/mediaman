@@ -6,7 +6,7 @@
  * existing one to patch in place.
  *
  * Thin aliases q, setText, and findByDlId delegate to MM.dom to avoid
- * duplicating logic already provided by core/dom.js (CODE_GUIDELINES §1).
+ * duplicating logic already provided by core/dom.js.
  *
  * Exposes:
  *   MM.downloads.buildDom.q(sel, ctx)              → MM.dom.q

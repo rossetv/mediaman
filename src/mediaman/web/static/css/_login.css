@@ -1,13 +1,7 @@
-/* =============================================================
-   LOGIN — sign-in screen, the force-password-change variant, the
+/* LOGIN — sign-in screen, the force-password-change variant, the
    inline error message strip used on those pages, and the password
-   policy/strength widgets (`.fpc-*`, `.policy-issues`). Extracted
-   from _base.css per CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   policy/strength widgets (`.fpc-*`, `.policy-issues`). */
 
-/* =============================================================
-   24. LOGIN, FORCE PASSWORD CHANGE
-   ============================================================= */
 .login-page {
   min-height: 100vh;
   display: grid;

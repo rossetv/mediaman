@@ -1,5 +1,4 @@
-{# ============================================================================
-   Mediaman component macros — single source of truth for buttons, pills,
+{# Mediaman component macros — single source of truth for buttons, pills,
    tiles, tables and settings primitives. Import via:
        {% import "_components.html" as c %}
 
@@ -11,8 +10,7 @@
    without first running it through Jinja's autoescape. If you need to
    surface user-supplied text inside one of these slots, escape it first
    (e.g. ``{{ user_value | e }}``) and concatenate, or use a different
-   macro that escapes by default.
-   ============================================================================ #}
+   macro that escapes by default. #}
 
 
 {# Font Awesome icon. `name` is the FA glyph slug (e.g. "fa-house"); `style`
@@ -251,10 +249,8 @@
 {%- endmacro %}
 
 
-{# ============================================================================
-   Settings v2 primitives — used by templates/settings/_sec_*.html.
-   All rendered markup is scoped under `.setg-pg` on the page root.
-   ============================================================================ #}
+{# Settings v2 primitives — used by templates/settings/_sec_*.html.
+   All rendered markup is scoped under `.setg-pg` on the page root. #}
 
 {# Rail nav item — href-anchored link in the left sidebar. #}
 {% macro setg_rail_item(href, label, icon_svg, count="", count_tone="") -%}

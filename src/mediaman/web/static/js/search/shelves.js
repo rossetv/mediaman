@@ -20,7 +20,6 @@
   window.MM = window.MM || {};
   MM.search = MM.search || {};
 
-  // ===== HTML-escaping helpers =====
   function escapeHtml(value) {
     if (value === null || value === undefined) return "";
     return String(value)
@@ -32,12 +31,10 @@
   }
   function escapeAttr(value) { return escapeHtml(value); }
 
-  // ===== DOM refs =====
   const shelves = document.getElementById("shelves");
   const input   = document.getElementById("search-input");
   const wrap    = document.getElementById("search-wrap");
 
-  // ===== Shelf / grid rendering =====
   function buildShelf(label, items, { showCount = false } = {}, openDetail) {
     /* Poster grid is rendered by MM.tiles.render — DOM-safe by construction
        (no innerHTML, no template-literal escaping). The section header is
@@ -106,7 +103,6 @@
     );
   }
 
-  // ===== Fetch controller =====
   let reqGen = 0;
   let abort = null;
   let debounceTimer = null;
@@ -150,7 +146,6 @@
     else loadSearch(q);
   }
 
-  // ===== Init =====
   function init({ openDetail }) {
     _openDetail = openDetail;
 

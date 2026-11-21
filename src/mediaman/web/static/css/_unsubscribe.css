@@ -1,8 +1,6 @@
-/* =============================================================
-   UNSUBSCRIBE — standalone pages (unsubscribe_confirm.html,
+/* UNSUBSCRIBE — standalone pages (unsubscribe_confirm.html,
    unsubscribe_result.html). These pages do not extend base.html
-   so they carry their own minimal token-aligned styles.
-   ============================================================= */
+   so they carry their own minimal token-aligned styles. */
 
 /* Page shell */
 .unsub-body {

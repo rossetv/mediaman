@@ -1,16 +1,12 @@
-/* =============================================================
-   DOWNLOAD PAGE — public guest confirmation page (download.html)
+/* DOWNLOAD PAGE — public guest confirmation page (download.html)
    linked from "Re-download" buttons in newsletters. Owns the
    cinematic backdrop, metadata layout, ratings, trailer, cast,
    primary CTA, post-action result strip, and the expired-link
-   state. Extracted from _dl.css per CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   state. */
 
-/* =============================================================
-   28. DOWNLOAD.HTML — public guest download confirmation page
+/* 28. DOWNLOAD.HTML — public guest download confirmation page
    (linked from "Re-download" buttons in newsletters). Cinematic
-   backdrop + metadata + single CTA.
-   ============================================================= */
+   backdrop + metadata + single CTA. */
 .dl-nav {
   padding: 18px var(--pad);
   text-align: center;
@@ -28,7 +24,7 @@
   width: 100%;
   height: 320px;
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
 }
 .dl-cinema img {
   width: 100%;
