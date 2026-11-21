@@ -129,9 +129,9 @@
            data-attrs, this stays inline. #}
         <button class="btn btn--secondary btn--sm" type="button"
                 data-action="redownload"
-                data-title="{{ item.title | tojson }}"
-                data-media-item-id="{{ item.media_item_id | tojson }}"
-                data-media-type="{{ item.media_type | tojson }}"
+                data-title='{{ item.title | tojson }}'
+                data-media-item-id='{{ item.media_item_id | tojson }}'
+                data-media-type='{{ item.media_type | tojson }}'
                 {% if not item.media_item_id and not item.title %}disabled aria-disabled="true"{% endif %}>Re-download</button>
       </div>
       {% endfor %}
