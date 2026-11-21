@@ -438,6 +438,40 @@ def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> No
             conn.execute("DELETE FROM login_failures WHERE username = ?", (key,))
 
 
+def prune_stale_failures(conn: sqlite3.Connection) -> int:
+    """Delete failure rows that no longer count and hold no active lock.
+
+    A row whose streak began more than `_DECAY_HOURS` ago and whose lock
+    (if any) has ended is one the next failure would reset to 1 anyway,
+    so deleting it changes nothing the lockout counts. A row with an
+    active lock, or one whose ``locked_until`` cannot be parsed (fail
+    closed, as in `is_locked_out`), is never deleted. Returns the
+    number of rows deleted. Commits.
+    """
+    _ensure_table(conn)
+    now = _now()
+    cutoff = _iso(now - timedelta(hours=_DECAY_HOURS))
+    with conn:
+        # The write lock is taken first, so a lock set by a concurrent
+        # failure cannot land between the check and the delete.
+        conn.execute("BEGIN IMMEDIATE")
+        deleted = conn.execute(
+            "DELETE FROM login_failures WHERE first_failure_at < ? "
+            "AND (locked_until IS NULL OR locked_until = '')",
+            (cutoff,),
+        ).rowcount
+        for row in conn.execute(
+            "SELECT username, locked_until FROM login_failures "
+            "WHERE first_failure_at < ? AND locked_until != ''",
+            (cutoff,),
+        ).fetchall():
+            locked_until = parse_iso_strict_utc(row["locked_until"])
+            if locked_until is not None and locked_until <= now:
+                conn.execute("DELETE FROM login_failures WHERE username = ?", (row["username"],))
+                deleted += 1
+    return deleted or 0
+
+
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     """Clear the login and re-auth failure counters and locks for *username*.
 

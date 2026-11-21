@@ -128,6 +128,14 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
         cleanup_expired_reauth(conn, now_iso)
     except sqlite3.Error:
         logger.warning("session.cleanup: cleanup_expired_reauth failed", exc_info=True)
+    # Same best-effort rule: unauthenticated logins for unknown usernames
+    # add failure rows, so the sweep prunes the ones that hold no lock.
+    try:
+        from mediaman.web.auth.login_lockout import prune_stale_failures
+
+        prune_stale_failures(conn)
+    except sqlite3.Error:
+        logger.warning("session.cleanup: prune_stale_failures failed", exc_info=True)
 
 
 def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: str) -> None:

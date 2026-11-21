@@ -591,3 +591,52 @@ class TestLoginCounterAfterProvedPassword:
             user_conn, "alice", "wrong", "another-password-77", enforce_policy=False
         )
         assert _login_row(user_conn, "alice") is None
+
+
+class TestPruneStaleFailures:
+    @staticmethod
+    def _row(conn, username, *, first_ago, locked_in=None, locked_raw=None):
+        now = datetime.now(UTC)
+        locked = locked_raw
+        if locked_in is not None:
+            locked = (now + locked_in).isoformat()
+        conn.execute(
+            "INSERT INTO login_failures (username, failure_count, first_failure_at, locked_until)"
+            " VALUES (?, 3, ?, ?)",
+            (username, (now - first_ago).isoformat(), locked),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _names(conn):
+        return {r["username"] for r in conn.execute("SELECT username FROM login_failures")}
+
+    def test_prunes_old_unlocked_rows_and_keeps_the_rest(self, conn):
+        old = timedelta(hours=25)
+        self._row(conn, "unknown-user", first_ago=old)
+        self._row(conn, "lock-ended", first_ago=old, locked_in=-timedelta(hours=1))
+        self._row(conn, "recent", first_ago=timedelta(hours=2))
+        self._row(conn, "locked", first_ago=old, locked_in=timedelta(hours=1))
+        self._row(conn, "corrupt-lock", first_ago=old, locked_raw="garbage")
+
+        deleted = login_lockout.prune_stale_failures(conn)
+
+        assert deleted == 2
+        assert self._names(conn) == {"recent", "locked", "corrupt-lock"}
+
+    def test_a_pruned_username_starts_counting_from_one(self, conn):
+        self._row(conn, "alice", first_ago=timedelta(hours=30))
+        login_lockout.prune_stale_failures(conn)
+        record_failure(conn, "alice")
+        row = conn.execute("SELECT failure_count FROM login_failures").fetchone()
+        assert row["failure_count"] == 1
+
+    def test_the_session_sweep_prunes_them(self, conn):
+        from mediaman.web.auth import session_store
+
+        self._row(conn, "unknown-user", first_ago=timedelta(hours=25))
+        self._row(conn, "locked", first_ago=timedelta(hours=25), locked_in=timedelta(hours=1))
+
+        session_store._writes._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
+
+        assert self._names(conn) == {"locked"}
