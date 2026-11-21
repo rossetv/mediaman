@@ -30,6 +30,7 @@ from mediaman.web.auth._password_hash_helpers import (
     _sanitise_log_field,
     _UserVanished,
 )
+from mediaman.web.auth.login_lockout import reauth_key
 from mediaman.web.auth.password_hash._authenticate import authenticate
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,8 @@ def _authorise_password_change(
     Returns True when the rotation may proceed, False when it is
     rejected (the reauth namespace is locked, or the old password is
     wrong). Nothing is written to ``admin_users`` on either outcome —
-    only the ``reauth:<username>`` failure counter is bumped on a
-    rejection, mirroring the escalation behaviour of plain login.
+    only *username*'s re-auth failure counter is bumped on a rejection,
+    mirroring the escalation behaviour of plain login.
 
     Raises:
         ValueError: *new_password* fails the strength policy — only
@@ -91,7 +92,7 @@ def _authorise_password_change(
 
 
 def _clear_reauth_failure_counter(conn: sqlite3.Connection, namespace: str, username: str) -> None:
-    """Best-effort clear of the ``reauth:<username>`` failure counter.
+    """Best-effort clear of *username*'s re-auth failure counter.
 
     Called outside `change_password`'s transaction so a counter
     write failure never blocks a successful rotation. We are already
@@ -132,9 +133,8 @@ def change_password(
     Returns True on success, False if the old password is wrong, the
     user no longer exists (TOCTOU), or the reauth namespace is locked.
 
-    Wrong-old-password attempts are recorded into the
-    ``reauth:<username>`` namespace of `mediaman.web.auth.login_lockout`
-    so a stolen session cannot turn this endpoint into an offline-style
+    Wrong-old-password attempts are recorded under *username*'s re-auth
+    key in `mediaman.web.auth.login_lockout` so a stolen session cannot turn this endpoint into an offline-style
     password oracle — the same escalating 5/10/15 thresholds that gate
     plain login also gate ``change_password``. The plain-login counter
     for *username* is intentionally left untouched: otherwise an
@@ -168,13 +168,7 @@ def change_password(
             fail-closed, so a password change never lands without its
             audit row.
     """
-    # Lazy import: ``reauth`` imports ``authenticate`` from this package,
-    # so a module-level import here would close the cycle. The original
-    # ``change_password`` imported ``REAUTH_LOCKOUT_PREFIX`` inside its
-    # body for exactly this reason.
-    from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
-
-    namespace = f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
+    namespace = reauth_key(username) if username else ""
 
     if not _authorise_password_change(
         conn,

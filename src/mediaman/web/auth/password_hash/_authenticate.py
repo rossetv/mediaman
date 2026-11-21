@@ -47,7 +47,7 @@ def _short_circuit_authenticate(
     already locked, counting the continued hammering is what keeps the
     anti-DoS band-promotion design reachable, so it must not be skipped.
     """
-    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+    from mediaman.web.auth.login_lockout import is_locked_out, login_key, record_failure
 
     # Reject empty usernames before touching bcrypt. Otherwise an
     # unauthenticated attacker can stream empty-username requests at
@@ -62,8 +62,9 @@ def _short_circuit_authenticate(
     # the price of the escalation property — and it runs unconditionally
     # here so escalation bands stay reachable on the ``record_failures=False``
     # paths too.
-    if is_locked_out(conn, username):
-        record_failure(conn, username)
+    key = login_key(username)
+    if is_locked_out(conn, key):
+        record_failure(conn, key)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
         return False
 
@@ -83,8 +84,9 @@ def _verify_credentials_against_db(
     path so a real-username probe and a fake-username probe take ~the
     same wall time — timing cannot enumerate valid usernames.
     """
-    from mediaman.web.auth.login_lockout import record_failure, record_success
+    from mediaman.web.auth.login_lockout import login_key, record_failure, record_success
 
+    key = login_key(username)
     row = conn.execute(
         "SELECT password_hash FROM admin_users WHERE username=?", (username,)
     ).fetchone()
@@ -92,14 +94,14 @@ def _verify_credentials_against_db(
     if row is None:
         bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
         if record_failures:
-            record_failure(conn, username)
+            record_failure(conn, key)
         return False
 
     ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
     if ok:
-        record_success(conn, username)
+        record_success(conn, key)
     elif record_failures:
-        record_failure(conn, username)
+        record_failure(conn, key)
     return ok
 
 

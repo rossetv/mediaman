@@ -18,11 +18,12 @@ the session's token-hash so:
   reauth granted to a different session.
 * Restarts and multi-worker deployments share one source of truth.
 
-Failed reauth attempts feed the existing `mediaman.web.auth.login_lockout`
-counter under a ``reauth:<username>`` namespace so an attacker who steals a
-session cookie cannot mount an offline-style password oracle against the
-reauth endpoint either — the same escalating lockout that gates plain
-login also gates reauth.
+Failed reauth attempts feed a `mediaman.web.auth.login_lockout` counter
+under the re-auth namespace (`mediaman.web.auth.login_lockout.reauth_key`)
+so an attacker who steals a session cookie cannot mount an offline-style
+password oracle against the reauth endpoint either — the same escalating
+5/10/15 thresholds that gate plain login also gate reauth, on a counter
+of its own.
 
 The 5-minute window is the default; it can be tuned via the
 ``MEDIAMAN_REAUTH_WINDOW_SECONDS`` environment variable for stricter
@@ -43,6 +44,8 @@ import bcrypt
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
+from mediaman.web.auth.login_lockout import REAUTH_LOCKOUT_PREFIX as REAUTH_LOCKOUT_PREFIX
+from mediaman.web.auth.login_lockout import reauth_key
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +56,6 @@ _DEFAULT_REAUTH_WINDOW_SECONDS = 300
 
 #: Environment override so paranoid deployments can shorten the window.
 _REAUTH_WINDOW_ENV = "MEDIAMAN_REAUTH_WINDOW_SECONDS"
-
-#: Lockout namespace prefix used when feeding failed reauth attempts into
-#: `mediaman.web.auth.login_lockout`. Keeps reauth failures separate from
-#: real login failures so the username's plain-login counter is not also
-#: tripped by a session-bound brute-force against reauth.
-REAUTH_LOCKOUT_PREFIX = "reauth:"
 
 
 def reauth_window_seconds() -> int:
@@ -141,17 +138,16 @@ def verify_reauth_password(
     counter for *admin*.
 
     On failure: returns False and records the failure into
-    `mediaman.web.auth.login_lockout` under the ``reauth:<admin>``
-    namespace. This means:
+    `mediaman.web.auth.login_lockout` under *admin*'s re-auth key. This
+    means:
 
     * Repeated wrong-password attempts at the reauth endpoint trip the
       same escalating 5/10/15 thresholds as the login endpoint.
     * The plain-login counter for ``admin`` is NOT bumped — otherwise an
       attacker with a session cookie could lock the legitimate user out of
       the login flow without ever knowing the password.
-    * The lockout state for ``reauth:<admin>`` blocks reauth attempts
-      *only*; the user can still sign in normally if their session
-      expires.
+    * The re-auth lock blocks reauth attempts *only*; the user can still
+      sign in normally if their session expires.
 
     The function intentionally returns False (rather than raising) when
     the namespace is locked, so the caller renders the same generic
@@ -165,7 +161,7 @@ def verify_reauth_password(
     )
     from mediaman.web.auth.password_hash import authenticate
 
-    namespace = f"{REAUTH_LOCKOUT_PREFIX}{admin}"
+    namespace = reauth_key(admin)
 
     # Short-circuit if the reauth namespace is locked. We still burn a
     # bcrypt cycle so the timing of "locked" matches the wrong-password

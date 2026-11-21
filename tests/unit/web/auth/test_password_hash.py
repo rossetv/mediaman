@@ -21,6 +21,7 @@ from mediaman.web.auth.password_hash import (
     set_must_change_password,
     user_must_change_password,
 )
+from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
 
 @pytest.fixture
@@ -432,15 +433,15 @@ class TestChangePasswordCounterCleanupCatchNarrowed:
 
     ``record_success`` is also called by ``authenticate`` on the
     success path *before* the cleanup site, so the patches below raise
-    only for the ``reauth:<username>`` namespace — that is the argument
-    the post-transaction cleanup call passes, never the bare username
-    the ``authenticate`` path uses.
+    only for the re-auth namespace — that is the key the
+    post-transaction cleanup call passes, never the login key the
+    ``authenticate`` path uses.
     """
 
     @staticmethod
     def _raise_for_reauth_namespace(exc: Exception):
         def _side_effect(_conn, namespace, *_a, **_kw):
-            if namespace.startswith("reauth:"):
+            if namespace.startswith(REAUTH_LOCKOUT_PREFIX):
                 raise exc
             return None
 

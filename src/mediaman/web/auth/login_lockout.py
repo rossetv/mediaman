@@ -79,6 +79,33 @@ def _window_for_count(count: int) -> int | None:
     return None
 
 
+#: Every counter key that is not a plain login key starts with this mark.
+#: Usernames have no character rule, so `login_key` escapes the rare
+#: username that starts with it: no username can produce another
+#: namespace's key.
+_NAMESPACE_MARK = "\x1f"
+
+#: Prefix of the re-auth failure counter keys (see `reauth_key`).
+REAUTH_LOCKOUT_PREFIX = f"{_NAMESPACE_MARK}reauth:"
+
+_ESCAPED_LOGIN_PREFIX = f"{_NAMESPACE_MARK}login:"
+
+
+def login_key(username: str) -> str:
+    """Return the login failure counter key for *username*.
+
+    The username itself, unless it starts with the namespace mark.
+    """
+    if username.startswith(_NAMESPACE_MARK):
+        return f"{_ESCAPED_LOGIN_PREFIX}{username}"
+    return username
+
+
+def reauth_key(username: str) -> str:
+    """Return the re-auth failure counter key for *username*."""
+    return f"{REAUTH_LOCKOUT_PREFIX}{username}"
+
+
 #: After this long with no failures, reset the counter on the next
 #: recorded failure. Stops one-off typos staying on the record forever.
 _DECAY_HOURS = 24
@@ -393,7 +420,7 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
 
 
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
-    """Clear the failure counter and lock for *username*.
+    """Clear the login and re-auth failure counters and locks for *username*.
 
     Returns True when there was an existing record to delete, False
     when *username* was already unlocked (or never existed). Callers
@@ -407,8 +434,8 @@ def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
         return False
     _ensure_table(conn)
     cur = conn.execute(
-        "DELETE FROM login_failures WHERE username = ?",
-        (username,),
+        "DELETE FROM login_failures WHERE username IN (?, ?)",
+        (login_key(username), reauth_key(username)),
     )
     return (cur.rowcount or 0) > 0
 
