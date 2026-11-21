@@ -26,6 +26,8 @@ import os
 import re
 from datetime import datetime
 
+from mediaman.services.rate_limit.ip_resolver import trusts_every_address
+
 logger = logging.getLogger(__name__)
 
 _SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -224,11 +226,19 @@ def sanitise_trusted_proxies(raw: str) -> str:
             )
             continue
         try:
-            ipaddress.ip_network(token, strict=False)
+            net = ipaddress.ip_network(token, strict=False)
         except ValueError:
             logger.warning(
                 "Ignoring invalid MEDIAMAN_TRUSTED_PROXIES entry %r — "
                 "not a valid IP address or CIDR.",
+                token,
+            )
+            continue
+        if trusts_every_address(net):
+            logger.critical(
+                "Refusing wildcard MEDIAMAN_TRUSTED_PROXIES entry %r — "
+                "it matches every address. Only specific reverse-proxy "
+                "IPs/CIDRs are accepted.",
                 token,
             )
             continue

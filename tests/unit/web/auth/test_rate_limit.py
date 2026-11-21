@@ -252,6 +252,25 @@ class TestActionRateLimiterSlidingDay:
         assert limiter._daily == {}
 
 
+class TestCatchAllTrustedProxy:
+    @pytest.mark.parametrize(
+        "entry", ["*", "0.0.0.0/0", "::/0", "::ffff:0.0.0.0/96", "0.0.0.0/0.0.0.0", "::0/0"]
+    )
+    def test_refused_like_wildcard(self, monkeypatch, entry):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", f"10.0.0.0/8,{entry}")
+        assert trusted_proxies() == []
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4", "x-real-ip": "5.6.7.8"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "10.0.0.1"
+
+    def test_normal_network_still_trusted(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        assert [str(n) for n in trusted_proxies()] == ["10.0.0.0/8"]
+
+
 class TestGetClientIp:
     def test_ignores_forwarded_headers_when_no_trusted_proxy(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)

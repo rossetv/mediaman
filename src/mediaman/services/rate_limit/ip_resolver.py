@@ -70,11 +70,20 @@ def _unmap_network(net: IPv4Network | IPv6Network) -> IPv4Network | IPv6Network:
     return net
 
 
+def trusts_every_address(net: IPv4Network | IPv6Network) -> bool:
+    """Return True when *net* matches every address, in any spelling.
+
+    Covers ``0.0.0.0/0``, ``::/0``, ``0.0.0.0/0.0.0.0`` and the mapped
+    ``::ffff:0.0.0.0/96``.
+    """
+    return _unmap_network(net).prefixlen == 0
+
+
 def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
     """Parse a comma-separated CIDR/IP list from *env_var*.
 
-    Returns an empty list and logs CRITICAL when the literal ``*`` is
-    present — a wildcard would let any peer spoof forwarded headers and
+    Returns an empty list and logs CRITICAL when the literal ``*`` or a
+    network matching every address (prefix length 0) is present — a wildcard would let any peer spoof forwarded headers and
     completely bypass per-IP rate limiting. Invalid CIDR entries are
     skipped with a WARNING so misconfiguration is loud.
     """
@@ -97,7 +106,7 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
             )
             return []
         try:
-            networks.append(_unmap_network(ipaddress.ip_network(token, strict=False)))
+            net = ipaddress.ip_network(token, strict=False)
         except ValueError:
             logger.warning(
                 "%s contains invalid CIDR/IP entry %r; skipping. Fix the "
@@ -106,6 +115,17 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
                 token,
             )
             continue
+        if trusts_every_address(net):
+            logger.critical(
+                "%s contains %r, which matches every address; refusing to "
+                "trust any proxy. Set explicit CIDR ranges instead — it "
+                "would allow spoofed forwarded headers from any peer and "
+                "bypass per-IP rate limiting.",
+                env_var,
+                token,
+            )
+            return []
+        networks.append(_unmap_network(net))
     return networks
 
 
