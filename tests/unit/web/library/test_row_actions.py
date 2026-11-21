@@ -208,3 +208,19 @@ def test_remove_keep_carries_a_quoted_id(client, conn):
     (button,) = _elements_with(client.get("/library").text, "data-remove-keep-id")
 
     assert json.loads(button["data-remove-keep-id"] or "") == _AWKWARD_TEXT
+
+
+def _keep_wrappers(html: str) -> list[dict[str, str | None]]:
+    return [
+        e for e in _elements_with(html, "data-show-rk") if "keep-wrapper" in (e.get("class") or "")
+    ]
+
+
+@pytest.mark.parametrize(("show_rating_key", "expected"), [("show-rk", "true"), (None, "false")])
+def test_show_row_flags_whether_its_key_is_a_rating_key(client, conn, show_rating_key, expected):
+    _insert_show(conn, show_rating_key)
+
+    (wrapper,) = _keep_wrappers(client.get("/library").text)
+
+    assert wrapper["data-has-rk"] == expected
+    assert wrapper["data-show-rk"] == (show_rating_key or "Breaking Bad")

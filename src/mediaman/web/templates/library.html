@@ -136,7 +136,7 @@
               {% if item.protected %}
               <div class="keep-wrapper"
                 data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
-                data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+                data-show-rk="{{ item.show_rating_key }}" data-has-rk="{{ item.has_rating_key | tojson }}" data-show-title="{{ item.show_title_raw | e }}">
                 <button type="button" class="keep-trigger keep-trigger--kept"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
                   <i class="fa-solid fa-check keep-trigger__tick" aria-hidden="true"></i>
@@ -154,7 +154,7 @@
               {% else %}
               <div class="keep-wrapper"
                 data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
-                data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+                data-show-rk="{{ item.show_rating_key }}" data-has-rk="{{ item.has_rating_key | tojson }}" data-show-title="{{ item.show_title_raw | e }}">
                 <button type="button" class="keep-trigger"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Keep this item">
                   <span>Keep</span>

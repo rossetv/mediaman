@@ -121,6 +121,7 @@ def _shape_rows(
                 "file_size_bytes": r["file_size_bytes"] or 0,
                 "last_watched": days_ago(r["last_watched_at"]),
                 "show_rating_key": show_rk,
+                "has_rating_key": bool(r["has_rating_key"]),
                 "show_title_raw": show_title,
                 "is_tv": is_tv,
                 "protected": protected,

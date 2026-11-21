@@ -124,6 +124,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             id, title, 'movie' AS display_type,
             plex_rating_key, added_at, file_size_bytes, last_watched_at,
             show_rating_key, show_title, NULL AS season_count,
+            0 AS has_rating_key,
             EXISTS(
                 SELECT 1 FROM scheduled_actions sa
                 WHERE sa.media_item_id = filtered.id AND sa.token_used = 0
@@ -144,6 +145,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             COALESCE(show_rating_key, show_title) AS show_rating_key,
             COALESCE(show_title, title) AS show_title,
             COUNT(*) AS season_count,
+            MAX(COALESCE(show_rating_key, '') != '') AS has_rating_key,
             (
                 EXISTS(
                     SELECT 1 FROM kept_shows ks

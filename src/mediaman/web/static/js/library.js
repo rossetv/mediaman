@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
+  var _keepDialogState = { showRk: '', hasRk: false, showTitle: '', seasonId: '', duration: '30 days' };
 
   /* Modal handles assigned during wire() — both modals are CSS-class
      driven (no inline display:flex), so we pass activeClass to setupDetail.
@@ -39,6 +39,7 @@
     var isTv = wrapper.dataset.tv === 'true';
     var showRk = wrapper.dataset.showRk || '';
     var showTitle = wrapper.dataset.showTitle || '';
+    var hasRk = wrapper.dataset.hasRk === 'true';
 
     if (!isTv) {
       MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
@@ -51,6 +52,7 @@
       return;
     }
     _keepDialogState.showRk = showRk;
+    _keepDialogState.hasRk = hasRk;
     _keepDialogState.showTitle = showTitle;
     _keepDialogState.seasonId = mediaId;
     _keepDialogState.duration = duration || '30 days';
@@ -103,6 +105,8 @@
     var list = document.getElementById('keep-season-list');
     list.replaceChildren();
 
+    /* A show keyed by its title has no rating key to keep the whole show
+       under, so only per-season keeps are offered. */
     var allRow = document.createElement('div');
     allRow.className = 'keep-season-item keep-all-row';
     var allCb = document.createElement('input');
@@ -117,7 +121,7 @@
     allLabel.textContent = 'All seasons';
     allRow.appendChild(allCb);
     allRow.appendChild(allLabel);
-    list.appendChild(allRow);
+    if (_keepDialogState.hasRk) list.appendChild(allRow);
 
     seasons.forEach(function (s) {
       var row = document.createElement('div');
@@ -153,7 +157,8 @@
   }
 
   function confirmKeepDialog() {
-    var allChecked = document.getElementById('keep-all-seasons').checked;
+    var allCb = document.getElementById('keep-all-seasons');
+    var allChecked = !!allCb && allCb.checked;
     var selectedIds = [];
     document.querySelectorAll('#keep-season-list input[data-season-id]:checked').forEach(function (cb) {
       selectedIds.push(cb.dataset.seasonId);
@@ -225,7 +230,7 @@
       });
 
       var allRequests = [];
-      if (rk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+      if (rk && _keepDialogState.hasRk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
       seasonIds.forEach(function (sid) {
         allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
       });
