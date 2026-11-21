@@ -1,6 +1,6 @@
 """Tests for /healthz (liveness) and /readyz (readiness).
 
-Finding 10: a green ``/healthz`` should not hide a dead scheduler. The
+A green ``/healthz`` should not hide a dead scheduler. The
 two probes are now decoupled — ``/healthz`` reports liveness only,
 ``/readyz`` returns 503 until the scheduler and crypto canary have
 both come up.
@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 def _make_test_app(scheduler_healthy: bool, canary_ok: bool) -> FastAPI:
     """Build a minimal app that exposes only the health endpoints.
 
-    Reaches into :func:`mediaman.main.create_app` would also load every
+    Reaches into `mediaman.main.create_app` would also load every
     router, so we replicate the two endpoints here. This keeps the test
     fast and isolates the readiness logic from the rest of the app.
     """
@@ -69,7 +69,7 @@ class TestReadyzReflectsBackgroundServices:
         assert resp.json() == {"status": "ready"}
 
     def test_returns_503_when_scheduler_failed(self):
-        """Finding 10: a dead scheduler must surface as a 503 readiness probe."""
+        """A dead scheduler must surface as a 503 readiness probe."""
         app = _make_test_app(scheduler_healthy=False, canary_ok=True)
         client = TestClient(app)
         resp = client.get("/readyz")

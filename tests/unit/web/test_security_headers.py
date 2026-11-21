@@ -217,7 +217,6 @@ class TestCSRFExemptAllowlist:
     """
 
     def test_post_download_token_exempt(self):
-        """POST /download/{token} — exempt (token-authenticated)."""
         app = FastAPI()
         register_security_middleware(app)
 
@@ -230,7 +229,6 @@ class TestCSRFExemptAllowlist:
         assert resp.status_code == 200
 
     def test_post_keep_token_exempt(self):
-        """POST /keep/{token} — exempt (token-authenticated)."""
         app = FastAPI()
         register_security_middleware(app)
 
@@ -324,7 +322,7 @@ class TestCSPNonce:
         resp = client.get("/ping")
         csp = resp.headers["Content-Security-Policy"]
         assert "script-src 'self' 'nonce-" in csp
-        # 'unsafe-inline' was dropped from script-src after Wave 7 — a
+        # 'unsafe-inline' was dropped from script-src a
         # stored XSS in a Jinja |safe interpolation can no longer execute
         # script content.
         assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
@@ -674,7 +672,7 @@ class TestBodySizeLimitMiddleware:
         assert resp.status_code == 413
 
     def test_413_response_carries_security_headers(self):
-        """R3-M1: a 413 Payload Too Large response must include the four
+        """A 413 Payload Too Large response must include the four
         mandatory security headers (X-Frame-Options, CSP,
         X-Content-Type-Options, Referrer-Policy).
 
@@ -706,7 +704,7 @@ class TestBodySizeLimitMiddleware:
 
 
 class TestCacheControlHeaders:
-    """R3-M5: Cache-Control: no-store, private is applied broadly.
+    """Cache-Control: no-store, private is applied broadly.
 
     Previously only ``/api/`` and ``/auth/`` paths received this header.
     After the fix all paths except ``/static/`` must receive it, so
@@ -743,7 +741,6 @@ class TestCacheControlHeaders:
         assert "private" in cc, f"expected private in Cache-Control, got: {cc!r}"
 
     def test_dashboard_route_gets_no_store_private(self):
-        """Same for /dashboard."""
         client = TestClient(self._build_app_with_routes())
         resp = client.get("/dashboard")
         assert resp.status_code == 200
@@ -862,7 +859,7 @@ class TestNormaliseOrigin:
 class TestCSRFHostOnly:
     """CSRF compares hosts only — see ``CSRFOriginMiddleware`` docstring.
 
-    The Wave 5-1 attempt to compare ``(scheme, host)`` (finding 11)
+    An earlier attempt to compare ``(scheme, host)``
     broke real reverse-proxy deployments where uvicorn sees
     ``request.url.scheme == "http"`` but the browser is on ``https://``
     and sets ``Origin: https://...``.  The cross-scheme attack the
@@ -962,11 +959,6 @@ class TestForcePasswordChangeHealthExempt:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# CSP directive content checks
-# ---------------------------------------------------------------------------
-
-
 class TestCspDirectives:
     """Spot-checks on the static _CSP constant in security_headers."""
 
@@ -996,13 +988,8 @@ class TestCspDirectives:
         assert "frame-ancestors 'none'" in _CSP
 
 
-# ---------------------------------------------------------------------------
-# CSP img-src must be tightened to only permit trusted image origins
-# ---------------------------------------------------------------------------
-
-
 class TestFinding20CspImgSrc:
-    """Finding 20: CSP img-src must not allow arbitrary https: images."""
+    """CSP img-src must not allow arbitrary https: images."""
 
     def test_csp_does_not_allow_arbitrary_https(self):
         # Parse out the img-src directive value and check it is not the
@@ -1031,11 +1018,6 @@ class TestFinding20CspImgSrc:
         from mediaman.web.middleware.security_headers import _CSP
 
         assert "i.ytimg.com" in _CSP
-
-
-# ---------------------------------------------------------------------------
-# 405 → 401 oracle obscure middleware
-# ---------------------------------------------------------------------------
 
 
 class TestObscure405:

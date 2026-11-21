@@ -1,4 +1,4 @@
-"""Targeted tests for :mod:`mediaman.web.routes.users` — supplement to test_users.py.
+"""Targeted tests for `mediaman.web.routes.users` — supplement to test_users.py.
 
 test_users.py already has thorough coverage of all routes. This file adds:
   - user-creation rate limiting (separate limiter with lower cap)
@@ -71,7 +71,6 @@ class TestRevokeOthersReissueCookie:
     """POST /api/users/sessions/revoke-others must issue a fresh session cookie."""
 
     def test_revoke_others_sets_new_session_cookie(self, app_factory, authed_client, conn):
-        """The response includes a new session_token cookie."""
         client, old_token = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/users/sessions/revoke-others")
@@ -116,7 +115,6 @@ class TestChangePasswordCookie:
     """POST /api/users/change-password must re-issue a session cookie on success."""
 
     def test_change_password_sets_new_session_cookie(self, app_factory, authed_client, conn):
-        """A successful password change returns a new session_token cookie."""
         client, old_token = _build(app_factory, authed_client, conn)
 
         resp = client.post(
@@ -131,7 +129,6 @@ class TestChangePasswordCookie:
     def test_change_password_new_session_is_valid(
         self, app_factory, authed_client, conn, monkeypatch
     ):
-        """The re-issued session cookie after a password change is a valid session."""
         # Cookie-re-issue assertion, not fingerprint binding — mode "off"
         # so the contextless validate_session check does not trip the
         # fail-closed binding path.

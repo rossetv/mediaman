@@ -1,4 +1,4 @@
-"""Tests for the test_plex tester structured error response (finding H4).
+"""Tests for the test_plex tester structured error response.
 
 Verifies that test_plex returns a structured JSONResponse on transport and
 auth failures rather than raising unhandled exceptions.
@@ -37,7 +37,6 @@ class TestTestPlexStructuredResponse:
         assert body["ok"] is False
 
     def test_safe_http_error_401_returns_auth_failed(self):
-        """SafeHTTPError 401 must map to auth_failed, not raise."""
         # test_plex imports PlexClient lazily from mediaman.services.media_meta.plex,
         # so the patch must target that module's namespace, not the testers module.
         with patch(

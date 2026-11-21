@@ -1,5 +1,5 @@
 """Tests for the manual /api/recommended/refresh rate limit and recommended-download
-security hardening: on-demand share tokens (C18) and download rate limiting (C38).
+security hardening: on-demand share tokens and download rate limiting.
 
 OpenAI tokens cost real money, so a single user spamming the button
 or scripting the endpoint must not be able to trigger more than one
@@ -77,11 +77,6 @@ def _stamp_last_refresh(conn, when: datetime) -> None:
     _throttle.record_manual_refresh(conn, when)
 
 
-# ---------------------------------------------------------------------------
-# Cooldown helpers (pure functions — no FastAPI app needed)
-# ---------------------------------------------------------------------------
-
-
 class TestCooldownHelpers:
     def test_no_prior_refresh_means_no_cooldown(self, db_path):
         conn = init_db(str(db_path))
@@ -120,11 +115,6 @@ class TestCooldownHelpers:
             assert _throttle.refresh_cooldown_remaining(conn) is None
         finally:
             conn.close()
-
-
-# ---------------------------------------------------------------------------
-# /api/recommended/refresh enforcement
-# ---------------------------------------------------------------------------
 
 
 class TestRefreshRateLimit:
@@ -304,11 +294,6 @@ class TestRefreshRateLimit:
         assert st["result"]["ok"] is True
 
 
-# ---------------------------------------------------------------------------
-# C38 — rate limit on /api/recommended/{id}/download
-# ---------------------------------------------------------------------------
-
-
 class TestDownloadActionRateLimit:
     """Authenticated admin download must be rate-limited at 30/min."""
 
@@ -362,11 +347,6 @@ class TestDownloadActionRateLimit:
         assert resp.status_code in (302, 303, 401, 403)
 
 
-# ---------------------------------------------------------------------------
-# C18 — on-demand share tokens via POST /api/recommended/{id}/share-token
-# ---------------------------------------------------------------------------
-
-
 class TestOnDemandShareToken:
     """Share tokens must be minted on demand, not pre-embedded in the page."""
 
@@ -393,7 +373,6 @@ class TestOnDemandShareToken:
         )
 
     def test_share_token_endpoint_returns_share_url(self, authed_client, app):
-        """POST /api/recommended/{id}/share-token returns a valid share_url."""
         conn = app.state.db
         rec_id = self._insert_suggestion(conn)
 
@@ -464,11 +443,6 @@ class TestOnDemandShareToken:
             assert "share_url" not in item or item["share_url"] == "", (
                 f"share_url must not be pre-embedded in page for item {item.get('title')}"
             )
-
-
-# ---------------------------------------------------------------------------
-# Success paths — _add_rec_to_radarr and _add_rec_to_sonarr
-# ---------------------------------------------------------------------------
 
 
 class TestDownloadRecommendationSuccess:
@@ -546,7 +520,6 @@ class TestDownloadRecommendationSuccess:
         assert resp.json()["ok"] is False
 
     def test_radarr_not_configured_returns_error(self, authed_client, app):
-        """When Radarr is not configured the endpoint returns an error response."""
         conn = app.state.db
         rec_id = self._insert_movie_suggestion(conn)
 
@@ -559,7 +532,6 @@ class TestDownloadRecommendationSuccess:
         assert "Radarr" in body["error"]
 
     def test_sonarr_not_configured_returns_error(self, authed_client, app):
-        """When Sonarr is not configured the endpoint returns an error response."""
         conn = app.state.db
         rec_id = self._insert_tv_suggestion(conn)
 
@@ -574,7 +546,7 @@ class TestDownloadRecommendationSuccess:
     def test_radarr_http_409_treated_as_already_exists(self, authed_client, app):
         """A 409 SafeHTTPError from Radarr is surfaced as an 'already exists' error.
 
-        Finding 25: returns HTTP 409 (not 200) so downstream clients
+        Returns HTTP 409 (not 200) so downstream clients
         treat the conflict properly instead of silently logging a
         success.
         """
@@ -601,7 +573,7 @@ class TestDownloadRecommendationSuccess:
     def test_sonarr_409_safe_http_error_treated_as_already_exists(self, authed_client, app):
         """A 409 SafeHTTPError from Sonarr is surfaced as an 'already exists' error.
 
-        Finding 25: returns HTTP 409 (not 200) so downstream clients
+        Returns HTTP 409 (not 200) so downstream clients
         treat the conflict properly instead of silently logging a
         success.
         """
@@ -643,11 +615,6 @@ class TestDownloadRecommendationSuccess:
             "SELECT downloaded_at FROM suggestions WHERE id = ?", (rec_id,)
         ).fetchone()
         assert row["downloaded_at"] is not None
-
-
-# ---------------------------------------------------------------------------
-# Exception-handling: narrowed sqlite3.Error + logging in the refresh threads
-# ---------------------------------------------------------------------------
 
 
 class TestRefreshExceptionHandling:

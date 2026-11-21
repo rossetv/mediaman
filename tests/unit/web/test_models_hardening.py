@@ -208,7 +208,7 @@ class TestSubscriberCreateHardened:
 
 
 class TestUserBodyLengthCaps:
-    """R3-M2: CreateUserBody, ChangePasswordBody, ReauthBody all cap lengths."""
+    """CreateUserBody, ChangePasswordBody, ReauthBody all cap lengths."""
 
     def test_create_user_username_max_length_rejected(self):
         with pytest.raises(ValidationError):
@@ -261,21 +261,18 @@ class TestUserBodyLengthCaps:
 
 
 class TestDiskThresholdsSettingsUpdateCap:
-    """R3-M3: SettingsUpdate.disk_thresholds is capped at 256 entries."""
+    """SettingsUpdate.disk_thresholds is capped at 256 entries."""
 
     def test_disk_thresholds_over_256_entries_rejected(self):
-        """A disk_thresholds dict with more than 256 entries must be rejected."""
         big = {str(i): {"path": f"/p/{i}", "threshold": 50} for i in range(257)}
         with pytest.raises(ValidationError):
             SettingsUpdate(disk_thresholds=big)
 
     def test_disk_thresholds_exactly_256_entries_accepted(self):
-        """Exactly 256 entries must be accepted."""
         at_cap = {str(i): {"path": f"/p/{i}", "threshold": 50} for i in range(256)}
         update = SettingsUpdate(disk_thresholds=at_cap)
         assert len(update.disk_thresholds) == 256
 
     def test_disk_thresholds_none_accepted(self):
-        """None (unset) must still be accepted."""
         update = SettingsUpdate(disk_thresholds=None)
         assert update.disk_thresholds is None

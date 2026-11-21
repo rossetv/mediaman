@@ -1,6 +1,6 @@
 """Reauth-gate and audit-in-transaction tests for the settings PUT route.
 
-Covers M7 (sensitive settings require recent reauth) and M27 (audit
+Covers sensitive settings requiring recent reauth and the audit
 write happens in the same transaction as the settings mutation; if the
 audit fails for sensitive keys the whole write rolls back).
 """
@@ -26,12 +26,6 @@ def _client(app_factory, authed_client, conn, *, with_reauth: bool = False):
     """Return a TestClient. Reauth NOT granted by default — opt-in only."""
     app = app_factory(router, conn=conn)
     return authed_client(app, conn, with_reauth=with_reauth)
-
-
-# ---------------------------------------------------------------------------
-# Sensitive-key membership sanity check — the spec says secrets, URLs,
-# mail bits, and base_url MUST be inside SENSITIVE_KEYS.
-# ---------------------------------------------------------------------------
 
 
 class TestSensitiveKeySetMembership:
@@ -61,11 +55,6 @@ class TestSensitiveKeySetMembership:
         """Don't gate harmless UI-only knobs behind reauth."""
         for key in ("scan_day", "scan_time", "min_age_days", "dry_run"):
             assert key not in SENSITIVE_KEYS
-
-
-# ---------------------------------------------------------------------------
-# Sensitive settings endpoints require a recent re-authentication ticket
-# ---------------------------------------------------------------------------
 
 
 class TestSensitiveSettingsRequireReauth:
@@ -163,11 +152,6 @@ class TestSensitiveSettingsRequireReauth:
         ).fetchone()
         assert row is not None
         assert row["encrypted"] == 1
-
-
-# ---------------------------------------------------------------------------
-# Settings writes emit an audit row inside the same transaction
-# ---------------------------------------------------------------------------
 
 
 class TestSettingsAuditInTransaction:

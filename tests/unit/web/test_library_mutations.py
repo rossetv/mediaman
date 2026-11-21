@@ -65,7 +65,7 @@ class TestMediaDelete:
         assert resp.status_code == 401
 
     def test_delete_nonexistent_returns_403(self, app_factory, authed_client, conn):
-        """Deleting an unknown media_id returns 403, not 404 (finding 12).
+        """Deleting an unknown media_id returns 403, not 404.
 
         Returning 404 leaks whether a given media_id exists. With auth
         already confirmed, an unknown id is treated as forbidden access
@@ -78,7 +78,6 @@ class TestMediaDelete:
         assert resp.status_code == 403
 
     def test_delete_movie_calls_radarr_and_removes_row(self, app_factory, authed_client, conn):
-        """Deleting a movie calls Radarr delete_movie and removes the DB row."""
         _insert_movie(conn, radarr_id=101)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -121,7 +120,6 @@ class TestMediaDelete:
         assert row is None
 
     def test_delete_tv_season_calls_sonarr(self, app_factory, authed_client, conn):
-        """Deleting a TV season calls Sonarr delete methods and removes the DB row."""
         _insert_tv_season(conn, sonarr_id=202, season=1)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -169,7 +167,7 @@ class TestMediaDelete:
 
 
 class TestMediaDeleteTransactional:
-    """C22 — transactional delete with Arr failure propagation."""
+    """Transactional delete with Arr failure propagation."""
 
     @pytest.fixture(autouse=True)
     def _reset_limiters(self):
@@ -340,7 +338,6 @@ class TestMediaKeep:
         assert resp.status_code == 401
 
     def test_keep_forever_inserts_protected_forever_action(self, app_factory, authed_client, conn):
-        """Keep with duration=forever inserts a protected_forever scheduled_action."""
         _insert_movie(conn)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -358,7 +355,6 @@ class TestMediaKeep:
         assert sa["action"] == "protected_forever"
 
     def test_keep_30d_inserts_snoozed_action(self, app_factory, authed_client, conn):
-        """Keep with duration='30 days' inserts a snoozed scheduled_action."""
         _insert_movie(conn)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -375,7 +371,6 @@ class TestMediaKeep:
         assert sa["snooze_duration"] == "30 days"
 
     def test_keep_invalid_duration_returns_400(self, app_factory, authed_client, conn):
-        """Keep with an unrecognised duration returns 400."""
         _insert_movie(conn)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -384,7 +379,6 @@ class TestMediaKeep:
         assert resp.status_code == 400
 
     def test_keep_nonexistent_item_returns_404(self, app_factory, authed_client, conn):
-        """Keep for an unknown item returns 404."""
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
@@ -422,7 +416,6 @@ class TestMediaRedownload:
         assert resp.status_code == 401
 
     def test_redownload_empty_title_returns_400(self, app_factory, authed_client, conn):
-        """Redownload with a blank title returns 400."""
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
@@ -482,7 +475,7 @@ class TestMediaRedownload:
         mock_sonarr.add_series.assert_called_once()
 
     def test_redownload_title_only_refused(self, app_factory, authed_client, conn):
-        """Title-only submissions without year are refused (C15)."""
+        """Title-only submissions without year are refused."""
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
@@ -492,7 +485,6 @@ class TestMediaRedownload:
     def test_redownload_title_year_accepted_when_unambiguous(
         self, app_factory, authed_client, conn
     ):
-        """Title + exact year + confident title match is accepted."""
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
@@ -562,7 +554,7 @@ class TestMediaRedownload:
 
 
 class TestMediaKeepRateLimit:
-    """H20 — /api/media/{id}/keep must be rate-limited."""
+    """/api/media/{id}/keep must be rate-limited."""
 
     @pytest.fixture(autouse=True)
     def _reset_limiters(self):
@@ -586,7 +578,7 @@ class TestMediaKeepRateLimit:
 
 
 class TestLibrarySearchLikeEscape:
-    """H10 — LIKE metacharacters in the search query must not be treated as wildcards."""
+    """LIKE metacharacters in the search query must not be treated as wildcards."""
 
     def test_percent_sign_is_treated_as_literal(self, conn):
         """A query containing '%' must only match titles containing a literal '%'."""
@@ -658,7 +650,6 @@ class TestRedownloadSafeHTTPError:
     def test_radarr_409_safe_http_error_returns_already_exists(
         self, app_factory, authed_client, conn
     ):
-        """A 409 SafeHTTPError from Radarr returns the 'already exists in Radarr' message."""
         from mediaman.services.infra import SafeHTTPError
 
         app = _app(app_factory, conn)
@@ -708,7 +699,6 @@ class TestRedownloadSafeHTTPError:
     def test_sonarr_409_safe_http_error_returns_already_exists(
         self, app_factory, authed_client, conn
     ):
-        """A 409 SafeHTTPError from Sonarr returns the 'already exists in Sonarr' message."""
         from mediaman.services.infra import SafeHTTPError
 
         app = _app(app_factory, conn)
@@ -738,7 +728,7 @@ class TestRedownloadSafeHTTPError:
 
 
 class TestRedownloadTitleCap:
-    """H11 — redownload title must be capped at 256 chars."""
+    """Redownload title must be capped at 256 chars."""
 
     @pytest.fixture(autouse=True)
     def _reset_limiters(self):
@@ -796,7 +786,6 @@ class TestRedownloadBareRequestsException:
     def test_radarr_bare_connection_error_falls_through_to_sonarr(
         self, app_factory, authed_client, conn
     ):
-        """A bare requests.ConnectionError from Radarr lookup falls through to Sonarr."""
         import requests as _requests
 
         app = _app(app_factory, conn)
@@ -828,7 +817,6 @@ class TestRedownloadBareRequestsException:
     def test_sonarr_bare_connection_error_returns_failure_response(
         self, app_factory, authed_client, conn
     ):
-        """A bare requests.ConnectionError from Sonarr lookup returns a graceful failure."""
         import requests as _requests
 
         app = _app(app_factory, conn)

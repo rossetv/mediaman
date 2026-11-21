@@ -1,4 +1,4 @@
-"""Tests for HTML escaping in unsubscribe pages and newsletter recipient validation (C12)."""
+"""Tests for HTML escaping in unsubscribe pages and newsletter recipient validation."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ class TestUnsubscribeHtmlEscaping:
 
 
 class TestNewsletterRecipientHeaderInjection:
-    """C12 — /api/newsletter/send must reject recipients containing CR/LF."""
+    """/api/newsletter/send must reject recipients containing CR/LF."""
 
     _KEY = "0123456789abcdef" * 4
 

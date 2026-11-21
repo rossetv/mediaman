@@ -1,4 +1,4 @@
-"""Tests for POST /api/search/download rate limiter and dedup (finding 33)."""
+"""Tests for POST /api/search/download rate limiter and dedup."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def authed_client(app):
     token = create_session(app.state.db, "admin")
     client = TestClient(app)
     client.cookies.set("session_token", token)
-    # CSRF middleware (finding 11) refuses cookie-authenticated unsafe
+    # CSRF middleware refuses cookie-authenticated unsafe
     # requests with no Origin/Referer; supply a same-origin Origin so
     # the rate-limit test reaches the limiter rather than the CSRF gate.
     client.headers.update({"Origin": "http://testserver"})
@@ -83,7 +83,6 @@ class TestSearchDownloadRateLimit:
         assert resp.status_code != 429
 
     def test_eleventh_admin_request_in_window_returns_429(self, authed_client):
-        """11th request within the per-admin burst window returns 429."""
         cap = _DOWNLOAD_ADMIN_LIMITER._max_in_window
 
         mock_radarr = MagicMock()

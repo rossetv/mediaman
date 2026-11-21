@@ -78,7 +78,6 @@ class TestIsRequestSecure:
         assert is_request_secure(req) is True
 
     def test_direct_https_request(self, monkeypatch):
-        """Native HTTPS request is secure."""
         monkeypatch.delenv("MEDIAMAN_FORCE_SECURE_COOKIES", raising=False)
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
 

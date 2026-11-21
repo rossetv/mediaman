@@ -103,7 +103,6 @@ class TestApiHistory:
         assert resp.status_code == 422
 
     def test_per_page_zero_rejected(self, app_factory, authed_client, conn):
-        """per_page=0 must be rejected."""
         app = app_factory(history_router, conn=conn)
         client = authed_client(app, conn)
         resp = client.get("/api/history?per_page=0")
@@ -291,8 +290,8 @@ class TestDetailControlByteScrubbing:
 
 class TestAuditRowShape:
     """``fetch_media_audit_rows`` / ``fetch_security_audit_rows`` return a
-    frozen, slotted ``AuditRow`` dataclass — never a raw ``sqlite3.Row``
-    (§9.5). Both queries project the same nine-field shape.
+    frozen, slotted ``AuditRow`` dataclass — never a raw ``sqlite3.Row``.
+    Both queries project the same nine-field shape.
     """
 
     def test_media_audit_rows_return_audit_rows(self, conn):

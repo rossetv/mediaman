@@ -1,16 +1,16 @@
-"""Tests for :mod:`mediaman.web.auth.middleware`.
+"""Tests for `mediaman.web.auth.middleware`.
 
 Covers all five callables exported from the module:
 
-- :func:`is_admin` — convenience predicate over
+- `is_admin` — convenience predicate over
   ``get_optional_admin_from_token``; used by page-rendering routes.
-- :func:`get_current_admin` — strict FastAPI dependency; raises 401 when
+- `get_current_admin` — strict FastAPI dependency; raises 401 when
   the session is absent or invalid.
-- :func:`get_optional_admin` — soft dependency; returns the username or
+- `get_optional_admin` — soft dependency; returns the username or
   ``None``, never raises.
-- :func:`get_optional_admin_from_token` — non-FastAPI variant; accepts a
+- `get_optional_admin_from_token` — non-FastAPI variant; accepts a
   raw token string and an optional ``Request``.
-- :func:`resolve_page_session` — page-route helper; returns
+- `resolve_page_session` — page-route helper; returns
   ``(username, conn)`` or a ``302 /login`` redirect.
 
 Tests that exercise real session validation hit the DB via the ``conn``
@@ -37,10 +37,6 @@ from mediaman.web.auth.middleware import (
     resolve_page_session,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_mock_request(
     *,
@@ -48,7 +44,7 @@ def _make_mock_request(
     user_agent: str | None = None,
     client_ip: str | None = None,
 ) -> MagicMock:
-    """Build a minimal mock :class:`starlette.requests.Request`.
+    """Build a minimal mock `starlette.requests.Request`.
 
     Only the attributes consulted by the auth-middleware callables are
     populated; everything else is left as a ``MagicMock`` default.
@@ -71,7 +67,7 @@ def _real_request(
     user_agent: str = "Mozilla/5.0 Test",
     client_ip: str = "testclient",
 ) -> MagicMock:
-    """Build a mock :class:`starlette.requests.Request` with real attribute paths.
+    """Build a mock `starlette.requests.Request` with real attribute paths.
 
     The auth helpers call ``request.headers.get("user-agent")`` and
     ``request.client.host`` (via ``get_client_ip``).
@@ -86,11 +82,6 @@ def _real_request(
     req.headers.get = lambda key, default=None: user_agent if key == "user-agent" else default
     req.client.host = client_ip
     return req
-
-
-# ---------------------------------------------------------------------------
-# is_admin
-# ---------------------------------------------------------------------------
 
 
 class TestIsAdmin:
@@ -127,7 +118,6 @@ class TestIsAdmin:
             assert mock_fn.call_args[0][0] == "my-session-token"
 
     def test_missing_cookie_passes_none_to_middleware(self):
-        """When no cookie is present, None is passed to the middleware function."""
         req = _real_request(session_token=None)
         with patch(
             "mediaman.web.auth.middleware.get_optional_admin_from_token",
@@ -135,11 +125,6 @@ class TestIsAdmin:
         ) as mock_fn:
             is_admin(req)
             assert mock_fn.call_args[0][0] is None
-
-
-# ---------------------------------------------------------------------------
-# get_current_admin (requires real DB for meaningful tests)
-# ---------------------------------------------------------------------------
 
 
 class TestGetCurrentAdmin:
@@ -212,7 +197,6 @@ class TestGetCurrentAdmin:
         assert resp.status_code == 401
 
     def test_invalid_token_raises_401(self, conn):
-        """A token that does not exist in the DB → 401."""
         from fastapi import Depends
 
         from mediaman.db import set_connection
@@ -251,16 +235,10 @@ class TestGetCurrentAdmin:
         assert body.get("detail") == "Not authenticated"
 
 
-# ---------------------------------------------------------------------------
-# get_optional_admin (soft dependency — never raises)
-# ---------------------------------------------------------------------------
-
-
 class TestGetOptionalAdmin:
     """Soft dependency — returns username or None; never raises."""
 
     def test_valid_session_returns_username(self, conn):
-        """A valid session cookie → username string."""
         from fastapi import Depends
 
         from mediaman.db import set_connection
@@ -301,7 +279,6 @@ class TestGetOptionalAdmin:
         assert resp.json()["username"] is None
 
     def test_invalid_token_returns_none(self, conn):
-        """A token not present in the DB → ``None``, not an exception."""
         from fastapi import Depends
 
         from mediaman.db import set_connection
@@ -320,11 +297,6 @@ class TestGetOptionalAdmin:
         assert resp.json()["username"] is None
 
 
-# ---------------------------------------------------------------------------
-# get_optional_admin_from_token
-# ---------------------------------------------------------------------------
-
-
 class TestGetOptionalAdminFromToken:
     """Non-FastAPI entrypoint for nullable session validation.
 
@@ -333,7 +305,6 @@ class TestGetOptionalAdminFromToken:
     """
 
     def test_valid_token_without_request_returns_username(self, conn):
-        """Valid token, no request → username returned (no fingerprint check)."""
         from mediaman.db import set_connection
         from mediaman.web.auth.password_hash import create_user
         from mediaman.web.auth.session_store import create_session
@@ -346,14 +317,12 @@ class TestGetOptionalAdminFromToken:
         assert result == "admin"
 
     def test_none_token_returns_none(self, conn):
-        """``None`` token → ``None`` without touching the DB."""
         from mediaman.db import set_connection
 
         set_connection(conn)
         assert get_optional_admin_from_token(None) is None
 
     def test_empty_string_token_returns_none(self, conn):
-        """An empty string token must return ``None`` (falsy guard)."""
         from mediaman.db import set_connection
 
         set_connection(conn)
@@ -407,16 +376,10 @@ class TestGetOptionalAdminFromToken:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# resolve_page_session
-# ---------------------------------------------------------------------------
-
-
 class TestResolvePageSession:
     """Page-route helper — returns ``(username, conn)`` or a 302 redirect."""
 
     def test_valid_session_returns_username_and_conn(self, conn):
-        """Valid cookie → ``(username, conn)`` tuple."""
         from mediaman.db import set_connection
         from mediaman.web.auth.password_hash import create_user
         from mediaman.web.auth.session_store import create_session

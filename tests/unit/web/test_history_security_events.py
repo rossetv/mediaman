@@ -1,4 +1,4 @@
-"""Tests for the security-event surface in the history API (M27).
+"""Tests for the security-event surface in the history API.
 
 Covers:
 - ``GET /api/history?action=security`` returns every ``sec:*`` row.
