@@ -225,6 +225,8 @@ def _register_probes(app: FastAPI) -> None:
         """
         return {"status": "ok"}
 
+    last_reason: str | None = None
+
     @app.get("/readyz", include_in_schema=False)
     def readyz() -> JSONResponse:
         """Readiness probe — ``/healthz`` says "alive", this says "alive AND configured".
@@ -248,13 +250,24 @@ def _register_probes(app: FastAPI) -> None:
         scheduler_healthy = bool(getattr(app.state, "scheduler_healthy", False))
         canary_ok = bool(getattr(app.state, "canary_ok", False))  # fail-closed: unset → not ready
         ready = scheduler_healthy and canary_ok
-        if not ready:
-            logger.warning(
-                "readyz not_ready: scheduler=%s crypto=%s error=%s",
+        # Log on a change of reason only, so a probe polling every few seconds
+        # does not flood the log while the app stays unready.
+        nonlocal last_reason
+        reason = (
+            None
+            if ready
+            else "scheduler={} crypto={} error={}".format(
                 "ok" if scheduler_healthy else "down",
                 "ok" if canary_ok else "down",
                 getattr(app.state, "scheduler_error", None),
             )
+        )
+        if reason != last_reason:
+            if reason is None:
+                logger.info("readyz ready again")
+            else:
+                logger.warning("readyz not_ready: %s", reason)
+            last_reason = reason
         return JSONResponse(
             {"status": "ready" if ready else "not_ready"},
             status_code=200 if ready else 503,
