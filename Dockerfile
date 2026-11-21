@@ -1,7 +1,7 @@
 # Stage 1: Builder — installs runtime dependencies only; no test tooling.
-# Digest pinned to python:3.12.9-slim. Refresh on dependency-bump rotations:
-#   docker pull python:3.12.9-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.12.9-slim
-FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44 AS builder
+# Digest pinned to python:3.12.16-slim. Refresh on dependency-bump rotations:
+#   docker pull python:3.12.16-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.12.16-slim
+FROM python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -36,7 +36,7 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
 
 # Stage 2: Production — lean image; no build tools, no test deps.
 # Same digest as the builder stage — both must match for reproducible builds.
-FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
+FROM python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # PYTHONDONTWRITEBYTECODE is deliberately NOT set in the runtime stage (only in
 # the builder). The venv copied from the builder already ships pre-compiled
