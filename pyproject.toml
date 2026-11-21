@@ -1,10 +1,10 @@
 [build-system]
-# setuptools >=84.0.0 is sufficient for src layout + package-data discovery.
+# setuptools >=84.2.1 is sufficient for src layout + package-data discovery.
 # PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
 # leave the classic { text = "MIT" } form until we pin setuptools >=77.
 # TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
 #           version management once CI lockfile is in place.
-requires = ["setuptools>=84.0.0"]
+requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -32,7 +32,7 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi~=0.143",
+    "fastapi~=0.162",
     "uvicorn[standard]~=0.54",
     "jinja2~=3.1",
     "plexapi~=4.18",
@@ -40,7 +40,7 @@ dependencies = [
     "apscheduler~=3.11",
     "bcrypt~=5.0",
     "cryptography~=50.0",
-    "python-multipart~=0.0.32",
+    "python-multipart~=0.0.33",
     "defusedxml~=0.7",
     "pydantic~=2.14",
 ]
@@ -50,9 +50,9 @@ dependencies = [
 # Pinned (~=) so CI installs a known set rather than whatever PyPI ships
 # the day the workflow runs. Bump deliberately; Dependabot will open PRs.
 dev = [
-    "pytest~=9.1",
+    "pytest~=9.2",
     "pytest-cov~=7.1",
-    "pytest-mock~=3.16",
+    "pytest-mock~=3.17",
     "pytest-asyncio~=1.4",
     "pytest-xdist~=3.8",
     "httpx~=0.28",
@@ -60,10 +60,10 @@ dev = [
     # under our filterwarnings=error that deprecation is a hard collection error,
     # so the TestClient needs httpx2 present. Test-only — the app uses httpx at
     # runtime (it is NOT in requirements.lock and never enters the prod image).
-    "httpx2~=2.13",
-    "ruff~=0.17.0",
+    "httpx2~=2.16",
+    "ruff~=0.17.6",
     "mypy~=2.4",
-    "coverage[toml]~=7.16",
+    "coverage[toml]~=7.17",
     "types-requests~=2.33",
     # freezegun is the canonical clock for tests that exercise time-dependent
     # behaviour (lockout windows, session idle expiry, "X days ago" formatters).
@@ -95,6 +95,7 @@ mediaman = [
 ]
 
 [tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
