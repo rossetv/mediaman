@@ -355,7 +355,10 @@
   function removeKeep(mediaId) {
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
-      .catch(function () { /* failure is dropped silently. */ });
+      .catch(function (err) {
+        var msg = (err && err.message) || 'Try again.';
+        window.UIFeedback.error("Couldn't remove keep. " + msg);
+      });
   }
 
   function setSort(value) {
@@ -475,6 +478,12 @@
     if (keepBtn) {
       e.preventDefault();
       submitKeep(keepBtn, keepBtn.dataset.keepDur);
+      return;
+    }
+    if (e.target.closest('[data-remove-keep-dialog]')) {
+      e.preventDefault();
+      /* The dialog's Remove all clears the show's and every season's keep. */
+      submitKeep(e.target.closest('[data-remove-keep-dialog]'));
       return;
     }
     var removeBtn = e.target.closest('[data-remove-keep-id]');

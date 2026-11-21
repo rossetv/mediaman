@@ -148,7 +148,13 @@
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30 days">Keep 30 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90 days">Keep 90 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="forever">Keep forever</button>
+                  {# A show row's keeps can sit on several seasons and on the show
+                     itself; the Keep dialog's Remove all clears every one. #}
+                  {% if item.is_tv and (item.season_count != 1 or item.show_kept) %}
+                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-dialog>Remove keep</button>
+                  {% else %}
                   <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-id='{{ item.id | tojson }}'>Remove keep</button>
+                  {% endif %}
                 </div>
               </div>
               {% else %}
