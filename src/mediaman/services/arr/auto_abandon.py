@@ -19,8 +19,12 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import requests
+
 from mediaman.core.audit import security_event
-from mediaman.services.infra import get_bool_setting
+from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.build import build_sonarr_from_db
+from mediaman.services.infra import SafeHTTPError, get_bool_setting
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +168,35 @@ def _abandon_movie_with_audit(
     abandon_movie(conn, secret_key, arr_id=decision.arr_id, dl_id=decision.dl_id)
 
 
+def _monitored_seasons(
+    conn: sqlite3.Connection, secret_key: str, decision: _AbandonDecision
+) -> list[int]:
+    """Return the season numbers Sonarr has monitored for the series, sorted.
+
+    Returns ``[]`` when Sonarr is not configured or the series cannot be
+    read, so the caller skips the abandon rather than guessing seasons.
+    """
+    client = build_sonarr_from_db(conn, secret_key)
+    if client is None:
+        return []
+    try:
+        series = client.get_series_by_id(decision.arr_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        logger.warning("auto-abandon: could not read seasons for %s", decision.dl_id, exc_info=True)
+        return []
+    seasons_raw = series.get("seasons")
+    if not isinstance(seasons_raw, list):
+        return []
+    return sorted(
+        s["seasonNumber"]
+        for s in seasons_raw
+        if isinstance(s, dict)
+        and s.get("monitored")
+        and isinstance(s.get("seasonNumber"), int)
+        and not isinstance(s.get("seasonNumber"), bool)
+    )
+
+
 def _abandon_series_with_audit(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -188,7 +221,11 @@ def _abandon_series_with_audit(
     # monitored separately — we never want to auto-unmonitor them.
     _episodes_raw = item.get("episodes")
     _episodes: list[object] = list(_episodes_raw) if isinstance(_episodes_raw, list) else []
-    seasons = sorted({n for n in (_parse_season_number(ep) for ep in _episodes) if n > 0})
+    if _episodes:
+        seasons = sorted({n for n in (_parse_season_number(ep) for ep in _episodes) if n > 0})
+    else:
+        # A series still searching has no queue rows to read seasons from.
+        seasons = [n for n in _monitored_seasons(conn, secret_key, decision) if n > 0]
     if not seasons:
         return
     security_event(
