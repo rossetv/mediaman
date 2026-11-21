@@ -84,7 +84,7 @@
   }
 
   /* Re-download a deleted item using stable identifiers from data-*.
-     Finding 34: identifiers, never raw titles, drive the API call. */
+     Identifiers, never raw titles, drive the API call. */
   function redownload(btn) {
     var title, mediaItemId, mediaType;
     try { title = JSON.parse(btn.dataset.title); } catch (_) { title = ''; }

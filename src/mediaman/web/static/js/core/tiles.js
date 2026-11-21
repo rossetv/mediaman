@@ -79,7 +79,6 @@
     card.dataset.type = String(item.media_type || '');
     card.dataset.id   = String(item.tmdb_id || '');
 
-    /* ── Poster ── */
     var posterWrap = document.createElement('div');
     posterWrap.className = 'poster';
 
@@ -108,7 +107,6 @@
     }
     card.appendChild(posterWrap);
 
-    /* ── Body: title + meta ── */
     var body = document.createElement('div');
     body.className = 'poster-body';
 
@@ -127,7 +125,6 @@
 
     card.appendChild(body);
 
-    /* ── Click handler ── */
     if (typeof onClick === 'function') {
       // The card opens a detail modal, so it must be a real interactive
       // control: expose a button role + keyboard activation. The blue focus

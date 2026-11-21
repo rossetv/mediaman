@@ -152,7 +152,7 @@
     modalEl.tagline.textContent = d.tagline ? '"' + d.tagline + '"' : "";
     modalEl.desc.textContent    = d.description || "";
 
-    /* Finding 19: validate key is exactly 11 URL-safe base64 chars before
+    /* Validate key is exactly 11 URL-safe base64 chars before
        building the iframe to prevent injection via a crafted trailer_key. */
     if (d.trailer_key && /^[A-Za-z0-9_-]{11}$/.test(d.trailer_key)) {
       modalEl.trailerL.style.display = "";

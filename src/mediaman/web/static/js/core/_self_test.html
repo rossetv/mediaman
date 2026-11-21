@@ -52,10 +52,8 @@
     out.appendChild(line);
   }
 
-  /* ── MM global ── */
   assert('window.MM exists',             typeof window.MM === 'object');
 
-  /* ── MM.api ── */
   assert('MM.api exists',                typeof window.MM.api === 'object');
   assert('MM.api.get is a function',     typeof window.MM.api.get === 'function');
   assert('MM.api.post is a function',    typeof window.MM.api.post === 'function');
@@ -79,7 +77,6 @@
     { next_available_at: '2026-12-31T00:00:00Z', cooldown_seconds: 60 });
   assert('APIError.data preserved',      err2.data.next_available_at === '2026-12-31T00:00:00Z');
 
-  /* ── MM.dom ── */
   assert('MM.dom exists',                    typeof window.MM.dom === 'object');
   assert('MM.dom.q is a function',           typeof window.MM.dom.q === 'function');
   assert('MM.dom.qa is a function',          typeof window.MM.dom.qa === 'function');
@@ -100,7 +97,6 @@
   window.MM.dom.setText(el, 'world');
   assert('MM.dom.setText writes when changed',  el.textContent === 'world');
 
-  /* ── MM.modal ── */
   assert('MM.modal exists',                      typeof window.MM.modal === 'object');
   assert('MM.modal.setupDetail is a function',   typeof window.MM.modal.setupDetail === 'function');
 
@@ -114,7 +110,6 @@
   assert('handles.close is a function',           typeof handles.close === 'function');
   document.body.removeChild(fakeModal);
 
-  /* ── MM.tiles ── */
   assert('MM.tiles exists',              typeof window.MM.tiles === 'object');
   assert('MM.tiles.render is a function', typeof window.MM.tiles.render === 'function');
 
@@ -136,7 +131,6 @@
   assert('tiles.render renders rating chips',
     grid.querySelectorAll('.poster-chips').length === 1);
 
-  /* ── Summary ── */
   var summary = document.createElement('div');
   summary.style.marginTop = '1rem';
   summary.className = failed > 0 ? 'fail' : 'pass';

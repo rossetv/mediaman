@@ -79,7 +79,7 @@
             <button class="snooze-btn" type="submit" name="duration" value="90 days">
               Keep for <span class="duration">90 days</span>
             </button>
-            {# Finding 14: 'forever' is admin-only and is rejected by POST /keep/{token}.
+            {# 'forever' is admin-only and is rejected by POST /keep/{token}.
                Admins manage forever-keeps via the authenticated /library or /protected
                pages instead, so the button is intentionally absent here. #}
           </div>

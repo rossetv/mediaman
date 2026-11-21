@@ -122,7 +122,7 @@
           <div class="u-small">Deleted {{ item.deleted_ago }}</div>
         </div>
         <div class="u-small">{{ item.reclaimed }}</div>
-        {# Finding 34: pass stable identifiers; button is disabled when no identifier is available.
+        {# Pass stable identifiers; button is disabled when no identifier is available.
            TODO: c.btn's data_attrs auto-escapes with `| e`, which breaks the
            `| tojson`-encoded values these buttons rely on (JS reads
            dataset.title via JSON.parse). Until the macro supports raw-value

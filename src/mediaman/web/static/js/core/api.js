@@ -44,8 +44,7 @@
 
   global.MM = global.MM || {};
 
-  /* ── APIError ──
-   *
+  /*
    * Fields, by role:
    *   .error    — machine-readable code (used by callers in switch statements)
    *   .message  — human-readable prose (used in toasts / inline error text)
@@ -71,7 +70,6 @@
   APIError.prototype = Object.create(Error.prototype);
   APIError.prototype.constructor = APIError;
 
-  /* ── Core fetch helper ── */
   function request(method, endpoint, body, options) {
     options = options || {};
     var isWrite = method !== 'GET' && method !== 'HEAD';
@@ -126,7 +124,6 @@
     });
   }
 
-  /* ── Public namespace ── */
   global.MM.api = {
     APIError: APIError,
 

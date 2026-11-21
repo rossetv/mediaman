@@ -5,7 +5,7 @@
  * and the page-level CSP can drop 'unsafe-inline' once every template
  * has migrated. The file is self-contained (no imports).
  *
- * Finding 17: event delegation replaces inline onclick handlers. Values
+ * Event delegation replaces inline onclick handlers. Values
  * are read from data-* attributes parsed via JSON to avoid any string
  * interpolation into JavaScript.
  */

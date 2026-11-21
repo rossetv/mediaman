@@ -32,7 +32,6 @@
   function renderRow()    { return MM.downloads.renderRow; }
   function renderRecent() { return MM.downloads.renderRecent; }
 
-  /* ── Main update ── */
   function update(data) {
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
@@ -138,7 +137,6 @@
     renderRecent().updateRecent(recentContainer, data.recent);
   }
 
-  /* ── Episode toggle ── */
   document.addEventListener('click', function (e) {
     var toggle = e.target.closest('[data-v="ep-toggle"]');
     if (!toggle) return;

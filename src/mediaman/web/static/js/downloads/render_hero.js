@@ -21,12 +21,12 @@
 
   var dom = function () { return MM.downloads.buildDom; };
 
-  /* ── Refresh the "Searched N× · last attempt Xm ago · View in Radarr" line.
+  /* Refresh the "Searched N× · last attempt Xm ago · View in Radarr" line.
          Kept alongside the state pill so the user has visible proof that
          mediaman *is* poking Radarr/Sonarr on a cadence — absence of Activity
          in *arr does not mean nothing is happening. Only shown in the
          `searching` state; hidden otherwise so it doesn't linger after the
-         item starts downloading. ── */
+         item starts downloading. */
   function updateSearchHint(card, item) {
     var d = dom();
     var hint = d.q('[data-v="search-hint"]', card);
@@ -56,11 +56,11 @@
     }
   }
 
-  /* ── Type pill (Movie / TV) — kept in sync because the hero can swap
+  /* Kept in sync because the hero can swap
         between a series and a movie item between polls. The server-rendered
         pill belongs to whichever item was hero at SSR time; once polling
         promotes a different item to hero we have to repaint this pill or
-        the user sees a "TV" badge on a movie until they hard-refresh. ── */
+        the user sees a "TV" badge on a movie until they hard-refresh. */
   function updateTypePill(card, mediaType) {
     var d = dom();
     var info = d.q('.dl-hero-info', card);
@@ -139,10 +139,10 @@
     return btn;
   }
 
-  /* ── Episode toggle + list — present only when the item is a series
+  /* Present only when the item is a series
         with episodes. Add the whole section when missing, remove it when
         the new hero is a movie, and rebuild it when the episode set has
-        changed (different show, or pack contents changed). ── */
+        changed (different show, or pack contents changed). */
   function syncEpisodes(card, item) {
     var d = dom();
     var info = d.q('.dl-hero-info', card);

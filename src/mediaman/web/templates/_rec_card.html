@@ -23,7 +23,7 @@
   <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
   {%- endif -%}
 {%- endset -%}
-{#- Finding 18: only emit the trailer link if it is a confirmed YouTube URL. -#}
+{#- Only emit the trailer link if it is a confirmed YouTube URL. -#}
 {%- set _safe_trailer = item.trailer_url if item.trailer_url and item.trailer_url.startswith("https://www.youtube.com/") else "" -%}
 {% call c.tile(item.title,
                sub=_sub,
