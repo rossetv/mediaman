@@ -454,3 +454,249 @@ class TestDryRunDoesNotRecover:
             "SELECT action FROM audit_log WHERE media_item_id='stuck1' AND action='deleted'"
         ).fetchone()
         assert audit is None
+
+
+def _due_row(conn, media_id):
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="scheduled_deletion",
+        token=f"tok-{media_id}",
+        execute_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+        token_used=False,
+    )
+
+
+def _actions(conn, media_id):
+    return [
+        r["action"]
+        for r in conn.execute(
+            "SELECT action FROM scheduled_actions WHERE media_item_id=?", (media_id,)
+        )
+    ]
+
+
+def _audits(conn, media_id):
+    return [
+        r["action"]
+        for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id=?", (media_id,))
+    ]
+
+
+def _keep_forever(other, media_id):
+    from mediaman.web.repository.library_api import apply_keep_in_tx
+
+    apply_keep_in_tx(
+        other,
+        media_id=media_id,
+        action="protected_forever",
+        execute_at=None,
+        now_iso=datetime.now(UTC).isoformat(),
+        snooze_label="forever",
+        new_token="tok-new",
+        audit_detail="kept",
+        actor="admin",
+    )
+
+
+def _clear_scheduled(other, media_id):
+    from mediaman.scanner.repository import clear_pending_deletions
+
+    clear_pending_deletions(other)
+
+
+def _keep_show(other, media_id):
+    from mediaman.web.repository.kept import set_protected_state
+
+    action_id = other.execute(
+        "SELECT id FROM scheduled_actions WHERE media_item_id=?", (media_id,)
+    ).fetchone()["id"]
+    now_iso = datetime.now(UTC).isoformat()
+    with other:
+        set_protected_state(
+            other,
+            to_update=[("protected_forever", None, now_iso, "forever", action_id)],
+            to_insert=[],
+        )
+
+
+class TestChangeDuringPass:
+    @pytest.mark.parametrize("change", [_keep_forever, _clear_scheduled, _keep_show])
+    def test_keep_or_clear_made_mid_pass_wins(self, conn, db_path, tmp_path, monkeypatch, change):
+        root = tmp_path / "movies"
+        root.mkdir()
+        first, second = root / "A.mkv", root / "B.mkv"
+        first.write_bytes(b"x")
+        second.write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="a", plex_rating_key="a", file_path=str(first), radarr_id=1)
+        insert_media_item(conn, id="b", plex_rating_key="b", file_path=str(second), radarr_id=2)
+        _due_row(conn, "a")
+        _due_row(conn, "b")
+        other = init_db(str(db_path))
+
+        def unmonitor(radarr_id):
+            if radarr_id == 1:
+                change(other, "b")
+
+        radarr = MagicMock()
+        radarr.unmonitor_movie.side_effect = unmonitor
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert not first.exists()
+        assert second.exists()
+        assert result["deleted"] == 1
+        assert "deleted" not in _audits(conn, "b")
+        assert "scheduled_deletion" not in _actions(conn, "b")
+
+
+class TestSharedFolder:
+    """A season of a show without season folders points at the show folder."""
+
+    def _show(self, tmp_path, monkeypatch):
+        root = tmp_path / "tv"
+        show = root / "Show"
+        show.mkdir(parents=True)
+        (show / "Show - s01e01.mkv").write_bytes(b"x")
+        (show / "Show - s02e01.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        return root, show
+
+    def _season(self, conn, media_id, path, number, size=10):
+        insert_media_item(
+            conn,
+            id=media_id,
+            title="Show",
+            plex_rating_key=media_id,
+            media_type="season",
+            season_number=number,
+            sonarr_id=7,
+            file_path=str(path),
+            file_size_bytes=size,
+        )
+
+    @pytest.mark.parametrize(
+        "other_action",
+        ["protected_forever", "snoozed", None],
+        ids=["kept", "snoozed", "unscheduled"],
+    )
+    def test_folder_holding_another_items_media_is_not_deleted(
+        self, conn, tmp_path, monkeypatch, other_action
+    ):
+        _, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", show, 1)
+        self._season(conn, "s2", show, 2)
+        _due_row(conn, "s1")
+        if other_action:
+            insert_scheduled_action(
+                conn,
+                media_item_id="s2",
+                action=other_action,
+                token="tok-s2",
+                execute_at=(datetime.now(UTC) + timedelta(days=30)).isoformat(),
+                token_used=other_action == "protected_forever",
+            )
+        sonarr = MagicMock()
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert (show / "Show - s02e01.mkv").exists()
+        assert (show / "Show - s01e01.mkv").exists()
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='s1'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+        assert _audits(conn, "s1") == ["delete_refused"]
+        sonarr.unmonitor_season.assert_not_called()
+
+    def test_folder_holding_media_in_a_subfolder_is_not_deleted(self, conn, tmp_path, monkeypatch):
+        _, show = self._show(tmp_path, monkeypatch)
+        extras = show / "Season 3"
+        extras.mkdir()
+        (extras / "Show - s03e01.mkv").write_bytes(b"x")
+        self._season(conn, "s1", show, 1)
+        self._season(conn, "s3", extras, 3)
+        _due_row(conn, "s1")
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert (extras / "Show - s03e01.mkv").exists()
+        assert _audits(conn, "s1") == ["delete_refused"]
+
+    def test_folder_sharing_only_a_name_prefix_does_not_block(self, conn, tmp_path, monkeypatch):
+        root, show = self._show(tmp_path, monkeypatch)
+        neighbour = root / "Show 2"
+        neighbour.mkdir()
+        (neighbour / "Show 2 - s01e01.mkv").write_bytes(b"x")
+        self._season(conn, "s1", show, 1)
+        self._season(conn, "n1", neighbour, 1)
+        _due_row(conn, "s1")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert not show.exists()
+        assert (neighbour / "Show 2 - s01e01.mkv").exists()
+        assert result["deleted"] == 1
+
+    def test_seasons_due_together_delete_the_folder_once_and_all_close(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # The show is the root's only folder, so the root is empty once it goes:
+        # the second season must still close as deleted, not wait as unmounted.
+        _, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", show, 1, size=10)
+        self._season(conn, "s2", show, 2, size=20)
+        _due_row(conn, "s1")
+        _due_row(conn, "s2")
+        sonarr = MagicMock()
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert not show.exists()
+        assert result == {"deleted": 2, "reclaimed_bytes": 30}
+        assert _actions(conn, "s1") == [] and _actions(conn, "s2") == []
+        assert _audits(conn, "s1") == ["deleted"] and _audits(conn, "s2") == ["deleted"]
+        assert sorted(c.args for c in sonarr.unmonitor_season.call_args_list) == [(7, 1), (7, 2)]
+
+
+class TestMissingTarget:
+    @pytest.mark.parametrize("root_state", ["missing", "empty"])
+    def test_unavailable_mount_leaves_the_row_pending(
+        self, conn, tmp_path, monkeypatch, root_state
+    ):
+        root = tmp_path / "movies"
+        if root_state == "empty":
+            root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(root / "M" / "M.mkv"), radarr_id=5
+        )
+        _due_row(conn, "m")
+        radarr = MagicMock()
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+        assert "deleted" not in _audits(conn, "m")
+        radarr.unmonitor_movie.assert_not_called()
+
+    def test_file_gone_while_mount_is_up_closes_the_row(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "movies"
+        (root / "Other").mkdir(parents=True)
+        (root / "Other" / "Other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(root / "M" / "M.mkv"))
+        _due_row(conn, "m")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 1
+        assert _actions(conn, "m") == []
+        assert _audits(conn, "m") == ["deleted"]
+        assert (root / "Other" / "Other.mkv").exists()

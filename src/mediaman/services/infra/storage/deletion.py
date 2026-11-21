@@ -65,6 +65,33 @@ def path_within_delete_roots(path: str, allowed_roots: list[str]) -> bool:
     return any(root in resolved.parents for root in resolved_roots)
 
 
+def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
+    """Return True iff the delete root holding *path* is a directory with content.
+
+    A media mount that has dropped leaves its mount point missing or empty,
+    and every target under it then looks deleted. A caller that finds its
+    target absent asks this first, so it does not book an unmounted file as
+    removed. Never raises; any doubt (no matching root, unreadable root)
+    answers False. It does not vet the allowlist: ``delete_path`` does that.
+    """
+    if not path or not os.path.isabs(path):
+        return False
+    target = os.path.normpath(path)
+    roots = [
+        os.path.normpath(root)
+        for root in allowed_roots
+        if root and os.path.isabs(root) and target.startswith(os.path.normpath(root) + os.sep)
+    ]
+    if not roots:
+        return False
+    pinned_root = max(roots, key=len)
+    try:
+        with os.scandir(pinned_root) as entries:
+            return next(entries, None) is not None
+    except OSError:
+        return False
+
+
 def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     """Delete a file or directory, with mandatory path validation.
 

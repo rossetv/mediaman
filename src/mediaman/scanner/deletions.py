@@ -26,6 +26,10 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    fetch_media_held_outside_pass,
+)
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import (
     DeletionRefused,
@@ -33,6 +37,7 @@ from mediaman.services.infra import (
     delete_path,
     path_within_delete_roots,
 )
+from mediaman.services.infra.storage import delete_root_available
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -370,8 +375,9 @@ class DeletionExecutor:
                     len(rows),
                 )
         else:
+            removed_this_pass: list[str] = []
             for row in rows:
-                if self._delete_one(row, allowed_roots):
+                if self._delete_one(row, allowed_roots, now.isoformat(), removed_this_pass):
                     deleted_count += 1
                     reclaimed_bytes += row.file_size_bytes or 0
         if self._cleanup_snoozes:
@@ -379,7 +385,13 @@ class DeletionExecutor:
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
 
-    def _delete_one(self, row: DeletionRow, allowed_roots: list[str]) -> bool:
+    def _delete_one(
+        self,
+        row: DeletionRow,
+        allowed_roots: list[str],
+        now_iso: str,
+        removed_this_pass: list[str],
+    ) -> bool:
         """Delete a single eligible row from disk; return True on success.
 
         Parks a row with an empty/NULL ``file_path`` instead of cycling it
@@ -387,8 +399,27 @@ class DeletionExecutor:
         always refuses and recovery always resets to pending, so such a row
         would livelock invisibly. Write a permanent-failure audit and drop
         the action so the operator can see it and it cannot re-enter.
+
+        Two-phase delete: the row is claimed as 'deleting' and committed
+        BEFORE the file is removed. If we crash between that commit and the
+        rm, the next run's recover_stuck_deletions() can inspect the row and
+        decide whether the file is still there (reset to pending) or already
+        gone (mark deleted).
+
+        *removed_this_pass* collects the paths this pass has removed, so a
+        row whose media went with an earlier row's folder closes as deleted.
         """
-        if not (row.file_path or "").strip():
+        if not claim_due_deletion(self._conn, row.id, now_iso):
+            self._conn.commit()
+            logger.info(
+                "engine.delete.skipped id=%s media_id=%s — no longer a due deletion",
+                row.id,
+                row.media_item_id,
+            )
+            return False
+
+        path = row.file_path or ""
+        if not path.strip():
             logger.error(
                 "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
                 "has no file_path; parking the action so it cannot livelock "
@@ -406,20 +437,68 @@ class DeletionExecutor:
             self._conn.commit()
             return False
 
-        # Two-phase delete: mark the row 'deleting' and commit BEFORE removing
-        # the file. If we crash between this commit and the rm, the next run's
-        # recover_stuck_deletions() can inspect the row and decide whether the
-        # file is still there (reset to pending) or already gone (mark deleted).
-        logger.info(
-            "engine.delete.intent id=%s media_id=%s path=%r",
-            row.id,
-            row.media_item_id,
-            row.file_path,
-        )
-        repository.mark_delete_status(self._conn, row.id, "deleting")
-        self._conn.commit()
-        if not _delete_file_on_disk(self._conn, row, allowed_roots):
-            return False
+        if not any(_is_within(path, removed) for removed in removed_this_pass):
+            if not self._may_remove(row, path, allowed_roots, now_iso):
+                repository.mark_delete_status(self._conn, row.id, "pending")
+                self._conn.commit()
+                return False
+            self._conn.commit()
+            logger.info(
+                "engine.delete.intent id=%s media_id=%s path=%r",
+                row.id,
+                row.media_item_id,
+                path,
+            )
+            if not _delete_file_on_disk(self._conn, row, allowed_roots):
+                return False
+            removed_this_pass.append(path)
         _commit_deletion(self._conn, row)
         _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
         return True
+
+    def _may_remove(
+        self, row: DeletionRow, path: str, allowed_roots: list[str], now_iso: str
+    ) -> bool:
+        """Return False, logging why, when removing *path* now could lose media.
+
+        Runs inside the claim's transaction, so the other items it reads
+        cannot change before the claim commits.
+        """
+        held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
+        if held:
+            names = ", ".join(
+                f"{h['title']} season {h['season_number']}"
+                if h["season_number"] is not None
+                else str(h["title"])
+                for h in held
+            )
+            logger.warning(
+                "engine.delete.shared_path id=%s path=%r — also holds media not due "
+                "for deletion: %s; leaving the row pending",
+                row.id,
+                path,
+                names,
+            )
+            log_audit(
+                self._conn,
+                row.media_item_id,
+                "delete_refused",
+                f"Not deleted: {row.title} — {path} also holds media that is not "
+                f"due for deletion ({names})",
+            )
+            return False
+        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
+            logger.error(
+                "engine.delete.root_unavailable id=%s path=%r — target is missing and "
+                "its delete root is missing or empty (media mount down?); leaving "
+                "the row pending",
+                row.id,
+                path,
+            )
+            return False
+        return True
+
+
+def _is_within(path: str, folder: str) -> bool:
+    folder = folder.rstrip("/")
+    return path == folder or path.startswith(folder + "/")

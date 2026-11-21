@@ -42,6 +42,7 @@ DELETION_ACTION = "scheduled_deletion"
 __all__ = [
     "DELETION_ACTION",
     "DeletionRow",
+    "claim_due_deletion",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
@@ -50,6 +51,7 @@ __all__ = [
     "delete_scheduled_action",
     "fetch_already_scheduled_media_ids",
     "fetch_kept_show_keys",
+    "fetch_media_held_outside_pass",
     "fetch_pending_deletions",
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
@@ -135,6 +137,48 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
         (now_iso,),
     ).fetchall()
     return [_row_to_deletion_row(row) for row in rows]
+
+
+def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
+    """Mark a due deletion row ``deleting``; return False if it is no longer due.
+
+    The pass reads its rows once, so a keep, snooze or clear made since then
+    must win: the claim only succeeds while the row is still an unused,
+    pending ``scheduled_deletion`` whose time has come.
+    """
+    cursor = conn.execute(
+        "UPDATE scheduled_actions SET delete_status = 'deleting' "
+        "WHERE id = ? AND action = 'scheduled_deletion' AND token_used = 0 "
+        "  AND (delete_status IS NULL OR delete_status = 'pending') "
+        "  AND execute_at <= ?",
+        (action_id, now_iso),
+    )
+    return cursor.rowcount == 1
+
+
+def fetch_media_held_outside_pass(
+    conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
+) -> list[sqlite3.Row]:
+    """Return other media items stored at *path* or under it that are not due for deletion.
+
+    Deleting *path* would remove their media too. An item counts as due when
+    it has an unused ``scheduled_deletion`` row whose time has come, in any
+    delete state, since such rows are part of the same pass.
+    """
+    folder = path.rstrip("/")
+    prefix = folder + "/"
+    return conn.execute(
+        "SELECT mi.id, mi.title, mi.season_number FROM media_items mi "
+        "WHERE mi.id != ? "
+        "  AND (mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?) "
+        "  AND NOT EXISTS ("
+        "    SELECT 1 FROM scheduled_actions sa "
+        "    WHERE sa.media_item_id = mi.id AND sa.action = 'scheduled_deletion' "
+        "      AND sa.token_used = 0 AND sa.execute_at <= ?"
+        "  ) "
+        "ORDER BY mi.id",
+        (media_item_id, folder, len(prefix), prefix, now_iso),
+    ).fetchall()
 
 
 def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) -> None:
