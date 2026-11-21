@@ -150,6 +150,7 @@ _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 
+# Already-sent and pending keep links are rebuilt from these, so they must not change.
 _KEEP_TOKEN_MIN_TTL = timedelta(days=30)
 _KEEP_TOKEN_DELETION_MARGIN = timedelta(days=1)
 
