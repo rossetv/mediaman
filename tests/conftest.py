@@ -244,15 +244,6 @@ def secret_key():
     return "0123456789abcdef" * 4  # 64 hex chars, 16 unique, test-stable
 
 
-# ---------------------------------------------------------------------------
-# Shared web fixtures
-#
-# Lifted out of ``tests/unit/web/conftest.py`` so the integration suite
-# can adopt them too — every web-route test (unit and integration) wants
-# the same minimal-app + authed-client shape.
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def conn(db_path):
     """Open and initialise a fresh DB for the test, yield, then close.

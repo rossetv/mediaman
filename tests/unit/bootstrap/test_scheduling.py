@@ -23,10 +23,6 @@ from mediaman.bootstrap.validators import (
     validate_sync_interval as _validate_sync_interval,
 )
 
-# ---------------------------------------------------------------------------
-# _validate_scan_time
-# ---------------------------------------------------------------------------
-
 
 class TestValidateScanTime:
     def test_valid_midnight(self):
@@ -65,11 +61,6 @@ class TestValidateScanTime:
         # "9:00" has no leading zero — must fail the regex.
         with pytest.raises(ValueError):
             _validate_scan_time("9:00")
-
-
-# ---------------------------------------------------------------------------
-# bootstrap_scheduling — wiring tests
-# ---------------------------------------------------------------------------
 
 
 class TestBootstrapScheduling:
@@ -167,7 +158,7 @@ class TestBootstrapScheduling:
         assert result is False
 
     def test_failure_records_scheduler_error_for_readyz(self, db_path):
-        """The /readyz body needs the *why* — finding 7."""
+        """The /readyz body needs the *why*."""
         app = self._make_app(db_path)
         app.state.canary_ok = False
 
@@ -179,7 +170,7 @@ class TestBootstrapScheduling:
         assert "AES canary" in app.state.scheduler_error
 
     def test_logger_exception_used_on_failure(self, db_path, monkeypatch, caplog):
-        """Failures must include the traceback — finding 16.
+        """Failures must include the traceback.
 
         The logger has to be ``exception``-level so the traceback is
         attached to the record; without it operators get the message
@@ -206,7 +197,7 @@ class TestBootstrapScheduling:
 
 
 class TestShutdownScheduling:
-    """Finding 3 / shutdown_scheduling: bounded wait so SIGTERM unblocks."""
+    """Bounded wait so SIGTERM unblocks."""
 
     def test_shutdown_returns_within_bounded_time(self, monkeypatch):
         """Even if ``stop_scheduler`` hangs, shutdown_scheduling returns."""
@@ -320,7 +311,7 @@ class TestH01ReadyzFailClosed:
 
 
 class TestBootstrapCryptoFailClosed:
-    """Finding 14: canary state must default to False, not True."""
+    """Canary state must default to False, not True."""
 
     def test_canary_ok_starts_false_on_import_failure(self, db_path, monkeypatch):
         """An import-time exception must leave canary_ok=False."""
@@ -383,11 +374,6 @@ class TestBootstrapCryptoFailClosed:
             "bootstrap_crypto must succeed on a fresh DB with a known-good "
             "secret key; if this fails, the canary check or its imports are broken."
         )
-
-
-# ---------------------------------------------------------------------------
-# Scheduler setting validators reject invalid scan times, days, and timezones
-# ---------------------------------------------------------------------------
 
 
 class TestValidateScanDay:

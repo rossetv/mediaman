@@ -9,10 +9,6 @@ import pytest
 
 from mediaman.core.scrub_filter import ScrubFilter
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_record(msg: str, args: tuple | None = None) -> logging.LogRecord:
     """Create a minimal LogRecord suitable for passing to ScrubFilter.filter."""
@@ -26,11 +22,6 @@ def _make_record(msg: str, args: tuple | None = None) -> logging.LogRecord:
         exc_info=None,
     )
     return record
-
-
-# ---------------------------------------------------------------------------
-# ScrubFilter.filter — redaction behaviour
-# ---------------------------------------------------------------------------
 
 
 class TestScrubFilterRedaction:
@@ -101,11 +92,6 @@ class TestScrubFilterRedaction:
         assert "topsecret" not in record.args["url"]
 
 
-# ---------------------------------------------------------------------------
-# ScrubFilter.attach — idempotent attachment
-# ---------------------------------------------------------------------------
-
-
 class TestScrubFilterAttach:
     @pytest.fixture(autouse=True)
     def _clear_logger_filters(self):
@@ -167,11 +153,6 @@ class TestScrubFilterAttach:
         ]
 
 
-# ---------------------------------------------------------------------------
-# Exception swallow — §6.4 site 5 fix
-# ---------------------------------------------------------------------------
-
-
 class TestScrubFilterExceptionSwallow:
     def test_filter_returns_true_on_scrub_error(self) -> None:
         """filter() must return True even when _scrub raises internally."""
@@ -194,11 +175,6 @@ class TestScrubFilterExceptionSwallow:
         # register_secret with a valid string must not raise.
         f.register_secret("new-secret")
         assert "new-secret" in f._secrets
-
-
-# ---------------------------------------------------------------------------
-# Thread safety — §8.5 concurrency fix
-# ---------------------------------------------------------------------------
 
 
 class TestScrubFilterThreadSafety:

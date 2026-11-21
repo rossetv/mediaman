@@ -555,7 +555,7 @@ class TestCanaryFailureAudits:
         is_canary_valid(conn, secret_key)  # seed
         # Fail with a different valid-shape key; supply the audit callback so
         # the failure reason is written to audit_log (audit writing was moved
-        # out of crypto/ to the caller layer — see §2.2 leaf-package rule).
+        # out of crypto/ to the caller layer).
         ok = is_canary_valid(
             conn,
             "fedcba9876543210" * 4,
@@ -575,7 +575,7 @@ class TestCanaryFailureAudits:
         ct = encrypt_value("api-key", secret_key, conn=conn)
         insert_settings(conn, plex_token=ct, encrypted=1, updated_at="2026-01-01")
 
-        # Supply the audit callback — see §2.2 leaf-package rule.
+        # Supply the audit callback.
         ok = is_canary_valid(conn, secret_key, on_failure=_make_canary_audit_callback(conn))
         assert ok is False
 
@@ -588,7 +588,7 @@ class TestCanaryFailureAudits:
 
 
 class TestSaltCacheBounded:
-    """mediaman is single-process (CODE_GUIDELINES §1.12), so the salt
+    """mediaman is single-process, so the salt
     cache only ever needs a single entry. Opening a second DB must
     overwrite the previous entry rather than grow the cache.
     """
@@ -670,10 +670,6 @@ class TestCiphertextCapTightened:
         assert decrypt_value(ct, secret_key, conn=conn) == plaintext
 
 
-# ---------------------------------------------------------------------------
-# HMAC token domain separation
-# ---------------------------------------------------------------------------
-
 _DOMAIN_KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entropy check
 
 
@@ -730,11 +726,6 @@ class TestTokenLengthCap:
         assert validate_download_token("A" * 10_000, _DOMAIN_KEY) is None
 
 
-# ---------------------------------------------------------------------------
-# AES-GCM AAD binding (prevents ciphertext row swap)
-# ---------------------------------------------------------------------------
-
-
 class TestAesGcmAad:
     def test_aad_binding_roundtrip(self, db_path):
         from mediaman.crypto import decrypt_value, encrypt_value
@@ -760,11 +751,6 @@ class TestAesGcmAad:
         # the ``plex_token`` row into, say, ``openai_api_key``.
         with pytest.raises(InvalidTag):
             decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"openai_api_key")
-
-
-# ---------------------------------------------------------------------------
-# Unsubscribe token
-# ---------------------------------------------------------------------------
 
 
 class TestUnsubscribeToken:

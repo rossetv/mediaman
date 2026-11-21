@@ -47,11 +47,6 @@ def _insert_pending_deletion(conn, *, media_id="m1", execute_at=None):
     )
 
 
-# ---------------------------------------------------------------------------
-# dry_run
-# ---------------------------------------------------------------------------
-
-
 class TestDryRun:
     def test_dry_run_does_not_delete_file(self, conn, tmp_path):
         real_file = tmp_path / "film.mkv"
@@ -80,11 +75,6 @@ class TestDryRun:
         assert row["action"] == "dry_run_skip"
 
 
-# ---------------------------------------------------------------------------
-# no allowed roots
-# ---------------------------------------------------------------------------
-
-
 class TestNoAllowedRoots:
     def test_skips_deletion_when_roots_not_configured(self, conn, tmp_path, monkeypatch):
         # Ensure no roots in DB or env.
@@ -102,11 +92,6 @@ class TestNoAllowedRoots:
 
         assert result["deleted"] == 0
         assert real_file.exists()
-
-
-# ---------------------------------------------------------------------------
-# successful deletion
-# ---------------------------------------------------------------------------
 
 
 class TestSuccessfulDeletion:
@@ -198,11 +183,6 @@ class TestSuccessfulDeletion:
 
         assert result["deleted"] == 0
         assert real_file.exists()
-
-
-# ---------------------------------------------------------------------------
-# recover_stuck_deletions
-# ---------------------------------------------------------------------------
 
 
 class TestRecoverStuckDeletions:
@@ -331,11 +311,6 @@ class TestRecoverStuckDeletions:
         assert audit is None
 
 
-# ---------------------------------------------------------------------------
-# Plex-derived root-path defence
-# ---------------------------------------------------------------------------
-
-
 class TestPlexCraftedRootPath:
     """A buggy or compromised Plex response can supply a ``part.file`` that
     happens to equal a configured delete root. The cleanup loop must refuse
@@ -392,11 +367,6 @@ class TestPlexCraftedRootPath:
         assert (outside / "important.txt").exists()
 
 
-# ---------------------------------------------------------------------------
-# empty file_path parking (R7-M1)
-# ---------------------------------------------------------------------------
-
-
 class TestEmptyFilePathParking:
     def test_empty_path_is_parked_with_audit_and_does_not_livelock(
         self, conn, tmp_path, monkeypatch
@@ -443,11 +413,6 @@ class TestEmptyFilePathParking:
         audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='ws1'").fetchone()
         assert audit is not None
         assert audit["action"] == "delete_failed_permanent"
-
-
-# ---------------------------------------------------------------------------
-# dry-run never mutates state via recovery (R7-L1)
-# ---------------------------------------------------------------------------
 
 
 class TestDryRunDoesNotRecover:

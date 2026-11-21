@@ -68,7 +68,7 @@ class TestLoadConfig:
         assert cfg.secret_key == key
 
     def test_config_has_no_delete_roots_field(self, monkeypatch):
-        """Config no longer carries delete_roots — finding 8.
+        """Config no longer carries delete_roots.
 
         ``MEDIAMAN_DELETE_ROOTS`` is read at the deletion call site
         (scanner.repository) so the env var is the single source of
@@ -80,7 +80,7 @@ class TestLoadConfig:
         assert not hasattr(cfg, "delete_roots")
 
     def test_port_value_error_chained_with_from_exc(self, monkeypatch):
-        """ConfigError raised on bad port is chained — finding 10."""
+        """ConfigError raised on bad port is chained."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
         monkeypatch.setenv("MEDIAMAN_PORT", "not-a-port")
         with pytest.raises(ConfigError) as excinfo:

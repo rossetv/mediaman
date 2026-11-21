@@ -1,4 +1,4 @@
-"""Tests for scan_items per-item error isolation (§6.4 / rationale boundary).
+"""Tests for scan_items per-item error isolation.
 
 Verifies that:
   - a single failing item is counted in summary["errors"] and does not abort
@@ -183,7 +183,7 @@ def _movie_evaluate(engine):
 
 
 class TestN1BatchingProtectionParity:
-    """§13.3 — the hot loop now builds the protection / already-scheduled
+    """The hot loop now builds the protection / already-scheduled
     sets in two batched queries instead of per-item SELECTs. This must
     not change the protection decision: a protected, a snoozed, an
     already-scheduled, and a plain item run through ``scan_items`` must

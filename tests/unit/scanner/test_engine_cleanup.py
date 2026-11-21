@@ -216,7 +216,7 @@ class TestHistoryFetchFailureNeverPrunes:
 
 
 class TestConcurrentScanGuard:
-    """H60: manual and cron scans cannot both run simultaneously.
+    """Manual and cron scans cannot both run simultaneously.
 
     The DB-backed ``scan_runs`` table is the single concurrency gate.
     ``start_scan_run`` uses ``BEGIN IMMEDIATE`` so only one caller

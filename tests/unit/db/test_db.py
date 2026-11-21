@@ -325,7 +325,7 @@ class TestJobRunHelpers:
     def test_heartbeat_keeps_long_run_alive(self, db_path):
         """A long scan that renews its heartbeat must stay marked running.
 
-        Regression for finding 9: previously the fixed two-hour cutoff
+        Previously the fixed two-hour cutoff
         meant a slow scan would silently appear "stale" while still
         running, allowing a sibling worker to start an overlapping job.
         With the heartbeat lease the live run keeps blocking new starts
@@ -407,7 +407,7 @@ class TestJobRunHelpers:
 
 
 class TestSchemaV18KeepTokensUsed:
-    """v18 adds ``keep_tokens_used`` for HMAC token replay prevention (H27)."""
+    """v18 adds ``keep_tokens_used`` for HMAC token replay prevention."""
 
     def test_table_present_on_fresh_db(self, db_path):
         conn = init_db(str(db_path))
@@ -441,7 +441,7 @@ class TestSchemaV18KeepTokensUsed:
 
 class TestSchemaV25UniqueActiveDeletion:
     """v25 adds a partial unique index preventing two active pending
-    deletions for the same media_item_id (finding 9)."""
+    deletions for the same media_item_id."""
 
     def test_index_present(self, db_path):
         conn = init_db(str(db_path))
@@ -517,7 +517,7 @@ class TestSchemaV25UniqueActiveDeletion:
 
 
 class TestSchemaV23UsedDownloadTokens:
-    """v23 adds the persistent download-token store (finding 2)."""
+    """v23 adds the persistent download-token store."""
 
     def test_table_present(self, db_path):
         conn = init_db(str(db_path))
@@ -543,7 +543,7 @@ class TestSchemaV23UsedDownloadTokens:
 
 
 class TestSchemaV24JobHeartbeatColumns:
-    """v24 adds owner_id + heartbeat_at to scan_runs and refresh_runs (finding 9)."""
+    """v24 adds owner_id + heartbeat_at to scan_runs and refresh_runs."""
 
     def test_scan_runs_has_heartbeat_columns(self, db_path):
         conn = init_db(str(db_path))
@@ -559,7 +559,7 @@ class TestSchemaV24JobHeartbeatColumns:
 
 
 class TestSchemaV26NewsletterDeliveries:
-    """v26 adds per-recipient newsletter delivery tracking (finding 23)."""
+    """v26 adds per-recipient newsletter delivery tracking."""
 
     def test_table_present(self, db_path):
         conn = init_db(str(db_path))
@@ -595,7 +595,7 @@ class TestSchemaV26NewsletterDeliveries:
 
 
 class TestSchemaV31AuditActor:
-    """v31 adds an ``actor`` column to ``audit_log`` (Domain 05 HIGH)."""
+    """v31 adds an ``actor`` column to ``audit_log``."""
 
     def test_audit_log_has_actor_column_on_fresh_db(self, db_path):
         conn = init_db(str(db_path))
@@ -633,7 +633,7 @@ class TestSchemaV31AuditActor:
 
 
 class TestSchemaV32HotPathIndexes:
-    """v32 adds two indexes for previously full-scan WHERE clauses (Domain 05)."""
+    """v32 adds two indexes for previously full-scan WHERE clauses."""
 
     def test_media_items_index_present_on_fresh_db(self, db_path):
         conn = init_db(str(db_path))

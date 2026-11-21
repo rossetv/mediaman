@@ -39,10 +39,6 @@ class TestSettingsUpdate:
         dumped = update.model_dump(exclude_none=True)
         assert dumped == {}
 
-    # ------------------------------------------------------------------
-    # C11: extra="forbid" — unknown keys must raise HTTP 422
-    # ------------------------------------------------------------------
-
     def test_settings_update_rejects_unknown_keys(self):
         """Unknown fields raise ValidationError, not silent drop."""
         with pytest.raises(ValidationError, match="not_a_real_field") as exc_info:
@@ -57,10 +53,6 @@ class TestSettingsUpdate:
         err = str(exc_info.value)
         # At least one unknown key must be named in the error.
         assert "foo" in err or "baz" in err
-
-    # ------------------------------------------------------------------
-    # CR/LF injection defence
-    # ------------------------------------------------------------------
 
     def test_settings_update_rejects_crlf_in_strings(self):
         """CR or LF in any string field must be rejected."""
@@ -99,10 +91,6 @@ class TestSettingsUpdate:
         with pytest.raises(ValidationError):
             SettingsUpdate(plex_libraries=["Movies", "TV\nevil"])
 
-    # ------------------------------------------------------------------
-    # API-key character-set validation
-    # ------------------------------------------------------------------
-
     def test_api_key_non_ascii_rejected(self):
         with pytest.raises(ValidationError):
             SettingsUpdate(openai_api_key="sk-évil")
@@ -121,10 +109,6 @@ class TestSettingsUpdate:
     def test_valid_api_key_passes(self):
         update = SettingsUpdate(sonarr_api_key="abc123XYZ-._~")
         assert update.sonarr_api_key == "abc123XYZ-._~"
-
-    # ------------------------------------------------------------------
-    # URL validation
-    # ------------------------------------------------------------------
 
     def test_url_must_be_http_or_https(self):
         with pytest.raises(ValidationError):
@@ -163,10 +147,6 @@ class TestSettingsUpdate:
         assert update.radarr_public_url == "http://radarr.example.com"
         assert update.nzbget_public_url == "http://nzbget.example.com"
 
-    # ------------------------------------------------------------------
-    # scan_timezone
-    # ------------------------------------------------------------------
-
     def test_valid_timezone_passes(self):
         update = SettingsUpdate(scan_timezone="Europe/London")
         assert update.scan_timezone == "Europe/London"
@@ -182,10 +162,6 @@ class TestSettingsUpdate:
     def test_crlf_in_timezone_rejected(self):
         with pytest.raises(ValidationError):
             SettingsUpdate(scan_timezone="Europe/London\nevil")
-
-    # ------------------------------------------------------------------
-    # library_sync_interval
-    # ------------------------------------------------------------------
 
     # The field stores minutes (matching the dropdown and the bootstrap
     # scheduler's sync_interval_minutes). Bound is 0..1440 (0 = disabled,
@@ -210,10 +186,6 @@ class TestSettingsUpdate:
     def test_library_sync_interval_too_high_rejected(self):
         with pytest.raises(ValidationError):
             SettingsUpdate(library_sync_interval=1441)
-
-    # ------------------------------------------------------------------
-    # suggestions_enabled / disk_thresholds
-    # ------------------------------------------------------------------
 
     def test_suggestions_enabled_bool(self):
         update = SettingsUpdate(suggestions_enabled=True)

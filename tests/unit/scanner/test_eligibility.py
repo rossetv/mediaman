@@ -18,11 +18,6 @@ def _now():
     return datetime.now(UTC)
 
 
-# ---------------------------------------------------------------------------
-# is_old_enough
-# ---------------------------------------------------------------------------
-
-
 class TestCheckAge:
     def test_old_enough_returns_true(self):
         added = _now() - timedelta(days=31)
@@ -46,11 +41,6 @@ class TestCheckAge:
     def test_zero_min_age_always_eligible(self):
         added = _now()  # Just added this instant.
         assert is_old_enough(added, min_age_days=0) is True
-
-
-# ---------------------------------------------------------------------------
-# is_inactive
-# ---------------------------------------------------------------------------
 
 
 class TestCheckInactivity:
@@ -88,7 +78,7 @@ class TestCheckInactivity:
         assert is_inactive(history, inactivity_days=30) is True
 
     def test_all_none_viewed_at_does_not_raise(self):
-        """D05 finding 12: a watch_history list whose every entry has
+        """A watch_history list whose every entry has
         ``viewed_at=None`` used to crash with ``ValueError`` from
         ``max([])``. The function must instead return False (treat as
         recently watched / fail safe) so we never schedule deletion off

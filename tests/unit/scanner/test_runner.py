@@ -19,8 +19,6 @@ from mediaman.services.infra import SSRFRefused
 # the threshold logic the test wants to assert.
 _DiskUsage = type(shutil.disk_usage("/"))
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
 
 def _set_setting(conn, key, value):
     str_value = json.dumps(value) if isinstance(value, (dict, list, bool)) else str(value)
@@ -56,9 +54,6 @@ def _seed_plex_settings(conn, lib_ids: list[str]):
     _set_setting(conn, "plex_url", "http://localhost:32400")
     _set_setting(conn, "plex_token", "fake-token")
     _set_setting(conn, "plex_libraries", lib_ids)
-
-
-# ── tests ─────────────────────────────────────────────────────────────────────
 
 
 class TestDiskThresholdFiltering:

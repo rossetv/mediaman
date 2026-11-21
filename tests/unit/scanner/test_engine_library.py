@@ -132,7 +132,7 @@ class TestShowLevelKeep:
 
 
 class TestPerLibraryOrphanGuard:
-    """D05 finding 7: orphan-removal numerical safeguards must evaluate
+    """Orphan-removal numerical safeguards must evaluate
     each library independently. A library that returns 0 items must not
     be wiped just because a sibling library returned 1000.
     """
@@ -395,7 +395,7 @@ class TestOrphanGuardPerLibraryConfirmation:
 
 
 class TestUnknownLibraryType:
-    """D05 finding 6: a library with no type mapping must be skipped
+    """A library with no type mapping must be skipped
     loudly, not scanned as 'movie' by default.
     """
 
