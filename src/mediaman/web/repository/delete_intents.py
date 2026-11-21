@@ -51,16 +51,34 @@ def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
         )
 
 
-def _fail_delete_intent(conn: sqlite3.Connection, intent_id: int, error: str) -> None:
-    """Record the last error on a delete intent (intent remains pending)."""
+def _fail_delete_intent(
+    conn: sqlite3.Connection,
+    intent_id: int,
+    media_item_id: str,
+    detail: str,
+    error: str,
+    *,
+    actor: str | None = None,
+) -> None:
+    """Close a delete intent whose Radarr/Sonarr call failed, and audit the failure.
+
+    The intent is completed with ``last_error`` set so the startup reconcile
+    never books the item as deleted: the Arr did not confirm it gone, so the
+    media row and its scheduled actions stay for the operator to retry.
+    """
+    from mediaman.core.audit import log_audit
+
     with conn:
+        log_audit(conn, media_item_id, "delete_failed", detail, actor=actor)
         conn.execute(
-            "UPDATE delete_intents SET last_error = ? WHERE id = ?",
-            (str(error)[:2000], intent_id),
+            "UPDATE delete_intents SET completed_at = ?, last_error = ? WHERE id = ?",
+            (now_utc().isoformat(), str(error)[:2000], intent_id),
         )
 
 
-def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_id: str) -> bool:
+def _reconcile_one_intent(
+    conn: sqlite3.Connection, intent_id: int, media_item_id: str, last_error: str | None
+) -> bool:
     """Reconcile a single pending intent.  Returns ``True`` on resolution."""
     from mediaman.core.audit import log_audit
 
@@ -76,10 +94,27 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
             media_item_id,
         )
         return True
+    if last_error is not None:
+        # A pending intent carrying an error is a failed Arr call: the Arr
+        # never confirmed the delete, so the item must not be booked gone.
+        _fail_delete_intent(
+            conn,
+            intent_id,
+            media_item_id,
+            "Delete not confirmed by Radarr/Sonarr; closed by startup cleanup",
+            last_error,
+        )
+        logger.info(
+            "delete_intent.reconciled intent_id=%s media_id=%s reason=upstream_failed",
+            intent_id,
+            media_item_id,
+        )
+        return True
     # rationale: cold-start — reconciler runs at startup and
     # processes the whole intent backlog; every error must roll back the
-    # current intent's transaction and record the failure so the next
-    # startup retries without crashing the boot sequence.
+    # current intent's transaction and leave it pending (without an error,
+    # which would mark it as a failed Arr call) so the next startup retries
+    # without crashing the boot sequence.
     try:
         with conn:
             log_audit(conn, media_item_id, "deleted", "Reconciled by startup cleanup")
@@ -93,7 +128,6 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
         )
         return True
     except Exception as exc:
-        _fail_delete_intent(conn, intent_id, str(exc))
         logger.warning(
             "delete_intent.reconcile_failed intent_id=%s media_id=%s error=%s",
             intent_id,
@@ -114,11 +148,10 @@ def reconcile_pending_delete_intents(conn: sqlite3.Connection) -> int:
     Returns the number of intents resolved during this call.
     """
     pending = conn.execute(
-        "SELECT id, media_item_id, target_kind, target_id "
-        "FROM delete_intents WHERE completed_at IS NULL"
+        "SELECT id, media_item_id, last_error FROM delete_intents WHERE completed_at IS NULL"
     ).fetchall()
     resolved = 0
     for row in pending:
-        if _reconcile_one_intent(conn, row["id"], row["media_item_id"]):
+        if _reconcile_one_intent(conn, row["id"], row["media_item_id"], row["last_error"]):
             resolved += 1
     return resolved
