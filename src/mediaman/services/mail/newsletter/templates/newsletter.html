@@ -316,6 +316,7 @@
             </div>
           </div>
 
+          {% macro days_left_text(n) %}{% if n <= 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{% endmacro %}
           {% if scheduled_items %}
           <div class="sect">
             <div class="hero">
@@ -324,7 +325,7 @@
                   <div class="hero-n">{{ scheduled_items|length }} scheduled for deletion</div>
                   <div class="hero-sub">{{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }} &middot; click Keep on anything you want to hang onto</div>
                 </div>
-                <div class="hero-countdown"><span class="dot-pulse"></span>{{ grace_days }} day{{ 's' if grace_days != 1 else '' }} left</div>
+                <div class="hero-countdown"><span class="dot-pulse"></span>{{ days_left_text(scheduled_items | map(attribute='days_left') | min) }}</div>
               </div>
               <div class="sched-grid">
                 {% for item in scheduled_items %}
@@ -339,6 +340,7 @@
                     <div class="item-meta">
                       {{ item.type_label }}
                       {% if item.added_days_ago is not none %} &middot; Added {{ item.added_days_ago }}d{% endif %}
+                      &middot; {{ days_left_text(item.days_left) }}
                       &middot;
                       {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;">Never watched</span>{% endif %}
                     </div>

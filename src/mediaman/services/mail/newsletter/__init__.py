@@ -194,6 +194,9 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     unnotified items and marks them notified=1 afterwards. A manual call (recipients
     given, mark_notified=False) sends to those addresses, includes all scheduled items
     and leaves the notified flag alone.
+
+    *grace_days* is accepted for callers that still pass it and is not used: each item's
+    days left come from its own deadline.
     """
     mg_settings = _load_mailgun_settings(conn, secret_key)
     if not mg_settings.domain:
@@ -251,7 +254,6 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
         base_url=base_url,
         secret_key=secret_key,
         dry_run=dry_run,
-        grace_days=grace_days,
         template=ctx.template,
         mailgun=ctx.mailgun,
         report_date=ctx.report_date,

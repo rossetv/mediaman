@@ -6,6 +6,7 @@ sections reach the rendered output against realistic context data.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,7 @@ def _full_context(dry_run: bool = False) -> dict:
                 "poster_url": "https://example/p/1.jpg",
                 "file_size_bytes": 42 * 1024**3,
                 "added_days_ago": 180,
+                "days_left": 14,
                 "last_watched_info": None,
                 "keep_url": "https://example/keep/tok1",
                 "is_reentry": False,
@@ -55,6 +57,7 @@ def _full_context(dry_run: bool = False) -> dict:
                 "poster_url": "https://example/p/2.jpg",
                 "file_size_bytes": 68 * 1024**3,
                 "added_days_ago": 300,
+                "days_left": 9,
                 "last_watched_info": None,
                 "keep_url": "https://example/keep/tok2",
                 "is_reentry": True,
@@ -114,7 +117,6 @@ def _full_context(dry_run: bool = False) -> dict:
         "dashboard_url": "https://example",
         "dry_run": dry_run,
         "base_url": "https://example",
-        "grace_days": 14,
         "unsubscribe_url": "https://example/unsubscribe?token=xyz",
     }
 
@@ -128,7 +130,8 @@ def test_full_render(env: Environment) -> None:
     assert "{%" not in html
 
     assert "scheduled for deletion" in html
-    assert "14 days left" in html
+    assert "14 days left" in html  # the first card's own deadline
+    assert "9 days left" in html  # the second card, and the header (the soonest)
     assert "Ad Astra" in html
     assert "Westworld S4" in html
     assert 'href="https://example/keep/tok1"' in html
@@ -165,11 +168,19 @@ def test_dry_run_banner_renders(env: Environment) -> None:
     assert "DRY RUN MODE" in html
 
 
-def test_singular_grace_day(env: Environment) -> None:
+def test_singular_day_left(env: Environment) -> None:
     ctx = _full_context()
-    ctx["grace_days"] = 1
+    for item in ctx["scheduled_items"]:
+        item["days_left"] = 1
 
     html = env.get_template("newsletter.html").render(**ctx)
 
     assert "1 day left" in html
     assert "1 days left" not in html
+
+
+def test_header_counts_down_to_the_soonest_deadline(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    countdown = re.search(r'class="hero-countdown">(.*?)</div>', html).group(1)
+    assert "9 days left" in countdown

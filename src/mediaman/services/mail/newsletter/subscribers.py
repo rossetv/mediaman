@@ -149,7 +149,6 @@ def _render_for_subscriber(
     base_url: str,
     secret_key: str,
     dry_run: bool,
-    grace_days: int,
     template: _JinjaTemplate,
 ) -> str:
     """Mint per-subscriber tokens on shallow copies of the items (so URLs do not bleed
@@ -187,7 +186,6 @@ def _render_for_subscriber(
         dashboard_url=base_url,
         dry_run=dry_run,
         base_url=base_url,
-        grace_days=grace_days,
         unsubscribe_url=unsub_url,
     )
 
@@ -206,7 +204,6 @@ def _send_to_subscribers(
     base_url: str,
     secret_key: str,
     dry_run: bool,
-    grace_days: int,
     template: _JinjaTemplate,
     mailgun: _MailgunClient,
     report_date: str,
@@ -235,7 +232,6 @@ def _send_to_subscribers(
             base_url=base_url,
             secret_key=secret_key,
             dry_run=dry_run,
-            grace_days=grace_days,
             template=template,
         )
         try:
