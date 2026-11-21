@@ -497,6 +497,56 @@ class TestFetchLibrary:
         assert "fooXbar" not in titles
 
 
+class TestKeepsInForce:
+    """The page reads a keep exactly while the scanner would honour it."""
+
+    def test_forever_keep_made_from_an_email_reads_kept_and_is_listed(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Dune")
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="protected_forever",
+            execute_at=None,
+            token="tok-m1",
+            token_used=True,
+        )
+        items, total = fetch_library(conn, media_type="kept")
+        assert total == 1
+        assert (items[0]["protected"], items[0]["protection_label"]) == (True, "Kept forever")
+
+    def test_snooze_ending_within_a_day_reads_kept(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Dune")
+        _snooze(conn, "m1", datetime.now(UTC) + timedelta(hours=2))
+        (row,) = fetch_library(conn)[0]
+        assert (row["protected"], row["protection_label"]) == (True, "Kept for less than a day")
+
+    @pytest.mark.parametrize(
+        "lapsed_keep",
+        ["item-snooze", "item-snooze-from-email", "show-snooze"],
+    )
+    def test_kept_filter_leaves_out_a_lapsed_keep(self, db_path, lapsed_keep):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        _insert_tv_season(conn, "a1", "Show", "rk1")
+        if lapsed_keep == "show-snooze":
+            insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at=yesterday)
+        else:
+            insert_scheduled_action(
+                conn,
+                media_item_id="a1",
+                action="snoozed",
+                execute_at=yesterday,
+                token="tok-a1",
+                token_used=lapsed_keep == "item-snooze-from-email",
+            )
+        assert fetch_library(conn, media_type="kept") == ([], 0)
+
+
 class TestFetchStats:
     def test_empty_db_returns_zero_counts(self, db_path):
         conn = init_db(str(db_path))

@@ -9,6 +9,7 @@ JS intact whatever the title holds.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
@@ -279,3 +280,31 @@ def test_remove_keep_on_a_single_season_show_kept_as_a_whole_opens_the_keep_dial
 
     assert not _elements_with(html, "data-remove-keep-id")
     assert len(_elements_with(html, "data-remove-keep-dialog")) == 1
+
+
+@pytest.mark.parametrize(
+    ("action", "execute_in", "token_used"),
+    [
+        ("protected_forever", None, True),
+        ("snoozed", timedelta(hours=2), False),
+        ("snoozed", timedelta(hours=2), True),
+    ],
+    ids=["forever-keep-from-email", "snooze-ending-today", "snooze-from-email-ending-today"],
+)
+def test_item_the_scanner_keeps_reads_kept_and_offers_no_delete(
+    client, conn, action, execute_in, token_used
+):
+    _insert_movie(conn, "m1", "Dune")
+    insert_scheduled_action(
+        conn,
+        media_item_id="m1",
+        action=action,
+        execute_at=(datetime.now(UTC) + execute_in).isoformat() if execute_in else None,
+        token="tok-m1",
+        token_used=token_used,
+    )
+
+    html = client.get("/library").text
+
+    assert "lib-row-protected" in html
+    assert not _delete_buttons(html)
