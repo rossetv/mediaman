@@ -49,6 +49,7 @@ class _Outbox:
     def __init__(self) -> None:
         self.sent: Counter[str] = Counter()
         self.html: dict[str, str] = {}
+        self.subject: dict[str, str] = {}
         self.failing: set[str] = set()
 
     def send(self, *, to: str, subject: str, html: str) -> None:
@@ -56,6 +57,7 @@ class _Outbox:
             raise SafeHTTPError(status_code=503, body_snippet="down", url="u")
         self.sent[to] += 1
         self.html[to] = html
+        self.subject[to] = subject
 
     def scan(self, conn) -> None:
         mailgun = MagicMock()
@@ -69,8 +71,10 @@ class _Outbox:
             send_newsletter(conn, _SECRET_KEY)
 
 
-def _queue(conn, media_id: str) -> int:
-    insert_media_item(conn, id=media_id, title=media_id, plex_rating_key=media_id)
+def _queue(conn, media_id: str, size_bytes: int = 1 << 20) -> int:
+    insert_media_item(
+        conn, id=media_id, title=media_id, plex_rating_key=media_id, file_size_bytes=size_bytes
+    )
     return insert_scheduled_action(conn, media_item_id=media_id, token=f"tok-{media_id}")
 
 
@@ -154,3 +158,29 @@ def test_items_are_marked_notified_once_the_last_subscriber_is_reached(conn):
     assert _notified(conn, action_id) == 1
     assert outbox.sent["bob@example.com"] == 1
     assert "OldMovie" in outbox.html["bob@example.com"]
+
+
+def test_a_partial_copys_subject_counts_only_the_items_left_for_that_subscriber(conn):
+    _queue(conn, "FirstMovie", size_bytes=1 << 30)
+    _queue(conn, "SecondMovie", size_bytes=1 << 30)
+    outbox = _Outbox()
+    outbox.failing = {"bob@example.com"}
+    outbox.scan(conn)  # alice and carol are served both; bob is not
+    _queue(conn, "ThirdMovie", size_bytes=3 << 30)
+
+    outbox.failing = set()
+    outbox.scan(conn)
+
+    assert "1 item scheduled" in outbox.subject["alice@example.com"]
+    assert "3.0 GB" in outbox.subject["alice@example.com"]
+    assert "3 items scheduled" in outbox.subject["bob@example.com"]
+    assert "5.0 GB" in outbox.subject["bob@example.com"]
+
+
+def test_a_recommendations_only_newsletter_has_a_plain_subject(conn):
+    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    assert outbox.subject["alice@example.com"] == "Mediaman Weekly Report"
