@@ -3,7 +3,7 @@
 All reads and writes against the ``subscribers`` table live here.
 The concurrent-insert race window is closed inside the repository
 (``try_add_subscriber`` opens a ``BEGIN IMMEDIATE`` block); the route
-layer no longer issues raw transaction commands.
+layer issues no raw transaction commands.
 """
 
 from __future__ import annotations

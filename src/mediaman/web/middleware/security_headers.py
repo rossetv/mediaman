@@ -20,9 +20,8 @@ from starlette.responses import Response
 # external file under ``static/js/``. The only remaining inline scripts
 # in templates are ``<script type="application/json">`` JSON islands,
 # which are non-executable and not subject to ``script-src``. As a
-# result the previous ``'unsafe-inline'`` fallback on ``script-src`` is
-# no longer needed and has been dropped — a stored XSS in a Jinja
-# ``|safe`` interpolation can no longer execute script content.
+# result ``script-src`` carries no ``'unsafe-inline'`` fallback, so a stored
+# XSS in a Jinja ``|safe`` interpolation cannot execute script content.
 #
 # ``style-src`` keeps ``'unsafe-inline'`` for now because several
 # templates still use ``style="display:none"`` inline attributes
@@ -70,7 +69,7 @@ _CSP_STATIC_DIRECTIVES = (
 def _build_csp(nonce: str) -> str:
     """Return the per-request CSP header text with *nonce* threaded in.
 
-    ``script-src`` no longer carries ``'unsafe-inline'``: every
+    ``script-src`` carries no ``'unsafe-inline'``: every
     page-level inline ``<script>`` lives in an external file, and the
     only remaining inline scripts are
     ``type="application/json"`` data islands which CSP does not gate.

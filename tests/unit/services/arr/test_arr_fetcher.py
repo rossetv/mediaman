@@ -429,7 +429,7 @@ class TestFetchResult:
 
     @patch("mediaman.services.arr.build.build_radarr_from_db")
     def test_fetch_arr_queue_wraps_fetch_arr_queue_result(self, mock_build_radarr, conn):
-        """fetch_arr_queue is a backward-compat shim — it returns only the cards list."""
+        """fetch_arr_queue is a wrapper — it returns only the cards list."""
         _configure_radarr(conn)
         mock_client = MagicMock()
         mock_client.get_queue.return_value = []

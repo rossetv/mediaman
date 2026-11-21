@@ -122,7 +122,7 @@
    1. grid-auto-rows:1fr equalises every row to the tallest card's height.
    2. .tile stretches to fill that row.
    3. Title is truncated to a single line — long titles use ellipsis rather
-      than wrapping which used to make cards jagged.
+      than wrapping, which would make cards jagged.
    4. Description reserves two lines of space; the Jinja template already
       truncates it to 80 chars, so CSS only reserves minimum height.
    5. The AI reason block stays fully readable (no CSS clamp) — being cut

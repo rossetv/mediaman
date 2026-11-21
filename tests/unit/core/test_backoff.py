@@ -170,6 +170,6 @@ class TestDelayFloatValidation:
             ExponentialBackoff(3600.0, 60.0)
 
     def test_negative_attempts_returns_base(self):
-        # The double-clamp was removed; ``max(attempts - 1, 0)`` still floors.
+        # ``max(attempts - 1, 0)`` floors a negative attempt count.
         b = ExponentialBackoff(60.0, 3600.0)
         assert b.delay(-5) == 60.0

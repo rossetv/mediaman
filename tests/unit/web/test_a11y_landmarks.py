@@ -178,7 +178,7 @@ def test_detail_modal_labelled_by_visible_title():
     ``<h2 class="sr-only">Details</h2>`` is gone."""
     modal = _tpl("_detail_modal.html")
     assert 'aria-labelledby="detail-modal-title"' in modal
-    # The placeholder sr-only h2 was removed.
+    # There is no placeholder sr-only h2.
     assert '<h2 id="detail-modal-title" class="sr-only">Details</h2>' not in modal
 
 
@@ -223,7 +223,7 @@ def test_keep_page_does_not_offer_forever_button():
     endpoint). Showing the button anyway gave admins a button that
     always failed; remove it."""
     keep = _tpl("keep.html")
-    # The button no longer exists.
+    # The button is absent.
     assert "snooze-forever" not in keep
     assert 'value="forever"' not in keep
     # And the admin-only label is gone.

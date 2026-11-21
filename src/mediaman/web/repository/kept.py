@@ -262,8 +262,7 @@ def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -
     """Return the subset of ``candidate_ids`` whose media_items row has NULL/empty show_rating_key.
 
     Used by the keep-show flow to surface a diagnostic warning when the
-    supplied seasons would have triggered the (removed) show_title
-    fallback.
+    supplied seasons carry no show key and so cannot be matched to a show.
     """
     if not candidate_ids:
         return []

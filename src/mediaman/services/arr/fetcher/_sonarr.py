@@ -47,8 +47,7 @@ def _compute_cluster_keys(eps: list[ArrEpisodeEntry], card_series_id: int) -> li
       stable key from ``seriesId + title + label`` so two distinct rows
       can't collapse into one and double-count pack totals.
     * The synthesised key joins on ``_CLUSTER_SEP`` (NUL) so a title
-      literally containing ``:`` (the prior separator) can no longer
-      collide.
+      literally containing ``:`` cannot collide.
     * If both title and label are empty the row is unaggregatable; we
       return ``None`` for that slot and log a warning.
     """

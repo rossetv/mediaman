@@ -886,8 +886,8 @@ class TestAutoAbandonSetting:
         assert val in (None, False, "false", "0", ""), f"unexpected default: {val!r}"
 
     def test_deprecated_keys_are_rejected(self, app_factory, authed_client, conn):
-        # The three legacy keys were removed from SettingsUpdate (extra="forbid"),
-        # so sending them now returns 422 — they are never persisted.
+        # The three legacy keys are not fields of SettingsUpdate (extra="forbid"),
+        # so sending them returns 422 — they are never persisted.
         client = _client(app_factory, authed_client, conn)
         for key in (
             "abandon_search_visible_at",

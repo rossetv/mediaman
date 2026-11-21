@@ -132,7 +132,7 @@ def recommended_page(request: Request) -> Response:
     older_batches_count = max(0, total_batches - len(formatted_batches))
 
     # Check library state for downloaded items.
-    # Share URLs are no longer embedded in the page — they are minted on
+    # Share URLs are not embedded in the page — they are minted on
     # demand when the user clicks the share button, via
     # POST /api/recommended/{id}/share-token.
     config = request.app.state.config

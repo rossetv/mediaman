@@ -1,4 +1,4 @@
-"""Per-library scan helpers — extracted from engine so the
+"""Per-library scan helpers, kept out of engine so the
 orchestrator stays small.
 
 These helpers are *module-level functions* that take the

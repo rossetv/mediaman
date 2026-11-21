@@ -4,7 +4,7 @@ Tokens are HMAC-signed, per-purpose domain-separated, and time-limited.
 Each token type derives a per-purpose sub-key via
 ``HMAC-SHA256(secret, info)``, preventing cross-token confusion.
 
-Each public ``generate_*`` / ``validate_*`` shim wraps the private
+Each public ``generate_*`` / ``validate_*`` function wraps the private
 ``_encode_signed`` / ``_validate_signed`` primitives with a fixed
 purpose label.  Adding a new token type means adding one purpose
 constant plus one ``generate_*`` / ``validate_*`` pair.

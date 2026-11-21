@@ -95,8 +95,8 @@ def fetch_ratings(
     except (SafeHTTPError, requests.RequestException, ValueError):
         # ``Response.json`` raises ``json.JSONDecodeError`` (a ValueError
         # subclass, not a RequestException) for malformed bodies.
-        # KeyError was previously listed here, but ``resp.json()`` never raises
-        # KeyError — swallowing it would mask a real bug in the caller or the
+        # KeyError is not caught: ``resp.json()`` never raises it, so
+        # swallowing it would mask a real bug in the caller or the
         # client internals.
         return {}
     if not isinstance(data, dict) or data.get("Response") != "True":

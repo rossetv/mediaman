@@ -328,9 +328,9 @@ def _check_literal_or_resolved(
         return True, normalised, normalised
 
     # Hostname → resolve and reject if *any* returned address is blocked,
-    # OR if the name fails to resolve at all. A non-resolving name used
-    # to be allowed through on the theory that the admin might be saving
-    # a URL that will resolve later; we can no longer afford that — a
+    # OR if the name fails to resolve at all. A non-resolving name is not
+    # allowed through on the theory that the admin might be saving
+    # a URL that will resolve later — a
     # second DNS call at request time could return a metadata IP.
     addrs = _resolve_all(normalised)
     if not addrs:

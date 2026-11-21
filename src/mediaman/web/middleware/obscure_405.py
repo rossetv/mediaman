@@ -17,7 +17,7 @@ class Obscure405Middleware(BaseHTTPMiddleware):
     ones by seeing 401 vs 405 vs 404. That's a free API enumeration
     gift. This middleware normalises: on ``/api/*`` paths, a 405
     becomes a generic 401 with no ``Allow`` header so the method
-    surface is no longer readable pre-auth.
+    surface is not readable pre-auth.
 
     We deliberately scope this to ``/api/*`` only.  HTML pages at
     ``/login``, ``/dashboard``, ``/force-password-change`` etc. can

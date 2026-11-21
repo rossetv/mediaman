@@ -1,7 +1,6 @@
 """Web authentication package.
 
-Relocated from `mediaman.auth` (the old package was removed). This
-package owns all web-specific authentication concerns: sessions,
+This package owns all web-specific authentication concerns: sessions,
 login lockout, password hashing and policy, reauth tickets, and rate limiting.
 
 Depends on: anything below ``web/`` in the package tree.

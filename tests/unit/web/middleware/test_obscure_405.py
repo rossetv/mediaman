@@ -50,7 +50,7 @@ class TestObscure405:
 
     def test_api_401_has_no_allow_header(self):
         """The ``Allow`` header that advertises accepted methods is dropped
-        so the method surface is no longer readable pre-auth."""
+        so the method surface is not readable pre-auth."""
         client = TestClient(_app_with_405(with_security_headers=False))
         resp = client.post("/api/thing")
         assert "allow" not in {k.lower() for k in resp.headers}

@@ -28,9 +28,8 @@ transient errors (429/502/503/504 on GETs; see ``SafeHTTPClient``).
 to the exception string on failure so UI layers can display a banner
 instead of silently showing a stale queue.
 
-Back-compat: callers import ``_ARR_TIMEOUT_SECONDS`` and the
-exception classes from this module path.  Each name is re-exported
-below.
+Callers import ``_ARR_TIMEOUT_SECONDS`` and the exception classes from
+this module path.  Each name is re-exported below.
 """
 
 from __future__ import annotations

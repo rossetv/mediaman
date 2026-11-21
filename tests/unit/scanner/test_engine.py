@@ -1,6 +1,6 @@
 """Scan engine tests — split into per-phase modules.
 
-All tests have been moved to:
+The tests live in:
   - test_engine_fetch.py    (Plex fetch / run_scan / show-level keep / per-library orphan guard)
   - test_engine_decision.py (execute_deletions / delete-roots config / two-phase delete)
   - test_engine_cleanup.py  (orphan guard / concurrent scan guard)

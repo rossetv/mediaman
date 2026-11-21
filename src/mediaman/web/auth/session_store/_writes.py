@@ -61,7 +61,7 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
 
     Both the session row and the matching reauth ticket are deleted
     inside the SAME ``BEGIN IMMEDIATE`` transaction.  Splitting them
-    across two transactions used to leave a window where the session
+    across two transactions would leave a window where the session
     was gone but the ticket survived — a stolen cookie + ticket pair
     would remain replayable for the rest of the ticket's TTL even
     though the legitimate session had been killed by idle expiry or

@@ -1,9 +1,8 @@
 /**
  * Force-password-change page — client-side password meter and sign-out wire.
  *
- * Extracted from force_password_change.html so the inline <script> can
- * be removed and the page-level CSP can drop 'unsafe-inline' once every
- * template has migrated.
+ * Lives in an external file so the page-level CSP needs no
+ * 'unsafe-inline'.
  *
  * Requires: core/api.js (MM.api), core/dom.js (MM.dom).
  *

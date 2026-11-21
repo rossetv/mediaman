@@ -68,7 +68,7 @@ class TestLoadConfig:
         assert cfg.secret_key == key
 
     def test_config_has_no_delete_roots_field(self, monkeypatch):
-        """Config no longer carries delete_roots.
+        """Config carries no delete_roots.
 
         ``MEDIAMAN_DELETE_ROOTS`` is read at the deletion call site
         (scanner.repository) so the env var is the single source of
