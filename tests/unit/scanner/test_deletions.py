@@ -713,6 +713,27 @@ class TestSharedFolder:
         assert _actions(conn, "s1") == [] and _actions(conn, "s2") == []
         assert _audits(conn, "s1") == ["deleted"] and _audits(conn, "s2") == ["deleted"]
 
+    @pytest.mark.parametrize("first", ["s2", "s1"], ids=["show-first", "inner-first"])
+    def test_due_inner_path_stored_with_a_double_slash_does_not_hold_the_folder_back(
+        self, conn, tmp_path, monkeypatch, first
+    ):
+        root, show = self._show(tmp_path, monkeypatch)
+        season_one = show / "Season 1"
+        season_one.mkdir()
+        (season_one / "Show - s01e02.mkv").write_bytes(b"x")
+        # Raw, "//Show/..." sorts before "/Show", so the inner path used to go first.
+        self._season(conn, "s1", f"{root}//Show/Season 1", 1, size=10)
+        self._season(conn, "s2", show, 2, size=20)
+        for media_id in (first, "s1" if first == "s2" else "s2"):
+            _due_row(conn, media_id)
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert not show.exists()
+        assert result == {"deleted": 2, "reclaimed_bytes": 30}
+        assert _actions(conn, "s1") == [] and _actions(conn, "s2") == []
+        assert _audits(conn, "s1") == ["deleted"] and _audits(conn, "s2") == ["deleted"]
+
     def test_keep_on_a_co_located_due_item_during_removal_is_refused(
         self, conn, db_path, tmp_path, monkeypatch
     ):

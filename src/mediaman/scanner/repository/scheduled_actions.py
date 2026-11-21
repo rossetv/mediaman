@@ -133,7 +133,8 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
 
     The pass then removes the folder first and closes the rows inside it
     with it; removing an inner path first would leave its item, no longer
-    due, holding the folder back.
+    due, holding the folder back. Rows are ordered by normalised path, so
+    a spelling with "//" or ".." does not put an inner path first.
     """
     rows = conn.execute(
         "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
@@ -142,11 +143,11 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.action = 'scheduled_deletion' "
         "  AND sa.execute_at <= ? "
-        "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
-        "ORDER BY mi.file_path, sa.id",
+        "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')",
         (now_iso,),
     ).fetchall()
-    return [_row_to_deletion_row(row) for row in rows]
+    due = [_row_to_deletion_row(row) for row in rows]
+    return sorted(due, key=lambda row: (_normalised(row.file_path or ""), row.id))
 
 
 def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
