@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 
+from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
@@ -225,9 +226,16 @@ class BodySizeLimitMiddleware:
         # more_body``) ``oversize`` can never flip True later, so the
         # post-app 413 guard below is naturally a no-op for that case —
         # one ``self.app`` call covers both paths.
-        await self.app(scope, _streaming_receive, _watching_send)
+        try:
+            await self.app(scope, _streaming_receive, _watching_send)
+        except ClientDisconnect:
+            # A route reading the body raises this on the disconnect we
+            # forced; only that case is ours to answer.  A real
+            # disconnect (cap not passed) or a response already under
+            # way propagates as before.
+            if not oversize or response_started:
+                raise
         if oversize and not response_started:
-            # Edge case: handler returned without starting a response
-            # (e.g. it short-circuited on the disconnect we forced).
-            # Emit a clean 413 in that case.
+            # The handler gave up on the forced disconnect (returned or
+            # raised ClientDisconnect) without answering: reply 413.
             await _send_413(send)
