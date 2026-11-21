@@ -81,7 +81,6 @@ class TestUnsubscribeUrlFormat:
             base_url="https://example.com",
             secret_key=secret_key,
             dry_run=False,
-            grace_days=7,
             template=template,
             mailgun=mailgun,
             report_date="2026-01-01",
