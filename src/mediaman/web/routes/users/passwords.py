@@ -1,10 +1,3 @@
-"""Password-management routes.
-
-Routes
-------
-- POST /api/users/change-password — change the current user's own password
-"""
-
 from __future__ import annotations
 
 import logging
@@ -37,15 +30,10 @@ def api_change_password(
     body: ChangePasswordBody,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Change the current user's password.
-
-    Per-actor throttling (:data:`_PASSWORD_CHANGE_LIMITER`) caps burst
-    attempts by username; per-IP throttling
-    (:data:`_PASSWORD_CHANGE_IP_LIMITER`) caps attempts by source so a
-    stolen cookie cannot be replayed unbounded from a single attacker
-    network even if it bounces across user buckets. The reauth-namespace
-    lockout inside :func:`~mediaman.web.auth.password_hash.change_password` provides
-    the bcrypt-grade brute-force defence behind both limiters.
+    """Change the current user's password. Per-actor (_PASSWORD_CHANGE_LIMITER) and per-IP
+    (_PASSWORD_CHANGE_IP_LIMITER) throttles stop a stolen cookie being replayed unbounded
+    from one network across user buckets; the reauth-namespace lockout in change_password is
+    the bcrypt-grade defence behind them.
     """
     request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):

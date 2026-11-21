@@ -1,18 +1,7 @@
-"""Settings service-connection testers.
-
-Owns:
-- The ``@register`` decorator and the ``TESTERS`` registry dict that
-  maps a service name to its test callable.
-- The ``SERVICE_TESTER_KEYS`` allow-list, which restricts ``_load_settings``
-  to the minimal set of DB keys each tester actually needs.
-- The in-memory result cache (``TEST_CACHE``) and its invalidation helper.
-- One tester function per service (``test_plex``, ``test_sonarr``, …).
-- Shared internal helpers used by multiple testers
-  (``_safe_http_error_to_response``, ``_test_bearer_api``).
-
-No FastAPI routes live here — callers import TESTERS and invoke the
-registered functions directly inside the HTTP endpoint defined in the
-package ``__init__``.
+"""Settings service-connection testers: the @register decorator and TESTERS registry, the
+SERVICE_TESTER_KEYS allow-list that limits _load_settings to the keys each tester needs, the
+TEST_CACHE result cache, one tester per service and shared helpers. No routes live here; the
+endpoint in the package __init__ invokes the registered functions.
 """
 
 from __future__ import annotations
@@ -30,8 +19,6 @@ from mediaman.web.models import _API_KEY_RE
 
 
 class _ConnectionTestable(Protocol):
-    """Any client exposing a no-argument ``is_reachable()`` health probe."""
-
     def is_reachable(self) -> bool: ...
 
 
@@ -58,7 +45,7 @@ TESTER_TIMEOUT_SECONDS = 15.0
 TEST_CACHE_TTL_SECONDS = 120.0
 
 # Per-process tester result cache; shared across requests in the same worker
-# to avoid repeat connection-test calls on settings page reloads (§8.5).
+# to avoid repeat connection-test calls on settings page reloads.
 #: In-memory cache of the most recent tester payload per service.
 #: Shared across admins because the underlying settings are global.
 #: Invalidated on any settings write that touches the service's keys.
@@ -87,7 +74,6 @@ _TesterFn = Callable[[dict[str, object]], JSONResponse]
 
 
 def _register(name: str) -> Callable[[_TesterFn], _TesterFn]:
-    """Register a tester function in :data:`TESTERS` under *name*."""
 
     def decorator(fn: _TesterFn) -> _TesterFn:
         TESTERS[name] = fn
@@ -96,17 +82,10 @@ def _register(name: str) -> Callable[[_TesterFn], _TesterFn]:
     return decorator
 
 
-# ---------------------------------------------------------------------------
-# Shared internal helpers
-# ---------------------------------------------------------------------------
-
-
 def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:
-    """Convert a :class:`SafeHTTPError` to a standard test-result JSONResponse.
-
-    Handles the three recurring SafeHTTPError shapes that all service tests
-    share: SSRF refusal, transport errors (timeout / connection refused), and
-    HTTP auth failures.  All other status codes fall through to a generic message.
+    """Convert a SafeHTTPError to a test-result JSONResponse, covering SSRF refusal, transport
+    errors (timeout, connection refused) and HTTP auth failures; other status codes get a
+    generic message.
     """
     if exc.status_code == 0:
         snippet = exc.body_snippet
@@ -121,10 +100,8 @@ def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:
 
 
 def _test_bearer_api(url: str, api_key: str) -> JSONResponse:
-    """Test a Bearer-token-authenticated API endpoint.
-
-    Used by the OpenAI and TMDB service tests, which share identical
-    request / error-handling logic.  Returns a JSONResponse; never raises.
+    """Test a Bearer-token-authenticated API endpoint, shared by the OpenAI and TMDB tests.
+    Returns a JSONResponse and never raises.
     """
     try:
         # Tester validates an admin-typed bearer URL pre-save; no conn-derived allowlist applies.
@@ -146,13 +123,6 @@ def _test_connection_service(
     optional_keys: dict[str, str] | None = None,
     make_client: Callable[[dict[str, str]], _ConnectionTestable],
 ) -> JSONResponse:
-    """Common shape for HTTP-connection-style tester endpoints.
-
-    Resolves the named settings from *required_keys* (and *optional_keys* if
-    given), returns a 4xx-shaped JSONResponse if any required field is missing,
-    then calls ``client.test_connection()`` and returns ``{"ok": True}`` on
-    success or ``{"ok": False, "error": "Connection failed"}`` on failure.
-    """
     resolved: dict[str, str] = {}
     for arg_name, setting_name in required_keys.items():
         value = str(settings.get(setting_name) or "")
@@ -165,20 +135,11 @@ def _test_connection_service(
     return JSONResponse({"ok": True} if ok else {"ok": False, "error": "Connection failed"})
 
 
-# ---------------------------------------------------------------------------
-# Per-service testers
-# ---------------------------------------------------------------------------
-
-
 @_register("plex")
 def test_plex(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to Plex using the configured URL and token.
-
-    Returns a structured JSONResponse matching the other testers, with
-    specific error codes for auth failures and transport errors.
-    PlexClient uses plexapi internally which can raise bare
-    ``requests.RequestException`` in addition to ``SafeHTTPError`` from
-    the ``SafeHTTPClient`` wrapper — both are caught here (H4).
+    """Test connectivity to Plex. PlexClient uses plexapi, which can raise a bare
+    requests.RequestException as well as SafeHTTPError from the SafeHTTPClient wrapper; both
+    are caught here.
     """
     from mediaman.services.media_meta.plex import PlexClient
 
@@ -197,14 +158,13 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
         # RequestException can escape the SafeHTTPError wrapper.
         # Use isinstance rather than string-matching: requests.Timeout messages
         # say "timed out" not "timeout", so the string check silently mis-maps
-        # Timeout → connection_refused (H4).
+        # Timeout → connection_refused.
         kind = "timeout" if isinstance(exc, _requests.Timeout) else "connection_refused"
         return JSONResponse({"ok": False, "error": kind})
 
 
 @_register("sonarr")
 def test_sonarr(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to Sonarr using the configured URL and API key."""
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.arr.spec import SONARR_SPEC
 
@@ -218,7 +178,6 @@ def test_sonarr(settings: dict[str, object]) -> JSONResponse:
 
 @_register("radarr")
 def test_radarr(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to Radarr using the configured URL and API key."""
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.arr.spec import RADARR_SPEC
 
@@ -232,7 +191,6 @@ def test_radarr(settings: dict[str, object]) -> JSONResponse:
 
 @_register("nzbget")
 def test_nzbget(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to NZBGet using the configured URL and credentials."""
     from mediaman.services.downloads.nzbget import NzbgetClient
 
     return _test_connection_service(
@@ -246,7 +204,6 @@ def test_nzbget(settings: dict[str, object]) -> JSONResponse:
 
 @_register("mailgun")
 def test_mailgun(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to Mailgun using the configured domain and API key."""
     from mediaman.services.mail.mailgun import MailgunClient
 
     return _test_connection_service(
@@ -260,7 +217,6 @@ def test_mailgun(settings: dict[str, object]) -> JSONResponse:
 
 @_register("openai")
 def test_openai(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to OpenAI using the configured API key."""
     api_key = str(settings.get("openai_api_key") or "")
     if not api_key:
         return JSONResponse({"ok": False, "error": "OpenAI API key is required"})
@@ -273,7 +229,6 @@ def test_openai(settings: dict[str, object]) -> JSONResponse:
 
 @_register("tmdb")
 def test_tmdb(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to TMDB using the configured read token."""
     read_token = str(settings.get("tmdb_read_token") or "")
     if not read_token:
         return JSONResponse({"ok": False, "error": "TMDB Read Token is required"})
@@ -286,7 +241,6 @@ def test_tmdb(settings: dict[str, object]) -> JSONResponse:
 
 @_register("omdb")
 def test_omdb(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to OMDb using the configured API key."""
     api_key = str(settings.get("omdb_api_key") or "")
     if not api_key:
         return JSONResponse({"ok": False, "error": "OMDB API key is required"})
@@ -309,13 +263,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
         return _safe_http_error_to_response(exc)
 
 
-# ---------------------------------------------------------------------------
-# Cache helpers
-# ---------------------------------------------------------------------------
-
-
 def cache_get(service: str) -> dict[str, object] | None:
-    """Return the cached test result for *service*, or ``None`` if absent/stale."""
     with _TEST_CACHE_LOCK:
         entry = TEST_CACHE.get(service)
         if entry is None:
@@ -328,13 +276,11 @@ def cache_get(service: str) -> dict[str, object] | None:
 
 
 def cache_put(service: str, payload: dict[str, object]) -> None:
-    """Store *payload* as the cached result for *service*."""
     with _TEST_CACHE_LOCK:
         TEST_CACHE[service] = (time.monotonic() + TEST_CACHE_TTL_SECONDS, payload)
 
 
 def invalidate_test_cache_for_keys(written_keys: set[str]) -> None:
-    """Drop cached test results for any service whose inputs just changed."""
     if not written_keys:
         return
     with _TEST_CACHE_LOCK:

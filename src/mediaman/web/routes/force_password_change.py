@@ -1,22 +1,10 @@
-"""Force-password-change page — served to admins whose stored password
-fails the current strength policy.
+"""Force-password-change page, served to admins whose stored password fails the current
+strength policy.
 
-Flow:
-
-1. Admin signs in with a weak password. ``auth_routes.login_submit``
-   flips ``admin_users.must_change_password = 1`` and issues a
-   normal session cookie.
-2. ``ForcePasswordChangeMiddleware`` intercepts any subsequent
-   request carrying that cookie and redirects to
-   ``/force-password-change``.
-3. This module renders the form, accepts the POST, validates old
-   password + new password strength, rotates the credential, clears
-   the flag, and redirects to the dashboard.
-
-Design: matches ``login.html`` — dark "cinematic" surface card,
-centred on a black background, using the ``login-*`` CSS classes so
-the look is consistent. Strength rules are listed so the user knows
-up front what they need.
+login_submit flips admin_users.must_change_password to 1 and issues a normal session;
+ForcePasswordChangeMiddleware then redirects every request with that cookie here. This
+module validates the old and new password, rotates the credential, clears the flag and
+redirects to the dashboard.
 """
 
 from __future__ import annotations
@@ -47,18 +35,15 @@ router = APIRouter()
 # a thin extra layer that slows down a stolen-session attacker enough that
 # the operator notices the audit-log noise first.
 _FORCE_CHANGE_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
-#: Per-IP companion to :data:`_FORCE_CHANGE_LIMITER`. Caps source-of-traffic
+#: Per-IP companion to _FORCE_CHANGE_LIMITER. Caps source-of-traffic
 #: just like the per-user bucket so a single attacker network cannot cycle
 #: through usernames to evade the per-user cap.
 _FORCE_CHANGE_IP_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 
 
 def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
-    """Resolve the current session.
-
-    Returns ``(username, None)`` when the session is valid, or
-    ``(None, RedirectResponse)`` when the caller must be redirected
-    (no session, or session invalid).
+    """Return (username, None) for a valid session, or (None, RedirectResponse) when the caller
+    must be redirected.
     """
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -69,7 +54,6 @@ def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, Redirec
 
 @router.get("/force-password-change", response_class=HTMLResponse)
 def force_change_page(request: Request) -> Response:
-    """Render the force-change form."""
     username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect
@@ -93,13 +77,9 @@ def _validate_force_change_inputs(
     new_password: str,
     confirm_password: str,
 ) -> str | list[str] | None:
-    """Run the field-presence, password-match, and strength guards.
-
-    Returns ``None`` when the inputs are acceptable, an error string for
-    the field-presence / mismatch failures, or a list of policy issues
-    when the new password fails the strength policy. Strength is checked
-    last — no point touching bcrypt if the input fails the cheaper
-    guards first.
+    """Run the presence, match and strength guards. Returns None when acceptable, an error
+    string for presence/mismatch, or a list of policy issues. Strength is checked last so
+    bcrypt is not touched when the cheaper guards fail.
     """
     if not old_password or not new_password:
         return "Please fill in every field."
@@ -124,13 +104,9 @@ def _rotate_and_reissue(
 ) -> str | None:
     """Rotate the credential via bcrypt and mint a fresh session.
 
-    Returns the new session token on success, or ``None`` when the old
-    password was wrong (the failure is audited here before returning so
-    the caller only has to re-render the form).
-
-    ``change_password`` invalidates every session for the user, so a
-    fresh one is minted here so the admin lands on the dashboard logged
-    in under the new credential.
+    Returns the new session token, or None when the old password was wrong (audited here).
+    change_password invalidates every session for the user, so a fresh one is minted to keep
+    the admin logged in.
     """
     ok = change_password(
         conn,
@@ -176,7 +152,6 @@ def force_change_submit(
     new_password: str = Form(default=""),
     confirm_password: str = Form(default=""),
 ) -> Response:
-    """Accept the password change."""
     username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect

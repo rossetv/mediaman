@@ -1,5 +1,3 @@
-"""Manual scan trigger API."""
-
 from __future__ import annotations
 
 import contextlib
@@ -49,19 +47,12 @@ router = APIRouter()
 def trigger_scan(
     request: Request, admin: str = Depends(get_current_admin)
 ) -> Response | dict[str, object]:
-    """Trigger a manual scan. Returns immediately; scan runs in background thread.
+    """Trigger a manual scan; returns immediately and the scan runs in a background thread.
 
-    Spawns a heartbeat thread alongside the scan worker so the
-    ``scan_runs`` lease is renewed every minute. The previous code only
-    renewed via the manual scan thread itself, so a long Plex / *arr
-    round-trip would let the lease lapse and a competing cron scan would
-    (correctly) consider the row stale and fire a duplicate run.
-
-    Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
-    cannot be used to chain scans against Plex / Sonarr / Radarr.
-
-    Audit-logged via ``security_event(scan.triggered)`` so a compromised
-    admin account cannot silently drive scan activity.
+    A heartbeat thread renews the scan_runs lease every minute, or a long Plex/*arr
+    round-trip would let it lapse and a competing cron scan would fire a duplicate run.
+    Rate-limited per admin (3/min, 20/day) so a leaked session cookie cannot chain scans,
+    and audit-logged via security_event(scan.triggered).
     """
     conn = get_db()
     run_id = start_scan_run(conn)
@@ -102,18 +93,13 @@ def trigger_scan(
     heartbeat_thread.start()
 
     def run() -> None:
-        """Execute the scan in a background thread with its own DB connection.
-
-        Opens a fresh thread-local connection, invokes the full scan pipeline,
-        marks the run as done or errored, and always closes the connection on exit.
-        """
         thread_conn = open_thread_connection(db_path)
         try:
             from mediaman.scanner.runner import run_scan_from_db
 
             run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
             finish_scan_run(thread_conn, run_id, "done")
-        except Exception as exc:  # rationale: §6.4 site 2 — background job runner; a single bad scan must not leak a stuck "running" lease.
+        except Exception as exc:  # rationale: background job runner; a single bad scan must not leak a stuck "running" lease.
             with contextlib.suppress(sqlite3.Error):
                 finish_scan_run(thread_conn, run_id, "error", str(exc))
             logger.exception("Background scan failed")
@@ -129,7 +115,6 @@ def trigger_scan(
 
 @router.get("/api/scan/status")
 def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
-    """Return whether a scan is currently running."""
     conn = get_db()
     return {"running": is_scan_running(conn)}
 
@@ -140,13 +125,9 @@ def clear_scheduled(
 ) -> Response | dict[str, object]:
     """Delete all pending scheduled_deletion actions.
 
-    Destructive admin action — :func:`clear_pending_deletions` opens
-    ``BEGIN IMMEDIATE`` and writes the audit row in the same transaction,
-    so a "rows deleted but no audit trail" outcome is impossible. If the
-    audit blows up, the delete rolls back.
-
-    Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
-    cannot be used to repeatedly nuke the scheduled queue.
+    clear_pending_deletions writes the audit row in the same BEGIN IMMEDIATE transaction, so
+    a delete without an audit trail is impossible. Rate-limited per admin (3/min, 20/day) so
+    a leaked session cookie cannot repeatedly wipe the queue.
     """
     if not _CLEAR_SCHEDULED_LIMITER.check(admin):
         logger.warning("scan.clear_throttled user=%s", admin)
@@ -165,10 +146,6 @@ def clear_scheduled(
 
 @router.post("/api/library/sync")
 def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Trigger a manual library sync from Plex.
-
-    Rate-limited per-admin (3/min, 20/day) and audit-logged.
-    """
     from mediaman.scanner.runner import run_library_sync
 
     if not _LIBRARY_SYNC_LIMITER.check(admin):

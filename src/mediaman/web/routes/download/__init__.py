@@ -1,11 +1,7 @@
-"""Download routes package — token-authenticated download/re-download confirmations.
+"""Download routes package: token-authenticated download confirmations.
 
-This package is a thin aggregator.  The actual route handlers live in:
-
-  * :mod:`.confirm`  — GET /download/{token}  (confirmation page)
-  * :mod:`.submit`   — POST /download/{token} (trigger download)
-  * :mod:`.status`   — GET /api/download/status (progress polling)
-  * :mod:`._tokens`  — in-memory single-use token store (shared state)
+A thin aggregator over .confirm (GET page), .submit (POST), .status (progress polling) and
+._tokens (single-use token store).
 """
 
 from __future__ import annotations
@@ -27,14 +23,12 @@ router.include_router(_status_router)
 
 
 def reset_download_limiters() -> None:
-    """Clear all download route rate-limiter state. Used by tests."""
     _DOWNLOAD_LIMITER_GET.reset()
     _DOWNLOAD_LIMITER_POST.reset()
     _DOWNLOAD_STATUS_LIMITER.reset()
 
 
 def reset_download_caches() -> None:
-    """Clear the per-service Arr-state and status caches. Used by tests."""
     _reset_arr_cache_for_tests()
     _reset_status_cache_for_tests()
 

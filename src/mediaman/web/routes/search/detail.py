@@ -1,10 +1,3 @@
-"""Detail endpoint for the search experience.
-
-Hosts ``GET /api/search/detail/{media_type}/{tmdb_id}`` which returns the
-expanded "card" payload (cast, trailer, ratings, Sonarr season state, etc.)
-shown when a result is opened from the search or discover shelves.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -152,12 +145,8 @@ def _build_detail_payload(
     ratings: dict[str, str],
     state: object,
 ) -> dict[str, object]:
-    """Assemble the flat detail-card output dict from already-fetched data.
-
-    Pure transform: shapes the TMDB payload, the OMDb *ratings*, and the
-    computed download *state* into the JSON envelope the search/discover
-    UI consumes. OMDb rating fields are only added when present so the
-    client can distinguish "not rated" from "rated zero".
+    """Assemble the flat detail-card dict from already-fetched data. OMDb rating fields are
+    added only when present, so the client can tell "not rated" from "rated zero".
     """
     title = data.get("title") or data.get("name") or ""
     date = data.get("release_date") or data.get("first_air_date") or ""
@@ -197,11 +186,7 @@ def _build_detail_payload(
 def _build_seasons_block(
     data: dict[str, Any], sonarr_info: _SonarrDetail
 ) -> tuple[bool, list[dict[str, object]]]:
-    """Build the TV-only ``(sonarr_tracked, seasons)`` pair.
-
-    Season zero (specials) is filtered out; each season is flagged
-    ``in_library`` against the Sonarr-tracked season set.
-    """
+    """Build the TV-only (sonarr_tracked, seasons) pair, dropping season zero (specials)."""
     seasons_in_lib = sonarr_info["seasons_in_library"]
     seasons = [
         {
@@ -226,21 +211,8 @@ def api_detail(
     request: Request,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Return expanded detail card for a single TMDB movie or TV series.
-
-    Fetches full TMDB metadata (credits, videos, season summaries), builds
-    Radarr/Sonarr caches to annotate download state, and fetches OMDb ratings.
-    Used by the search/discover UI when a result card is opened.
-
-    Args:
-        media_type: Either ``"movie"`` or ``"tv"``; 400 on any other value.
-        tmdb_id: TMDB numeric identifier for the item.
-        request: Incoming FastAPI request (provides app state and secret key).
-        admin: Authenticated admin username.
-
-    Returns:
-        JSON detail payload, or an error response on misconfiguration or
-        TMDB fetch failure.
+    """Return the expanded detail card for one TMDB movie or TV series; 400 for any media_type
+    other than "movie" or "tv".
     """
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")

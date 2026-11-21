@@ -1,22 +1,8 @@
-"""User-management routes package.
+"""User-management routes package, assembled from .crud (list, create, delete, unlock),
+.sessions, .passwords, .reauth and .rate_limits (all ActionRateLimiter instances).
 
-This package splits the original monolithic ``users.py`` module into focused
-sub-modules:
-
-- :mod:`.crud`       — list / create / delete / unlock
-- :mod:`.sessions`   — list sessions, revoke-others
-- :mod:`.passwords`  — change password
-- :mod:`.reauth`     — reauth ticket flow
-- :mod:`.rate_limits` — all module-level :class:`~mediaman.services.rate_limit.ActionRateLimiter`
-                         instances
-
-The combined ``router`` is assembled here and exported so that the existing
-``from mediaman.web.routes.users import router`` import continues to work for
-callers and tests.
-
-Rate-limiter instances are also re-exported from this namespace so that
-``from mediaman.web.routes.users import _USER_MGMT_LIMITER`` (used by tests
-to reset limiters between cases) continues to work without modification.
+The combined router is exported here, and the rate limiters are re-exported so tests can
+keep resetting them via mediaman.web.routes.users.
 """
 
 from __future__ import annotations

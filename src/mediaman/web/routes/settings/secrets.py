@@ -1,13 +1,7 @@
-"""Settings secrets — field sets, masking helpers, and sentinel constants.
-
-Owns:
-- The canonical sets of secret, sensitive, and all-known settings keys.
-- Sentinel values for "unchanged" and "delete" secret writes.
-- Pure helper functions for masking secret fields.
-
-Nothing in this module performs decryption, encryption or DB I/O so it
-is safe to import from anywhere without side effects. Reads against the
-``settings`` table live in :mod:`mediaman.web.repository.settings`.
+"""Settings secrets: the canonical secret, sensitive and all-known key sets, the "unchanged"
+and "delete" write sentinels, and pure masking helpers. Nothing here decrypts, encrypts or
+touches the DB, so it is safe to import anywhere. Reads of the settings table live in
+mediaman.web.repository.settings.
 """
 
 from __future__ import annotations
@@ -78,13 +72,10 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 
 
 def has_sensitive_key_changes(body: dict[str, object]) -> bool:
-    """Return True when *body* attempts to write any sensitive key.
-
-    Secret fields whose value is the unchanged sentinel (``****``) or an
-    empty string are skipped because the PUT handler ignores them too —
-    a no-op write should not demand a fresh reauth. The explicit
-    :data:`SECRET_CLEAR_SENTINEL` is NOT skipped: deleting a stored
-    credential is a sensitive change.
+    """Return True when body attempts to write any sensitive key. Secret fields holding the
+    unchanged sentinel (****) or an empty string are skipped, as the PUT handler ignores
+    them too, so a no-op write does not demand a reauth. SECRET_CLEAR_SENTINEL is not
+    skipped: deleting a credential is a sensitive change.
     """
     for key, value in body.items():
         if key not in SENSITIVE_KEYS:
@@ -98,7 +89,6 @@ def has_sensitive_key_changes(body: dict[str, object]) -> bool:
 
 
 def mask_secrets(settings: dict[str, object]) -> dict[str, object]:
-    """Return a copy of *settings* with secret fields replaced by '****'."""
     out = dict(settings)
     for key in SECRET_FIELDS:
         if out.get(key):
@@ -107,12 +97,9 @@ def mask_secrets(settings: dict[str, object]) -> dict[str, object]:
 
 
 def mask_encrypted_keys(settings: dict[str, object], enc_keys: set[str]) -> dict[str, object]:
-    """Return a copy of *settings* with every encrypted-on-disk key showing '****'.
-
-    Unlike :func:`mask_secrets`, this does not require the plaintext to
-    have been read — the caller passes a pre-computed set of keys that
-    are encrypted in the DB.  Used by GET /api/settings to avoid
-    decrypting secrets just to immediately throw the plaintext away.
+    """Return a copy of settings with every encrypted-on-disk key showing '****'. Unlike
+    mask_secrets it takes a precomputed key set, so GET /api/settings need not decrypt
+    secrets only to discard the plaintext.
     """
     out = dict(settings)
     for key in enc_keys & SECRET_FIELDS:

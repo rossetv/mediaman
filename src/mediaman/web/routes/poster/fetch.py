@@ -1,28 +1,17 @@
 """Outbound poster fetch logic and pure URL/mime helpers.
 
-These helpers handle SSRF defence, mime coercion, and the actual HTTP
-calls into Plex and Radarr/Sonarr.  They are kept in their own module
-so they can be tested in isolation and so :mod:`__init__` stays focused
-on FastAPI route handlers.
+Threat model: SSRF. An attacker who can influence the stored Plex URL, or inject a
+Radarr/Sonarr poster URL, could point the proxy at an internal metadata endpoint, loopback
+or a cloud credential service. The first line of defence is here:
 
-Threat model
-------------
-The primary concern for poster fetching is SSRF (Server-Side Request
-Forgery).  An attacker who can influence the Plex URL stored in the
-database — or who can inject a Radarr/Sonarr poster URL — could redirect
-the proxy to an internal metadata endpoint, loopback address, or cloud
-credential service.  The helpers here form the first line of defence:
-
-* :func:`is_valid_rating_key` rejects non-numeric and oversized keys
-  before they can reach any URL construction or DB lookup.
-* :func:`safe_mime` prevents a hostile CDN from injecting
-  ``Content-Type: text/html`` through the proxy — a stored-XSS vector.
-* :func:`is_allowed_poster_host` performs exact hostname matching plus
-  a DNS-resolved public-IP check via
-  :func:`mediaman.services.infra.url_safety.is_safe_outbound_url`.
-* :func:`sanitise_plex_url` re-validates the DB-stored ``plex_url`` on
-  every request because a settings-write compromise could otherwise
-  swap it for a hostile target.
+* is_valid_rating_key rejects non-numeric and oversized keys before any URL construction or
+  DB lookup.
+* safe_mime stops a hostile CDN injecting Content-Type: text/html through the proxy (stored
+  XSS).
+* is_allowed_poster_host does exact hostname matching plus a DNS-resolved public-IP check
+  via is_safe_outbound_url.
+* sanitise_plex_url re-validates the stored plex_url on every request, since a
+  settings-write compromise could otherwise swap it for a hostile target.
 """
 
 from __future__ import annotations
@@ -66,23 +55,14 @@ _POSTER_HTTP = SafeHTTPClient(
 
 
 def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
-    """Return a :class:`SafeHTTPClient` bound to *conn*'s SSRF allowlist.
+    """Return a SafeHTTPClient bound to conn's SSRF allowlist.
 
-    The SSRF allowlist is composed from the current settings on every
-    request so a just-saved integration host is honoured without a restart.
-    It is the union of :data:`PINNED_EXTERNAL_HOSTS` and the configured
-    integration hosts from the ``settings`` table.
+    The allowlist (PINNED_EXTERNAL_HOSTS plus the integration hosts in settings) is rebuilt
+    on every request so a just-saved host is honoured without a restart; the session is
+    shared with _POSTER_HTTP so the connection pool persists.
 
-    The session is shared with :data:`_POSTER_HTTP` so the connection
-    pool persists across requests; only the allowlist context is
-    per-call.
-
-    Existing tests monkeypatch ``_POSTER_HTTP`` itself to a stub. If
-    the module-level attribute has been swapped out (i.e. it is no
-    longer the original :class:`SafeHTTPClient`), return that stub
-    unmodified so those tests continue to observe their patched
-    transport. Production code keeps the original instance, so the
-    fresh, allowlist-bound client is constructed normally.
+    Tests monkeypatch _POSTER_HTTP with a stub; if it is no longer the original
+    SafeHTTPClient, the stub is returned unmodified.
     """
     if not isinstance(_POSTER_HTTP, SafeHTTPClient):
         return _POSTER_HTTP
@@ -97,33 +77,25 @@ def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
 # Only HTTPS poster URLs on the default port are accepted. The set of
 # *which* hosts may be reached is owned entirely by the SafeHTTPClient
 # allowlist (``allowed_outbound_hosts`` composed from
-# ``PINNED_EXTERNAL_HOSTS`` — see CODE_GUIDELINES §8.1/§10.6, which is the
-# single canonical list of poster-CDN hosts: image.tmdb.org,
-# m.media-amazon.com, images.amazon.com). This module no longer keeps a
-# second host table; a duplicate allowlist drifting out of sync with the
-# pinned set was exactly the R2b-H1 defect.
+# ``PINNED_EXTERNAL_HOSTS``, the single canonical list of poster-CDN hosts:
+# image.tmdb.org, m.media-amazon.com, images.amazon.com). This module keeps no
+# second host table, since a duplicate allowlist could drift out of sync with
+# the pinned set.
 _POSTER_ALLOWED_PORT = 443
 
 
 def is_valid_rating_key(rating_key: str) -> bool:
-    """Return ``True`` only if *rating_key* is a valid Plex rating key.
-
-    A valid rating key is a non-empty string of ASCII digits whose total
-    length does not exceed 12 characters.  This rejects path-traversal
-    sequences (``../``, ``%2F``), alphabetic strings, and arbitrarily
-    long keys before they touch any URL template or filesystem path.
+    """Return True only for a non-empty string of ASCII digits up to 12 characters, rejecting
+    path-traversal sequences and long keys before they touch a URL template or filesystem
+    path.
     """
     return bool(rating_key) and rating_key.isdigit() and len(rating_key) <= 12
 
 
 def safe_mime(remote_type: str | None) -> str:
-    """Coerce a remote ``Content-Type`` value into a safe served mime type.
-
-    If the upstream response claims a type from :data:`~.cache.ALLOWED_IMAGE_MIMES`,
-    it is passed through unchanged.  Everything else — including missing,
-    malformed, or hostile values such as ``text/html`` — is normalised to
-    ``image/jpeg``.  This is the primary defence against a malicious CDN
-    using the poster proxy as a stored-XSS vector.
+    """Coerce a remote Content-Type into a safe served mime type: values in ALLOWED_IMAGE_MIMES
+    pass through, everything else (missing, malformed, text/html) becomes image/jpeg. The
+    primary defence against a malicious CDN using the proxy for stored XSS.
     """
     if not remote_type:
         return "image/jpeg"
@@ -134,24 +106,16 @@ def safe_mime(remote_type: str | None) -> str:
 
 
 def is_allowed_poster_host(url: str, *, allowed_hosts: frozenset[str]) -> bool:
-    """Return ``True`` only for HTTPS poster URLs on an allowlisted host.
+    """Return True only for HTTPS poster URLs on an allowlisted host.
 
-    This is the scheme/port guard for the Radarr/Sonarr poster fetch. It
-    enforces three things that the transport client does not express on
-    its own:
+    The scheme/port guard for the Radarr/Sonarr poster fetch: HTTPS only, port 443 only
+    (parsed.port is None for the implicit port), and a DNS-resolving public-IP check via
+    is_safe_outbound_url with strict egress, which catches a rebind returning a private IP
+    at request time.
 
-    * HTTPS only — a poster served over plain ``http`` is refused.
-    * Port 443 only — a non-standard port on an otherwise-trusted host is
-      refused (``parsed.port`` is ``None`` for the implicit HTTPS port).
-    * A full DNS-resolution + public-IP check via
-      :func:`is_safe_outbound_url` with strict egress, catching a rebind
-      attack that returns a private/loopback IP at request time.
-
-    Host policy itself is **not** decided here: *allowed_hosts* is the
-    SafeHTTPClient allowlist (``allowed_outbound_hosts``), which already
-    merges :data:`PINNED_EXTERNAL_HOSTS` — the single canonical poster-CDN
-    list. Passing it through keeps one source of truth and lets a refused
-    host fail before the transport call rather than only at it.
+    Host policy is not decided here: allowed_hosts is the SafeHTTPClient allowlist (which
+    already merges PINNED_EXTERNAL_HOSTS), so there is one source of truth and a refused
+    host fails before the transport call.
     """
     try:
         parsed = urlparse(url)
@@ -173,13 +137,10 @@ def is_allowed_poster_host(url: str, *, allowed_hosts: frozenset[str]) -> bool:
 
 
 def sanitise_plex_url(raw: str | None) -> str | None:
-    """Return ``scheme://host[:port]`` if *raw* passes SSRF + scheme checks.
-
-    This runs on every poster request. The DB-stored ``plex_url`` could
-    have been rotated by an attacker who lands settings-write since the
-    app last started; a one-shot startup validation is not enough.
-    Userinfo (``user:pass@``), non-http(s) schemes, and anything the
-    SSRF guard refuses all result in ``None``.
+    """Return scheme://host[:port] if raw passes the SSRF and scheme checks. Runs on every
+    poster request, since an attacker with settings-write access could rotate the stored
+    plex_url after startup. Userinfo, non-http(s) schemes and anything the SSRF guard
+    refuses give None.
     """
     if not raw or not isinstance(raw, str):
         return None
@@ -206,11 +167,9 @@ def sanitise_plex_url(raw: str | None) -> str | None:
 def load_plex_credentials(
     conn: sqlite3.Connection, secret_key: str
 ) -> tuple[str | None, str | None, Response | None]:
-    """Load and decrypt the Plex URL and token from the DB.
-
-    Returns ``(plex_base, plex_token, None)`` on success, or
-    ``(None, None, error_response)`` when either field is absent or
-    the URL fails per-request SSRF re-validation.
+    """Load and decrypt the Plex URL and token. Returns (plex_base, plex_token, None), or
+    (None, None, error_response) when a field is absent or the URL fails the per-request
+    SSRF re-check.
     """
     creds = fetch_plex_credentials(conn)
     if creds is None or creds.url is None or creds.token_ciphertext is None:
@@ -234,11 +193,9 @@ def load_plex_credentials(
 def fetch_plex_poster(
     plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
 ) -> tuple[bytes | None, str]:
-    """Fetch a poster from Plex.  Returns ``(content, content_type)`` or ``(None, 'image/jpeg')``.
-
-    *http_client* defaults to :data:`_POSTER_HTTP`; callers that need the
-    SSRF allowlist enforced should pass a client built via
-    :func:`_make_poster_client`. Tests substitute a stub.
+    """Fetch a poster from Plex; returns (content, content_type) or (None, 'image/jpeg').
+    http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
+    _make_poster_client.
     """
     client = http_client if http_client is not None else _POSTER_HTTP
     thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
@@ -259,11 +216,9 @@ def fetch_plex_poster(
 def _resolve_arr_poster_url(
     conn: sqlite3.Connection, row: PosterArrIds, config: Config
 ) -> tuple[str | None, str | None]:
-    """Look up the Radarr/Sonarr poster URL for a stored media row.
-
-    Returns ``(poster_url, title)`` or ``(None, None)`` when the row
-    has no Arr ID or the upstream lookup fails.  Network errors are
-    swallowed at the warning level — the caller falls back to 404.
+    """Look up the Radarr/Sonarr poster URL for a stored media row; (None, None) when the row
+    has no Arr ID or the lookup fails. Network errors are swallowed at warning level and the
+    caller falls back to 404.
     """
     title = row.title
     media_type = row.media_type
@@ -278,7 +233,7 @@ def _resolve_arr_poster_url(
         if not radarr_client:
             return None, title
         try:
-            # Single-item lookup — O(1) vs. O(N) full-library scan (H3).
+            # Single-item lookup — O(1) vs. O(N) full-library scan.
             movie = radarr_client.get_movie_by_id(radarr_id)
             return extract_poster_url(movie.get("images")), title
         except (requests.RequestException, SafeHTTPError, ArrError):
@@ -292,7 +247,7 @@ def _resolve_arr_poster_url(
     if not sonarr_client:
         return None, title
     try:
-        # Single-item lookup — O(1) vs. O(N) full-library scan (H3).
+        # Single-item lookup — O(1) vs. O(N) full-library scan.
         series = sonarr_client.get_series_by_id(sonarr_id)
         return extract_poster_url(series.get("images")), title
     except (requests.RequestException, SafeHTTPError, ArrError):
@@ -306,16 +261,9 @@ def _fetch_allowed_poster_bytes(
     allowed_hosts: frozenset[str],
     http_client: SafeHTTPClient | None = None,
 ) -> tuple[bytes | None, str | None]:
-    """Fetch poster bytes from *poster_url* after the scheme/host guard.
-
-    Returns ``(content_bytes, content_type)`` or ``(None, None)`` when
-    the host is disallowed or the fetch fails. *allowed_hosts* is the
-    canonical SafeHTTPClient allowlist, forwarded to
-    :func:`is_allowed_poster_host` for host policy.
-
-    *http_client* defaults to :data:`_POSTER_HTTP`; callers that need the
-    SSRF allowlist enforced pass a client built via
-    :func:`_make_poster_client`.
+    """Fetch poster bytes after the scheme/host guard; (None, None) when the host is disallowed
+    or the fetch fails. allowed_hosts is the SafeHTTPClient allowlist; http_client defaults
+    to _POSTER_HTTP.
     """
     if not is_allowed_poster_host(poster_url, allowed_hosts=allowed_hosts):
         logger.warning("Refusing Radarr/Sonarr poster fetch for disallowed host: %s", poster_url)
@@ -340,19 +288,10 @@ def fetch_arr_poster(
 ) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
-    Looks up the stored ``radarr_id`` / ``sonarr_id`` on the
-    ``media_items`` row for this Plex rating key and fetches the
-    poster for that exact Arr record.  Matching by ID rather than
-    title prevents a cache-poisoning primitive where two media items share a
-    title but have different Arr IDs — matching by ID ensures each item's
-    poster is fetched from its own Arr record only.
-
-    Returns ``(content_bytes, content_type)`` or ``(None, None)`` when
-    no source can supply the poster.  The caller responds with 404 in
-    that case rather than guess a replacement.
-
-    *http_client* threads through to :func:`_fetch_allowed_poster_bytes`
-    so the SSRF allowlist reaches the actual transport call.
+    Uses the stored radarr_id / sonarr_id on the media_items row rather than the title:
+    matching by title would let two items sharing a title poison each other's cached poster.
+    Returns (content_bytes, content_type) or (None, None), and the caller responds 404
+    rather than guess a replacement.
     """
     row = fetch_arr_ids(conn, rating_key)
     if not row:
@@ -373,15 +312,10 @@ def resolve_poster_content(
 ) -> tuple[bytes | None, str, Response | None]:
     """Fetch poster bytes from Plex with Radarr/Sonarr fallback.
 
-    Returns ``(content, content_type, None)`` on success, or
-    ``(None, '', 404_response)`` when no source has a poster.
-
-    Builds one :class:`SafeHTTPClient` per request via
-    :func:`_make_poster_client` so the SSRF allowlist composed from the
-    current settings reaches every outbound poster fetch so a just-saved
-    integration host is honoured without a restart. The same client is
-    threaded through Plex and the Radarr/Sonarr fallback so a misconfigured
-    `plex_url` cannot mask an allowlist gap.
+    Returns (content, content_type, None), or (None, '', 404_response) when no source has a
+    poster. One SafeHTTPClient is built per request and threaded through both Plex and the
+    Arr fallback, so the freshly composed SSRF allowlist reaches every fetch and a
+    misconfigured plex_url cannot mask an allowlist gap.
     """
     poster_client = _make_poster_client(conn)
     content, content_type = fetch_plex_poster(

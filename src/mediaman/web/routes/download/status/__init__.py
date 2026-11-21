@@ -1,24 +1,8 @@
-"""Download status polling endpoint.
+"""Download status polling endpoint (GET /api/download/status).
 
-This package is the ``GET /api/download/status`` route. The barrel keeps the
-handler, the per-IP rate limiter, the short-TTL status cache, and the
-``_radarr_status`` / ``_sonarr_status`` orchestrators — the orchestrators
-stay here (rather than in the projection modules) so the
-``build_radarr_from_db`` / ``build_sonarr_from_db`` call sites remain
-patchable by the test suite at ``...download.status.build_*_from_db``.
-
-The pure status projections — turning Radarr / Sonarr payloads into the
-``DownloadItem`` envelope — live in the private submodules:
-
-  * :mod:`._shared`  — numeric coercion + ``_format_timeleft`` formatting.
-  * :mod:`._radarr`  — Radarr movie / queue projections.
-  * :mod:`._sonarr`  — Sonarr queue-walk, multi-episode aggregation, and the
-    no-queue ``get_series()`` fallback.
-
-``router``, ``_DOWNLOAD_STATUS_LIMITER`` and ``_reset_status_cache_for_tests``
-are imported by the parent ``download`` package barrel; ``_radarr_status``,
-``_sonarr_status`` and ``_format_timeleft`` are exercised directly by the
-tests — all stay importable from this module path.
+The _radarr_status and _sonarr_status orchestrators stay here, not in the projection
+modules, so tests can patch build_radarr_from_db and build_sonarr_from_db at this path. The
+pure projections live in ._shared, ._radarr and ._sonarr.
 """
 
 from __future__ import annotations
@@ -61,7 +45,6 @@ router = APIRouter()
 # in the same worker to enforce the rolling window correctly.
 _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 
-# ---------------------------------------------------------------------------
 # Per-service per-tmdb status cache.
 #
 # The status endpoint is polled by the confirm page every ~4 seconds while
@@ -77,24 +60,22 @@ _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 # poll either hits a fresh fetch or a result that was at most one beat
 # stale. Anything longer is still bounded but reduces apparent
 # responsiveness; anything shorter does not meaningfully reduce load.
-# ---------------------------------------------------------------------------
 
 _STATUS_CACHE_TTL_SECONDS = 2.5
 # rationale: bounded to prevent unbounded growth — with many unique
 # (service, tmdb_id) pairs under sustained load the dict would otherwise
-# grow without limit; max 200 entries with clear-on-overflow is the §13.2
+# grow without limit; max 200 entries with clear-on-overflow is the
 # safety net (TTL alone only evicts on hit, not proactively).
 _STATUS_CACHE_MAX_ENTRIES = 200
 _STATUS_CACHE_LOCK = threading.Lock()
 # Per-process per-(service, tmdb_id) status cache; must be in-process state
 # so the short TTL reduces outbound amplification for unauthenticated polls
-# across requests handled by the same worker (§8.5).
+# across requests handled by the same worker.
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
 _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
 
 
 def _reset_status_cache_for_tests() -> None:
-    """Clear the status cache. Test helper; never call in production."""
     with _STATUS_CACHE_LOCK:
         _STATUS_CACHE.clear()
 
@@ -113,7 +94,6 @@ _UNKNOWN_ITEM: DownloadItem = build_item(
 
 
 def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
-    """Return the download-status item dict for a Radarr movie by TMDB ID."""
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         return _UNKNOWN_ITEM
@@ -130,13 +110,6 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 
 
 def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
-    """Return the download-status item dict for a Sonarr series by TMDB ID.
-
-    Runs the three Sonarr projection phases from :mod:`._sonarr` in order:
-    walk the queue for matching episodes, and either aggregate those into a
-    multi-episode item or — when the queue holds nothing — fall back to the
-    ``get_series()`` on-disk / recent-download / searching classification.
-    """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return _UNKNOWN_ITEM
@@ -153,12 +126,6 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 def _cached_status(
     *, service: str, tmdb_id: int, conn: sqlite3.Connection, secret_key: str
 ) -> DownloadItem:
-    """Return cached or freshly-fetched status for ``(service, tmdb_id)``.
-
-    See module-level docstring for cache semantics. Cache misses fan
-    out to the underlying ``_radarr_status`` / ``_sonarr_status``
-    implementation; cache hits short-circuit the upstream call entirely.
-    """
     key = (service, tmdb_id, _key_fingerprint(secret_key))
     now = time.monotonic()
     with _STATUS_CACHE_LOCK:
@@ -190,17 +157,11 @@ def download_status(
     poll_token: str | None = None,
     admin: str | None = Depends(get_optional_admin),
 ) -> JSONResponse:
-    """Poll the download progress for a recently-requested item.
+    """Poll download progress for a recently requested item.
 
-    Unauthenticated callers must supply a ``poll_token`` (short-lived,
-    service/tmdb-bound) returned by the submit endpoint.
-    Authenticated admins may poll without a token.
-
-    ``service`` is constrained to the literal set ``{"radarr", "sonarr"}``
-    and ``tmdb_id`` must be a positive integer (TMDB IDs are 1-indexed),
-    so malformed callers receive a 422 from FastAPI rather than reaching
-    the handler with garbage values that would silently fall through to
-    a placeholder response.
+    Unauthenticated callers must supply a poll_token (short-lived, service/tmdb-bound) from
+    the submit endpoint; admins may poll without one. service and tmdb_id are constrained so
+    malformed callers get a 422 instead of a placeholder response.
     """
     config = request.app.state.config
 

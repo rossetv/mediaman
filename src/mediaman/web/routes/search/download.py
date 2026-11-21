@@ -1,11 +1,3 @@
-"""Download submission endpoint for the search experience.
-
-Hosts ``POST /api/search/download`` plus the supporting per-admin / per-IP
-rate limiters and short-window duplicate-request suppression. The body
-schema (``_DownloadRequest``) lives here too because it is exclusive to
-this endpoint.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,9 +25,6 @@ from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Rate limiters for POST /api/search/download
-# ---------------------------------------------------------------------------
 
 # Per-admin burst limiter: 20 downloads per minute, 200 per day.
 _DOWNLOAD_ADMIN_LIMITER = ActionRateLimiter(
@@ -49,7 +38,7 @@ _DOWNLOAD_IP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 
 # Per-process dedup window; must be in-process state to survive across requests
 # in the same worker — a request-scoped or dependency-injected object would
-# reset on every call and never suppress double-clicks (§8.5).
+# reset on every call and never suppress double-clicks.
 # Duplicate-request suppression: block identical (username, tmdb_id, media_type, seasons)
 # submissions within a short window to prevent accidental double-clicks from adding
 # duplicates. The season set is included in the dedup key so a TV submission for
@@ -63,12 +52,9 @@ def _seasons_dedup_token(
     monitored_seasons: list[int] | None,
     search_seasons: list[int] | None,
 ) -> str:
-    """Return a stable deterministic token for the season selection.
-
-    Treats ``None`` (all seasons) and an empty list distinctly so the
-    "monitor everything" submission can't collide with a "monitor only
-    season 1" request. Sorting both lists makes the token order-stable
-    regardless of how the client serialised them.
+    """Return a stable token for the season selection. None (all seasons) and an empty list
+    stay distinct, so "monitor everything" cannot collide with "monitor only season 1";
+    sorting makes it order-stable.
     """
     mon = (
         "*"
@@ -89,9 +75,8 @@ def _is_duplicate_download(
     media_type: str,
     seasons_token: str = "",
 ) -> bool:
-    """Return True if an identical request was submitted within the dedup window.
-
-    Cleans up stale entries on each call to bound memory growth.
+    """Return True if an identical request was submitted within the dedup window; stale entries
+    are cleaned on each call to bound memory.
     """
     key = (username, tmdb_id, media_type, seasons_token)
     now = time.monotonic()
@@ -109,13 +94,9 @@ def _is_duplicate_download(
 
 
 class _DownloadRequest(BaseModel):
-    """Body schema for ``POST /api/search/download``.
-
-    ``extra="forbid"`` means an unknown key from the client raises HTTP 422
-    rather than being silently ignored. ``media_type`` is constrained to
-    the two values the route actually handles, the title is bounded to
-    256 chars, and the season lists are capped at 100 entries — generous
-    for any real series but tight enough to refuse a flood payload.
+    """Body schema for POST /api/search/download. extra="forbid" turns unknown keys into a 422,
+    media_type is limited to the two handled values, the title to 256 chars and the season
+    lists to 100 entries to refuse flood payloads.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -128,14 +109,9 @@ class _DownloadRequest(BaseModel):
 
 
 def _resolve_admin_email(conn: sqlite3.Connection, admin: str) -> str | None:
-    """Return the notification email for *admin*, or ``None`` if unset.
-
-    Looks up ``admin_users.email`` via the auth package's public helper.
-    When the admin has no email set the caller skips inserting a
-    ``download_notifications`` row entirely — the scheduler can only
-    deliver to a real address, and storing a placeholder (such as the
-    bare username) used to send the row into a forever-retry loop in
-    the Mailgun client.
+    """Return the notification email for admin, or None if unset. Without an email the caller
+    skips the download_notifications row: a placeholder such as the bare username once sent
+    the row into a forever-retry loop in the Mailgun client.
     """
     return _get_user_email(conn, admin)
 
@@ -144,7 +120,6 @@ router = APIRouter()
 
 
 def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
-    """Check per-admin and per-IP rate limits. Return a 429 response or None."""
     if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
         logger.warning("search.download_throttled user=%s", admin)
         return JSONResponse(
@@ -162,7 +137,6 @@ def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
 
 
 def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
-    """Suppress duplicate requests within the dedup window. Return 429 or None."""
     seasons_token = _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
     if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
@@ -186,7 +160,6 @@ def _submit_movie(
     notify_email: str | None,
     actor: str,
 ) -> JSONResponse:
-    """Add a movie to Radarr and record the download notification."""
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
         return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
@@ -252,7 +225,6 @@ def _submit_movie(
 def _resolve_tvdb_id(
     sonarr: ArrClient, body: _DownloadRequest
 ) -> tuple[int | None, JSONResponse | None]:
-    """Look up the TVDB ID for a series via Sonarr. Return (tvdb_id, None) or (None, error)."""
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except (SafeHTTPError, _requests.RequestException):
@@ -277,7 +249,6 @@ def _submit_tv(
     notify_email: str | None,
     actor: str,
 ) -> JSONResponse:
-    """Add a series to Sonarr and record the download notification."""
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
         return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
@@ -289,7 +260,7 @@ def _submit_tv(
         already_tracked = is_series_already_tracked(sonarr, tvdb_id)
     except (SafeHTTPError, _requests.RequestException):
         # Cannot verify duplicate status — returning 503 is safer than
-        # proceeding blindly and potentially creating a duplicate in Sonarr (H7).
+        # proceeding blindly and potentially creating a duplicate in Sonarr.
         logger.warning(
             "Sonarr get_series failed during duplicate check — refusing to proceed",
             exc_info=True,

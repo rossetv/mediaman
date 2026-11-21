@@ -1,11 +1,3 @@
-"""Session-management routes.
-
-Routes
-------
-- GET  /api/users/sessions                  — list own active sessions
-- POST /api/users/sessions/revoke-others    — revoke all other sessions and re-issue cookie
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: Keys returned to the client by :func:`api_list_sessions`.
+#: Keys returned to the client by api_list_sessions.
 #:
 #: ``issued_ip`` and ``fingerprint`` are deliberately stripped: the
 #: fingerprint exposes the SHA-256-prefix of the user-agent + the /24 of
@@ -50,15 +42,9 @@ _SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
 def api_list_sessions(request: Request, admin: str = Depends(get_current_admin)) -> Response:
     """List active sessions for the current admin.
 
-    Returns timestamp metadata only — never raw tokens, IPs, or
-    fingerprints (a stolen cookie holder could otherwise use the
-    fingerprint to detect the legitimate user logging in or to forge a
-    matching fingerprint on a third device). Use
-    ``/api/users/sessions/revoke-others`` to log out other devices.
-
-    Per-actor rate limited (:data:`_SESSIONS_LIST_LIMITER`) so a cookie
-    thief cannot poll this to detect the moment the legitimate user
-    signs in.
+    Returns timestamp metadata only, never raw tokens, IPs or fingerprints: a cookie thief
+    could use a fingerprint to detect the legitimate user logging in or to forge a match on
+    a third device. Rate limited per actor (_SESSIONS_LIST_LIMITER) for the same reason.
     """
     conn = get_db()
     safe = [
@@ -73,12 +59,8 @@ def api_revoke_other_sessions(
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
-    """Revoke every session for the current admin EXCEPT the current one.
-
-    Useful after "I think my cookie leaked" — the admin keeps working on
-    their current tab while every other device is logged out. We also drop
-    any reauth tickets bound to the destroyed sessions so they cannot be
-    reused.
+    """Revoke every session for the current admin except the current one. Reauth tickets bound
+    to the destroyed sessions are dropped too so they cannot be reused.
     """
     conn = get_db()
     # Drop reauth tickets for this user before destroying their sessions

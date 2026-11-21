@@ -1,12 +1,9 @@
-"""Show-level keep machinery: keep / remove a whole show's seasons.
+"""Show-level keep machinery: keep or remove a whole show's seasons.
 
-Split out of :mod:`mediaman.web.routes.kept` to keep that module under
-the size ceiling. Owns the two show-keep routes
-(``POST /api/show/{key}/keep`` and ``POST /api/show/{key}/remove``), the
-request body schema, the rating-key resolution that closes the IDOR risk,
-the season-ownership check, and the season action-row builder. The
-``kept`` package mounts this module's ``router`` and re-exports
-``_resolve_show_rating_key`` so the historic test import target keeps
+Split out of mediaman.web.routes.kept to keep it under the size ceiling. Owns the two
+show-keep routes, their body schema, the rating-key resolution that closes the IDOR risk,
+the season-ownership check and the season action-row builder. The kept package mounts this
+router and re-exports _resolve_show_rating_key so the historic test import target keeps
 working.
 """
 
@@ -57,8 +54,6 @@ _KEEP_SHOW_LIMITER = ActionRateLimiter(
 
 
 class _KeepShowBody(BaseModel):
-    """Body shape for POST /api/show/{show_rating_key}/keep."""
-
     duration: str = "forever"
     season_ids: list[str] = Field(default_factory=list, max_length=50)
 
@@ -70,12 +65,6 @@ def _validate_keep_show_input(
     season_ids: list[str],
     admin: str,
 ) -> tuple[str | None, JSONResponse | None]:
-    """Validate the keep-show request body and rating key.
-
-    Returns ``(resolved_key, None)`` on success or
-    ``(None, error_response)`` for the empty-season-list,
-    invalid-duration, and unresolved-rating-key branches.
-    """
     if not season_ids:
         return None, respond_err("no_seasons", status=400, message="No seasons selected")
     if duration not in VALID_KEEP_DURATIONS:
@@ -98,13 +87,11 @@ def _check_season_ownership(
     resolved_key: str,
     admin: str,
 ) -> JSONResponse | None:
-    """Confirm every season in *season_ids* belongs to *resolved_key*.
+    """Confirm every season in season_ids belongs to resolved_key.
 
-    Returns ``None`` on success or a 400 envelope when any season is
-    unowned. Logs the IDOR-fallback-would-have-triggered warning when
-    the unowned IDs lack any show_rating_key — that branch is the
-    diagnostic carry-over from the previous fallback behaviour (seasons with no
-    show_rating_key were once silently accepted; logging here flags regressions).
+    Returns None on success or a 400 envelope when any season is unowned. Logs a warning
+    when the unowned IDs lack a show_rating_key: seasons without one were once silently
+    accepted, and the log flags regressions.
     """
     owned_ids = fetch_owned_season_ids(conn, season_ids, resolved_key)
     if owned_ids == set(season_ids):
@@ -136,10 +123,8 @@ def _build_season_action_rows(
     list[tuple[str, str | None, str, str, int]],
     list[tuple[str, str, str, str | None, str, str, str]],
 ]:
-    """Partition season IDs into update / insert tuples for ``scheduled_actions``.
-
-    Returns ``(to_update, to_insert)`` shaped exactly as
-    :func:`set_protected_state` expects.
+    """Partition season IDs into (to_update, to_insert) tuples shaped as set_protected_state
+    expects.
     """
     to_update = [
         (action, execute_at, now_iso_str, duration, existing_by_season[sid])
@@ -168,7 +153,7 @@ def api_keep_show(
     body: _KeepShowBody,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Keep an entire show (all listed seasons + future seasons via kept_shows rule)."""
+    """Keep an entire show: all listed seasons plus future seasons via the kept_shows rule."""
     if not _KEEP_SHOW_LIMITER.check(admin):
         logger.warning("kept_show.keep_throttled user=%s", admin)
         return respond_err(
@@ -207,7 +192,7 @@ def api_keep_show(
     )
 
     # The show-keep upsert, seasons write, and audit row share one transaction
-    # so a DB failure in any step rolls the whole thing back atomically (B-04).
+    # so a DB failure in any step rolls the whole thing back atomically.
     with conn:
         upsert_kept_show(
             conn,

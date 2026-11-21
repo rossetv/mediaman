@@ -1,27 +1,13 @@
 """Settings routes package.
 
-Thin aggregator over focused submodules:
+A thin aggregator over .api (JSON handlers), .secrets (field sets, masking, sentinels),
+.testers (per-service tester functions, registry and result cache) and .core (URL-field
+validation). This barrel owns the GET /settings page handler and _load_settings (a
+monkeypatch target in the tests), and aggregates the .api router.
 
-* :mod:`.api`     — JSON API handlers: GET /api/settings, PUT /api/settings,
-  POST /api/settings/test/{service}, GET /api/plex/libraries,
-  GET /api/settings/disk-usage, plus their handler-private helpers.
-* :mod:`.secrets` — field sets (SECRET_FIELDS, SENSITIVE_KEYS, etc.),
-  masking helpers, and sentinel constants for unchanged/clear writes.
-* :mod:`.testers` — per-service tester functions, the TESTERS registry,
-  per-tester key allow-lists, and the in-memory result cache.
-* :mod:`.core`    — URL-field validation helpers (_URL_FIELDS,
-  validate_url_fields).
-
-This barrel owns the ``GET /settings`` page handler and ``_load_settings``
-(a documented monkeypatch target in the test suite), and aggregates the
-``.api`` router so the registered route set is unchanged.
-
-Callers should keep importing ``router`` from this package. The
-``... import X as X`` block below re-exports the public constants and
-helpers from the submodules so the flat path
-``from mediaman.web.routes.settings import X`` keeps working for
-everything that was accessible on the old single-file module — the test
-suite patches several of these names on this module object.
+Import router from this package. The "import X as X" block re-exports the submodule names so
+the flat path mediaman.web.routes.settings keeps working; the tests patch several of them on
+this module object.
 """
 
 from __future__ import annotations
@@ -50,11 +36,9 @@ from mediaman.web.repository.settings import (
     load_settings as _load_settings,
 )
 
-# ---------------------------------------------------------------------------
 # Submodule imports — re-exported so the old flat module path still works.
 # Tests monkeypatch attributes on this module object; everything they touch
 # must live or be re-imported here.
-# ---------------------------------------------------------------------------
 from mediaman.web.routes.settings.api import (
     router as _api_router,
 )
@@ -107,7 +91,7 @@ from mediaman.web.routes.settings.testers import (
 # Re-export the cache dict under the name tests import directly.
 TEST_CACHE = _TEST_CACHE
 
-# Explicit public surface (§3.5): ``router`` is the only name outside callers
+# Explicit public surface: ``router`` is the only name outside callers
 # need, but the leading-underscore and submodule re-exports below must stay
 # importable from this package root for the test suite's flat-import and
 # monkeypatch contract — listing them here marks them as intentional exports.
@@ -141,14 +125,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
-# Page route
-# ---------------------------------------------------------------------------
-
-
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> Response:
-    """Render the settings page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -187,9 +165,5 @@ def settings_page(request: Request) -> Response:
         },
     )
 
-
-# ---------------------------------------------------------------------------
-# API routes — owned by ``.api``, aggregated here so the route set is unchanged.
-# ---------------------------------------------------------------------------
 
 router.include_router(_api_router)

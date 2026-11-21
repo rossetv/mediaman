@@ -1,5 +1,3 @@
-"""JSON API endpoints for recommendations: listing, share-token mint, download trigger."""
-
 from __future__ import annotations
 
 import logging
@@ -39,17 +37,15 @@ _DOWNLOAD_ACTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60
 _SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 
 # TTL for share tokens minted by the share-token endpoint.  Named with the
-# unit per §4.5; computed via timedelta to avoid the manual-seconds footgun.
+# unit; computed via timedelta to avoid the manual-seconds footgun.
 _SHARE_TOKEN_TTL_DAYS = 14
 
 
 def reset_download_action_limiter() -> None:
-    """Clear the download-action rate-limiter state. Used by tests."""
     _DOWNLOAD_ACTION_LIMITER.reset()
 
 
 def reset_share_token_limiter() -> None:
-    """Clear the share-token rate-limiter state. Used by tests."""
     _SHARE_TOKEN_LIMITER.reset()
 
 
@@ -63,7 +59,6 @@ def api_recommended(
     limit: int = Query(default=_RECOMMENDED_LIMIT_DEFAULT, ge=1, le=_RECOMMENDED_LIMIT_MAX),
     offset: int = Query(default=0, ge=0, le=10_000),
 ) -> JSONResponse:
-    """Return cached recommendations as JSON, paginated."""
     conn = get_db()
     sliced, total = fetch_recommendations_page(conn, limit=limit, offset=offset)
     return JSONResponse(
@@ -82,7 +77,6 @@ def api_share_token(
     request: Request,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Mint a single-use download share token for one recommendation, on demand."""
     if not _SHARE_TOKEN_LIMITER.check(admin):
         return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
 
@@ -141,7 +135,6 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _sanitise_title(title: str | None) -> str:
-    """Strip control characters and trim whitespace from title."""
     if not title:
         return ""
     cleaned = _CONTROL_CHARS_RE.sub("", title).strip()
@@ -156,11 +149,9 @@ def _add_rec_to_radarr(
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
-    """Add a movie recommendation to Radarr, record notification, and return response.
-
-    *notify_email* is the issuing admin's resolved notification address, or
-    ``None`` when they have no email set — in which case the movie is still
-    added but no notification row is recorded.
+    """Add a movie recommendation to Radarr, record the notification and return the response.
+    notify_email is None when the issuing admin has no email set: the movie is still added
+    but no notification row is recorded.
     """
     client = build_radarr_from_db(conn, secret_key)
     if not client:
@@ -193,11 +184,9 @@ def _add_rec_to_sonarr(
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
-    """Add a TV recommendation to Sonarr, record notification, and return response.
-
-    *notify_email* is the issuing admin's resolved notification address, or
-    ``None`` when they have no email set — in which case the show is still
-    added but no notification row is recorded.
+    """Add a TV recommendation to Sonarr, record the notification and return the response.
+    notify_email is None when the issuing admin has no email set: the show is still added
+    but no notification row is recorded.
     """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
@@ -210,7 +199,7 @@ def _add_rec_to_sonarr(
     if not results:
         return JSONResponse({"ok": False, "error": "Show not found in Sonarr lookup"})
     # Filter for the entry whose tmdbId matches the requested id — Sonarr may
-    # return results in a different order on different instances (H-07).
+    # return results in a different order on different instances.
     matched = next(
         (r for r in results if str(r.get("tmdbId", "")).strip() == str(tmdb_id).strip()),
         None,
@@ -251,7 +240,6 @@ def _add_rec_to_sonarr(
 def api_download_recommendation(
     recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Add a recommended movie/show to Radarr or Sonarr and trigger download."""
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
 

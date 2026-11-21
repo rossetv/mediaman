@@ -1,10 +1,3 @@
-"""Recent-reauth ticket flow.
-
-Routes
-------
-- POST /api/auth/reauth — establish a recent-reauth ticket for the current session
-"""
-
 from __future__ import annotations
 
 import logging
@@ -39,18 +32,13 @@ def api_reauth(
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
-    """Establish a "recent reauth" ticket for the current session.
+    """Establish a "recent reauth" ticket for the current session, the prelude to any
+    privilege-establishing endpoint.
 
-    Required prelude to any privilege-establishing endpoint. The ticket
-    is bound to the SHA-256 hash of the caller's session token so:
-
-    * Logout / session rotation cascades the ticket away.
-    * A different session belonging to the same user does not benefit
-      from this reauth.
-
-    Wrong-password attempts feed the ``reauth:<admin>`` lockout namespace
-    so a stolen session cookie cannot turn this endpoint into an
-    offline-style password oracle.
+    The ticket is bound to the SHA-256 hash of the session token, so logout or session
+    rotation cascades it away and another session of the same user gets no benefit. Wrong
+    passwords feed the reauth:<admin> lockout namespace so a stolen cookie cannot use this
+    endpoint as a password oracle.
     """
     conn = get_db()
     if not session_token:

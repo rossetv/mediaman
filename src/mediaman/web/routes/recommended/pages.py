@@ -1,5 +1,3 @@
-"""HTML page handlers for /recommended."""
-
 from __future__ import annotations
 
 import json
@@ -24,7 +22,6 @@ router = APIRouter()
 
 
 def _relative_label(batch_date: _date | None, index: int, today: _date) -> str:
-    """Return a human-friendly label for a recommendation batch date."""
     if index == 0:
         return "Latest picks"
     if batch_date is None:
@@ -57,12 +54,9 @@ def _group_into_batches(
     recommendations: list[dict[str, object]],
     today: _date,
 ) -> tuple[list[dict[str, object]], int]:
-    """Group recommendations by ``batch_id``, preserving DESC order.
-
-    Returns ``(formatted, total_batches)`` — the page renders at most
-    :data:`_MAX_VISIBLE_BATCHES` of those, but the caller can use the
-    full count to surface a "showing 4 of N" affordance and avoid
-    silently hiding older picks.
+    """Group recommendations by batch_id, preserving DESC order. Returns (formatted,
+    total_batches); the page renders at most _MAX_VISIBLE_BATCHES, and the full count lets
+    it show "showing 4 of N" instead of silently hiding older picks.
     """
     batches_map: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for s in recommendations:
@@ -102,16 +96,9 @@ def _group_into_batches(
 
 
 def _json_safe(value: object) -> object:
-    """Coerce a single value to a JSON-serialisable form.
-
-    Replaces the catch-all ``default=str`` previously passed to
-    :func:`json.dumps`, which silently stringified anything it didn't
-    recognise — including types like ``bytes`` that produced incorrect
-    output (``b'...'`` literals leaking into the embedded JSON
-    payload). The handler now refuses unknown types loudly, which is
-    what we want: we control every field that lands in
-    ``all_recommendations_json`` and any new type showing up should be
-    spotted, not papered over.
+    """Coerce a single value to a JSON-serialisable form. Unknown types are refused loudly
+    rather than stringified: a catch-all default=str leaked b'...' literals for bytes into
+    the embedded JSON, and every field in all_recommendations_json is under our control.
     """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -132,7 +119,6 @@ def _json_safe(value: object) -> object:
 
 @router.get("/recommended", response_class=HTMLResponse)
 def recommended_page(request: Request) -> Response:
-    """Render the Recommended For You page, grouping recommendations by batch into accordion sections."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved

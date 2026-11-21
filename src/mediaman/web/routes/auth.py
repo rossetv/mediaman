@@ -1,5 +1,3 @@
-"""Login and logout routes."""
-
 from __future__ import annotations
 
 import hashlib
@@ -42,7 +40,7 @@ router = APIRouter()
 # the whole pool.  A 300-second window keeps the bucket large enough that
 # real users with fat-finger typos still get through while a credential-
 # stuffing burst from one network gets shut down within the first few
-# tries.  Per-actor lockout (see :mod:`mediaman.web.auth.login_lockout`)
+# tries.  Per-actor lockout (see mediaman.web.auth.login_lockout)
 # handles slow grinding distinct from this fast-burst defence.
 #
 # CAPTCHA-after-N-failures gate (out of scope here): a follow-up could
@@ -60,30 +58,21 @@ _AUDIT_USERNAME_LIMIT = 64
 
 
 def _ua_hash(user_agent: str) -> str:
-    """Return a stable 16-hex-char SHA-256 prefix of *user_agent*.
-
-    Stored in the audit-log ``detail`` column as ``ua_hash`` so the
-    operator can correlate sessions originating from the same client
-    without leaking the full UA string (which can carry version
-    fingerprints and other identifying noise).
+    """Return a stable 16-hex SHA-256 prefix of user_agent, so the audit log can correlate
+    sessions without storing the full UA string.
     """
     return hashlib.sha256((user_agent or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
-    """Render the login form (HTML)."""
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
 def _render_rate_limited(request: Request) -> Response:
-    """Re-render the login form with the throttle message and a Retry-After hint.
-
-    Hint compliant clients (and well-behaved scripts) that the window is
-    finite.  The value is the upper bound — actual unblock is
-    sliding-window — but it gives operators and automation a concrete
-    number to back off against.
+    """Re-render the login form with the throttle message and a Retry-After hint. The value is
+    an upper bound: the actual unblock is sliding-window.
     """
     templates = cast(Jinja2Templates, request.app.state.templates)
     response: Response = templates.TemplateResponse(
@@ -102,13 +91,9 @@ def _handle_failed_login(
 ) -> Response:
     """Audit a failed credential check and re-render the form generically.
 
-    On the failed-login path *username* is unauthenticated and therefore
-    fully attacker-controlled — sanitise before it lands in the LOGGER
-    message, the audit ``actor`` column, AND the audit ``detail`` blob
-    (which is rendered into the history page UI).  Without this an
-    attacker could stuff control bytes (CR/LF for log forging, ANSI
-    escape codes for terminal injection) or a multi-megabyte string into
-    every audit row.
+    username is attacker-controlled here: sanitise it before it reaches the log message, the
+    audit actor column and the audit detail blob (rendered in the history UI), so control
+    bytes (log forging, ANSI escapes) and huge strings cannot land in every audit row.
     """
     safe_username = _sanitise_log_field(username, limit=_AUDIT_USERNAME_LIMIT)
     logger.info("auth.login_failed user=%s ip=%s", safe_username, client_ip)
@@ -132,22 +117,12 @@ def _handle_failed_login(
 def _flag_weak_password(
     conn: sqlite3.Connection, username: str, password: str, client_ip: str
 ) -> bool:
-    """Flip the must-change-password flag when the plaintext fails the policy.
+    """Flip the must-change-password flag when the plaintext fails the policy; return whether
+    it was weak.
 
-    Evaluates the plaintext against the strength policy. If it fails,
-    flips the flag so the session-guard middleware funnels this user to
-    the force-change page after login (we still issue a session — the
-    force-change page needs authenticated access to update the
-    password). We do NOT log the password anywhere.
-
-    Coalesce the audit event: the flag is sticky until the user rotates
-    the password, so logging ``password.weak_detected`` on every
-    subsequent login generates one row per session for the same
-    condition.  Only emit the event when we actually flip the flag from
-    0 to 1 — every later login is a no-op.
-
-    Returns whether the password was weak (used for the success-audit
-    ``force_rotation`` detail field).
+    The session is still issued, since the force-change page needs it. The audit event is
+    emitted only when the flag flips from 0 to 1, because the flag is sticky and would
+    otherwise log one row per login.
     """
     weak_password = not is_strong(password, username=username)
     if weak_password:
@@ -174,10 +149,6 @@ def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ) -> Response:
-    """Authenticate a username/password submission, applying per-IP and per-username rate limits before touching the credential check.
-
-    On success, issues a session cookie and redirects to the post-login destination; on failure, re-renders the form with a generic error to avoid leaking which field was wrong.
-    """
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
         return _render_rate_limited(request)
@@ -211,14 +182,9 @@ def login_submit(
 
 
 def _clear_session_cookie(response: Response, *, secure: bool) -> None:
-    """Clear the session cookie with explicit attributes.
-
-    RFC 6265bis matches a deletion ``Set-Cookie`` against existing
-    cookies by ``(name, domain, path)``.  ``Starlette.delete_cookie``
-    defaults ``Path=/`` which currently happens to match the value
-    ``set_session_cookie`` writes, but a future change to either side
-    would silently break deletion.  Pin the attributes here so the two
-    are coupled by the same source of truth.
+    """Clear the session cookie with explicit attributes. A deletion Set-Cookie matches by
+    (name, domain, path), so pin them here to the same source of truth as
+    set_session_cookie.
     """
     response.delete_cookie(
         "session_token",
@@ -233,17 +199,9 @@ def _clear_session_cookie(response: Response, *, secure: bool) -> None:
 def logout(request: Request) -> Response:
     """Log out the current session.
 
-    Requires a valid session cookie — a cross-origin POST (including
-    CSRF from an attacker page) without a legitimate session in the
-    request's cookies gets a 401 and no ``Set-Cookie`` clear. This
-    closes the "forced-logout" CSRF where any third-party page could
-    clear an admin's session by submitting a POST.
-
-    The ``CSRFOriginMiddleware`` already blocks cross-origin POSTs
-    from a *browser* that ships Origin, but some legacy webviews and
-    programmatic clients omit ``Origin`` on the same-site heuristic.
-    Requiring a valid session on top means the worst an unauthenticated
-    CSRF can do is trigger a 401 — not mutate cookie state.
+    Requires a valid session cookie, so a cross-origin POST without one gets a 401 and no
+    Set-Cookie clear (closes forced-logout CSRF). The Origin middleware alone is not enough:
+    some legacy webviews and programmatic clients omit Origin.
     """
     token = request.cookies.get("session_token")
     if not token:

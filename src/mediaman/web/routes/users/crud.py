@@ -1,14 +1,3 @@
-"""User CRUD routes: list, create, delete, unlock, promote.
-
-Routes
-------
-- GET  /api/users                  — list all admin users
-- POST /api/users                  — create a new admin user (reauth required)
-- DELETE /api/users/{user_id}      — delete a user (reauth required)
-- POST /api/users/{user_id}/unlock — clear a locked-out account (reauth required)
-- PATCH /api/users/me/email        — set or clear notification email (reauth required)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -43,11 +32,8 @@ router = APIRouter()
 
 
 def _unauthorised_reauth() -> Response:
-    """Build the canonical 'reauth required' 403 response.
-
-    Single helper so every privilege-establishing endpoint returns the
-    exact same shape — the front-end can key off ``reauth_required: true``
-    to prompt the user.
+    """Build the canonical "reauth required" 403, one shape for every privilege-establishing
+    endpoint so the front-end can key off reauth_required: true.
     """
     return respond_err(
         "reauth_required",
@@ -59,7 +45,6 @@ def _unauthorised_reauth() -> Response:
 
 @router.get("/api/users")
 def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]:
-    """List all admin users."""
     conn = get_db()
     return {"users": list_users(conn), "current": admin}
 
@@ -72,12 +57,8 @@ def api_create_user(
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Create a new admin user.
-
-    Requires a recent reauth ticket (``POST /api/auth/reauth`` within
-    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds` seconds).
-    Without it, a stolen session cookie cannot mint a permanent admin
-    account that survives session rotation.
+    """Create a new admin user. Requires a recent reauth ticket, so a stolen session cookie
+    cannot mint a permanent admin account that survives session rotation.
     """
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
@@ -131,11 +112,8 @@ def api_delete_user(
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Delete an admin user. Cannot delete yourself.
-
-    Requires a recent reauth ticket (``POST /api/auth/reauth`` within
-    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds`
-    seconds). A stolen session cookie alone cannot delete other admins.
+    """Delete an admin user (not yourself). Requires a recent reauth ticket, so a stolen
+    session cookie alone cannot delete other admins.
     """
     conn = get_db()
     client_ip = get_client_ip(request)
@@ -182,12 +160,8 @@ def api_set_my_email(
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Set or clear the current admin's notification email.
-
-    Requires a recent reauth ticket (``POST /api/auth/reauth`` within
-    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds`
-    seconds). A stolen session cookie alone cannot redirect download
-    alerts to an attacker-controlled inbox.
+    """Set or clear the current admin's notification email. Requires a recent reauth ticket, so
+    a stolen session cookie alone cannot redirect download alerts to an attacker's inbox.
     """
     conn = get_db()
     client_ip = get_client_ip(request)
@@ -227,16 +201,10 @@ def api_unlock_user(
 ) -> Response:
     """Clear the lockout for an admin account.
 
-    Combats the M21 denial-of-service: an unauthenticated attacker can
-    pound the login endpoint to keep an admin's account at the 24-hour
-    lock window indefinitely. With this endpoint a fellow admin (after
-    establishing a recent-reauth ticket) can clear the lock so the
-    legitimate user can sign in again.
-
-    Refuses to unlock yourself — if you can call this endpoint your
-    session is already authenticated, so a self-unlock is a no-op that
-    only obscures audit trails. Refuses to unlock unknown user IDs to
-    avoid leaking which IDs exist.
+    An unauthenticated attacker can hammer the login endpoint to hold an admin at the
+    24-hour lock indefinitely; this lets a fellow admin (after a recent reauth) clear it.
+    Refuses to unlock yourself, since a caller with a session gains nothing and it only
+    obscures audit trails, and refuses unknown user IDs so existing IDs do not leak.
     """
     if not _USER_MGMT_LIMITER.check(admin):
         return respond_err(
@@ -247,7 +215,7 @@ def api_unlock_user(
         logger.warning("user.unlock_rejected actor=%s reason=reauth_required", admin)
         return _unauthorised_reauth()
 
-    # rationale: §2.7.4 — admin_users is the auth module's table; routes
+    # rationale: admin_users is the auth module's table; routes
     # read it through the sanctioned helper instead of a raw SELECT.
     target_username = find_username_by_user_id(conn, user_id)
     if target_username is None:

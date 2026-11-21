@@ -1,14 +1,6 @@
-"""Settings URL-field validation helpers.
-
-Owns:
-- The set of settings keys that are URL-shaped (``_URL_FIELDS``).
-- ``_scrub_url_for_log`` — strips credentials and query strings from a
-  URL before it is written to the log.
-- ``_validate_url_fields`` — validates all URL fields in a settings
-  payload, returning a JSONResponse error or ``None``.
-
-This module is intentionally narrow: it contains only the URL-handling
-logic that would otherwise inflate the main ``__init__`` module.
+"""Settings URL-field validation: the _URL_FIELDS set, _scrub_url_for_log (strips credentials
+and query strings before logging) and validate_url_fields. Kept narrow so the URL handling
+does not inflate the package __init__.
 """
 
 from __future__ import annotations
@@ -39,22 +31,12 @@ _URL_FIELDS: frozenset[str] = frozenset(
 
 
 def _scrub_url_for_log(candidate: str) -> str:
-    """Return a log-safe representation of *candidate* — host + path-prefix only.
+    """Return a log-safe form of candidate: scheme://host[:port]/<path truncated to 32 chars>.
 
-    The SSRF-blocked path used to log the candidate URL verbatim.  That is
-    user-supplied content that may carry an embedded password
-    (``http://admin:pa55w0rd@host``), an API key in the query string
-    (``?api_key=sk-...``), or an attacker-tagged URL designed for the log
-    viewer.  We strip:
-
-    * userinfo (anything before the ``@`` in the netloc),
-    * the query string,
-    * the fragment,
-    * the path beyond the first 32 characters,
-
-    then return ``scheme://host[:port]/<truncated path>``.  If the URL
-    fails to parse, fall back to a length-only marker so the log still
-    has something useful for triage.
+    The candidate is user-supplied and may carry a password (http://admin:pw@host), an API
+    key in the query string or attacker-tagged content for the log viewer, so userinfo,
+    query and fragment are dropped. If the URL fails to parse, a length-only marker is
+    returned.
     """
     try:
         parsed = _urlparse(candidate)
@@ -70,11 +52,8 @@ def _scrub_url_for_log(candidate: str) -> str:
 
 
 def validate_url_fields(body: dict[str, object]) -> JSONResponse | None:
-    """Validate all URL fields in *body*.
-
-    Returns a :class:`JSONResponse` error if any URL field is invalid
-    (too long, wrong scheme, or blocked by the SSRF guard), or ``None``
-    if all URL fields pass validation.
+    """Validate all URL fields in body. Returns a JSONResponse error if any is invalid (too
+    long, wrong scheme or blocked by the SSRF guard), else None.
     """
     for url_key in _URL_FIELDS:
         if body.get(url_key):

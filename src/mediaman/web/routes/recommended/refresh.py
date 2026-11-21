@@ -1,8 +1,5 @@
-"""Background recommendation-refresh thread management.
-
-Owns the module-level ``_refresh_result`` shared state, the start/status
-endpoints, and the worker that calls into
-:func:`mediaman.services.openai.recommendations.persist.refresh_recommendations`.
+"""Background recommendation-refresh thread management: the module-level _refresh_result shared
+state, the start/status endpoints and the worker that calls refresh_recommendations.
 """
 
 from __future__ import annotations
@@ -45,7 +42,7 @@ router = APIRouter()
 _HEARTBEAT_INTERVAL_SECONDS = 60
 
 # Module-level mutable state for the background refresh worker. Mediaman
-# is single-worker by design (§1.12 in CODE_GUIDELINES.md), so in-process
+# is single-worker by design, so in-process
 # state is sufficient; the DB lease (refresh_runs table) is the
 # cross-restart truth. ``_refresh_result`` carries the final payload to
 # the status endpoint; ``_refresh_thread`` lets the status endpoint
@@ -59,39 +56,32 @@ _refresh_state_lock = threading.Lock()
 
 
 def _set_refresh_result(value: dict[str, object] | None) -> None:
-    """Atomically replace the shared refresh result."""
     global _refresh_result
     with _refresh_state_lock:
         _refresh_result = value
 
 
 def _get_refresh_result() -> dict[str, object] | None:
-    """Atomically read the shared refresh result."""
     with _refresh_state_lock:
         return _refresh_result
 
 
 def _set_refresh_thread(thread: threading.Thread | None) -> None:
-    """Atomically replace the shared worker-thread reference."""
     global _refresh_thread
     with _refresh_state_lock:
         _refresh_thread = thread
 
 
 def _refresh_thread_alive() -> bool:
-    """Return True if a worker thread is alive in this process."""
     with _refresh_state_lock:
         return _refresh_thread is not None and _refresh_thread.is_alive()
 
 
 def _heartbeat_lease(db_path: str, run_id: int, stop_event: threading.Event) -> None:
-    """Renew the DB lease every minute until the worker signals stop.
-
-    Runs on a dedicated daemon thread with its own thread-local DB
-    connection (SQLite connections must not cross thread boundaries).
-    Keeps the lease alive while the worker is busy; without this,
-    refreshes longer than 5 min flip ``is_refresh_running()`` to False,
-    the status endpoint returns "idle", and the JS poll never resolves.
+    """Renew the DB lease every minute until the worker signals stop. Runs on its own daemon
+    thread with a thread-local connection (SQLite connections must not cross threads).
+    Without it, refreshes over 5 minutes flip is_refresh_running() to False and the JS poll
+    never resolves.
     """
     hb_conn = open_thread_connection(db_path)
     try:
@@ -112,14 +102,9 @@ def _heartbeat_lease(db_path: str, run_id: int, stop_event: threading.Event) -> 
 
 # rationale: single cohesive background-worker lifecycle; split would produce disconnected partial states.
 def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threading.Event) -> None:
-    """Execute the recommendation refresh in a background thread.
-
-    Opens a dedicated thread-local DB connection, calls the refresh pipeline,
-    records the run result (done or error), publishes it via
-    :func:`_set_refresh_result`, signals the heartbeat thread to stop, and
-    closes the connection on exit. The cooldown timestamp is only recorded
-    on a successful non-zero result to avoid locking the user out after a
-    transient OpenAI failure.
+    """Execute the recommendation refresh in a background thread with its own connection. The
+    cooldown timestamp is recorded only on a successful non-zero result, so a transient
+    OpenAI failure does not lock the user out.
     """
     thread_conn = open_thread_connection(db_path)
     thread_secret_key = secret_key
@@ -155,7 +140,7 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
         else:
             result = {"ok": False, "error": "Plex not configured"}
             finish_refresh_run(thread_conn, run_id, "done")
-    except Exception as exc:  # rationale: §6.4 site 2 — background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.
+    except Exception as exc:  # rationale: background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.
         logger.exception("Background recommendation refresh failed")
         result = {"ok": False, "error": "Recommendation refresh failed"}
         try:
@@ -183,11 +168,9 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
 def api_refresh_recommendations(
     request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Start a manual recommendation refresh in the background.
-
-    Rate-limited to once per 24 hours to keep OpenAI spend bounded.
-    The cooldown is enforced server-side (the UI also hides the button)
-    so direct POSTs from a script can't bypass it.
+    """Start a manual recommendation refresh in the background. Rate-limited to once per 24
+    hours to bound OpenAI spend; the cooldown is enforced server-side so direct POSTs cannot
+    bypass the hidden button.
     """
     conn = get_db()
 
@@ -229,7 +212,7 @@ def api_refresh_recommendations(
     # the worker signals it to stop via this shared event in its finally.
     heartbeat_stop = threading.Event()
 
-    # Both threads are named per §8.6 so py-spy / logs identify them.
+    # Both threads are named so py-spy / logs identify them.
     # ``daemon=True`` so a process-level shutdown doesn't get blocked on
     # an in-flight OpenAI call; the refresh is best-effort across
     # restarts (the DB lease lapses naturally).
@@ -253,20 +236,14 @@ def api_refresh_recommendations(
 
 @router.get("/api/recommended/refresh/status")
 def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Poll whether the background refresh is still running.
+    """Poll whether the background refresh is still running, with cooldown info so the page can
+    keep the button hidden after a refresh.
 
-    Also returns cooldown info so the page can keep the button hidden
-    after a successful refresh without needing a full reload.
-
-    The "running" signal combines two sources:
-
-    * ``is_refresh_running(conn)`` — DB-lease check, authoritative across
-      processes (e.g. when a second uvicorn worker handles the poll).
-    * ``_refresh_thread_alive()`` — in-process check, authoritative when
-      the lease has lapsed but the local worker is still doing work.
-      Treating the lease as truth here would flip the status to "idle"
-      mid-refresh and the JS poll loop, having no "idle" branch, would
-      spin forever — the user sees the button stuck on "Refreshing…".
+    "Running" combines is_refresh_running(conn), the DB lease and authoritative across
+    processes, with _refresh_thread_alive(), authoritative when the lease has lapsed but the
+    local worker is still busy. Trusting the lease alone would report "idle" mid-refresh,
+    and the JS poll loop, having no "idle" branch, would spin forever with the button stuck
+    on "Refreshing...".
     """
     conn = get_db()
     running = is_refresh_running(conn) or _refresh_thread_alive()

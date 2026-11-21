@@ -1,16 +1,9 @@
 """Recommended-For-You routes package.
 
-Thin aggregator over focused submodules:
-
-* :mod:`.pages`   — GET /recommended page, batch grouping, relative labels.
-* :mod:`.api`     — JSON API: list, download trigger, share-token mint.
-* :mod:`.refresh` — background refresh thread, status polling.
-
-The shared ``suggestions`` SELECT lives in
-:mod:`mediaman.web.repository.recommended.fetch_recommendations`.
-
-Callers should keep importing ``router`` from this package.  Anything else
-lives on the submodule that owns it — tests patch the submodule directly.
+A thin aggregator over .pages (GET /recommended), .api (list, download trigger, share-token
+mint) and .refresh (background refresh thread, status polling). The shared suggestions
+SELECT lives in mediaman.web.repository.recommended.fetch_recommendations. Import router
+from this package; tests patch the submodule that owns anything else.
 """
 
 from __future__ import annotations

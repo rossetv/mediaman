@@ -1,5 +1,3 @@
-"""TMDB poster fan-out helper for the dashboard deleted-items section."""
-
 from __future__ import annotations
 
 import logging
@@ -13,9 +11,6 @@ from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 #: TMDB poster image base URL — w200 thumbnail size used for dashboard tiles.
 #: Callers elsewhere that use w300 keep their own URL deliberately distinct.
@@ -28,18 +23,11 @@ _TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 _POSTER_FANOUT_BUDGET_SECONDS = 6.0
 _POSTER_FANOUT_WORKERS = 4
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 @lru_cache(maxsize=1)
 def _get_poster_executor() -> ThreadPoolExecutor:
-    """Return the shared poster-fanout executor (lazy).
-
-    Process-life global: the executor is never shut down — it lives for the
-    process lifetime so repeated dashboard renders share the same thread pool
-    rather than spawning and tearing down threads on every request.
+    """Return the shared poster-fanout executor, created lazily and never shut down so repeated
+    renders share one thread pool.
     """
     return ThreadPoolExecutor(
         max_workers=_POSTER_FANOUT_WORKERS,
@@ -55,14 +43,9 @@ def _fill_tmdb_posters(
 ) -> None:
     """Look up TMDB poster URLs for deleted items missing a Plex poster.
 
-    Parallelised across a small worker pool with an outer wall-clock
-    budget — the previous sequential implementation could sit on a flaky
-    TMDB for 5s × 10 misses = 50s before the page rendered. Deduplication
-    by title is preserved so repeated entries
-    (e.g. multiple "Barbie" deletions) only trigger one API call.
-
-    ``secret_key`` is threaded in from the request handler to avoid
-    redundant ``load_config()`` calls per request.
+    Runs in a small worker pool under a wall-clock budget so a flaky TMDB cannot stall the
+    page, and is deduplicated by title so repeat deletions cost one API call. secret_key is
+    passed in to avoid a load_config() per request.
     """
     from mediaman.services.media_meta.tmdb import TmdbClient
 
