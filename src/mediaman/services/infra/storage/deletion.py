@@ -71,19 +71,24 @@ def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
     A media mount that has dropped leaves its mount point missing or empty,
     and every target under it then looks deleted. A caller that finds its
     target absent asks this first, so it does not book an unmounted file as
-    removed. Roots and *path* are resolved exactly as
-    ``path_within_delete_roots`` resolves them, so the two always agree on
-    which root holds *path*. Never raises; any doubt (malformed allowlist,
-    no matching root, unreadable root) answers False.
+    removed. Roots and *path* are resolved as ``path_within_delete_roots``
+    resolves them, so a root reached through a symlink or spelled another
+    way still matches. Never raises; any doubt (no matching root, unreadable
+    root) answers False. It does not vet the allowlist: ``delete_path`` does
+    that.
     """
     if not path or not isinstance(path, str) or not os.path.isabs(path):
         return False
+    roots: list[Path] = []
     try:
-        resolved_roots = _validate_delete_roots(allowed_roots)
         target = Path(path).resolve()
-    except (DeletionRefused, OSError, RuntimeError):
+        for raw in allowed_roots:
+            if raw and isinstance(raw, str) and os.path.isabs(raw):
+                root = Path(raw).resolve()
+                if root in target.parents:
+                    roots.append(root)
+    except (OSError, RuntimeError):
         return False
-    roots = [root for root in resolved_roots if root in target.parents]
     if not roots:
         return False
     pinned_root = max(roots, key=lambda root: len(root.parts))
