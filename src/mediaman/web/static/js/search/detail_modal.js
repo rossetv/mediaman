@@ -106,7 +106,7 @@
     renderDetail(data);
   }
 
-  /* SECURITY (R8-M2): hero, quick, ratings, and cast blocks use innerHTML
+  /* SECURITY: hero, quick, ratings, and cast blocks use innerHTML
      with template literals. This is intentional — the DOM-construction path
      would not materially reduce risk because the same data is flowing through.
      EVERY server-supplied value MUST go through escapeHtml() or escapeAttr()

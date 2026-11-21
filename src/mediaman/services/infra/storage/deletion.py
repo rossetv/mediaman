@@ -145,7 +145,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
 
     NOT a public entry point. ``delete_path`` is the only supported way
     in — ``_safe_rmtree`` is deliberately absent from the package barrel's
-    ``__all__`` (B2) so a caller cannot reach it without going through
+    ``__all__`` so a caller cannot reach it without going through
     ``delete_path``'s full allowlist validation. The defences below are
     re-checked here regardless, so a direct in-module call is still safe.
 
@@ -182,9 +182,9 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
         )
 
     # Reject any allowed root that is a symlink on disk — checked
-    # UNCONDITIONALLY (B2), re-derived from the ``allowed_roots`` this
+    # UNCONDITIONALLY, re-derived from the ``allowed_roots`` this
     # function actually walks under rather than an optional raw-roots
-    # parameter a bypassing caller might omit. The primary B2 defence is
+    # parameter a bypassing caller might omit. The primary defence is
     # that ``_safe_rmtree`` is no longer in the package barrel's ``__all__``,
     # so the only public path in is ``delete_path``, which already rejects
     # symlinked raw roots via ``_validate_delete_roots``. This loop is
@@ -273,8 +273,8 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
             for name in filenames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
                 # Device check FIRST — before the symlink short-circuit — so a
-                # cross-device entry is refused whether or not it is a symlink
-                # (B1). A symlink entry swapped in for a hardlink-to-another-
+                # cross-device entry is refused whether or not it is a symlink.
+                # A symlink entry swapped in for a hardlink-to-another-
                 # device file must still trip the device guard.
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
@@ -292,7 +292,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
             for name in dirnames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
                 # Device check FIRST (see filenames loop above) — a cross-
-                # device subdir entry is refused even if it is a symlink (B1).
+                # device subdir entry is refused even if it is a symlink.
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — subdirectory "

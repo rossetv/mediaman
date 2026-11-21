@@ -322,7 +322,7 @@ class TestCSPNonce:
         resp = client.get("/ping")
         csp = resp.headers["Content-Security-Policy"]
         assert "script-src 'self' 'nonce-" in csp
-        # 'unsafe-inline' was dropped from script-src a
+        # 'unsafe-inline' was dropped from script-src: a
         # stored XSS in a Jinja |safe interpolation can no longer execute
         # script content.
         assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]

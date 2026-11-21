@@ -268,7 +268,7 @@ def maybe_trigger_search(
     # nuked by our rollback.
     my_token = uuid.uuid4().hex
     with _state_lock:
-        # Per-arr-instance fan-out cap (B2): if a *different* item on this arr
+        # Per-arr-instance fan-out cap: if a *different* item on this arr
         # instance fired within _PER_ARR_THROTTLE_SECONDS, skip — this bounds 50
         # stuck movies to ONE Radarr search per window rather than 50
         # simultaneous MoviesSearch commands hammering the indexer. The stored

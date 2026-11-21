@@ -51,7 +51,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
     Called at the start of a *live* DeletionExecutor.execute pass
-    (never under dry-run — a preview mutates nothing, R7-L1) and by the
+    (never under dry-run — a preview mutates nothing) and by the
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
 
@@ -343,7 +343,7 @@ class DeletionExecutor:
         """Recover stuck rows (live only) and return the pending-deletion set.
 
         Recovery commits real state changes, so a dry-run preview must NOT
-        run it (R7-L1): the periodic 30-min library sync is a dry-run and
+        run it: the periodic 30-min library sync is a dry-run and
         genuine crash recovery already runs at boot via the scheduler and at
         the start of every live deletion pass below. Guarding here keeps the
         documented "dry-run mutates nothing" contract honest.
@@ -360,7 +360,7 @@ class DeletionExecutor:
         # Fail closed once, before the loop: deletion must refuse when
         # MEDIAMAN_DELETE_ROOTS is unset. Lifted out of the per-row
         # loop so the refusal is logged a single time, not once per pending
-        # row (R7-L3). Snooze cleanup below still runs so expired snoozes
+        # row. Snooze cleanup below still runs so expired snoozes
         # re-enter the pipeline once roots are configured.
         if not allowed_roots:
             if rows:
@@ -383,7 +383,7 @@ class DeletionExecutor:
         """Delete a single eligible row from disk; return True on success.
 
         Parks a row with an empty/NULL ``file_path`` instead of cycling it
-        forever between 'deleting' and 'pending' (R7-M1): ``delete_path("")``
+        forever between 'deleting' and 'pending': ``delete_path("")``
         always refuses and recovery always resets to pending, so such a row
         would livelock invisibly. Write a permanent-failure audit and drop
         the action so the operator can see it and it cannot re-enter.

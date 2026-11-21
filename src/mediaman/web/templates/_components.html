@@ -2,7 +2,7 @@
    tiles, tables and settings primitives. Import via:
        {% import "_components.html" as c %}
 
-   SECURITY (H66 / Domain 10): macros below use ``|safe`` (and a few raw
+   SECURITY: macros below use ``|safe`` (and a few raw
    ``{{ … }}`` interpolations) for inputs that are deliberately HTML
    fragments (icon SVG strings, sub-text with inline links, header_extra
    slots). These inputs MUST be server-controlled literals — never pass
@@ -32,7 +32,7 @@
    Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
    prevent XSS — use explicit parameters or `data_attrs` dict instead.
 
-   SECURITY (R8-L6): `{{ label }}` is NOT marked |safe and is therefore
+   SECURITY: `{{ label }}` is NOT marked |safe and is therefore
    auto-escaped by Jinja's autoescape (enabled for .html via
    jinja2.select_autoescape() in app_factory.py).  Do NOT add |safe to
    label — that would allow XSS if a caller passes user-supplied text.

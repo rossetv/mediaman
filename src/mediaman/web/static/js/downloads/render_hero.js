@@ -218,7 +218,7 @@
     /* Update poster backdrop */
     var bg = d.q('.dl-hero-bg', card);
     if (bg && item.poster_url) {
-      /* H67: set via DLPoster.apply to avoid CSS string injection. */
+      /* Set via DLPoster.apply to avoid CSS string injection. */
       bg.setAttribute('data-bg-url', item.poster_url);
       if (window.DLPoster) window.DLPoster.apply(bg);
     }

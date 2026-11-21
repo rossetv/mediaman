@@ -162,17 +162,17 @@ def _evaluate_scan_item(
 ) -> tuple[str, ScanDecision]:
     """Upsert one item and return ``(media_id, decision)``.
 
-     The returned ScanDecision makes the three outcomes explicit:
-     ScanDecision.SKIP_GUARD when the protection / already-scheduled
-     guards fire (no evaluator call), ScanDecision.SCHEDULE when the
-     evaluator returns ``"schedule_deletion"``, and
-     ScanDecision.SKIP_EVAL for any other evaluator result
-     (``"skip"`` or ``None`` — e.g. the TV show-kept early skip).
+    The returned ScanDecision makes the three outcomes explicit:
+    ScanDecision.SKIP_GUARD when the protection / already-scheduled
+    guards fire (no evaluator call), ScanDecision.SCHEDULE when the
+    evaluator returns ``"schedule_deletion"``, and
+    ScanDecision.SKIP_EVAL for any other evaluator result
+    (``"skip"`` or ``None`` — e.g. the TV show-kept early skip).
 
-     The protection and already-scheduled guards are answered from the
-     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT
-    . The ``media_items`` upsert below cannot change either
-     guard's answer because neither guard reads ``media_items``.
+    The protection and already-scheduled guards are answered from the
+    pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
+    The ``media_items`` upsert below cannot change either guard's answer
+    because neither guard reads ``media_items``.
     """
     conn = engine._conn
     item = f.item
@@ -241,7 +241,7 @@ def scan_movie_library(
     fetched = engine._fetcher.fetch_library_items(library_id)
     # An item whose watch history could not be fetched is still present in
     # Plex — record its key as seen so orphan removal never prunes it on a
-    # scan that merely failed to fetch its history (R7-H1).
+    # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 
@@ -284,7 +284,7 @@ def scan_tv_library(
     conn = engine._conn
     # A season whose watch history could not be fetched is still present in
     # Plex — record its key as seen so orphan removal never prunes it on a
-    # scan that merely failed to fetch its history (R7-H1).
+    # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 

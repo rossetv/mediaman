@@ -7,8 +7,8 @@
  *
  * Lives outside the inline <script> the template used to carry because
  * page-level inline scripts have no CSP nonce — the browser refuses to
- * execute them under the strict script-src policy. See Wave 7 notes in
- * web/middleware/security_headers.py.
+ * execute them under the strict script-src policy.
+ * See web/middleware/security_headers.py.
  */
 (function () {
   'use strict';

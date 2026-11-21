@@ -481,7 +481,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     suggestions_by_tmdb = _fetch_suggestions_batch(conn, runnable)
 
     # Build the Sonarr series index once per tick so _sonarr_has_files is O(1)
-    # per row instead of O(N × library) (M1).  Fetch only when at least one
+    # per row instead of O(N × library).  Fetch only when at least one
     # runnable row needs Sonarr; Radarr rows pay nothing.
     sonarr_series_index: list[SonarrSeries] | None = None
     if any(r.service == "sonarr" for r in runnable):
@@ -495,7 +495,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                 # call _build_sonarr_index per-row as a safe fallback.
 
     # Build the Radarr movie index once per tick — avoids one HTTP round-trip
-    # per Radarr row (R4-H1: N+1 fix mirrors the existing Sonarr optimisation).
+    # per Radarr row (the same N+1 fix as the Sonarr index above).
     radarr_index: dict[int, RadarrMovie] | None = None
     if any(r.service == "radarr" for r in runnable):
         radarr_client = arr.radarr()

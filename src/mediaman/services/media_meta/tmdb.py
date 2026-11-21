@@ -55,7 +55,7 @@ _CLIENT_CACHE_LOCK = threading.Lock()
 _CLIENT_CACHE_MAXSIZE = 4
 
 
-# H71: TMDB attribution notice
+# TMDB attribution notice
 # TMDB requires that all products using their API display the TMDB logo
 # and a "This product uses the TMDB API but is not endorsed or certified
 # by TMDB" attribution notice. Poster image requests to image.tmdb.org

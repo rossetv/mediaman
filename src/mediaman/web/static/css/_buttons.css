@@ -78,7 +78,7 @@
 .keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
 .keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
 
-/* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed (R8-H4).
+/* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed.
    ui-feedback.js now emits `.btn.btn--accent-soft` / `.btn.btn--danger`
    / `.btn.btn--ghost` — use those instead. */
 

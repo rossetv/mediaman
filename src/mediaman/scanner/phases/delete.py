@@ -83,7 +83,7 @@ def _resolve_prune_libs(
 ) -> set[int]:
     """Return the subset of *scanned_libs* that may be pruned this run.
 
-    Confirmation is PER LIBRARY (M2): on a suspicious scan a library may be
+    Confirmation is PER LIBRARY: on a suspicious scan a library may be
     pruned only if it was *already* pending from the previous run — i.e. the
     second consecutive suspicious look at that specific library, exactly as
     remove_orphans' docstring promises. Libraries seeing their first

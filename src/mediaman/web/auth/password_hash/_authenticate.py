@@ -41,7 +41,7 @@ def _short_circuit_authenticate(
     (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
     every authentication path, including callers that pass
     ``record_failures=False`` (``verify_reauth_password``,
-    ``_authorise_password_change``). See C6 in ``test_login_lockout.py``.
+    ``_authorise_password_change``). See ``test_login_lockout.py``.
     The *record_failures* flag governs only the bcrypt-verify path's
     decision to count a wrong-password attempt; once an account is
     already locked, counting the continued hammering is what keeps the
@@ -128,7 +128,7 @@ def authenticate(
       retained even on the locked path because the escalation
       thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
       reachable only while the counter keeps climbing during the
-      lock window — see the C6 test in ``test_login_lockout.py``.
+      lock window — see ``test_login_lockout.py``.
       Without the continued counter bump the escalation-window logic in
       `mediaman.web.auth.login_lockout` cannot escalate to the 1-hour
       and 24-hour windows.

@@ -202,11 +202,11 @@ def fetch_already_scheduled_media_ids(
 ) -> set[str]:
     """Return the subset of *media_ids* with a pending ``scheduled_deletion``.
 
-     Batched, set-building replacement for the per-item
-     is_already_scheduled round trip in the hot scan loop
-    . The rule matches is_already_scheduled exactly:
-     ``action = 'scheduled_deletion'`` with ``token_used = 0``. Chunked
-     into groups of 500 to stay below SQLite's parameter limit.
+    Batched, set-building replacement for the per-item
+    is_already_scheduled round trip in the hot scan loop. The rule matches
+    is_already_scheduled exactly: ``action = 'scheduled_deletion'`` with
+    ``token_used = 0``. Chunked into groups of 500 to stay below SQLite's
+    parameter limit.
     """
     if not media_ids:
         return set()

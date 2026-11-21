@@ -98,7 +98,7 @@ def decrypt_value(
     # ``encrypted`` is attacker/DB-controlled; a malformed base64 string
     # raises ``binascii.Error`` (a ``ValueError`` subclass). Surface it as
     # the documented ``CryptoInputError`` so callers catching the contract
-    # don't see an unexpected error type escape (H3).
+    # don't see an unexpected error type escape.
     try:
         raw = base64.urlsafe_b64decode(encrypted)
     except (binascii.Error, ValueError) as exc:

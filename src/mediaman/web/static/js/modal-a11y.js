@@ -103,7 +103,7 @@
 
   document.addEventListener('keydown', onKeydown);
 
-  /* Wire data-close-modal buttons (H74: replaces hardcoded onclick="closeModal()").
+  /* Wire data-close-modal buttons (replaces hardcoded onclick="closeModal()").
      Delegates to the registered close function for the nearest ancestor modal. */
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-close-modal]');

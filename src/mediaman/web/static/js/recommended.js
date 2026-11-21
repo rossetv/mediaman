@@ -23,7 +23,7 @@
   window.MM = window.MM || {};
   MM.recommended = MM.recommended || {};
 
-  /* H66: parse from application/json script tag — textContent is safe because the
+  /* Parse from application/json script tag — textContent is safe because the
      browser never interprets the content as script. The assert below catches any
      server-side regression where un-escaped </script would appear in the payload. */
   var _recDataEl = document.getElementById('rec-data');

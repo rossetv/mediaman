@@ -89,7 +89,7 @@
     function close() {
       if (!modalEl) return;
       /* Remove the fallback ESC listener on teardown to prevent listener
-         accumulation across multiple open/close cycles (R8-L3). */
+         accumulation across multiple open/close cycles. */
       if (_escHandler) {
         document.removeEventListener('keydown', _escHandler);
         _escHandler = null;

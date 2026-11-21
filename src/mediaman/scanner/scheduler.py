@@ -253,6 +253,5 @@ def stop_scheduler() -> None:
             scheduler_to_stop.shutdown(wait=False)
         finally:
             # Close DB connections opened by job lambdas regardless of
-            # whether shutdown raised — leaking the connections is the
-            # finding we're fixing.
+            # whether shutdown raised, so the connections are never leaked.
             _close_tracked_connections()

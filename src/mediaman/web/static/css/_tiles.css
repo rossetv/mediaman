@@ -17,7 +17,7 @@
   min-width: 0;
 }
 /* .tile-hit: stretched, transparent button overlay providing the
-   keyboard-accessible click target for a card (H68 / a11y) without
+   keyboard-accessible click target for a card (a11y) without
    nesting interactive elements inside a real <button> (which is
    invalid HTML and breaks the grid layout). Action buttons inside
    .tile-actions sit above this overlay via a higher z-index. */

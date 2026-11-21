@@ -80,7 +80,7 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> Mailgun
     from_address = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
     base_url = get_string_setting(conn, "base_url", secret_key=secret_key).rstrip("/")
 
-    # H70: reject non-HTTP(S) base_url schemes so email links can never use
+    # Reject non-HTTP(S) base_url schemes so email links can never use
     # javascript:, data:, or other dangerous schemes.
     if base_url and not base_url.lower().startswith(("http://", "https://")):
         logger.error(

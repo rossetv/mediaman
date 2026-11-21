@@ -65,7 +65,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         ).fetchall()
         # Build the return value before committing so the rows are safely in a
         # local variable — a Python exception between commit and return would
-        # otherwise strand them at notified=2 (M7).
+        # otherwise strand them at notified=2.
         claimed = [_row_to_claimed(r) for r in rows]
         conn.commit()
         return claimed
@@ -75,7 +75,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         # BEGIN IMMEDIATE here preserves write-lock semantics so a sibling
         # worker cannot pick up the same rows concurrently.
         #
-        # NOTE (B5): this pattern is correct ONLY because db/connection.py
+        # NOTE: this pattern is correct ONLY because db/connection.py
         # creates connections with the DEFAULT isolation_level (legacy mode),
         # meaning ``with conn:`` does NOT auto-BEGIN — the explicit
         # ``BEGIN IMMEDIATE`` below is the first and only transaction start.

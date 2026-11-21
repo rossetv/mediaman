@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 # Content Security Policy — per-request nonce strategy.
 #
-# Wave 7 extracted every page-level inline ``<script>`` block to an
+# Every page-level inline ``<script>`` block lives in an
 # external file under ``static/js/``. The only remaining inline scripts
 # in templates are ``<script type="application/json">`` JSON islands,
 # which are non-executable and not subject to ``script-src``. As a
@@ -71,8 +71,8 @@ def _build_csp(nonce: str) -> str:
     """Return the per-request CSP header text with *nonce* threaded in.
 
     ``script-src`` no longer carries ``'unsafe-inline'``: every
-    page-level inline ``<script>`` was extracted to an external file in
-    Wave 7, and the only remaining inline scripts are
+    page-level inline ``<script>`` lives in an external file, and the
+    only remaining inline scripts are
     ``type="application/json"`` data islands which CSP does not gate.
 
     ``style-src`` carries a nonce for ``<style>`` blocks. **Critical

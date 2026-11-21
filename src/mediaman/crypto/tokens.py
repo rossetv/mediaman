@@ -160,9 +160,9 @@ _SUBKEY_CACHE_MAX_ENTRIES = 64
 # The cache key is a SHA-256 digest of the master secret, NOT the raw
 # plaintext key. Pinning the plaintext ``MEDIAMAN_SECRET_KEY`` as a
 # live dict key for the whole process lifetime would needlessly widen
-# the blast radius of a heap dump / core file / debugger inspection
-# . The digest is non-reversible and still uniquely
-# identifies the key for cache-lookup purposes.
+# the blast radius of a heap dump / core file / debugger inspection.
+# The digest is non-reversible and still uniquely identifies the key for
+# cache-lookup purposes.
 _subkey_cache: dict[tuple[bytes, bytes], bytes] = {}
 _subkey_cache_lock = threading.Lock()
 

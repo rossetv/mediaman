@@ -221,7 +221,7 @@ class ScanEngine:
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they
-            # must never be pruned as orphans (R7-H1).
+            # must never be pruned as orphans.
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
             seen_lib_keys.update(fetched.skipped_keys)
             for f in fetched.items:
