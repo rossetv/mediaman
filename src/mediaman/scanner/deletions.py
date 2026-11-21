@@ -31,6 +31,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
+    is_claimed_deletion,
     is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
@@ -177,7 +178,8 @@ def _delete_file_on_disk(
     On any error the row is left in the appropriate state and False is
     returned so the caller can ``continue`` to the next row. A failed removal
     goes back to ``pending``: the pass reads its rows once, so the next pass
-    retries it, and ``deleting`` keeps meaning a removal running now.  All
+    retries it. ``deleting`` means a removal running now, or a leftover whose
+    files are already gone (missing at the rm, or a crash) awaiting recovery.  All
     try/except branches are contained here so no except clause is ever
     stranded in a different scope from its try.
     """
@@ -452,7 +454,8 @@ class DeletionExecutor:
 
         Due rows of other items stored at or under the path are claimed in
         the same transaction, since the removal takes their media too, and
-        close with this row; they go back to pending if the removal fails.
+        close with this row; they go back to pending if the removal fails, or
+        if a keep or clear made after the claim stops it.
         """
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
@@ -502,8 +505,10 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
-            _log_root_unavailable(row, path)
+        mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        # A keep or clear may have landed while the disk was read; read the
+        # rows after the disk, so the window left before the removal is small.
+        if not self._still_removable(row, path, now_iso, mounted=mounted):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -520,13 +525,32 @@ class DeletionExecutor:
             _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
         return closed
 
+    def _still_removable(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+        """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
+
+        The row must still be a claimed ``scheduled_deletion``, and _may_remove
+        must still pass, so an item under *path* kept since the claim blocks
+        it as it would have before.
+        """
+        if not is_claimed_deletion(self._conn, row.id):
+            logger.warning(
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept or "
+                "cleared since the claim; leaving the files",
+                row.id,
+                row.media_item_id,
+                path,
+            )
+            return False
+        return self._may_remove(row, path, now_iso, mounted=mounted)
+
     def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
         """Return False, logging why, when removing *path* now could lose media.
 
-        Runs inside the claim's transaction, so the other items it reads
-        cannot change before the claim commits. *mounted* says whether the
-        target, or else its delete root's content, was on disk; it is read
-        before the transaction opens.
+        Before the claim it runs inside the claim's transaction, so the other
+        items it reads cannot change before the claim commits; it runs again
+        just before the removal. *mounted* says whether the target, or else its
+        delete root's content, was on disk; it is read before any transaction
+        opens.
         """
         held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
         if held:

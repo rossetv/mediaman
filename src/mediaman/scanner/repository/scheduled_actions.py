@@ -61,6 +61,7 @@ __all__ = [
     "fetch_stuck_deletions",
     "has_expired_snooze",
     "is_already_scheduled",
+    "is_claimed_deletion",
     "is_latest_audit",
     "is_protected",
     "is_show_kept",
@@ -167,6 +168,20 @@ def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -
         (action_id, now_iso),
     )
     return cursor.rowcount == 1
+
+
+def is_claimed_deletion(conn: sqlite3.Connection, action_id: int) -> bool:
+    """Return True while the row is still an unused ``scheduled_deletion`` claimed as ``deleting``.
+
+    A keep written onto a claimed row changes its action, and a clear drops it.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM scheduled_actions "
+        "WHERE id = ? AND action = 'scheduled_deletion' AND token_used = 0 "
+        "  AND delete_status = 'deleting'",
+        (action_id,),
+    ).fetchone()
+    return row is not None
 
 
 def _normalised(path: str) -> str:
