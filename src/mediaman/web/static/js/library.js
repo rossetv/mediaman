@@ -22,6 +22,11 @@
   var _deleteModal = null;
   var _seasonDeleteModal = null;
 
+  /* Each dialog's season fetch is numbered; a response that is not the
+     latest belongs to a show no longer open and is dropped. */
+  var _keepDialogRequest = 0;
+  var _seasonDeleteRequest = 0;
+
   /**
    * Submit a keep/snooze request for a media item.
    * For TV seasons (showRk truthy), opens the season-picker dialog.
@@ -65,15 +70,19 @@
     }
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     document.getElementById('keep-dialog-confirm').textContent = 'Keep';
+    var request = ++_keepDialogRequest;
     MM.api.get(url)
       .then(function (data) {
+        if (request !== _keepDialogRequest) return;
         document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
       })
-      .catch(function () { list.textContent = "Couldn't load seasons."; });
+      .catch(function () {
+        if (request === _keepDialogRequest) list.textContent = "Couldn't load seasons.";
+      });
   }
 
   function closeKeepDialog() {
@@ -263,11 +272,16 @@
     var list = document.getElementById('season-delete-list');
     document.getElementById('season-delete-title').textContent = 'Delete from ' + (showTitle || 'show');
     if (_seasonDeleteModal) _seasonDeleteModal.open();
+    var request = ++_seasonDeleteRequest;
     if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
     list.textContent = 'Loading…';
     MM.api.get('/api/show/' + encodeURIComponent(showRk) + '/seasons')
-      .then(function (data) { renderSeasonDeleteList(data, showTitle); })
-      .catch(function () { list.textContent = "Couldn't load seasons."; });
+      .then(function (data) {
+        if (request === _seasonDeleteRequest) renderSeasonDeleteList(data, showTitle);
+      })
+      .catch(function () {
+        if (request === _seasonDeleteRequest) list.textContent = "Couldn't load seasons.";
+      });
   }
 
   function renderSeasonDeleteList(data, showTitle) {
