@@ -31,6 +31,7 @@ import secrets
 import threading
 import time
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import TypedDict, cast
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,9 @@ _TOKEN_PURPOSE_DOWNLOAD = b"mediaman-token-download-v1"
 _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
+
+_KEEP_TOKEN_MIN_TTL = timedelta(days=30)
+_KEEP_TOKEN_DELETION_MARGIN = timedelta(days=1)
 
 _SUBKEY_CACHE_MAX_ENTRIES = 64
 
@@ -288,6 +292,55 @@ def generate_keep_token(
 ) -> str:
     payload = {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_KEEP)
+
+
+def keep_token_expiry(scheduled_at: datetime, execute_at: datetime) -> int:
+    """Return the ``exp`` of the keep token for a deletion scheduled at *scheduled_at*.
+
+    At least 30 days, and always a day past the deletion so the link works until then.
+    For a grace under 30 days this equals the original 30-day rule, so those tokens are
+    unchanged.
+    """
+    return int(
+        max(
+            scheduled_at + _KEEP_TOKEN_MIN_TTL, execute_at + _KEEP_TOKEN_DELETION_MARGIN
+        ).timestamp()
+    )
+
+
+def rebuild_keep_token(
+    *,
+    media_item_id: str,
+    action_id: int,
+    scheduled_at: datetime,
+    execute_at: datetime,
+    token_hash: str | None,
+    secret_key: str,
+) -> str | None:
+    """Re-mint the keep token of a scheduled deletion from its stored columns.
+
+    Only the token's SHA-256 is stored, so the token is regenerated (keep tokens carry
+    no nonce) under the current expiry rule and then the original 30-day rule; the one
+    whose hash equals *token_hash* is returned, or ``None`` when neither matches.
+    """
+    if not token_hash:
+        return None
+    candidates = dict.fromkeys(
+        (
+            keep_token_expiry(scheduled_at, execute_at),
+            int((scheduled_at + _KEEP_TOKEN_MIN_TTL).timestamp()),
+        )
+    )
+    for expires_at in candidates:
+        token = generate_keep_token(
+            media_item_id=media_item_id,
+            action_id=action_id,
+            expires_at=expires_at,
+            secret_key=secret_key,
+        )
+        if hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), token_hash):
+            return token
+    return None
 
 
 def validate_keep_token(token: str, secret_key: str) -> KeepTokenPayload | None:

@@ -25,14 +25,12 @@ from datetime import timedelta
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.crypto import generate_keep_token
+from mediaman.crypto.tokens import keep_token_expiry
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 
 logger = logging.getLogger(__name__)
-
-# Default keep-token TTL: 30 days from the scheduling moment.
-_TOKEN_TTL_DAYS = 30
 
 # The action string that represents a pending deletion in scheduled_actions.
 DELETION_ACTION = "scheduled_deletion"
@@ -99,7 +97,7 @@ def schedule_deletion(
     """
     now = now_utc()
     execute_at = now + timedelta(days=grace_days)
-    expires_at = int((now + timedelta(days=_TOKEN_TTL_DAYS)).timestamp())
+    expires_at = keep_token_expiry(now, execute_at)
 
     placeholder = f"pending-{secrets.token_urlsafe(16)}"
 

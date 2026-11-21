@@ -346,7 +346,9 @@
                     {% if item.is_reentry %}
                     <div class="reentry">&#9888; Previously kept — grace period expired. Scheduled again.</div>
                     {% endif %}
+                    {% if item.keep_url %}
                     <a href="{{ item.keep_url }}" class="btn">Keep</a>
+                    {% endif %}
                   </div>
                 </div>
                 {% endfor %}
