@@ -125,14 +125,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.critical("Configuration error at startup: %s", exc)
         sys.exit(1)
 
-    # Install the root scrub filter on every handler of the mediaman logger.
-    # Secrets (OMDB key, Plex token) are runtime-resolved from the DB after
-    # bootstrap_db completes; callers register them via register_secret().
-    # Attaching to *handlers* rather than the logger itself ensures that any
-    # child logger (getLogger(__name__)) automatically inherits redaction
-    # regardless of the logger hierarchy depth.
-    install_root_filter()
-
     try:
         bootstrap_db(app, config)
     except DataDirNotWritableError as exc:
@@ -266,6 +258,12 @@ def _register_probes(app: FastAPI) -> None:
 
 
 def create_app() -> FastAPI:
+    # Set up the mediaman logger's scrubbing stderr handler before anything
+    # logs, so the middleware warnings and startup errors go through it too.
+    # Secrets (OMDB key, Plex token) are runtime-resolved from the DB after
+    # bootstrap_db completes; callers register them via register_secret().
+    install_root_filter()
+
     app = FastAPI(
         title="Mediaman",
         lifespan=lifespan,

@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from mediaman.core.scrub_filter import ScrubFilter
+from mediaman.core.scrub_filter import ScrubFilter, install_root_filter
 
 
 def _make_record(msg: str, args: tuple | None = None) -> logging.LogRecord:
@@ -230,3 +230,41 @@ class TestScrubFilterThreadSafety:
         reader.join()
 
         assert not errors
+
+
+class TestInstalledRootFilter:
+    """Records logged through the ``mediaman`` logger as the app configures it."""
+
+    SECRET = "tok-installed-filter-9f3a"
+
+    def test_secret_in_message_is_scrubbed_on_stderr(self, capsys) -> None:
+        install_root_filter(secrets=[self.SECRET])
+        logging.getLogger("mediaman.scrubtest").info(f"token is {self.SECRET}")
+        err = capsys.readouterr().err
+        assert "token is ***REDACTED***" in err
+        assert self.SECRET not in err
+
+    def test_secret_in_exception_arg_is_scrubbed_on_stderr(self, capsys) -> None:
+        install_root_filter(secrets=[self.SECRET])
+        exc = RuntimeError(f"401 for key={self.SECRET}")
+        logging.getLogger("mediaman.scrubtest").warning("call failed: %s", exc)
+        err = capsys.readouterr().err
+        assert "call failed: 401 for key=***REDACTED***" in err
+        assert self.SECRET not in err
+
+    def test_secret_in_traceback_is_scrubbed_on_stderr(self, capsys) -> None:
+        install_root_filter(secrets=[self.SECRET])
+        try:
+            raise ValueError(f"bad token {self.SECRET}")
+        except ValueError:
+            logging.getLogger("mediaman.scrubtest").exception("lookup crashed")
+        err = capsys.readouterr().err
+        assert "lookup crashed" in err
+        assert "ValueError: bad token ***REDACTED***" in err
+        assert self.SECRET not in err
+
+    def test_info_line_is_emitted_exactly_once_after_installing_twice(self, capsys) -> None:
+        install_root_filter()
+        install_root_filter()
+        logging.getLogger("mediaman.scrubtest").info("started marker 51c2")
+        assert capsys.readouterr().err.count("started marker 51c2") == 1
