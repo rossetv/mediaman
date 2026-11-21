@@ -13,7 +13,6 @@ openssl rand -hex 32 > mediaman.key   # keep this: it decrypts your stored setti
 docker run -d --name mediaman \
   -p 8282:8282 \
   -e MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" \
-  -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
   -v mediaman-data:/data \
   -v /path/to/your/media:/media \
   rossetv/mediaman
@@ -21,9 +20,9 @@ docker run -d --name mediaman \
 docker exec -it mediaman mediaman-create-user   # prompts for the first admin's name and password
 ```
 
-Mount your media at the same path Plex uses for it (`/media` here) and list its library folders in `MEDIAMAN_DELETE_ROOTS`, separated by `:`: mediaman deletes the file at the path Plex reports, unchanged. A top-level mount such as `/media`, `/data`, `/mnt`, `/srv` or `/home` is refused as a root, and every scheduled deletion is refused with it.
+Mount your media at the same path Plex uses for it (`/media` here): mediaman deletes the file at the path Plex reports, unchanged. The mount must be writable by uid 1000, the user the container runs as, or every scheduled deletion fails.
 
-On a first install, leave `MEDIAMAN_DELETE_ROOTS` out until you have checked what the first scan schedules under Scheduled for deletion on the Dashboard. Nothing is deleted while it is unset; once you set it, the next scan deletes everything already past its grace period.
+No scheduled deletion runs until you set `MEDIAMAN_DELETE_ROOTS`; the Delete button on the Library page works without it. Once you have checked what the first scan schedules under Scheduled for deletion on the Dashboard, recreate the container with your library folders added, separated by `:`, such as `-e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv`. The next scan then deletes everything already past its grace period. `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the standard system directories such as `/etc`, `/usr` and `/var` are refused as roots, and every scheduled deletion is refused with them.
 
 Before you log in, put mediaman behind an HTTPS reverse proxy, or set `MEDIAMAN_FORCE_SECURE_COOKIES=false` on a network you trust. The session cookie is always marked `Secure`, so a browser on plain `http://` to anything but localhost drops it and you cannot stay logged in.
 
@@ -46,7 +45,7 @@ docker rm -f mediaman
 | Variable | Default | What it does |
 |---|---|---|
 | `MEDIAMAN_SECRET_KEY` | required | 64+ hex characters or 43+ URL-safe base64; a weak key stops startup |
-| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated library folders scheduled deletions may delete from, as seen inside the container; `/media`, `/data`, `/mnt` and other top-level directories are refused |
+| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated library folders scheduled deletions may delete from, as seen inside the container; `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the standard system directories are refused |
 | `MEDIAMAN_PORT` | `8282` | Port to listen on |
 | `MEDIAMAN_DATA_DIR` | `/data` | Where the SQLite database lives |
 | `MEDIAMAN_BIND_HOST` | `0.0.0.0` in a container, else `127.0.0.1` | Address to bind |
