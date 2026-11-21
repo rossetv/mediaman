@@ -67,10 +67,15 @@ def _record_delivery_attempt(
         # commit does not leave partial rows without a commit.
         with conn:
             conn.executemany(
-                "INSERT OR REPLACE INTO newsletter_deliveries "
+                "INSERT INTO newsletter_deliveries "
                 # legacy column name ``recipient`` retained — see docstring
                 "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?) "
+                # A failure never erases an earlier success for the same pair.
+                "ON CONFLICT(scheduled_action_id, recipient) DO UPDATE SET "
+                "sent_at = excluded.sent_at, error = excluded.error, "
+                "attempted_at = excluded.attempted_at "
+                "WHERE excluded.sent_at IS NOT NULL OR newsletter_deliveries.sent_at IS NULL",
                 [
                     (action_id, subscriber, sent_at, err_text, attempted_at)
                     for action_id in scheduled_action_ids
@@ -82,6 +87,21 @@ def _record_delivery_attempt(
             extra={"subscriber": subscriber, "action_count": len(scheduled_action_ids)},
             exc_info=True,
         )
+
+
+def _already_reached(conn: sqlite3.Connection, scheduled_action_ids: list[int]) -> set[str]:
+    """Return the subscribers who already received every one of *scheduled_action_ids*."""
+    if not scheduled_action_ids:
+        return set()
+    placeholders = ",".join("?" * len(scheduled_action_ids))
+    # rationale: placeholder list built from integer IDs only; no user input reaches this interpolation
+    rows = conn.execute(
+        f"SELECT recipient FROM newsletter_deliveries "
+        f"WHERE scheduled_action_id IN ({placeholders}) AND sent_at IS NOT NULL "
+        f"GROUP BY recipient HAVING COUNT(*) = ?",
+        [*scheduled_action_ids, len(set(scheduled_action_ids))],
+    ).fetchall()
+    return {row["recipient"] for row in rows}
 
 
 def _mint_deleted_tokens(
@@ -212,13 +232,17 @@ def _send_to_subscribers(
     """Render and send to each subscriber, returning the addresses that succeeded.
 
     With *conn*, a per-subscriber delivery record is persisted for every scheduled item
-    so notified=1 is set only when every active subscriber succeeded.
+    so notified=1 is set only when every active subscriber succeeded, and a subscriber
+    who already received all of these items is skipped on a later attempt.
     """
     scheduled_action_ids = [
         int(item["_action_id"]) for item in scheduled_items if item.get("_action_id") is not None
     ]
+    already_reached = _already_reached(conn, scheduled_action_ids) if conn is not None else set()
     successfully_sent: list[str] = []
     for email in recipient_emails:
+        if email in already_reached:
+            continue
         html = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,

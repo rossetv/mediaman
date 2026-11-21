@@ -260,7 +260,7 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
         conn=conn if mark_notified else None,
     )
 
-    if mark_notified and successfully_sent:
+    if mark_notified:
         # Only flip ``notified=1`` for items where every active subscriber was
         # successfully delivered — a partial failure must leave the row at
         # ``notified=0`` for re-attempt on the next tick.
