@@ -6,11 +6,11 @@ Please do **not** open a public issue for security problems.
 
 Report security issues privately through GitHub's [private vulnerability reporting](https://github.com/rossetv/mediaman/security/advisories/new). This routes the report to the maintainers without disclosing it publicly.
 
-If you cannot use GitHub's private advisory flow, contact the maintainer listed in `pyproject.toml` instead. Please include:
+If you cannot use GitHub's private advisory flow, email the author listed under `authors` in `pyproject.toml` instead. Please include:
 
 - A description of the issue and the impact you believe it has.
 - Steps to reproduce, including any relevant configuration.
-- The mediaman version (commit SHA or tag) you reproduced against.
+- The commit SHA or Docker image tag (`sha-<commit>`) you reproduced against.
 
 We aim to acknowledge reports within five working days and to coordinate a fix and disclosure timeline with you. Please give us a reasonable window to ship a fix before discussing the issue publicly.
 

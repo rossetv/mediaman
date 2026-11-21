@@ -1,11 +1,11 @@
 # Contributing to mediaman
 
-Thanks for your interest. mediaman is a small self-hosted project; contributions are welcome but please open an issue first for non-trivial changes so we can agree on the approach before you spend time coding.
+Thanks for your interest. mediaman is a small self-hosted project; contributions are welcome as pull requests. For a non-trivial change, open a small draft pull request first that describes the approach, so we can agree on it before you spend time coding.
 
 ## Reporting bugs and security issues
 
-- Functional bugs: open a GitHub issue with steps to reproduce, the mediaman version (commit SHA or tag), and any relevant logs (please redact secrets).
-- Security issues: see [`SECURITY.md`](SECURITY.md). Do **not** open a public issue.
+- Functional bugs: GitHub issues are turned off, so send a pull request with the fix, or a failing test that reproduces the bug. Say which commit SHA or Docker image tag (`sha-<commit>`) you ran, and include any relevant logs (please redact secrets).
+- Security issues: report them privately as [`SECURITY.md`](SECURITY.md) describes. Do **not** open a public pull request.
 
 ## Development setup
 
@@ -40,9 +40,9 @@ make audit         # pip-audit on requirements.lock
 make format        # ruff format (rewrites files)
 ```
 
-`make bandit` and `make audit` need `bandit` and `pip-audit`, which are not in the `dev` extra: `pip install bandit pip-audit`.
+`make bandit` and `make audit` need `bandit` and `pip-audit`, which are not in the `dev` extra: `pip install "bandit[toml]" pip-audit`.
 
-When you change a dependency in `pyproject.toml`, regenerate the lock with `bash scripts/pin-lock.sh` and commit it; CI fails if the lock no longer matches.
+When you change a dependency in `pyproject.toml`, regenerate the lock with `bash scripts/pin-lock.sh` and commit it; CI fails if the lock no longer matches. The script needs Docker, and it moves every pin to the newest version `pyproject.toml` allows, not only the one you changed.
 
 To catch format and lint problems before each commit, install the pre-commit hooks:
 
