@@ -144,3 +144,13 @@ class TestShowRemoveAPI:
     def test_returns_404_for_unknown(self, authed_client):
         resp = authed_client.post("/api/show/999/remove")
         assert resp.status_code == 404
+
+    def test_removes_show_keep_whose_key_contains_a_slash(self, authed_client, app):
+        conn = app.state.db
+        insert_kept_show(
+            conn, show_rating_key="Love/Hate", show_title="Love/Hate", action="protected_forever"
+        )
+        resp = authed_client.post("/api/show/Love%2FHate/remove")
+        assert resp.status_code == 200
+        row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='Love/Hate'").fetchone()
+        assert row is None

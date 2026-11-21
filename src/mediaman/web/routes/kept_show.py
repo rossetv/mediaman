@@ -216,7 +216,7 @@ def api_keep_show(
     return respond_ok()
 
 
-@router.post("/api/show/{show_rating_key}/remove")
+@router.post("/api/show/{show_rating_key:path}/remove")
 def api_remove_show_keep(
     show_rating_key: str, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:

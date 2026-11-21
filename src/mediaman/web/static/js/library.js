@@ -63,6 +63,8 @@
     if (_keepDialogModal) _keepDialogModal.open();
     if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
 
+    _keepDialogState.showKept = false;
+    _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
     list.textContent = 'Loading…';
     var rk = _keepDialogState.showRk || '_by_title';
@@ -224,17 +226,15 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) return;
-      /* Remove the show-level keep and each kept season; check response.ok per request. */
       var rk = _keepDialogState.showRk;
       var allRequests = [];
-      if (rk && (_keepDialogState.hasRk || _keepDialogState.showKept)) {
+      if (rk && _keepDialogState.showKept) {
         allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
       }
       _keepDialogState.keptSeasonIds.forEach(function (sid) {
         allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
       });
 
-      /* Sequential loop — accumulates failures, continues after each one. */
       var removeChain = Promise.resolve();
       var failed = [];
       allRequests.forEach(function (req) {
