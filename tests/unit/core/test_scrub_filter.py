@@ -273,6 +273,19 @@ class TestInstalledRootFilter:
 
 
 class TestPercentRArgs:
+    def test_raising_repr_does_not_stop_other_args_being_scrubbed(self) -> None:
+        class Broken:
+            def __str__(self) -> str:
+                return "broken token=repr-secret-77"
+
+            def __repr__(self) -> str:
+                raise RuntimeError("no repr")
+
+        f = ScrubFilter(secrets=["repr-secret-77"])
+        record = _make_record("%s then %s", args=(Broken(), "repr-secret-77"))
+        f.filter(record)
+        assert record.getMessage() == "broken token=***REDACTED*** then ***REDACTED***"
+
     def test_secret_only_in_repr_is_scrubbed_for_percent_r(self) -> None:
         class Client:
             def __str__(self) -> str:
@@ -335,6 +348,14 @@ class TestServerLogs:
             ("GET", "/unsubscribe?token=abc.DEF-123", "GET /unsubscribe?token=*** HTTP/1.1"),
             ("GET", "/api/poster/42?sig=abc.DEF-123", "GET /api/poster/42?sig=*** HTTP/1.1"),
             ("GET", "/x?a=1&apikey=abc.DEF-123&b=2", "GET /x?a=1&apikey=***&b=2 HTTP/1.1"),
+            ("GET", "//keep/abc.DEF-123", "GET //keep/*** HTTP/1.1"),
+            ("GET", "/keep//abc.DEF-123", "GET /keep//*** HTTP/1.1"),
+            ("GET", "/KEEP/abc.DEF-123", "GET /KEEP/*** HTTP/1.1"),
+            ("POST", "/api//keep/abc.DEF-123/forever", "POST /api//keep/***/forever HTTP/1.1"),
+            ("GET", "//Download//abc.DEF-123", "GET //Download//*** HTTP/1.1"),
+            ("GET", "/unsubscribe?%74oken=abc.DEF-123", "GET /unsubscribe?%74oken=*** HTTP/1.1"),
+            ("GET", "/api/poster/42?s%69g=abc.DEF-123", "GET /api/poster/42?s%69g=*** HTTP/1.1"),
+            ("GET", "/x?a=1&api%5Fkey=abc.DEF-123&b=2", "GET /x?a=1&api%5Fkey=***&b=2 HTTP/1.1"),
         ],
     )
     def test_access_log_masks_emailed_token(self, server_logs, method, target, shape) -> None:

@@ -33,6 +33,7 @@ import sys
 import threading
 from collections.abc import Iterable
 from typing import TextIO
+from urllib.parse import unquote_plus
 
 
 class ScrubFilter(logging.Filter):
@@ -121,7 +122,13 @@ class ScrubFilter(logging.Filter):
             return self._scrub(value)
         if value is None or isinstance(value, int | float):
             return value
-        text, rep = str(value), repr(value)
+        text = str(value)
+        try:
+            rep = repr(value)
+        except (
+            Exception
+        ):  # rationale: a raising __repr__ must not stop the other args being scrubbed
+            rep = text
         scrubbed_text, scrubbed_rep = self._scrub(text), self._scrub(rep)
         if scrubbed_text == text and scrubbed_rep == rep:
             return value
@@ -198,14 +205,24 @@ _REDACTED_TOKEN = "***"
 # Emailed links carry their credential in the path (/keep/<token>,
 # /download/<token>, /api/keep/<token>/forever) or in a query value
 # (/unsubscribe?token=..., /api/poster/<key>?sig=...).
-_TOKEN_PATH_RE = re.compile(r"^(/(?:api/)?keep/|/download/)[^/?#]+")
-_TOKEN_QUERY_RE = re.compile(r"([?&](?:[\w.-]*token|sig|api_?key)=)[^&#]*", re.IGNORECASE)
+# Slash runs and case are ignored because the credential is still usable
+# through those spellings.
+_TOKEN_PATH_RE = re.compile(r"^((?:/+api)?/+keep/+|/+download/+)[^/?#]+", re.IGNORECASE)
+_TOKEN_PARAM_RE = re.compile(r"([?&])([^=&#]*)(=)[^&#]*")
+_TOKEN_NAME_RE = re.compile(r"[\w.-]*token|sig|api_?key", re.IGNORECASE)
+
+
+def _redact_param(m: re.Match[str]) -> str:
+    # The query string is decoded before use, so a name may be percent-encoded.
+    if _TOKEN_NAME_RE.fullmatch(unquote_plus(m.group(2))):
+        return m.group(1) + m.group(2) + m.group(3) + _REDACTED_TOKEN
+    return m.group(0)
 
 
 def _redact_request_target(target: str) -> str:
     """Return *target* (a path with optional query) with its credentials masked."""
     target = _TOKEN_PATH_RE.sub(lambda m: m.group(1) + _REDACTED_TOKEN, target)
-    return _TOKEN_QUERY_RE.sub(lambda m: m.group(1) + _REDACTED_TOKEN, target)
+    return _TOKEN_PARAM_RE.sub(_redact_param, target)
 
 
 class AccessLogFilter(logging.Filter):
