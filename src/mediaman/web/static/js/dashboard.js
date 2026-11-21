@@ -130,6 +130,7 @@
       confirmVariant: 'danger'
     });
     if (!proceed) return;
+    var label = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Clearing…';
     MM.api.post('/api/scan/clear-scheduled')
@@ -143,7 +144,12 @@
         btn.classList.add('is-success');
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
-      .catch(function () { /* failure is dropped silently. */ });
+      .catch(function (err) {
+        var msg = (err && err.message) || 'Try again.';
+        window.UIFeedback.error("Couldn't clear scheduled deletions. " + msg);
+        btn.disabled = false;
+        btn.textContent = label;
+      });
   }
 
   /* Submit a keep request from a dashboard tile. The library.html keep-dialog
