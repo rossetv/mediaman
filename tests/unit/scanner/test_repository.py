@@ -726,7 +726,7 @@ class TestCountPendingDeletions:
         _insert_action(conn, media_id="m1", action="scheduled_deletion", token="t1")
         _insert_action(conn, media_id="m2", action="scheduled_deletion", token="t2")
         counted = repository.count_pending_deletions(conn)
-        cleared = repository.clear_pending_deletions(conn)
+        cleared = repository.clear_pending_deletions(conn).cleared
         assert counted == cleared == 2
 
 

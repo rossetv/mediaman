@@ -63,13 +63,13 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
 
-    * Not a ``scheduled_deletion`` (a keep or snooze written over the row)
-      -> it was never meant to be removed, so whatever the disk shows it is
-      never booked deleted. Reset to ``pending``.
     * File absent **and** the stored path was within the configured
       delete roots -> the rm completed but the follow-up bookkeeping was
       never committed. Convert to a normal ``deleted`` cleanup: write the
-      audit entry (crediting the freed bytes) and drop the row.
+      audit entry (crediting the freed bytes) and drop the row. If a keep or
+      snooze was written over the row during the removal, the keep stands:
+      audit that the media is gone and reset to ``pending``, never booking
+      it as a scheduled deletion.
     * File absent **but** the stored path was NOT within the configured
       delete roots (empty path, or an operator changed
       ``MEDIAMAN_DELETE_ROOTS`` between the crash and restart, or the row's
@@ -96,16 +96,6 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     allowed_roots = repository.read_delete_allowed_roots_setting(conn)
 
     for row in rows:
-        if row.action != DELETION_ACTION:
-            logger.warning(
-                "engine.delete.recover id=%s action=%r — not a scheduled deletion, "
-                "reverting status to 'pending' without booking it deleted",
-                row.id,
-                row.action,
-            )
-            repository.mark_delete_status(conn, row.id, "pending")
-            conn.commit()
-            continue
         file_path = row.file_path or ""
         file_present = bool(file_path) and os.path.lexists(file_path)
         if file_present:
@@ -136,6 +126,23 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 "to 'pending' instead of booking it as deleted.",
                 row.id,
                 file_path,
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif row.action != DELETION_ACTION:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r action=%r — file gone, but the "
+                "item was kept during its removal; keeping the row",
+                row.id,
+                file_path,
+                row.action,
+            )
+            rk = row.plex_rating_key
+            log_audit(
+                conn,
+                row.media_item_id,
+                "media_missing",
+                f"Files gone (recovered): {row.title} — kept while it was being deleted"
+                + (f" [rk:{rk}]" if rk else ""),
             )
             repository.mark_delete_status(conn, row.id, "pending")
         else:

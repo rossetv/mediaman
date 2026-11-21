@@ -13,7 +13,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from mediaman.web.repository.library_api import DeletionInProgress
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -311,27 +310,33 @@ def set_protected_state(
     *,
     to_update: Sequence[tuple[object, ...]],
     to_insert: Sequence[tuple[object, ...]],
-) -> None:
+) -> bool:
     """Apply batched updates and inserts to scheduled_actions for season keeps.
 
     ``to_update`` rows: (action, execute_at, snoozed_at, snooze_duration, id)
     ``to_insert`` rows: (media_item_id, action, scheduled_at, execute_at,
                          token, created_at, snooze_duration)
 
-    Raises:
-        DeletionInProgress: when a row to update is being deleted right now
-            (or went with a removal that just finished). The caller's
-            transaction must roll back, so nothing changes.
+    Returns True when a row it updated is being removed by the deletion pass
+    right now. The keep is still written: if that removal fails, the season
+    stays kept.
     """
+    deletion_running = False
     if to_update:
-        cursor = conn.executemany(
+        ids = [row[4] for row in to_update]
+        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
+        placeholders = ",".join("?" * len(ids))
+        running = conn.execute(
+            f"SELECT 1 FROM scheduled_actions "
+            f"WHERE id IN ({placeholders}) AND delete_status = 'deleting' LIMIT 1",
+            ids,
+        ).fetchone()
+        deletion_running = running is not None
+        conn.executemany(
             "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
-            "snoozed_at = ?, snooze_duration = ? "
-            "WHERE id = ? AND delete_status IS NOT 'deleting'",
+            "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
             to_update,
         )
-        if cursor.rowcount != len(to_update):
-            raise DeletionInProgress()
     if to_insert:
         conn.executemany(
             "INSERT INTO scheduled_actions "
@@ -340,3 +345,4 @@ def set_protected_state(
             "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
             to_insert,
         )
+    return deletion_running

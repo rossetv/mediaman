@@ -19,6 +19,7 @@ import logging
 import os
 import sqlite3
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
@@ -42,6 +43,7 @@ DELETION_ACTION = "scheduled_deletion"
 # call sites continue to resolve without change.
 __all__ = [
     "DELETION_ACTION",
+    "ClearedDeletions",
     "DeletionRow",
     "claim_due_deletion",
     "claim_due_deletions_under",
@@ -308,7 +310,7 @@ def count_pending_deletions(conn: sqlite3.Connection) -> int:
     """Return the number of pending ``scheduled_deletion`` rows.
 
     Counts only rows whose token has not yet been used and whose removal is
-    not running now — the same set clear_pending_deletions sweeps.
+    not running now — the rows clear_pending_deletions reports cleared.
     Snoozes and protect-forever rows are not counted.
     """
     return int(
@@ -320,38 +322,48 @@ def count_pending_deletions(conn: sqlite3.Connection) -> int:
     )
 
 
+class ClearedDeletions(NamedTuple):
+    """Rows clear_pending_deletions removed: those waiting, and those already being removed."""
+
+    cleared: int
+    already_deleting: int
+
+
 def clear_pending_deletions(
     conn: sqlite3.Connection,
     *,
     audit_actor: str | None = None,
     audit_ip: str = "",
-) -> int:
+) -> ClearedDeletions:
     """Delete every pending ``scheduled_deletion`` row in one transaction.
 
-    Returns the number of rows removed so callers can surface the count
-    in their HTTP response. Snoozes and protect-forever rows are
-    untouched — this only sweeps pending deletions whose token has not
-    yet been used. A row the deletion pass is removing right now is left
-    alone: its files go whatever the row says, so clearing it would report
-    a deletion cancelled that still happens.
+    Snoozes and protect-forever rows are untouched — this only sweeps
+    deletions whose token has not yet been used. A row the deletion pass is
+    removing right now goes too, so a removal that fails is not retried; it
+    is counted apart, since its files may already be gone.
 
     Audit-in-transaction: when *audit_actor* is supplied, a
     ``sec:scan.cleared`` row is written inside the same
-    ``BEGIN IMMEDIATE`` that deletes the rows. The pre-delete count
-    lands in the audit detail. If the audit insert raises, the entire
+    ``BEGIN IMMEDIATE`` that deletes the rows. The pre-delete counts
+    land in the audit detail. If the audit insert raises, the entire
     delete rolls back — we never end up with rows removed but no audit
     trail (the audit insert and the delete are atomic by design; neither
-    commits without the other). The count read is delegated to
+    commits without the other). The waiting count is read by
     count_pending_deletions so the count is independently
     callable.
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         cleared = count_pending_deletions(conn)
+        already_deleting = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM scheduled_actions "
+                "WHERE action='scheduled_deletion' AND token_used=0 "
+                "  AND delete_status = 'deleting'"
+            ).fetchone()[0]
+        )
         conn.execute(
-            "DELETE FROM scheduled_actions "
-            "WHERE action='scheduled_deletion' AND token_used=0 "
-            "  AND delete_status IS NOT 'deleting'"
+            "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
         )
         if audit_actor is not None:
             from mediaman.core.audit import security_event_or_raise
@@ -361,6 +373,6 @@ def clear_pending_deletions(
                 event="scan.cleared",
                 actor=audit_actor,
                 ip=audit_ip,
-                detail={"count": cleared},
+                detail={"count": cleared, "already_deleting": already_deleting},
             )
-    return cleared
+    return ClearedDeletions(cleared, already_deleting)

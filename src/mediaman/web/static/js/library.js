@@ -27,6 +27,17 @@
   var _keepDialogRequest = 0;
   var _seasonDeleteRequest = 0;
 
+  /* A keep pressed while the item was already being deleted is saved, but its
+     files may be gone: show the server's word on it before reloading. */
+  function reloadAfterKeep(data) {
+    if (data && data.deletion_running && data.message) {
+      window.UIFeedback.toast(data.message, { duration: 8000 });
+      setTimeout(function () { window.location.reload(); }, 8000);
+      return;
+    }
+    window.location.reload();
+  }
+
   /**
    * Submit a keep/snooze request for a media item.
    * For TV seasons (showRk truthy), opens the season-picker dialog.
@@ -44,7 +55,7 @@
     if (!isTv) {
       MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
         { duration: duration })
-        .then(function () { window.location.reload(); })
+        .then(reloadAfterKeep)
         .catch(function (err) {
           var msg = (err && err.message) || 'Try again.';
           window.UIFeedback.error("Couldn't save keep. " + msg);
@@ -187,7 +198,7 @@
         '/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep',
         { duration: _keepDialogState.duration, season_ids: selectedIds }
       )
-        .then(function () { window.location.reload(); })
+        .then(reloadAfterKeep)
         .catch(function (err) {
           var msg = (err && err.message) || 'Try again.';
           window.UIFeedback.error("Couldn't save keep. " + msg);
@@ -200,9 +211,11 @@
       /* Sequential loop — accumulates failures, continues after each one. */
       var keepChain = Promise.resolve();
       var failed = [];
+      var running = null;
       selectedIds.forEach(function (sid) {
         keepChain = keepChain.then(function () {
           return MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
+            .then(function (data) { if (data && data.deletion_running) running = data; })
             .catch(function () { failed.push(sid); });
         });
       });
@@ -212,7 +225,7 @@
           btn.disabled = false;
           btn.textContent = 'Keep';
         } else {
-          window.location.reload();
+          reloadAfterKeep(running);
         }
       });
     }

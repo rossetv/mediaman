@@ -36,7 +36,6 @@ from mediaman.web.repository.delete_intents import (
     reconcile_pending_delete_intents,
 )
 from mediaman.web.repository.library_api import (
-    DeletionInProgress,
     NotFound,
     apply_keep_in_tx,
 )
@@ -144,7 +143,7 @@ def api_media_keep(
     # UPSERT, and audit row inside one ``BEGIN IMMEDIATE`` block so the SELECT
     # cannot race with a concurrent delete.
     try:
-        apply_keep_in_tx(
+        deletion_running = apply_keep_in_tx(
             conn,
             media_id=media_id,
             action=decision.action,
@@ -157,14 +156,20 @@ def api_media_keep(
         )
     except NotFound:
         return respond_err("not_found", status=404)
-    except DeletionInProgress:
-        return respond_err(
-            "deletion_in_progress", status=409, message="This item is being deleted right now"
-        )
 
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
 
-    return respond_ok({"id": media_id, "duration": snooze_label})
+    body: dict[str, object] = {
+        "id": media_id,
+        "duration": snooze_label,
+        "deletion_running": deletion_running,
+    }
+    if deletion_running:
+        body["message"] = (
+            "Kept, but this item was already being deleted. Its files may already "
+            "be gone; it stays kept only if that deletion fails."
+        )
+    return respond_ok(body)
 
 
 __all__ = [

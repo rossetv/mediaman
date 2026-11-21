@@ -175,11 +175,11 @@ class TestKeepShowIdorDefence:
         ).fetchone()
         assert rows["n"] == 2
 
-    def test_keep_while_a_season_is_being_deleted_changes_nothing(
+    def test_keep_while_a_season_is_being_deleted_keeps_every_season_and_says_so(
         self, app_factory, authed_client, conn
     ):
-        _insert_season(conn, "m-A1", "rk-show-A", "Kingdom", season=1)
-        _insert_season(conn, "m-A2", "rk-show-A", "Kingdom", season=2)
+        for number in (1, 2, 3):
+            _insert_season(conn, f"m-A{number}", "rk-show-A", "Kingdom", season=number)
         for media_id, status in (("m-A1", "pending"), ("m-A2", "deleting")):
             insert_scheduled_action(
                 conn,
@@ -193,20 +193,24 @@ class TestKeepShowIdorDefence:
 
         resp = client.post(
             "/api/show/rk-show-A/keep",
-            json={"duration": "forever", "season_ids": ["m-A1", "m-A2"]},
+            json={"duration": "forever", "season_ids": ["m-A1", "m-A2", "m-A3"]},
         )
 
-        assert resp.status_code == 409
-        assert "being deleted" in resp.json()["message"]
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deletion_running"] is True
+        assert "already being deleted" in body["message"]
         rows = conn.execute(
             "SELECT media_item_id, action, delete_status FROM scheduled_actions "
             "ORDER BY media_item_id"
         ).fetchall()
-        assert [tuple(r) for r in rows] == [
-            ("m-A1", "scheduled_deletion", "pending"),
-            ("m-A2", "scheduled_deletion", "deleting"),
+        assert [tuple(r)[:2] for r in rows] == [
+            ("m-A1", "protected_forever"),
+            ("m-A2", "protected_forever"),
+            ("m-A3", "protected_forever"),
         ]
-        assert conn.execute("SELECT 1 FROM kept_shows").fetchone() is None
+        assert rows[1]["delete_status"] == "deleting"
+        assert conn.execute("SELECT 1 FROM kept_shows WHERE show_rating_key='rk-show-A'").fetchone()
 
 
 class TestResolveShowRatingKey:

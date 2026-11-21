@@ -1075,7 +1075,7 @@ class TestRefusalAudit:
 
 
 class TestKeepAndClearAroundARemoval:
-    """A keep or clear must never report a result the deletion pass then undoes."""
+    """A keep or clear pressed while the files are being removed must win if the removal fails."""
 
     @pytest.fixture
     def movie(self, conn, tmp_path, monkeypatch):
@@ -1094,11 +1094,13 @@ class TestKeepAndClearAroundARemoval:
         ).fetchone()
         return None if row is None else (row["action"], row["delete_status"])
 
-    def _failing_pass(self, conn, monkeypatch, error):
+    def _failing_pass(self, conn, monkeypatch, error, during=None):
         calls = []
 
         def fail(path, *, allowed_roots):
             calls.append(path)
+            if during is not None:
+                during()
             raise error
 
         with monkeypatch.context() as patch:
@@ -1107,31 +1109,44 @@ class TestKeepAndClearAroundARemoval:
         return calls
 
     @pytest.mark.parametrize("keep", [_keep_forever, _keep_show], ids=["library", "show"])
-    def test_keep_while_the_files_are_being_removed_is_refused(
+    def test_keep_during_a_removal_that_fails_saves_the_media(
+        self, conn, db_path, monkeypatch, movie, keep
+    ):
+        other = init_db(str(db_path))
+
+        self._failing_pass(
+            conn, monkeypatch, PermissionError("read-only"), during=lambda: keep(other, "m1")
+        )
+        DeletionExecutor(conn=conn).execute()
+
+        assert movie.exists()
+        assert self._row(conn) == ("protected_forever", "pending")
+        assert "deleted" not in _audits(conn, "m1")
+
+    @pytest.mark.parametrize("keep", [_keep_forever, _keep_show], ids=["library", "show"])
+    def test_keep_during_a_removal_that_succeeds_is_closed_with_it(
         self, conn, db_path, monkeypatch, movie, keep
     ):
         from mediaman.scanner import deletions
-        from mediaman.web.repository.library_api import DeletionInProgress
 
         other = init_db(str(db_path))
         real = deletions.delete_path
         seen = {}
 
         def remove(path, *, allowed_roots):
-            try:
-                keep(other, "m1")
-                seen["keep"] = "accepted"
-            except DeletionInProgress:
-                seen["keep"] = "refused"
+            keep(other, "m1")
             seen["row"] = self._row(other)
             real(path, allowed_roots=allowed_roots)
 
         monkeypatch.setattr(deletions, "delete_path", remove)
 
-        DeletionExecutor(conn=conn).execute()
+        result = DeletionExecutor(conn=conn).execute()
 
-        assert seen == {"keep": "refused", "row": ("scheduled_deletion", "deleting")}
+        assert seen == {"row": ("protected_forever", "deleting")}
         assert not movie.exists()
+        assert result["deleted"] == 1
+        assert self._row(conn) is None
+        assert "deleted" in _audits(conn, "m1")
 
     @pytest.mark.parametrize(
         "error", [PermissionError("read-only"), OSError("i/o"), RuntimeError("bug")]
@@ -1161,10 +1176,9 @@ class TestKeepAndClearAroundARemoval:
         assert self._row(conn) == ("protected_forever", "pending")
         assert "deleted" not in _audits(conn, "m1")
 
-    def test_clear_while_the_files_are_being_removed_leaves_that_row(
+    def test_clear_during_a_removal_that_fails_cancels_it_and_counts_it_apart(
         self, conn, db_path, monkeypatch, movie
     ):
-        from mediaman.scanner import deletions
         from mediaman.scanner.repository import clear_pending_deletions
 
         insert_media_item(conn, id="later", plex_rating_key="later", file_path=f"{movie}2")
@@ -1172,39 +1186,46 @@ class TestKeepAndClearAroundARemoval:
             conn, media_id="later", execute_at=(datetime.now(UTC) + timedelta(days=3)).isoformat()
         )
         other = init_db(str(db_path))
-        real = deletions.delete_path
         seen = {}
 
-        def remove(path, *, allowed_roots):
-            seen["cleared"] = clear_pending_deletions(other)
-            seen["row"] = self._row(other)
-            real(path, allowed_roots=allowed_roots)
+        def clear():
+            seen["result"] = clear_pending_deletions(other)
 
-        monkeypatch.setattr(deletions, "delete_path", remove)
-
+        self._failing_pass(conn, monkeypatch, PermissionError("read-only"), during=clear)
         DeletionExecutor(conn=conn).execute()
 
-        assert seen == {"cleared": 1, "row": ("scheduled_deletion", "deleting")}
+        assert movie.exists()
+        assert self._row(conn) is None
+        assert "deleted" not in _audits(conn, "m1")
         assert _actions(conn, "later") == []
+        assert seen["result"] == (1, 1)
 
     def test_clear_after_a_failed_removal_cancels_the_retry(self, conn, monkeypatch, movie):
         from mediaman.scanner.repository import clear_pending_deletions
 
         self._failing_pass(conn, monkeypatch, PermissionError("read-only"))
 
-        assert clear_pending_deletions(conn) == 1
+        assert clear_pending_deletions(conn) == (1, 0)
         DeletionExecutor(conn=conn).execute()
 
         assert movie.exists()
         assert self._row(conn) is None
         assert "deleted" not in _audits(conn, "m1")
 
-    def test_recovery_never_books_a_kept_row_deleted(self, conn, tmp_path, monkeypatch):
+    def test_recovery_of_a_kept_row_whose_files_are_gone_audits_it_and_keeps_the_row(
+        self, conn, tmp_path, monkeypatch
+    ):
         root = tmp_path / "movies"
         root.mkdir()
         (root / "Other.mkv").write_bytes(b"x")
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
-        insert_media_item(conn, id="m1", plex_rating_key="m1", file_path=str(root / "Gone.mkv"))
+        insert_media_item(
+            conn,
+            id="m1",
+            plex_rating_key="m1",
+            file_path=str(root / "Gone.mkv"),
+            file_size_bytes=500,
+        )
         insert_scheduled_action(
             conn,
             media_item_id="m1",
@@ -1218,4 +1239,7 @@ class TestKeepAndClearAroundARemoval:
         recover_stuck_deletions(conn)
 
         assert self._row(conn) == ("protected_forever", "pending")
-        assert _audits(conn, "m1") == []
+        audits = conn.execute(
+            "SELECT action, space_reclaimed_bytes FROM audit_log WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [tuple(a) for a in audits] == [("media_missing", None)]

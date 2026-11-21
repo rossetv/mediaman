@@ -134,9 +134,14 @@
     btn.textContent = 'Clearing…';
     MM.api.post('/api/scan/clear-scheduled')
       .then(function (data) {
-        btn.textContent = 'Cleared ' + data.cleared;
+        var text = 'Cleared ' + data.cleared;
+        if (data.already_deleting) {
+          text += '; ' + data.already_deleting +
+            (data.already_deleting === 1 ? ' was' : ' were') + ' already being deleted';
+        }
+        btn.textContent = text;
         btn.classList.add('is-success');
-        setTimeout(function () { window.location.reload(); }, 1000);
+        setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function () { /* failure is dropped silently. */ });
   }
@@ -150,7 +155,15 @@
     var mediaId = wrapper.dataset.id;
     MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
       { duration: duration })
-      .then(function () { window.location.reload(); })
+      .then(function (data) {
+        /* Saved, but the item was already being deleted: say so before reloading. */
+        if (data && data.deletion_running && data.message) {
+          window.UIFeedback.toast(data.message, { duration: 8000 });
+          setTimeout(function () { window.location.reload(); }, 8000);
+          return;
+        }
+        window.location.reload();
+      })
       .catch(function (err) {
         var msg = (err && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't save keep. " + msg);

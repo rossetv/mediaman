@@ -226,7 +226,25 @@ class TestClearScheduled:
         app = _app(app_factory, conn, db_path)
         client = authed_client(app, conn)
         resp = client.post("/api/scan/clear-scheduled")
-        assert resp.json() == {"ok": True, "cleared": 0}
+        assert resp.json() == {"ok": True, "cleared": 0, "already_deleting": 0}
+
+    def test_clear_counts_a_deletion_already_running_apart(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        for media_id in ("m1", "m2", "m3"):
+            self._insert_media_item(conn, media_id)
+            self._insert_scheduled(conn, media_id)
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status='deleting' WHERE media_item_id='m3'"
+        )
+        conn.commit()
+
+        resp = client.post("/api/scan/clear-scheduled")
+
+        assert resp.json() == {"ok": True, "cleared": 2, "already_deleting": 1}
+        assert conn.execute("SELECT COUNT(*) FROM scheduled_actions").fetchone()[0] == 0
 
 
 class TestLibrarySync:

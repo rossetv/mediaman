@@ -30,14 +30,6 @@ class NotFound(Exception):
     """
 
 
-class DeletionInProgress(Exception):
-    """Raised when a keep targets a row the deletion pass is removing right now.
-
-    The removal goes on whatever the row says, so accepting the keep would
-    report the item kept while its files are deleted.
-    """
-
-
 @dataclass(frozen=True)
 class MediaDeleteSnapshot:
     """Captured media_items row used to drive the delete flow.
@@ -69,7 +61,7 @@ def apply_keep_in_tx(
     new_token: str,
     audit_detail: str,
     actor: str,
-) -> None:
+) -> bool:
     """Apply a keep / snooze decision atomically with an audit row.
 
     Looks for an existing ``scheduled_actions`` row for *media_id* with
@@ -78,11 +70,12 @@ def apply_keep_in_tx(
     transaction so a SQLite failure rolls the keep back along with the
     audit record.
 
+    Returns True when the deletion pass is removing the item right now. The
+    keep is still written: if that removal fails, the item stays kept.
+
     Raises:
         NotFound: when the target media_items row does not exist. The
             ``with conn:`` block rolls back any partial writes.
-        DeletionInProgress: when the item's row is being deleted right now;
-            nothing is written.
     """
     # ``with conn:`` commits on normal exit and rolls back on exception;
     # BEGIN IMMEDIATE here preserves write-lock semantics.
@@ -97,8 +90,7 @@ def apply_keep_in_tx(
             "WHERE media_item_id = ? AND token_used = 0",
             (media_id,),
         ).fetchall()
-        if any(row["delete_status"] == "deleting" for row in existing):
-            raise DeletionInProgress(media_id)
+        deletion_running = any(row["delete_status"] == "deleting" for row in existing)
 
         if existing:
             conn.execute(
@@ -131,6 +123,7 @@ def apply_keep_in_tx(
             audit_detail,
             actor=actor,
         )
+    return deletion_running
 
 
 def snapshot_media_for_delete(conn: sqlite3.Connection, media_id: str) -> MediaDeleteSnapshot:
