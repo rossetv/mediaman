@@ -6,10 +6,10 @@
 # target passes locally the matching CI job should also pass (modulo
 # environment differences such as Python patch version).
 #
-# That claim is load-bearing — CODE_GUIDELINES.md §15.3 states `make check`
-# runs "in the same configuration CI uses". Keep these targets byte-identical
-# to CI's commands; a target that quietly narrows its scope (e.g. `ruff check
-# src tests` against CI's `ruff check .`) turns this file into a false green.
+# That claim is load-bearing: `make check` must run in the same configuration
+# CI uses. Keep these targets byte-identical to CI's commands; a target that
+# quietly narrows its scope (e.g. `ruff check src tests` against CI's
+# `ruff check .`) turns this file into a false green.
 
 .PHONY: help test lint format format-check typecheck bandit audit check clean
 
@@ -32,8 +32,8 @@ help:
 # whenever --cov-fail-under is absent, so the suite goes red below the floor.
 # Do NOT add --cov-fail-under here: the CLI flag OVERRIDES the config, which
 # would fork the floor into a second source of truth and silently pin it at
-# whatever number you typed. CODE_GUIDELINES.md §11.8 assigns the floor to
-# pyproject.toml alone, and says it moves up, never down.
+# whatever number you typed. The floor lives in pyproject.toml alone and only
+# moves up, never down.
 test:
 	pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10 -n auto
 
