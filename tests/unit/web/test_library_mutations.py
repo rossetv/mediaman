@@ -405,6 +405,94 @@ class TestMediaKeep:
         ).fetchone()
         assert sa["action"] == "protected_forever"
 
+    def test_keep_while_the_item_is_being_deleted_is_saved_and_says_so(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="tok-m1",
+            token_used=False,
+            delete_status="deleting",
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deletion_running"] is True
+        assert "already being deleted" in body["message"]
+        rows = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("protected_forever", "deleting")]
+
+    def test_keep_of_an_item_not_being_deleted_carries_no_warning(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="tok-m1",
+            token_used=False,
+            delete_status="pending",
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+
+        body = client.post("/api/media/m1/keep", data={"duration": "forever"}).json()
+
+        assert body["deletion_running"] is False
+        assert "message" not in body
+
+    def test_keep_during_a_removal_that_succeeds_says_the_files_may_be_gone(
+        self, app_factory, authed_client, conn, db_path, tmp_path, monkeypatch
+    ):
+        from datetime import UTC, datetime, timedelta
+
+        from mediaman.db import init_db
+        from mediaman.scanner import deletions
+
+        root = tmp_path / "movies"
+        root.mkdir()
+        film = root / "Film.mkv"
+        film.write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m1", plex_rating_key="rk1", file_path=str(film))
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="tok-m1",
+            execute_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+            token_used=False,
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        real = deletions.delete_path
+        responses = []
+
+        def remove(path, *, allowed_roots):
+            responses.append(client.post("/api/media/m1/keep", data={"duration": "forever"}))
+            real(path, allowed_roots=allowed_roots)
+
+        monkeypatch.setattr(deletions, "delete_path", remove)
+
+        deletions.DeletionExecutor(conn=init_db(str(db_path))).execute()
+
+        assert [r.status_code for r in responses] == [200]
+        assert "may already be gone" in responses[0].json()["message"]
+        assert not film.exists()
+        assert conn.execute("SELECT 1 FROM scheduled_actions").fetchone() is None
+        audits = [
+            r["action"]
+            for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id='m1'")
+        ]
+        assert audits == ["snoozed", "deleted"]
+
 
 class TestMediaRedownload:
     def test_redownload_requires_auth(self, app_factory, conn):

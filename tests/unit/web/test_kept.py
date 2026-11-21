@@ -175,6 +175,43 @@ class TestKeepShowIdorDefence:
         ).fetchone()
         assert rows["n"] == 2
 
+    def test_keep_while_a_season_is_being_deleted_keeps_every_season_and_says_so(
+        self, app_factory, authed_client, conn
+    ):
+        for number in (1, 2, 3):
+            _insert_season(conn, f"m-A{number}", "rk-show-A", "Kingdom", season=number)
+        for media_id, status in (("m-A1", "pending"), ("m-A2", "deleting")):
+            insert_scheduled_action(
+                conn,
+                media_item_id=media_id,
+                action="scheduled_deletion",
+                token=f"tok-{media_id}",
+                token_used=False,
+                delete_status=status,
+            )
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        resp = client.post(
+            "/api/show/rk-show-A/keep",
+            json={"duration": "forever", "season_ids": ["m-A1", "m-A2", "m-A3"]},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deletion_running"] is True
+        assert "already being deleted" in body["message"]
+        rows = conn.execute(
+            "SELECT media_item_id, action, delete_status FROM scheduled_actions "
+            "ORDER BY media_item_id"
+        ).fetchall()
+        assert [tuple(r)[:2] for r in rows] == [
+            ("m-A1", "protected_forever"),
+            ("m-A2", "protected_forever"),
+            ("m-A3", "protected_forever"),
+        ]
+        assert rows[1]["delete_status"] == "deleting"
+        assert conn.execute("SELECT 1 FROM kept_shows WHERE show_rating_key='rk-show-A'").fetchone()
+
 
 class TestResolveShowRatingKey:
     """Helper unit tests."""

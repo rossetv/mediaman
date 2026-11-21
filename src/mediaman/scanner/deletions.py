@@ -27,9 +27,11 @@ from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
+    DELETION_ACTION,
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
+    is_claimed_deletion,
     is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
@@ -65,7 +67,10 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     * File absent **and** the stored path was within the configured
       delete roots -> the rm completed but the follow-up bookkeeping was
       never committed. Convert to a normal ``deleted`` cleanup: write the
-      audit entry (crediting the freed bytes) and drop the row.
+      audit entry (crediting the freed bytes) and drop the row. If a keep or
+      snooze was written over the row during the removal, the keep stands:
+      audit that the media is gone and reset to ``pending``, never booking
+      it as a scheduled deletion.
     * File absent **but** the stored path was NOT within the configured
       delete roots (empty path, or an operator changed
       ``MEDIAMAN_DELETE_ROOTS`` between the crash and restart, or the row's
@@ -124,6 +129,23 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
+        elif row.action != DELETION_ACTION:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r action=%r — file gone, but the "
+                "item was kept during its removal; keeping the row",
+                row.id,
+                file_path,
+                row.action,
+            )
+            rk = row.plex_rating_key
+            log_audit(
+                conn,
+                row.media_item_id,
+                "media_missing",
+                f"Files gone (recovered): {row.title} — kept while it was being deleted"
+                + (f" [rk:{rk}]" if rk else ""),
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
         else:
             logger.warning(
                 "engine.delete.recover id=%s path=%r — file already gone, completing cleanup",
@@ -154,7 +176,10 @@ def _delete_file_on_disk(
     """Attempt to delete the on-disk file; return True on success.
 
     On any error the row is left in the appropriate state and False is
-    returned so the caller can ``continue`` to the next row.  All
+    returned so the caller can ``continue`` to the next row. A failed removal
+    goes back to ``pending``: the pass reads its rows once, so the next pass
+    retries it. ``deleting`` means a removal running now, or a leftover whose
+    files are already gone (missing at the rm, or a crash) awaiting recovery.  All
     try/except branches are contained here so no except clause is ever
     stranded in a different scope from its try.
     """
@@ -193,19 +218,17 @@ def _delete_file_on_disk(
     except (PermissionError, OSError) as exc:
         # Likely permanent without operator intervention
         # (read-only filesystem, ACL refusal, low-level I/O
-        # error, IsADirectoryError, etc.). Leave the row in
-        # 'deleting' state so a subsequent run can inspect via
-        # recover_stuck_deletions (file present → reset to
-        # pending; file gone → mark deleted), and emit an
-        # explicit audit entry now so the failure is visible
-        # to the operator without waiting for the next scan.
+        # error, IsADirectoryError, etc.). Audit it now so the
+        # failure is visible to the operator without waiting
+        # for the next scan.
         logger.exception(
             "engine.delete.permanent_failure id=%s path=%r — "
-            "leaving row in 'deleting' state for next run "
-            "to inspect (file may need manual intervention)",
+            "resetting row to 'pending' for the next run to "
+            "retry (file may need manual intervention)",
             row.id,
             row.file_path,
         )
+        repository.mark_delete_status(conn, row.id, "pending")
         log_audit(
             conn,
             row.media_item_id,
@@ -216,15 +239,15 @@ def _delete_file_on_disk(
         return False
     except Exception as exc:
         # Unexpected exception type. Log + audit and treat as
-        # permanent so the operator can investigate; leave the
-        # row in 'deleting' for recovery to reconcile.
+        # permanent so the operator can investigate.
         logger.exception(
             "engine.delete.unexpected_failure id=%s path=%r — "
-            "leaving row in 'deleting' state for next run to "
-            "inspect (programming error or unhandled exception)",
+            "resetting row to 'pending' for the next run to "
+            "retry (programming error or unhandled exception)",
             row.id,
             row.file_path,
         )
+        repository.mark_delete_status(conn, row.id, "pending")
         log_audit(
             conn,
             row.media_item_id,
@@ -431,7 +454,8 @@ class DeletionExecutor:
 
         Due rows of other items stored at or under the path are claimed in
         the same transaction, since the removal takes their media too, and
-        close with this row; they go back to pending if the removal fails.
+        close with this row; they go back to pending if the removal fails, or
+        if a keep or clear made after the claim stops it.
         """
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
@@ -481,8 +505,10 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
-            _log_root_unavailable(row, path)
+        mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        # A keep or clear may have landed while the disk was read; read the
+        # rows after the disk, so the window left before the removal is small.
+        if not self._still_removable(row, path, now_iso, mounted=mounted):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -499,13 +525,32 @@ class DeletionExecutor:
             _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
         return closed
 
+    def _still_removable(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+        """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
+
+        The row must still be a claimed ``scheduled_deletion``, and _may_remove
+        must still pass, so an item under *path* kept since the claim blocks
+        it as it would have before.
+        """
+        if not is_claimed_deletion(self._conn, row.id):
+            logger.warning(
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept or "
+                "cleared since the claim; leaving the files",
+                row.id,
+                row.media_item_id,
+                path,
+            )
+            return False
+        return self._may_remove(row, path, now_iso, mounted=mounted)
+
     def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
         """Return False, logging why, when removing *path* now could lose media.
 
-        Runs inside the claim's transaction, so the other items it reads
-        cannot change before the claim commits. *mounted* says whether the
-        target, or else its delete root's content, was on disk; it is read
-        before the transaction opens.
+        Before the claim it runs inside the claim's transaction, so the other
+        items it reads cannot change before the claim commits; it runs again
+        just before the removal. *mounted* says whether the target, or else its
+        delete root's content, was on disk; it is read before any transaction
+        opens.
         """
         held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
         if held:

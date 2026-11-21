@@ -223,6 +223,32 @@ class TestDeleteUser:
         create_user(conn, "alice", "pass", enforce_policy=False)
         assert delete_user(conn, 99999, current_username="alice") is False
 
+    def test_a_user_created_later_under_the_name_does_not_inherit_a_lock(self, conn):
+        from mediaman.web.auth.login_lockout import is_locked_out, reauth_key, record_failure
+
+        create_user(conn, "alice", "p1", enforce_policy=False)
+        create_user(conn, "bob", "p2", enforce_policy=False)
+        for _ in range(5):
+            record_failure(conn, "bob")
+        record_failure(conn, reauth_key("bob"))
+        record_failure(conn, "carol")
+        assert is_locked_out(conn, "bob") is True
+
+        assert delete_user(conn, self._uid(conn, "bob"), current_username="alice") is True
+
+        left = [r["username"] for r in conn.execute("SELECT username FROM login_failures")]
+        assert left == ["carol"]
+        create_user(conn, "bob", "p3", enforce_policy=False)
+        assert authenticate(conn, "bob", "p3") is True
+
+    def test_a_refused_delete_keeps_the_failure_record(self, conn):
+        from mediaman.web.auth.login_lockout import record_failure
+
+        create_user(conn, "alice", "p1", enforce_policy=False)
+        record_failure(conn, "alice")
+        assert delete_user(conn, self._uid(conn, "alice"), current_username="alice") is False
+        assert conn.execute("SELECT COUNT(*) FROM login_failures").fetchone()[0] == 1
+
 
 class TestLongPasswordEntropyPreserved:
     """Bcrypt silently truncates inputs to 72 bytes; the SHA-256 pre-hash

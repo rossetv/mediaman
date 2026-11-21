@@ -61,7 +61,7 @@ def apply_keep_in_tx(
     new_token: str,
     audit_detail: str,
     actor: str,
-) -> None:
+) -> bool:
     """Apply a keep / snooze decision atomically with an audit row.
 
     Looks for an existing ``scheduled_actions`` row for *media_id* with
@@ -69,6 +69,9 @@ def apply_keep_in_tx(
     inserts a fresh row.  The audit row is written inside the same
     transaction so a SQLite failure rolls the keep back along with the
     audit record.
+
+    Returns True when the deletion pass is removing the item right now. The
+    keep is still written: if that removal fails, the item stays kept.
 
     Raises:
         NotFound: when the target media_items row does not exist. The
@@ -83,16 +86,18 @@ def apply_keep_in_tx(
             raise NotFound(media_id)
 
         existing = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
+            "SELECT id, delete_status FROM scheduled_actions "
+            "WHERE media_item_id = ? AND token_used = 0",
             (media_id,),
-        ).fetchone()
+        ).fetchall()
+        deletion_running = any(row["delete_status"] == "deleting" for row in existing)
 
         if existing:
             conn.execute(
                 "UPDATE scheduled_actions "
                 "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "
                 "WHERE id=?",
-                (action, execute_at, now_iso, snooze_label, existing["id"]),
+                (action, execute_at, now_iso, snooze_label, existing[0]["id"]),
             )
         else:
             conn.execute(
@@ -118,6 +123,7 @@ def apply_keep_in_tx(
             audit_detail,
             actor=actor,
         )
+    return deletion_running
 
 
 def snapshot_media_for_delete(conn: sqlite3.Connection, media_id: str) -> MediaDeleteSnapshot:

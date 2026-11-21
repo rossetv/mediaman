@@ -150,7 +150,7 @@ def get_int_setting(
     raw = get_setting(conn, key, default=default)
     try:
         return int(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 

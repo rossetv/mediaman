@@ -310,14 +310,28 @@ def set_protected_state(
     *,
     to_update: Sequence[tuple[object, ...]],
     to_insert: Sequence[tuple[object, ...]],
-) -> None:
+) -> bool:
     """Apply batched updates and inserts to scheduled_actions for season keeps.
 
     ``to_update`` rows: (action, execute_at, snoozed_at, snooze_duration, id)
     ``to_insert`` rows: (media_item_id, action, scheduled_at, execute_at,
                          token, created_at, snooze_duration)
+
+    Returns True when a row it updated is being removed by the deletion pass
+    right now. The keep is still written: if that removal fails, the season
+    stays kept.
     """
+    deletion_running = False
     if to_update:
+        ids = [row[4] for row in to_update]
+        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
+        placeholders = ",".join("?" * len(ids))
+        running = conn.execute(
+            f"SELECT 1 FROM scheduled_actions "
+            f"WHERE id IN ({placeholders}) AND delete_status = 'deleting' LIMIT 1",
+            ids,
+        ).fetchone()
+        deletion_running = running is not None
         conn.executemany(
             "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
             "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
@@ -331,3 +345,4 @@ def set_protected_state(
             "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
             to_insert,
         )
+    return deletion_running

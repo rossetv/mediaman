@@ -125,6 +125,9 @@ def clear_scheduled(
 ) -> Response | dict[str, object]:
     """Delete all pending scheduled_deletion actions.
 
+    ``cleared`` counts the deletions that were waiting; ``already_deleting``
+    counts those whose removal was already running, whose files may be gone.
+
     clear_pending_deletions writes the audit row in the same BEGIN IMMEDIATE transaction, so
     a delete without an audit trail is impossible. Rate-limited per admin (3/min, 20/day) so
     a leaked session cookie cannot repeatedly wipe the queue.
@@ -136,12 +139,17 @@ def clear_scheduled(
         )
     conn = get_db()
     try:
-        cleared = clear_pending_deletions(conn, audit_actor=admin, audit_ip=get_client_ip(request))
+        result = clear_pending_deletions(conn, audit_actor=admin, audit_ip=get_client_ip(request))
     except sqlite3.Error:
         logger.exception("scan.clear failed user=%s", admin)
         return respond_err("internal_error", status=500)
-    logger.info("Cleared %d scheduled deletions by %s", cleared, admin)
-    return {"ok": True, "cleared": cleared}
+    logger.info(
+        "Cleared %d scheduled deletions (%d already being deleted) by %s",
+        result.cleared,
+        result.already_deleting,
+        admin,
+    )
+    return {"ok": True, "cleared": result.cleared, "already_deleting": result.already_deleting}
 
 
 @router.post("/api/library/sync")

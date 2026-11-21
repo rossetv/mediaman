@@ -54,8 +54,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+import time
 from datetime import datetime, timedelta
-from typing import cast
+from typing import NamedTuple, cast
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso
@@ -369,6 +371,33 @@ def _record_failure_in_tx(
     return _apply_lockout(conn, username, now, count, currently_locked)
 
 
+#: Minimum seconds between prunes started from `record_failure`.
+_PRUNE_INTERVAL = 60.0
+_last_prune_at = float("-inf")
+_prune_lock = threading.Lock()
+
+
+def _maybe_prune_stale_failures(conn: sqlite3.Connection) -> None:
+    """Prune stale failure rows at most once per `_PRUNE_INTERVAL`, never raising.
+
+    Failed logins for unknown usernames add rows with no session in play,
+    so the session sweep alone cannot bound the table. A prune error must
+    not break the login attempt whose failure was just recorded.
+    """
+    global _last_prune_at
+    if time.monotonic() - _last_prune_at < _PRUNE_INTERVAL:
+        return
+    with _prune_lock:
+        mono = time.monotonic()
+        if mono - _last_prune_at < _PRUNE_INTERVAL:
+            return
+        _last_prune_at = mono
+    try:
+        prune_stale_failures(conn)
+    except Exception:
+        logger.warning("auth.lockout_prune_failed", exc_info=True)
+
+
 def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     """Record a failed login attempt for *username*.
 
@@ -400,7 +429,9 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     # the explicit BEGIN IMMEDIATE here preserves the write-lock semantics.
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        return _record_failure_in_tx(conn, username, now, now_iso)
+        minutes = _record_failure_in_tx(conn, username, now, now_iso)
+    _maybe_prune_stale_failures(conn)
+    return minutes
 
 
 def record_success(conn: sqlite3.Connection, username: str) -> None:
@@ -438,6 +469,40 @@ def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> No
             conn.execute("DELETE FROM login_failures WHERE username = ?", (key,))
 
 
+def prune_stale_failures(conn: sqlite3.Connection) -> int:
+    """Delete failure rows that no longer count and hold no active lock.
+
+    A row whose streak began more than `_DECAY_HOURS` ago and whose lock
+    (if any) has ended is one the next failure would reset to 1 anyway,
+    so deleting it changes nothing the lockout counts. A row with an
+    active lock, or one whose ``locked_until`` cannot be parsed (fail
+    closed, as in `is_locked_out`), is never deleted. Returns the
+    number of rows deleted. Commits.
+    """
+    _ensure_table(conn)
+    now = _now()
+    cutoff = _iso(now - timedelta(hours=_DECAY_HOURS))
+    with conn:
+        # The write lock is taken first, so a lock set by a concurrent
+        # failure cannot land between the check and the delete.
+        conn.execute("BEGIN IMMEDIATE")
+        deleted = conn.execute(
+            "DELETE FROM login_failures WHERE first_failure_at < ? "
+            "AND (locked_until IS NULL OR locked_until = '')",
+            (cutoff,),
+        ).rowcount
+        for row in conn.execute(
+            "SELECT username, locked_until FROM login_failures "
+            "WHERE first_failure_at < ? AND locked_until != ''",
+            (cutoff,),
+        ).fetchall():
+            locked_until = parse_iso_strict_utc(row["locked_until"])
+            if locked_until is not None and locked_until <= now:
+                conn.execute("DELETE FROM login_failures WHERE username = ?", (row["username"],))
+                deleted += 1
+    return deleted or 0
+
+
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     """Clear the login and re-auth failure counters and locks for *username*.
 
@@ -459,6 +524,15 @@ def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     return (cur.rowcount or 0) > 0
 
 
+class UnlockResult(NamedTuple):
+    """Outcome of `admin_unlock_with_audit`."""
+
+    #: A login or re-auth lock was in force (not merely a failure count).
+    was_locked: bool
+    #: Any failure record existed and was deleted.
+    cleared: bool
+
+
 def admin_unlock_with_audit(
     conn: sqlite3.Connection,
     target_username: str,
@@ -466,18 +540,21 @@ def admin_unlock_with_audit(
     audit_actor: str,
     audit_ip: str = "",
     target_id: int,
-) -> bool:
+) -> UnlockResult:
     """Clear *target_username*'s lock and audit-log the unlock atomically.
 
     Wraps `admin_unlock` and `security_event_or_raise` in a
     single ``BEGIN IMMEDIATE`` block so the unlock and the audit row
     land together — if the audit insert fails, the unlock rolls back.
-    Returns the value of
-    `admin_unlock` so the caller knows whether there was a lock
-    to clear.
+    The result tells the caller whether a lock was in force and whether
+    any failure record was cleared; the audit row's ``had_lock`` is the
+    former.
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
+        was_locked = is_locked_out(conn, login_key(target_username)) or is_locked_out(
+            conn, reauth_key(target_username)
+        )
         cleared = admin_unlock(conn, target_username)
         from mediaman.core.audit import security_event_or_raise
 
@@ -489,7 +566,7 @@ def admin_unlock_with_audit(
             detail={
                 "target_id": target_id,
                 "target_username": target_username,
-                "had_lock": cleared,
+                "had_lock": was_locked,
             },
         )
-    return cleared
+    return UnlockResult(was_locked, cleared)

@@ -224,7 +224,7 @@ def api_unlock_user(
         return respond_err("cannot_unlock_self", status=400, message="Cannot unlock yourself")
 
     try:
-        cleared = admin_unlock_with_audit(
+        was_locked, _ = admin_unlock_with_audit(
             conn,
             target_username,
             audit_actor=admin,
@@ -234,5 +234,5 @@ def api_unlock_user(
     except sqlite3.Error:
         logger.exception("user.unlock failed actor=%s target_id=%d", admin, user_id)
         return respond_err("internal_error", status=500, message="Internal error during unlock")
-    logger.info("user.unlocked actor=%s target=%s had_lock=%s", admin, target_username, cleared)
-    return respond_ok({"had_lock": cleared})
+    logger.info("user.unlocked actor=%s target=%s had_lock=%s", admin, target_username, was_locked)
+    return respond_ok({"had_lock": was_locked})

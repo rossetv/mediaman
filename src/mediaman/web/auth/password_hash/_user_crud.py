@@ -26,6 +26,7 @@ from mediaman.web.auth._password_hash_helpers import (
     _LastUser,
     _prepare_bcrypt_input,
 )
+from mediaman.web.auth.login_lockout import admin_unlock
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,9 @@ def delete_user(
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
+            # A user created later under this name must not inherit this
+            # one's failure count or lock.
+            admin_unlock(conn, target_username)
             cursor = conn.execute(
                 "DELETE FROM admin_users WHERE id = ? AND (SELECT COUNT(*) FROM admin_users) > 1",
                 (user_id,),

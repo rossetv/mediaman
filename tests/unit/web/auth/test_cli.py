@@ -24,6 +24,7 @@ class TestCreateUserCli:
         """``mediaman-create-user`` with no flags must prompt."""
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
         # Replace stdin so input() returns the username.
         monkeypatch.setattr("builtins.input", lambda *_a, **_kw: "alice")
@@ -53,12 +54,84 @@ class TestCreateUserCli:
         """Three blank username inputs in a row exit non-zero."""
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
         monkeypatch.setattr("builtins.input", lambda *_a, **_kw: "")
         monkeypatch.setattr(cli_mod.getpass, "getpass", lambda *_a, **_kw: "x")
 
         with pytest.raises(SystemExit) as excinfo:
             cli_mod.create_user_cli()
         assert excinfo.value.code == 1
+
+    def test_no_terminal_exits_one_line_naming_the_non_interactive_flags(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # closed stdin: input() hits EOF
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err.strip()
+        assert len(err.splitlines()) == 1
+        assert "--username" in err and "--password-stdin" in err
+
+    def test_closed_stdin_counts_as_no_terminal(self, monkeypatch, tmp_path, capsys):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", None)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        assert "--password-stdin" in capsys.readouterr().err
+
+    def test_ctrl_d_at_the_password_prompt_exits_the_same_way(self, monkeypatch, tmp_path, capsys):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user", "--username", "bob"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+        def eof(*_a, **_kw):
+            raise EOFError
+
+        monkeypatch.setattr(cli_mod.getpass, "getpass", eof)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        assert "--password-stdin" in capsys.readouterr().err
+
+    def test_no_terminal_prints_nothing_before_the_error(self, monkeypatch, tmp_path, capsys):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO("alice\nCorrect-Horse-Battery-9!\n"))
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert len(captured.err.strip().splitlines()) == 1
+
+    def test_no_terminal_for_the_password_prompt_prints_no_getpass_warning(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user", "--username", "bob"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert len(captured.err.strip().splitlines()) == 1
+        assert "--password-stdin" in captured.err
 
     def test_password_stdin_reads_one_line(self, monkeypatch, tmp_path):
         """``--password-stdin`` consumes a single line from stdin."""
@@ -220,6 +293,33 @@ class TestUnlockUserCli:
         self._run(monkeypatch, tmp_path, "alice")  # returns, no SystemExit
 
         assert "not locked" in capsys.readouterr().out
+
+    def test_failures_without_a_lock_are_reported_as_such(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(2):
+            authenticate(conn, "alice", "wrong-password")
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")
+
+        out = capsys.readouterr().out
+        assert "was not locked" in out
+        assert "Cleared the login lockout" not in out
+        conn = self._db(tmp_path)
+        assert conn.execute("SELECT COUNT(*) FROM login_failures").fetchone()[0] == 0
+        conn.close()
+
+    def test_locked_user_is_reported_as_a_cleared_lockout(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong-password")
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")
+
+        assert "Cleared the login lockout" in capsys.readouterr().out
 
 
 class TestOldDatabaseRefusal:

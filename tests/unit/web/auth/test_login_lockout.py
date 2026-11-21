@@ -9,9 +9,11 @@ from mediaman.db import init_db
 from mediaman.web.auth import login_lockout
 from mediaman.web.auth.login_lockout import (
     admin_unlock,
+    admin_unlock_with_audit,
     clear_unlocked_login_failures,
     is_locked_out,
     login_key,
+    reauth_key,
     record_failure,
     record_success,
 )
@@ -591,3 +593,152 @@ class TestLoginCounterAfterProvedPassword:
             user_conn, "alice", "wrong", "another-password-77", enforce_policy=False
         )
         assert _login_row(user_conn, "alice") is None
+
+
+class TestPruneStaleFailures:
+    @staticmethod
+    def _row(conn, username, *, first_ago, locked_in=None, locked_raw=None):
+        now = datetime.now(UTC)
+        locked = locked_raw
+        if locked_in is not None:
+            locked = (now + locked_in).isoformat()
+        conn.execute(
+            "INSERT INTO login_failures (username, failure_count, first_failure_at, locked_until)"
+            " VALUES (?, 3, ?, ?)",
+            (username, (now - first_ago).isoformat(), locked),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _names(conn):
+        return {r["username"] for r in conn.execute("SELECT username FROM login_failures")}
+
+    def test_prunes_old_unlocked_rows_and_keeps_the_rest(self, conn):
+        old = timedelta(hours=25)
+        self._row(conn, "unknown-user", first_ago=old)
+        self._row(conn, "lock-ended", first_ago=old, locked_in=-timedelta(hours=1))
+        self._row(conn, "recent", first_ago=timedelta(hours=2))
+        self._row(conn, "locked", first_ago=old, locked_in=timedelta(hours=1))
+        self._row(conn, "corrupt-lock", first_ago=old, locked_raw="garbage")
+
+        deleted = login_lockout.prune_stale_failures(conn)
+
+        assert deleted == 2
+        assert self._names(conn) == {"recent", "locked", "corrupt-lock"}
+
+    def test_a_pruned_username_starts_counting_from_one(self, conn):
+        self._row(conn, "alice", first_ago=timedelta(hours=30))
+        login_lockout.prune_stale_failures(conn)
+        record_failure(conn, "alice")
+        row = conn.execute("SELECT failure_count FROM login_failures").fetchone()
+        assert row["failure_count"] == 1
+
+    def test_the_session_sweep_prunes_them(self, conn):
+        from mediaman.web.auth import session_store
+
+        self._row(conn, "unknown-user", first_ago=timedelta(hours=25))
+        self._row(conn, "locked", first_ago=timedelta(hours=25), locked_in=timedelta(hours=1))
+
+        session_store._writes._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
+
+        assert self._names(conn) == {"locked"}
+
+    def test_a_streak_just_under_a_day_old_is_kept_and_one_just_over_is_pruned(self, conn):
+        self._row(conn, "just-under", first_ago=timedelta(hours=23, minutes=59))
+        self._row(conn, "just-over", first_ago=timedelta(hours=24, minutes=1))
+
+        deleted = login_lockout.prune_stale_failures(conn)
+
+        assert deleted == 1
+        assert self._names(conn) == {"just-under"}
+
+
+class TestPruneOnRecordFailure:
+    @pytest.fixture(autouse=True)
+    def _fresh_throttle(self, monkeypatch):
+        monkeypatch.setattr(login_lockout, "_last_prune_at", float("-inf"))
+
+    @staticmethod
+    def _old_row(conn, username, *, locked_in=None):
+        now = datetime.now(UTC)
+        locked = (now + locked_in).isoformat() if locked_in is not None else None
+        conn.execute(
+            "INSERT INTO login_failures (username, failure_count, first_failure_at, locked_until)"
+            " VALUES (?, 3, ?, ?)",
+            (username, (now - timedelta(hours=25)).isoformat(), locked),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _names(conn):
+        return {r["username"] for r in conn.execute("SELECT username FROM login_failures")}
+
+    def test_recording_a_failure_prunes_a_stale_row_but_not_a_lock(self, conn):
+        self._old_row(conn, "stale")
+        self._old_row(conn, "locked", locked_in=timedelta(hours=1))
+
+        record_failure(conn, "someone")
+
+        assert self._names(conn) == {"locked", "someone"}
+
+    def test_the_prune_runs_at_most_once_a_minute(self, conn, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(login_lockout.time, "monotonic", lambda: clock[0])
+        self._old_row(conn, "first-stale")
+        record_failure(conn, "a")
+        self._old_row(conn, "second-stale")
+
+        record_failure(conn, "b")
+        assert "second-stale" in self._names(conn)
+
+        clock[0] += 61
+        record_failure(conn, "c")
+        assert "second-stale" not in self._names(conn)
+
+    def test_a_failing_prune_does_not_break_recording_the_failure(self, conn, monkeypatch):
+        def boom(_conn):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(login_lockout, "prune_stale_failures", boom)
+
+        for _ in range(5):
+            minutes = record_failure(conn, "alice")
+
+        assert minutes == 15
+        assert is_locked_out(conn, "alice") is True
+
+
+class TestAdminUnlockWithAudit:
+    @staticmethod
+    def _audit_had_lock(conn):
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:user.unlocked'"
+        ).fetchone()
+        return '"had_lock":true' in row["detail"]
+
+    def test_failures_without_a_lock_are_audited_as_not_locked(self, conn):
+        record_failure(conn, "alice")
+
+        result = admin_unlock_with_audit(conn, "alice", audit_actor="admin", target_id=1)
+
+        assert self._audit_had_lock(conn) is False
+        assert result.cleared is True
+        assert result.was_locked is False
+
+    def test_a_login_lock_is_audited_as_locked(self, conn):
+        for _ in range(5):
+            record_failure(conn, "alice")
+
+        result = admin_unlock_with_audit(conn, "alice", audit_actor="admin", target_id=1)
+
+        assert result.was_locked is True
+        assert self._audit_had_lock(conn) is True
+
+    def test_a_reauth_lock_alone_is_audited_as_locked(self, conn):
+        for _ in range(5):
+            record_failure(conn, reauth_key("alice"))
+
+        result = admin_unlock_with_audit(conn, "alice", audit_actor="admin", target_id=1)
+
+        assert result.was_locked is True
+        assert self._audit_had_lock(conn) is True

@@ -5,6 +5,7 @@ import getpass
 import sqlite3
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
 from mediaman.config import Config, ConfigError, load_config
@@ -46,6 +47,15 @@ def _read_password_from_stdin() -> str:
     return pw.rstrip("\n").rstrip("\r")
 
 
+def _exit_no_terminal() -> NoReturn:
+    print(
+        "Error: no terminal to prompt on; pass --username and pipe the "
+        "password with --password-stdin.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _resolve_credentials(args: argparse.Namespace) -> tuple[str, str]:
     """Acquire ``(username, password)`` from flags, stdin, or interactive prompt.
 
@@ -62,12 +72,22 @@ def _resolve_credentials(args: argparse.Namespace) -> tuple[str, str]:
         )
         sys.exit(2)
 
-    username = (args.username or "").strip() or _prompt_username()
+    username = (args.username or "").strip()
+    prompts = not username or not (args.password_stdin or args.password)
+    # Checked up front: getpass and input() write prompts and a warning
+    # before they notice there is nobody to answer.
+    # sys.stdin is None when fd 0 is closed.
+    if prompts and (sys.stdin is None or not sys.stdin.isatty()):
+        _exit_no_terminal()
+    try:
+        username = username or _prompt_username()
 
-    if args.password_stdin:
-        password = _read_password_from_stdin()
-    else:
-        password = args.password or getpass.getpass("Password: ")
+        if args.password_stdin:
+            password = _read_password_from_stdin()
+        else:
+            password = args.password or getpass.getpass("Password: ")
+    except EOFError:
+        _exit_no_terminal()
 
     issues = password_issues(password, username=username)
     if issues:
@@ -183,13 +203,15 @@ def unlock_user_cli() -> None:
         if row is None:
             print(f"Error: no such user '{args.username}'.", file=sys.stderr)
             sys.exit(1)
-        cleared = admin_unlock_with_audit(
+        was_locked, cleared = admin_unlock_with_audit(
             conn, args.username, audit_actor="cli", target_id=row["id"]
         )
     finally:
         conn.close()
 
-    if cleared:
+    if was_locked:
         print(f"Cleared the login lockout and failure count for '{args.username}'.")
+    elif cleared:
+        print(f"User '{args.username}' was not locked; cleared the failed-login count.")
     else:
         print(f"User '{args.username}' is not locked; nothing to clear.")

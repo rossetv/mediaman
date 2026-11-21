@@ -203,7 +203,7 @@ def api_keep_show(
             snooze_duration=duration,
             created_at=now_iso_str,
         )
-        set_protected_state(conn, to_update=to_update, to_insert=to_insert)
+        deletion_running = set_protected_state(conn, to_update=to_update, to_insert=to_insert)
         log_audit(
             conn,
             resolved_key,
@@ -213,7 +213,13 @@ def api_keep_show(
         )
 
     logger.info("Kept show %s (%s) -- %s by %s", resolved_key, show_title, duration, admin)
-    return respond_ok()
+    reply: dict[str, object] = {"deletion_running": deletion_running}
+    if deletion_running:
+        reply["message"] = (
+            "Kept, but a season of this show was already being deleted. Its files may "
+            "already be gone; that season stays kept only if the deletion fails."
+        )
+    return respond_ok(reply)
 
 
 @router.post("/api/show/{show_rating_key:path}/remove")
