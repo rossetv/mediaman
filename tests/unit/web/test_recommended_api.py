@@ -39,7 +39,7 @@ def _make_rec_app(conn) -> TestClient:
     return TestClient(app, raise_server_exceptions=True)
 
 
-class TestFinding15MintRequiresTmdbId:
+class TestMintRequiresTmdbId:
     """Share-token mint must refuse recommendations without a TMDB id."""
 
     def test_mint_without_tmdb_id_returns_422(self, conn):
@@ -61,7 +61,7 @@ class TestFinding15MintRequiresTmdbId:
         assert resp.status_code != 422
 
 
-class TestFinding15NewsletterSkipsMintWithoutTmdb:
+class TestNewsletterSkipsMintWithoutTmdb:
     """Newsletter must skip redownload mint when no tmdb_id.
 
     The previous code hardcoded ``tmdb_id=None`` for deleted items, producing

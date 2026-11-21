@@ -218,7 +218,7 @@ class TestDownloadStatusRadarr:
 _STATUS_SECRET = "a" * 64
 
 
-def _make_status_app_finding14(conn) -> TestClient:
+def _make_status_app_without_admin(conn) -> TestClient:
     """Stand up a status-router app with get_optional_admin always returning None."""
 
     from fastapi import FastAPI
@@ -237,11 +237,11 @@ def _make_status_app_finding14(conn) -> TestClient:
     return TestClient(app, raise_server_exceptions=True)
 
 
-class TestFinding14PollTokenRequired:
+class TestPollTokenRequired:
     """Unauthenticated status polling must use poll_token, not download token."""
 
     def test_no_token_returns_401(self, conn):
-        client = _make_status_app_finding14(conn)
+        client = _make_status_app_without_admin(conn)
         resp = client.get("/api/download/status", params={"service": "radarr", "tmdb_id": 42})
         assert resp.status_code == 401
 
@@ -256,7 +256,7 @@ class TestFinding14PollTokenRequired:
             recommendation_id=None,
             secret_key=_STATUS_SECRET,
         )
-        client = _make_status_app_finding14(conn)
+        client = _make_status_app_without_admin(conn)
         # Passing the download token in the 'token' param must now be ignored
         # (the 'token' param was removed; the endpoint only knows poll_token).
         resp = client.get(
@@ -276,7 +276,7 @@ class TestFinding14PollTokenRequired:
             tmdb_id=42,
             secret_key=_STATUS_SECRET,
         )
-        client = _make_status_app_finding14(conn)
+        client = _make_status_app_without_admin(conn)
 
         # Patch the service lookup so we don't need a real Radarr client
         with patch.object(
@@ -298,7 +298,7 @@ class TestFinding14PollTokenRequired:
             tmdb_id=42,
             secret_key=_STATUS_SECRET,
         )
-        client = _make_status_app_finding14(conn)
+        client = _make_status_app_without_admin(conn)
         resp = client.get(
             "/api/download/status",
             params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},

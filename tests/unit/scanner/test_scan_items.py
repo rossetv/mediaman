@@ -182,7 +182,7 @@ def _movie_evaluate(engine):
     return _evaluate
 
 
-class TestN1BatchingProtectionParity:
+class TestBatchingProtectionParity:
     """The hot loop now builds the protection / already-scheduled
     sets in two batched queries instead of per-item SELECTs. This must
     not change the protection decision: a protected, a snoozed, an

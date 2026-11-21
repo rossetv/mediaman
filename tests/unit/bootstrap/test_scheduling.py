@@ -233,7 +233,7 @@ class TestShutdownScheduling:
         assert elapsed < 5.0
 
 
-class TestH01ReadyzFailClosed:
+class TestReadyzFailClosed:
     """H-01: /readyz canary default must be fail-closed (False, not True)."""
 
     def _make_readyz_app(self):

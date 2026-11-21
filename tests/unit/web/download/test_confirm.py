@@ -161,7 +161,7 @@ class TestDownloadPageConfirm:
         assert "Sci-Fi" in ctx["item"]["genres_list"]
 
 
-class TestFinding19TrailerKeyValidation:
+class TestTrailerKeyValidation:
     """Trailer key must be exactly 11 URL-safe base64 characters."""
 
     def _validate(self, key: str) -> bool:

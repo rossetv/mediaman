@@ -114,7 +114,7 @@ class TestLibraryPage:
         assert ctx["q"] == "Dune"
 
 
-class TestFinding35BulkKeepResponseOk:
+class TestBulkKeepResponseOk:
     """Library bulk-keep JS must check response.ok.
 
     Server-side: keep API returns appropriate status codes for bad requests.

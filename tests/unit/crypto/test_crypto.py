@@ -435,7 +435,7 @@ class TestSecretKeyEntropyHardened:
     # requires a full DB + AES round-trip that obscures boundary behaviour.
     """
 
-    def test_rejects_audit_low_unique_43_char_case(self):
+    def test_rejects_43_char_key_with_ten_unique_chars(self):
         """A known weak example: 43 chars, 10 unique — must be refused."""
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43

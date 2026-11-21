@@ -151,7 +151,7 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
     return token
 
 
-class TestB03KeepShowRateLimited:
+class TestKeepShowRateLimited:
     """Api_keep_show must return 429 when the rate limiter is exhausted."""
 
     def test_keep_show_rate_limited_when_limit_exceeded(self, conn):
@@ -185,7 +185,7 @@ class TestB03KeepShowRateLimited:
         assert resp.json()["ok"] is True
 
 
-class TestB04KeepShowTransactionAtomicity:
+class TestKeepShowTransactionAtomicity:
     """All three writes in api_keep_show share one transaction."""
 
     def test_kept_show_row_created_on_success(self, conn):
@@ -252,7 +252,7 @@ class TestB04KeepShowTransactionAtomicity:
         assert row is None
 
 
-class TestH01KeepSubmitTokenAtomicity:
+class TestKeepSubmitTokenAtomicity:
     """Mark_token_consumed + apply_keep_snooze + log_audit are in one transaction."""
 
     @pytest.fixture(autouse=True)
@@ -319,7 +319,7 @@ class TestH01KeepSubmitTokenAtomicity:
         assert body["error"] == "invalid_or_expired"
 
 
-class TestH01KeepForeverTokenAtomicity:
+class TestKeepForeverTokenAtomicity:
     """Mark_token_consumed + apply_keep_forever + log_audit atomic."""
 
     def test_replay_of_forever_returns_409(self, conn, app_factory, authed_client):
@@ -346,7 +346,7 @@ class TestH01KeepForeverTokenAtomicity:
         assert resp.json()["error"] == "already_processed"
 
 
-class TestH07SonarrTmdbIdFiltering:
+class TestSonarrTmdbIdFiltering:
     """_add_rec_to_sonarr must filter results to the exact tmdbId match."""
 
     def test_sonarr_lookup_returns_wrong_tmdb_id_is_rejected(self, conn):
@@ -504,7 +504,7 @@ class TestH07SonarrTmdbIdFiltering:
         mock_client.add_series.assert_not_called()
 
 
-class TestDeferredAFetchSuggestionByIdReturnsDataclass:
+class TestFetchSuggestionByIdReturnsDataclass:
     """Fetch_suggestion_by_id must return a typed SuggestionDetail, not a raw Row."""
 
     def test_returns_suggestion_detail_dataclass(self, conn):
@@ -565,7 +565,7 @@ class TestDeferredAFetchSuggestionByIdReturnsDataclass:
         _ = result.tmdb_id
 
 
-class TestDeferredBUnsubscribeWritesSecurityEvent:
+class TestUnsubscribeWritesSecurityEvent:
     """A successful opt-out via the unsubscribe route must write a
     subscriber.opted_out security event to audit_log."""
 
