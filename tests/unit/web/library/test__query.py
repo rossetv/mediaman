@@ -18,7 +18,7 @@ from mediaman.web.routes.library import (
     protection_label,
     type_css,
 )
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 
 def _now_iso() -> str:
@@ -260,7 +260,7 @@ class TestFetchLibrary:
         assert total == 1
         assert items[0]["title"] == "Protected"
 
-    def test_show_row_is_protected_when_a_later_season_is_kept(self, db_path):
+    def test_show_row_says_how_many_seasons_are_kept_when_a_later_season_is_kept(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
         _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
@@ -277,6 +277,58 @@ class TestFetchLibrary:
             items, _ = fetch_library(conn, **kwargs)
             assert len(items) == 1
             assert items[0]["protected"] is True
+            assert items[0]["protection_label"] == "1 of 2 seasons kept"
+            assert items[0]["protection_label"] != "Keep"
+
+    def test_show_row_reads_the_earliest_snooze_when_every_season_is_snoozed(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        for sid, days in (("a1", 40), ("a2", 10)):
+            insert_scheduled_action(
+                conn,
+                media_item_id=sid,
+                action="snoozed",
+                execute_at=(datetime.now(UTC) + timedelta(days=days, hours=1)).isoformat(),
+                token=f"tok-{sid}",
+                token_used=False,
+            )
+        items, _ = fetch_library(conn)
+        assert items[0]["protection_label"] == "Kept for 10 more days"
+
+    def test_show_row_counts_a_lapsed_snooze_as_not_kept(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        insert_scheduled_action(
+            conn,
+            media_item_id="a1",
+            action="protected_forever",
+            scheduled_at=_now_iso(),
+            token="tok-a1",
+            token_used=False,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="a2",
+            action="snoozed",
+            execute_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            token="tok-a2",
+            token_used=False,
+        )
+        items, _ = fetch_library(conn)
+        assert items[0]["protection_label"] == "1 of 2 seasons kept"
+
+    def test_show_level_keep_protects_every_season_in_the_label(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        insert_kept_show(conn, show_rating_key="rk1", action="protected_forever")
+        for kwargs in ({}, {"media_type": "kept"}):
+            items, _ = fetch_library(conn, **kwargs)
             assert items[0]["protection_label"] == "Kept forever"
 
     def test_show_without_rating_key_is_protected_when_a_later_season_is_kept(self, db_path):
@@ -295,12 +347,12 @@ class TestFetchLibrary:
         items, _ = fetch_library(conn)
         assert items[0]["protected"] is True
 
-    def test_forever_keep_outranks_a_snooze_on_another_season(self, db_path):
+    def test_every_season_kept_reads_the_snooze_that_lapses_before_a_forever_keep(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
         _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
         _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
-        future = (datetime.now(UTC) + timedelta(days=10)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=10, hours=1)).isoformat()
         insert_scheduled_action(
             conn,
             media_item_id="a1",
@@ -318,7 +370,7 @@ class TestFetchLibrary:
             token_used=False,
         )
         items, _ = fetch_library(conn)
-        assert items[0]["protection_label"] == "Kept forever"
+        assert items[0]["protection_label"] == "Kept for 10 more days"
 
     def test_show_stays_unprotected_when_another_show_has_a_kept_season(self, db_path):
         conn = init_db(str(db_path))

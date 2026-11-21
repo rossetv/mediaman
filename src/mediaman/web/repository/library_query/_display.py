@@ -60,9 +60,33 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
     return None
 
 
+def _scheduled_protection_label(
+    seasons: dict[str, tuple[str, str | None]], total: int
+) -> str | None:
+    """Label for the keeps on a row's items, or None when none is live.
+
+    Seasons are protected one by one, so a show with only some of them kept says
+    how many.  When all are, the label is the keep that lapses first.
+    """
+    live = [
+        (label, entry)
+        for entry in seasons.values()
+        if (label := protection_label(*entry)) is not None
+    ]
+    if not live:
+        return None
+    if len(live) < total:
+        return f"{len(live)} of {total} seasons kept"
+    snoozes = [(label, entry) for label, entry in live if entry[0] == ACTION_SNOOZED]
+    if not snoozes:
+        return live[0][0]
+    # A live snooze label implies a parseable execute_at.
+    return min(snoozes, key=lambda le: parse_iso_strict_utc(le[1][1]) or now_utc())[0]
+
+
 def _shape_rows(
     rows: list[sqlite3.Row],
-    sa_map: dict[str, tuple[str, str | None]],
+    sa_map: dict[str, dict[str, tuple[str, str | None]]],
     ks_map: dict[str, tuple[str, str | None]],
 ) -> list[dict[str, object]]:
     """Convert raw DB rows into display-ready dicts.
@@ -85,9 +109,11 @@ def _shape_rows(
                 prot_label = protection_label(ks_entry[0], ks_entry[1])
                 protected = prot_label is not None
         if not protected:
-            sa_entry = sa_map.get(str(r["id"]))
-            if sa_entry:
-                prot_label = protection_label(sa_entry[0], sa_entry[1])
+            seasons = sa_map.get(str(r["id"]))
+            if seasons:
+                prot_label = _scheduled_protection_label(
+                    seasons, (r["season_count"] or 1) if is_tv else 1
+                )
                 protected = prot_label is not None
 
         season_count = r["season_count"]
