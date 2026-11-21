@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import logging.config
 import threading
 
 import pytest
@@ -268,3 +270,107 @@ class TestInstalledRootFilter:
         install_root_filter()
         logging.getLogger("mediaman.scrubtest").info("started marker 51c2")
         assert capsys.readouterr().err.count("started marker 51c2") == 1
+
+
+class TestPercentRArgs:
+    def test_secret_only_in_repr_is_scrubbed_for_percent_r(self) -> None:
+        class Client:
+            def __str__(self) -> str:
+                return "client"
+
+            def __repr__(self) -> str:
+                return "Client(token='repr-secret-77')"
+
+        f = ScrubFilter(secrets=["repr-secret-77"])
+        record = _make_record("using %r", args=(Client(),))
+        f.filter(record)
+        assert record.getMessage() == "using Client(token='***REDACTED***')"
+
+
+@pytest.fixture
+def server_logs():
+    """Apply uvicorn's own log config and yield its (stdout, stderr) buffers.
+
+    The loggers it touched are restored afterwards.
+    """
+    from uvicorn.config import LOGGING_CONFIG
+
+    names = ["uvicorn", "uvicorn.error", "uvicorn.access", "apscheduler"]
+    saved = {
+        n: (
+            list(logging.getLogger(n).handlers),
+            list(logging.getLogger(n).filters),
+            logging.getLogger(n).level,
+            logging.getLogger(n).propagate,
+        )
+        for n in names
+    }
+    install_root_filter(secrets=[TestServerLogs.SECRET])
+    # uvicorn.run applies this after the app (and so the filters) exists.
+    logging.config.dictConfig(LOGGING_CONFIG)
+    out, err = io.StringIO(), io.StringIO()
+    logging.getLogger("uvicorn.access").handlers[0].setStream(out)
+    logging.getLogger("uvicorn").handlers[0].setStream(err)
+    yield out, err
+    for n, (handlers, filters, level, propagate) in saved.items():
+        logger = logging.getLogger(n)
+        logger.handlers[:] = handlers
+        logger.filters[:] = filters
+        logger.setLevel(level)
+        logger.propagate = propagate
+
+
+class TestServerLogs:
+    """uvicorn and APScheduler output once uvicorn has applied its log config."""
+
+    SECRET = "tok-server-logs-4c1d"
+
+    @pytest.mark.parametrize(
+        ("method", "target", "shape"),
+        [
+            ("GET", "/keep/abc.DEF-123", "GET /keep/*** HTTP/1.1"),
+            ("POST", "/keep/abc.DEF-123", "POST /keep/*** HTTP/1.1"),
+            ("POST", "/api/keep/abc.DEF-123/forever", "POST /api/keep/***/forever HTTP/1.1"),
+            ("GET", "/download/abc.DEF-123", "GET /download/*** HTTP/1.1"),
+            ("GET", "/unsubscribe?token=abc.DEF-123", "GET /unsubscribe?token=*** HTTP/1.1"),
+            ("GET", "/api/poster/42?sig=abc.DEF-123", "GET /api/poster/42?sig=*** HTTP/1.1"),
+            ("GET", "/x?a=1&apikey=abc.DEF-123&b=2", "GET /x?a=1&apikey=***&b=2 HTTP/1.1"),
+        ],
+    )
+    def test_access_log_masks_emailed_token(self, server_logs, method, target, shape) -> None:
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", method, target, "1.1", 200
+        )
+        out = server_logs[0].getvalue()
+        assert "abc.DEF-123" not in out
+        assert f'{shape}" 200' in out
+
+    def test_access_log_keeps_tokenless_target(self, server_logs) -> None:
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", "GET", "/downloads?page=2", "1.1", 200
+        )
+        assert 'GET /downloads?page=2 HTTP/1.1" 200' in server_logs[0].getvalue()
+
+    def test_uvicorn_error_traceback_is_scrubbed(self, server_logs) -> None:
+        try:
+            raise ValueError(f"bad token {self.SECRET}")
+        except ValueError:
+            logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
+        err = server_logs[1].getvalue()
+        assert "Exception in ASGI application" in err
+        assert "ValueError: bad token ***REDACTED***" in err
+        assert self.SECRET not in err
+
+    def test_apscheduler_job_traceback_is_scrubbed_once(self, server_logs, capsys) -> None:
+        try:
+            raise ValueError(f"bad token {self.SECRET}")
+        except ValueError:
+            logging.getLogger("apscheduler.executors.default").exception("Job raised")
+        err = capsys.readouterr().err
+        assert err.count("Job raised") == 1
+        assert "ValueError: bad token ***REDACTED***" in err
+        assert self.SECRET not in err
+
+    def test_apscheduler_info_stays_silent(self, server_logs, capsys) -> None:
+        logging.getLogger("apscheduler.scheduler").info("Added job marker 9e1")
+        assert "marker 9e1" not in capsys.readouterr().err

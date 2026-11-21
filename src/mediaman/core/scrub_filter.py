@@ -28,6 +28,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import threading
 from collections.abc import Iterable
@@ -111,17 +112,20 @@ class ScrubFilter(logging.Filter):
     def _scrub_value(self, value: object) -> object:
         """Return *value* scrubbed, keeping it as is unless it holds a secret.
 
-        A non-string (an exception, a URL object) is replaced by its scrubbed
-        ``str()`` only when that text carries a secret, so numeric args still
-        work with ``%d`` and clean objects keep their own formatting.
+        A non-string (an exception, a URL object) is replaced only when its
+        ``str()`` or ``repr()`` carries a secret, by a stand-in that renders
+        both scrubbed for ``%s`` and ``%r``; numeric args still work with
+        ``%d`` and clean objects keep their own formatting.
         """
         if isinstance(value, str):
             return self._scrub(value)
         if value is None or isinstance(value, int | float):
             return value
-        text = str(value)
-        scrubbed = self._scrub(text)
-        return value if scrubbed == text else scrubbed
+        text, rep = str(value), repr(value)
+        scrubbed_text, scrubbed_rep = self._scrub(text), self._scrub(rep)
+        if scrubbed_text == text and scrubbed_rep == rep:
+            return value
+        return _Scrubbed(scrubbed_text, scrubbed_rep)
 
     def _scrub(self, text: str) -> str:
         """Return *text* with every secret replaced by the replacement string.
@@ -174,6 +178,52 @@ class ScrubFilter(logging.Filter):
         return new_filter
 
 
+class _Scrubbed:
+    """Stand-in log argument holding an object's scrubbed ``str()`` and ``repr()``."""
+
+    __slots__ = ("_rep", "_text")
+
+    def __init__(self, text: str, rep: str) -> None:
+        self._text = text
+        self._rep = rep
+
+    def __str__(self) -> str:
+        return self._text
+
+    def __repr__(self) -> str:
+        return self._rep
+
+
+_REDACTED_TOKEN = "***"
+# Emailed links carry their credential in the path (/keep/<token>,
+# /download/<token>, /api/keep/<token>/forever) or in a query value
+# (/unsubscribe?token=..., /api/poster/<key>?sig=...).
+_TOKEN_PATH_RE = re.compile(r"^(/(?:api/)?keep/|/download/)[^/?#]+")
+_TOKEN_QUERY_RE = re.compile(r"([?&](?:[\w.-]*token|sig|api_?key)=)[^&#]*", re.IGNORECASE)
+
+
+def _redact_request_target(target: str) -> str:
+    """Return *target* (a path with optional query) with its credentials masked."""
+    target = _TOKEN_PATH_RE.sub(lambda m: m.group(1) + _REDACTED_TOKEN, target)
+    return _TOKEN_QUERY_RE.sub(lambda m: m.group(1) + _REDACTED_TOKEN, target)
+
+
+class AccessLogFilter(logging.Filter):
+    """Mask credentials in the request target of uvicorn access-log records.
+
+    uvicorn logs ``client, method, target, http version, status`` as the
+    record's args and its formatter unpacks them by position, so only the
+    string args are rewritten and the tuple keeps its shape.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redact_request_target(a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
+
+
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
@@ -204,6 +254,9 @@ _root_filter_lock = threading.Lock()
 
 def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
     """Give the ``"mediaman"`` logger a scrubbing stderr handler at INFO.
+
+    It also scrubs uvicorn's error log and APScheduler's error output, and
+    masks emailed tokens in request targets in uvicorn's access log.
 
     The logger gets one stderr handler (added on the first call only) and,
     unless a level was already set on it, the INFO level; nothing else in
@@ -254,7 +307,37 @@ def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
         if local_ref not in h.filters:
             h.addFilter(local_ref)
 
+    _install_server_filters(local_ref)
     return local_ref
+
+
+def _install_server_filters(scrub: ScrubFilter) -> None:
+    """Scrub what uvicorn and APScheduler print outside the mediaman logger.
+
+    uvicorn applies its logging config after the app is created, replacing
+    the handlers of its loggers but keeping their filters, so the uvicorn
+    filters go on the loggers, where every uvicorn record is logged
+    directly.  APScheduler logs from child loggers that nothing configures
+    and that end at logging's last-resort handler (WARNING and above,
+    unscrubbed); a scrubbing handler at the same level on ``apscheduler``
+    takes its place, so the same lines print once each, scrubbed.
+    """
+    error_logger = logging.getLogger("uvicorn.error")
+    if scrub not in error_logger.filters:
+        error_logger.addFilter(scrub)
+
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, AccessLogFilter) for f in access_logger.filters):
+        access_logger.addFilter(AccessLogFilter())
+
+    scheduler_logger = logging.getLogger("apscheduler")
+    with _root_filter_lock:
+        if not any(isinstance(h, _StderrHandler) for h in scheduler_logger.handlers):
+            handler = _StderrHandler()
+            handler.setLevel(logging.WARNING)
+            handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+            handler.addFilter(scrub)
+            scheduler_logger.addHandler(handler)
 
 
 def register_secret(secret: str) -> None:
