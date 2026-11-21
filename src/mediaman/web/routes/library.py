@@ -18,7 +18,7 @@ from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
 from mediaman.core.time import now_utc
-from mediaman.services.infra import get_int_setting
+from mediaman.scanner.runner import get_day_setting
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES as ALL_SEASON_TYPES,
@@ -71,8 +71,8 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     tv = count_tv_shows(conn)
     anime = count_anime_shows(conn)
 
-    min_age = get_int_setting(conn, "min_age_days", default=30)
-    inactivity = get_int_setting(conn, "inactivity_days", default=30)
+    min_age = get_day_setting(conn, "min_age_days", default=30)
+    inactivity = get_day_setting(conn, "inactivity_days", default=30)
 
     now = now_utc()
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
