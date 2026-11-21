@@ -171,7 +171,7 @@
                  `| tojson`-encoded data-title for JSON.parse downstream.
                  A show row stands for several seasons, so its Delete carries
                  no item id, only the show key that opens the season list. #}
-              {% if item.is_tv and item.type_label != '1 season' %}
+              {% if item.is_tv and item.season_count != 1 %}
               <button class="btn btn--danger btn--sm" aria-haspopup="dialog"
                 data-show-rk="{{ item.show_rating_key }}" data-title='{{ item.title | tojson }}'
                 data-action="pick-season-delete">Delete</button>

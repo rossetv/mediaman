@@ -99,6 +99,46 @@ def test_show_row_delete_carries_no_season_id(client, conn, show_rating_key):
     assert button["data-show-rk"] == (show_rating_key or "Breaking Bad")
 
 
+def test_show_row_delete_ignores_the_label_wording(client, conn, monkeypatch):
+    from mediaman.web.repository.library_query import _query
+
+    real = _query._shape_rows
+
+    def reworded(*args, **kwargs):
+        items = real(*args, **kwargs)
+        for item in items:
+            item["type_label"] = "1 season"
+        return items
+
+    monkeypatch.setattr(_query, "_shape_rows", reworded)
+    _insert_show(conn, "show-rk")
+
+    (button,) = _delete_buttons(client.get("/library").text)
+
+    assert button["data-action"] == "pick-season-delete"
+    assert "data-id" not in button
+
+
+def test_single_season_show_row_deletes_directly(client, conn):
+    insert_media_item(
+        conn,
+        id="solo",
+        title="Solo S1",
+        media_type="tv_season",
+        show_title="Solo",
+        season_number=1,
+        plex_rating_key="rk-solo",
+        show_rating_key="solo-rk",
+        file_path="/media/tv/Solo",
+        file_size_bytes=1_000,
+    )
+
+    (button,) = _delete_buttons(client.get("/library").text)
+
+    assert button["data-action"] == "confirm-delete"
+    assert button["data-id"] == "solo"
+
+
 @pytest.mark.parametrize("show_rating_key", ["show-rk", None])
 def test_season_list_from_show_row_holds_every_grouped_season(client, conn, show_rating_key):
     _insert_show(conn, show_rating_key)

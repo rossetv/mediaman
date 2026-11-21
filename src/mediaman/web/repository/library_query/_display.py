@@ -112,6 +112,7 @@ def _shape_rows(
                 "subtitle": " · ".join(subtitle_parts),
                 "media_type": display_type,
                 "type_label": type_label,
+                "season_count": season_count if is_tv else None,
                 "type_css": type_css(display_type),
                 "plex_rating_key": r["plex_rating_key"],
                 "added_at": r["added_at"],
