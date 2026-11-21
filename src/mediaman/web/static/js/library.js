@@ -222,6 +222,9 @@
       keepChain.then(function () {
         if (failed.length) {
           window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
+          if (running && running.message) {
+            window.UIFeedback.toast(running.message, { duration: 8000 });
+          }
           btn.disabled = false;
           btn.textContent = 'Keep';
         } else {
