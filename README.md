@@ -13,7 +13,7 @@ openssl rand -hex 32 > mediaman.key   # keep this: it decrypts your stored setti
 docker run -d --name mediaman \
   -p 8282:8282 \
   -e MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" \
-  -e MEDIAMAN_DELETE_ROOTS=/media \
+  -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
   -v mediaman-data:/data \
   -v /path/to/your/media:/media \
   rossetv/mediaman
@@ -21,18 +21,19 @@ docker run -d --name mediaman \
 docker exec -it mediaman mediaman-create-user   # prompts for the first admin's name and password
 ```
 
-Mount your media at the same path Plex uses for it (`/media` here) and put that path in `MEDIAMAN_DELETE_ROOTS`: mediaman deletes the file at the path Plex reports, unchanged.
+Mount your media at the same path Plex uses for it (`/media` here) and list its library folders in `MEDIAMAN_DELETE_ROOTS`, separated by `:`: mediaman deletes the file at the path Plex reports, unchanged. A top-level mount such as `/media`, `/data`, `/mnt`, `/srv` or `/home` is refused as a root, and every scheduled deletion is refused with it.
 
-Open `http://<host>:8282`, log in, and enter your services under Settings: Plex, Sonarr, Radarr, NZBGet, Mailgun for the newsletter, TMDB and OMDb for metadata, and OpenAI if you want recommendations. Their keys and passwords are stored encrypted in the database in `/data`, under `MEDIAMAN_SECRET_KEY`.
+On a first install, leave `MEDIAMAN_DELETE_ROOTS` out until you have checked what the first scan schedules under Scheduled for deletion on the Dashboard. Nothing is deleted while it is unset; once you set it, the next scan deletes everything already past its grace period.
 
-Two things that may surprise you:
+Before you log in, put mediaman behind an HTTPS reverse proxy, or set `MEDIAMAN_FORCE_SECURE_COOKIES=false` on a network you trust. The session cookie is always marked `Secure`, so a browser on plain `http://` to anything but localhost drops it and you cannot stay logged in.
 
-- The session cookie is marked `Secure`, so a browser on plain `http://` to anything but localhost drops it and you cannot stay logged in. Put mediaman behind an HTTPS reverse proxy, or set `MEDIAMAN_FORCE_SECURE_COOKIES=false` on a network you trust.
-- Scheduled deletions remove files only inside `MEDIAMAN_DELETE_ROOTS`, and none run while it is unset. The Delete button on the Library page is not bound by it: it asks Radarr or Sonarr to delete the files, wherever they are.
+Then open `http://<host>:8282` (or your proxy's address), log in, and enter your services under Settings: Plex, Sonarr, Radarr, NZBGet, Mailgun for the newsletter, TMDB and OMDb for metadata, and OpenAI if you want recommendations. Their keys and passwords are stored encrypted in the database in `/data`, under `MEDIAMAN_SECRET_KEY`.
+
+Scheduled deletions remove files only inside `MEDIAMAN_DELETE_ROOTS`. The Delete button on the Library page is not bound by it: it asks Radarr or Sonarr to delete the files, wherever they are.
 
 The image is built from `main` for amd64 and arm64, tagged `latest` and `sha-<commit>`. `/healthz` answers 200 while the process is up; `/readyz` answers 503 unless the scheduler started and the key matches the one the database was created with.
 
-To upgrade, pull the image and recreate the container with the same key and the same `/data` volume. New tables and indexes are created on start, but existing tables are never altered, so a database from before 13 May 2026 is not supported.
+To upgrade, pull the image and recreate the container with the same key and the same `/data` volume. New tables and indexes are created on start, but existing tables are never altered, so a database last opened by a build from before 13 May 2026 is not supported.
 
 ```bash
 docker pull rossetv/mediaman
@@ -45,7 +46,7 @@ docker rm -f mediaman
 | Variable | Default | What it does |
 |---|---|---|
 | `MEDIAMAN_SECRET_KEY` | required | 64+ hex characters or 43+ URL-safe base64; a weak key stops startup |
-| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated directories scheduled deletions may delete from, as seen inside the container |
+| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated library folders scheduled deletions may delete from, as seen inside the container; `/media`, `/data`, `/mnt` and other top-level directories are refused |
 | `MEDIAMAN_PORT` | `8282` | Port to listen on |
 | `MEDIAMAN_DATA_DIR` | `/data` | Where the SQLite database lives |
 | `MEDIAMAN_BIND_HOST` | `0.0.0.0` in a container, else `127.0.0.1` | Address to bind |
