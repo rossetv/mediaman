@@ -1,9 +1,8 @@
-"""Domain-04 hardening tests for ``mediaman.web.models``.
+"""Hardening tests for ``mediaman.web.models``.
 
-These tests cover the changes added in the security pass: ``extra=
-"forbid"`` on the legacy ``LoginRequest`` / ``KeepRequest`` /
-``SubscriberCreate`` models, NUL rejection in the CRLF guard, the
-``DiskThresholds.thresholds`` size cap, and the per-field
+These tests cover ``extra="forbid"`` on the legacy ``LoginRequest`` /
+``KeepRequest`` / ``SubscriberCreate`` models, NUL rejection in the CRLF
+guard, the ``DiskThresholds.thresholds`` size cap, and the per-field
 ``max_length`` caps on ``SettingsUpdate``.
 """
 
