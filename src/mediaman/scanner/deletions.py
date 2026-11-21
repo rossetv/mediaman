@@ -71,6 +71,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
       must NOT fabricate a "deleted N bytes" audit row (that would corrupt
       the audit trail and the reclaimed-bytes stats — a security
       surface). Reset to ``pending`` and log loudly instead.
+    * File absent **but** its delete root is missing or empty -> the media
+      mount is likely down, so the absence proves nothing. Reset to
+      ``pending``.
     * File present -> the rm never ran. Reset to ``pending`` so the next
       normal run retries cleanly.
 
@@ -105,6 +108,15 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 "outside the configured delete_allowed_roots (or roots are "
                 "unconfigured). Refusing to fabricate a 'deleted' audit entry; "
                 "reverting status to 'pending' for operator review.",
+                row.id,
+                file_path,
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif not delete_root_available(file_path, allowed_roots):
+            logger.error(
+                "engine.delete.recover id=%s path=%r — file absent but its delete "
+                "root is missing or empty (media mount down?); reverting status "
+                "to 'pending' instead of booking it as deleted.",
                 row.id,
                 file_path,
             )

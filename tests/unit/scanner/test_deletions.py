@@ -220,6 +220,7 @@ class TestRecoverStuckDeletions:
         # roots — should log as already-deleted and remove the row.
         root = tmp_path / "library"
         root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         missing_path = str(root / "already_gone.mkv")
 
@@ -238,6 +239,38 @@ class TestRecoverStuckDeletions:
 
         row = conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m3'").fetchone()
         assert row is None  # Row removed — cleanup complete.
+
+    @pytest.mark.parametrize("root_state", ["missing", "empty"])
+    def test_file_gone_with_root_unavailable_is_not_booked_deleted(
+        self, conn, tmp_path, monkeypatch, root_state
+    ):
+        root = tmp_path / "library"
+        if root_state == "empty":
+            root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        _insert_media(conn, media_id="m3", file_path=str(root / "M" / "M.mkv"))
+        insert_scheduled_action(
+            conn,
+            media_item_id="m3",
+            action="scheduled_deletion",
+            token="tok-m3",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m3'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+        assert (
+            conn.execute(
+                "SELECT 1 FROM audit_log WHERE media_item_id='m3' AND action='deleted'"
+            ).fetchone()
+            is None
+        )
 
     def test_no_stuck_rows_is_noop(self, conn):
         # Must not raise when there are no deleting rows.
