@@ -150,7 +150,8 @@ def api_show_seasons(
 
     show_title = ""
     if season_rows:
-        show_title = fetch_show_title(conn, show_rating_key) or ""
+        # A show with no rating key is grouped, and so looked up, by its title.
+        show_title = fetch_show_title(conn, show_rating_key) or show_rating_key
 
     seasons = []
     for r in season_rows:

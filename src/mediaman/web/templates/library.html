@@ -135,7 +135,7 @@
             <div class="u-flex u-jc-end u-gap-sm">
               {% if item.protected %}
               <div class="keep-wrapper"
-                data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+                data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
                 <button type="button" class="keep-trigger keep-trigger--kept"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
@@ -148,12 +148,12 @@
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30 days">Keep 30 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90 days">Keep 90 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="forever">Keep forever</button>
-                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-id="{{ item.id | tojson }}">Remove keep</button>
+                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-id='{{ item.id | tojson }}'>Remove keep</button>
                 </div>
               </div>
               {% else %}
               <div class="keep-wrapper"
-                data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+                data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
                 <button type="button" class="keep-trigger"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Keep this item">
@@ -167,11 +167,19 @@
                   <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" data-keep-dur="forever">Forever</button>
                 </div>
               </div>
-              {# TODO: c.btn data_attrs uses `| e` escaping; this button needs
-                 `| tojson`-encoded data-title for JSON.parse downstream. #}
+              {# TODO: c.btn data_attrs uses `| e` escaping; these buttons need
+                 `| tojson`-encoded data-title for JSON.parse downstream.
+                 A show row stands for several seasons, so its Delete carries
+                 no item id, only the show key that opens the season list. #}
+              {% if item.is_tv and item.type_label != '1 season' %}
+              <button class="btn btn--danger btn--sm" aria-haspopup="dialog"
+                data-show-rk="{{ item.show_rating_key }}" data-title='{{ item.title | tojson }}'
+                data-action="pick-season-delete">Delete</button>
+              {% else %}
               <button class="btn btn--danger btn--sm"
-                data-id="{{ item.id }}" data-title="{{ item.title | tojson }}"
+                data-id="{{ item.id }}" data-title='{{ item.title | tojson }}'
                 data-action="confirm-delete">Delete</button>
+              {% endif %}
               {% endif %}
             </div>
           </td>
@@ -252,6 +260,20 @@
       {{ c.btn("Cancel", variant="ghost", size="sm",
                data_attrs={"action": "close-keep-dialog"}) }}
       {{ c.btn("Update", variant="primary", size="sm", id="keep-dialog-confirm") }}
+    </div>
+  </div>
+</div>
+
+{# TV Show Delete dialog: one Delete per season — wiring lives in static/js/library.js. #}
+<div class="keep-dialog-overlay" id="season-delete-overlay"
+     role="dialog" aria-modal="true" aria-labelledby="season-delete-title" aria-hidden="true">
+  <div class="keep-dialog">
+    <h3 id="season-delete-title">Delete seasons</h3>
+    <div class="keep-season-list" id="season-delete-list"></div>
+    <div class="keep-dialog-actions">
+      <div class="u-flex-1"></div>
+      {{ c.btn("Close", variant="ghost", size="sm",
+               data_attrs={"action": "close-season-delete"}) }}
     </div>
   </div>
 </div>

@@ -20,6 +20,7 @@
      scroll today and we shouldn't introduce that as a side effect. */
   var _keepDialogModal = null;
   var _deleteModal = null;
+  var _seasonDeleteModal = null;
 
   /**
    * Submit a keep/snooze request for a media item.
@@ -254,6 +255,64 @@
     if (_deleteModal) _deleteModal.close();
   }
 
+  /**
+   * Open the per-season Delete list for a grouped show row. Nothing is
+   * deleted from here: each season's own Delete goes through confirmDelete.
+   */
+  function openSeasonDelete(showRk, showTitle) {
+    var list = document.getElementById('season-delete-list');
+    document.getElementById('season-delete-title').textContent = 'Delete from ' + (showTitle || 'show');
+    if (_seasonDeleteModal) _seasonDeleteModal.open();
+    if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
+    list.textContent = 'Loading…';
+    MM.api.get('/api/show/' + encodeURIComponent(showRk) + '/seasons')
+      .then(function (data) { renderSeasonDeleteList(data, showTitle); })
+      .catch(function () { list.textContent = "Couldn't load seasons."; });
+  }
+
+  function renderSeasonDeleteList(data, showTitle) {
+    var list = document.getElementById('season-delete-list');
+    list.replaceChildren();
+    if (!data.seasons.length) { list.textContent = 'No seasons found.'; return; }
+    var title = data.show_title || showTitle;
+
+    data.seasons.forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'keep-season-item';
+      var name = document.createElement('span');
+      name.textContent = s.season_number != null ? 'Season ' + s.season_number : s.title;
+      row.appendChild(name);
+
+      var details = document.createElement('span');
+      details.className = 'keep-season-details';
+      var parts = [];
+      if (s.file_size) parts.push(s.file_size);
+      if (s.last_watched) parts.push('watched ' + s.last_watched);
+      else parts.push('never watched');
+      details.textContent = parts.join(' · ');
+      row.appendChild(details);
+
+      /* A kept season gets no Delete, as a kept row gets none on the page. */
+      if (s.kept || data.show_kept) {
+        var badge = document.createElement('span');
+        badge.className = 'pill pill--kept';
+        badge.textContent = 'Kept';
+        row.appendChild(badge);
+      } else {
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn--danger btn--sm';
+        del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          if (_seasonDeleteModal) _seasonDeleteModal.close();
+          confirmDelete(String(s.id), title + ' — ' + name.textContent);
+        });
+        row.appendChild(del);
+      }
+      list.appendChild(row);
+    });
+  }
+
   function removeKeep(mediaId) {
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
@@ -341,6 +400,20 @@
       if (confirmBtn) confirmBtn.addEventListener('click', confirmKeepDialog);
     }
 
+    /* Season Delete dialog: same markup and display rule as the Keep dialog. */
+    var seasonDeleteOverlay = document.getElementById('season-delete-overlay');
+    if (seasonDeleteOverlay) {
+      _seasonDeleteModal = MM.modal.setupDetail(seasonDeleteOverlay, {
+        activeClass: 'active',
+        manageBodyOverflow: false,
+        closeSelectors: ['[data-action="close-season-delete"]'],
+      });
+      var seasonDeleteCard = seasonDeleteOverlay.querySelector('.keep-dialog');
+      if (seasonDeleteCard) {
+        seasonDeleteCard.addEventListener('click', function (e) { e.stopPropagation(); });
+      }
+    }
+
     /* Mobile sort <select> — uses change event rather than inline onchange. */
     var mobileSort = document.getElementById('lib-mobile-sort-select');
     if (mobileSort) {
@@ -381,6 +454,14 @@
       var title;
       try { title = JSON.parse(deleteBtn.dataset.title); } catch (_) { title = ''; }
       confirmDelete(id, title);
+      return;
+    }
+    var showDeleteBtn = e.target.closest('[data-action="pick-season-delete"]');
+    if (showDeleteBtn) {
+      e.preventDefault();
+      var showTitle;
+      try { showTitle = JSON.parse(showDeleteBtn.dataset.title); } catch (_) { showTitle = ''; }
+      openSeasonDelete(showDeleteBtn.dataset.showRk || '', showTitle);
     }
   });
 
