@@ -7,11 +7,14 @@ import pytest
 from mediaman.db import init_db
 from mediaman.web.auth.login_lockout import (
     admin_unlock,
+    clear_unlocked_login_failures,
     is_locked_out,
+    login_key,
     record_failure,
     record_success,
 )
-from mediaman.web.auth.password_hash import authenticate, create_user
+from mediaman.web.auth.password_hash import authenticate, change_password, create_user
+from mediaman.web.auth.reauth import verify_reauth_password
 
 
 @pytest.fixture
@@ -490,3 +493,68 @@ class TestAdminUnlock:
         conn.rollback()
         # The lock should still be in place because admin_unlock didn't commit.
         assert is_locked_out(conn, "alice") is True
+
+
+def _seed_login_row(conn, username, *, count, locked_until):
+    conn.execute(
+        "INSERT INTO login_failures (username, failure_count, locked_until) VALUES (?, ?, ?)",
+        (login_key(username), count, locked_until),
+    )
+    conn.commit()
+
+
+def _login_row(conn, username):
+    return conn.execute(
+        "SELECT failure_count, locked_until FROM login_failures WHERE username = ?",
+        (login_key(username),),
+    ).fetchone()
+
+
+class TestLoginCounterAfterProvedPassword:
+    """A password proved by re-auth or password change clears typos, never a lock."""
+
+    @pytest.fixture
+    def user_conn(self, conn):
+        create_user(conn, "alice", "correct-password-99", enforce_policy=False)
+        return conn
+
+    @staticmethod
+    def _prove(kind, conn):
+        if kind == "reauth":
+            assert verify_reauth_password(conn, "alice", "correct-password-99") is True
+        else:
+            assert change_password(
+                conn, "alice", "correct-password-99", "another-password-77", enforce_policy=False
+            )
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    def test_success_clears_unlocked_failures(self, user_conn, kind):
+        _seed_login_row(user_conn, "alice", count=3, locked_until=None)
+        self._prove(kind, user_conn)
+        assert _login_row(user_conn, "alice") is None
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    def test_success_keeps_an_active_lock_and_its_count(self, user_conn, kind):
+        until = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+        _seed_login_row(user_conn, "alice", count=5, locked_until=until)
+        self._prove(kind, user_conn)
+        row = _login_row(user_conn, "alice")
+        assert (row["failure_count"], row["locked_until"]) == (5, until)
+
+    def test_expired_lock_is_cleared(self, user_conn):
+        past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        _seed_login_row(user_conn, "alice", count=5, locked_until=past)
+        clear_unlocked_login_failures(user_conn, "alice")
+        assert _login_row(user_conn, "alice") is None
+
+    def test_corrupt_lock_value_stays_locked(self, user_conn):
+        _seed_login_row(user_conn, "alice", count=5, locked_until="garbage")
+        clear_unlocked_login_failures(user_conn, "alice")
+        assert _login_row(user_conn, "alice") is not None
+
+    def test_wrong_passwords_write_no_login_row(self, user_conn):
+        assert verify_reauth_password(user_conn, "alice", "wrong") is False
+        assert not change_password(
+            user_conn, "alice", "wrong", "another-password-77", enforce_policy=False
+        )
+        assert _login_row(user_conn, "alice") is None
