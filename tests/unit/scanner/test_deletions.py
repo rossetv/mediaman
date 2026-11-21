@@ -372,7 +372,7 @@ class TestEmptyFilePathParking:
         self, conn, tmp_path, monkeypatch
     ):
         """A pending deletion whose ``file_path`` is empty must not cycle
-        forever between 'deleting' and 'pending' (R7-M1).
+        forever between 'deleting' and 'pending'.
 
         ``delete_path("")`` always refuses and recovery always resets it to
         pending, so without intervention the row livelocks invisibly. The
@@ -419,7 +419,7 @@ class TestDryRunDoesNotRecover:
     def test_dry_run_does_not_mutate_stuck_deletions(self, conn, tmp_path, monkeypatch):
         """A dry-run preview must mutate nothing — including not running
         stuck-deletion recovery, which commits real state changes and audit
-        rows (R7-L1).
+        rows.
 
         A row left in the 'deleting' state must be untouched after a dry-run
         execute; only a live pass may reconcile it.

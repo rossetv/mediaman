@@ -129,7 +129,7 @@ def _reset_db_connection_state():
 class _FakeHTTPSession:
     """Captures HTTP calls for tests that used to patch ``requests.get/post/...``.
 
-    Install via the :func:`fake_http` fixture. Tests configure queued
+    Install via the ``fake_http`` fixture. Tests configure queued
     responses (one per verb or per call) and assert on the captured
     arguments afterwards.
     """
@@ -195,9 +195,9 @@ def _fake_response(*, status=200, json_data=None, text="", content=None, headers
 
 @pytest.fixture
 def fake_http(monkeypatch):
-    """Patch the :class:`SafeHTTPClient` transport for a single test.
+    """Patch the ``SafeHTTPClient`` transport for a single test.
 
-    Returns a :class:`_FakeHTTPSession`. Tests queue responses per verb
+    Returns a ``_FakeHTTPSession``. Tests queue responses per verb
     (``fh.queue('GET', _fake_response(...))``) or set a default
     (``fh.default(...)``). The underlying ``_dispatch`` helper is
     monkey-patched to route through the fake, so every outbound call
@@ -239,7 +239,7 @@ def secret_key():
     """Provide a strong test secret key (64 hex chars, ~256 bits).
 
     Deterministic so tests get reproducible HMAC outputs; passes the
-    entropy check in :mod:`mediaman.config`.
+    entropy check in ``mediaman.config``.
     """
     return "0123456789abcdef" * 4  # 64 hex chars, 16 unique, test-stable
 

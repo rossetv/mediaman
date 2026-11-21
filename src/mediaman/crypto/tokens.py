@@ -97,7 +97,7 @@ class PollTokenPayload(TypedDict):
     token is ever invalidated, so any holder can replay it until ``exp``.
     Replay protection during the short TTL is provided solely by the
     expiry check; if stronger semantics are needed later, add a
-    used-tokens table and check it in :func:`validate_poll_token`."""
+    used-tokens table and check it in ``validate_poll_token()``."""
     exp: int | float
     """UNIX timestamp at which the token expires."""
 

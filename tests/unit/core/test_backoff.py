@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`mediaman.services.infra.backoff`.
+"""Unit tests for ``mediaman.services.infra.backoff``.
 
 Covers plain growth, capped growth, deterministic jitter (same seed →
 same multiplier), and the ValueError guard that prevents non-deterministic

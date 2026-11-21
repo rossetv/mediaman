@@ -314,21 +314,17 @@ def run_scan_from_db(
         return {}
     plex, lib_ids, lib_types, lib_titles = result
 
-    # ── Disk threshold filtering ────────────────────────────────────────────
     if not skip_disk_check:
         lib_ids = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
 
-    # ── Optional *arr clients ────────────────────────────────────────────────
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
 
-    # ── Thresholds ───────────────────────────────────────────────────────────
     min_age = _get_int_setting(conn, "min_age_days", default=30)
     inactivity = _get_int_setting(conn, "inactivity_days", default=30)
     grace = _get_int_setting(conn, "grace_days", default=14)
     dry_run = repository.read_setting(conn, "dry_run") == "true"
 
-    # ── Run ──────────────────────────────────────────────────────────────────
     engine = ScanEngine(
         conn=conn,
         plex_client=plex,

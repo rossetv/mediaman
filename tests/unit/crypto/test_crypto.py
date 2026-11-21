@@ -446,7 +446,7 @@ class TestValidatePayloadCap:
     def test_oversized_payload_rejected_without_hmac_call(self, monkeypatch):
         """A 100 KB payload must short-circuit before ``_sign`` is invoked.
 
-        We patch :func:`_sign` to raise — if the cap fires correctly,
+        We patch ``_sign()`` to raise — if the cap fires correctly,
         the patched function is never called. If the cap is missing,
         the AssertionError below fires.
         """

@@ -134,7 +134,7 @@ class TestOrphanGuard:
 
 
 class TestHistoryFetchFailureNeverPrunes:
-    """R7-H1: a transient watch-history fetch failure must NEVER cause an
+    """A transient watch-history fetch failure must NEVER cause an
     item's ``media_items`` row or its pending ``scheduled_actions`` to be
     pruned by orphan removal.
 

@@ -78,7 +78,6 @@ def load_config() -> Config:
             'python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
-    # ── Port ──────────────────────────────────────────────────────────────────
     raw_port = os.environ.get("MEDIAMAN_PORT", "8282").strip()
     try:
         port = int(raw_port)
@@ -87,12 +86,10 @@ def load_config() -> Config:
     if not (1 <= port <= 65535):
         raise ConfigError(f"MEDIAMAN_PORT must be between 1 and 65535, got {port}")
 
-    # ── Data directory ────────────────────────────────────────────────────────
     data_dir = os.environ.get("MEDIAMAN_DATA_DIR", "/data").strip()
     if not data_dir:
         raise ConfigError("MEDIAMAN_DATA_DIR must not be empty")
 
-    # ── Bind host ─────────────────────────────────────────────────────────────
     # Empty string means "unset" — let cli_main fall through to
     # _resolve_bind_host() which is Docker-aware. That way a fresh
     # container deployment binds to 0.0.0.0 (the only address reachable
@@ -100,7 +97,6 @@ def load_config() -> Config:
     # presenting a "healthy but unreachable" service.
     bind_host = os.environ.get("MEDIAMAN_BIND_HOST", "").strip()
 
-    # ── Trusted proxies ───────────────────────────────────────────────────────
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
 
     # ``MEDIAMAN_DELETE_ROOTS`` is intentionally not snapshotted here —

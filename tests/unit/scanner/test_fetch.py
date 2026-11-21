@@ -2,7 +2,7 @@
 
 Covers PlexFetcher.fetch_library_items for both movie and show libraries,
 including watch-history error tolerance and the skipped-key set that
-protects history-fetch failures from orphan pruning (R7-H1).
+protects history-fetch failures from orphan pruning.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class TestFetchMovieLibrary:
 
         The fetcher fails closed: the item is excluded from ``items`` AND
         its key is recorded in ``skipped_keys`` so the engine can protect
-        it from orphan pruning (R7-H1). A future scan retries once Plex is
+        it from orphan pruning. A future scan retries once Plex is
         healthy again.
         """
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
@@ -130,7 +130,7 @@ class TestFetchShowLibrary:
         A transient Plex 500 on a season's watch-history fetch must NOT
         reclassify the season as never-watched. The season is dropped from
         ``items`` and recorded in ``skipped_keys`` so orphan removal cannot
-        prune it on a scan that merely failed to fetch its history (R7-H1).
+        prune it on a scan that merely failed to fetch its history.
         """
         plex = _make_plex(seasons=[_make_season("201"), _make_season("202")])
         plex.get_season_watch_history.side_effect = [

@@ -89,7 +89,7 @@ def make_scheduled_action(
 
 
 def insert_media_item(conn: sqlite3.Connection, **fields) -> str:
-    """Persist a ``media_items`` row using the dict shape from :func:`make_media_item`.
+    """Persist a ``media_items`` row using the dict shape from ``make_media_item()``.
 
     Returns the row's ``id``. Any field not supplied falls back to the
     factory's default — pass overrides for whatever the test cares about.
@@ -425,7 +425,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
 
 
 def insert_admin_user(conn: sqlite3.Connection, **fields) -> int:
-    """Persist an ``admin_users`` row via :func:`~mediaman.web.auth.password_hash.create_user`.
+    """Persist an ``admin_users`` row via ``mediaman.web.auth.password_hash.create_user()``.
 
     Returns the new row's id.  Defaults to username ``"admin"`` with
     password ``"password1234"`` so most tests need zero arguments.
