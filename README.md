@@ -5,7 +5,7 @@
 
 mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatched items for deletion, emails a newsletter where readers can keep them, and drives Sonarr, Radarr and NZBGet from a web UI.
 
-![The scan queues a stale movie with a grace period set in Settings, and the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
+![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
 
 ## Run it
 
@@ -30,7 +30,7 @@ Open `http://<host>:8282`, log in and add your services under Settings:
 
 ![mediaman needs Plex to scan; Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and OpenAI are optional. It keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
 
-Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now and check Scheduled for deletion on the Dashboard. Then `docker rm -f mediaman` and rerun your own `docker run` plus this line, naming your library folders separated by `:`. The next scan deletes everything past its grace period.
+Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now and check Scheduled for deletion on the Dashboard. Then `docker rm -f mediaman` and rerun your own `docker run` with this line above the image name, naming your library folders separated by `:`. The next scan deletes everything past its grace period, with no newsletter or Keep link unless Mailgun, a Base URL readers can reach and a subscriber are set.
 
 ```bash
   -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
@@ -50,7 +50,7 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 | `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletion | Library folders scheduled deletion may delete from, as seen inside the container, separated by `:` |
 | `MEDIAMAN_FORCE_SECURE_COOKIES` | unset: always `Secure` | `false` allows login over plain HTTP and also turns HSTS off |
 
-[`.env.example`](.env.example) explains `MEDIAMAN_PORT`, `MEDIAMAN_BIND_HOST`, `MEDIAMAN_DATA_DIR` and `MEDIAMAN_TRUSTED_PROXIES`. Rarely needed: `MEDIAMAN_ALLOWED_HOSTS`, `MEDIAMAN_HSTS_ENABLED`, `MEDIAMAN_MAX_REQUEST_BYTES`, `MEDIAMAN_MEDIA_PATH`, `MEDIAMAN_STRICT_EGRESS`, `MEDIAMAN_CLOUDFLARE_PROXIES`, `MEDIAMAN_FINGERPRINT_MODE`, `MEDIAMAN_REAUTH_WINDOW_SECONDS`, `MEDIAMAN_HSTS_PRELOAD`, `MEDIAMAN_WORKERS`, `MEDIAMAN_EAGER_APP`.
+[`.env.example`](.env.example) describes the rest, with defaults: port, data folder, reverse proxies, allowed hosts, HSTS and other rarely needed settings.
 
 ## Development
 
