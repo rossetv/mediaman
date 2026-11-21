@@ -365,3 +365,16 @@ class TestSecurityTitleHoist:
         # Must be the event name, not "plex_token".
         assert items[0]["title"] == "settings.write"
         assert items[0]["title"] != "plex_token"
+
+
+class TestDeleteFailedAction:
+    def test_failed_delete_is_labelled_and_filterable(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
+        _insert_audit_row(conn, action="delete_failed")
+        _insert_audit_row(conn, action="scanned", media_item_id="m2")
+        body = client.get("/api/history", params={"action": "delete_failed"}).json()
+        assert body["total"] == 1
+        item = body["items"][0]
+        assert item["action_label"] == "delete failed"
+        assert item["badge_class"] == "badge-action-deleted"
