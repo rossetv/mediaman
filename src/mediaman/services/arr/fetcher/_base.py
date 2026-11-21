@@ -3,7 +3,7 @@
 The ``make_arr_card`` factory is the single card constructor used by both
 the Radarr and Sonarr fetcher modules.  ``_make_radarr_card`` and
 ``_make_sonarr_card`` remain as one-line shims in those modules so that
-existing test imports continue to work.
+tests can import them from there.
 """
 
 from __future__ import annotations

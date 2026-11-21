@@ -2,14 +2,11 @@
 
 Both `mediaman.web.auth.session_store` and `mediaman.web.auth.reauth`
 need to derive the at-rest hash of a session token in order to look up
-or revoke the matching row.  Historically each module carried its own
-private ``_hash_token`` helper with an identical SHA-256 implementation.
-Two definitions that MUST stay byte-for-byte identical is exactly the
-sort of thing that drifts silently — if one side moves to SHA-512 and
-the other doesn't, every reauth ticket suddenly stops matching its
-session and the symptom shows up only in the logs.
+or revoke the matching row.  Both sides MUST hash identically: if one
+moved to SHA-512 and the other did not, every reauth ticket would stop
+matching its session and the symptom would show up only in the logs.
 
-Centralise the hash here so a future change touches one place.
+The hash lives here so a change touches one place.
 """
 
 from __future__ import annotations

@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
     """Return the raw ``settings.value`` for *key*, or ``None`` if absent.
 
-    The single repository entry point for the duplicated inline
-    ``SELECT value FROM settings WHERE key=?`` reads that previously lived
-    in runner and phases.delete (the repository owns
+    The single repository entry point for
+    ``SELECT value FROM settings WHERE key=?`` reads (the repository owns
     the SQL). The value is returned verbatim (no JSON / bool coercion);
     callers parse it for their own needs. A missing row and a row with a
     SQL ``NULL`` value both yield ``None``.

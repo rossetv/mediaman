@@ -127,7 +127,7 @@ def _reset_db_connection_state():
 
 
 class _FakeHTTPSession:
-    """Captures HTTP calls for tests that used to patch ``requests.get/post/...``.
+    """Captures HTTP calls for tests that would otherwise patch ``requests.get/post/...``.
 
     Install via the ``fake_http`` fixture. Tests configure queued
     responses (one per verb or per call) and assert on the captured

@@ -100,7 +100,7 @@ def _build_csp(nonce: str) -> str:
     )
 
 
-# Backward-compatible representative CSP value for tests and tooling
+# Representative CSP value for tests and tooling
 # that need a static string snapshot of the policy.  The placeholder
 # obviously is not a real per-request value — call `_build_csp`
 # for the runtime header.

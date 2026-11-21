@@ -1,7 +1,7 @@
 """Redownload route (POST /api/media/redownload), its request schema and rate-limiter
 singleton.
 
-The barrel re-exports the public names so existing test patch targets keep working. The flow
+The barrel re-exports the public names so tests can patch them here. The flow
 is split across ._redownload_match (shared matcher and audit-ID picker, re-exported here),
 ._redownload_radarr and ._redownload_sonarr.
 """

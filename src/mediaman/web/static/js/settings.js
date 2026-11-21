@@ -5,7 +5,7 @@
  * `MM.settings.<area>.init()`; this file ties them to DOMContentLoaded
  * so the page wires up after every defer'd module has executed.
  *
- * Lives outside the inline <script> the template used to carry because
+ * Lives outside an inline <script> because
  * page-level inline scripts have no CSP nonce — the browser refuses to
  * execute them under the strict script-src policy.
  * See web/middleware/security_headers.py.

@@ -32,7 +32,7 @@ from mediaman.web.repository.kept import (
     fetch_show_title,
 )
 from mediaman.web.repository.kept import (
-    resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — backwards-compat re-export for tests
+    resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — re-exported so tests can import it
 )
 from mediaman.web.repository.library_query import ANIME_SEASON_TYPES, TV_SEASON_TYPES
 from mediaman.web.responses import respond_err, respond_ok

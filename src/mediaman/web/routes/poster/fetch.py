@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # SSRF allowlist derived from the current settings on every request so a
 # just-saved integration host is honoured without a restart.
 _POSTER_SESSION = requests.Session()
-# Back-compat stub-target for tests; production routes via _make_poster_client.
+# Stub target for tests; production routes via _make_poster_client.
 _POSTER_HTTP = SafeHTTPClient(
     session=_POSTER_SESSION,
     default_timeout=(3.0, 3.0),

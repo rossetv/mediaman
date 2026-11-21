@@ -1,8 +1,7 @@
 """download_format package — pure format, parse, and classification helpers.
 
-All previously-public symbols are re-exported from this ``__init__`` so
-existing imports such as ``from mediaman.services.downloads.download_format import
-build_item`` continue to work without modification.
+All public symbols are re-exported from this ``__init__`` so imports such as
+``from mediaman.services.downloads.download_format import build_item`` work.
 """
 
 from __future__ import annotations

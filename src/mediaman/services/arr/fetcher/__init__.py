@@ -2,13 +2,13 @@
 
 Public entry points:
 
-- ``fetch_arr_queue`` -- backward-compatible, returns a plain list of cards.
+- ``fetch_arr_queue`` -- returns a plain list of cards.
 - ``fetch_arr_queue_result`` -- returns a ``FetchResult`` that also
   carries any fetch errors so the UI can display a banner.
 
-All previously-public symbols are re-exported here so existing imports such as
+All public symbols are re-exported here so imports such as
 ``from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue``
-continue to work without modification.
+work.
 """
 
 from __future__ import annotations

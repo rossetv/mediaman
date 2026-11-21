@@ -630,8 +630,7 @@ class TestCanaryFailureAudits:
         is_canary_valid(conn, secret_key)  # seed
         _store_secret(conn, "plex_token", "tok", secret_key)
         # Fail with a different valid-shape key; supply the audit callback so
-        # the failure reason is written to audit_log (audit writing was moved
-        # out of crypto/ to the caller layer).
+        # the failure reason is written to audit_log.
         ok = is_canary_valid(
             conn,
             "fedcba9876543210" * 4,
