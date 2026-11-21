@@ -195,9 +195,11 @@ def sanitise_trusted_proxies(raw: str) -> str:
 
     Sanitisation rules:
 
-    * Reject the literal wildcards in _FORBIDDEN_TRUSTED_PROXY_TOKENS
-      with a ``CRITICAL`` log line; return the empty string so
-      the caller falls through to the proxy-headers-OFF branch.
+    * Drop the literal wildcards in _FORBIDDEN_TRUSTED_PROXY_TOKENS, and
+      any entry that matches every address, with a ``CRITICAL`` log line
+      each; the other entries are kept. The result is empty, and the
+      caller falls through to the proxy-headers-OFF branch, only when no
+      entry survives.
     * Drop any entry that fails ipaddress.ip_network parsing
       (single IPs are accepted because ``ip_network('10.0.0.1')`` is a
       valid /32 network); log a WARNING per dropped entry so a typo is
