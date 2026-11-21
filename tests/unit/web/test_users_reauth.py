@@ -252,6 +252,19 @@ class TestAdminUnlockEndpoint:
         assert body["had_lock"] is True
         assert is_locked_out(conn, "other") is False
 
+    def test_unlock_reports_no_lock_when_only_failures_were_counted(
+        self, app_factory, authed_client, conn
+    ):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
+        target_id = _make_other_user(conn)
+        record_failure(conn, "other")
+
+        resp = client.post(f"/api/users/{target_id}/unlock")
+
+        assert resp.status_code == 200
+        assert resp.json()["had_lock"] is False
+        assert conn.execute("SELECT COUNT(*) FROM login_failures").fetchone()[0] == 0
+
     def test_unlock_refuses_self(self, app_factory, authed_client, conn):
         client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
         admin_id = conn.execute("SELECT id FROM admin_users WHERE username='admin'").fetchone()[

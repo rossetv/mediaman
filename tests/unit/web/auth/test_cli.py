@@ -24,6 +24,7 @@ class TestCreateUserCli:
         """``mediaman-create-user`` with no flags must prompt."""
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
         # Replace stdin so input() returns the username.
         monkeypatch.setattr("builtins.input", lambda *_a, **_kw: "alice")
@@ -53,6 +54,7 @@ class TestCreateUserCli:
         """Three blank username inputs in a row exit non-zero."""
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
         monkeypatch.setattr("builtins.input", lambda *_a, **_kw: "")
         monkeypatch.setattr(cli_mod.getpass, "getpass", lambda *_a, **_kw: "x")
 
@@ -91,6 +93,35 @@ class TestCreateUserCli:
 
         assert excinfo.value.code == 1
         assert "--password-stdin" in capsys.readouterr().err
+
+    def test_no_terminal_prints_nothing_before_the_error(self, monkeypatch, tmp_path, capsys):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO("alice\nCorrect-Horse-Battery-9!\n"))
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert len(captured.err.strip().splitlines()) == 1
+
+    def test_no_terminal_for_the_password_prompt_prints_no_getpass_warning(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user", "--username", "bob"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert len(captured.err.strip().splitlines()) == 1
+        assert "--password-stdin" in captured.err
 
     def test_password_stdin_reads_one_line(self, monkeypatch, tmp_path):
         """``--password-stdin`` consumes a single line from stdin."""
