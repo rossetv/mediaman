@@ -21,16 +21,18 @@ docker run -d --name mediaman \
 docker exec -it mediaman mediaman-create-user   # prompts for the first admin's name and password
 ```
 
+Mount your media at the same path Plex uses for it (`/media` here) and put that path in `MEDIAMAN_DELETE_ROOTS`: mediaman deletes the file at the path Plex reports, unchanged.
+
 Open `http://<host>:8282`, log in, and enter your services under Settings: Plex, Sonarr, Radarr, NZBGet, Mailgun for the newsletter, TMDB and OMDb for metadata, and OpenAI if you want recommendations. Their keys and passwords are stored encrypted in the database in `/data`, under `MEDIAMAN_SECRET_KEY`.
 
 Two things that may surprise you:
 
 - The session cookie is marked `Secure`, so a browser on plain `http://` to anything but localhost drops it and you cannot stay logged in. Put mediaman behind an HTTPS reverse proxy, or set `MEDIAMAN_FORCE_SECURE_COOKIES=false` on a network you trust.
-- mediaman deletes only inside `MEDIAMAN_DELETE_ROOTS`, and refuses every deletion when it is unset. Leave it out and mount your media `:ro` if you want it never to delete.
+- Scheduled deletions remove files only inside `MEDIAMAN_DELETE_ROOTS`, and none run while it is unset. The Delete button on the Library page is not bound by it: it asks Radarr or Sonarr to delete the files, wherever they are.
 
 The image is built from `main` for amd64 and arm64, tagged `latest` and `sha-<commit>`. `/healthz` answers 200 while the process is up; `/readyz` answers 503 unless the scheduler started and the key matches the one the database was created with.
 
-To upgrade, pull the image and recreate the container with the same key and the same `/data` volume; the database migrates itself on start.
+To upgrade, pull the image and recreate the container with the same key and the same `/data` volume. New tables and indexes are created on start, but existing tables are never altered, so a database from before 13 May 2026 is not supported.
 
 ```bash
 docker pull rossetv/mediaman
@@ -43,7 +45,7 @@ docker rm -f mediaman
 | Variable | Default | What it does |
 |---|---|---|
 | `MEDIAMAN_SECRET_KEY` | required | 64+ hex characters or 43+ URL-safe base64; a weak key stops startup |
-| `MEDIAMAN_DELETE_ROOTS` | unset: no deletions | Colon-separated directories mediaman may delete from, as seen inside the container |
+| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletions | Colon-separated directories scheduled deletions may delete from, as seen inside the container |
 | `MEDIAMAN_PORT` | `8282` | Port to listen on |
 | `MEDIAMAN_DATA_DIR` | `/data` | Where the SQLite database lives |
 | `MEDIAMAN_BIND_HOST` | `0.0.0.0` in a container, else `127.0.0.1` | Address to bind |
@@ -68,8 +70,10 @@ pip install "bandit[toml]" pip-audit   # make check also runs these
 make check   # ruff, ruff format --check, mypy, bandit, pip-audit, pytest with the coverage floor
 
 mkdir -p data
-MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32) MEDIAMAN_DATA_DIR=./data \
-  MEDIAMAN_FORCE_SECURE_COOKIES=false mediaman   # serves http://127.0.0.1:8282
+[ -f mediaman.key ] || openssl rand -hex 32 > mediaman.key   # reuse one key: the database is bound to it
+export MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" MEDIAMAN_DATA_DIR=./data MEDIAMAN_FORCE_SECURE_COOKIES=false
+mediaman-create-user   # once, for the first admin
+mediaman               # serves http://127.0.0.1:8282
 ```
 
 `docker-compose.yml` builds the image from source instead of pulling it. See [CONTRIBUTING.md](CONTRIBUTING.md) to send a change and [SECURITY.md](SECURITY.md) to report a vulnerability. MIT licence, see [LICENSE](LICENSE).
