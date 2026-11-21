@@ -221,26 +221,12 @@ def api_send_newsletter(
         )
 
     try:
-        send_newsletter(
+        result = send_newsletter(
             conn=conn,
             secret_key=config.secret_key,
             recipients=recipients,
             mark_notified=False,
         )
-        logger.info(
-            "Manual newsletter sent to %d recipients by %s (rejected=%d)",
-            len(recipients),
-            admin,
-            rejected,
-        )
-        security_event(
-            conn,
-            event="newsletter.sent",
-            actor=admin,
-            ip=get_client_ip(request),
-            detail={"sent_to": len(recipients), "rejected": rejected},
-        )
-        return respond_ok({"sent_to": len(recipients)})
     except (
         SafeHTTPError,
         requests.RequestException,
@@ -250,6 +236,32 @@ def api_send_newsletter(
     ):
         logger.exception("Manual newsletter send failed")
         return respond_err("send_failed", status=502, message="Newsletter send failed")
+
+    if not result.configured:
+        return respond_err(
+            "mailgun_not_configured", status=400, message="Email sending is not set up"
+        )
+    if result.attempted == 0:
+        return respond_ok({"sent_to": 0, "message": "Nothing to send right now"})
+    if result.sent == 0:
+        logger.error("Manual newsletter send failed for all %d recipients", result.attempted)
+        return respond_err("send_failed", status=502, message="Newsletter send failed")
+
+    logger.info(
+        "Manual newsletter sent to %d of %d recipients by %s (rejected=%d)",
+        result.sent,
+        result.attempted,
+        admin,
+        rejected,
+    )
+    security_event(
+        conn,
+        event="newsletter.sent",
+        actor=admin,
+        ip=get_client_ip(request),
+        detail={"sent_to": result.sent, "rejected": rejected},
+    )
+    return respond_ok({"sent_to": result.sent})
 
 
 def _render_result(

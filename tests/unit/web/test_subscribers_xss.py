@@ -9,6 +9,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+from mediaman.services.mail.newsletter import SendResult
 from mediaman.web.routes.subscribers import _validate_email
 from mediaman.web.routes.subscribers import (
     router as subscribers_router,
@@ -123,6 +124,7 @@ class TestNewsletterRecipientHeaderInjection:
 
         def _fake_send(*, conn, secret_key, recipients, mark_notified):
             captured["recipients"] = list(recipients)
+            return SendResult(sent=len(recipients), attempted=len(recipients))
 
         with patch("mediaman.services.mail.newsletter.send_newsletter", side_effect=_fake_send):
             resp = client.post(
