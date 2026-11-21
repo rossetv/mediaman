@@ -2,7 +2,7 @@
 
 Owns the "build the Jinja template, gather TMDB/Sonarr/Radarr metadata,
 and render the email payload" concern.  Split from
-:mod:`mediaman.services.downloads.notifications` so the orchestration
+mediaman.services.downloads.notifications so the orchestration
 file stays scannable; the orchestrator drives DB claims, *arr probes,
 and Mailgun dispatch only.
 
@@ -35,15 +35,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class SuggestionsMeta:
-    """Metadata from the ``suggestions`` table for a single TMDB entry.
+    """Metadata from the suggestions table for one TMDB entry, so callers do not depend on
+    its column order.
 
-    Replaces raw ``sqlite3.Row`` at the module boundary (§9.5) so both
-    ``notifications.py`` and ``_notification_email.py`` are decoupled from
-    the column order and names of the ``suggestions`` table.
-
-    All numeric DB columns (``year``, ``runtime``) are pre-converted to
-    ``str`` so downstream template rendering never sees ``int`` in a
-    ``dict[str, str]`` context.
+    Numeric columns (year, runtime) are pre-converted to str for the template.
     """
 
     tmdb_id: int
@@ -57,7 +52,6 @@ class SuggestionsMeta:
     poster_url: str
 
 
-# ---------------------------------------------------------------------------
 # Module-cached Jinja template.
 #
 # ``check_download_notifications`` is called once per library sync. Building
@@ -72,18 +66,14 @@ class SuggestionsMeta:
 # and race to construct the Jinja environment (TOCTOU).
 # Note: the Template object holds a strong reference to its Environment — a
 # separate module-level env var would be dead state, so only the template is kept.
-# ---------------------------------------------------------------------------
 _NOTIFICATION_TEMPLATE: Template | None = None
 _NOTIFICATION_LOCK = threading.Lock()
 
 
 def get_notification_template() -> Template:
-    """Return the cached ``download_ready.html`` Jinja template.
-
-    Built lazily on first use rather than at import time so unit tests
-    that never trigger this code path don't pay the Jinja import cost.
-    Thread-safe: _NOTIFICATION_LOCK prevents a TOCTOU race in the
-    APScheduler thread pool.
+    """Return the cached download_ready.html template, built lazily so tests that never
+    reach this path skip the Jinja import cost. _NOTIFICATION_LOCK prevents a race in
+    the scheduler thread pool.
     """
     global _NOTIFICATION_TEMPLATE
     if _NOTIFICATION_TEMPLATE is not None:
@@ -105,11 +95,8 @@ def gather_email_meta(
     movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, SuggestionsMeta],
 ) -> dict[str, str]:
-    """Assemble rich metadata dict for a notification email.
-
-    Merges the suggestions-cache row (batch-fetched upstream) with a
-    Radarr poster fallback.  Returns a flat dict of string values safe to
-    pass directly to the Jinja template.
+    """Merge the batch-fetched suggestions row with a Radarr poster fallback into a flat
+    dict of strings for the template.
     """
     tmdb_id = row.tmdb_id
     service = row.service
@@ -155,10 +142,6 @@ def build_email_payload(
     suggestions_by_tmdb: dict[int, SuggestionsMeta],
     template: Template,
 ) -> tuple[str, str]:
-    """Build the email subject and rendered HTML body for a ready notification.
-
-    Returns ``(subject, html)``.
-    """
     title = row.title
     media_type = row.media_type
 

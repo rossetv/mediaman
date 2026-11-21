@@ -17,11 +17,6 @@ def _build_scheduled_card(
     base_url: str,
     secret_key: str,
 ) -> ScheduledNewsletterItem:
-    """Build one scheduled-deletion card dict from a DB row.
-
-    Computes the signed poster URL, the human-readable last-watched label,
-    and the media-type label.  Pure function — no DB access.
-    """
     added_days_ago = _parse_days_ago(row["added_at"], now)
     rating_key = row["plex_rating_key"] or ""
     poster_url = (
@@ -70,14 +65,11 @@ def _load_scheduled_items(
     now: datetime,
     mark_notified: bool,
 ) -> list[ScheduledNewsletterItem]:
-    """Query and build the scheduled-deletion card list.
+    """Query the scheduled-deletion cards: only unnotified rows when *mark_notified*, all
+    pending-token rows otherwise.
 
-    When *mark_notified* is True (automated send), only unnotified rows are
-    included.  When False (manual send), all pending-token rows are included.
-    Items are sorted oldest-first (largest ``added_days_ago`` at the top).
-    Items whose ``added_days_ago`` is ``None`` (corrupt timestamp) sort to
-    the end so they surface as "unknown age" rather than silently appearing
-    as "most recent".
+    Sorted oldest first; items with a corrupt timestamp (added_days_ago None) sort last
+    as unknown age rather than as most recent.
     """
     if mark_notified:
         rows = conn.execute(
@@ -100,7 +92,7 @@ def _load_scheduled_items(
 
     items = [_build_scheduled_card(row, now, base_url, secret_key) for row in rows]
 
-    # F-15: sort oldest-first; items with None added_days_ago (corrupt timestamp)
+    # Sort oldest-first; items with None added_days_ago (corrupt timestamp)
     # sort to the end (key=-1) rather than mapping to 0 which would silently
     # promote them to "most recent".
     def _sort_key(x: ScheduledNewsletterItem) -> int:
@@ -117,22 +109,14 @@ def _mark_notified(
     *,
     active_recipients: list[str],
 ) -> None:
-    """Mark scheduled action rows as notified=1 once every active subscriber
-    has been delivered to.
+    """Set notified=1 for action ids delivered to every active subscriber.
 
-    Only flips ``notified=1`` for action IDs where the set of successfully
-    delivered subscribers (non-NULL ``sent_at`` rows in ``newsletter_deliveries``)
-    is a superset of *active_recipients*.  Items with partial delivery remain
-    at ``notified=0`` for re-attempt on the next tick.
+    An id qualifies when its non-NULL sent_at rows in newsletter_deliveries cover
+    *active_recipients*; partially delivered items stay at 0 for the next tick. The
+    caller decides which items to include.
 
-    The filtering of *which* items to include is controlled by the caller
-    (:func:`_load_scheduled_items`) — when ``mark_notified=True`` only
-    unnotified rows are loaded, so this function never sees already-notified
-    ids.
-
-    Asserts all ids are integers before building the parameterised query so a
-    non-integer id (e.g. from a corrupt row) surfaces as a clear error rather
-    than silently passing a string through to the SQL engine.
+    Asserts ids are integers before building the query so a corrupt row fails loudly
+    instead of passing a string to SQL.
     """
     action_ids = [int(item["_action_id"]) for item in scheduled_items]
     if not action_ids:
@@ -159,7 +143,7 @@ def _mark_notified(
     if fully_delivered:
         placeholders = ",".join("?" * len(fully_delivered))
         # rationale: placeholder list built from validated integer IDs only; no user input reaches this interpolation
-        # F-08: wrap DML in ``with conn:`` so a crash between UPDATE and
+        # Wrap DML in ``with conn:`` so a crash between UPDATE and
         # commit does not leave the database in an inconsistent state.
         with conn:
             conn.execute(

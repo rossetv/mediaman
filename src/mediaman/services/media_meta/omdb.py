@@ -1,25 +1,12 @@
-"""OMDb ratings fetch — extracted from the /download flow.
+"""OMDb ratings fetch. Best-effort: returns an empty dict when the key is missing, the
+request fails, or OMDb has nothing; never raises.
 
-Best-effort. Returns an empty dict when the key is missing, the
-request fails, or OMDb has nothing useful. Never raises.
+SQLite connections must not cross threads, so callers dispatching to a thread pool must
+read the key via get_omdb_key first and pass it to the workers.
 
-Threading note
---------------
-SQLite connections must not be shared across threads.  ``fetch_ratings``
-reads the OMDb API key from the DB but must only be called from the thread
-that owns *conn*.  Callers that dispatch work to a thread pool must read the
-key via :func:`get_omdb_key` *before* submitting tasks and pass the resolved
-key string to worker callables directly (see ``search.py``).
-
-Logging note
-------------
-The OMDb REST API only accepts the API key as a query string parameter.
-``urllib3`` logs request URLs at DEBUG, so the key would otherwise leak
-into ``mediaman.log`` in any deployment that enables DEBUG-level
-logging.  We attach a :class:`~mediaman.core.scrub_filter.ScrubFilter`
-to the urllib3 connection logger and the mediaman logger at the point
-where the API key is first resolved, scrubbing the raw key value from
-any log record before it is emitted.
+OMDb only accepts the key as a query parameter and urllib3 logs request URLs at DEBUG,
+so a ScrubFilter is attached to the urllib3 and mediaman loggers when the key is first
+resolved.
 """
 
 from __future__ import annotations
@@ -39,7 +26,7 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 # calls.  Rebuilt on process restart; the OMDb API key is passed as a
 # per-request query parameter (not stored in the session), so rotating the
 # key takes effect immediately without needing to rebuild the session.
-# §8.5 / §1.12 — global required: per-request instantiation would rebuild
+# A global is required: per-request instantiation would rebuild
 # the TCP/TLS connection pool on every call, negating keep-alive benefits.
 # Single-worker invariant: mediaman runs under a single Uvicorn worker;
 # ``requests.Session`` is not written after construction (no cookie mutation,
@@ -53,33 +40,19 @@ logger = logging.getLogger(__name__)
 
 
 def _attach_scrub_filters(api_key: str) -> None:
-    """Register *api_key* for redaction and attach to the urllib3 logger.
+    """Register *api_key* for redaction and attach the scrub filter to the urllib3 logger.
 
-    Called once per resolved key inside :func:`fetch_ratings`.  The attach is
-    idempotent — repeated calls with the same key do not stack filters.
-
-    Loggers covered:
-
-    * ``urllib3.connectionpool`` — logs the full request URL at DEBUG, which
-      would otherwise expose ``apikey=<value>``.
-    * ``mediaman`` (root) — covered by the global :func:`~mediaman.core.scrub_filter.register_secret`
-      call, which extends the handler-level filter installed at startup by
-      :func:`~mediaman.app_factory.create_app`.  Any child logger that
-      propagates to the mediaman root handler inherits the redaction
-      automatically.
+    Idempotent per key. urllib3.connectionpool logs the full request URL at DEBUG, which
+    would expose apikey=<value>. The mediaman logger is covered by the global
+    register_secret call.
     """
     ScrubFilter.attach("urllib3.connectionpool", secrets=[api_key])
     register_secret(api_key)
 
 
 def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
-    """Return the OMDb API key from settings, or ``None`` if not configured.
-
-    Read this in the *request thread* before dispatching to a thread pool —
-    SQLite connections must not cross thread boundaries.
-
-    Delegates to :func:`~mediaman.services.infra.settings_reader.get_string_setting`
-    so the decrypt-and-unwrap logic is not duplicated here.
+    """Return the OMDb API key from settings, or None. Read it in the request thread before
+    dispatching to a thread pool, since SQLite connections must not cross threads.
     """
     return get_string_setting(conn, "omdb_api_key", secret_key=secret_key) or None
 
@@ -93,19 +66,10 @@ def fetch_ratings(
     secret_key: str | None = None,
     omdb_key: str | None = None,
 ) -> dict[str, str]:
-    """Return ratings from OMDb.
+    """Return OMDb ratings (any subset of imdb, rt, metascore); never raises.
 
-    Keys in the returned dict (any subset): ``imdb``, ``rt``, ``metascore``.
-    Missing values are omitted. Never raises.
-
-    Callers must supply either:
-
-    * ``omdb_key`` — the already-resolved API key string (preferred when
-      calling from a thread-pool worker, since *conn* must not be used across
-      threads), or
-    * ``conn`` + ``secret_key`` — the DB connection and master key, from which
-      the OMDb key is read in-place.  Only safe when called from the thread
-      that owns *conn*.
+    Pass either omdb_key (preferred from thread-pool workers, since conn must not cross
+    threads) or conn plus secret_key to read the key in place.
     """
     if omdb_key is None:
         if conn is None or secret_key is None:

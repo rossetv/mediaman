@@ -1,11 +1,5 @@
-"""State-derivation helpers for the downloads queue.
-
-WHAT: Builds human-readable search-hint copy ("Searched 3× · next attempt in ~4h"),
-      renders countdown bands, and constructs deep-link URLs into Radarr/Sonarr.
-
-WHY: These helpers sit between raw timestamp/count data and the UI strings that
-     represent item state — they are independent of queue orchestration and item
-     building, so isolating them here keeps the other modules focused.
+"""State-derivation helpers for the downloads queue: search-hint copy, countdown bands and
+deep links into Radarr/Sonarr. Independent of queue orchestration and item building.
 """
 
 from __future__ import annotations
@@ -30,19 +24,15 @@ def build_search_hint(
     now: float,
     dl_id: str = "",
 ) -> str:
-    """Build the "Searched 12× · next attempt in ~4h" subline shown under the pill.
+    """Build the "Searched 12× · next attempt in ~4h" subline.
 
-    Falls back to "Added Xm ago · waiting for first search" when mediaman
-    hasn't fired a search yet — either the item is still inside the 5-min
-    staleness window, or the process was restarted so the in-memory
-    trigger log is empty. Returns "" only when we genuinely have nothing
-    to say.
+    Falls back to "Added Xm ago · waiting for first search" before mediaman has fired a
+    search (inside the 5-minute staleness window, or after a restart); "" when there is
+    nothing to say.
 
-    The next-attempt countdown is derived from the same
-    :func:`~mediaman.services.arr.search_trigger._search_backoff_seconds` helper
-    that gates the actual fire, so what the UI shows matches when the search
-    will really run. The deterministic jitter inside that helper means the
-    displayed time stays stable across polls within a single waiting window.
+    The countdown comes from the same _search_backoff_seconds helper that gates the real
+    search, with deterministic jitter, so the display matches and stays stable across
+    polls.
     """
     # Late import: arr.search_trigger imports _format_next_attempt from this
     # module; hoisting would create a circular dependency at module load time.
@@ -83,19 +73,12 @@ def _format_next_attempt(next_in_seconds: float) -> str:
 
 
 def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
-    """Return ``{"radarr": url, "sonarr": url}`` for deep-link building.
+    """Return {"radarr": url, "sonarr": url} for deep links.
 
-    ``secret_key`` is required to decrypt any stored URLs.
-
-    Prefers the **public** URL (``radarr_public_url``, ``sonarr_public_url``)
-    when configured, because the value set in ``*_url`` is usually the
-    in-cluster hostname (e.g. ``http://radarr:7878``) used by mediaman to
-    reach the container directly — that URL is meaningless to a user's
-    browser. Falls back to ``*_url`` when the public variant is empty
-    so the default single-URL setup keeps working.
-
-    Values have any trailing slash stripped. Missing settings map to ``""``
-    so callers can safely skip link rendering when the service isn't configured.
+    Prefers the public URL (radarr_public_url, sonarr_public_url) because *_url is
+    usually an in-cluster hostname the browser cannot reach; falls back to *_url.
+    Trailing slashes are stripped and unconfigured services map to "". *secret_key*
+    decrypts stored URLs.
     """
     from mediaman.services.infra import get_string_setting as _get_string_setting
 
@@ -127,10 +110,8 @@ def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
 
 
 def build_arr_link(arr: ArrCard | dict[str, object], base_urls: dict[str, str]) -> str:
-    """Build a deep-link URL into Radarr/Sonarr for a stalled item.
-
-    Returns ``""`` when the base URL isn't configured or the item has no
-    title slug — we'd rather render nothing than a broken link.
+    """Build a Radarr/Sonarr deep link for a stalled item; "" when the base URL is unset or
+    the item has no title slug, rather than a broken link.
     """
     slug = arr.get("title_slug") or ""
     if not slug:

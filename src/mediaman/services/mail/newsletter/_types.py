@@ -6,11 +6,8 @@ from typing import NotRequired, TypedDict
 
 
 class ScheduledNewsletterItem(TypedDict):
-    """A scheduled-deletion card as rendered in the newsletter.
-
-    Built by :func:`.schedule._load_scheduled_items`.  The ``_action_id``
-    field is an internal handle used to mark rows as ``notified=1`` and
-    must not be exposed in outbound email HTML.
+    """A scheduled-deletion card. _action_id is an internal handle for marking rows
+    notified=1 and must not reach the email HTML.
     """
 
     title: str
@@ -26,10 +23,8 @@ class ScheduledNewsletterItem(TypedDict):
 
 
 class DeletedNewsletterItem(TypedDict):
-    """A recently-deleted card as rendered in the newsletter.
-
-    Built by :func:`.summary._load_deleted_items`.  ``tmdb_id`` is absent
-    for items that did not flow through the recommendation pipeline.
+    """A recently-deleted card; tmdb_id is absent for items that did not come from the
+    recommendation pipeline.
     """
 
     title: str
@@ -43,11 +38,8 @@ class DeletedNewsletterItem(TypedDict):
 
 
 class NewsletterRecItem(TypedDict):
-    """A recommendation card as rendered in the newsletter.
-
-    Built by :func:`.summary._load_recommendations` from the ``suggestions``
-    table; ``download_state`` is injected later by
-    :func:`.enrich._annotate_rec_download_states`.
+    """A recommendation card; download_state is injected later by
+    _annotate_rec_download_states.
     """
 
     id: int
@@ -67,11 +59,6 @@ class NewsletterRecItem(TypedDict):
 
 
 class StorageStats(TypedDict):
-    """Disk-usage summary passed to the newsletter template.
-
-    Built by :func:`.summary._load_storage_stats`.
-    """
-
     total_bytes: int
     used_bytes: int
     free_bytes: int

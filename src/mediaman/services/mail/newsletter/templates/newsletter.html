@@ -4,7 +4,7 @@
      inline or in this <style> block. They deliberately do NOT use the CSS
      custom-property tokens from static/css/_tokens.css (which email clients
      also strip). If the design-system palette changes, update this file
-     manually to keep values in sync. See DESIGN.md §2 for canonical values. -->
+     manually to keep values in sync. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -291,20 +291,17 @@
       <div class="mm-frame" style="max-width:1280px;">
         <div class="mm-email">
 
-          {#- ── DRY RUN BANNER ── -#}
           {% if dry_run %}
           <div style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
             &#9888; DRY RUN MODE — No items will actually be deleted
           </div>
           {% endif %}
 
-          {#- ── HEADER ── -#}
           <div class="eh"{% if dry_run %} style="border-top:none;"{% endif %}>
             <div class="brand">media<span>man</span></div>
             <div class="dateline">Weekly Report &middot; {{ report_date }}</div>
           </div>
 
-          {#- ── STORAGE & RECLAIMED ── -#}
           <div class="sect">
             <div class="lbl">Storage &amp; Reclaimed</div>
             <div class="sz">{{ fmt_bytes(storage.used_bytes) }} <small>of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</small></div>
@@ -326,7 +323,6 @@
             </div>
           </div>
 
-          {#- ── SCHEDULED FOR DELETION (hero) ── -#}
           {% if scheduled_items %}
           <div class="sect">
             <div class="hero">
@@ -366,7 +362,6 @@
           </div>
           {% endif %}
 
-          {#- ── DELETED SINCE LAST REPORT ── -#}
           {% if deleted_items %}
           <div class="sect">
             <div class="lbl">Deleted Since Last Report</div>
@@ -389,7 +384,6 @@
           </div>
           {% endif %}
 
-          {#- ── TRENDING THIS WEEK ── -#}
           {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
           {% if trending_items %}
           <div class="sect">
@@ -422,7 +416,6 @@
           </div>
           {% endif %}
 
-          {#- ── BASED ON YOUR WATCH HISTORY ── -#}
           {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
           {% if personal_items %}
           <div class="sect">
@@ -455,7 +448,6 @@
           </div>
           {% endif %}
 
-          {#- ── FOOTER ── -#}
           <div style="padding:24px 24px 28px; text-align:center;">
             <a href="{{ dashboard_url }}" class="btn-ghost" style="padding:10px 22px; font-size:13px;">Open Mediaman Dashboard &rarr;</a>
             <div style="font-size:11px; color:rgba(255,255,255,0.4); margin-top:16px; line-height:1.6; letter-spacing:-0.12px;">

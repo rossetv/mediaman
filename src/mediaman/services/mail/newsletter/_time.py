@@ -1,4 +1,4 @@
-"""Tiny time-helper shared by :mod:`schedule` and :mod:`summary`."""
+"""Tiny time-helper shared by schedule and summary."""
 
 from __future__ import annotations
 
@@ -11,11 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_days_ago(value: str | None, now: datetime) -> int | None:
-    """Parse an ISO datetime string and return the number of days before *now*.
-
-    Returns ``None`` when *value* is empty or cannot be parsed, logging a
-    warning (with traceback) on parse failure so silently-wrong timestamps
-    don't go unnoticed.
+    """Return the days before *now* for an ISO datetime string, or None when empty or
+    unparseable (logged with a traceback so bad timestamps do not go unnoticed).
     """
     if not value:
         return None

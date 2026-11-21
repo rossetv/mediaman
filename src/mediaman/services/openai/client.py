@@ -1,12 +1,12 @@
 """Shared OpenAI HTTP client and low-level API call helper.
 
-This module owns the singleton :data:`_OPENAI_CLIENT` and the
-:func:`call_openai` function that sends prompts to the Responses API.
+This module owns the singleton _OPENAI_CLIENT and the
+call_openai function that sends prompts to the Responses API.
 All security checks (web-search gating, title validation) live here so
 they're applied consistently regardless of which prompt is being sent.
 
 The higher-level prompt construction and result parsing live in
-:mod:`mediaman.services.openai.recommendations.prompts`.
+mediaman.services.openai.recommendations.prompts.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 # the scan path for too long on a slow or unreachable OpenAI endpoint.
 # Callers that are ``async def`` should wrap calls in ``asyncio.to_thread``
 # so this synchronous HTTP call does not stall the event loop.
-# §8.5 / §1.12 — global required: per-request instantiation would rebuild
+# A global is required: per-request instantiation would rebuild
 # the TCP/TLS connection pool on every call. Single-worker invariant:
 # mediaman runs under a single Uvicorn worker; ``SafeHTTPClient`` wraps a
 # ``requests.Session`` that is never mutated after construction (no header
@@ -51,19 +51,11 @@ _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
 
 def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = None) -> str:
-    """Read the OpenAI API key from settings.
+    """Read the OpenAI API key from settings, decrypting with *secret_key* (if None,
+    encrypted values fall back silently).
 
-    ``secret_key`` is passed to the DB reader to decrypt the stored key when
-    it is encrypted. If ``None``, unencrypted keys are still returned but
-    encrypted ones fall back silently.
-
-    Logs (DEBUG) when the key is loaded. Raises ValueError if the key is not
-    configured (neither in database settings nor MEDIAMAN_SECRET_KEY for
-    encrypted values).
-
-    §10.3 forbids plaintext credentials from environment variables other than
-    MEDIAMAN_SECRET_KEY; the env-var fallback was removed to prevent
-    unencrypted on-disk credentials.
+    Raises ValueError when no key is configured. Plaintext credentials from the
+    environment are refused; only MEDIAMAN_SECRET_KEY is read from it.
     """
     if conn is not None:
         # Import via settings_reader so tests that patch
@@ -80,7 +72,6 @@ def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = Non
 
 
 def get_openai_model(conn: sqlite3.Connection | None) -> str:
-    """Return the OpenAI model to use, honouring the ``openai_model`` setting."""
     if conn is None:
         return _DEFAULT_MODEL
     from mediaman.services.infra import get_string_setting
@@ -89,10 +80,8 @@ def get_openai_model(conn: sqlite3.Connection | None) -> str:
 
 
 def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
-    """Return whether ``openai_web_search_enabled`` is set to True in settings.
-
-    Defaults to False so the indirect-prompt-injection surface (the model
-    pulling arbitrary web content) is opt-in.
+    """Return whether openai_web_search_enabled is True. Defaults to False so the
+    prompt-injection surface of web search is opt-in.
     """
     if conn is None:
         return False
@@ -204,10 +193,8 @@ def _parse_response(data: Any) -> list[dict[str, object]] | None:
 
 
 def _handle_error(exc: Exception) -> list[dict[str, object]]:
-    """Log *exc* appropriately and return the safe empty-batch sentinel ``[]``.
-
-    Centralises the error-path logging so ``call_openai`` reads as a decision
-    tree rather than a mix of business logic and error handling.
+    """Log *exc* and return the empty-batch sentinel [], keeping call_openai's error
+    handling in one place.
     """
     if isinstance(exc, SafeHTTPError):
         if exc.status_code == 401:
@@ -230,25 +217,15 @@ def call_openai(
     *,
     secret_key: str | None = None,
 ) -> list[dict[str, object]]:
-    """Send a prompt to OpenAI Responses API and parse the JSON array response.
+    """Send a prompt to the Responses API and parse the JSON array response.
 
-    Always uses the Responses API (``/v1/responses``). When both
-    ``use_web_search`` is True *and* the ``openai_web_search_enabled``
-    setting is enabled, the ``web_search_preview`` tool is included so
-    GPT can look up real-time data.  The tool is gated behind the setting
-    (default False) because it is an indirect-prompt-injection surface —
-    the model can pull and execute instructions from arbitrary web pages.
+    The web_search_preview tool is included only when *use_web_search* is True and the
+    openai_web_search_enabled setting is on; it is gated because web pages are an
+    indirect-prompt-injection surface. *use_web_search* defaults to False so callers
+    must opt in alongside the operator setting.
 
-    The default for ``use_web_search`` is False so the caller has to
-    explicitly opt in alongside the operator-side setting; before this
-    fix the caller default was True and the gate alone determined
-    behaviour, which made it easy for a new code path to silently ask
-    for web search even when the operator had disabled it.
-
-    When web search is active, every returned recommendation title is
-    validated against a strict safe-printable-ASCII check.  If any title
-    looks adversarial (non-ASCII, markdown link syntax, embedded URL) the
-    entire batch is rejected and an empty list is returned.
+    When web search is active every returned title must pass a strict printable-ASCII
+    check; if any looks adversarial the whole batch is rejected and [] is returned.
     """
     try:
         api_key = get_openai_key(conn, secret_key)

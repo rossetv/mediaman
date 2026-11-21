@@ -15,16 +15,12 @@ _HISTORY_MAX_BYTES = 4 * 1024 * 1024
 
 
 class PlexLibrarySection(TypedDict):
-    """A Plex library section as returned by :meth:`PlexClient.get_libraries`."""
-
     id: str
     type: str
     title: str
 
 
 class PlexMovieItem(TypedDict):
-    """A movie item as returned by :meth:`PlexClient.get_movie_items`."""
-
     plex_rating_key: str
     title: str
     added_at: datetime | None
@@ -35,8 +31,6 @@ class PlexMovieItem(TypedDict):
 
 
 class PlexSeasonItem(TypedDict):
-    """A TV season item as returned by :meth:`PlexClient.get_show_seasons`."""
-
     plex_rating_key: str
     title: str  # show title, kept for DB compat
     show_title: str
@@ -52,24 +46,18 @@ class PlexSeasonItem(TypedDict):
 
 
 class PlexWatchEntry(TypedDict, total=False):
-    """One view event from :meth:`PlexClient.get_watch_history` / :meth:`get_season_watch_history`."""
-
     viewed_at: datetime
     account_id: int
     episode_title: str  # only present for season watch history entries
 
 
 class PlexRatedItem(TypedDict):
-    """A user-rated item from :meth:`PlexClient.get_user_ratings`."""
-
     title: str
     type: Literal["movie", "tv"]
     stars: float
 
 
 class PlexAccount(TypedDict):
-    """A named Plex home/managed account from :meth:`PlexClient.get_accounts`."""
-
     id: int
     name: str
 
@@ -77,24 +65,14 @@ class PlexAccount(TypedDict):
 def _to_utc(dt: datetime | None) -> datetime | None:
     """Promote a plexapi datetime to a tz-aware UTC value.
 
-    PlexAPI parses Plex's XML ``addedAt`` / ``updatedAt`` (which are
-    POSIX timestamps in seconds) via ``datetime.fromtimestamp(int(...))``
-    — that yields a NAIVE local-time datetime even though the underlying
-    instant is UTC.  Downstream code uses
-    :func:`mediaman.core.format.ensure_tz`, which now treats
-    naive inputs as already-UTC.  Without explicit conversion here the
-    stored timestamp would jump by the local UTC offset.
-
-    On Python 3.12, ``naive.astimezone(tz)`` interprets the naive value
-    as local time, so this round-trips correctly back to UTC for the
-    actual Plex server's wall clock.  Aware inputs are pass-through-
-    converted; ``None`` stays ``None``.
+    plexapi builds naive local-time datetimes from POSIX timestamps. ensure_tz treats
+    naive values as UTC, so without this conversion stored timestamps would shift by the
+    local UTC offset. Aware inputs are converted; None stays None.
     """
     return dt.astimezone(UTC) if dt is not None else None
 
 
 def _movie_to_item(movie: Any) -> PlexMovieItem:
-    """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
     file_path = ""
     file_size = 0
     if movie.media:
@@ -113,7 +91,6 @@ def _movie_to_item(movie: Any) -> PlexMovieItem:
 
 
 def _season_to_item(show: Any, season: Any) -> PlexSeasonItem:
-    """Convert a plexapi Season object (and its parent Show) to a :class:`PlexSeasonItem` dict."""
     episodes = season.episodes()
     file_size = 0
     file_path = ""

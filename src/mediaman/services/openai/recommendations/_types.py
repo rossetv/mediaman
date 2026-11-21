@@ -6,14 +6,10 @@ from typing import NotRequired, TypedDict
 
 
 class RecommendationItem(TypedDict):
-    """A single recommendation as it flows through the pipeline.
+    """A recommendation flowing through the pipeline: parsed by parse_recommendations,
+    enriched in place by enrich_recommendations, persisted by refresh_recommendations.
 
-    Produced by :func:`.prompts.parse_recommendations`, mutated in-place
-    by :func:`.enrich.enrich_recommendations`, and persisted by
-    :func:`.persist.refresh_recommendations`.
-
-    All nullable fields are ``NotRequired`` because they are absent on the
-    raw LLM output and filled in by later pipeline stages.
+    Nullable fields are NotRequired because raw LLM output lacks them.
     """
 
     title: str

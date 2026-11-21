@@ -10,12 +10,10 @@ from ._types import ScheduledNewsletterItem
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Lazy Jinja2 environment — built once on the first call to send_newsletter,
 # not at module import time.  This avoids touching the filesystem during
 # import (beneficial for tests and CLI subcommands that never send mail) while
 # still sharing the compiled environment across all subsequent calls.
-# ---------------------------------------------------------------------------
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 try:
@@ -26,7 +24,7 @@ except ImportError:  # pragma: no cover
     FileSystemLoader = None  # type: ignore[assignment,misc]
     _TemplateError = Exception  # type: ignore[assignment,misc]
 
-# F-06: shared environment rebuilt only once per process lifetime (§8.5).
+# Shared environment rebuilt only once per process lifetime.
 # The lock prevents a data race when the scheduler and FastAPI thread-pool
 # both call send_newsletter concurrently and each see _JINJA_ENV is None.
 _JINJA_ENV: Environment | None = None
@@ -34,10 +32,8 @@ _JINJA_ENV_LOCK = threading.Lock()
 
 
 def _get_jinja_env() -> Environment | None:
-    """Return the shared Jinja2 environment, building it on first call.
-
-    Returns ``None`` when Jinja2 is unavailable or the template directory
-    cannot be found, so the caller can fall back gracefully.
+    """Return the shared Jinja2 environment, built on first call, or None when Jinja2 or
+    the template directory is unavailable so callers can degrade.
     """
     global _JINJA_ENV
     # Fast path — no lock needed for the read once the env is built.
@@ -59,7 +55,6 @@ def _get_jinja_env() -> Environment | None:
 
 
 def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool) -> str:
-    """Format the newsletter email subject line."""
     total_size_bytes = sum(i["file_size_bytes"] for i in scheduled_items)
     if total_size_bytes >= 1 << 40:
         size_str = f"{total_size_bytes / (1 << 40):.1f} TB"

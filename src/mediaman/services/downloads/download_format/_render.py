@@ -1,4 +1,4 @@
-"""Rendering helpers — build_item, build_episode_summary, select_hero."""
+"""Rendering helpers: build_item, build_episode_summary, select_hero."""
 
 from __future__ import annotations
 
@@ -33,19 +33,9 @@ def build_item(
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
-    ``search_count`` / ``last_search_ts`` are populated only for items in
-    the ``searching`` state and power the "Last searched Xm ago" subline
-    in the UI. ``added_at`` is used as a fallback when mediaman hasn't
-    fired a search yet (first 5 min, or across a restart).
-
-    ``arr_link`` is the deep-link URL into Radarr/Sonarr for the item,
-    and ``arr_source`` is ``"Radarr"`` or ``"Sonarr"`` — used to label
-    the deep-link button.
-
-    ``abandon_visible`` is a server-authoritative threshold check so the
-    frontend renders the abandon button without any client-side logic.
-    ``stuck_seasons`` is a per-season missing-episode breakdown for series
-    (empty for movies).
+    search_count and last_search_ts are set only for the searching state; added_at is
+    the fallback before the first search (first 5 minutes, or after a restart).
+    abandon_visible is a server-side threshold check so the frontend needs no logic.
     """
     if stuck_seasons is None:
         stuck_seasons = []
@@ -78,7 +68,6 @@ def build_item(
 
 
 def build_episode_summary(episodes: list[dict[str, object]]) -> str:
-    """Build a human-readable summary like '2 of 8 episodes ready ...'."""
     total = len(episodes)
     ready = sum(1 for e in episodes if e["state"] == "ready")
     downloading = sum(1 for e in episodes if e["state"] == "downloading")
@@ -109,13 +98,10 @@ _HERO_STATE_PRIORITY: dict[str, int] = {
 def select_hero(
     items: list[dict[str, object]],
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
-    """Pick the hero item from a list of download items.
+    """Pick the hero item and return (hero, remaining_items).
 
-    Priority order: ``downloading`` (highest progress first), then
-    ``almost_ready``, then ``queued``, then ``searching``.  An
-    ``almost_ready`` item is always preferred over a ``searching`` one
-    regardless of progress, because it is more actionable to show the user.
-    Returns ``(hero, remaining_items)``.
+    Priority: downloading (highest progress first), almost_ready, queued, searching.
+    almost_ready always beats searching because it is more actionable.
     """
     if not items:
         return None, []
