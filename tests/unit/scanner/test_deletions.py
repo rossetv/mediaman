@@ -851,6 +851,24 @@ class TestSharedFolderPathSpelling:
         assert (show / "Show - s02e01.mkv").exists()
         assert result["deleted"] == 0
 
+    def test_kept_media_reached_through_a_symlink_and_dot_dots_blocks_the_removal(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # Normalised, the stored path reads <root>/ep, outside Show; on disk the
+        # link makes it Show/ep, so only its stored spelling shows it is inside.
+        _, show = self._show(tmp_path, monkeypatch)
+        (show / "a" / "b").mkdir(parents=True)
+        (show / "link").symlink_to(show / "a" / "b")
+        (show / "ep").write_bytes(b"x")
+        self._season(conn, "s1", str(show), 1)
+        self._season(conn, "s2", f"{show}/link/../../ep", 2)
+        _due_row(conn, "s1")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert (show / "ep").exists()
+        assert result["deleted"] == 0
+
     def test_due_sibling_spelled_differently_closes_with_the_folder(
         self, conn, tmp_path, monkeypatch
     ):
