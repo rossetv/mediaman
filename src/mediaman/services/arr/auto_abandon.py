@@ -173,8 +173,8 @@ def _monitored_seasons(
 ) -> list[int]:
     """Return the season numbers Sonarr has monitored for the series, sorted.
 
-    Returns ``[]`` when Sonarr is not configured or the series cannot be
-    read, so the caller skips the abandon rather than guessing seasons.
+    Returns ``[]`` when Sonarr is not configured, the series cannot be
+    read or does not show zero episode files, so the caller skips the abandon rather than guessing seasons.
     """
     client = build_sonarr_from_db(conn, secret_key)
     if client is None:
@@ -183,6 +183,17 @@ def _monitored_seasons(
         series = client.get_series_by_id(decision.arr_id)
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("auto-abandon: could not read seasons for %s", decision.dl_id, exc_info=True)
+        return []
+    # The list-time check is a snapshot; only abandon when Sonarr still shows
+    # no files. Missing or malformed statistics count as unknown, not zero.
+    stats = series.get("statistics")
+    files = stats.get("episodeFileCount") if isinstance(stats, dict) else None
+    if isinstance(files, bool) or not isinstance(files, int) or files != 0:
+        logger.info(
+            "auto-abandon: skipping %s, Sonarr does not show zero episode files (%r)",
+            decision.dl_id,
+            files,
+        )
         return []
     seasons_raw = series.get("seasons")
     if not isinstance(seasons_raw, list):

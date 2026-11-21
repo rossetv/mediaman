@@ -5,6 +5,8 @@ from __future__ import annotations
 import time as _time_mod
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def test_abandon_button_threshold_is_ten_hours():
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
@@ -414,9 +416,18 @@ class TestMaybeAutoAbandon:
             "episodes": [],
         }
 
-    def _fake_sonarr(self, monkeypatch, seasons: list[dict], log: list) -> MagicMock:
+    def _fake_sonarr(
+        self,
+        monkeypatch,
+        seasons: list[dict],
+        log: list,
+        statistics: object = {"episodeFileCount": 0},
+    ) -> MagicMock:
         client = MagicMock()
-        client.get_series_by_id.return_value = {"id": 42, "seasons": seasons}
+        series: dict = {"id": 42, "seasons": seasons}
+        if statistics is not None:
+            series["statistics"] = statistics
+        client.get_series_by_id.return_value = series
         client.unmonitor_season.side_effect = lambda sid, sn: log.append(("unmonitor", sid, sn))
         for target in ("mediaman.services.arr.auto_abandon", "mediaman.services.downloads.abandon"):
             monkeypatch.setattr(f"{target}.build_sonarr_from_db", lambda conn, key: client)
@@ -457,6 +468,31 @@ class TestMaybeAutoAbandon:
         assert log == [("audit", [1, 3]), ("unmonitor", 42, 1), ("unmonitor", 42, 3)]
         client.delete_series.assert_not_called()
         client.delete_episode_files.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "statistics",
+        [
+            {"episodeFileCount": 3},
+            None,
+            {},
+            {"episodeFileCount": "0"},
+            {"episodeFileCount": True},
+            {"episodeFileCount": None},
+        ],
+        ids=["has-files", "missing", "empty", "string", "bool", "null"],
+    )
+    def test_series_is_not_abandoned_unless_fresh_read_shows_zero_files(
+        self, monkeypatch, statistics
+    ):
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        log: list = []
+        self._fake_sonarr(monkeypatch, [{"seasonNumber": 1, "monitored": True}], log, statistics)
+
+        now = _time_mod.time()
+        maybe_auto_abandon(MagicMock(), "secret", item=self._still_searching_series(now), now=now)
+
+        assert log == []
 
     def test_still_searching_series_with_only_specials_monitored_is_skipped(self, monkeypatch):
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
