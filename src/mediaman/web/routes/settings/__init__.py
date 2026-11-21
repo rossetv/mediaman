@@ -149,10 +149,7 @@ def settings_page(request: Request) -> Response:
     settings = _mask_encrypted_keys(plain, enc_keys)
     # Show the value the scanner uses so a saved out-of-range row doesn't fail validation.
     for day_key in DAY_SETTING_RANGES:
-        if day_key in settings:
-            settings[day_key] = get_day_setting(
-                conn, day_key, default=DAY_SETTING_DEFAULTS[day_key]
-            )
+        settings[day_key] = get_day_setting(conn, day_key, default=DAY_SETTING_DEFAULTS[day_key])
 
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
