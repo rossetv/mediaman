@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.templating import Jinja2Templates
@@ -60,14 +61,14 @@ def client(app_factory, authed_client, conn):
     return authed_client(app, conn)
 
 
-def _insert_show(conn, show_rating_key: str | None) -> None:
+def _insert_show(conn, show_rating_key: str | None, show_title: str = "Breaking Bad") -> None:
     for media_id in _SEASON_IDS:
         insert_media_item(
             conn,
             id=media_id,
-            title=f"Breaking Bad {media_id}",
+            title=f"{show_title} {media_id}",
             media_type="tv_season",
-            show_title="Breaking Bad",
+            show_title=show_title,
             season_number=int(media_id[1:]),
             plex_rating_key=f"rk-{media_id}",
             show_rating_key=show_rating_key,
@@ -151,6 +152,17 @@ def test_season_list_from_show_row_holds_every_grouped_season(client, conn, show
     assert {s["id"] for s in body["seasons"]} == _SEASON_IDS
     assert [s["season_number"] for s in body["seasons"]] == [2, 3, 10]
     assert body["show_title"] == "Breaking Bad"
+
+
+def test_season_list_opens_for_a_title_with_a_slash(client, conn):
+    _insert_show(conn, None, show_title="Love/Hate")
+    (button,) = _delete_buttons(client.get("/library").text)
+
+    # Encoded as the page's script encodes it, with encodeURIComponent.
+    resp = client.get(f"/api/show/{quote(button['data-show-rk'] or '', safe='')}/seasons")
+
+    assert resp.status_code == 200
+    assert {s["id"] for s in resp.json()["seasons"]} == _SEASON_IDS
 
 
 def test_season_list_leaves_out_another_shows_seasons(client, conn):
