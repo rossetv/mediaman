@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue for security problems.
+Please do **not** report security problems in a public pull request.
 
 Report security issues privately through GitHub's [private vulnerability reporting](https://github.com/rossetv/mediaman/security/advisories/new). This routes the report to the maintainers without disclosing it publicly.
 
@@ -30,7 +30,7 @@ Anything in this repository is in scope, including:
 
 Out of scope:
 
-- Self-inflicted misconfiguration (e.g. running with a weak `MEDIAMAN_SECRET_KEY`, exposing the admin port to the public internet without a reverse proxy, mounting media read-write outside the configured delete roots).
+- Self-inflicted misconfiguration (e.g. running with a weak `MEDIAMAN_SECRET_KEY`, exposing the admin port to the public internet without a reverse proxy, setting `MEDIAMAN_DELETE_ROOTS` wider than the media you want scheduled deletions to touch).
 - Vulnerabilities in third-party services we integrate with — please report those upstream.
 
 ## Known limitations
@@ -39,3 +39,4 @@ These are by design, not findings:
 
 - mediaman must run as a single process. It refuses to start when `MEDIAMAN_WORKERS`, `UVICORN_WORKERS` or `WORKERS` is above 1.
 - The Content Security Policy still allows inline `style` attributes (`style-src-attr 'unsafe-inline'`). Scripts are restricted to same-origin files and per-request nonces.
+- `MEDIAMAN_DELETE_ROOTS` bounds only scheduled deletions. The Delete button on the Library page asks Radarr or Sonarr to delete the files (`deleteFiles=true`), wherever they are.
