@@ -650,6 +650,31 @@ class TestSettingsTestServiceTimeout:
         assert data["ok"] is False
         assert data["error"] == "timeout"
 
+    def test_hung_tester_does_not_hold_the_response_past_the_cap(self, monkeypatch):
+        import threading
+        import time
+
+        from fastapi.responses import JSONResponse
+
+        from mediaman.web.routes.settings import api as settings_api
+
+        release = threading.Event()
+
+        def hung_tester(_settings):
+            release.wait(timeout=5)
+            return JSONResponse({"ok": True})
+
+        monkeypatch.setattr(settings_api, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        try:
+            start = time.monotonic()
+            resp = settings_api._run_tester_with_timeout("plex", hung_tester, {})
+            elapsed = time.monotonic() - start
+        finally:
+            release.set()
+
+        assert elapsed < 1.0
+        assert resp.body == b'{"ok":false,"error":"timeout"}'
+
 
 class TestSettingsTestServiceScopedDecryption:
     """A single-service test must NOT decrypt every other secret in
