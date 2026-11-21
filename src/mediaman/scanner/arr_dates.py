@@ -6,7 +6,7 @@ the download time). This module keeps a lazily-built lookup of
 normalised-path to ISO download-date strings, queried during scan-time
 eligibility checks.
 
-Extracted from :mod:`mediaman.scanner.engine` so that constructing the
+Extracted from mediaman.scanner.engine so that constructing the
 scan engine doesn't trigger Radarr/Sonarr I/O and so the cache logic
 has a single clear home.
 """
@@ -40,7 +40,7 @@ def _parse_arr_iso(value: str) -> datetime | None:
     most-recent date.
 
     Kept bespoke rather than delegating to
-    :func:`mediaman.core.time.parse_iso_utc` because Arr APIs
+    mediaman.core.time.parse_iso_utc because Arr APIs
     sometimes emit naive timestamps that the caller wants to keep naive
     for date-comparison logic — the canonical parser always attaches UTC.
     """
@@ -79,7 +79,7 @@ class ArrDateCache:
 
     The cache is built at most once per instance. Constructing the
     cache does not fire any network calls; the first call to
-    :meth:`get` (or explicit :meth:`ensure_loaded`) triggers the
+    get (or explicit ensure_loaded) triggers the
     Radarr/Sonarr reads.
     """
 
@@ -92,31 +92,28 @@ class ArrDateCache:
         self._loaded = False
 
     def ensure_loaded(self) -> None:
-        """Build the cache if it hasn't been built yet."""
         if not self._loaded:
             self._build()
             self._loaded = True
 
     def reset(self) -> None:
-        """Force the cache to be rebuilt on the next :meth:`ensure_loaded` call."""
+        """Force the cache to be rebuilt on the next ensure_loaded call."""
         self._loaded = False
 
     def dates(self) -> dict[str, str]:
         """Return the full path-to-date mapping (built lazily).
 
-        Prefer :meth:`get` for individual lookups; this accessor exists for
+        Prefer get for individual lookups; this accessor exists for
         callers that need the raw dict (e.g. back-compat shims, testing).
         """
         self.ensure_loaded()
         return self._dates
 
     def get(self, file_path: str) -> str | None:
-        """Return the Arr download date for *file_path* (or ``None``)."""
         self.ensure_loaded()
         return self._dates.get(normalise_path(file_path))
 
     def _build(self) -> None:
-        """Populate the lookup from Radarr and Sonarr."""
         # Radarr: movieFile.dateAdded keyed by movie file path.
         if self._radarr:
             try:

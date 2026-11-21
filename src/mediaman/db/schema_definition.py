@@ -1,6 +1,6 @@
 """Full schema for a fresh mediaman database.
 
-A single DDL script applied by :func:`mediaman.db.init_db` on every open.
+A single DDL script applied by mediaman.db.init_db on every open.
 All statements are ``CREATE … IF NOT EXISTS`` so opening an already-
 populated database is a no-op.
 """

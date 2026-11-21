@@ -7,7 +7,7 @@ Owns all DB mutation that occurs during the per-item scan loop:
 3. ``schedule_item_deletion`` — insert a ``scheduled_actions`` row for
    items that are eligible for deletion, including HMAC token generation.
 
-Token generation lives here (not in :mod:`mediaman.scanner.repository`)
+Token generation lives here (not in mediaman.scanner.repository)
 so the repository remains a pure SQL layer.  The token requires the
 ``action_id`` returned by the initial INSERT, which is why the two-step
 insert → hash → update lives in this module rather than being split
@@ -47,8 +47,8 @@ def upsert_item(
     """Upsert a single media item and advance its watch timestamp.
 
     Loads the Arr date cache on demand (idempotent) then delegates to
-    :func:`repository.upsert_media_item` and
-    :func:`repository.update_last_watched`.
+    repository.upsert_media_item and
+    repository.update_last_watched.
 
     Args:
         conn: Open SQLite connection.
@@ -81,7 +81,7 @@ def schedule_deletion(
 ) -> str:
     """Insert a ``scheduled_deletion`` row and write an audit entry.
 
-    Token generation lives here rather than in :mod:`repository` so the
+    Token generation lives here rather than in repository so the
     repository remains a pure SQL layer.  The HMAC keep-token is bound to
     the ``action_id`` assigned by SQLite, so we must:
 

@@ -1,6 +1,6 @@
 """Plex fetch layer — pulls library items and watch history.
 
-Keeps all network I/O against Plex out of :mod:`mediaman.scanner.engine`
+Keeps all network I/O against Plex out of mediaman.scanner.engine
 so the engine's write-path never overlaps an open Plex HTTP round-trip
 with a SQLite write transaction.
 """
@@ -68,7 +68,7 @@ class PlexFetcher:
     """Wraps the Plex client for the scanner's two-phase fetch.
 
     A thin adapter around the existing Plex client that knows how to
-    produce :class:`PlexItemFetch` records for both movie and show
+    produce PlexItemFetch records for both movie and show
     libraries, swallowing watch-history errors so one flaky item can't
     derail an entire library sync.
     """
@@ -88,7 +88,7 @@ class PlexFetcher:
         """Fetch items + watch history for a library from Plex.
 
         Pure network-read helper; touches no DB. Returns a
-        :class:`FetchedLibrary` carrying one :class:`PlexItemFetch` per
+        FetchedLibrary carrying one PlexItemFetch per
         successfully-fetched movie or season, plus the set of
         ``plex_rating_key`` values that were SKIPPED because their watch
         history could not be fetched.

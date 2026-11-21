@@ -1,8 +1,8 @@
-"""Ring 0: canonical date/time helpers.
+"""Canonical date/time helpers.
 
 Single source of truth for UTC clock access and ISO-8601 parsing.
 
-Ring 0 contract: stdlib only, no I/O, no imports from other mediaman modules.
+Stdlib only, no I/O, no imports from other mediaman modules.
 """
 
 from __future__ import annotations
@@ -35,11 +35,11 @@ def parse_iso_strict_utc(value: str | None) -> datetime | None:
     """Strict ISO-8601 parse: return ``None`` on missing/invalid input, or
     a tz-aware UTC datetime on success.
 
-    Unlike :func:`parse_iso_utc` this rejects subtly malformed strings
+    Unlike parse_iso_utc this rejects subtly malformed strings
     (trailing ``Z``, oversized fractional seconds, etc.) rather than
     coercing them — use it where the previous inline code path treated
     "unparseable" as "treat as expired / unknown".  Naive datetimes are
-    interpreted as UTC, matching :func:`parse_iso_utc`'s convention.
+    interpreted as UTC, matching parse_iso_utc's convention.
     """
     if not value:
         return None

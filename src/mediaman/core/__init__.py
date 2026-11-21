@@ -1,8 +1,8 @@
-"""Ring 0: pure functions, stdlib only, never imports from other parts of mediaman/.
+"""Pure functions, stdlib only, never imports from other parts of mediaman/.
 
-Anything in here is unconditionally safe to import from any layer of the
-application — routes, services, background tasks, tests.  Modules in this
-package must satisfy all three invariants:
+Anything in here is safe to import from anywhere in the application —
+routes, services, background tasks, tests.  Modules in this package must
+keep to three rules:
 
 1. **No I/O.** No network calls, no file-system reads, no database queries,
    no subprocess invocations.

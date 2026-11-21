@@ -1,6 +1,6 @@
 """Shared eligibility helpers for movie and TV season scanning.
 
-Both :mod:`movies` and :mod:`tv` apply the same age-and-inactivity
+Both movies and tv apply the same age-and-inactivity
 evaluation before deciding whether an item should be scheduled for
 deletion. This module extracts that common logic so it is written once
 and both callers stay in sync.
@@ -56,7 +56,7 @@ def is_inactive(watch_history: Sequence[Mapping[str, object]], inactivity_days: 
 
     Args:
         watch_history: List of watch-history dicts, each containing at
-            minimum a ``"viewed_at"`` key with a :class:`datetime` value.
+            minimum a ``"viewed_at"`` key with a datetime value.
         inactivity_days: Minimum days without a watch event before the
             item is eligible for deletion.
 

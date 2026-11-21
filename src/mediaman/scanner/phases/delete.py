@@ -7,7 +7,7 @@ looks identical to a genuine mass-deletion on a single scan) is not acted on
 immediately: the first such scan marks the library *pending* and skips, and
 only a second consecutive suspicious scan confirms the drop and prunes. A
 one-off glitch recovers before the second scan; a real deletion persists and
-reconciles. See :func:`remove_orphans`.
+reconciles. See remove_orphans.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from mediaman.scanner import repository
 
 logger = logging.getLogger(__name__)
 
-# Fail-closed safeguard thresholds for orphan detection (C31).
+# Fail-closed safeguard thresholds for orphan detection.
 # If the current scan found fewer items than this floor and the previous
 # count met it, treat the scan as suspicious (prevents a zero-result scan
 # from wiping the DB on a transient Plex hiccup).
@@ -86,7 +86,7 @@ def _resolve_prune_libs(
     Confirmation is PER LIBRARY (M2): on a suspicious scan a library may be
     pruned only if it was *already* pending from the previous run — i.e. the
     second consecutive suspicious look at that specific library, exactly as
-    :func:`remove_orphans`' docstring promises. Libraries seeing their first
+    remove_orphans' docstring promises. Libraries seeing their first
     suspicious scan are recorded as pending and deferred; they get pruned only
     if the next scan is still suspicious. This replaces the old whole-set
     subset test, which could prune a library on its first suspicious scan
@@ -143,7 +143,7 @@ def remove_orphans(
     successfully fetched during this scan run) so items from unreachable
     libraries are never accidentally deleted.
 
-    A suspicious item-count drop (see :func:`_suspicious_reason`) — which a
+    A suspicious item-count drop (see _suspicious_reason) — which a
     transient Plex hiccup and a genuine mass-deletion look identical on a
     single scan — is no longer refused outright. The first suspicious scan
     for a library records it as *pending* and skips; a second consecutive

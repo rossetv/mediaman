@@ -9,22 +9,22 @@ when it changes.
 
 **Package layout:**
 
-* :mod:`mediaman.scanner.repository.media_items` — table-group 1:
+* mediaman.scanner.repository.media_items — table-group 1:
   ``upsert_media_item``, ``update_last_watched``,
   ``count_items_in_libraries``, ``fetch_ids_in_libraries``,
   ``delete_media_items``.
-* :mod:`mediaman.scanner.repository.scheduled_actions` — table-groups 2 & 3:
+* mediaman.scanner.repository.scheduled_actions — table-groups 2 & 3:
   protection/schedule reads and mutations on ``scheduled_actions`` and
   ``kept_shows``.
-* :mod:`mediaman.scanner.repository.settings` — table-group 4:
+* mediaman.scanner.repository.settings — table-group 4:
   ``read_delete_allowed_roots_setting``, ``read_setting``.
 
 **Repository purity contract:** this package is pure SQL — it must not
 import crypto primitives at module level.  Token generation lives in
-:func:`phases.upsert.schedule_deletion` which owns the HMAC keep-token
-logic; this package has no dependency on :mod:`mediaman.crypto`.
+phases.upsert.schedule_deletion which owns the HMAC keep-token
+logic; this package has no dependency on mediaman.crypto.
 
-This package depends only on :mod:`sqlite3`; it MUST NOT import from
+This package depends only on sqlite3; it MUST NOT import from
 ``fetch`` or ``deletions`` (see engine.py header for the import-cycle
 rule).
 """

@@ -1,14 +1,14 @@
 """Database package — schema and connection management.
 
-Owns the :mod:`sqlite3` connection lifecycle, WAL configuration, and full
+Owns the sqlite3 connection lifecycle, WAL configuration, and full
 schema DDL (applied idempotently via ``CREATE … IF NOT EXISTS`` in
-:mod:`mediaman.db.schema_definition`).  This package holds the exclusive
+mediaman.db.schema_definition).  This package holds the exclusive
 ``sqlite3.connect`` monopoly — no other package opens raw connections.
 
-Allowed dependencies: stdlib :mod:`sqlite3`, :mod:`mediaman.core` (time and
+Allowed dependencies: stdlib sqlite3, mediaman.core (time and
 audit helpers).  Forbidden: no business logic, no domain-table queries beyond
-job-run bookkeeping, and :mod:`mediaman.db` must never import from
-:mod:`mediaman.crypto` (crypto depends on db, not the reverse).
+job-run bookkeeping, and mediaman.db must never import from
+mediaman.crypto (crypto depends on db, not the reverse).
 """
 
 from __future__ import annotations

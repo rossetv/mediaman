@@ -6,12 +6,12 @@ guard's ``count_items_in_libraries`` / ``fetch_ids_in_libraries`` reads, and the
 ``delete_media_items`` bulk remove.
 
 **Why.** Centralising every ``media_items`` statement here keeps the engine and
-scan loop reading as orchestration rather than a pile of SQL literals (§9.4),
+scan loop reading as orchestration rather than a pile of SQL literals,
 and makes the schema contract — column set, ON CONFLICT mutability, the
 ``MAX(...)`` no-rewind guard — visible in one place.
 
 **Forbids.** Pure SQL only: no crypto, no token logic (that lives in
-:func:`phases.upsert.schedule_deletion`), and no transaction management for the
+phases.upsert.schedule_deletion), and no transaction management for the
 delete helpers — ``delete_media_items`` deliberately opens no transaction so the
 caller can keep it atomic with the sibling ``scheduled_actions`` delete.
 """
@@ -146,7 +146,7 @@ def count_items_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -
     if not library_ids:
         return 0
     lp = ",".join("?" * len(library_ids))
-    # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+    # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
     row = conn.execute(  # nosec B608
         f"SELECT COUNT(*) AS n FROM media_items WHERE plex_library_id IN ({lp})",
         tuple(library_ids),
@@ -163,7 +163,7 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
     for start in range(0, len(library_ids), 500):
         chunk = library_ids[start : start + 500]
         lp = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         rows = conn.execute(  # nosec B608
             f"SELECT id FROM media_items WHERE plex_library_id IN ({lp})",
             tuple(chunk),
@@ -178,7 +178,7 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
     Issues only the ``media_items`` DELETE — the matching
     ``scheduled_actions`` rows belong to the ``scheduled_actions``
     repository and are removed by
-    :func:`scheduled_actions.delete_actions_for_media_items`, which the
+    scheduled_actions.delete_actions_for_media_items, which the
     scanner's delete phase calls first while holding one transaction
     around both so the pair stays atomic (a crash between them must not
     orphan a ``scheduled_actions`` row against a deleted ``media_items``
@@ -189,7 +189,7 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         conn.execute(  # nosec B608
             f"DELETE FROM media_items WHERE id IN ({placeholders})",
             tuple(chunk),

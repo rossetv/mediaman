@@ -37,11 +37,6 @@ from typing import TypedDict, cast
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Per-purpose TypedDicts — use these as return types for validate_* functions.
-# ---------------------------------------------------------------------------
-
-
 class KeepTokenPayload(TypedDict):
     """Payload carried by a keep token (email "Keep" link)."""
 
@@ -54,8 +49,6 @@ class KeepTokenPayload(TypedDict):
 
 
 class DownloadTokenPayload(TypedDict):
-    """Payload carried by a download token (email download CTA)."""
-
     email: str | None
     """Recipient email address, or ``None`` when the issuing admin has no
     notification email set — the redeemer then skips the notification row
@@ -75,8 +68,6 @@ class DownloadTokenPayload(TypedDict):
 
 
 class UnsubscribeTokenPayload(TypedDict):
-    """Payload carried by an unsubscribe token."""
-
     email: str
     """Lower-cased email address to unsubscribe."""
     exp: int | float
@@ -84,8 +75,6 @@ class UnsubscribeTokenPayload(TypedDict):
 
 
 class PosterTokenPayload(TypedDict):
-    """Payload carried by a poster-access token."""
-
     rk: str
     """Plex rating key whose poster image is authorised."""
     exp: int | float
@@ -113,19 +102,13 @@ class PollTokenPayload(TypedDict):
     """UNIX timestamp at which the token expires."""
 
 
-# ---------------------------------------------------------------------------
-# Generic fallback — used by _validate_signed and cross-validator code that
-# does not yet know which purpose was used.
-# ---------------------------------------------------------------------------
-
-
 class TokenPayload(TypedDict, total=False):
     """Generic union of all fields that may appear in any token payload.
 
     Prefer the per-purpose TypedDicts (``KeepTokenPayload``,
     ``DownloadTokenPayload``, etc.) when the token type is known.  This
     fallback type exists for internal plumbing that must handle any token
-    shape (e.g. :func:`_validate_signed`).
+    shape (e.g. _validate_signed).
 
     All fields are optional (``total=False``) because different token types
     carry different subsets.
@@ -150,7 +133,7 @@ class TokenPayload(TypedDict, total=False):
 # never legitimately approach this size — every issued token is
 # bounded by a small JSON payload (a few hundred bytes, base64-encoded)
 # plus a 44-char base64 signature. The 4 KiB cap exists to fast-fail
-# obviously-malformed inputs at the very top of :func:`_validate_signed`.
+# obviously-malformed inputs at the very top of _validate_signed.
 _MAX_TOKEN_LEN = 4096
 
 # Cap on the *decoded* payload bytes inside the dotted token. Cuts the
@@ -170,15 +153,15 @@ _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 _SUBKEY_CACHE_MAX_ENTRIES = 64
 
 # Per-process HMAC sub-key cache; avoids re-deriving for every token validation.
-# Single-worker invariant (§1.12). The entry count is bounded by
+# Single-worker invariant. The entry count is bounded by
 # N_PURPOSES (5) × N_KEY_ROTATIONS — well below 64 in practice, so the
 # clear-all eviction path is never triggered in production; a comment rather
-# than lru_cache suffices here (§13.2).
+# than lru_cache suffices here.
 # The cache key is a SHA-256 digest of the master secret, NOT the raw
 # plaintext key. Pinning the plaintext ``MEDIAMAN_SECRET_KEY`` as a
 # live dict key for the whole process lifetime would needlessly widen
 # the blast radius of a heap dump / core file / debugger inspection
-# (§7.4 hygiene). The digest is non-reversible and still uniquely
+# . The digest is non-reversible and still uniquely
 # identifies the key for cache-lookup purposes.
 _subkey_cache: dict[tuple[bytes, bytes], bytes] = {}
 _subkey_cache_lock = threading.Lock()
@@ -189,10 +172,10 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
 
     The cache is keyed on ``sha256(secret_key)`` rather than the raw
     plaintext secret so the master key is never held as a long-lived
-    dict key (§7.4). The cache assumes a process-lifetime-constant
+    dict key. The cache assumes a process-lifetime-constant
     secret key — an in-process key rotation would leave stale (but
-    bounded, ≤ :data:`_SUBKEY_CACHE_MAX_ENTRIES`) entries; rotation is
-    a process restart in this single-worker design (§1.12).
+    bounded, ≤ _SUBKEY_CACHE_MAX_ENTRIES) entries; rotation is
+    a process restart in this single-worker design.
     """
     cache_key = (hashlib.sha256(secret_key.encode()).digest(), purpose)
     with _subkey_cache_lock:
@@ -209,7 +192,6 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
 
 
 def _sign(secret_key: str, purpose: bytes, payload: bytes) -> bytes:
-    """Return HMAC-SHA256(subkey(secret,purpose), payload)."""
     subkey = _derive_token_subkey(secret_key, purpose)
     return hmac.new(subkey, payload, hashlib.sha256).digest()
 
@@ -219,9 +201,9 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
 
     Order of checks:
 
-    1. Outer string-length cap (:data:`_MAX_TOKEN_LEN`) and dotted shape.
-    2. Decoded-payload length cap (:data:`_MAX_PAYLOAD_BYTES`) — applied
-       BEFORE :func:`_sign` is called. An attacker who supplies an
+    1. Outer string-length cap (_MAX_TOKEN_LEN) and dotted shape.
+    2. Decoded-payload length cap (_MAX_PAYLOAD_BYTES) — applied
+       BEFORE _sign is called. An attacker who supplies an
        oversize payload should not force the server to compute
        HMAC-SHA256 over megabytes of attacker-controlled bytes before
        the constant-time signature comparison rejects the token.
@@ -262,7 +244,7 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         # parses those by default (a Python extension to strict JSON), and
         # ``float("inf") < time.time()`` is ``False``, which would make a
         # token with ``"exp": Infinity`` (or a huge float like ``1e308``)
-        # effectively immortal and defeat §10.2's short-lived guarantee.
+        # effectively immortal and defeat the short-lived guarantee.
         if (
             isinstance(exp, bool)
             or not isinstance(exp, (int, float))
@@ -298,11 +280,6 @@ def _encode_signed(payload: Mapping[str, object], secret_key: str, purpose: byte
     return f"{payload_b64}.{sig_b64}"
 
 
-# ---------------------------------------------------------------------------
-# Public shims — preserve existing call-site signatures exactly.
-# ---------------------------------------------------------------------------
-
-
 def generate_keep_token(
     *,
     media_item_id: str,
@@ -310,13 +287,11 @@ def generate_keep_token(
     expires_at: int,
     secret_key: str,
 ) -> str:
-    """Issue a keep-token for *media_item_id* with a caller-supplied expiry."""
     payload = {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_KEEP)
 
 
 def validate_keep_token(token: str, secret_key: str) -> KeepTokenPayload | None:
-    """Validate and decode a keep token produced by :func:`generate_keep_token`."""
     result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_KEEP)
     return cast(KeepTokenPayload, result) if result is not None else None
 
@@ -370,7 +345,6 @@ def generate_download_token(
 
 
 def validate_download_token(token: str, secret_key: str) -> DownloadTokenPayload | None:
-    """Validate and decode a download token produced by :func:`generate_download_token`."""
     result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_DOWNLOAD)
     return cast(DownloadTokenPayload, result) if result is not None else None
 
@@ -381,14 +355,13 @@ def generate_unsubscribe_token(
     secret_key: str,
     ttl_days: int = 180,
 ) -> str:
-    """Issue an unsubscribe-token for *email* with the standard 180-day TTL."""
     exp = int(time.time()) + ttl_days * 86400
     payload = {"email": email.lower(), "exp": exp}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_UNSUBSCRIBE)
 
 
 def validate_unsubscribe_token(token: str, secret_key: str) -> UnsubscribeTokenPayload | None:
-    """Validate and decode an unsubscribe token produced by :func:`generate_unsubscribe_token`.
+    """Validate and decode an unsubscribe token produced by generate_unsubscribe_token.
 
     Returns the payload dict on success, or ``None`` when the token is
     invalid, expired, or tampered.  Callers are responsible for checking
@@ -399,14 +372,13 @@ def validate_unsubscribe_token(token: str, secret_key: str) -> UnsubscribeTokenP
 
 
 def generate_poster_token(*, rating_key: str, secret_key: str, ttl_days: int = 180) -> str:
-    """Issue a poster-access token for *rating_key* with the standard 180-day TTL."""
     exp = int(time.time()) + ttl_days * 86400
     payload = {"rk": rating_key, "exp": exp}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POSTER)
 
 
 def validate_poster_token(token: str, secret_key: str) -> PosterTokenPayload | None:
-    """Validate and decode a poster token produced by :func:`generate_poster_token`.
+    """Validate and decode a poster token produced by generate_poster_token.
 
     Returns the payload dict on success, or ``None`` when the token is
     invalid, expired, or tampered.  Callers should verify ``payload["rk"]``
@@ -417,7 +389,6 @@ def validate_poster_token(token: str, secret_key: str) -> PosterTokenPayload | N
 
 
 def sign_poster_url(rating_key: str, secret_key: str) -> str:
-    """Return a signed ``/api/poster/{rating_key}?sig=...`` URL."""
     token = generate_poster_token(rating_key=rating_key, secret_key=secret_key)
     return f"/api/poster/{rating_key}?sig={token}"
 
@@ -452,7 +423,7 @@ def generate_poll_token(
 
 
 def validate_poll_token(token: str, secret_key: str) -> PollTokenPayload | None:
-    """Validate and decode a poll token produced by :func:`generate_poll_token`.
+    """Validate and decode a poll token produced by generate_poll_token.
 
     Returns the payload dict on success, or ``None`` when the token is
     invalid, expired, or tampered.  Callers should verify ``payload["svc"]``
@@ -463,5 +434,4 @@ def validate_poll_token(token: str, secret_key: str) -> PollTokenPayload | None:
 
 
 def generate_session_token() -> str:
-    """Generate a cryptographically random session token (64 hex chars)."""
     return secrets.token_hex(32)

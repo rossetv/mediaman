@@ -71,7 +71,7 @@ def decrypt_value(
     salt: bytes | None = None,
     aad: bytes | None = None,
 ) -> str:
-    """Decrypt an AES-256-GCM v2 value produced by :func:`encrypt_value`.
+    """Decrypt an AES-256-GCM v2 value produced by encrypt_value.
 
     Args:
         encrypted: Base64url-encoded ciphertext.
@@ -136,7 +136,7 @@ def is_canary_valid(
                     ``bootstrap_crypto`` in ``app_factory``) passes a closure
                     that writes a ``security_event`` audit row.  Keeping the
                     audit-write out of ``crypto/`` preserves the leaf-package
-                    invariant (§2.2): ``crypto/`` must not import from
+                    invariant: ``crypto/`` must not import from
                     ``mediaman.core.audit``.
 
     Returns:

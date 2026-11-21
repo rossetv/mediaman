@@ -2,15 +2,15 @@
 
 All deletion-time concerns live here:
 
-* Stuck-state recovery (:func:`recover_stuck_deletions`) for rows left in
+* Stuck-state recovery (recover_stuck_deletions) for rows left in
   the ``deleting`` state by a previous crash between the on-disk rm and
   the DB cleanup commit.
-* Allowlist enforcement via :func:`repository.read_delete_allowed_roots_setting`.
+* Allowlist enforcement via repository.read_delete_allowed_roots_setting.
 * The two-phase delete loop that unmonitors *arr clients only after the
   SQLite write lock has been released.
 
-Imports :mod:`repository`; MUST NOT import :mod:`fetch` or
-:mod:`engine` (see engine.py header).
+Imports repository; MUST NOT import fetch or
+engine (see engine.py header).
 """
 
 from __future__ import annotations
@@ -43,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 class DeletionResult(TypedDict):
-    """Return type of :meth:`DeletionExecutor.execute`."""
-
     deleted: int
     reclaimed_bytes: int
 
@@ -52,7 +50,7 @@ class DeletionResult(TypedDict):
 def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
-    Called at the start of a *live* :meth:`DeletionExecutor.execute` pass
+    Called at the start of a *live* DeletionExecutor.execute pass
     (never under dry-run — a preview mutates nothing, R7-L1) and by the
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
@@ -66,7 +64,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
       ``MEDIAMAN_DELETE_ROOTS`` between the crash and restart, or the row's
       path was always bogus) -> mediaman could never have deleted it, so we
       must NOT fabricate a "deleted N bytes" audit row (that would corrupt
-      the audit trail and the reclaimed-bytes stats — a §7.5/§10.10 security
+      the audit trail and the reclaimed-bytes stats — a security
       surface). Reset to ``pending`` and log loudly instead.
     * File present -> the rm never ran. Reset to ``pending`` so the next
       normal run retries cleanly.
@@ -360,7 +358,7 @@ class DeletionExecutor:
         reclaimed_bytes = 0
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
         # Fail closed once, before the loop: deletion must refuse when
-        # MEDIAMAN_DELETE_ROOTS is unset (§1.11). Lifted out of the per-row
+        # MEDIAMAN_DELETE_ROOTS is unset. Lifted out of the per-row
         # loop so the refusal is logged a single time, not once per pending
         # row (R7-L3). Snooze cleanup below still runs so expired snoozes
         # re-enter the pipeline once roots are configured.

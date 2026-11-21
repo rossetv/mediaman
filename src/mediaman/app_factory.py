@@ -2,17 +2,17 @@
 
 This module owns the FastAPI-facing surface of startup:
 
-- :func:`create_app` — assembles the ``FastAPI`` instance, registers
+- create_app — assembles the ``FastAPI`` instance, registers
   middleware, mounts static files, and wires all routers.
-- :func:`lifespan` — orchestrates startup and shutdown in the correct
+- lifespan — orchestrates startup and shutdown in the correct
   order (DB → crypto canary → scheduler → reconciliation).
 
-The bootstrap helpers themselves live under :mod:`mediaman.bootstrap`:
+The bootstrap helpers themselves live under mediaman.bootstrap:
 
-- :mod:`mediaman.bootstrap.db` — DB open, migrations, ``app.state``.
-- :mod:`mediaman.bootstrap.crypto` — AES canary + legacy-ciphertext sweep.
-- :mod:`mediaman.bootstrap.scan_jobs` — scheduler start/stop.
-- :mod:`mediaman.bootstrap.data_dir` — data-dir writability probe.
+- mediaman.bootstrap.db — DB open, migrations, ``app.state``.
+- mediaman.bootstrap.crypto — AES canary + legacy-ciphertext sweep.
+- mediaman.bootstrap.scan_jobs — scheduler start/stop.
+- mediaman.bootstrap.data_dir — data-dir writability probe.
 """
 
 from __future__ import annotations
@@ -41,11 +41,6 @@ _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 
 
-# ---------------------------------------------------------------------------
-# Application factory
-# ---------------------------------------------------------------------------
-
-
 def _run_startup_reconciliation(app: FastAPI) -> None:
     """Reconcile state stranded by a crash on a previous run.
 
@@ -69,7 +64,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
         reconciled = reconcile_pending_delete_intents(app.state.db)
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    # rationale: §6.4 site 4 (cold-start) — startup reconciliation is
+    # rationale: startup reconciliation is
     # best-effort; failing it must not block the rest of bootstrap.
     except Exception:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
@@ -84,7 +79,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
         reset = reconcile_stranded_notifications(app.state.db)
         if reset:
             logger.info("Reconciled %d stranded download notification(s) at startup", reset)
-    # rationale: §6.4 site 4 (cold-start) — best-effort reconciliation;
+    # rationale: best-effort reconciliation;
     # don't block startup if the DB query path is briefly unhappy.
     except Exception:
         logger.exception("download-notification reconciliation failed at startup; continuing")
@@ -143,7 +138,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except DataDirNotWritableError as exc:
         logger.critical("%s", exc)
         sys.exit(1)
-    # rationale: §6.4 site 4 (cold-start) — any further bootstrap failure
+    # rationale: any further bootstrap failure
     # must abort process; we cannot serve traffic without a DB.
     except Exception as exc:
         logger.critical("Database bootstrap failed at startup: %s", exc, exc_info=True)
@@ -151,7 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         bootstrap_crypto(app, config)
-    # rationale: §6.4 site 4 (cold-start) — crypto absence means we cannot
+    # rationale: crypto absence means we cannot
     # decrypt secrets or sign tokens; abort process rather than serve broken
     # responses. bootstrap_crypto itself swallows recoverable errors.
     except Exception as exc:  # pragma: no cover — bootstrap_crypto already swallows
@@ -172,7 +167,7 @@ def _register_routers(app: FastAPI) -> None:
     """Mount every route module's router on *app*.
 
     The router imports are deferred into this function body (rather than
-    placed at module top) so importing :mod:`mediaman.app_factory` does
+    placed at module top) so importing mediaman.app_factory does
     not transitively import every route module and its dependencies —
     the import-cost property the original inline block established is
     preserved here.
@@ -271,7 +266,6 @@ def _register_probes(app: FastAPI) -> None:
 
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
     app = FastAPI(
         title="Mediaman",
         lifespan=lifespan,
