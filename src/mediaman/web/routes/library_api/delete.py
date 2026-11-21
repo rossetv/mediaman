@@ -27,6 +27,7 @@ from mediaman.web.repository.delete_intents import (
     _record_delete_intent,
 )
 from mediaman.web.repository.library_api import (
+    Kept,
     MediaDeleteSnapshot,
     NotFound,
     finalise_delete_in_tx,
@@ -259,6 +260,12 @@ def api_media_delete(
         snapshot = snapshot_media_for_delete(conn, media_id)
     except NotFound:
         return respond_err("forbidden", status=403)
+    except Kept:
+        return respond_err(
+            "kept",
+            status=409,
+            message="This item is kept, so it cannot be deleted. Remove its keep first.",
+        )
 
     intent_id, short_circuit = _run_arr_delete_branch(
         snapshot,

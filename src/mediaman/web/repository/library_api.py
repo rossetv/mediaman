@@ -16,6 +16,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from mediaman.core.audit import log_audit
+from mediaman.scanner.repository import is_protected, is_show_kept_pure
 from mediaman.services.downloads.notifications import record_download_notification
 
 
@@ -28,6 +29,10 @@ class NotFound(Exception):
     raise inside ``with conn:`` and the route does not need a generic
     ``RuntimeError`` sentinel.
     """
+
+
+class Kept(Exception):
+    """Raised when a delete targets an item the scanner would keep."""
 
 
 @dataclass(frozen=True)
@@ -133,8 +138,13 @@ def snapshot_media_for_delete(conn: sqlite3.Connection, media_id: str) -> MediaD
     row between read and release; ``with conn:`` commits on normal exit
     (or rolls back on `NotFound`).
 
+    An item the scanner keeps (its own keep, or a keep on its show) is
+    refused: dropping its row and keep would let the next scan re-add it
+    unkept and schedule its files for deletion.
+
     Raises:
         NotFound: when no row matches *media_id*.
+        Kept: when the item is kept.
     """
     # Snapshot transaction: ``with conn:`` commits on normal exit and
     # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
@@ -143,12 +153,14 @@ def snapshot_media_for_delete(conn: sqlite3.Connection, media_id: str) -> MediaD
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT id, title, media_type, file_path, file_size_bytes, "
-            "radarr_id, sonarr_id, season_number, plex_rating_key "
+            "radarr_id, sonarr_id, season_number, plex_rating_key, show_rating_key "
             "FROM media_items WHERE id = ?",
             (media_id,),
         ).fetchone()
         if row is None:
             raise NotFound(media_id)
+        if is_protected(conn, media_id) or is_show_kept_pure(conn, row["show_rating_key"]):
+            raise Kept(media_id)
         return MediaDeleteSnapshot(
             title=row["title"],
             media_type=row["media_type"],

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER
+from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
@@ -220,11 +220,11 @@ class TestFailedArrDeleteSurvivesRestart:
     def _reset_limiter(self):
         _DELETE_LIMITER.reset()
 
-    def test_failed_radarr_delete_keeps_row_and_keep_after_restart(
+    def test_failed_radarr_delete_keeps_row_and_its_scheduled_action_after_restart(
         self, app_factory, authed_client, conn
     ):
         _insert_movie(conn)
-        insert_scheduled_action(conn, media_item_id="m1", action=ACTION_PROTECTED_FOREVER)
+        insert_scheduled_action(conn, media_item_id="m1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
         mock_radarr = MagicMock()
@@ -243,7 +243,7 @@ class TestFailedArrDeleteSurvivesRestart:
     ):
         """Files gone but Sonarr errored before confirming: the row stays for a retry."""
         _insert_tv_season(conn)
-        insert_scheduled_action(conn, media_item_id="s1", action=ACTION_PROTECTED_FOREVER)
+        insert_scheduled_action(conn, media_item_id="s1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
         mock_sonarr = MagicMock()
@@ -262,7 +262,7 @@ class TestFailedArrDeleteSurvivesRestart:
 
     def test_unexpected_arr_error_keeps_row_after_restart(self, app_factory, authed_client, conn):
         _insert_movie(conn)
-        insert_scheduled_action(conn, media_item_id="m1", action=ACTION_PROTECTED_FOREVER)
+        insert_scheduled_action(conn, media_item_id="m1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
         mock_radarr = MagicMock()
