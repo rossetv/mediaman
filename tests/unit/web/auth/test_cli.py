@@ -77,11 +77,21 @@ class TestCreateUserCli:
         assert len(err.splitlines()) == 1
         assert "--username" in err and "--password-stdin" in err
 
-    def test_no_terminal_for_the_password_prompt_exits_the_same_way(
-        self, monkeypatch, tmp_path, capsys
-    ):
+    def test_closed_stdin_counts_as_no_terminal(self, monkeypatch, tmp_path, capsys):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", None)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        assert "--password-stdin" in capsys.readouterr().err
+
+    def test_ctrl_d_at_the_password_prompt_exits_the_same_way(self, monkeypatch, tmp_path, capsys):
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user", "--username", "bob"])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
         def eof(*_a, **_kw):
             raise EOFError

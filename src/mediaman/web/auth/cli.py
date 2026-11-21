@@ -76,7 +76,8 @@ def _resolve_credentials(args: argparse.Namespace) -> tuple[str, str]:
     prompts = not username or not (args.password_stdin or args.password)
     # Checked up front: getpass and input() write prompts and a warning
     # before they notice there is nobody to answer.
-    if prompts and not sys.stdin.isatty():
+    # sys.stdin is None when fd 0 is closed.
+    if prompts and (sys.stdin is None or not sys.stdin.isatty()):
         _exit_no_terminal()
     try:
         username = username or _prompt_username()
