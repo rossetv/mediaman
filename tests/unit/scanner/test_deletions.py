@@ -789,3 +789,65 @@ class TestMissingTarget:
         assert _actions(conn, "m") == []
         assert _audits(conn, "m") == ["deleted"]
         assert (root / "Other" / "Other.mkv").exists()
+
+
+class TestSharedFolderPathSpelling:
+    """Two spellings of one folder are the same folder."""
+
+    def _show(self, tmp_path, monkeypatch):
+        root = tmp_path / "tv"
+        show = root / "Show"
+        show.mkdir(parents=True)
+        (show / "Show - s01e01.mkv").write_bytes(b"x")
+        (show / "Show - s02e01.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        return root, show
+
+    def _season(self, conn, media_id, path, number):
+        insert_media_item(
+            conn,
+            id=media_id,
+            title="Show",
+            plex_rating_key=media_id,
+            media_type="season",
+            season_number=number,
+            file_path=path,
+            file_size_bytes=10,
+        )
+
+    @pytest.mark.parametrize("doubled", ["sibling", "target"])
+    def test_kept_sibling_spelled_differently_blocks_the_removal(
+        self, conn, tmp_path, monkeypatch, doubled
+    ):
+        root, show = self._show(tmp_path, monkeypatch)
+        plain, double = str(show), f"{root}//Show"
+        self._season(conn, "s1", double if doubled == "target" else plain, 1)
+        self._season(conn, "s2", double if doubled == "sibling" else plain, 2)
+        _due_row(conn, "s1")
+        insert_scheduled_action(
+            conn,
+            media_item_id="s2",
+            action="protected_forever",
+            token="tok-s2",
+            token_used=True,
+        )
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert (show / "Show - s02e01.mkv").exists()
+        assert result["deleted"] == 0
+
+    def test_due_sibling_spelled_differently_closes_with_the_folder(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", str(show), 1)
+        self._season(conn, "s2", f"{root}//Show", 2)
+        _due_row(conn, "s1")
+        _due_row(conn, "s2")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert not show.exists()
+        assert result == {"deleted": 2, "reclaimed_bytes": 20}
+        assert _actions(conn, "s2") == []

@@ -16,6 +16,7 @@ deletion-state mutations.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 
@@ -157,11 +158,24 @@ def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -
     return cursor.rowcount == 1
 
 
-def _at_or_under_params(path: str) -> tuple[str, int, str]:
-    """Bind values for ``mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?``."""
-    folder = path.rstrip("/")
-    prefix = folder + "/"
-    return folder, len(prefix), prefix
+def _normalised(path: str) -> str:
+    # normpath keeps a leading "//" (POSIX leaves it implementation-defined).
+    return "/" + os.path.normpath(path).lstrip("/") if path.startswith("/") else path
+
+
+def _at_or_under(stored: str | None, path: str) -> bool:
+    """Return True if *stored* names *path* or something under it.
+
+    A match on the stored spelling or on the normalised one counts, so a
+    normalised form that hides a match (``..`` after a symlink) never lets
+    a path through that the plain spelling would catch.
+    """
+    if not stored:
+        return False
+    for candidate, folder in ((stored, path.rstrip("/")), (_normalised(stored), _normalised(path))):
+        if candidate == folder or candidate.startswith(folder.rstrip("/") + "/"):
+            return True
+    return False
 
 
 def fetch_media_held_outside_pass(
@@ -173,18 +187,18 @@ def fetch_media_held_outside_pass(
     it has an unused ``scheduled_deletion`` row whose time has come, in any
     delete state, since such rows are part of the same pass.
     """
-    return conn.execute(
-        "SELECT mi.id, mi.title, mi.season_number FROM media_items mi "
+    rows = conn.execute(
+        "SELECT mi.id, mi.title, mi.season_number, mi.file_path FROM media_items mi "
         "WHERE mi.id != ? "
-        "  AND (mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?) "
         "  AND NOT EXISTS ("
         "    SELECT 1 FROM scheduled_actions sa "
         "    WHERE sa.media_item_id = mi.id AND sa.action = 'scheduled_deletion' "
         "      AND sa.token_used = 0 AND sa.execute_at <= ?"
         "  ) "
         "ORDER BY mi.id",
-        (media_item_id, *_at_or_under_params(path), now_iso),
+        (media_item_id, now_iso),
     ).fetchall()
+    return [row for row in rows if _at_or_under(row["file_path"], path)]
 
 
 def claim_due_deletions_under(
@@ -201,14 +215,16 @@ def claim_due_deletions_under(
         "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
-        "WHERE mi.id != ? "
-        "  AND (mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?) "
-        "  AND sa.action = 'scheduled_deletion' "
+        "WHERE mi.id != ? AND sa.action = 'scheduled_deletion' "
         "ORDER BY sa.id",
-        (media_item_id, *_at_or_under_params(path)),
+        (media_item_id,),
     ).fetchall()
     candidates = [_row_to_deletion_row(row) for row in rows]
-    return [row for row in candidates if claim_due_deletion(conn, row.id, now_iso)]
+    return [
+        row
+        for row in candidates
+        if _at_or_under(row.file_path, path) and claim_due_deletion(conn, row.id, now_iso)
+    ]
 
 
 def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) -> None:
