@@ -363,7 +363,6 @@ class ScanEngine:
                 conn=self._conn,
                 secret_key=self._secret_key,
                 dry_run=self._dry_run,
-                grace_days=self._grace_days,
             )
         except (PlexApiException, requests.RequestException, sqlite3.Error):
             # best-effort post-scan followup — must not abort scan summary

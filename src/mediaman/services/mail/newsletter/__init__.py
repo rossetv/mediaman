@@ -183,7 +183,6 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,
-    grace_days: int = 14,
     *,
     recipients: list[str] | None = None,
     mark_notified: bool = True,
@@ -194,9 +193,6 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     unnotified items and marks them notified=1 afterwards. A manual call (recipients
     given, mark_notified=False) sends to those addresses, includes all scheduled items
     and leaves the notified flag alone.
-
-    *grace_days* is accepted for callers that still pass it and is not used: each item's
-    days left come from its own deadline.
     """
     mg_settings = _load_mailgun_settings(conn, secret_key)
     if not mg_settings.domain:
