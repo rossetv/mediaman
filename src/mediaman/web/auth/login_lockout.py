@@ -158,7 +158,7 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
         return False
     # Strict parse + fail-closed: a NON-EMPTY but unparseable
     # ``locked_until`` is treated as STILL LOCKED, consistent with the
-    # the session store. An attacker who could corrupt the stored value
+    # session store. An attacker who could corrupt the stored value
     # must not be able to escape the lock by garbling it.
     locked_until = parse_iso_strict_utc(raw_locked_until)
     if locked_until is None:

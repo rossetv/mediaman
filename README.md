@@ -52,7 +52,7 @@ docker rm -f mediaman
 | `MEDIAMAN_FORCE_SECURE_COOKIES` | unset: always `Secure` | `false` allows login over plain HTTP and also turns HSTS off |
 | `MEDIAMAN_HSTS_ENABLED` | `false` | `true` sends `Strict-Transport-Security` on HTTPS requests |
 | `MEDIAMAN_MAX_REQUEST_BYTES` | `8388608` | Larger request bodies get a 413 |
-| `MEDIAMAN_MEDIA_PATH` | `/media` | Mount point whose disk usage the newsletter reports |
+| `MEDIAMAN_MEDIA_PATH` | `/media` | Mount point whose disk usage the dashboard and newsletter report |
 
 Service credentials and the rest of the settings are in the web UI. Advanced variables, which most installs leave alone: `MEDIAMAN_STRICT_EGRESS`, `MEDIAMAN_CLOUDFLARE_PROXIES`, `MEDIAMAN_FINGERPRINT_MODE`, `MEDIAMAN_REAUTH_WINDOW_SECONDS`, `MEDIAMAN_HSTS_PRELOAD`, `MEDIAMAN_WORKERS`, `MEDIAMAN_EAGER_APP`.
 

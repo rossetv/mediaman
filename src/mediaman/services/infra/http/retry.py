@@ -33,8 +33,8 @@ Invariants
 # path log helpers, ``_compute_delay``, the cross-iteration ``_LoopState``,
 # the three per-step handlers (``_handle_transport_error``,
 # ``_handle_retryable_status``, ``_finalise_response``), and ``dispatch_loop``
-# itself. The wave-2 ``dispatch_loop`` decomposition already extracted the
-# step handlers and the carry-over state; splitting further (e.g. lifting the
+# itself. ``dispatch_loop`` is already split into the step handlers and the
+# carry-over state; splitting further (e.g. lifting the
 # ``Retry-After`` parser into a sibling module) would be a sibling-dump that
 # fragments one tightly-coupled engine across files for no navigational gain.
 # The public surface is a single function, ``dispatch_loop``; everything else
