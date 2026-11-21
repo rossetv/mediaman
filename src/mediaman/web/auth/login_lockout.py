@@ -428,16 +428,14 @@ def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> No
     """
     key = login_key(username)
     _ensure_table(conn)
-    # One statement, so a lock set by a concurrent failure is never wiped.
-    # ``julianday`` yields NULL for an unparseable value, which keeps the
-    # row: a corrupt ``locked_until`` stays locked, as in ``is_locked_out``.
-    conn.execute(
-        "DELETE FROM login_failures WHERE username = ? "
-        "AND (locked_until IS NULL OR locked_until = '' "
-        "OR julianday(locked_until) <= julianday(?))",
-        (key, _iso(_now())),
-    )
-    conn.commit()
+    # The write lock is taken before the check, so a lock set by a
+    # concurrent failure cannot land between the check and the delete.
+    # ``is_locked_out`` is the one definition of "locked", corrupt
+    # ``locked_until`` values included (those stay locked).
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not is_locked_out(conn, key):
+            conn.execute("DELETE FROM login_failures WHERE username = ?", (key,))
 
 
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:

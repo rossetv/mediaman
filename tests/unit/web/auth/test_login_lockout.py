@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from mediaman.db import init_db
+from mediaman.web.auth import login_lockout
 from mediaman.web.auth.login_lockout import (
     admin_unlock,
     clear_unlocked_login_failures,
@@ -551,6 +553,37 @@ class TestLoginCounterAfterProvedPassword:
         _seed_login_row(user_conn, "alice", count=5, locked_until="garbage")
         clear_unlocked_login_failures(user_conn, "alice")
         assert _login_row(user_conn, "alice") is not None
+
+    @pytest.mark.parametrize("kind", ["reauth", "change_password"])
+    @pytest.mark.parametrize("value", ["1", "2460000", "now"])
+    def test_success_keeps_a_lock_value_that_is_not_a_timestamp(self, user_conn, kind, value):
+        _seed_login_row(user_conn, "alice", count=5, locked_until=value)
+        self._prove(kind, user_conn)
+        row = _login_row(user_conn, "alice")
+        assert (row["failure_count"], row["locked_until"]) == (5, value)
+
+    def test_no_other_writer_gets_in_between_the_check_and_the_clear(
+        self, user_conn, db_path, monkeypatch
+    ):
+        _seed_login_row(user_conn, "alice", count=3, locked_until=None)
+        other = sqlite3.connect(str(db_path), timeout=0)
+        outcome = []
+        real_check = login_lockout.is_locked_out
+
+        def check_then_try_a_write(conn, username):
+            result = real_check(conn, username)
+            try:
+                other.execute("UPDATE login_failures SET failure_count = 9")
+                outcome.append("written")
+            except sqlite3.OperationalError:
+                outcome.append("blocked")
+            return result
+
+        monkeypatch.setattr(login_lockout, "is_locked_out", check_then_try_a_write)
+        clear_unlocked_login_failures(user_conn, "alice")
+        other.close()
+        assert outcome == ["blocked"]
+        assert _login_row(user_conn, "alice") is None
 
     def test_wrong_passwords_write_no_login_row(self, user_conn):
         assert verify_reauth_password(user_conn, "alice", "wrong") is False
