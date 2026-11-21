@@ -20,6 +20,7 @@ docker run -d --name mediaman \
   rossetv/mediaman
 
 docker exec -it mediaman mediaman-create-user   # asks for the first admin; needs a terminal
+docker exec mediaman mediaman-unlock-user admin  # after 15 failed logins; clears the 24-hour lock
 ```
 
 Mount your media at the path Plex uses for it (`/media` here), writable by uid 1000.

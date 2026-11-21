@@ -5,7 +5,9 @@ import sys
 
 import pytest
 
+from mediaman.db import init_db
 from mediaman.web.auth import cli as cli_mod
+from mediaman.web.auth.password_hash import authenticate, create_user
 
 
 def _enable_config(monkeypatch, tmp_path):
@@ -158,3 +160,63 @@ class TestCreateUserCli:
         assert excinfo.value.code == 1
         err = capsys.readouterr().err
         assert "configuration is invalid" in err
+
+
+class TestUnlockUserCli:
+    """``mediaman-unlock-user <name>`` clears a login lockout without a prompt."""
+
+    def _run(self, monkeypatch, tmp_path, *argv):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-unlock-user", *argv])
+        cli_mod.unlock_user_cli()
+
+    @staticmethod
+    def _db(tmp_path):
+        return init_db(str(tmp_path / "mediaman.db"))
+
+    def test_locked_user_is_unlocked_and_can_log_in_again(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(15):
+            assert authenticate(conn, "alice", "wrong-password") is False
+        assert authenticate(conn, "alice", "correct-password-123") is False
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")
+
+        assert "alice" in capsys.readouterr().out
+        conn = self._db(tmp_path)
+        assert authenticate(conn, "alice", "correct-password-123") is True
+        audit = conn.execute(
+            "SELECT 1 FROM audit_log WHERE action = 'sec:user.unlocked'"
+        ).fetchone()
+        assert audit is not None
+        conn.close()
+
+    def test_unknown_user_exits_non_zero_and_changes_nothing(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong-password")
+        before = conn.execute("SELECT * FROM login_failures").fetchall()
+        audits = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+        conn.close()
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(monkeypatch, tmp_path, "nobody")
+
+        assert excinfo.value.code == 1
+        assert "nobody" in capsys.readouterr().err
+        conn = self._db(tmp_path)
+        assert conn.execute("SELECT * FROM login_failures").fetchall() == before
+        assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == audits
+        conn.close()
+
+    def test_user_who_is_not_locked_exits_zero_and_says_so(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")  # returns, no SystemExit
+
+        assert "not locked" in capsys.readouterr().out

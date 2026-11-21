@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import sqlite3
 import sys
 from pathlib import Path
 
 from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
 from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
+from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.password_hash import UserExistsError, create_user
 from mediaman.web.auth.password_policy import password_issues
 
@@ -102,6 +104,18 @@ def _preflight_data_dir(config: Config) -> Path:
     return data_dir
 
 
+def _open_db() -> sqlite3.Connection:
+    """Load the config and open the database, exiting 1 on a bad config or data dir."""
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(f"Error: configuration is invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    data_dir = _preflight_data_dir(config)
+    return init_db(str(data_dir / "mediaman.db"))
+
+
 def create_user_cli() -> None:
     """CLI entry point for creating admin users.
 
@@ -133,16 +147,7 @@ def create_user_cli() -> None:
 
     username, password = _resolve_credentials(args)
 
-    try:
-        config = load_config()
-    except ConfigError as exc:
-        print(f"Error: configuration is invalid: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    data_dir = _preflight_data_dir(config)
-
-    db_path = str(data_dir / "mediaman.db")
-    conn = init_db(db_path)
+    conn = _open_db()
 
     try:
         create_user(conn, username, password)
@@ -152,3 +157,34 @@ def create_user_cli() -> None:
         sys.exit(1)
     finally:
         conn.close()
+
+
+def unlock_user_cli() -> None:
+    """CLI entry point for clearing a user's login lockout.
+
+    Takes the username as an argument and never prompts, so it runs from
+    ``docker exec`` without a terminal. Exits 1 for an unknown user and
+    changes nothing; a user who is not locked is reported and exits 0.
+    """
+    parser = argparse.ArgumentParser(description="Clear a mediaman user's login lockout")
+    parser.add_argument("username", help="The locked user's name")
+    args = parser.parse_args()
+
+    conn = _open_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM admin_users WHERE username = ?", (args.username,)
+        ).fetchone()
+        if row is None:
+            print(f"Error: no such user '{args.username}'.", file=sys.stderr)
+            sys.exit(1)
+        cleared = admin_unlock_with_audit(
+            conn, args.username, audit_actor="cli", target_id=row["id"]
+        )
+    finally:
+        conn.close()
+
+    if cleared:
+        print(f"Cleared the login lockout and failure count for '{args.username}'.")
+    else:
+        print(f"User '{args.username}' is not locked; nothing to clear.")
