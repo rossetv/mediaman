@@ -5,7 +5,7 @@
 
 mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatched items for deletion, emails a newsletter where readers can keep them, and drives Sonarr, Radarr and NZBGet from a web UI.
 
-![The scan queues a stale movie for 14 days and the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
+![The scan queues a stale movie with a grace period set in Settings, and the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
 
 ## Run it
 
@@ -28,24 +28,17 @@ The session cookie is always `Secure`: before you log in, use HTTPS or add `-e M
 
 Open `http://<host>:8282`, log in and add your services under Settings:
 
-![mediaman calls Plex, Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and optionally OpenAI, keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
+![mediaman needs Plex to scan; Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and OpenAI are optional. It keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
 
-Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now on the Dashboard, check what it lists under Scheduled for deletion, then recreate the container with your library folders, separated by `:`. The next scan deletes everything past its grace period.
+Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now and check Scheduled for deletion on the Dashboard. Then `docker rm -f mediaman` and rerun your own `docker run` plus this line, naming your library folders separated by `:`. The next scan deletes everything past its grace period.
 
 ```bash
-docker rm -f mediaman
-docker run -d --name mediaman \
-  -p 8282:8282 \
-  -e MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" \
   -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
-  -v mediaman-data:/data \
-  -v /path/to/your/media:/media \
-  rossetv/mediaman
 ```
 
 `/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the system directories are refused as roots, and one refused root stops every scheduled deletion.
 
-To upgrade, `docker pull rossetv/mediaman` and rerun the two commands above as you run them now: same key, same `/data` volume, your roots and flags. A database last opened by a build from before 13 May 2026 is not supported.
+To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. A database last opened by a build from before 13 May 2026 is not supported.
 
 `/healthz` answers 200 while the process runs; `/readyz` answers 503 until the scheduler starts, or if the key does not match the database.
 
