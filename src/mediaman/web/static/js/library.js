@@ -238,13 +238,16 @@
   }
 
   function removeAllKeeps() {
+    /* Disabled until the requests settle, so a second click cannot resend them. */
+    var removeBtn = document.getElementById('keep-dialog-remove');
+    removeBtn.disabled = true;
     window.UIFeedback.confirm({
       title: 'Remove all keeps for this show?',
       body: 'Seasons may be scheduled for deletion on the next scan.',
       confirmLabel: 'Remove all',
       confirmVariant: 'danger'
     }).then(function (ok) {
-      if (!ok) return;
+      if (!ok) { removeBtn.disabled = false; return; }
       var rk = _keepDialogState.showRk;
       var allRequests = [];
       if (rk && _keepDialogState.showKept) {
@@ -267,6 +270,7 @@
           window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
           /* Refetch so a retry sends only what is still kept. */
           loadKeepSeasons();
+          removeBtn.disabled = false;
         } else {
           window.location.reload();
         }
