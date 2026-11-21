@@ -427,8 +427,17 @@ def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> No
     someone else's guesses set.
     """
     key = login_key(username)
-    if not is_locked_out(conn, key):
-        record_success(conn, key)
+    _ensure_table(conn)
+    # One statement, so a lock set by a concurrent failure is never wiped.
+    # ``julianday`` yields NULL for an unparseable value, which keeps the
+    # row: a corrupt ``locked_until`` stays locked, as in ``is_locked_out``.
+    conn.execute(
+        "DELETE FROM login_failures WHERE username = ? "
+        "AND (locked_until IS NULL OR locked_until = '' "
+        "OR julianday(locked_until) <= julianday(?))",
+        (key, _iso(_now())),
+    )
+    conn.commit()
 
 
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
