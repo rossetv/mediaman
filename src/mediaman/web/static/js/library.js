@@ -73,7 +73,10 @@
   function openKeepDialog() {
     if (_keepDialogModal) _keepDialogModal.open();
     if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
+    loadKeepSeasons();
+  }
 
+  function loadKeepSeasons() {
     _keepDialogState.showKept = false;
     _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
@@ -262,6 +265,8 @@
       removeChain.then(function () {
         if (failed.length) {
           window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
+          /* Refetch so a retry sends only what is still kept. */
+          loadKeepSeasons();
         } else {
           window.location.reload();
         }
