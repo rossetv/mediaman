@@ -168,7 +168,7 @@ def _compute_delay(
 class _LoopState:
     """Carry-over state mutated across ``dispatch_loop`` iterations.
 
-    These four fields are the only state that survives between attempts and
+    These three fields are the only state that survives between attempts and
     therefore must be threaded through the per-step helpers verbatim:
 
     * ``last_exc`` — the most recent transport exception, re-raised if every
@@ -176,16 +176,11 @@ class _LoopState:
     * ``last_status`` / ``last_snippet`` — the status code and body snippet of
       the most recent *retryable* response, used to build the final error
       once the attempt budget is exhausted on a retryable status.
-    * ``consecutive_5xx`` — running count of back-to-back 5xx responses,
-      driving the ``abort_after_consecutive_5xx`` early-abort policy. A
-      transport error resets it to ``0``; a non-5xx retryable status (429)
-      also resets it; a 5xx increments it.
     """
 
     last_exc: Exception | None = None
     last_status: int | None = None
     last_snippet: str = ""
-    consecutive_5xx: int = 0
 
 
 def _handle_transport_error(
@@ -202,9 +197,8 @@ def _handle_transport_error(
 ) -> None:
     """Handle a transport-layer exception raised by ``dispatch_fn``.
 
-    Records the exception on *state*, resets the consecutive-5xx streak (a
-    transport error breaks any 5xx run), then either sleeps and returns — so
-    the caller's loop ``continue``s to the next attempt — or, when the attempt
+    Records the exception on *state*, then either sleeps and returns — so the
+    caller's loop ``continue``s to the next attempt — or, when the attempt
     budget is exhausted or *retry_transport_error* rejects the exception,
     raises the ``make_error`` exception.
     """
@@ -215,8 +209,6 @@ def _handle_transport_error(
         type(exc).__name__,
     )
     state.last_exc = exc
-    # Transport errors break any consecutive-5xx streak.
-    state.consecutive_5xx = 0
     if attempt + 1 < attempts and (retry_transport_error is None or retry_transport_error(exc)):
         time.sleep(_compute_delay(attempt, jitter_strategy=jitter_strategy))
         return
@@ -236,18 +228,14 @@ def _handle_retryable_status(
     attempt: int,
     attempts: int,
     jitter_strategy: Literal["fixed", "full"],
-    abort_after_consecutive_5xx: int | None,
-    make_error: Callable[..., Exception],
     state: _LoopState,
 ) -> None:
     """Handle a retryable status code (429/5xx) when more attempts remain.
 
-    Maintains the ``consecutive_5xx`` counter on *state*, enforces the
-    ``abort_after_consecutive_5xx`` early-abort policy (raising ``make_error``
-    when the threshold is hit), honours a ``Retry-After`` header on 429/503,
-    sleeps for the resulting delay, and finally records ``last_status`` /
-    ``last_snippet`` on *state* so the post-loop branch can build the final
-    error. On return the caller's loop ``continue``s to the next attempt.
+    Honours a ``Retry-After`` header on 429/503, sleeps for the resulting delay,
+    and records ``last_status`` / ``last_snippet`` on *state* so the post-loop
+    branch can build the final error. On return the caller's loop ``continue``s
+    to the next attempt.
 
     Only called when ``response.status_code`` is in the retryable set *and*
     ``attempt + 1 < attempts``.
@@ -258,28 +246,6 @@ def _handle_retryable_status(
         _safe_path(url),
         response.status_code,
     )
-    # Maintain the consecutive-5xx counter for early-abort callers.
-    if 500 <= response.status_code < 600:
-        state.consecutive_5xx += 1
-    else:
-        state.consecutive_5xx = 0
-    if (
-        abort_after_consecutive_5xx is not None
-        and state.consecutive_5xx >= abort_after_consecutive_5xx
-    ):
-        logger.warning(
-            "HTTP %s %s: %d consecutive 5xx — aborting retries",
-            method,
-            _safe_path(url),
-            state.consecutive_5xx,
-        )
-        snippet = _snippet(body)
-        response.close()
-        raise make_error(
-            status_code=response.status_code,
-            body_snippet=snippet,
-            url=url,
-        )
     response.close()
     # Honour ``Retry-After`` on 429/503; fall back to the schedule.
     delay = _compute_delay(attempt, jitter_strategy=jitter_strategy)
@@ -325,7 +291,6 @@ def dispatch_loop(
     attempts: int,
     make_error: Callable[..., Exception],
     jitter_strategy: Literal["fixed", "full"] = "fixed",
-    abort_after_consecutive_5xx: int | None = None,
     retryable_statuses: frozenset[int] | None = None,
     retry_transport_error: Callable[[Exception], bool] | None = None,
 ) -> requests.Response:
@@ -360,24 +325,8 @@ def dispatch_loop(
             ``"full"`` uses full-jitter exponential backoff
             ``uniform(0, 2**attempt)`` for callers (e.g. mailgun) that want a
             wider sleep envelope so retries don't synchronise.
-        abort_after_consecutive_5xx: When set, abort the retry loop early
-            after this many consecutive 5xx responses — the mailgun policy
-            uses ``2`` to give up when the remote is clearly degraded.
-            ``None`` (default) keeps the historical behaviour of running the
-            full attempt budget.
-
-            Relationship to ``attempts`` (off-by-one): the abort check only
-            runs inside ``_handle_retryable_status``, which is reached
-            only when ``attempt + 1 < attempts`` (more attempts remain). The
-            final attempt's 5xx goes straight to ``_finalise_response``
-            and raises a normal error *without* consulting the streak. So a
-            threshold ``N`` only ever fires if ``attempts > N`` — with the
-            default ``attempts=3``, ``abort_after_consecutive_5xx=2`` aborts
-            on the 2nd response (attempt index 1) before the 3rd is issued,
-            and ``=1`` aborts after the 1st. Setting the threshold ``>=
-            attempts`` makes it a no-op: the budget exhausts naturally first.
         retryable_statuses: Override ``_RETRYABLE_STATUSES`` for callers
-            with a different transient-set (mailgun adds ``500``).  ``None``
+            with a different transient-set (mailgun uses only ``429``).  ``None``
             uses the default set.
         retry_transport_error: Decides, for each transport exception, whether
             it is worth another attempt.  ``None`` (default) retries every
@@ -465,8 +414,6 @@ def dispatch_loop(
                 attempt=attempt,
                 attempts=attempts,
                 jitter_strategy=jitter_strategy,
-                abort_after_consecutive_5xx=abort_after_consecutive_5xx,
-                make_error=make_error,
                 state=state,
             )
             continue

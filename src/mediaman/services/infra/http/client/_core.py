@@ -132,17 +132,15 @@ class SafeHTTPClient:
         auth: Any = None,
         expected_content_type: str | None = None,
         jitter_strategy: Literal["fixed", "full"] = "fixed",
-        abort_after_consecutive_5xx: int | None = None,
         retryable_statuses: frozenset[int] | None = None,
         retry_transport_error: Callable[[Exception], bool] | None = None,
     ) -> requests.Response:
         """Perform an SSRF-checked POST; no retries unless ``retry=True``.
 
-        ``jitter_strategy``, ``abort_after_consecutive_5xx``,
-        ``retryable_statuses``, and ``retry_transport_error`` thread through to ``dispatch_loop``
-        so retry-heavy callers (e.g. the mailgun POST path) can opt into
-        full-jitter backoff and an early-abort policy without rolling
-        their own retry primitive.
+        ``jitter_strategy``, ``retryable_statuses``, and ``retry_transport_error``
+        thread through to ``dispatch_loop`` so retry-heavy callers (e.g. the
+        mailgun POST path) can opt into full-jitter backoff and a narrower
+        retry policy without rolling their own retry primitive.
         """
         return self._request(
             "POST",
@@ -157,7 +155,6 @@ class SafeHTTPClient:
             auth=auth,
             expected_content_type=expected_content_type,
             jitter_strategy=jitter_strategy,
-            abort_after_consecutive_5xx=abort_after_consecutive_5xx,
             retryable_statuses=retryable_statuses,
             retry_transport_error=retry_transport_error,
         )
@@ -244,7 +241,6 @@ class SafeHTTPClient:
         auth: Any = None,
         expected_content_type: str | None = None,
         jitter_strategy: Literal["fixed", "full"] = "fixed",
-        abort_after_consecutive_5xx: int | None = None,
         retryable_statuses: frozenset[int] | None = None,
         retry_transport_error: Callable[[Exception], bool] | None = None,
     ) -> requests.Response:
@@ -314,7 +310,6 @@ class SafeHTTPClient:
                 attempts=attempts,
                 make_error=SafeHTTPError,
                 jitter_strategy=jitter_strategy,
-                abort_after_consecutive_5xx=abort_after_consecutive_5xx,
                 retryable_statuses=retryable_statuses,
                 retry_transport_error=retry_transport_error,
             )
