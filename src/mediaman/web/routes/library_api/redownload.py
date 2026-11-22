@@ -89,7 +89,7 @@ def _arr_failure(exc: Exception, service: str, title: str) -> JSONResponse:
         "Re-download via %s failed for '%s': %s",
         service,
         _sanitise_log_field(title, 256),
-        exc,
+        _sanitise_log_field(str(exc), 512),
         exc_info=exc,
     )
     text = "Download request failed — check service connectivity"
