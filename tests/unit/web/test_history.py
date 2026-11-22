@@ -382,6 +382,17 @@ class TestDeleteFailedAction:
         assert item["action_label"] == "delete failed"
         assert item["badge_class"] == "badge-action-deleted"
 
+    def test_delete_failed_filter_includes_permanent_failures(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="delete_failed", media_item_id="m1")
+        _insert_audit_row(conn, action="delete_failed_permanent", media_item_id="m2")
+        _insert_audit_row(conn, action="deleted", media_item_id="m3")
+        body = client.get("/api/history", params={"action": "delete_failed"}).json()
+        assert body["total"] == 2
+        assert {i["action"] for i in body["items"]} == {"delete_failed", "delete_failed_permanent"}
+
 
 class TestSchedulerAndMaintenanceActions:
     def test_scheduled_filter_returns_scheduled_deletion_rows(
