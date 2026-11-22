@@ -26,12 +26,7 @@ import os
 import re
 from datetime import datetime
 
-from mediaman.services.rate_limit.ip_resolver import (
-    MIN_TRUSTED_PREFIX_V4,
-    MIN_TRUSTED_PREFIX_V6,
-    trusts_every_address,
-    trusts_too_much,
-)
+from mediaman.services.rate_limit.ip_resolver import trusts_every_address
 
 logger = logging.getLogger(__name__)
 
@@ -247,15 +242,6 @@ def sanitise_trusted_proxies(raw: str) -> str:
                 "it matches every address. Only specific reverse-proxy "
                 "IPs/CIDRs are accepted.",
                 token,
-            )
-            continue
-        if trusts_too_much(net):
-            logger.critical(
-                "Ignoring MEDIAMAN_TRUSTED_PROXIES entry %r — it is wider "
-                "than IPv4 /%d or IPv6 /%d.",
-                token,
-                MIN_TRUSTED_PREFIX_V4,
-                MIN_TRUSTED_PREFIX_V6,
             )
             continue
         cleaned.append(token)
