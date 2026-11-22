@@ -327,10 +327,11 @@
     }
     function restoreButton() {
       if (!dialogIsOpen()) return;
+      var refocus = focusStillIn(btn);
       btn.disabled = false;
       btn.textContent = btnLabel;
       if (removeAllBtn) removeAllBtn.disabled = false;
-      btn.focus();
+      if (refocus) btn.focus();
     }
     /* A keep that finished for a dialog no longer shown must not reload the
        page under the one that is. */
