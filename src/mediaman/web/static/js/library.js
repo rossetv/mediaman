@@ -615,9 +615,29 @@
       });
   }
 
+  /* form.submit() leaves out the pill button that carries `type`, so the
+     active pill's value is added by hand; a pill click submits natively. */
+  function submitToolbar() {
+    var form = document.getElementById('toolbar-form');
+    var on = form.querySelector('.fpill.on[name="type"]');
+    var hidden = form.querySelector('input[type="hidden"][name="type"]');
+    if (on && on.value) {
+      if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'type';
+        form.appendChild(hidden);
+      }
+      hidden.value = on.value;
+    } else if (hidden) {
+      hidden.remove();
+    }
+    form.submit();
+  }
+
   function setSort(value) {
     document.getElementById('sort-input').value = value;
-    document.getElementById('toolbar-form').submit();
+    submitToolbar();
   }
 
   function toggleSort(col) {
@@ -633,7 +653,7 @@
     if (current === m.asc) input.value = m.desc;
     else if (current === m.desc) input.value = m.asc;
     else input.value = m.default;
-    document.getElementById('toolbar-form').submit();
+    submitToolbar();
   }
 
   /* A selector that finds the same control on the reloaded page: its id, or
@@ -676,7 +696,7 @@
           sessionStorage.removeItem('library-search-refocus');
         }
       } catch (_) { /* focus is then simply not restored */ }
-      document.getElementById('toolbar-form').submit();
+      submitToolbar();
     }, 400);
   }
 
