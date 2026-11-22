@@ -84,7 +84,7 @@ class NzbgetClient:
 
     def _call[T](self, method: str, expected: type[T]) -> T:
         """Invoke *method* and return its result. Raises NzbgetError when the response
-        carries a JSON-RPC error field, or is not an object whose result is an
+        carries a JSON-RPC error field, is not JSON, or is not an object whose result is an
         *expected*, so an idle queue can be told from a broken connection or a reply
         that did not come from NZBGet.
         """
@@ -94,7 +94,12 @@ class NzbgetClient:
             auth=self._auth,
             max_bytes=_NZBGET_MAX_BYTES,
         )
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            # requests' JSONDecodeError is also a RequestException; a caller must not read it as
+            # a transport failure.
+            raise NzbgetError(f"NZBGet reply for method '{method}' is not JSON") from exc
         if not isinstance(data, dict):
             raise NzbgetError(f"NZBGet reply for method '{method}' is not a JSON object")
         if data.get("error"):
