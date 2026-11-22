@@ -379,6 +379,7 @@
 }
 .keep-season-item label,
 .keep-season-name { flex-shrink: 0; white-space: nowrap; }
+.keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
