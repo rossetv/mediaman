@@ -73,12 +73,12 @@ def _validate_keep_show_input(
     resolved_key, err = resolve_show_rating_key(conn, supplied_key)
     if err or not resolved_key:
         logger.warning(
-            "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
-            supplied_key,
+            "keep_show.rating_key_unresolved supplied=%s user=%s err=%s",
+            _sanitise_log_field(supplied_key),
             _sanitise_log_field(admin),
             err,
         )
-        return None, respond_err(err or "unknown_show", status=409)
+        return None, respond_err(err or "unknown_show", status=409, message=err)
     return resolved_key, None
 
 
@@ -104,7 +104,7 @@ def _check_season_ownership(
             logger.warning(
                 "keep_show.fallback_would_have_triggered user=%s show_rating_key=%s unkeyed_ids=%s",
                 _sanitise_log_field(admin),
-                resolved_key,
+                _sanitise_log_field(resolved_key),
                 unkeyed_ids,
             )
     return respond_err(
@@ -222,8 +222,8 @@ def api_keep_show(
 
     logger.info(
         "Kept show %s (%s) -- %s by %s",
-        resolved_key,
-        show_title,
+        _sanitise_log_field(resolved_key),
+        _sanitise_log_field(show_title, 256),
         duration,
         _sanitise_log_field(admin),
     )
@@ -264,5 +264,9 @@ def api_remove_show_keep(
             actor=admin,
         )
 
-    logger.info("Removed show keep for %s by %s", show_rating_key, _sanitise_log_field(admin))
+    logger.info(
+        "Removed show keep for %s by %s",
+        _sanitise_log_field(show_rating_key),
+        _sanitise_log_field(admin),
+    )
     return respond_ok()
