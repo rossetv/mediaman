@@ -71,6 +71,7 @@ __all__ = [
     "is_show_kept",
     "is_show_kept_pure",
     "mark_delete_status",
+    "record_removed_files",
 ]
 
 
@@ -102,12 +103,15 @@ class DeletionRow:
     tvdb_id: int | None = None
     # ``{"path", "size"}`` entries; None until a scan records the item's files.
     tracked_files: list[dict[str, Any]] | None = None
+    # Tracked paths earlier passes of this deletion removed, and the bytes they freed.
+    removed_paths: frozenset[str] = frozenset()
+    removed_bytes: int = 0
 
 
 _DELETION_COLUMNS = (
     "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
     "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
-    "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files"
+    "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files"
 )
 
 
@@ -123,7 +127,34 @@ def _parse_tracked_files(raw: str | None) -> list[dict[str, Any]] | None:
     return value if isinstance(value, list) else None
 
 
+def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int]:
+    """Return the recorded removed paths and bytes, or nothing when missing or malformed."""
+    if raw is None:
+        return frozenset(), 0
+    try:
+        value = json.loads(raw)
+        paths = value["paths"]
+        removed_bytes = value["bytes"]
+    except (TypeError, ValueError, KeyError):
+        logger.warning("scheduled_actions.removed_files is malformed; treating it as empty")
+        return frozenset(), 0
+    if not isinstance(paths, list) or not isinstance(removed_bytes, int):
+        return frozenset(), 0
+    return frozenset(p for p in paths if isinstance(p, str)), removed_bytes
+
+
+def record_removed_files(
+    conn: sqlite3.Connection, action_id: int, paths: Collection[str], removed_bytes: int
+) -> None:
+    """Store what this deletion has removed so far, so a later pass can finish it."""
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
+        (json.dumps({"paths": sorted(paths), "bytes": removed_bytes}), action_id),
+    )
+
+
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
+    removed_paths, removed_bytes = _parse_removed_files(row["removed_files"])
     return DeletionRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -139,6 +170,8 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         tmdb_id=row["tmdb_id"],
         tvdb_id=row["tvdb_id"],
         tracked_files=_parse_tracked_files(row["tracked_files"]),
+        removed_paths=removed_paths,
+        removed_bytes=removed_bytes,
     )
 
 

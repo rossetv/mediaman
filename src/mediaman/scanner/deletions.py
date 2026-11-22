@@ -44,6 +44,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_claimed_deletion,
     is_kept_deletion,
     is_latest_audit,
+    record_removed_files,
 )
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.match import build_arr_index, index_match_movie, index_match_season
@@ -514,9 +515,7 @@ def _files(count: int) -> str:
     return f"{count} file" if count == 1 else f"{count} files"
 
 
-def _audit_files_left(
-    conn: sqlite3.Connection, row: DeletionRow, left: _FilesLeft, space_bytes: int | None
-) -> None:
+def _audit_files_left(conn: sqlite3.Connection, row: DeletionRow, left: _FilesLeft) -> None:
     parts = []
     if left.not_found:
         parts.append(f"{_files(left.not_found)} not found at stored path")
@@ -534,7 +533,6 @@ def _audit_files_left(
         row,
         "delete_incomplete",
         f"Not deleted yet: {row.title} — {'; '.join(parts)}; {then}",
-        space_bytes=space_bytes,
     )
 
 
@@ -554,11 +552,13 @@ def _files_left(row: DeletionRow, result: TrackedFilesResult, tracked: set[str])
     """Return what *result* left of *row*'s files; *tracked* holds every closing row's paths.
 
     A failed sidecar counts against each row with a tracked file in its folder.
+    A file an earlier pass of this deletion removed is not left, though not found.
     """
     own = {str(Path(path)) for path in _tracked_paths(row) or []}
     folders = {os.path.dirname(path) for path in own}
+    missing = own - row.removed_paths
     return _FilesLeft(
-        not_found=sum(1 for path in result.not_found if str(Path(path)) in own),
+        not_found=sum(1 for path in result.not_found if str(Path(path)) in missing),
         protected=sum(1 for path in result.skipped_protected if str(Path(path)) in own),
         failed=[
             reason
@@ -573,10 +573,15 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
     """Name the folder found missing or empty above *row*'s files, else None.
 
     The tracked files' folders decide; ``file_path`` stands in until a scan
-    records the files.
+    records the files. A file an earlier pass of this deletion removed is
+    expected to be gone, so it says nothing about the mount.
     """
     stored = row.file_path or ""
-    paths = _tracked_paths(row) or ([stored] if stored.strip() else [])
+    tracked = _tracked_paths(row)
+    if tracked is not None:
+        paths = [path for path in tracked if str(Path(path)) not in row.removed_paths]
+    else:
+        paths = [stored] if stored.strip() else []
     # One check per folder: files beside each other share the answer.
     for path in {os.path.dirname(path): path for path in paths}.values():
         if (folder := _unavailable(path, allowed_roots)) is not None:
@@ -873,14 +878,16 @@ class DeletionExecutor:
         """Book each closing row whose files are all gone; return the rest to pending.
 
         A row with a tracked file not found, kept for another item or failed
-        (or a sidecar failed beside one) stays pending. The bytes freed are
-        credited on *row*'s audit entry alone, so the audit total matches
-        what left the disk.
+        (or a sidecar failed beside one) stays pending, keeping a record of the
+        files removed so far for the pass that finishes it. The bytes freed
+        are credited to *row* alone, and reach its ``deleted`` audit entry
+        once it closes, so the audit total matches what left the disk.
         """
         tracked = {str(Path(path)) for done in closing for path in _tracked_paths(done) or []}
+        removed = {str(Path(path)) for path in result.removed}
         closed: list[DeletionRow] = []
         for done in closing:
-            space = (result.bytes_freed or None) if done is row else None
+            space = done.removed_bytes + (result.bytes_freed if done is row else 0)
             left = _files_left(done, result, tracked)
             if left:
                 logger.warning(
@@ -893,9 +900,13 @@ class DeletionExecutor:
                     len(left.failed),
                 )
                 repository.mark_delete_status(self._conn, done.id, "pending")
-                _audit_files_left(self._conn, done, left, space)
+                own = {str(Path(path)) for path in _tracked_paths(done) or []}
+                record_removed_files(
+                    self._conn, done.id, done.removed_paths | (own & removed), space
+                )
+                _audit_files_left(self._conn, done, left)
             else:
-                _book_deleted(self._conn, done, "Deleted", space)
+                _book_deleted(self._conn, done, "Deleted", space or None)
                 closed.append(done)
         for other in co_located:
             if other not in closing:

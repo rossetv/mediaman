@@ -96,6 +96,7 @@ _ADDED_COLUMNS = (
     ("media_items", "tmdb_id", "INTEGER"),
     ("media_items", "tvdb_id", "INTEGER"),
     ("media_items", "tracked_files", "TEXT"),
+    ("scheduled_actions", "removed_files", "TEXT"),
 )
 
 
