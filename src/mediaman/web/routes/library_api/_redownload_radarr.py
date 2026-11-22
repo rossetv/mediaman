@@ -60,7 +60,7 @@ def _redownload_movie(
     )
     logger.info(
         "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
-        title,
+        _sanitise_log_field(title, 256),
         tmdb_id,
         _sanitise_log_field(username),
     )

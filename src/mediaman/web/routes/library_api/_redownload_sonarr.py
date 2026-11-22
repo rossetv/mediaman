@@ -64,7 +64,7 @@ def _redownload_season(
     )
     logger.info(
         "Re-downloaded '%s' season %s (tvdb=%s) via Sonarr by %s",
-        title,
+        _sanitise_log_field(title, 256),
         season_number,
         tvdb_id,
         _sanitise_log_field(username),
