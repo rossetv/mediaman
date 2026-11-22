@@ -230,7 +230,10 @@
       .catch(function (err) {
         delete wrapper.dataset.keepBusy;
         var msg = MM.api.messageOf(err, 'Try again.');
+        if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't save keep. " + msg);
+        var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+        if (trigger) trigger.focus();
       });
   }
 
