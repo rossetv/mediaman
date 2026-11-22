@@ -189,3 +189,23 @@ class TestVerifySeason:
 
     def test_empty_tracked_files_are_refused(self):
         assert not self._verify(tracked=[]).ok
+
+    def test_a_tracked_episode_sonarr_does_not_manage_is_refused(self):
+        tracked = [*S1_TRACKED, {"path": "/data/tv/Breaking Bad/Season 01/S01E03.mkv", "size": 5}]
+        result = self._verify(tracked=tracked)
+        assert not result.ok
+        assert "Sonarr does not manage" in result.reason
+
+    def test_a_tracked_optimized_version_is_refused(self):
+        tracked = [
+            *S1_TRACKED,
+            {"path": "/data/tv/Breaking Bad/Season 01/Plex Versions/S01E01.mp4", "size": 50},
+        ]
+        assert not self._verify(tracked=tracked).ok
+
+    def test_a_copy_of_the_season_in_another_library_root_is_refused(self):
+        copy = [
+            {"path": "/data/tv4k/Breaking Bad/Season 01/S01E01.mkv", "size": 100},
+            {"path": "/data/tv4k/Breaking Bad/Season 01/S01E02.mkv", "size": 200},
+        ]
+        assert not self._verify(tracked=[*S1_TRACKED, *copy]).ok

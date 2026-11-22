@@ -142,6 +142,21 @@ def _series_folder_matches(series_folder: str, plex_folder: str) -> bool:
     return series_folder in (_name(plex_folder), _parent_name(plex_folder))
 
 
+def _series_root(series_folder: str, path: str) -> str | None:
+    """Return the series folder holding the episode file *path*, or ``None``.
+
+    The file sits in the series folder itself or in a season folder in it.
+    """
+    parent = _parent(path)
+    if not series_folder:
+        return None
+    if _name(parent) == series_folder:
+        return parent
+    if _parent_name(parent) == series_folder:
+        return _parent(parent)
+    return None
+
+
 def index_match_movie(index: ArrIndex, *, tmdb_id: int | None, plex_file_path: str) -> int | None:
     """Return the Radarr id for a Plex movie file, or ``None``.
 
@@ -246,8 +261,10 @@ def verify_season(
     """Strict check that Sonarr's season is the season Plex tracks.
 
     Passes only when *series* has *tvdb_id* and the season, the season has
-    at least one episode file in *episode_files*, and every one of them has
-    the same name and size as a tracked file inside the series folder.
+    at least one episode file in *episode_files*, and those files and the
+    tracked files are the same set by name and size, all tracked files in
+    one series folder named as Sonarr's.  Sonarr deletes only its own
+    files, so a tracked file it does not manage would be left on disk.
     """
     expected = _positive_int(tvdb_id)
     if expected is None:
@@ -264,10 +281,9 @@ def verify_season(
             False, "mediaman does not know this season's files yet; nothing was deleted"
         )
     folder = _name(series.get("path"))
+    roots = {_series_root(folder, path) for _, _, path in tracked}
     in_folder = {
-        (name, size)
-        for name, size, path in tracked
-        if _series_folder_matches(folder, _parent(path))
+        (name, size) for name, size, path in tracked if _series_root(folder, path) is not None
     }
     if not in_folder:
         return MatchResult(
@@ -280,6 +296,7 @@ def verify_season(
     ]
     if not season_files:
         return MatchResult(False, "Sonarr has no files for this season; nothing was deleted")
+    arr_files = set()
     for ef in season_files:
         arr_name = _name(ef.get("relativePath") or ef.get("path"))
         arr_size = _size(ef.get("size"))
@@ -289,4 +306,11 @@ def verify_season(
                 "Sonarr has a file for this season that Plex does not show "
                 "(size or name differ); nothing was deleted",
             )
+        arr_files.add((arr_name, arr_size))
+    if len(roots) != 1 or any((name, size) not in arr_files for name, size, _ in tracked):
+        return MatchResult(
+            False,
+            "Plex has files for this season that Sonarr does not manage. Delete them by hand "
+            "or let a scheduled deletion handle it; nothing was deleted",
+        )
     return _OK
