@@ -36,17 +36,20 @@
   // bar can go back to where they were working.
   var lastEdited = null;
 
-  // The bar hides after a save. Focus the user has already moved elsewhere is
-  // left alone; focus lost to the body or the bar returns to the last edited
-  // control, or to the page heading when that is gone.
-  function settleAfterSave() {
+  // The bar hides after a save. Only a keyboard save restores focus, since a
+  // pointer user has no focus to lose and a refocus would scroll them back or
+  // raise a phone keyboard. Focus already moved elsewhere is left alone; focus
+  // lost to the body or the bar returns to the last edited control, or to the
+  // page heading when that cannot take focus.
+  function settleAfterSave(fromKeyboard) {
     markClean();
+    if (!fromKeyboard) return;
     var active = document.activeElement;
     var lost = !active || active === document.body || (savebar && savebar.contains(active));
     if (!lost) return;
     if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
       lastEdited.focus();
-      return;
+      if (document.activeElement === lastEdited) return;
     }
     var heading = document.querySelector('.setg-pg h1');
     if (!heading) return;
@@ -130,7 +133,7 @@
     // payload without duplicating response-bookkeeping. Routes through
     // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
     // flow are applied consistently.
-    function runSave(payload) {
+    function runSave(payload, fromKeyboard) {
       if (!saveBtn) return;
       // Disabling the button blurs it, so note now whether focus was in the bar.
       var hadFocus = savebar && savebar.contains(document.activeElement);
@@ -162,7 +165,7 @@
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(function () { settleAfterSave(); }, 600);
+            setTimeout(function () { settleAfterSave(fromKeyboard); }, 600);
             refreshOverviewHero();
             setTimeout(function () {
               saveBtn.textContent = orig;
@@ -200,7 +203,10 @@
         });
     }
 
-    if (saveBtn) saveBtn.addEventListener('click', function () { runSave(getPayload()); });
+    if (saveBtn) saveBtn.addEventListener('click', function (e) {
+      // A click from Enter or Space on the button has detail 0; a pointer click has 1 or more.
+      runSave(getPayload(), e.detail === 0);
+    });
 
     // Clear error chrome whenever the user starts typing again.
     document.addEventListener('input', function () {
