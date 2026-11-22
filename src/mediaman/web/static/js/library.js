@@ -102,12 +102,20 @@
     var hasRk = wrapper.dataset.hasRk === 'true';
 
     if (!isTv) {
+      /* A second click while the request runs sends nothing; the flag is
+         cleared only on failure, since success reloads the page. */
+      if (wrapper.dataset.keepBusy === '1') return;
+      wrapper.dataset.keepBusy = '1';
       MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
         { duration: duration })
         .then(reloadAfterKeep)
         .catch(function (err) {
+          delete wrapper.dataset.keepBusy;
           var msg = (err && err.message) || 'Try again.';
+          if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
           window.UIFeedback.error("Couldn't save keep. " + msg);
+          var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+          if (trigger) trigger.focus();
         });
       return;
     }
@@ -164,8 +172,27 @@
         renderSeasonPicker(data.seasons, data.show_kept);
       })
       .catch(function () {
-        if (request === _keepDialogRequest) list.textContent = "Couldn't load seasons.";
+        if (request !== _keepDialogRequest) return;
+        showSeasonsLoadFailure(list, confirmBtn);
       });
+  }
+
+  /* Keep stays off until the seasons load, so it can never report an empty
+     pick; Retry reads them again. */
+  function showSeasonsLoadFailure(list, confirmBtn) {
+    confirmBtn.disabled = true;
+    list.replaceChildren();
+    var msg = document.createElement('span');
+    msg.textContent = "Couldn't load the seasons. ";
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn--secondary btn--sm';
+    retry.id = 'keep-seasons-retry';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', loadKeepSeasons);
+    list.appendChild(msg);
+    list.appendChild(retry);
+    retry.focus();
   }
 
   function closeKeepDialog() {
@@ -283,6 +310,7 @@
       btn.disabled = false;
       btn.textContent = btnLabel;
       if (removeAllBtn) removeAllBtn.disabled = false;
+      btn.focus();
     }
     /* A keep that finished for a dialog no longer shown must not reload the
        page under the one that is. */
@@ -554,7 +582,23 @@
   var _searchTimer = null;
   function debounceSubmit() {
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
+    _searchTimer = setTimeout(function () {
+      /* The reload drops focus; the flag lets the next load put it back. */
+      try { sessionStorage.setItem('library-search-refocus', '1'); } catch (_) { /* focus is then simply not restored */ }
+      document.getElementById('toolbar-form').submit();
+    }, 400);
+  }
+
+  function refocusSearchAfterReload(input) {
+    var flagged = false;
+    try {
+      flagged = sessionStorage.getItem('library-search-refocus') === '1';
+      sessionStorage.removeItem('library-search-refocus');
+    } catch (_) { /* nothing stored, nothing to restore */ }
+    if (!flagged) return;
+    input.focus();
+    var end = input.value.length;
+    input.setSelectionRange(end, end);
   }
 
   function wire() {
@@ -635,6 +679,7 @@
     var searchInput = document.querySelector('#toolbar-form input[name="q"]');
     if (searchInput) {
       searchInput.addEventListener('input', debounceSubmit);
+      refocusSearchAfterReload(searchInput);
     }
   }
 
