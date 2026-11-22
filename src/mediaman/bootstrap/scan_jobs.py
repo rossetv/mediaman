@@ -136,6 +136,9 @@ def _run_library_sync_job(secret_key: str) -> None:
 def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
     """Reconcile rows left in the 'deleting' state by a previous crash.
 
+    Books nothing: a row whose removal finished goes back to pending, so the
+    next live pass books it and unmonitors it in Radarr/Sonarr.
+
     Best-effort and safe even if no scan runs this boot. A recurring
     failure means deletions are leaking forever, so the
     ``_stuck_deletion_failures`` counter escalates the log to CRITICAL
@@ -145,7 +148,7 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
     try:
         from mediaman.scanner.deletions import recover_stuck_deletions
 
-        recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn, book=False)
         _stuck_deletion_failures = 0
     except Exception:  # rationale: cold-start recovery
         _stuck_deletion_failures += 1

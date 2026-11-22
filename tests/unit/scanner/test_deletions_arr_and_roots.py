@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
+from mediaman.bootstrap.scan_jobs import _recover_stuck_deletions_at_boot
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor
@@ -252,6 +253,34 @@ class TestVerifiedUnmonitor:
         DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
         assert _audit(conn, "m1", "deleted")
+        radarr.unmonitor_movie.assert_called_once_with(42)
+
+    def test_a_deletion_left_stuck_at_boot_is_booked_and_unmonitored_by_the_next_pass(
+        self, conn, movie
+    ):
+        movie.unlink()
+        (movie.parent / "poster.jpg").write_bytes(b"x")
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status = 'deleting', removed_files = ?",
+            (json.dumps({"paths": [str(movie)], "bytes": 4}),),
+        )
+        conn.commit()
+
+        _recover_stuck_deletions_at_boot(conn)
+
+        assert _status(conn, "m1") == "pending"
+        assert _audit(conn, "m1", "deleted") == []
+
+        radarr = _radarr(_MOVIE)
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert _status(conn, "m1") is None
+        assert (
+            conn.execute(
+                "SELECT space_reclaimed_bytes FROM audit_log WHERE action = 'deleted'"
+            ).fetchone()[0]
+            == 4
+        )
         radarr.unmonitor_movie.assert_called_once_with(42)
 
     def test_dry_run_calls_neither_radarr_nor_sonarr(self, conn, movie):

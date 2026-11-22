@@ -120,7 +120,7 @@ def _first_unavailable(paths: list[str], allowed_roots: list[str]) -> str | None
     return None
 
 
-def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
+def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> list[DeletionRow]:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
     Called at the start of a *live* DeletionExecutor.execute pass
@@ -154,6 +154,11 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
       ``pending``.
     * Any tracked file present -> the removal never ran or did not finish.
       Reset to ``pending`` so the next normal run retries cleanly.
+
+    With *book* False a row that would be booked goes back to ``pending``
+    with its record kept, so the next live pass books it and unmonitors it
+    in Radarr/Sonarr; the scheduler recovers this way at startup, with no
+    clients to unmonitor through.
 
     Idempotent; safe to call on every startup. Does not itself delete
     any files — purely a state reconciliation. Each row is committed before
@@ -241,6 +246,14 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
                 "media_missing",
                 f"Files gone (recovered): {row.title} — kept while it was being deleted"
                 + (f" [rk:{rk}]" if rk else ""),
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif not book:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r — files already gone; reverting status "
+                "to 'pending' for the next live pass to book",
+                row.id,
+                row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
         else:
