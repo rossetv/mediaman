@@ -14,7 +14,7 @@ from mediaman.scanner.repository.audit import (
 )
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
+from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX, ACTION_BADGE_CLASS
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log, insert_kept_show, insert_media_item
 
@@ -405,6 +405,7 @@ class TestSchedulerAndMaintenanceActions:
             ("media_missing", "media missing"),
             ("unmonitor_skipped", "unmonitor skipped"),
             ("delete_root_unavailable", "delete root unavailable"),
+            ("delete_root_available", "delete root available"),
             ("delete_awaiting_scan", "waiting for scan"),
             ("delete_incomplete", "delete incomplete"),
             ("delete_folders_failed", "folder cleanup failed"),
@@ -415,6 +416,14 @@ class TestSchedulerAndMaintenanceActions:
         _insert_audit_row(conn, action=action)
         item = client.get("/api/history").json()["items"][0]
         assert item["action_label"] == label
+
+    def test_delete_root_recovery_is_not_badged_as_an_alarm(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="delete_root_available")
+        item = client.get("/api/history").json()["items"][0]
+        assert item["badge_class"] != "badge-action-deleted"
+        assert item["badge_class"] in ACTION_BADGE_CLASS.values()
+        assert "delete_root_available" in ACTION_BADGE_CLASS
 
     def test_delete_root_row_shows_folder_as_title(self, app_factory, authed_client, conn):
         client = authed_client(app_factory(history_router, conn=conn), conn)
