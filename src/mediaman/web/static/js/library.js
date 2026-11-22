@@ -615,9 +615,28 @@
       });
   }
 
+  /* form.submit() leaves out the pill button that carries `type`, so the
+     active pill's value is added by hand; a pill click submits natively. The
+     field is dropped again at once: a page restored by Back must not send it
+     beside the next pill click's own `type`. */
+  function submitToolbar() {
+    var form = document.getElementById('toolbar-form');
+    var on = form.querySelector('.fpill.on[name="type"]');
+    var hidden = null;
+    if (on && on.value) {
+      hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'type';
+      hidden.value = on.value;
+      form.appendChild(hidden);
+    }
+    form.submit();
+    if (hidden) hidden.remove();
+  }
+
   function setSort(value) {
     document.getElementById('sort-input').value = value;
-    document.getElementById('toolbar-form').submit();
+    submitToolbar();
   }
 
   function toggleSort(col) {
@@ -633,7 +652,7 @@
     if (current === m.asc) input.value = m.desc;
     else if (current === m.desc) input.value = m.asc;
     else input.value = m.default;
-    document.getElementById('toolbar-form').submit();
+    submitToolbar();
   }
 
   /* A selector that finds the same control on the reloaded page: its id, or
@@ -676,7 +695,7 @@
           sessionStorage.removeItem('library-search-refocus');
         }
       } catch (_) { /* focus is then simply not restored */ }
-      document.getElementById('toolbar-form').submit();
+      submitToolbar();
     }, 400);
   }
 
@@ -786,6 +805,13 @@
     var searchInput = document.querySelector('#toolbar-form input[name="q"]');
     if (searchInput) {
       searchInput.addEventListener('input', debounceSubmit);
+      /* Enter would otherwise click the form's first submit button, the All pill. */
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        clearTimeout(_searchTimer);
+        submitToolbar();
+      });
       refocusSearchAfterReload(searchInput);
     }
   }

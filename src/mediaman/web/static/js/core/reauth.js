@@ -152,7 +152,7 @@
                 .catch(function (reauthErr) {
                   return {
                     ok: false,
-                    error: (reauthErr && reauthErr.message) || 'Reauth failed',
+                    error: MM.api.messageOf(reauthErr, 'Reauth failed'),
                   };
                 });
             },

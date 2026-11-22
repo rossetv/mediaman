@@ -48,6 +48,16 @@
     return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
   }
 
+  /* The button was disabled for the scan, so focus fell to the body; say why it
+     stopped in a toast too, since #scan-status is not a live region. */
+  function scanStopped(btn, reason) {
+    btn.classList.remove('scan-running');
+    btn.textContent = 'Scan now';
+    btn.disabled = false;
+    if (window.UIFeedback) window.UIFeedback.error(reason);
+    if (MM.dom.focusStillIn(btn)) btn.focus();
+  }
+
   function pollScanStatus(btn) {
     var fails = 0;
     var firstFailAt = 0;
@@ -63,28 +73,26 @@
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
           } else if (data.status === 'skipped') {
-            btn.classList.remove('scan-running');
-            btn.textContent = 'Scan now';
-            btn.disabled = false;
+            var skipReason = !data.reason ? 'Scan skipped' : 'Scan skipped: ' +
+              (data.reason === 'Plex not configured' ? 'Plex is not configured' : data.reason);
+            scanStopped(btn, skipReason);
             var skipEl = document.getElementById('scan-status');
             if (skipEl) {
               skipEl.classList.remove('scan-status--error', 'scan-status--success');
-              skipEl.textContent = 'Scan skipped: ' +
-                (data.reason === 'Plex not configured' ? 'Plex is not configured' : data.reason) + '. ';
+              skipEl.textContent = skipReason + '. ';
               var link = document.createElement('a');
               link.href = '/settings';
               link.textContent = 'Open Settings';
               skipEl.appendChild(link);
             }
           } else if (data.status === 'error') {
-            btn.classList.remove('scan-running');
-            btn.textContent = 'Scan now';
-            btn.disabled = false;
+            var errReason = 'Scan failed: ' + (data.reason || 'unknown error');
+            scanStopped(btn, errReason);
             var errEl = document.getElementById('scan-status');
             if (errEl) {
               errEl.classList.remove('scan-status--success');
               errEl.classList.add('scan-status--error');
-              errEl.textContent = 'Scan failed: ' + (data.reason || 'unknown error');
+              errEl.textContent = errReason;
             }
           } else {
             btn.classList.remove('scan-running');
@@ -102,14 +110,13 @@
           fails += 1;
           if (!firstFailAt) firstFailAt = Date.now();
           if (fails >= POLL_MAX_FAILS || Date.now() - firstFailAt >= POLL_MAX_MS) {
-            btn.classList.remove('scan-running');
-            btn.textContent = 'Scan now';
-            btn.disabled = false;
+            var lostReason = 'Lost track of the scan. Refresh to check its status.';
+            scanStopped(btn, lostReason);
             var lostEl = document.getElementById('scan-status');
             if (lostEl) {
               lostEl.classList.remove('scan-status--success');
               lostEl.classList.add('scan-status--error');
-              lostEl.textContent = 'Lost track of the scan. Refresh to check its status.';
+              lostEl.textContent = lostReason;
             }
             return;
           }
@@ -162,13 +169,18 @@
       return;
     }
 
+    if (btn.getAttribute('aria-disabled') === 'true') return;
     btn.disabled = true;
     btn.classList.remove('is-error', 'is-success');
     btn.textContent = 'Adding…';
     MM.api.post('/api/media/redownload', payload)
       .then(function () {
+        /* aria-disabled, not disabled, so a focused button keeps focus. */
+        btn.setAttribute('aria-disabled', 'true');
+        btn.disabled = false;
         btn.textContent = 'Queued ✓';
         btn.classList.add('is-success');
+        if (MM.dom.focusStillIn(btn)) btn.focus();
       })
       .catch(function (err) {
         var msg = MM.api.messageOf(err, '');

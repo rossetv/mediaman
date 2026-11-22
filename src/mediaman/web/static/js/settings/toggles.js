@@ -70,6 +70,7 @@
         toggleIntg(hd);
       });
       hd.addEventListener('keydown', function (e) {
+        if (e.target !== hd) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           toggleIntg(hd);

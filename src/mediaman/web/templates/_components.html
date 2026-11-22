@@ -374,6 +374,8 @@
       <i class="fa-solid fa-chevron-down intg-chev" aria-hidden="true"></i>
     </div>
   </div>
+  {# Outside the role="button" header: a button's children are presentational, so a live region inside may go unannounced. #}
+  <span class="sr-only" role="status" data-conn-announce></span>
   <div class="intg-card-bd" id="intg-body-{{ service }}" hidden>
     {{ caller() }}
   </div>

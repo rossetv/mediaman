@@ -199,14 +199,14 @@
           var nextAt = (err.data && err.data.next_available_at) ||
             new Date(Date.now() + ((err.data && err.data.cooldown_seconds) || 0) * 1000).toISOString();
           swapButtonForCooldown(nextAt);
-          showError(err.message || 'Refresh is on cooldown.');
+          showError(MM.api.messageOf(err, 'Refresh is on cooldown.'));
           return;
         }
         // Every other failure (Plex not configured, network error, 5xx, etc.)
         // must show the user *why* the click did nothing — otherwise the
         // button silently resets and the page looks broken.
         resetButton(btn);
-        showError(err && err.message);
+        showError(MM.api.messageOf(err, 'Couldn’t refresh. Try again.'));
       });
   }
 
