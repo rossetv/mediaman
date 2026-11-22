@@ -2,12 +2,42 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 
 
 class ConfigError(Exception):
     pass
+
+
+def _check_trusted_proxy_widths(raw: str) -> None:
+    """Raise ConfigError for a trusted-proxy entry wider than IPv4 /8 or IPv6 /7.
+
+    ``*`` and catch-all networks are not rejected here: the startup validator
+    drops them with a log line, as it always has.
+    """
+    from mediaman.services.rate_limit.ip_resolver import (
+        MIN_TRUSTED_PREFIX_V4,
+        MIN_TRUSTED_PREFIX_V6,
+        trusts_every_address,
+        trusts_too_much,
+    )
+
+    for entry in raw.split(","):
+        token = entry.strip()
+        if not token or token == "*":
+            continue
+        try:
+            net = ipaddress.ip_network(token, strict=False)
+        except ValueError:
+            continue
+        if not trusts_every_address(net) and trusts_too_much(net):
+            raise ConfigError(
+                f"MEDIAMAN_TRUSTED_PROXIES entry {token!r} is too wide: "
+                f"ranges wider than IPv4 /{MIN_TRUSTED_PREFIX_V4} or "
+                f"IPv6 /{MIN_TRUSTED_PREFIX_V6} are refused"
+            )
 
 
 @dataclass(frozen=True)
@@ -98,6 +128,8 @@ def load_config() -> Config:
     bind_host = os.environ.get("MEDIAMAN_BIND_HOST", "").strip()
 
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
+
+    _check_trusted_proxy_widths(trusted_proxies)
 
     # ``MEDIAMAN_DELETE_ROOTS`` is intentionally not snapshotted here —
     # it is read on demand at deletion time in
