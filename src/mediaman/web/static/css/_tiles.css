@@ -41,6 +41,8 @@
   outline-offset: 2px;
 }
 .tile:hover { transform: translateY(-2px); }
+/* An open keep menu must sit above the tiles in the rows below it. */
+.tile:has(.keep-wrapper.is-open) { z-index: 30; }
 .tile:hover .tile-poster { box-shadow: var(--shadow-card); }
 
 .tile-poster {
@@ -77,6 +79,7 @@
   letter-spacing: -.01em;
   line-height: 1.25;
   color: var(--t1);
+  overflow-wrap: anywhere;
 }
 .tile-sub {
   font-size: 12px;
