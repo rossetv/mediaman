@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from mediaman.core.time import now_iso
+from mediaman.scanner.repository import fetch_protected_media_ids
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -132,8 +134,8 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ``COALESCE(show_rating_key, show_title)``, so a show Plex gave no rating
     key is found by its title.
 
-    Performs the batched IN-clause approach to fetch kept status for all
-    seasons in one extra query instead of N+1 per season.
+    A season is kept by the scanner's rule (see ``fetch_protected_media_ids``),
+    read for all seasons in one batched query.
     """
     # rationale: placeholders is purely "?" * len(ALL_SEASON_TYPES) — no user value ever enters the SQL text
     type_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -146,18 +148,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
         (show_rating_key, *ALL_SEASON_TYPES),
     ).fetchall()
 
-    ids = [r["id"] for r in rows]
-    kept_set: set[str] = set()
-    if ids:
-        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
-        placeholders = ",".join("?" * len(ids))
-        kept_rows = conn.execute(
-            f"SELECT media_item_id FROM scheduled_actions "
-            f"WHERE media_item_id IN ({placeholders}) "
-            "AND action IN ('protected_forever', 'snoozed') AND token_used = 0",
-            ids,
-        ).fetchall()
-        kept_set = {str(kr["media_item_id"]) for kr in kept_rows}
+    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now_iso())
 
     return [
         SeasonRow(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.kept import router as kept_router
@@ -117,6 +119,86 @@ class TestApiShowSeasons:
         body = resp.json()
         assert body["seasons"] == []
         assert body["show_title"] == ""
+
+
+class TestShowSeasonsKeptByScannerRule:
+    """The per-season list reads keeps by the rule the scanner applies."""
+
+    def _seasons(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+        body = client.get("/api/show/rk_show/seasons").json()
+        return {s["season_number"]: s["kept"] for s in body["seasons"]}, body
+
+    def test_email_made_keeps_count_as_kept_and_lapsed_snooze_does_not(
+        self, app_factory, authed_client, conn
+    ):
+        future = (datetime.now(UTC) + timedelta(days=5)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        for n in (1, 2, 3, 4):
+            _insert_season(conn, f"s{n}", "rk_show", "Show", season=n)
+        insert_scheduled_action(
+            conn,
+            media_item_id="s1",
+            action="protected_forever",
+            execute_at=None,
+            token="t1",
+            token_used=1,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="s2",
+            action="snoozed",
+            execute_at=future,
+            token="t2",
+            token_used=1,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="s3",
+            action="snoozed",
+            execute_at=past,
+            token="t3",
+            token_used=0,
+        )
+        conn.commit()
+
+        kept, _ = self._seasons(app_factory, authed_client, conn)
+
+        assert kept == {1: True, 2: True, 3: False, 4: False}
+
+    def test_lapsed_show_snooze_is_not_reported_as_show_kept(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_season(conn, "s1", "rk_show", "Show")
+        insert_kept_show(
+            conn,
+            show_rating_key="rk_show",
+            action="snoozed",
+            execute_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+        )
+        conn.commit()
+
+        _, body = self._seasons(app_factory, authed_client, conn)
+
+        assert body["show_kept"] is None
+
+    def test_unprotect_removes_an_email_made_keep(self, app_factory, authed_client, conn):
+        _insert_season(conn, "s1", "rk_show", "Show")
+        insert_scheduled_action(
+            conn,
+            media_item_id="s1",
+            action="protected_forever",
+            execute_at=None,
+            token="t1",
+            token_used=1,
+        )
+        conn.commit()
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        assert client.post("/api/media/s1/unprotect").status_code == 200
+
+        body = client.get("/api/show/rk_show/seasons").json()
+        assert [x["kept"] for x in body["seasons"]] == [False]
 
 
 class TestKeepShowIdorDefence:
