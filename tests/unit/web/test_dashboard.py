@@ -536,7 +536,7 @@ class TestCachedDiskUsage:
 
 
 class TestScheduledSeasonRow:
-    def test_season_row_shows_show_badge_suffix_and_calendar_day_countdown(self, conn):
+    def test_season_row_shows_show_badge_and_season_suffix(self, conn):
         from mediaman.web.routes.dashboard._data import _fetch_scheduled
 
         insert_media_item(

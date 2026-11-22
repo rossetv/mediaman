@@ -18,9 +18,10 @@ from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as parse_iso_utc
 
 _AUDIT_TITLE_RE = re.compile(
-    r"^(?:Not deleted(?: yet)?|Deleted(?: \(recovered\))?)[: ]+['\"]?(.+?)['\"]?"
-    r"(?:\s+by\s+.+?)?(?:\s+\u2014\s+.*?)?(?:\s+\[rk:.*\])?$"
+    r"^Deleted(?: \(recovered\))?[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$"
 )
+# Only this wording carries a "— reason" tail; a title may itself hold an em dash.
+_AUDIT_NOT_DELETED_RE = re.compile(r"^Not deleted(?: yet)?:\s+(.+?)\s+\u2014\s+.*$")
 _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 
 #: Hard cap on the length of a string fed to _AUDIT_TITLE_RE.
@@ -54,7 +55,7 @@ def title_from_audit_detail(detail: str | None, *, strict: bool = False) -> str:
     if not detail:
         return "Unknown"
     capped = detail if len(detail) <= _AUDIT_TITLE_MAX_INPUT else detail[:_AUDIT_TITLE_MAX_INPUT]
-    m = _AUDIT_TITLE_RE.match(capped)
+    m = _AUDIT_NOT_DELETED_RE.match(capped) or _AUDIT_TITLE_RE.match(capped)
     if m:
         return m.group(1)
     return "Unknown" if strict else capped
