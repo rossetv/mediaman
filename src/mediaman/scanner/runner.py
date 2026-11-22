@@ -60,6 +60,9 @@ def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
     return max(low, min(high, get_int_setting(conn, key, default=default)))
 
 
+SCAN_SKIPPED_NO_PLEX = "Plex not configured"
+
+
 class ScanSummary(TypedDict, total=False):
     """Return type for run_scan_from_db and ScanEngine.run_scan.
 
@@ -75,6 +78,7 @@ class ScanSummary(TypedDict, total=False):
     * ``removed`` — orphaned DB rows whose Plex key no longer exists.
     * ``deleted`` — items deleted from disk this run.
     * ``reclaimed_bytes`` — bytes freed by deletions.
+    * ``skipped_reason`` — set alone when the scan did not run at all.
 
     Do NOT add new keys here without also updating ScanEngine.run_scan
     and any callers that check specific keys — this is the single source of
@@ -88,6 +92,7 @@ class ScanSummary(TypedDict, total=False):
     removed: int
     deleted: int
     reclaimed_bytes: int
+    skipped_reason: str
 
 
 class PlexClientBundle(NamedTuple):
@@ -322,7 +327,8 @@ def run_scan_from_db(
     then constructs the relevant clients and runs the scan.
 
     Returns the summary dict from ScanEngine.run_scan, or an empty
-    dict if the minimum required settings (plex_url / plex_token) are absent.
+    dict carrying only ``skipped_reason`` if the minimum required settings
+    (plex_url / plex_token) are absent.
 
     Args:
         conn: Open SQLite connection with row_factory set to sqlite3.Row.
@@ -336,6 +342,11 @@ def run_scan_from_db(
     result = _build_plex_client(conn, secret_key)
     if result is None:
         logger.warning("Scan skipped — plex_url or plex_token not configured")
+        # A configured but refused URL also lands here; only a missing setting is "not configured".
+        if not repository.read_setting(conn, "plex_url") or not repository.read_setting(
+            conn, "plex_token"
+        ):
+            return {"skipped_reason": SCAN_SKIPPED_NO_PLEX}
         return {}
     plex, lib_ids, lib_types, lib_titles = result
 

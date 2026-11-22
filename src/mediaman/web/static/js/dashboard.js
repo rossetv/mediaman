@@ -46,6 +46,19 @@
           if (data.running) {
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
+          } else if (data.status === 'skipped') {
+            btn.classList.remove('scan-running');
+            btn.textContent = 'Scan now';
+            btn.disabled = false;
+            var skipEl = document.getElementById('scan-status');
+            if (skipEl) {
+              skipEl.textContent = 'Scan skipped: ' +
+                (data.reason === 'Plex not configured' ? 'Plex is not configured' : data.reason) + '. ';
+              var link = document.createElement('a');
+              link.href = '/settings';
+              link.textContent = 'Open Settings';
+              skipEl.appendChild(link);
+            }
           } else {
             btn.classList.remove('scan-running');
             btn.classList.add('is-success');
