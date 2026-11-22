@@ -296,10 +296,11 @@ def delete_kept_show(conn: sqlite3.Connection, kept_show_id: int) -> None:
 
 
 def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: str) -> bool:
-    """Delete every unused ``scheduled_deletion`` row of the show's media items.
+    """Delete the show's unused ``scheduled_deletion`` rows the deletion pass has not claimed.
 
-    Returns True when one of them was being removed by the deletion pass right
-    now; dropping its row stops that removal unless the files are already going.
+    Returns True when one of them is being removed by the deletion pass right
+    now. That row is left in place: the pass, or crash recovery, needs it to
+    book a removal that may already have taken the files.
     """
     where = (
         "action = 'scheduled_deletion' AND token_used = 0 "
@@ -310,7 +311,11 @@ def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: s
         f"SELECT 1 FROM scheduled_actions WHERE {where} AND delete_status = 'deleting' LIMIT 1",
         (show_rating_key,),
     ).fetchone()
-    conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", (show_rating_key,))  # nosec B608
+    conn.execute(  # nosec B608
+        f"DELETE FROM scheduled_actions WHERE {where} "
+        "AND (delete_status IS NULL OR delete_status != 'deleting')",
+        (show_rating_key,),
+    )
     return running is not None
 
 

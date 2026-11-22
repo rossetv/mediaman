@@ -539,7 +539,7 @@ class TestKeepShowCoversUnlistedSeasons:
             ("b1", "scheduled_deletion"),
         ]
 
-    def test_keep_reports_a_running_deletion_of_a_season_it_does_not_list(
+    def test_keep_leaves_a_running_deletion_of_a_season_it_does_not_list_and_says_so(
         self, app_factory, authed_client, conn
     ):
         for number in (1, 2):
@@ -552,4 +552,9 @@ class TestKeepShowCoversUnlistedSeasons:
         )
 
         assert resp.json()["deletion_running"] is True
-        assert ("a2", "scheduled_deletion") not in self._actions(conn)
+        # The pass or crash recovery still needs this row to book the deletion it claimed.
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions "
+            "WHERE media_item_id = 'a2' AND action = 'scheduled_deletion'"
+        ).fetchone()
+        assert row is not None and row["delete_status"] == "deleting"
