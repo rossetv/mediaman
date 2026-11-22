@@ -32,23 +32,45 @@
   function markDirty() { if (savebar) savebar.classList.add('on'); }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
-  // The bar hides after a save, so focus that was on its buttons would be
-  // left on the body; hand it to the page heading instead.
-  function settleAfterSave(hadFocus) {
+  // The last settings control the user edited, so focus lost to the hiding
+  // bar can go back to where they were working.
+  var lastEdited = null;
+
+  // The bar hides after a save. Focus the user has already moved elsewhere is
+  // left alone; focus lost to the body or the bar returns to the last edited
+  // control, or to the page heading when that is gone.
+  function settleAfterSave() {
     markClean();
-    if (!hadFocus) return;
+    var active = document.activeElement;
+    var lost = !active || active === document.body || (savebar && savebar.contains(active));
+    if (!lost) return;
+    if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
+      lastEdited.focus();
+      return;
+    }
     var heading = document.querySelector('.setg-pg h1');
     if (!heading) return;
     heading.setAttribute('tabindex', '-1');
-    heading.focus({ preventScroll: true });
+    heading.focus();
   }
 
   // The send-newsletter panel holds ephemeral recipient checkboxes, and the
-  // account forms (add user, password, email) have their own buttons. None of
-  // them are saved settings, so changes inside them must not mark dirty.
+  // account forms (add user, password, email) and the add-subscriber row have
+  // their own buttons. None of them are saved settings, so changes inside
+  // them must not mark dirty.
   function isSettingsInput(el) {
-    return el.closest('.setg-pg') && !el.closest('#newsletter-send-panel, .inline-form');
+    return el.closest('.setg-pg') &&
+      !el.closest('#newsletter-send-panel, .inline-form, .sub-add');
   }
+
+  // Plain wording for the codes the settings route sends without a message.
+  var SAVE_ERROR_WORDS = {
+    ssrf_blocked: 'One of the addresses points somewhere mediaman may not connect to.',
+    invalid_url: 'One of the addresses is not a valid http or https URL.',
+    url_too_long: 'One of the addresses is too long.',
+    too_many_requests: 'Too many saves — slow down for a moment.',
+    settings_decrypt_failed: 'Saved secrets could not be read — check the secret key.',
+  };
 
   // Turn FastAPI 422 bodies into a one-line human summary.
   function summariseSaveError(data, statusCode) {
@@ -61,7 +83,8 @@
       }).join(' · ');
     }
     if (data && typeof data.detail === 'string') return data.detail;
-    if (data && data.error) return data.error;
+    if (data && data.message) return data.message;
+    if (data && data.error) return SAVE_ERROR_WORDS[data.error] || 'Save failed (' + data.error + ')';
     if (statusCode === 429) return 'Too many saves — slow down for a moment.';
     return 'Save failed (HTTP ' + (statusCode || '?') + ')';
   }
@@ -79,10 +102,10 @@
     var statusEl  = document.getElementById('save-status');
 
     document.addEventListener('input', function (e) {
-      if (isSettingsInput(e.target)) markDirty();
+      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
     document.addEventListener('change', function (e) {
-      if (isSettingsInput(e.target)) markDirty();
+      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
 
     function setSaveError(msg) {
@@ -139,7 +162,7 @@
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(function () { settleAfterSave(hadFocus); }, 600);
+            setTimeout(function () { settleAfterSave(); }, 600);
             refreshOverviewHero();
             setTimeout(function () {
               saveBtn.textContent = orig;
