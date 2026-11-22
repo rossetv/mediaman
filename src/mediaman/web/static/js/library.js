@@ -805,6 +805,13 @@
     var searchInput = document.querySelector('#toolbar-form input[name="q"]');
     if (searchInput) {
       searchInput.addEventListener('input', debounceSubmit);
+      /* Enter would otherwise click the form's first submit button, the All pill. */
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        clearTimeout(_searchTimer);
+        submitToolbar();
+      });
       refocusSearchAfterReload(searchInput);
     }
   }
