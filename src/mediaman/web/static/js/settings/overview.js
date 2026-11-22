@@ -66,7 +66,9 @@
       big.replaceChildren();
       big.appendChild(document.createTextNode(s.used + ' '));
       var small = document.createElement('small');
-      small.textContent = 'of ' + s.total + ' used · ' + s.free + ' free';
+      // Non-breaking spaces keep each figure with its unit when the line wraps.
+      var nb = function (v) { return String(v).replace(/ /g, '\u00a0'); };
+      small.textContent = 'of ' + nb(s.total) + ' used · ' + nb(s.free) + ' free';
       big.appendChild(small);
 
       bar.replaceChildren();
