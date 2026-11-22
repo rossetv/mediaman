@@ -650,6 +650,33 @@ class TestSettingsTestServiceTimeout:
         assert data["ok"] is False
         assert data["error"] == "timeout"
 
+    def test_timed_out_test_is_not_cached(self, app_factory, authed_client, conn, monkeypatch):
+        import threading
+
+        from fastapi.responses import JSONResponse
+
+        from mediaman.web.routes import settings as settings_module
+        from mediaman.web.routes.settings import api as settings_api
+
+        calls = []
+
+        def tester(_settings):
+            calls.append(1)
+            if len(calls) == 1:
+                threading.Event().wait(timeout=0.3)
+            return JSONResponse({"ok": True})
+
+        monkeypatch.setattr(settings_api, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", tester)
+        client = _client(app_factory, authed_client, conn)
+
+        first = client.post("/api/settings/test/plex")
+        second = client.post("/api/settings/test/plex")
+
+        assert first.json()["error"] == "timeout"
+        assert second.json() == {"ok": True}
+        assert len(calls) == 2
+
     def test_hung_tester_does_not_hold_the_response_past_the_cap(self, monkeypatch):
         import threading
         import time
