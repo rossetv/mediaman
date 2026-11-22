@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.scanner import repository
 from mediaman.scanner.engine import ScanEngine
-from mediaman.services.infra import DeletionRefused
+from mediaman.services.infra import DeletionRefused, TrackedFilesResult
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -89,6 +90,11 @@ class TestTwoPhaseDelete:
             file_path=file_path,
             file_size_bytes=size,
         )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = ?",
+            (json.dumps([{"path": file_path, "size": size}]), item_id),
+        )
+        conn.commit()
 
     def _insert_sched(self, conn, item_id, past, *, status="pending"):
         insert_scheduled_action(
@@ -117,13 +123,14 @@ class TestTwoPhaseDelete:
 
         seen: dict[str, str | None] = {}
 
-        def fake_delete(path, *, allowed_roots):
+        def fake_delete(tracked, **kwargs):
             row = conn.execute(
                 "SELECT delete_status FROM scheduled_actions WHERE media_item_id='d1'"
             ).fetchone()
             seen["status_during_rm"] = row["delete_status"]
+            return TrackedFilesResult(removed=[], bytes_freed=0, not_found=[])
 
-        with patch("mediaman.scanner.deletions.delete_path", side_effect=fake_delete):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", side_effect=fake_delete):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -139,7 +146,7 @@ class TestTwoPhaseDelete:
         assert row is None
 
     def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch, freezer):
-        """When delete_path refuses, the marker must roll back to pending
+        """When the removal refuses, the marker must roll back to pending
         so a later run can retry."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -148,7 +155,7 @@ class TestTwoPhaseDelete:
         self._insert_sched(conn, "d2", past)
 
         with patch(
-            "mediaman.scanner.deletions.delete_path",
+            "mediaman.scanner.deletions.delete_tracked_files",
             side_effect=DeletionRefused("outside allowed roots"),
         ):
             engine = ScanEngine(
