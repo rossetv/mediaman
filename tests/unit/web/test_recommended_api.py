@@ -211,11 +211,9 @@ class TestDownloadRecommendationAdminEmail:
         assert count == 0
 
 
-class TestShareTokenAdminEmail:
-    """``api_share_token`` must embed the admin's *resolved* email in the
-    minted token — or ``None`` when the admin has no email set — never the
-    bare username, which is undeliverable and poisons the redeemer's
-    notification row.
+class TestShareTokenCarriesNoEmail:
+    """A share link goes to a friend, who can decode the token payload, so
+    the minted token must never carry the admin's email address.
     """
 
     @pytest.fixture(autouse=True)
@@ -230,7 +228,7 @@ class TestShareTokenAdminEmail:
         )
         conn.commit()
 
-    def test_token_carries_resolved_admin_email(self, conn):
+    def test_token_payload_has_no_email_when_the_admin_has_one(self, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)
         set_user_email(conn, "admin", "admin@example.com")
         self._set_base_url(conn)
@@ -242,18 +240,5 @@ class TestShareTokenAdminEmail:
         assert resp.status_code == 200
         payload = validate_download_token(resp.json()["token"], _SECRET)
         assert payload is not None
-        assert payload["email"] == "admin@example.com"
-
-    def test_token_carries_none_when_admin_has_no_email(self, conn):
-        create_user(conn, "admin", "password1234", enforce_policy=False)
-        # No set_user_email — the admin's email is NULL.
-        self._set_base_url(conn)
-        sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
-        client = _make_rec_app(conn)
-
-        resp = client.post(f"/api/recommended/{sid}/share-token")
-
-        assert resp.status_code == 200
-        payload = validate_download_token(resp.json()["token"], _SECRET)
-        assert payload is not None
         assert payload["email"] is None
+        assert payload["tmdb"] == 27205
