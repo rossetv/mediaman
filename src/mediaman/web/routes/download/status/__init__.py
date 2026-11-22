@@ -79,6 +79,14 @@ _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
 # on a long download keeps polling instead of freezing at the token's expiry.
 _POLL_TOKEN_REFRESH_SECONDS = 300
 
+# Renewal stops this long after the first token of a chain was issued, so a
+# held token cannot be kept alive forever while a download never finishes.
+_POLL_TOKEN_MAX_CHAIN_SECONDS = 24 * 3600
+
+# Life of a poll token issued before tokens carried their first-issue time;
+# subtracting it from ``exp`` recovers when such a token was issued.
+_LEGACY_POLL_TOKEN_TTL_SECONDS = 600
+
 
 def _reset_status_cache_for_tests() -> None:
     with _STATUS_CACHE_LOCK:
@@ -175,6 +183,7 @@ def download_status(
 
     renewal_due = False
     poll_media_item_id = ""
+    poll_first_issued = 0
     if not admin:
         # Unauthenticated polling must use a short-lived poll_token.  The
         # long-lived download token is not accepted for status polling — it
@@ -191,8 +200,14 @@ def download_status(
                 and poll_payload.get("tmdb") == tmdb_id
             ):
                 authenticated = True
-                if poll_payload["exp"] - time.time() < _POLL_TOKEN_REFRESH_SECONDS:
-                    renewal_due = True
+                now = time.time()
+                if poll_payload["exp"] - now < _POLL_TOKEN_REFRESH_SECONDS:
+                    poll_first_issued = int(
+                        poll_payload.get(
+                            "first", poll_payload["exp"] - _LEGACY_POLL_TOKEN_TTL_SECONDS
+                        )
+                    )
+                    renewal_due = now - poll_first_issued < _POLL_TOKEN_MAX_CHAIN_SECONDS
                     poll_media_item_id = poll_payload["mid"]
 
         if not authenticated:
@@ -226,14 +241,16 @@ def download_status(
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         result = _UNKNOWN_ITEM
 
-    # Renew only while the download is unfinished, so a held token cannot be
-    # kept alive forever; an unknown state (Arr down) still renews.
+    # Renew only while the download is unfinished and the chain is under 24
+    # hours old, so a held token cannot be kept alive forever; an unknown
+    # state (Arr down) still renews until the cap.
     if renewal_due and result.get("state") != "ready":
         fresh_poll_token = generate_poll_token(
             media_item_id=poll_media_item_id,
             service=service,
             tmdb_id=tmdb_id,
             secret_key=config.secret_key,
+            first_issued=poll_first_issued,
         )
         # A new dict, so the shared cache entry never carries one visitor's
         # token to another.

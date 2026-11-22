@@ -32,7 +32,7 @@ import threading
 import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,9 @@ class PollTokenPayload(TypedDict):
     Replay protection during the short TTL is provided solely by the
     expiry check; if stronger semantics are needed later, add a
     used-tokens table and check it in ``validate_poll_token()``."""
+    first: NotRequired[int | float]
+    """UNIX timestamp at which the chain of renewals began. Absent on tokens
+    issued before the field existed."""
     exp: int | float
     """UNIX timestamp at which the token expires."""
 
@@ -458,24 +461,32 @@ def generate_poll_token(
     tmdb_id: int,
     secret_key: str,
     ttl_seconds: int = 600,
+    first_issued: int | None = None,
 ) -> str:
     """Issue a short-lived polling-capability token with the standard 600-second TTL.
+
+    ``first_issued`` (UNIX seconds) is when the chain of tokens this one
+    renews began; it defaults to now. It rides along in the ``first`` field
+    so the status endpoint can stop renewing a chain that has run for 24
+    hours, which bounds how long a held token can be kept alive.
 
     The payload includes a random ``nonce`` purely to keep distinct
     issued tokens distinct on the wire — it is **not** a replay
     defence. There is no server-side used-tokens table, so any holder
     of a valid (unexpired) token can replay it freely. Replay
     resistance during the short TTL window comes entirely from the
-    expiry; tighten this by introducing a ``poll_tokens_used`` table
-    if/when the threat model demands it.
+    expiry, and renewal stops 24 hours after ``first`` (enforced by the
+    status endpoint); tighten this by introducing a ``poll_tokens_used``
+    table if/when the threat model demands it.
     """
-    exp = int(time.time()) + ttl_seconds
+    now = int(time.time())
     payload = {
         "mid": media_item_id,
         "svc": service,
         "tmdb": tmdb_id,
         "nonce": secrets.token_hex(8),
-        "exp": exp,
+        "first": now if first_issued is None else first_issued,
+        "exp": now + ttl_seconds,
     }
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POLL)
 
