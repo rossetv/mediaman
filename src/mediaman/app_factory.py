@@ -55,12 +55,11 @@ def _reconcile_delete_intents_in_background(secret_key: str, started_before: str
     # never allowed to propagate out of the thread.
     try:
         from mediaman.db import close_db, get_db
+        from mediaman.scanner.repository import read_delete_allowed_roots_setting
         from mediaman.web.repository.delete_intents import (
             build_verify_gone,
             reconcile_pending_delete_intents,
         )
-
-        from mediaman.scanner.repository import read_delete_allowed_roots_setting
 
         conn = get_db()
         try:
