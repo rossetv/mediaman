@@ -74,9 +74,13 @@ class TestPlexIsConfigured:
         insert_settings(conn, plex_token="not-decryptable", encrypted=1)
         assert plex_is_configured(conn)
 
-    def test_blank_url_is_not_configured(self, conn):
-        _plex(conn, url="   ")
+    def test_empty_url_is_not_configured(self, conn):
+        _plex(conn, url="")
         assert not plex_is_configured(conn)
+
+    def test_whitespace_only_url_counts_as_set_like_the_scanner(self, conn):
+        _plex(conn, url="   ")
+        assert plex_is_configured(conn)
 
 
 class TestDashboard:

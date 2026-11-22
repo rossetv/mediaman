@@ -58,7 +58,7 @@ def plex_is_configured(conn: sqlite3.Connection) -> bool:
     rows = conn.execute(
         "SELECT key, value FROM settings WHERE key IN ('plex_url', 'plex_token')"
     ).fetchall()
-    filled = {r["key"] for r in rows if r["value"] and str(r["value"]).strip()}
+    filled = {r["key"] for r in rows if r["value"]}
     return filled == {"plex_url", "plex_token"}
 
 
