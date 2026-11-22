@@ -15,3 +15,9 @@
 .hist-msg { font-size: 14px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 .hist-msg b { font-weight: 500; }
 .hist-type { color: var(--t3); font-size: 13px; }
+
+/* Phone: date and badge share a row; the message takes the full width below. */
+@media (max-width: 639.98px) {
+  .hist { grid-template-columns: 1fr auto; gap: 6px 12px; align-items: start; }
+  .hist-msg { grid-column: 1 / -1; grid-row: 2; }
+}

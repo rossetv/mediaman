@@ -10,6 +10,15 @@
   transition: background .15s;
 }
 .ditem:hover { background: var(--s1); }
+.ditem-body { min-width: 0; overflow-wrap: anywhere; }
+
+/* Phone: poster and title on top, size and Re-download on a row beneath. */
+@media (max-width: 639.98px) {
+  .ditem { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 8px 12px; padding: 12px 8px; }
+  .ditem-thumb { grid-row: 1 / 3; }
+  .ditem-body { grid-column: 2 / -1; }
+  .ditem > .btn { grid-column: 3; }
+}
 
 .ditem-thumb {
   width: 44px;
