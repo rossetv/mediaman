@@ -95,10 +95,14 @@
       var addSubBtn = document.getElementById('btn-add-subscriber');
       var addSubInp = document.getElementById('new-subscriber-email');
 
+      var addSubLabel = addSubBtn ? addSubBtn.textContent : '';
+      var addingSubscriber = false;
       function submitSubscriber() {
-        if (!addSubInp) return;
+        if (!addSubInp || addingSubscriber) return;
         var email = addSubInp.value.trim();
         if (!email) return;
+        addingSubscriber = true;
+        if (addSubBtn) { addSubBtn.disabled = true; addSubBtn.textContent = 'Adding…'; }
         // The endpoint takes form-urlencoded (FastAPI ``Form(...)``) so
         // we use postForm rather than post (which sends JSON).
         MM.api.postForm('/api/subscribers', { email: email })
@@ -111,6 +115,10 @@
             if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(msg);
             } else { window.alert(msg); }
+          })
+          .then(function () {
+            addingSubscriber = false;
+            if (addSubBtn) { addSubBtn.disabled = false; addSubBtn.textContent = addSubLabel; }
           });
       }
 
