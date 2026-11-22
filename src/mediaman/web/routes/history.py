@@ -114,8 +114,10 @@ def _build_item(r: AuditRow) -> dict[str, object]:
     else:
         resolved_title = r.mi_title or r.ks_title
         if not resolved_title and r.detail:
-            m = re.search(r"'([^']+)'", r.detail)
-            resolved_title = m.group(1) if m else title_from_audit_detail(r.detail, strict=True)
+            resolved_title = title_from_audit_detail(r.detail, strict=True)
+            if resolved_title == "Unknown":
+                m = re.search(r"'([^']+)'", r.detail)
+                resolved_title = m.group(1) if m else resolved_title
         title = resolved_title or "Unknown"
         if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
             title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]

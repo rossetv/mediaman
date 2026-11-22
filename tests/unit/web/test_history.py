@@ -531,3 +531,23 @@ class TestScannerAuditTitles:
         [item] = client.get("/api/history").json()["items"]
 
         assert item["title"] == "Unknown"
+
+
+class TestScannerTitlesWithPunctuation:
+    def test_apostrophes_and_em_dashes_stay_in_the_title(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        details = {
+            "a": "Deleted: Schindler's List: Director's Cut [rk:1]",
+            "b": "Deleted: Star Wars — A New Hope [rk:2]",
+            "c": "Deleted 'Schindler's List' by admin [rk:3]",
+        }
+        for key, detail in details.items():
+            _insert_audit_full(conn, action="deleted", media_item_id=key, detail=detail)
+
+        titles = {i["title"] for i in client.get("/api/history").json()["items"]}
+
+        assert titles == {
+            "Schindler's List: Director's Cut",
+            "Star Wars — A New Hope",
+            "Schindler's List",
+        }
