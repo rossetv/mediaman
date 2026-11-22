@@ -39,7 +39,7 @@
   opacity: 0;
   transform: translateX(12px);
   transition: opacity .2s ease, transform .2s ease;
-  word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 .ui-toast.is-visible {
   opacity: 1;
@@ -129,4 +129,10 @@
     left: 12px;
     max-width: none;
   }
+}
+
+/* Settings: up to 960 px the section chips form a sticky bar under the top
+   bar (it ends near 112 px); drop the toasts below it, clear of the chips. */
+@media (max-width: 960px) {
+  body:has(.setg-rail) .ui-toast-host { top: 120px; }
 }
