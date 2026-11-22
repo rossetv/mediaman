@@ -555,6 +555,50 @@ class TestMediaDeleteRefusals:
 
         self._assert_refused(resp, conn, "s1", sonarr, fact="Another library item")
 
+    def test_an_exact_copy_of_the_movie_in_another_library_root(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        _insert_movie(
+            conn,
+            "kids",
+            radarr_id=None,
+            tracked_files=[
+                {
+                    "path": "/media/movies-kids/Test Movie (2020)/Test Movie (2020).mkv",
+                    "size": 1_000_000,
+                }
+            ],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/kids/delete")
+
+        self._assert_refused(resp, conn, "kids", radarr, fact="More than one library item")
+
+    def test_an_exact_copy_of_the_season_in_another_library_root(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        _insert_tv_season(
+            conn,
+            "kids",
+            show_rating_key="kids-show",
+            tracked_files=[
+                {"path": f["path"].replace("/media/tv/", "/media/tv-kids/"), "size": f["size"]}
+                for f in SEASON_FILES
+            ],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="More than one library item")
+
     def test_radarr_unreachable_on_the_check_deletes_nothing(
         self, app_factory, authed_client, conn
     ):

@@ -41,6 +41,7 @@ from mediaman.web.repository.library_api import (
     recheck_deletable,
     show_has_other_items,
     snapshot_media_for_delete,
+    tracked_files_of_same_title,
 )
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -111,6 +112,11 @@ def _recheck(conn: sqlite3.Connection, media_id: str) -> None:
     except DeletionRunning as exc:
         raise _Refused(_DELETION_RUNNING_MESSAGE) from exc
 
+
+_SECOND_ITEM_MESSAGE = (
+    "More than one library item matches this {entry}, so mediaman cannot tell which "
+    "copy {service} would delete; nothing was deleted"
+)
 
 _DELETION_RUNNING_MESSAGE = (
     "A scheduled deletion of this item is in progress; nothing was deleted. "
@@ -201,6 +207,11 @@ def _delete_movie(
     match = verify_movie(entry, tmdb_id=tmdb_id, tracked_files=snapshot.tracked_files)
     if not match.ok:
         raise _Refused(match.reason)
+    if any(
+        verify_movie(entry, tmdb_id=tmdb_id, tracked_files=other).ok
+        for other in tracked_files_of_same_title(conn, media_id, tmdb_id=tmdb_id)
+    ):
+        raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Radarr movie", service="Radarr"))
     # Radarr's deleteFiles removes the whole movie folder.
     folders = _local_folders(_tracked_paths(snapshot), entry.get("path"), 1)
     if not folders or other_item_uses_paths(conn, media_id, folders=folders):
@@ -275,6 +286,14 @@ def _delete_season(
     )
     if not match.ok:
         raise _Refused(match.reason)
+    others = tracked_files_of_same_title(conn, media_id, tvdb_id=tvdb_id, season_number=season_num)
+    if any(
+        verify_season(
+            series, episode_files, tvdb_id=tvdb_id, season_number=season_num, tracked_files=other
+        ).ok
+        for other in others
+    ):
+        raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Sonarr season", service="Sonarr"))
     tracked_paths = _tracked_paths(snapshot)
     if other_item_uses_paths(conn, media_id, files=tracked_paths):
         raise _Refused("Another library item uses files of this season; nothing was deleted")
