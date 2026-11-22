@@ -8,6 +8,8 @@ All deletion-time concerns live here:
 * Allowlist enforcement via repository.read_delete_allowed_roots_setting.
 * The two-phase delete loop that unmonitors *arr clients only after the
   SQLite write lock has been released.
+* The record of which delete roots or folders the last live pass found
+  missing or empty, for the dashboard.
 
 Imports repository; MUST NOT import fetch or
 engine (see engine.py header).
@@ -19,6 +21,7 @@ import logging
 import os
 import re
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -26,6 +29,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import requests
 
 from mediaman.core.audit import log_audit
+from mediaman.core.delete_root_state import write_delete_root_state
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
@@ -488,6 +492,38 @@ def _files_left(row: DeletionRow, result: TrackedFilesResult, tracked: set[str])
     )
 
 
+def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
+    """Name the folder found missing or empty above *row*'s files, else None.
+
+    The tracked files' folders decide; ``file_path`` stands in until a scan
+    records the files.
+    """
+    stored = row.file_path or ""
+    paths = _tracked_paths(row) or ([stored] if stored.strip() else [])
+    # One check per folder: files beside each other share the answer.
+    for path in {os.path.dirname(path): path for path in paths}.values():
+        if (folder := _unavailable(path, allowed_roots)) is not None:
+            return folder
+    return None
+
+
+# Audit rows about a folder rather than an item carry this prefix and the
+# folder, so each folder's row is deduped on its own.
+_FOLDER_AUDIT_ID = "_delete_root:"
+
+
+def _audit_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
+    for folder, count in waiting.items():
+        items = "1 scheduled deletion waits" if count == 1 else f"{count} scheduled deletions wait"
+        detail = (
+            f"Delete root or folder '{folder}' is missing or empty, so the media mount may "
+            f"be down; {items} until it has content again"
+        )
+        sentinel = _FOLDER_AUDIT_ID + folder
+        if not is_latest_audit(conn, sentinel, "delete_root_unavailable", detail):
+            log_audit(conn, sentinel, "delete_root_unavailable", detail)
+
+
 def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
     detail = (
         f"Not deleted yet: {row.title} — {folder} is missing or empty, so the media "
@@ -532,6 +568,8 @@ class DeletionExecutor:
         self._cleanup_snoozes = cleanup_snoozes
         self._sonarr = sonarr_client
         self._radarr = radarr_client
+        # Action row id -> the folder found missing or empty that holds it back.
+        self._waiting: dict[int, str] = {}
 
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
@@ -546,7 +584,8 @@ class DeletionExecutor:
         2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
-        4. Clean up expired snoozes unless dry-run.
+        4. Live: record which roots or folders held rows back, for the dashboard.
+        5. Clean up expired snoozes unless dry-run.
         """
         now = now_utc()
         rows = self._recover_then_fetch_pending(now)
@@ -579,6 +618,7 @@ class DeletionExecutor:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
         deleted_count = 0
         reclaimed_bytes = 0
+        self._waiting = {}
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
         # Fail closed once, before the loop: deletion must refuse when
         # MEDIAMAN_DELETE_ROOTS is unset. Checked outside the per-row
@@ -597,6 +637,9 @@ class DeletionExecutor:
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
+        waiting = dict(Counter(self._waiting.values()))
+        write_delete_root_state(self._conn, waiting)
+        _audit_folders_unavailable(self._conn, waiting)
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
@@ -635,7 +678,7 @@ class DeletionExecutor:
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
-        unavailable = _unavailable(path, allowed_roots) if path.strip() else None
+        unavailable = _unavailable_for(row, allowed_roots)
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -676,6 +719,8 @@ class DeletionExecutor:
             )
             repository.mark_delete_status(self._conn, row.id, "pending")
             _audit_files_unrecorded(self._conn, row)
+            if unavailable is not None:
+                self._waiting[row.id] = unavailable
             self._conn.commit()
             return [], 0
 
@@ -700,7 +745,7 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        unavailable = _unavailable(path, allowed_roots)
+        unavailable = _unavailable_for(row, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
         if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):
@@ -876,5 +921,6 @@ class DeletionExecutor:
                 unavailable,
             )
             _audit_root_unavailable(self._conn, row, unavailable)
+            self._waiting[row.id] = unavailable
             return False
         return True

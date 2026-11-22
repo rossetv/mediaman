@@ -1466,7 +1466,7 @@ class TestKeepBetweenClaimAndRemoval:
     """A keep landing while the pass checks the disk after its claim must stop the removal."""
 
     def _change_once_claimed(self, monkeypatch, other, path, media_id, change):
-        """Run *change* the first time the pass checks *path* while *media_id* is claimed."""
+        """Run *change* the first time the pass checks tracked file *path* while *media_id* is claimed."""
         import os
 
         real = os.path.lexists
@@ -1509,7 +1509,7 @@ class TestKeepBetweenClaimAndRemoval:
     ):
         folder = self._movie(conn, tmp_path, monkeypatch)
         other = init_db(str(db_path))
-        done = self._change_once_claimed(monkeypatch, other, folder, "m1", keep)
+        done = self._change_once_claimed(monkeypatch, other, folder / "Movie.mkv", "m1", keep)
         radarr = MagicMock()
 
         result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
@@ -1524,7 +1524,9 @@ class TestKeepBetweenClaimAndRemoval:
     def test_clear_after_the_claim_leaves_the_media(self, conn, db_path, tmp_path, monkeypatch):
         folder = self._movie(conn, tmp_path, monkeypatch)
         other = init_db(str(db_path))
-        done = self._change_once_claimed(monkeypatch, other, folder, "m1", _clear_scheduled)
+        done = self._change_once_claimed(
+            monkeypatch, other, folder / "Movie.mkv", "m1", _clear_scheduled
+        )
 
         result = DeletionExecutor(conn=conn).execute()
 
@@ -1558,7 +1560,9 @@ class TestKeepBetweenClaimAndRemoval:
             _track(conn, media_id, show / f"Show - s0{number}e01.mkv")
             _due_row(conn, media_id)
         other = init_db(str(db_path))
-        done = self._change_once_claimed(monkeypatch, other, show, "s2", _keep_forever)
+        done = self._change_once_claimed(
+            monkeypatch, other, show / "Show - s01e01.mkv", "s2", _keep_forever
+        )
         sonarr = MagicMock()
 
         result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
@@ -1607,7 +1611,9 @@ class TestKeepBetweenClaimAndRemoval:
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         self._season(conn, "s2", 2, folder, "show1")
         other = init_db(str(db_path))
-        done = self._change_once_claimed(monkeypatch, other, folder, "s2", self._keep_whole_show)
+        done = self._change_once_claimed(
+            monkeypatch, other, folder / "Show - s02e01.mkv", "s2", self._keep_whole_show
+        )
         sonarr = MagicMock()
 
         result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
@@ -1635,7 +1641,9 @@ class TestKeepBetweenClaimAndRemoval:
         self._season(conn, "s1", 1, show, "other")
         self._season(conn, "s2", 2, show, "show1")
         other = init_db(str(db_path))
-        done = self._change_once_claimed(monkeypatch, other, show, "s2", self._keep_whole_show)
+        done = self._change_once_claimed(
+            monkeypatch, other, show / "Show - s01e01.mkv", "s2", self._keep_whole_show
+        )
 
         result = DeletionExecutor(conn=conn).execute()
 
