@@ -253,6 +253,8 @@
     var btnLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Keeping…';
+    var removeAllBtn = document.getElementById('keep-dialog-remove');
+    if (removeAllBtn) removeAllBtn.disabled = true;
 
     /* The requests below outlive this click: the dialog may be closed and
        opened for another show meanwhile, so everything they need is read
@@ -275,6 +277,7 @@
       if (!dialogIsOpen()) return;
       btn.disabled = false;
       btn.textContent = btnLabel;
+      if (removeAllBtn) removeAllBtn.disabled = false;
     }
     /* A keep that finished for a dialog no longer shown must not reload the
        page under the one that is. */
