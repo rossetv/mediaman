@@ -54,18 +54,21 @@ def _reconcile_delete_intents_in_background(secret_key: str, started_before: str
     # rationale: runs on a daemon thread; an exception here must be logged,
     # never allowed to propagate out of the thread.
     try:
-        from mediaman.db import get_db
+        from mediaman.db import close_db, get_db
         from mediaman.web.repository.delete_intents import (
             build_verify_gone,
             reconcile_pending_delete_intents,
         )
 
         conn = get_db()
-        reconciled = reconcile_pending_delete_intents(
-            conn,
-            verify_gone=build_verify_gone(conn, secret_key),
-            started_before=started_before,
-        )
+        try:
+            reconciled = reconcile_pending_delete_intents(
+                conn,
+                verify_gone=build_verify_gone(conn, secret_key),
+                started_before=started_before,
+            )
+        finally:
+            close_db()
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
     except Exception:
