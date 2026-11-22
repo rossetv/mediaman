@@ -5,6 +5,8 @@
 
 mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatched items for deletion, emails a newsletter where readers can keep them, and drives Sonarr, Radarr and NZBGet from a web UI.
 
+![mediaman's pages in turn: the Dashboard with disk use by type and five movies scheduled for deletion; the Library with sizes and last-watched dates; Downloads with a movie 62% downloaded; the History log of scans, keeps and downloads; Settings with Plex, Sonarr, Radarr, NZBGet, Mailgun, OpenAI, TMDB and OMDb connected; and the weekly newsletter email with a Keep button on each item due for deletion.](docs/images/screens.webp)
+
 ![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
 
 ## Run it
@@ -42,6 +44,15 @@ Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan n
 To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. mediaman refuses to start on a database last opened by a build from before 13 May 2026; the error names the image, or two images in order, to start once to upgrade it (amd64 only).
 
 `/healthz` answers 200 while the process runs; `/readyz` answers 503 until the scheduler starts, or if the key does not match the database.
+
+## On a phone
+
+<p>
+  <img src="docs/images/phone-dashboard.png" width="190" alt="The Dashboard on a phone: disk use by type above the scheduled deletions, with a tab bar at the bottom.">
+  <img src="docs/images/phone-library.png" width="190" alt="The Library on a phone: counts of movies, TV shows, anime and stale items above the searchable list.">
+  <img src="docs/images/phone-downloads.png" width="190" alt="Downloads on a phone: a movie 62% downloaded, with another download below it.">
+  <img src="docs/images/phone-settings.png" width="190" alt="Settings on a phone: section tabs across the top and the storage overview.">
+</p>
 
 ## Environment
 
