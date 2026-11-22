@@ -32,10 +32,22 @@
   function markDirty() { if (savebar) savebar.classList.add('on'); }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
-  // The send-newsletter panel contains ephemeral recipient checkboxes that
-  // are not persisted settings, so changes inside it must not mark dirty.
+  // The bar hides after a save, so focus that was on its buttons would be
+  // left on the body; hand it to the page heading instead.
+  function settleAfterSave(hadFocus) {
+    markClean();
+    if (!hadFocus) return;
+    var heading = document.querySelector('.setg-pg h1');
+    if (!heading) return;
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
+
+  // The send-newsletter panel holds ephemeral recipient checkboxes, and the
+  // account forms (add user, password, email) have their own buttons. None of
+  // them are saved settings, so changes inside them must not mark dirty.
   function isSettingsInput(el) {
-    return el.closest('.setg-pg') && !el.closest('#newsletter-send-panel');
+    return el.closest('.setg-pg') && !el.closest('#newsletter-send-panel, .inline-form');
   }
 
   // Turn FastAPI 422 bodies into a one-line human summary.
@@ -97,11 +109,19 @@
     // flow are applied consistently.
     function runSave(payload) {
       if (!saveBtn) return;
+      // Disabling the button blurs it, so note now whether focus was in the bar.
+      var hadFocus = savebar && savebar.contains(document.activeElement);
       saveBtn.disabled = true;
       clearSaveError();
       var orig = 'Save Settings';
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
+
+      // After a failure the button is the way back in, so give it focus again.
+      function reenable() {
+        saveBtn.disabled = false;
+        if (hadFocus) saveBtn.focus();
+      }
 
       MM.reauth.run(function () {
         return MM.api.put('/api/settings', payload);
@@ -119,7 +139,7 @@
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(markClean, 600);
+            setTimeout(function () { settleAfterSave(hadFocus); }, 600);
             refreshOverviewHero();
             setTimeout(function () {
               saveBtn.textContent = orig;
@@ -133,7 +153,7 @@
 
           // Unexpected envelope — surface as a save error.
           setSaveError(summariseSaveError(data, 200));
-          saveBtn.disabled = false;
+          reenable();
         })
         .catch(function (err) {
           // MM.reauth.run() rejects with 'reauth_cancelled' when the user
@@ -141,7 +161,7 @@
           // error. All other rejections are APIError instances from MM.api.
           if (err && err.error === 'reauth_cancelled') {
             setSaveError('Save cancelled — re-authentication required.');
-            saveBtn.disabled = false;
+            reenable();
             return;
           }
           if (err && err.status) {
@@ -149,9 +169,11 @@
             // read detail / error fields that MM.api.APIError already parsed.
             setSaveError(summariseSaveError(err.data || {}, err.status));
           } else {
-            setSaveError("Couldn't reach the server — check your connection and try again.");
+            // Status 0 is a request that never reached the server; its
+            // message is the shared network wording.
+            setSaveError((err && err.message) || 'Save failed — try again.');
           }
-          if (saveBtn) saveBtn.disabled = false;
+          reenable();
         });
     }
 
