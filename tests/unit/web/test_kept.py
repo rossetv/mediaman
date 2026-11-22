@@ -450,3 +450,111 @@ class TestKeepShowSnoozed:
         )
         assert resp.status_code == 400
         assert resp.json()["ok"] is False
+
+
+class TestKeepShowCoversUnlistedSeasons:
+    """A show keep covers every season, so none of them may stay scheduled for deletion."""
+
+    def _due(self, conn, media_id, status="pending"):
+        insert_scheduled_action(
+            conn,
+            media_item_id=media_id,
+            action="scheduled_deletion",
+            token=f"tok-{media_id}",
+            execute_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            token_used=False,
+            delete_status=status,
+        )
+
+    def _actions(self, conn):
+        rows = conn.execute(
+            "SELECT media_item_id, action FROM scheduled_actions ORDER BY media_item_id, id"
+        ).fetchall()
+        return [tuple(r) for r in rows]
+
+    def test_keep_listing_one_season_stops_the_deletion_of_another(
+        self, app_factory, authed_client, conn, tmp_path, monkeypatch
+    ):
+        from mediaman.scanner.deletions import DeletionExecutor
+
+        root = tmp_path / "tv"
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        folders = []
+        for number in (1, 2):
+            folder = root / "Show" / f"Season {number}"
+            folder.mkdir(parents=True)
+            (folder / "ep.mkv").write_bytes(b"x")
+            folders.append(folder)
+            insert_media_item(
+                conn,
+                id=f"s{number}",
+                title=f"Show S{number}",
+                media_type="tv_season",
+                plex_rating_key=f"s{number}",
+                show_rating_key="show1",
+                show_title="Show",
+                season_number=number,
+                file_path=str(folder),
+            )
+            self._due(conn, f"s{number}")
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        resp = client.post(
+            "/api/show/show1/keep", json={"duration": "forever", "season_ids": ["s1"]}
+        )
+        DeletionExecutor(conn=conn).execute()
+
+        assert resp.status_code == 200
+        assert all(folder.exists() for folder in folders)
+        assert self._actions(conn) == [("s1", "protected_forever")]
+        assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 'deleted'").fetchone()
+
+    def test_keep_cancels_only_its_own_shows_scheduled_deletions(
+        self, app_factory, authed_client, conn
+    ):
+        for number in (1, 2, 3):
+            _insert_season(conn, f"a{number}", "rk-A", "Show A", season=number)
+        _insert_season(conn, "b1", "rk-B", "Show B", season=1)
+        self._due(conn, "a1")
+        insert_scheduled_action(
+            conn,
+            media_item_id="a2",
+            action="snoozed",
+            token="tok-a2",
+            execute_at=(datetime.now(UTC) + timedelta(days=30)).isoformat(),
+        )
+        self._due(conn, "a3")
+        self._due(conn, "b1")
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        resp = client.post(
+            "/api/show/rk-A/keep", json={"duration": "forever", "season_ids": ["a1"]}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["deletion_running"] is False
+        assert self._actions(conn) == [
+            ("a1", "protected_forever"),
+            ("a2", "snoozed"),
+            ("b1", "scheduled_deletion"),
+        ]
+
+    def test_keep_leaves_a_running_deletion_of_a_season_it_does_not_list_and_says_so(
+        self, app_factory, authed_client, conn
+    ):
+        for number in (1, 2):
+            _insert_season(conn, f"a{number}", "rk-A", "Show A", season=number)
+        self._due(conn, "a2", status="deleting")
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        resp = client.post(
+            "/api/show/rk-A/keep", json={"duration": "forever", "season_ids": ["a1"]}
+        )
+
+        assert resp.json()["deletion_running"] is True
+        # The pass or crash recovery still needs this row to book the deletion it claimed.
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions "
+            "WHERE media_item_id = 'a2' AND action = 'scheduled_deletion'"
+        ).fetchone()
+        assert row is not None and row["delete_status"] == "deleting"

@@ -150,6 +150,9 @@
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
       cb.checked = s.kept || !anyKept;
+      cb.addEventListener('change', function () {
+        if (!cb.checked) allCb.checked = false;
+      });
       var label = document.createElement('label');
       label.htmlFor = 'keep-season-' + s.id;
       label.textContent = 'Season ' + s.season_number;

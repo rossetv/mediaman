@@ -28,10 +28,12 @@ from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
+    cancel_kept_deletion,
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
     is_claimed_deletion,
+    is_kept_deletion,
     is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
@@ -375,7 +377,7 @@ class DeletionExecutor:
 
         Pipeline:
         1. Recover stuck rows (skipped in dry-run — preview mutates nothing).
-        2. Dry-run: write a ``dry_run_skip`` audit per pending row and stop.
+        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete file on disk, commit audit + unmonitor.
         4. Clean up expired snoozes unless dry-run.
@@ -385,6 +387,8 @@ class DeletionExecutor:
         if self._dry_run:
             # Preview: record what *would* be deleted, mutate no state.
             for row in rows:
+                if is_kept_deletion(self._conn, row.id, now.isoformat()):
+                    continue
                 log_audit(
                     self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}"
                 )
@@ -472,6 +476,10 @@ class DeletionExecutor:
             )
             return []
 
+        if self._cancel_if_kept(row, now_iso):
+            self._conn.commit()
+            return []
+
         if not path.strip():
             logger.error(
                 "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
@@ -494,7 +502,13 @@ class DeletionExecutor:
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return []
-        co_located = claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+        # A kept item cancelled here no longer counts as due, so the check
+        # before the removal finds its media held and leaves the path.
+        co_located = [
+            other
+            for other in claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+            if not self._cancel_if_kept(other, now_iso)
+        ]
         self._conn.commit()
         logger.info(
             "engine.delete.intent id=%s media_id=%s path=%r also_closes=%s",
@@ -508,7 +522,7 @@ class DeletionExecutor:
         mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, path, now_iso, mounted=mounted):
+        if not self._still_removable(row, co_located, path, now_iso, mounted=mounted):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -525,12 +539,42 @@ class DeletionExecutor:
             _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
         return closed
 
-    def _still_removable(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+    def _cancel_if_kept(self, row: DeletionRow, now_iso: str) -> bool:
+        """Cancel a claimed row, logging and auditing why, when a keep the scan honours covers it.
+
+        Cancelled rather than left pending, so it cannot fire later with no fresh notice.
+        """
+        if not cancel_kept_deletion(self._conn, row.id, now_iso):
+            return False
+        logger.warning(
+            "engine.delete.kept id=%s media_id=%s — the item is kept; cancelling its "
+            "scheduled deletion",
+            row.id,
+            row.media_item_id,
+        )
+        log_audit(
+            self._conn,
+            row.media_item_id,
+            "delete_refused",
+            f"Not deleted: {row.title} — it is kept, so its scheduled deletion is cancelled",
+        )
+        return True
+
+    def _still_removable(
+        self,
+        row: DeletionRow,
+        co_located: list[DeletionRow],
+        path: str,
+        now_iso: str,
+        *,
+        mounted: bool,
+    ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
-        The row must still be a claimed ``scheduled_deletion``, and _may_remove
-        must still pass, so an item under *path* kept since the claim blocks
-        it as it would have before.
+        The row must still be a claimed ``scheduled_deletion``, no keep the scan
+        honours may cover it or a co-located row, and _may_remove must still
+        pass, so an item under *path* kept since the claim blocks it as it
+        would have before.
         """
         if not is_claimed_deletion(self._conn, row.id):
             logger.warning(
@@ -539,6 +583,18 @@ class DeletionExecutor:
                 row.id,
                 row.media_item_id,
                 path,
+            )
+            return False
+        # A show keep leaves a claimed row's action as it is; its next claim cancels it.
+        kept = [c.id for c in (row, *co_located) if is_kept_deletion(self._conn, c.id, now_iso)]
+        if kept:
+            logger.warning(
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r kept_rows=%s — "
+                "kept since the claim; leaving the files",
+                row.id,
+                row.media_item_id,
+                path,
+                kept,
             )
             return False
         return self._may_remove(row, path, now_iso, mounted=mounted)

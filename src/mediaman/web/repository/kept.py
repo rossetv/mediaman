@@ -295,6 +295,30 @@ def delete_kept_show(conn: sqlite3.Connection, kept_show_id: int) -> None:
     conn.execute("DELETE FROM kept_shows WHERE id = ?", (kept_show_id,))
 
 
+def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: str) -> bool:
+    """Delete the show's unused ``scheduled_deletion`` rows the deletion pass has not claimed.
+
+    Returns True when one of them is being removed by the deletion pass right
+    now. That row is left in place: the pass, or crash recovery, needs it to
+    book a removal that may already have taken the files.
+    """
+    where = (
+        "action = 'scheduled_deletion' AND token_used = 0 "
+        "AND media_item_id IN (SELECT id FROM media_items WHERE show_rating_key = ?)"
+    )
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    running = conn.execute(  # nosec B608
+        f"SELECT 1 FROM scheduled_actions WHERE {where} AND delete_status = 'deleting' LIMIT 1",
+        (show_rating_key,),
+    ).fetchone()
+    conn.execute(  # nosec B608
+        f"DELETE FROM scheduled_actions WHERE {where} "
+        "AND (delete_status IS NULL OR delete_status != 'deleting')",
+        (show_rating_key,),
+    )
+    return running is not None
+
+
 def set_protected_state(
     conn: sqlite3.Connection,
     *,
