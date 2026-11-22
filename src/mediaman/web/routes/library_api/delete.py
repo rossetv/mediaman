@@ -213,7 +213,11 @@ def _delete_movie(
         raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Radarr movie", service="Radarr"))
     # Radarr's deleteFiles removes the whole movie folder.
     folders = _local_folders(_tracked_paths(snapshot), entry.get("path"), 1)
-    if not folders or other_item_uses_paths(conn, media_id, folders=folders):
+    if not folders:
+        raise _Refused(
+            "mediaman could not find Radarr's folder among this movie's files; nothing was deleted"
+        )
+    if other_item_uses_paths(conn, media_id, folders=folders):
         raise _Refused("Another library item uses files in this folder; nothing was deleted")
     _recheck(conn, media_id)
 
