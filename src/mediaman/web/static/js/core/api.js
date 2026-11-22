@@ -36,6 +36,11 @@
  * ``AbortError`` (``err.name === 'AbortError'``) so callers can detect
  * cancellation without inspecting status.
  *
+ * A 401 from an admin page sends the browser to /login (with the current
+ * page in ``next``) and never settles, so callers do not flash an error
+ * while the page unloads. The public keep, download and login pages, reached
+ * by emailed token or without a session, keep their own 401 handling.
+ *
  * No external dependencies. Load this before any page-specific script
  * that calls MM.api.*.
  */
@@ -69,6 +74,14 @@
   }
   APIError.prototype = Object.create(Error.prototype);
   APIError.prototype.constructor = APIError;
+
+  /* Pages reached by emailed token (or without a session) handle a 401 themselves. */
+  var PUBLIC_PATH = /^\/(keep|download|login)(\/|$)/;
+
+  function redirectToLogin() {
+    var here = window.location.pathname + window.location.search;
+    window.location.href = '/login?next=' + encodeURIComponent(here);
+  }
 
   function request(method, endpoint, body, options) {
     options = options || {};
@@ -107,6 +120,10 @@
          * when surfacing an error message to the user; fall back through
          * .error → resp.statusText → "HTTP <status>". The .issues array (if
          * present) is forwarded so the UI can render per-rule failures. */
+        if (status === 401 && !PUBLIC_PATH.test(window.location.pathname)) {
+          redirectToLogin();
+          return new Promise(function () {});
+        }
         if (!resp.ok) {
           var errCode = (data && data.error) || ('http_' + status);
           var errMsg = (data && data.message) || (data && data.error) ||
