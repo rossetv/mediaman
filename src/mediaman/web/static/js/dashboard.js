@@ -17,6 +17,12 @@
   'use strict';
 
   var _scanElapsed = 0;
+  var _scanStart = 0;
+
+  /* Delays after a failed status poll, then every 10s; stop after 5 in a row. */
+  var POLL_RETRY_MS = [2000, 4000, 8000, 10000];
+  var POLL_MAX_FAILS = 5;
+  var POLL_MAX_MS = 10 * 60 * 1000;
 
   function updateScanStatus(msg) {
     var el = document.getElementById('scan-status');
@@ -39,10 +45,12 @@
   }
 
   function pollScanStatus(btn) {
+    var fails = 0;
     setTimeout(function check() {
-      _scanElapsed += 3;
+      _scanElapsed = Math.round((Date.now() - _scanStart) / 1000);
       MM.api.get('/api/scan/status')
         .then(function (data) {
+          fails = 0;
           if (data.running) {
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
@@ -77,7 +85,20 @@
             setTimeout(function () { window.location.reload(); }, 1500);
           }
         })
-        .catch(function () { /* keep silent on poll failure. */ });
+        .catch(function () {
+          fails += 1;
+          if (fails >= POLL_MAX_FAILS || Date.now() - _scanStart >= POLL_MAX_MS) {
+            btn.classList.remove('scan-running');
+            btn.textContent = 'Scan now';
+            btn.disabled = false;
+            var lostEl = document.getElementById('scan-status');
+            if (lostEl) {
+              lostEl.textContent = 'Lost track of the scan. Refresh to check its status.';
+            }
+            return;
+          }
+          setTimeout(check, POLL_RETRY_MS[Math.min(fails, POLL_RETRY_MS.length) - 1]);
+        });
     }, 3000);
   }
 
@@ -86,6 +107,7 @@
     btn.classList.add('scan-running');
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
+    _scanStart = Date.now();
     updateScanStatus('Starting scan…');
     MM.api.post('/api/scan/trigger')
       .then(function (data) {
