@@ -194,7 +194,8 @@ class TestReconcilePendingDeleteIntents:
             "SELECT completed_at, last_error FROM delete_intents WHERE id = ?", (intent_id,)
         ).fetchone()
         assert intent["completed_at"] is not None
-        assert "press Delete again" in intent["last_error"]
+        assert "Radarr no longer has it" in intent["last_error"]
+        assert "press Delete again" not in intent["last_error"]
         assert _audit_actions(conn, "m2") == ["delete_failed"]
 
     def test_verified_gone_season_is_not_booked_while_an_episode_is_still_on_disk(

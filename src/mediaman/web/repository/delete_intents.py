@@ -83,6 +83,11 @@ def _fail_delete_intent(
 
 _INTERRUPTED_DETAIL = "Delete interrupted; not confirmed by Radarr/Sonarr — press Delete again"
 
+_FILE_LEFT_DETAIL = (
+    "{service} no longer has it, but a file is still on disk; nothing was booked "
+    "as deleted. The next library scan will update it."
+)
+
 VerifyGone = Callable[[sqlite3.Row], bool | None]
 """Asks Radarr/Sonarr whether an intent's item is gone: True, False, or None when unknown."""
 
@@ -204,11 +209,17 @@ def _reconcile_one_intent(
     # backlog; every error must roll back the current intent's transaction
     # and leave it pending so the next run retries without aborting the rest.
     try:
-        if (
-            verify_gone is not None
-            and verify_gone(intent)
-            and not _tracked_file_on_disk(conn, media_item_id)
-        ):
+        arr_gone = verify_gone is not None and bool(verify_gone(intent))
+        if arr_gone and _tracked_file_on_disk(conn, media_item_id):
+            detail = _FILE_LEFT_DETAIL.format(service=str(intent["target_kind"]).title())
+            _fail_delete_intent(conn, intent_id, media_item_id, detail, detail)
+            logger.info(
+                "delete_intent.reconciled intent_id=%s media_id=%s reason=files_remain",
+                intent_id,
+                media_item_id,
+            )
+            return True
+        if arr_gone:
             with conn:
                 audit_id = log_audit(
                     conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr"
@@ -233,8 +244,8 @@ def _reconcile_one_intent(
                 media_item_id,
             )
             return True
-        # Cut off before the Arr confirmed anything, or its files remain locally:
-        # so keep the row for the operator to delete again.
+        # Cut off before the Arr confirmed anything: keep the row for the
+        # operator to delete again.
         _fail_delete_intent(
             conn, intent_id, media_item_id, _INTERRUPTED_DETAIL, _INTERRUPTED_DETAIL
         )
