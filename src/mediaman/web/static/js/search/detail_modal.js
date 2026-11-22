@@ -91,11 +91,22 @@
     modalEl.actions.innerHTML      = "";
   }
 
+  /* The dialog is named by the hero title, so it needs one while there is
+     no detail to draw: loading, and after a failed load. */
+  function setHeroName(text) {
+    const h = document.createElement("h2");
+    h.id = "detail-modal-title";
+    h.className = "sr-only";
+    h.textContent = text;
+    modalEl.hero.replaceChildren(h);
+  }
+
   async function openDetail(mediaType, tmdbId) {
     const mine = ++openCount;
     currentDetail = null;
     detailModal.open();
     resetModal();
+    setHeroName("Loading…");
     const loading = document.createElement("div");
     loading.className = "modal-loading";
     loading.textContent = "Loading...";
@@ -108,6 +119,7 @@
       );
     } catch (e) {
       if (mine !== openCount) return;
+      setHeroName("Couldn't load details.");
       modalEl.actions.replaceChildren();
       const err = document.createElement("div");
       err.className = "modal-error";
