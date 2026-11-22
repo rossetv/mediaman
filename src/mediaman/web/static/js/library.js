@@ -600,7 +600,7 @@
     clearTimeout(_searchTimer);
     _searchTimer = setTimeout(function () {
       /* The reload drops focus; the flag lets the next load put it back. */
-      try { sessionStorage.setItem('library-search-refocus', '1'); } catch (_) { /* focus is then simply not restored */ }
+      try { sessionStorage.setItem('library-search-refocus', String(Date.now())); } catch (_) { /* focus is then simply not restored */ }
       document.getElementById('toolbar-form').submit();
     }, 400);
   }
@@ -608,7 +608,10 @@
   function refocusSearchAfterReload(input) {
     var flagged = false;
     try {
-      flagged = sessionStorage.getItem('library-search-refocus') === '1';
+      /* Only the load the submit itself led to may refocus: a flag left
+         behind by a submit that landed on another page is stale. */
+      var age = Date.now() - Number(sessionStorage.getItem('library-search-refocus'));
+      flagged = age >= 0 && age < 5000;
       sessionStorage.removeItem('library-search-refocus');
     } catch (_) { /* nothing stored, nothing to restore */ }
     if (!flagged) return;
