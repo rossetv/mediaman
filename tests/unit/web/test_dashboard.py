@@ -412,6 +412,51 @@ class TestRedownloadButtonByStoredId:
         assert _buttons(html, "redownload") == []
 
 
+def _record_redownload(conn, token: str) -> None:
+    insert_audit_log(
+        conn,
+        media_item_id=token,
+        action="re_downloaded",
+        created_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    conn.commit()
+
+
+class TestRedownloadedItemLeavesRecentlyDeleted:
+    def test_movie_redownloaded_after_deletion_is_not_listed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
+        _insert_deleted_with_identity(conn, "other", title="Arrival", tmdb_id=329865)
+        _record_redownload(conn, "tmdb:438631")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Dune" not in html
+        assert "Arrival" in html
+
+    def test_season_redownloaded_after_deletion_is_not_listed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_deleted_with_identity(
+            conn, "gone", title="Severance", media_type="season", tvdb_id=371980, season_number=2
+        )
+        _record_redownload(conn, "tvdb:371980")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Severance" not in html
+
+    def test_movie_deleted_again_after_a_redownload_is_listed(
+        self, app_factory, authed_client, conn
+    ):
+        insert_audit_log(
+            conn,
+            media_item_id="tmdb:438631",
+            action="re_downloaded",
+            created_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Dune" in html
+
+
 class TestDeleteRootBanner:
     def test_banner_names_root_and_count(self, app_factory, authed_client, conn):
         write_delete_root_state(conn, {"/media/movies": 3, "/media/tv": 1})
