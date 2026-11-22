@@ -122,6 +122,7 @@
             <div class="sub">
               {{ item.subtitle }}
               {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}
+              <span class="lib-sub-watched"> · {% if item.last_watched %}watched {{ item.last_watched }}{% else %}never watched{% endif %}</span>
             </div>
           </td>
           <td>

@@ -376,7 +376,10 @@
   border-radius: var(--r-sm);
   font-size: 13px;
 }
-.keep-season-item label { flex-shrink: 0; }
+.keep-season-item label,
+.keep-season-name { flex-shrink: 0; white-space: nowrap; }
+.keep-season-item .btn,
+.keep-season-item .pill { flex-shrink: 0; }
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
 .keep-all-row { background: var(--s3); font-weight: 500; }
 .keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-shrink: 0; }
@@ -387,6 +390,10 @@
 @media (max-width: 639.98px) {
   .keep-dur-btn { min-height: 40px; }
   .snooze-option { min-height: 40px; }
+  .keep-dialog-actions .btn,
+  .delete-modal-actions .btn { min-height: 40px; }
+  /* A long details line wraps inside its row instead of pushing Delete out. */
+  .keep-season-details { white-space: normal; min-width: 0; }
 }
 .u-flex-1 { flex: 1; }
 

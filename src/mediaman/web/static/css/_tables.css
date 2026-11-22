@@ -125,6 +125,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   right: 0;
   z-index: 20;
   min-width: 160px;
+  overflow-y: auto;
   background: var(--s2);
   border: 1px solid var(--hair-strong);
   border-radius: var(--r-md);
@@ -135,6 +136,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   gap: 2px;
 }
 .keep-wrapper.is-open .snooze-dropdown { display: flex; }
+.keep-wrapper.opens-up .snooze-dropdown { top: auto; bottom: calc(100% + 6px); }
 
 .snooze-option {
   text-align: left;
@@ -185,13 +187,22 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 .page-btn--ellipsis { background: transparent; border: 0; }
 .page-info { margin-left: 8px; color: var(--t3); font-size: 12px; }
 
-/* Tablet: keep the table on screen. Narrower cell padding and a no-wrap
-   actions cell leave the title column the room to wrap long names. */
+/* The size never splits across lines, whatever the title does. */
+.tbl--lib tbody td:nth-child(4) { white-space: nowrap; }
+.lib-sub-watched { display: none; }
+
+/* Tablet: keep the table on screen. Narrower cell padding, a no-wrap
+   actions cell and the last-watched column moved under the title leave the
+   title column the room to wrap long names. */
 @media (max-width: 1023px) {
   .tbl--lib thead th,
   .tbl--lib tbody td { padding-left: 8px; padding-right: 8px; }
   .tbl--lib .lib-row-actions { flex-wrap: nowrap; }
-  .tbl--lib tbody td:nth-child(4) { white-space: nowrap; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .tbl--lib thead th:nth-child(5),
+  .tbl--lib tbody td:nth-child(5) { display: none; }
+  .lib-sub-watched { display: inline; }
 }
 
 /* Phone: each row is a card — poster and title, then type, size and last
@@ -216,11 +227,11 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   .tbl--lib tbody td:nth-child(3) { grid-row: 2; grid-column: 2; }
   .tbl--lib tbody td:nth-child(4) { grid-row: 2; grid-column: 3; font-size: 13px; color: var(--t2); }
   .tbl--lib tbody td:nth-child(5) { grid-row: 2; grid-column: 4; justify-self: end; text-align: right; }
+  .page-btn { min-width: 40px; height: 40px; }
+  .lib-mobile-sort .inp { min-height: 40px; }
   .tbl--lib tbody td:nth-child(6) { grid-row: 3; grid-column: 1 / 5; margin-top: 6px; text-align: left; }
   .tbl--lib .lib-row-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
   .tbl--lib .lib-row-actions > .keep-wrapper { display: flex; }
   .tbl--lib .lib-row-actions .keep-trigger { flex: 1; justify-content: center; }
   .card--bordered > table.tbl > tbody > tr:last-child > td { border-radius: 0; }
-  /* The last card sits above the fixed bottom nav, so its menu opens upward. */
-  .tbl--lib tbody tr:last-child .snooze-dropdown { top: auto; bottom: calc(100% + 6px); }
 }
