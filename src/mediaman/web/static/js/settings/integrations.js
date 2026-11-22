@@ -154,7 +154,9 @@
           .catch(function () { syncBtn.textContent = 'Failed'; })
           .then(function () {
             setTimeout(function () {
+              var keepFocus = MM.dom.focusStillIn(syncBtn);
               syncBtn.textContent = orig; syncBtn.disabled = false;
+              if (keepFocus) syncBtn.focus();
             }, 1800);
           });
       });

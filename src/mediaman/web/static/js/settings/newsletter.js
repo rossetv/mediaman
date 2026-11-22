@@ -118,7 +118,11 @@
           })
           .then(function () {
             addingSubscriber = false;
-            if (addSubBtn) { addSubBtn.disabled = false; addSubBtn.textContent = addSubLabel; }
+            if (!addSubBtn) return;
+            // Disabling the focused button drops focus to the body; give it back unless the person moved on.
+            var keepFocus = MM.dom.focusStillIn(addSubBtn);
+            addSubBtn.disabled = false; addSubBtn.textContent = addSubLabel;
+            if (keepFocus) addSubBtn.focus();
           });
       }
 
