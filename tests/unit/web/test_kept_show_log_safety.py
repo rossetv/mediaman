@@ -28,7 +28,7 @@ def test_unknown_show_409_has_message(app_factory, authed_client, conn):
     assert body["message"] == "Unknown show_rating_key"
 
 
-def test_kept_and_removed_show_logs_escape_title_and_key(app_factory, authed_client, conn, caplog):
+def test_kept_show_log_escapes_title(app_factory, authed_client, conn, caplog):
     insert_media_item(
         conn,
         id="101",
@@ -45,13 +45,6 @@ def test_kept_and_removed_show_logs_escape_title_and_key(app_factory, authed_cli
             "/api/show/100/keep", json={"duration": "forever", "season_ids": ["101"]}
         )
         assert keep.status_code == 200
-    _forged(caplog)
-    caplog.clear()
-    with caplog.at_level(logging.INFO):
-        client.post("/api/show/100%0D%0AFORGED/remove")
-        conn.execute("UPDATE kept_shows SET show_rating_key = ?", ("100\r\nFORGED",))
-        conn.commit()
-        client.post("/api/show/100%0D%0AFORGED/remove")
     _forged(caplog)
 
 
@@ -99,5 +92,17 @@ def test_kept_show_log_escapes_resolved_key(conn, caplog, monkeypatch):
     body = ks._KeepShowBody(duration="forever", season_ids=["101"])
     with caplog.at_level(logging.INFO):
         resp = ks.api_keep_show("100\r\nFORGED", body, admin="admin")
+    assert resp.status_code == 200
+    _forged(caplog)
+
+
+def test_removed_show_keep_log_escapes_key(conn, caplog, monkeypatch):
+    _stored_season(conn, "100\r\nFORGED")
+    monkeypatch.setattr(ks, "get_db", lambda: conn)
+    body = ks._KeepShowBody(duration="forever", season_ids=["101"])
+    assert ks.api_keep_show("100\r\nFORGED", body, admin="admin").status_code == 200
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        resp = ks.api_remove_show_keep("100\r\nFORGED", admin="admin")
     assert resp.status_code == 200
     _forged(caplog)
