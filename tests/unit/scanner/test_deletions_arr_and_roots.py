@@ -529,3 +529,31 @@ class TestSeasonFolderBoundary:
 
         assert not season.parent.parent.exists()
         assert (tmp_path / "tv").is_dir()
+
+    def test_a_season_folder_inside_a_folder_named_like_a_season_never_climbs_above_it(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # "Series 2" may be the show, or a season folder holding a show stored without its own.
+        root = tmp_path / "media"
+        above = root / "Shows" / "Series 2"
+        folder = above / "Season 1"
+        folder.mkdir(parents=True)
+        (root / "movies").mkdir()
+        (root / "movies" / "film.mkv").write_bytes(b"x")
+        episode = folder / "Show - s01e01.mkv"
+        episode.write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        _item(
+            conn,
+            "s1",
+            file_path=folder,
+            files=[episode],
+            media_type="tv_season",
+            season_number=1,
+        )
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 1
+        assert not folder.exists()
+        assert above.is_dir()

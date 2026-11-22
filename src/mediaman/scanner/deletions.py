@@ -88,13 +88,13 @@ def _tracked_paths(row: DeletionRow) -> list[str] | None:
 _SEASON_FOLDER = re.compile(r"(?:season|series|s)[ ._-]*(\d+)", re.IGNORECASE)
 
 
-def _is_season_folder(folder: str, season_number: int | None) -> bool:
-    """True only when *folder*'s name is plainly the folder of season *season_number*."""
+def _season_of_folder(folder: str) -> int | None:
+    """Return the season number *folder*'s name plainly gives, else None."""
     name = os.path.basename(folder)
-    if season_number == 0 and name.lower() == "specials":
-        return True
+    if name.lower() == "specials":
+        return 0
     match = _SEASON_FOLDER.fullmatch(name)
-    return match is not None and int(match.group(1)) == season_number
+    return int(match.group(1)) if match else None
 
 
 def _folder_limit(row: DeletionRow, path: str) -> str:
@@ -103,12 +103,19 @@ def _folder_limit(row: DeletionRow, path: str) -> str:
     A film's own folder; for a season, the series folder above a season
     folder, or the folder holding the episodes when it is not plainly a
     season folder (a show stored without season folders), so the walk never
-    climbs above the show. The storage layer refuses a limit that is a delete
-    root or above one.
+    climbs above the show. A parent named like a season folder too may be a
+    show stored without season folders, so the walk stays below it. The
+    storage layer refuses a limit that is a delete root or above one.
     """
     folder = os.path.dirname(path)
-    if row.media_type != "movie" and _is_season_folder(folder, row.season_number):
-        return os.path.dirname(folder)
+    parent = os.path.dirname(folder)
+    if (
+        row.media_type != "movie"
+        and row.season_number is not None
+        and _season_of_folder(folder) == row.season_number
+        and _season_of_folder(parent) is None
+    ):
+        return parent
     return folder
 
 
