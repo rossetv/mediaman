@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from mediaman.scanner.repository.audit import (
@@ -432,6 +435,44 @@ class TestSchedulerAndMaintenanceActions:
         )
         item = client.get("/api/history").json()["items"][0]
         assert item["title"] == "/mnt/x"
+
+
+_TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+
+
+class TestHistoryPillColour:
+    """The pill colour follows the action's badge class, not words in its label."""
+
+    @pytest.mark.parametrize(
+        ("action", "variant"),
+        [
+            ("deleted", "stale"),
+            ("delete_failed_permanent", "stale"),
+            ("delete_root_unavailable", "stale"),
+            ("delete_folders_failed", "stale"),
+            ("delete_awaiting_scan", "neutral"),
+            ("delete_root_available", "neutral"),
+            ("kept", "kept"),
+            ("downloaded", "neutral"),
+            ("scanned", "neutral"),
+            ("sec:login.failed", "neutral"),
+            ("sec:user.deleted", "neutral"),
+            ("some_future_action", "neutral"),
+        ],
+    )
+    def test_pill_variant_comes_from_badge_class(
+        self, app_factory, authed_client, conn, action, variant
+    ):
+        _insert_audit_row(conn, action=action)
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/history")
+        assert resp.status_code == 200
+        pills = re.findall(r'<span class="pill pill--(\w+)">', resp.text)
+        assert pills == [variant]
 
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():

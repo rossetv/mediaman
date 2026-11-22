@@ -33,8 +33,7 @@
         {% if item.space_impact %}<span class="text-muted"> · {{ item.space_impact }}</span>{% endif %}
       </div>
       <div class="hist-type">
-        {% set _action_lc = item.action_label|lower %}
-        {% set _variant = 'stale' if 'delet' in _action_lc else ('kept' if 'keep' in _action_lc else ('tv' if 'newsletter' in _action_lc else 'neutral')) %}
+        {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
         {{ c.pill(item.action_label, variant=_variant) }}
       </div>
     </div>
