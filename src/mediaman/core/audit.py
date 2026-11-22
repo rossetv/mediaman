@@ -95,7 +95,8 @@ def log_audit(
         "VALUES (?, ?, ?, ?, ?, ?)",
         (media_item_id, action, detail, space_bytes, now_iso(), actor),
     )
-    assert cursor.lastrowid is not None
+    if cursor.lastrowid is None:
+        raise RuntimeError("audit_log insert returned no row id")
     return cursor.lastrowid
 
 
