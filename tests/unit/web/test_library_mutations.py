@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import get_db
 from mediaman.services.infra import SafeHTTPError
+from mediaman.web.auth.password_hash import set_user_email
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
@@ -707,6 +708,30 @@ class TestMediaDeleteRefusesKeptItems:
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
         assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
 
+    def test_row_pruned_during_the_check_is_not_reported_as_kept(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        entry = radarr.get_movie_by_id.return_value
+
+        def scan_prunes_row(_id):
+            get_db().execute("DELETE FROM media_items WHERE id='m1'")
+            get_db().commit()
+            return entry
+
+        radarr.get_movie_by_id.side_effect = scan_prunes_row
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "not_in_library"
+        assert resp.json()["message"] == "This item is no longer in the library. Refresh the page."
+        radarr.delete_movie.assert_not_called()
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
+
     def test_keep_landing_after_the_arr_delete_started_does_not_refuse(
         self, app_factory, authed_client, conn
     ):
@@ -1352,6 +1377,39 @@ class TestMediaRedownload:
             "SELECT media_item_id FROM audit_log WHERE action = 're_downloaded'"
         ).fetchall()
         assert [r["media_item_id"] for r in rows] == ["tvdb:999:s2"]
+
+    @staticmethod
+    def _queued_emails(conn) -> list[str]:
+        return [r[0] for r in conn.execute("SELECT email FROM download_notifications")]
+
+    def test_a_movie_ready_notice_goes_to_the_admins_email(self, post, conn):
+        set_user_email(conn, "admin", "admin@example.com")
+        post({"title": "Dune", "tmdb_id": 42}, radarr=self._radarr_without_movie())
+        assert self._queued_emails(conn) == ["admin@example.com"]
+
+    def test_a_season_ready_notice_goes_to_the_admins_email(self, post, conn):
+        set_user_email(conn, "admin", "admin@example.com")
+        post(
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+            sonarr=self._sonarr_without_series(),
+        )
+        assert self._queued_emails(conn) == ["admin@example.com"]
+
+    def test_no_notice_is_queued_when_the_admin_has_no_email(self, post, conn):
+        set_user_email(conn, "admin", None)
+        radarr_resp = post({"title": "Dune", "tmdb_id": 42}, radarr=self._radarr_without_movie())
+        sonarr_resp = post(
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+            sonarr=self._sonarr_without_series(),
+        )
+        assert radarr_resp.json()["ok"] is True and sonarr_resp.json()["ok"] is True
+        assert self._queued_emails(conn) == []
+        assert (
+            conn.execute("SELECT COUNT(*) FROM audit_log WHERE action='re_downloaded'").fetchone()[
+                0
+            ]
+            == 2
+        )
 
     def test_a_movie_request_without_radarr_is_refused(self, post):
         resp = post({"title": "Dune", "tmdb_id": 42}, radarr=None, sonarr=MagicMock())

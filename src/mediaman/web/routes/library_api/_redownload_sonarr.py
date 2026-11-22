@@ -10,8 +10,10 @@ from fastapi.responses import JSONResponse
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.core.audit import log_audit
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.infra import SafeHTTPError
+from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.library_api import record_redownload
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
@@ -44,19 +46,34 @@ def _redownload_season(
         except SafeHTTPError as exc:
             raise AddRefused(exc) from exc
         message = f"Added season {season_number} of '{title}' to Sonarr"
-    record_redownload(
-        conn,
-        audit_id=_redownload_audit_id(
-            media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
-        ),
-        audit_detail=f"Re-downloaded season {season_number} of '{title}' by {username}",
-        actor=username,
-        email=username,
-        title=title,
-        media_type="tv",
-        service="sonarr",
-        tvdb_id=tvdb_id,
-    )
+    email = get_user_email(conn, username)
+    if email is None:
+        # Nowhere to send the ready notice; the re-download is still audited.
+        logger.info("Re-download ready notice skipped: the requesting admin has no email set")
+        with conn:
+            log_audit(
+                conn,
+                _redownload_audit_id(
+                    media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
+                ),
+                "re_downloaded",
+                f"Re-downloaded season {season_number} of '{title}' by {username}",
+                actor=username,
+            )
+    else:
+        record_redownload(
+            conn,
+            audit_id=_redownload_audit_id(
+                media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
+            ),
+            audit_detail=f"Re-downloaded season {season_number} of '{title}' by {username}",
+            actor=username,
+            email=email,
+            title=title,
+            media_type="tv",
+            service="sonarr",
+            tvdb_id=tvdb_id,
+        )
     logger.info(
         "Re-downloaded '%s' season %s (tvdb=%s) via Sonarr by %s",
         title,

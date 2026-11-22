@@ -108,9 +108,13 @@ def _lookup[T](service: str, what: str, fetch: Callable[[], T], *, missing: str 
 def _recheck(conn: sqlite3.Connection, media_id: str) -> None:
     try:
         recheck_deletable(conn, media_id)
-    except (Kept, NotFound) as exc:
+    except Kept as exc:
         raise _Refused(
             "This item is kept, so it cannot be deleted. Remove its keep first.", error="kept"
+        ) from exc
+    except NotFound as exc:
+        raise _Refused(
+            "This item is no longer in the library. Refresh the page.", error="not_in_library"
         ) from exc
     except DeletionRunning as exc:
         raise _Refused(_DELETION_RUNNING_MESSAGE) from exc
