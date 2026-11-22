@@ -8,7 +8,7 @@ All deletion-time concerns live here:
 * Allowlist enforcement via repository.read_delete_allowed_roots_setting.
 * The two-phase delete loop that unmonitors *arr clients only after the
   SQLite write lock has been released, and only an entry that matches.
-* The record of which delete roots or folders the last live pass found
+* The record of which delete roots or folders the last pass found
   missing or empty, for the dashboard.
 
 Imports repository; MUST NOT import fetch or
@@ -769,7 +769,8 @@ class DeletionExecutor:
         dry_run: When True, skip the on-disk rm (and the row deletion +
             audit-log entry that would normally follow). A
             ``dry_run_skip`` audit row is written instead so an operator
-            can see what *would* have been deleted. Snooze cleanup is
+            can see what *would* have been deleted; the record of roots or
+            folders found missing or empty is still refreshed. Snooze cleanup is
             controlled separately via ``cleanup_snoozes``.
         cleanup_snoozes: When True (default), expired snoozes are
             removed so the items re-enter the scan pipeline. Set to
@@ -807,7 +808,8 @@ class DeletionExecutor:
 
         Pipeline:
         1. Recover stuck rows (skipped in dry-run — preview mutates nothing).
-        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept, and stop.
+        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept,
+           record which roots or folders would hold rows back, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
         4. Live: record which roots or folders held rows back, for the dashboard.
@@ -816,16 +818,29 @@ class DeletionExecutor:
         now = now_utc()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
-            # Preview: record what *would* be deleted, mutate no state.
-            for row in rows:
-                if is_kept_deletion(self._conn, row.id, now.isoformat()):
-                    continue
-                log_audit(
-                    self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}"
-                )
-            self._conn.commit()
+            self._preview(rows, now)
             return {"deleted": 0, "reclaimed_bytes": 0}
         return self._execute_live(rows, now)
+
+    def _preview(self, rows: list[DeletionRow], now: datetime) -> None:
+        """Record what *would* be deleted and which folders would hold rows back.
+
+        Mutates no deletion: only ``dry_run_skip`` rows and the record of
+        unavailable folders, which the dashboard would otherwise keep showing
+        from the last live pass however long the passes stay dry runs.
+        """
+        allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
+        due = [row for row in rows if not is_kept_deletion(self._conn, row.id, now.isoformat())]
+        # Read the disk before writing anything, so a hung mount cannot hold the lock.
+        waiting = Counter(
+            folder
+            for row in due
+            if allowed_roots and (folder := _unavailable_for(row, allowed_roots)) is not None
+        )
+        for row in due:
+            log_audit(self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}")
+        _record_folders_unavailable(self._conn, dict(waiting))
+        self._conn.commit()
 
     def _recover_then_fetch_pending(self, now: datetime) -> list[DeletionRow]:
         """Recover stuck rows (live only) and return the pending-deletion set.

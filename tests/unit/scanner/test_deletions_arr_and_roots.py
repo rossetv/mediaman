@@ -417,14 +417,24 @@ class TestRootState:
 
         assert read_delete_root_state(conn) == {}
 
-    def test_dry_run_does_not_write_the_state(self, conn, tmp_path, monkeypatch):
+    def test_a_dry_run_refreshes_the_state_and_touches_nothing_else(
+        self, conn, tmp_path, monkeypatch
+    ):
         root = tmp_path / "movies"
         root.mkdir()
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         path = root / "a" / "a.mkv"
         _item(conn, "a", file_path=path, files=[path])
+        dry_run = DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False)
 
-        DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+        dry_run.execute()
+
+        assert read_delete_root_state(conn) == {str(root): 1}
+        assert _status(conn, "a") == "pending"
+        assert _audit(conn, "a", "delete_root_unavailable") == []
+
+        (root / "keep.txt").write_text("mounted")
+        dry_run.execute()
 
         assert read_delete_root_state(conn) == {}
 
