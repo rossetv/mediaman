@@ -366,7 +366,7 @@
               {% for item in deleted_items %}
               <div class="del">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="100" height="150">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
@@ -389,7 +389,7 @@
               {% for item in trending_items %}
               <div class="rec-card">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
@@ -421,7 +421,7 @@
               {% for item in personal_items %}
               <div class="rec-card">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
