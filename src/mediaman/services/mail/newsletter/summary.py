@@ -35,9 +35,10 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     re-downloaded items from the deleted cards. One query replaces a per-row lookup
     (N+1).
 
-    media_item_id is the Plex numeric id or, for re-downloads, a ``tmdb:<id>`` /
-    ``tvdb:<id>[:s<n>]`` token (see redownload_tokens). *week_ago* bounds the scan to the deleted-items window; an item
-    outside it would not be listed anyway.
+    Keys are lower-cased media_item_id values: a Plex numeric id, a ``tmdb:<id>`` /
+    ``tvdb:<id>[:s<n>]`` token (see redownload_tokens) or, for a Search re-add, the title.
+    *week_ago* bounds the scan to the deleted-items window; an item outside it would not be
+    listed anyway.
     """
     redownload_rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
@@ -46,9 +47,7 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     ).fetchall()
     redownload_times: dict[str, str] = {}
     for rd in redownload_rows:
-        # media_item_id may be a Plex numeric string — keep as-is (no .lower())
-        # so it matches plex_rating_key exactly.
-        # Lower-cased like the dashboard: a Search re-add records the title here.
+        # Lower-cased like the dashboard, so a title matches whatever its case.
         key = str(rd["media_item_id"]).lower()
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
