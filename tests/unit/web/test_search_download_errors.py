@@ -7,6 +7,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.responses import JSONResponse
 
 from mediaman.services.arr import ArrError
 from mediaman.web.routes.search import download as dl
@@ -44,6 +45,22 @@ def test_successful_add_still_suppresses_duplicate(authed_client):
         second = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=8))
     assert first.status_code == 200
     assert second.status_code == 429
+
+
+def test_raising_submit_releases_the_dedup_key(authed_client):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = None
+    with (
+        patch(f"{_MODULE}.build_radarr_from_db", return_value=radarr),
+        patch(
+            f"{_MODULE}._submit_movie",
+            side_effect=[RuntimeError("boom"), JSONResponse({"ok": True})],
+        ),
+    ):
+        with pytest.raises(RuntimeError):
+            authed_client.post("/api/search/download", json=_valid_body(tmdb_id=9))
+        retry = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=9))
+    assert retry.status_code == 200
 
 
 def test_arr_error_in_tvdb_lookup_is_a_plain_502(conn):
