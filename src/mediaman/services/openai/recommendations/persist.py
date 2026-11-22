@@ -68,20 +68,26 @@ def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]
 
 
 def _match_downloaded(
-    downloaded: list[sqlite3.Row], item: RecommendationItem
+    downloaded: list[sqlite3.Row], item: RecommendationItem, taken: set[int]
 ) -> sqlite3.Row | None:
-    """Return the already-downloaded row that *item* repeats, if any.
+    """Return the not-yet-taken downloaded row that *item* repeats, if any.
 
-    tmdb_id decides when both sides have one; otherwise normalised title and media type.
+    The media type and the normalised full title (season suffix included) must match;
+    tmdb_id and year must also match when both sides have one.
     """
     tmdb_id = item.get("tmdb_id")
+    year = item.get("year")
     title = normalise_for_match(str(item.get("title") or ""))
     for row in downloaded:
-        if tmdb_id and row["tmdb_id"]:
-            if tmdb_id == row["tmdb_id"]:
-                return row
-        elif row["media_type"] == item["media_type"] and normalise_for_match(row["title"]) == title:
-            return row
+        if row["id"] in taken or row["media_type"] != item["media_type"]:
+            continue
+        if normalise_for_match(row["title"]) != title:
+            continue
+        if tmdb_id and row["tmdb_id"] and tmdb_id != row["tmdb_id"]:
+            continue
+        if year and row["year"] and year != row["year"]:
+            continue
+        return row
     return None
 
 
@@ -99,14 +105,14 @@ def _insert_recommendations(
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception
         downloaded = conn.execute(
-            "SELECT id, title, media_type, tmdb_id, downloaded_at FROM suggestions "
+            "SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM suggestions "
             "WHERE batch_id = ? AND downloaded_at IS NOT NULL",
             (today,),
         ).fetchall()
         marks: list[str | None] = []
         matched_ids: set[int] = set()
         for s in all_recommendations:
-            row = _match_downloaded(downloaded, s)
+            row = _match_downloaded(downloaded, s, matched_ids)
             marks.append(row["downloaded_at"] if row else None)
             if row:
                 matched_ids.add(row["id"])

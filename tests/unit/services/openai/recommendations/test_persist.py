@@ -188,7 +188,7 @@ class TestRefreshRecommendations:
     @pytest.mark.parametrize(
         ("old", "new_title", "new_tmdb"),
         [
-            ({"tmdb_id": 438631}, "Dune: Part One", 438631),
+            ({"tmdb_id": 438631}, "Dune!", 438631),
             ({"tmdb_id": None, "title": "The Dune!"}, "the dune", None),
         ],
     )
@@ -223,6 +223,83 @@ class TestRefreshRecommendations:
             for r in conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
         }
         assert rows == {"Dune": None, "Old Pick": "2026-05-01T08:00:00"}
+
+    @staticmethod
+    def _marks(conn):
+        return {
+            (r["title"], r["year"]): r["downloaded_at"]
+            for r in conn.execute("SELECT title, year, downloaded_at FROM suggestions")
+        }
+
+    def test_downloaded_season_does_not_pass_its_mark_to_another_season_of_the_show(
+        self, conn, freezer
+    ):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Show \u2014 Season 2",
+            media_type="tv",
+            tmdb_id=77,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        rec = {**_fake_personal()[0], "title": "Show \u2014 Season 3", "tmdb_id": 77}
+        self._refresh(conn, [rec])
+        assert self._marks(conn) == {
+            ("Show \u2014 Season 3", None): None,
+            ("Show \u2014 Season 2", None): "2026-05-01T08:00:00",
+        }
+
+    def test_downloaded_remake_does_not_pass_its_mark_to_a_different_year(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            year=1984,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "year": 2021}])
+        assert self._marks(conn) == {("Dune", 2021): None, ("Dune", 1984): "2026-05-01T08:00:00"}
+
+    def test_download_mark_survives_when_only_one_side_has_a_year(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            year=None,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "year": 2021}])
+        assert self._marks(conn) == {("Dune", 2021): "2026-05-01T08:00:00"}
+
+    def test_different_tmdb_id_with_same_title_does_not_match(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            tmdb_id=1,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "tmdb_id": 2}])
+        rows = conn.execute("SELECT tmdb_id, downloaded_at FROM suggestions").fetchall()
+        assert {(r["tmdb_id"], r["downloaded_at"]) for r in rows} == {
+            (1, "2026-05-01T08:00:00"),
+            (2, None),
+        }
+
+    def test_one_downloaded_row_marks_only_one_of_two_identical_new_rows(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        rec = _fake_trending()[0]
+        self._refresh(conn, [dict(rec), dict(rec)])
+        marks = [r[0] for r in conn.execute("SELECT downloaded_at FROM suggestions")]
+        assert len(marks) == 2
+        assert marks.count("2026-05-01T08:00:00") == 1
 
     @staticmethod
     def _refresh(conn, recs):
