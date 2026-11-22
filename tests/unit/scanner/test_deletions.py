@@ -922,6 +922,71 @@ class TestMissingTarget:
         assert (root / "Other" / "Other.mkv").exists()
 
 
+class TestRootUnavailableAudit:
+    def _audit_rows(self, conn, media_id):
+        return conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id=? AND action='delete_root_unavailable'",
+            (media_id,),
+        ).fetchall()
+
+    @pytest.mark.parametrize("layout", ["empty_movie_folder", "missing_root"])
+    def test_a_row_held_back_on_every_pass_is_audited_once_naming_the_folder(
+        self, conn, tmp_path, monkeypatch, layout
+    ):
+        root = tmp_path / "movies"
+        folder = root / "Dune (2021)"
+        if layout == "empty_movie_folder":
+            folder.mkdir(parents=True)
+            empty = folder
+        else:
+            empty = root
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(folder / "Dune.mkv"))
+        _due_row(conn, "m")
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        audits = self._audit_rows(conn, "m")
+        assert len(audits) == 1
+        assert str(empty) in audits[0]["detail"]
+        assert "deleted" not in _audits(conn, "m")
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+
+    def test_recovery_holding_a_row_back_audits_it_once_naming_the_folder(
+        self, conn, tmp_path, monkeypatch
+    ):
+        folder = tmp_path / "movies" / "Dune (2021)"
+        folder.mkdir(parents=True)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(folder.parent))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(folder / "Dune.mkv"))
+        insert_scheduled_action(
+            conn,
+            media_item_id="m",
+            action="scheduled_deletion",
+            token="tok-m",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+        audits = self._audit_rows(conn, "m")
+        DeletionExecutor(conn=conn).execute()
+
+        assert len(audits) == 1
+        assert str(folder) in audits[0]["detail"]
+        assert len(self._audit_rows(conn, "m")) == 1
+        assert "deleted" not in _audits(conn, "m")
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+
+
 class TestSharedFolderPathSpelling:
     """Two spellings of one folder are the same folder."""
 

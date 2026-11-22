@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import requests
@@ -122,7 +123,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not delete_root_available(file_path, allowed_roots):
+        elif (unavailable := _unavailable_folder(file_path, allowed_roots)) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — file absent but its delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -130,6 +131,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 row.id,
                 file_path,
             )
+            _audit_root_unavailable(conn, row, unavailable)
             repository.mark_delete_status(conn, row.id, "pending")
         elif row.action != DELETION_ACTION:
             logger.warning(
@@ -320,14 +322,33 @@ def _unmonitor_arr(
             )
 
 
-def _log_root_unavailable(row: DeletionRow, path: str) -> None:
-    logger.error(
-        "engine.delete.root_unavailable id=%s path=%r — target is missing and "
-        "its delete root is missing or empty (media mount down?); leaving "
-        "the row pending",
-        row.id,
-        path,
+def _unavailable_folder(path: str, allowed_roots: list[str]) -> str | None:
+    """Return the folder found missing or empty when *path* is gone and its mount may be down.
+
+    None when the target, or else content in the closest existing folder above
+    it, is on disk. Otherwise it names the folder delete_root_available looked
+    at: the closest existing one above *path*, or the delete root if that is
+    missing. Reads the disk, so call it with no transaction open.
+    """
+    if os.path.lexists(path) or delete_root_available(path, allowed_roots):
+        return None
+    roots = {Path(os.path.realpath(r)) for r in allowed_roots if r and os.path.isabs(r)}
+    target = Path(os.path.realpath(path))
+    closest = next(
+        (folder for folder in target.parents if folder in roots or os.path.lexists(folder)),
+        target.parent,
     )
+    return str(closest)
+
+
+def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
+    detail = (
+        f"Not deleted yet: {row.title} — {folder} is missing or empty, so the media "
+        "mount may be down; the deletion waits until that folder has content again"
+    )
+    # The hold repeats every pass until the folder changes; audit it once.
+    if not is_latest_audit(conn, row.media_item_id, "delete_root_unavailable", detail):
+        log_audit(conn, row.media_item_id, "delete_root_unavailable", detail)
 
 
 class DeletionExecutor:
@@ -464,9 +485,7 @@ class DeletionExecutor:
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
-        mounted = bool(path.strip()) and (
-            os.path.lexists(path) or delete_root_available(path, allowed_roots)
-        )
+        unavailable = _unavailable_folder(path, allowed_roots) if path.strip() else None
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -498,7 +517,7 @@ class DeletionExecutor:
             self._conn.commit()
             return []
 
-        if not self._may_remove(row, path, now_iso, mounted=mounted):
+        if not self._may_remove(row, path, now_iso, unavailable=unavailable):
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return []
@@ -519,10 +538,10 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        unavailable = _unavailable_folder(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, co_located, path, now_iso, mounted=mounted):
+        if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -567,7 +586,7 @@ class DeletionExecutor:
         path: str,
         now_iso: str,
         *,
-        mounted: bool,
+        unavailable: str | None,
     ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
@@ -597,16 +616,18 @@ class DeletionExecutor:
                 kept,
             )
             return False
-        return self._may_remove(row, path, now_iso, mounted=mounted)
+        return self._may_remove(row, path, now_iso, unavailable=unavailable)
 
-    def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+    def _may_remove(
+        self, row: DeletionRow, path: str, now_iso: str, *, unavailable: str | None
+    ) -> bool:
         """Return False, logging why, when removing *path* now could lose media.
 
         Before the claim it runs inside the claim's transaction, so the other
         items it reads cannot change before the claim commits; it runs again
-        just before the removal. *mounted* says whether the target, or else its
-        delete root's content, was on disk; it is read before any transaction
-        opens.
+        just before the removal. *unavailable* names the folder found missing or
+        empty when neither the target nor its delete root's content was on
+        disk, else None; it is read before any transaction opens.
         """
         held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
         if held:
@@ -631,7 +652,15 @@ class DeletionExecutor:
             if not is_latest_audit(self._conn, row.media_item_id, "delete_refused", detail):
                 log_audit(self._conn, row.media_item_id, "delete_refused", detail)
             return False
-        if not mounted:
-            _log_root_unavailable(row, path)
+        if unavailable is not None:
+            logger.error(
+                "engine.delete.root_unavailable id=%s path=%r folder=%r — target is "
+                "missing and its delete root is missing or empty (media mount down?); "
+                "leaving the row pending",
+                row.id,
+                path,
+                unavailable,
+            )
+            _audit_root_unavailable(self._conn, row, unavailable)
             return False
         return True
