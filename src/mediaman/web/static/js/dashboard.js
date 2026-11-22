@@ -160,7 +160,7 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Failed';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Failed';
         btn.textContent = msg.length < 30 ? msg : 'Failed';
         btn.classList.add('is-error');
         btn.disabled = false;
@@ -191,7 +191,7 @@
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Try again.';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't clear scheduled deletions. " + msg);
         btn.disabled = false;
         btn.textContent = label;
@@ -217,7 +217,7 @@
         window.location.reload();
       })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Try again.';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't save keep. " + msg);
       });
   }
