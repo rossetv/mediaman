@@ -191,11 +191,12 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   .tbl--lib thead th,
   .tbl--lib tbody td { padding-left: 8px; padding-right: 8px; }
   .tbl--lib .lib-row-actions { flex-wrap: nowrap; }
+  .tbl--lib tbody td:nth-child(4) { white-space: nowrap; }
 }
 
 /* Phone: each row is a card — poster and title, then type, size and last
    watched, then Keep and Delete side by side across the full width. */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .tbl--lib thead { display: none; }
   .tbl--lib,
   .tbl--lib tbody { display: block; }
@@ -220,4 +221,6 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   .tbl--lib .lib-row-actions > .keep-wrapper { display: flex; }
   .tbl--lib .lib-row-actions .keep-trigger { flex: 1; justify-content: center; }
   .card--bordered > table.tbl > tbody > tr:last-child > td { border-radius: 0; }
+  /* The last card sits above the fixed bottom nav, so its menu opens upward. */
+  .tbl--lib tbody tr:last-child .snooze-dropdown { top: auto; bottom: calc(100% + 6px); }
 }

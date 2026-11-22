@@ -121,6 +121,7 @@
   font-weight: 600;
   border-radius: var(--r-pill);
   letter-spacing: -.01em;
+  white-space: nowrap;
 }
 .pill--movie  { background: var(--rgba-orange-bg);  color: var(--orange); }
 .pill--tv     { background: rgba(41,151,255,.18);   color: var(--accent); }
@@ -189,7 +190,7 @@
 }
 
 /* Phone tap targets: a 40px hit area on small buttons and the keep menu. */
-@media (max-width: 639px) {
+@media (max-width: 639.98px) {
   .btn--sm { min-height: 40px; }
   .keep-trigger { height: 40px; }
 }
