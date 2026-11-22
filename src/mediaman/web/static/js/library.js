@@ -57,8 +57,9 @@
 
   /* While a chain for this show runs, neither Keep/Update nor Remove all may
      start another. When it settles, a dialog still showing the show reads the
-     seasons again, since the chain changed them. */
-  function holdKeepWhileSaving(request) {
+     seasons again, since the chain changed them; focusAfter, if given, says
+     what to focus once they are back. */
+  function holdKeepWhileSaving(request, focusAfter) {
     var note = keepChainNote();
     var chain = _keepChains[keepChainKey()];
     var confirmBtn = document.getElementById('keep-dialog-confirm');
@@ -72,7 +73,7 @@
       confirmBtn.disabled = false;
       removeBtn.disabled = false;
       note.textContent = '';
-      loadKeepSeasons();
+      loadKeepSeasons(focusAfter);
     });
   }
 
@@ -154,7 +155,9 @@
     return url;
   }
 
-  function loadKeepSeasons(refocus) {
+  /* focusAfter returns the element to focus once the seasons are shown; it
+     is used only while focus is still in the list or nowhere. */
+  function loadKeepSeasons(focusAfter) {
     _keepDialogState.showKept = false;
     _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
@@ -178,9 +181,9 @@
         renderSeasonPicker(data.seasons, data.show_kept);
         /* A keep still running for this show holds Keep until it settles. */
         confirmBtn.disabled = !!_keepChains[keepChainKey()];
-        if (refocus === true && focusStillIn(list)) {
-          var first = list.querySelector('input');
-          if (first) first.focus();
+        if (focusAfter && focusStillIn(list)) {
+          var target = focusAfter();
+          if (target) target.focus();
         }
       })
       .catch(function () {
@@ -205,7 +208,7 @@
       /* The button goes with the message; park focus on the list meanwhile. */
       list.tabIndex = -1;
       list.focus();
-      loadKeepSeasons(true);
+      loadKeepSeasons(function () { return list.querySelector('input'); });
     });
     list.appendChild(msg);
     list.appendChild(retry);
@@ -482,8 +485,11 @@
       });
       trackKeepChain(chainKey, chain);
       /* Holds Keep and Remove all, then reads the seasons again, so a retry
-         sends only what is still kept. */
-      holdKeepWhileSaving(request);
+         sends only what is still kept. Remove all was disabled through the
+         requests, so focus fell to the page: after a failure it goes back. */
+      holdKeepWhileSaving(request, function () {
+        return failed.length ? removeBtn : null;
+      });
     });
   }
 
