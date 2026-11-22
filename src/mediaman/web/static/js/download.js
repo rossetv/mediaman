@@ -65,8 +65,11 @@
 
         document.getElementById('download-action').style.display = 'none';
 
-        pollStatus();
-        _startPolling();
+        /* A 401 already stopped polling and told the visitor to reload. */
+        if (!_pollStopped) {
+          pollStatus();
+          _startPolling();
+        }
       })
       .catch(function(err) {
         if (err instanceof MM.api.APIError) {
