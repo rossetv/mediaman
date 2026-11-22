@@ -55,17 +55,24 @@
     return note;
   }
 
+  /* While a chain for this show runs, neither Keep/Update nor Remove all may
+     start another. When it settles, a dialog still showing the show reads the
+     seasons again, since the chain changed them. */
   function holdKeepWhileSaving(request) {
     var note = keepChainNote();
     var chain = _keepChains[keepChainKey()];
-    note.textContent = chain ? 'Saving the previous change…' : '';
-    if (!chain) return;
     var confirmBtn = document.getElementById('keep-dialog-confirm');
+    var removeBtn = document.getElementById('keep-dialog-remove');
+    note.textContent = chain ? 'Saving the previous change…' : '';
+    removeBtn.disabled = !!chain;
+    if (!chain) return;
     confirmBtn.disabled = true;
     chain.then(function () {
       if (request !== _keepDialogRequest) return;
       confirmBtn.disabled = false;
+      removeBtn.disabled = false;
       note.textContent = '';
+      loadKeepSeasons();
     });
   }
 
@@ -377,10 +384,20 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) { removeBtn.disabled = false; return; }
+      /* Like a keep, the requests outlive the dialog, so what they need is
+         read now and the dialog is touched only while it is the same one. */
+      var request = _keepDialogRequest;
+      var chainKey = keepChainKey();
+      var showTitle = _keepDialogState.showTitle;
       var rk = _keepDialogState.showRk;
       var allRequests = [];
       if (rk && _keepDialogState.showKept) {
-        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', name: 'the show keep' });
+        allRequests.push({
+          url: '/api/show/' + encodeURIComponent(rk) + '/remove',
+          name: 'the show keep',
+          /* 404: no show keep any more, which is what was asked. */
+          goneIsDone: true
+        });
       }
       var names = {};
       document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
@@ -395,19 +412,24 @@
       allRequests.forEach(function (req) {
         removeChain = removeChain.then(function () {
           return MM.api.post(req.url)
-            .catch(function () { failed.push(req.name); });
+            .catch(function (err) {
+              if (req.goneIsDone && err && err.status === 404) return;
+              failed.push(req.name);
+            });
         });
       });
-      removeChain.then(function () {
+      var chain = removeChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
-          /* Refetch so a retry sends only what is still kept. */
-          loadKeepSeasons();
-          removeBtn.disabled = false;
-        } else {
+          var msg = 'Remove failed for: ' + failed.join(', ');
+          window.UIFeedback.error(request === _keepDialogRequest || !showTitle ? msg : showTitle + ': ' + msg);
+        } else if (request === _keepDialogRequest) {
           window.location.reload();
         }
       });
+      trackKeepChain(chainKey, chain);
+      /* Holds Keep and Remove all, then reads the seasons again, so a retry
+         sends only what is still kept. */
+      holdKeepWhileSaving(request);
     });
   }
 
