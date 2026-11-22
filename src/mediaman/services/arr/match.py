@@ -210,9 +210,10 @@ def verify_movie(
 ) -> MatchResult:
     """Strict check that Radarr's *entry* is the movie Plex tracks.
 
-    Passes only when the entry has *tmdb_id*, its folder name is the folder
-    of a tracked file, and its ``movieFile`` has the same name and size as
-    a tracked file in that folder.
+    Passes only when the entry has *tmdb_id* and every tracked file is
+    Radarr's ``movieFile``: the same name and size, in one folder named as
+    Radarr's.  Radarr holds one file per movie, so a Plex item with a second
+    version, a copy in another library root or several parts is refused.
     """
     expected = _positive_int(tmdb_id)
     if expected is None:
@@ -235,19 +236,24 @@ def verify_movie(
     movie_file = entry.get("movieFile")
     if not isinstance(movie_file, Mapping):
         return MatchResult(False, "Radarr has no file for this movie; nothing was deleted")
-    arr_name = _name(movie_file.get("relativePath") or movie_file.get("path"))
-    arr_size = _size(movie_file.get("size"))
-    if (
-        arr_name
-        and arr_size is not None
-        and (arr_name, arr_size) in {(name, size) for name, size, _ in in_folder}
-    ):
-        return _OK
-    return MatchResult(
-        False,
-        "Radarr's file for this movie is a different file (size or name differ); "
-        "nothing was deleted",
+    arr_file = (
+        _name(movie_file.get("relativePath") or movie_file.get("path")),
+        _size(movie_file.get("size")),
     )
+    if not arr_file[0] or arr_file not in {(name, size) for name, size, _ in in_folder}:
+        return MatchResult(
+            False,
+            "Radarr's file for this movie is a different file (size or name differ); "
+            "nothing was deleted",
+        )
+    parents = {_parent(path) for _, _, path in tracked}
+    if len(parents) != 1 or any((name, size) != arr_file for name, size, _ in tracked):
+        return MatchResult(
+            False,
+            "Plex has files for this movie that Radarr does not manage. Delete them by hand "
+            "or let a scheduled deletion handle it; nothing was deleted",
+        )
+    return _OK
 
 
 def verify_season(

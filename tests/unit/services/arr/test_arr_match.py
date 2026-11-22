@@ -154,6 +154,30 @@ class TestVerifyMovie:
         ]
         assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
 
+    def test_a_second_version_in_another_library_folder_is_refused(self):
+        tracked = [
+            {"path": FILM, "size": 8_000},
+            {"path": "/data/movies4k/Dune (2021)/Dune (2021) 2160p.mkv", "size": 60_000},
+        ]
+        result = verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked)
+        assert not result.ok
+        assert "Radarr does not manage" in result.reason
+
+    def test_the_same_file_in_two_library_roots_is_refused(self):
+        tracked = [
+            {"path": FILM, "size": 8_000},
+            {"path": "/data/movies-kids/Dune (2021)/Dune (2021) Bluray-1080p.mkv", "size": 8_000},
+        ]
+        assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
+
+    def test_a_multi_part_movie_is_refused(self):
+        # Radarr holds one file per movie, so it can manage at most one of the parts.
+        tracked = [
+            {"path": "/data/movies/Dune (2021)/Dune (2021) Bluray-1080p.mkv", "size": 8_000},
+            {"path": "/data/movies/Dune (2021)/Dune (2021) -part2.mkv", "size": 7_000},
+        ]
+        assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
+
 
 class TestVerifySeason:
     def _verify(self, series=None, files=S1_FILES, tracked=S1_TRACKED, season=1):
