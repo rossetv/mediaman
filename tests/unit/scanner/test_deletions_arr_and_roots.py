@@ -455,6 +455,34 @@ class TestRootState:
         assert "2 scheduled deletions" in movies_row and "1 scheduled deletion " in tv_row
         assert len(_audit(conn, "a", "delete_root_unavailable")) == 1
 
+    def test_a_root_that_returns_and_drops_again_is_audited_each_time(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        path = root / "a" / "a.mkv"
+        _item(conn, "a", file_path=path, files=[path])
+        mounted = root / "keep.txt"
+
+        DeletionExecutor(conn=conn).execute()
+        mounted.write_text("mounted")
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+        mounted.unlink()
+        DeletionExecutor(conn=conn).execute()
+
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE media_item_id = ? ORDER BY id",
+            (f"_delete_root:{root}",),
+        ).fetchall()
+        assert [r["action"] for r in rows] == [
+            "delete_root_unavailable",
+            "delete_root_available",
+            "delete_root_unavailable",
+        ]
+        assert all(str(root) in r["detail"] for r in rows)
+
     def test_a_tracked_files_folder_decides_which_folder_is_unavailable(
         self, conn, tmp_path, monkeypatch
     ):

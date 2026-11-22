@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import requests
 
 from mediaman.core.audit import log_audit
-from mediaman.core.delete_root_state import write_delete_root_state
+from mediaman.core.delete_root_state import read_delete_root_state, write_delete_root_state
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
@@ -719,16 +719,33 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
 _FOLDER_AUDIT_ID = "_delete_root:"
 
 
-def _audit_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
+def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
+    """Store *waiting* (folder -> items held back) and audit how it differs from the last pass.
+
+    A folder newly held, or holding a different count, gets a row; a folder no
+    longer held gets one saying it has content again.
+    """
+    previous = read_delete_root_state(conn)
+    write_delete_root_state(conn, waiting)
     for folder, count in waiting.items():
+        if previous.get(folder) == count:
+            continue
         items = "1 scheduled deletion waits" if count == 1 else f"{count} scheduled deletions wait"
-        detail = (
+        log_audit(
+            conn,
+            _FOLDER_AUDIT_ID + folder,
+            "delete_root_unavailable",
             f"Delete root or folder '{folder}' is missing or empty, so the media mount may "
-            f"be down; {items} until it has content again"
+            f"be down; {items} until it has content again",
         )
-        sentinel = _FOLDER_AUDIT_ID + folder
-        if not is_latest_audit(conn, sentinel, "delete_root_unavailable", detail):
-            log_audit(conn, sentinel, "delete_root_unavailable", detail)
+    for folder in previous.keys() - waiting.keys():
+        log_audit(
+            conn,
+            _FOLDER_AUDIT_ID + folder,
+            "delete_root_available",
+            f"Delete root or folder '{folder}' has content again; scheduled deletions no "
+            "longer wait on it",
+        )
 
 
 def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
@@ -852,9 +869,7 @@ class DeletionExecutor:
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
-        waiting = dict(Counter(self._waiting.values()))
-        write_delete_root_state(self._conn, waiting)
-        _audit_folders_unavailable(self._conn, waiting)
+        _record_folders_unavailable(self._conn, dict(Counter(self._waiting.values())))
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
