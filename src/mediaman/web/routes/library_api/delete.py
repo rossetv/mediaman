@@ -152,6 +152,24 @@ def _upstream_failed(service: str) -> JSONResponse:
     )
 
 
+def _unconfirmed(message: str) -> JSONResponse:
+    return respond_err("delete_unconfirmed", status=409, message=message)
+
+
+_RADARR_GONE_MESSAGE = (
+    "Radarr no longer has this movie, so mediaman could not confirm its files are gone. "
+    "The next library scan will update it."
+)
+_SONARR_GONE_MESSAGE = (
+    "Sonarr no longer has this show, so mediaman could not confirm the season's files "
+    "are gone. The next library scan will update it."
+)
+_SONARR_FILES_LEFT_MESSAGE = (
+    "Sonarr still lists files of this season after the delete, so mediaman could not "
+    "confirm they are gone. Nothing was booked as deleted; press Delete again."
+)
+
+
 def _delete_movie(
     client: ArrClient,
     snapshot: MediaDeleteSnapshot,
@@ -195,11 +213,12 @@ def _delete_movie(
         client.delete_movie(entry_id)
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, entry_id)
     except _ARR_ERRORS as exc:
-        if not _is_not_found(exc):
-            _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
-            logger.exception("Radarr delete failed for '%s'", title)
-            return intent_id, _upstream_failed("Radarr")
-        logger.info("Radarr reports id %s already gone for '%s'", entry_id, title)
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
+        if _is_not_found(exc):
+            logger.info("Radarr answered 404 deleting id %s for '%s'", entry_id, title)
+            return intent_id, _unconfirmed(_RADARR_GONE_MESSAGE)
+        logger.exception("Radarr delete failed for '%s'", title)
+        return intent_id, _upstream_failed("Radarr")
     # rationale: any other error is still an unconfirmed delete; close the
     # intent so the reconcile cannot book the item deleted.
     except Exception as exc:
@@ -274,6 +293,16 @@ def _delete_season(
 
     try:
         client.delete_episode_files(sid, season_num)
+        if any(ef.get("seasonNumber") == season_num for ef in client.get_episode_files(sid)):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail(),
+                "Sonarr still lists files of this season",
+                actor=username,
+            )
+            return intent_id, _unconfirmed(_SONARR_FILES_LEFT_MESSAGE)
         files_removed = True
         client.unmonitor_season(sid, season_num)
         logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
@@ -291,13 +320,12 @@ def _delete_season(
                 "No files remain for '%s' — deleted series from Sonarr with exclusion", title
             )
     except _ARR_ERRORS as exc:
-        if not _is_not_found(exc):
-            _fail_delete_intent(
-                conn, intent_id, media_id, failed_detail(), str(exc), actor=username
-            )
-            logger.exception("Sonarr delete failed for '%s'", title)
-            return intent_id, _upstream_failed("Sonarr")
-        logger.info("Sonarr reports id %s already gone for '%s'", sid, title)
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
+        if _is_not_found(exc):
+            logger.info("Sonarr answered 404 deleting series %s for '%s'", sid, title)
+            return intent_id, _unconfirmed(_SONARR_GONE_MESSAGE)
+        logger.exception("Sonarr delete failed for '%s'", title)
+        return intent_id, _upstream_failed("Sonarr")
     # rationale: any other error is still an unconfirmed delete; close the
     # intent so the reconcile cannot book the item deleted.
     except Exception as exc:

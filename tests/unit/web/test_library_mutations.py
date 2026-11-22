@@ -127,10 +127,16 @@ def _sonarr(extra_files: list | None = None) -> MagicMock:
         },
         *(extra_files or []),
     ]
+    listed = {"files": files}
+
+    def delete_season_files(_series_id: int, season: int) -> None:
+        listed["files"] = [f for f in listed["files"] if f["seasonNumber"] != season]
+
     client = MagicMock()
     client.get_series_by_id.return_value = series
     client.get_series_by_tvdb.return_value = series
-    client.get_episode_files.return_value = files
+    client.get_episode_files.side_effect = lambda _series_id: list(listed["files"])
+    client.delete_episode_files.side_effect = delete_season_files
     client.has_remaining_files.return_value = True
     return client
 
@@ -696,10 +702,20 @@ class TestMediaDeleteTransactional:
         assert resp.status_code == 502
         assert _row_exists(conn, "m1")
 
-    def test_arr_404_on_the_delete_is_treated_as_already_gone(
+    def _assert_not_booked_deleted(self, conn, media_id: str) -> None:
+        assert _row_exists(conn, media_id)
+        assert "deleted" not in _audit_actions(conn, media_id)
+        assert conn.execute("SELECT COUNT(*) FROM deleted_media").fetchone()[0] == 0
+        intent = conn.execute(
+            "SELECT completed_at, last_error FROM delete_intents WHERE media_item_id = ?",
+            (media_id,),
+        ).fetchone()
+        assert intent["completed_at"] and intent["last_error"]
+
+    def test_radarr_404_on_the_delete_is_not_booked_as_deleted(
         self, app_factory, authed_client, conn
     ):
-        """A 404 answering the DELETE itself means already deleted upstream."""
+        """A 404 only says the entry left Radarr; its files may still be on disk."""
         _insert_movie(conn, radarr_id=101)
         client = authed_client(_app(app_factory, conn), conn)
 
@@ -711,8 +727,43 @@ class TestMediaDeleteTransactional:
         with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
-        assert resp.status_code == 200
-        assert not _row_exists(conn, "m1")
+        assert resp.status_code == 409
+        assert "Radarr no longer has this movie" in resp.json()["message"]
+        self._assert_not_booked_deleted(conn, "m1")
+
+    def test_sonarr_404_for_the_show_during_the_delete_is_not_booked_as_deleted(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        mock_sonarr = _sonarr()
+        mock_sonarr.delete_episode_files.side_effect = SafeHTTPError(
+            status_code=404, body_snippet="Not Found", url="http://sonarr/"
+        )
+
+        with patch(SONARR, return_value=mock_sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 409
+        assert "Sonarr no longer has this show" in resp.json()["message"]
+        self._assert_not_booked_deleted(conn, "s1")
+
+    def test_season_files_sonarr_still_lists_after_the_delete_are_not_booked_as_deleted(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        mock_sonarr = _sonarr()
+        mock_sonarr.delete_episode_files.side_effect = None
+
+        with patch(SONARR, return_value=mock_sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 409
+        mock_sonarr.delete_series.assert_not_called()
+        self._assert_not_booked_deleted(conn, "s1")
 
     def test_retry_after_failure_succeeds(self, app_factory, authed_client, conn):
         """After a transient Arr failure, a retry must succeed (idempotency)."""

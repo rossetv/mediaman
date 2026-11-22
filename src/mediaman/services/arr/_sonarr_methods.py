@@ -55,7 +55,8 @@ class _SonarrMixin:
         Calls ``DELETE /api/v3/episodefile/bulk`` with
         ``{"episodeFileIds": [...]}`` — supported since Sonarr v3.
         Falls back to serial deletes when the endpoint returns 404
-        (Sonarr version too old).
+        (Sonarr version too old). In the fallback a 404 for one file means
+        Sonarr already dropped it, so the rest are still deleted.
         """
         try:
             self._http.delete(  # type: ignore[attr-defined]
@@ -70,7 +71,11 @@ class _SonarrMixin:
                     "(HTTP 404), falling back to serial deletes"
                 )
                 for ef_id in episode_file_ids:
-                    self._delete(f"/api/v3/episodefile/{ef_id}")  # type: ignore[attr-defined]
+                    try:
+                        self._delete(f"/api/v3/episodefile/{ef_id}")  # type: ignore[attr-defined]
+                    except SafeHTTPError as file_exc:
+                        if file_exc.status_code != 404:
+                            raise
             else:
                 raise
 

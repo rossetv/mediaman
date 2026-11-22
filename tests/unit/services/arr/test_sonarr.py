@@ -559,6 +559,31 @@ class TestDeleteEpisodeFiles:
         assert any("10" in u for u in serial_urls)
         assert any("11" in u for u in serial_urls)
 
+    def test_serial_fallback_carries_on_past_a_file_already_gone(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue(
+            "GET",
+            fake_response(json_data=[{"id": 10, "seasonNumber": 1}, {"id": 11, "seasonNumber": 1}]),
+        )
+        fake_http.queue("DELETE", fake_response(status=404, text="not found"))
+        fake_http.queue("DELETE", fake_response(status=404, text="not found"))
+        fake_http.queue("DELETE", fake_response(content=b""))
+
+        client.delete_episode_files(series_id=5, season_number=1)
+
+        assert _calls(fake_http, "DELETE")[2][1].endswith("/api/v3/episodefile/11")
+
+    def test_serial_fallback_still_raises_a_server_error(self, client, fake_http, fake_response):
+        from mediaman.services.infra import SafeHTTPError
+
+        fake_http.queue("GET", fake_response(json_data=[{"id": 10, "seasonNumber": 1}]))
+        fake_http.queue("DELETE", fake_response(status=404, text="not found"))
+        fake_http.queue("DELETE", fake_response(status=500, text="server error"))
+
+        with pytest.raises(SafeHTTPError):
+            client.delete_episode_files(series_id=5, season_number=1)
+
     def test_non_404_http_error_propagates(self, client, fake_http, fake_response):
         """A 500 from the bulk endpoint must not be silently swallowed."""
         from mediaman.services.infra import SafeHTTPError
