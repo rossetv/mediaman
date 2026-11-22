@@ -12,7 +12,7 @@ import requests
 from mediaman.bootstrap.scan_jobs import _recover_stuck_deletions_at_boot
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
-from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -495,6 +495,31 @@ class TestRootState:
         DeletionExecutor(conn=conn).execute()
 
         assert read_delete_root_state(conn) == {str(root): 1}
+
+
+class TestRecoveryAfterOwnWalk:
+    def test_a_folder_mediaman_emptied_itself_is_not_taken_for_a_dropped_mount(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "media"
+        library = root / "Films"
+        library.mkdir(parents=True)
+        (root / "Other").mkdir()
+        (root / "Other" / "o.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        video = library / "Film (2020)" / "film.mkv"
+        _item(conn, "m1", file_path=video, files=[video])
+        # The removal and its folder walk ran, leaving the library folder empty.
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status = 'deleting', removed_files = ?",
+            (json.dumps({"paths": [str(video)], "bytes": 4}),),
+        )
+        conn.commit()
+
+        booked = recover_stuck_deletions(conn)
+
+        assert [row.media_item_id for row in booked] == ["m1"]
+        assert _audit(conn, "m1", "delete_root_unavailable") == []
 
 
 class TestSeasonFolderBoundary:

@@ -159,7 +159,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       and log loudly instead.
     * Files absent **but** their delete root is missing or empty -> the
       media mount is likely down, so the absence proves nothing. Reset to
-      ``pending``.
+      ``pending``. Only files not recorded as removed are looked at.
     * Any tracked file present -> the removal never ran or did not finish.
       Reset to ``pending`` so the next normal run retries cleanly.
 
@@ -212,7 +212,14 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif (unavailable := _first_unavailable(paths, allowed_roots)) is not None:
+        elif (
+            unavailable := _first_unavailable(
+                # A file this deletion removed is expected to be gone, and the
+                # folder walk after it may have emptied the folder above.
+                [path for path in paths if str(Path(path)) not in row.removed_paths],
+                allowed_roots,
+            )
+        ) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — files absent but their delete "
                 "root is missing or empty (media mount down?); reverting status "
