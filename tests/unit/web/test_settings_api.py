@@ -1291,6 +1291,23 @@ class TestConnectionTestsSayWhy:
             "message": "The service sent a reply that wasn't recognised.",
         }
 
+    def test_nzbget_html_reply_is_not_recognised_rather_than_unreachable(
+        self, app_factory, authed_client, conn, fake_http, fake_response
+    ):
+        reply = fake_response(text="<html>not nzbget</html>")
+
+        def _not_json():
+            raise requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+
+        reply.json = _not_json
+        fake_http.default(reply)
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, "nzbget")
+        assert resp.json() == {
+            "ok": False,
+            "error": "bad_reply",
+            "message": "The service sent a reply that wasn't recognised.",
+        }
+
     @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
     def test_no_secret_or_host_reaches_the_message(
         self, app_factory, authed_client, conn, fake_http, service
