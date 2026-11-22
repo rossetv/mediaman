@@ -63,11 +63,18 @@ def _reconcile_delete_intents_in_background(secret_key: str, started_before: str
 
         conn = get_db()
         try:
+            try:
+                delete_roots = read_delete_allowed_roots_setting(conn)
+            except Exception:
+                # Without roots the reconcile only skips the on-disk check; it
+                # must still close the intents it can.
+                logger.exception("could not read delete roots; reconciling without them")
+                delete_roots = []
             reconciled = reconcile_pending_delete_intents(
                 conn,
                 verify_gone=build_verify_gone(conn, secret_key),
                 started_before=started_before,
-                delete_roots=read_delete_allowed_roots_setting(conn),
+                delete_roots=delete_roots,
             )
         finally:
             close_db()
