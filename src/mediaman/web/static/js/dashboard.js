@@ -73,7 +73,7 @@
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
           } else if (data.status === 'skipped') {
-            var skipReason = 'Scan skipped: ' +
+            var skipReason = !data.reason ? 'Scan skipped' : 'Scan skipped: ' +
               (data.reason === 'Plex not configured' ? 'Plex is not configured' : data.reason);
             scanStopped(btn, skipReason);
             var skipEl = document.getElementById('scan-status');
