@@ -58,16 +58,17 @@ def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool
     if not scheduled_items:
         return "[DRY RUN] Mediaman Weekly Report" if dry_run else "Mediaman Weekly Report"
     total_size_bytes = sum(i["file_size_bytes"] for i in scheduled_items)
-    if total_size_bytes >= 1 << 40:
-        size_str = f"{total_size_bytes / (1 << 40):.1f} TB"
-    elif total_size_bytes >= 1 << 30:
-        size_str = f"{total_size_bytes / (1 << 30):.1f} GB"
-    elif total_size_bytes >= 1 << 20:
-        size_str = f"{total_size_bytes / (1 << 20):.0f} MB"
-    elif total_size_bytes > 0:
-        size_str = f"{max(1, round(total_size_bytes / 1024))} KB"
-    else:
+    # Each unit hands over to the next once its rounded value would read 1024.
+    if total_size_bytes <= 0:
         size_str = ""
+    elif round(total_size_bytes / 1024) < 1024:
+        size_str = f"{max(1, round(total_size_bytes / 1024))} KB"
+    elif round(total_size_bytes / (1 << 20)) < 1024:
+        size_str = f"{total_size_bytes / (1 << 20):.0f} MB"
+    elif float(f"{total_size_bytes / (1 << 30):.1f}") < 1024:
+        size_str = f"{total_size_bytes / (1 << 30):.1f} GB"
+    else:
+        size_str = f"{total_size_bytes / (1 << 40):.1f} TB"
     subject = (
         f"Mediaman Weekly Report — {len(scheduled_items)} item"
         f"{'s' if len(scheduled_items) != 1 else ''} scheduled"
