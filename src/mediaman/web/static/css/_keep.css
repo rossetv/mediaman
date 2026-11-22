@@ -175,12 +175,12 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 @media (max-width: 639.98px) {
   .keep-container { width: calc(100% - 40px); margin: 40px auto; padding: 32px 20px; }
   .snooze-btn { min-height: 40px; padding: 8px 18px; }
-  .keep-footer a { display: inline-flex; align-items: center; min-height: 40px; }
 }
 
 /* Touch screens in landscape are wider than the phone breakpoint but still need the tap area. */
 @media (max-width: 639.98px), (pointer: coarse) {
   .keep-nav .brand { display: inline-block; line-height: 40px; }
+  .keep-footer a { display: inline-flex; align-items: center; min-height: 40px; }
 }
 
 .already-kept-msg { margin: 18px 0; }
