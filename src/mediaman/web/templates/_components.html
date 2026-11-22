@@ -313,10 +313,11 @@
 
 
 {# Input with show/hide reveal button. Used for secrets. #}
-{% macro inp_secret(id, value="", placeholder="") -%}
+{% macro inp_secret(id, value="", placeholder="", aria_label="") -%}
 <div class="inp-wrap">
   <input class="inp inp--lg" id="{{ id }}" name="{{ id }}" type="password"
-         value="{{ value }}" placeholder="{{ placeholder }}" autocomplete="off" spellcheck="false">
+         value="{{ value }}" placeholder="{{ placeholder }}" autocomplete="off" spellcheck="false"
+         {%- if aria_label %} aria-label="{{ aria_label }}"{% endif %}>
   <button type="button" class="inp-reveal" data-reveal-target="{{ id }}">Show</button>
 </div>
 {%- endmacro %}
@@ -325,8 +326,8 @@
 {# Select dropdown styled as a settings input. ``options`` is a list of
    ``{"value": str, "label": str}`` dicts; the entry whose value matches
    ``selected`` is rendered with the selected attribute. #}
-{% macro inp_select(id, options, selected="") -%}
-<select class="inp inp--lg" id="{{ id }}" name="{{ id }}">
+{% macro inp_select(id, options, selected="", aria_label="") -%}
+<select class="inp inp--lg" id="{{ id }}" name="{{ id }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}>
   {% for opt in options -%}
   <option value="{{ opt.value }}"{% if opt.value == selected %} selected{% endif %}>{{ opt.label }}</option>
   {%- endfor %}
@@ -406,15 +407,16 @@
   {% for row in (fields or []) %}
   <div class="fld-row{% if row|length == 1 %} fld-row--full{% endif %}">
     {% for f in row %}
+    {% set name = f.label if title in f.label else title ~ " " ~ f.label %}
     {% call fld(f.label, sub=f.sub|default(""), optional=f.optional|default(false)) %}
       {% if f.kind == "secret" %}
-        {{ inp_secret(f.id, value=settings.get(f.id, "") if settings else "", placeholder=f.placeholder|default("")) }}
+        {{ inp_secret(f.id, value=settings.get(f.id, "") if settings else "", placeholder=f.placeholder|default(""), aria_label=name) }}
       {% elif f.kind == "select" %}
-        {{ inp_select(f.id, f.options, selected=(settings.get(f.id) if settings else "") or f.default|default("")) }}
+        {{ inp_select(f.id, f.options, selected=(settings.get(f.id) if settings else "") or f.default|default(""), aria_label=name) }}
       {% else %}
         <input class="inp" id="{{ f.id }}" type="text"
                value="{{ settings.get(f.id, '') if settings else '' }}"
-               placeholder="{{ f.placeholder|default('') }}">
+               placeholder="{{ f.placeholder|default('') }}" aria-label="{{ name }}">
       {% endif %}
     {% endcall %}
     {% endfor %}
