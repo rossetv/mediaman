@@ -217,6 +217,11 @@ class TestTwoPhaseDelete:
             "2026-01-01T00:00:00+00:00",
             status="deleting",
         )
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ? WHERE media_item_id='r2'",
+            (json.dumps({"paths": [str(root / "x.mkv")], "bytes": 0}),),
+        )
+        conn.commit()
 
         recover_stuck_deletions(conn)
 
@@ -225,3 +230,25 @@ class TestTwoPhaseDelete:
         audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='r2'").fetchone()
         assert audit is not None
         assert audit["action"] == "deleted"
+
+    def test_recover_file_absent_without_removal_record_stays_pending(
+        self, conn, mock_plex, tmp_path, monkeypatch
+    ):
+        """An absent file with no removal record proves nothing: the row goes back to pending."""
+        from mediaman.scanner.deletions import recover_stuck_deletions
+
+        root = tmp_path / "library"
+        root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        self._insert_item(conn, "r2b", file_path=str(root / "x.mkv"))
+        self._insert_sched(conn, "r2b", "2026-01-01T00:00:00+00:00", status="deleting")
+
+        recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='r2b'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+        audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='r2b'").fetchall()
+        assert "deleted" not in [a["action"] for a in audit]
