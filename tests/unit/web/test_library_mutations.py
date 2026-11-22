@@ -808,6 +808,85 @@ class TestMediaDeleteTransactional:
         assert not _row_exists(conn, "m1")
 
 
+class TestMediaDeleteLocalFiles:
+    """A file mediaman can see on disk that outlives the Radarr/Sonarr delete is never booked."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
+        _DELETE_LIMITER.reset()
+
+    @staticmethod
+    def _on_disk(path) -> dict:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+        return {"path": str(path), "size": 1_000_000}
+
+    def _assert_not_booked(self, resp, conn, media_id: str) -> None:
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "delete_unconfirmed"
+        assert _row_exists(conn, media_id)
+        assert "deleted" not in _audit_actions(conn, media_id)
+        assert conn.execute("SELECT COUNT(*) FROM deleted_media").fetchone()[0] == 0
+        intent = conn.execute(
+            "SELECT completed_at, last_error FROM delete_intents WHERE media_item_id = ?",
+            (media_id,),
+        ).fetchone()
+        assert intent["completed_at"] and intent["last_error"]
+
+    def test_a_curated_copy_left_on_disk_after_the_radarr_delete_is_not_booked(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        kids = self._on_disk(tmp_path / "Kids/Test Movie (2020)/Test Movie (2020).mkv")
+        _insert_movie(conn, tracked_files=[kids])
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with (
+            patch(RADARR, return_value=radarr),
+            patch.object(delete_route, "_LOCAL_GONE_WAIT_SECONDS", 0),
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        radarr.delete_movie.assert_called_once_with(101)
+        self._assert_not_booked(resp, conn, "m1")
+
+    def test_a_movie_file_radarr_removes_in_the_background_is_booked(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        movie = tmp_path / "movies/Test Movie (2020)/Test Movie (2020).mkv"
+        _insert_movie(conn, tracked_files=[self._on_disk(movie)])
+        client = authed_client(_app(app_factory, conn), conn)
+
+        with (
+            patch(RADARR, return_value=_radarr()),
+            patch.object(delete_route.time, "sleep", side_effect=lambda _s: movie.unlink()),
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        assert not _row_exists(conn, "m1")
+
+    def test_a_season_file_left_on_disk_after_the_sonarr_delete_is_not_booked(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        season = tmp_path / "tv/The Show/Season 01"
+        tracked = [self._on_disk(season / f["path"].rsplit("/", 1)[1]) for f in SEASON_FILES]
+        for entry, original in zip(tracked, SEASON_FILES, strict=True):
+            entry["size"] = original["size"]
+        _insert_tv_season(conn, tracked_files=tracked)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with (
+            patch(SONARR, return_value=sonarr),
+            patch.object(delete_route, "_LOCAL_GONE_WAIT_SECONDS", 0),
+        ):
+            resp = client.post("/api/media/s1/delete")
+
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
+        self._assert_not_booked(resp, conn, "s1")
+
+
 class TestMediaDeleteBareRequestsException:
     """Bare requests.RequestException from the Arr client must be caught gracefully.
 

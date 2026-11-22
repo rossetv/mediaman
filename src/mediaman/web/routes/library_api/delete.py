@@ -7,6 +7,8 @@ it at the barrel.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from collections.abc import Callable
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
@@ -149,6 +151,26 @@ def _local_folders(paths: list[str], arr_folder: object, levels: int) -> set[str
     return found
 
 
+# Radarr removes a movie's folder in the background after it answers the
+# delete, so a file can outlive the call by a moment.
+_LOCAL_GONE_WAIT_SECONDS = 5.0
+_LOCAL_GONE_POLL_SECONDS = 0.25
+
+
+def _on_disk(paths: list[str]) -> list[str]:
+    return [path for path in paths if os.path.lexists(path)]
+
+
+def _still_on_disk(paths: list[str]) -> list[str]:
+    """Return which of *paths* are still on disk once the wait for them to go runs out."""
+    deadline = time.monotonic() + _LOCAL_GONE_WAIT_SECONDS
+    left = _on_disk(paths)
+    while left and time.monotonic() < deadline:
+        time.sleep(_LOCAL_GONE_POLL_SECONDS)
+        left = _on_disk(left)
+    return left
+
+
 def _upstream_failed(service: str) -> JSONResponse:
     return respond_err(
         "upstream_delete_failed",
@@ -168,6 +190,10 @@ _RADARR_GONE_MESSAGE = (
 _SONARR_GONE_MESSAGE = (
     "Sonarr no longer has this show, so mediaman could not confirm the season's files "
     "are gone. The next library scan will update it."
+)
+_LOCAL_FILES_LEFT_MESSAGE = (
+    "{service} answered the delete, but a file of this {what} is still on disk, so "
+    "mediaman did not book it as deleted. The next library scan will update it."
 )
 _SONARR_FILES_LEFT_MESSAGE = (
     "Sonarr still lists files of this season after the delete, so mediaman could not "
@@ -220,12 +246,26 @@ def _delete_movie(
     if other_item_uses_paths(conn, media_id, folders=folders):
         raise _Refused("Another library item uses files in this folder; nothing was deleted")
     _recheck(conn, media_id)
+    # A file mediaman cannot see tells nothing, so only the visible ones are watched.
+    on_disk_before = _on_disk(_tracked_paths(snapshot))
 
     intent_id = _record_delete_intent(conn, media_id, "radarr", str(entry_id))
     failed_detail = f"Radarr did not confirm the delete of '{title}' by {username}"
     try:
         client.delete_movie(entry_id)
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, entry_id)
+        if _still_on_disk(on_disk_before):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail,
+                "A file of this movie is still on disk",
+                actor=username,
+            )
+            return intent_id, _unconfirmed(
+                _LOCAL_FILES_LEFT_MESSAGE.format(service="Radarr", what="movie")
+            )
     except _ARR_ERRORS as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
         if _is_not_found(exc):
@@ -304,6 +344,7 @@ def _delete_season(
     if other_item_uses_paths(conn, media_id, files=tracked_paths):
         raise _Refused("Another library item uses files of this season; nothing was deleted")
     _recheck(conn, media_id)
+    on_disk_before = _on_disk(tracked_paths)
 
     intent_id = _record_delete_intent(conn, media_id, "sonarr", str(sid))
     files_removed = False
@@ -329,6 +370,18 @@ def _delete_season(
         files_removed = True
         client.unmonitor_season(sid, season_num)
         logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
+        if _still_on_disk(on_disk_before):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail(),
+                "A file of this season is still on disk",
+                actor=username,
+            )
+            return intent_id, _unconfirmed(
+                _LOCAL_FILES_LEFT_MESSAGE.format(service="Sonarr", what="season")
+            )
     except _ARR_ERRORS as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
         if _is_not_found(exc):
