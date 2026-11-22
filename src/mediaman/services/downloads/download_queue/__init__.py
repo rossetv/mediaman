@@ -165,6 +165,7 @@ def _maybe_record_completions(
     secret_key: str,
     *,
     nzb_fetch_failed: bool = False,
+    matched_nzb_names: frozenset[str] = frozenset(),
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
 
@@ -181,6 +182,9 @@ def _maybe_record_completions(
     empty: only the Radarr/Sonarr entries are diffed, and the previous snapshot's
     NZB-only entries are carried into the stored one unchanged, to be diffed on the
     next poll that reaches NZBGet.
+
+    An NZB-only id that vanished only because this poll matched its NZB to an Arr card
+    (*matched_nzb_names*) is still downloading, so it is not reported as completed.
     """
     global _previous_queue, _previous_initialised
 
@@ -199,7 +203,11 @@ def _maybe_record_completions(
     if previously_initialised:
         if nzb_fetch_failed:
             previous_snapshot = {k: v for k, v in previous_snapshot.items() if _is_arr_entry(k)}
-        completed = detect_completed(previous_snapshot, current_map)
+        completed = [
+            c
+            for c in detect_completed(previous_snapshot, current_map)
+            if c["dl_id"] not in matched_nzb_names
+        ]
         record_verified_completions(conn, completed, secret_key)
 
 
@@ -273,6 +281,8 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         trigger_search=maybe_trigger_search,
     )
 
+    matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])
+
     # 5. Add unmatched NZBGet items (manual additions with no Arr match).
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
 
@@ -284,7 +294,13 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
-    _maybe_record_completions(conn, current_map, secret_key, nzb_fetch_failed=nzb_fetch_failed)
+    _maybe_record_completions(
+        conn,
+        current_map,
+        secret_key,
+        nzb_fetch_failed=nzb_fetch_failed,
+        matched_nzb_names=matched_nzb_names,
+    )
 
     # 7. Hero selection
     hero, queue = select_hero(items_as_dicts)
