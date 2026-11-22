@@ -766,6 +766,12 @@ class TestKeepFormFailurePage:
         assert "We could not keep this item" in resp.text
         assert "Sign in for more options" in resp.text
 
+    def test_expired_page_offers_the_same_sign_in_link_as_the_other_states(self, conn):
+        resp = self._client(conn).get("/keep/badtoken")
+
+        assert "Sign in for more options" in resp.text
+        assert "Go to dashboard" not in resp.text
+
     def test_an_unknown_error_code_still_renders_a_page(self, conn):
         from starlette.requests import Request
 
