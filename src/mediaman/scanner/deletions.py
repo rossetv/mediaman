@@ -971,7 +971,12 @@ class DeletionExecutor:
             {os.path.dirname(file) for _, file in owned},
             [done.media_item_id for done in closing],
         )
-        limits = {str(Path(file).parent): _folder_limit(done, file) for done, file in owned}
+        limits: dict[str, str] = {}
+        for done, file in owned:
+            folder, limit = str(Path(file).parent), _folder_limit(done, file)
+            # Files sharing a folder walk only as far as the lowest limit allows.
+            if folder not in limits or len(Path(limit).parts) > len(Path(limits[folder]).parts):
+                limits[folder] = limit
         already_removed = {path for done in closing for path in done.removed_paths}
         result = _delete_files_on_disk(
             self._conn, row, tracked, allowed_roots, protected, already_removed

@@ -557,3 +557,32 @@ class TestSeasonFolderBoundary:
         assert result["deleted"] == 1
         assert not folder.exists()
         assert above.is_dir()
+
+    def test_files_sharing_a_folder_walk_only_as_far_as_the_lower_boundary_allows(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # One folder holds two seasons' episodes: it is season 1's folder, not season 2's.
+        root = tmp_path / "tv"
+        show = root / "Show"
+        folder = show / "Season 1"
+        folder.mkdir(parents=True)
+        (root / "Other").mkdir()
+        (root / "Other" / "o.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        for media_id, number in (("s2", 2), ("s1", 1)):
+            episode = folder / f"Show - s0{number}e01.mkv"
+            episode.write_bytes(b"x")
+            _item(
+                conn,
+                media_id,
+                file_path=folder,
+                files=[episode],
+                media_type="tv_season",
+                season_number=number,
+            )
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 2
+        assert not folder.exists()
+        assert show.is_dir()
