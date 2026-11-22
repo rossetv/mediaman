@@ -23,7 +23,7 @@
       </select>
     {% endcall %}
     {% call c.setg_row("Scan time", "Local time in the timezone below.") %}
-      <input class="inp inp--sm" type="time" id="scan_time"
+      <input class="inp inp--sm" type="time" id="scan_time" aria-label="Scan time"
              value="{{ settings.get('scan_time', '09:00') }}">
     {% endcall %}
     {% call c.setg_row("Timezone", "Used for schedule display and \"days ago\" math.") %}

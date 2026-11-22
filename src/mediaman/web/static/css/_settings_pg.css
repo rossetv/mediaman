@@ -177,6 +177,9 @@
 .setg-pg .setg-card-hd .btn { font-size: 12px; padding: 6px 14px; }
 .setg-pg .setg-card-bd { padding: 6px 24px; }
 .setg-pg .setg-card-bd--pad { padding: 22px 24px; }
+/* A card whose only content is a hidden panel shows just its header. */
+.setg-pg .setg-card-bd:has(> [hidden]:only-child) { display: none; }
+.setg-pg .setg-card-hd:has(+ .setg-card-bd > [hidden]:only-child) { border-bottom: 0; }
 
 .setg-pg .setg-row {
   display: grid;
@@ -207,7 +210,7 @@
 }
 .setg-pg .inp:focus { border-color: var(--accent); background: var(--s3); }
 .setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
-.setg-pg .inp::placeholder { color: var(--t4); }
+.setg-pg .inp::placeholder { color: var(--t3); }
 .setg-pg select.inp {
   cursor: pointer; padding-right: 34px; appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");

@@ -6,21 +6,21 @@
   {% call c.setg_card() %}
     {% call c.setg_row("Minimum age", "Media must have been added to Plex at least this many days ago to be eligible.") %}
       <div class="thresh-field">
-        <input class="inp inp--num" type="number" id="min_age_days"
+        <input class="inp inp--num" type="number" id="min_age_days" aria-label="Minimum age in days"
                value="{{ settings.get('min_age_days', 30) }}" min="1" max="365">
         <span class="unit">days</span>
       </div>
     {% endcall %}
     {% call c.setg_row("Watch inactivity", "No plays by any user within this period triggers eligibility.") %}
       <div class="thresh-field">
-        <input class="inp inp--num" type="number" id="inactivity_days"
+        <input class="inp inp--num" type="number" id="inactivity_days" aria-label="Watch inactivity in days"
                value="{{ settings.get('inactivity_days', 30) }}" min="1" max="365">
         <span class="unit">days</span>
       </div>
     {% endcall %}
     {% call c.setg_row("Grace period", "Days between scheduling and actual deletion — time for users to keep items.") %}
       <div class="thresh-field">
-        <input class="inp inp--num" type="number" id="grace_days"
+        <input class="inp inp--num" type="number" id="grace_days" aria-label="Grace period in days"
                value="{{ settings.get('grace_days', 14) }}" min="1" max="90">
         <span class="unit">days</span>
       </div>
