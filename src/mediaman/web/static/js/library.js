@@ -621,7 +621,9 @@
       flagged = age >= 0 && age < 5000;
       sessionStorage.removeItem('library-search-refocus');
     } catch (_) { /* nothing stored, nothing to restore */ }
-    if (!flagged) return;
+    /* The search form always sends q, even empty; a load without it came
+       from somewhere else, such as the sign-in after an expired session. */
+    if (!flagged || !new URLSearchParams(window.location.search).has('q')) return;
     input.focus();
     var end = input.value.length;
     input.setSelectionRange(end, end);
