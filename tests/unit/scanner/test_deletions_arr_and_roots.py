@@ -493,6 +493,24 @@ class TestRootState:
         ]
         assert all(str(root) in r["detail"] for r in rows)
 
+    def test_a_root_left_empty_after_its_waiting_row_goes_is_not_said_to_have_content(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        path = root / "a" / "a.mkv"
+        _item(conn, "a", file_path=path, files=[path])
+        DeletionExecutor(conn=conn).execute()
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = 'a'")
+        conn.commit()
+
+        DeletionExecutor(conn=conn).execute()
+
+        [detail] = _audit(conn, f"_delete_root:{root}", "delete_root_available")
+        assert str(root) in detail
+        assert "content" not in detail
+
     def test_a_tracked_files_folder_decides_which_folder_is_unavailable(
         self, conn, tmp_path, monkeypatch
     ):

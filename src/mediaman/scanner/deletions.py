@@ -723,7 +723,8 @@ def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int
     """Store *waiting* (folder -> items held back) and audit how it differs from the last pass.
 
     A folder newly held, or holding a different count, gets a row; a folder no
-    longer held gets one saying it has content again.
+    longer held gets one saying nothing waits on it any more, which does not
+    mean it has content: its last waiting row may simply have gone.
     """
     previous = read_delete_root_state(conn)
     write_delete_root_state(conn, waiting)
@@ -743,8 +744,7 @@ def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int
             conn,
             _FOLDER_AUDIT_ID + folder,
             "delete_root_available",
-            f"Delete root or folder '{folder}' has content again; scheduled deletions no "
-            "longer wait on it",
+            f"Delete root or folder '{folder}': no scheduled deletions wait on it any more",
         )
 
 
