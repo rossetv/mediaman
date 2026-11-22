@@ -321,6 +321,17 @@ def _unmonitor_arr(
             )
 
 
+def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
+    """Name the folder found missing or empty when the target is gone, else None.
+
+    None too for a path outside the delete roots: its mount is not the cause,
+    and ``delete_path`` refuses it with that reason.
+    """
+    if os.path.lexists(path) or not path_within_delete_roots(path, allowed_roots):
+        return None
+    return unavailable_folder(path, allowed_roots)
+
+
 def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
     detail = (
         f"Not deleted yet: {row.title} — {folder} is missing or empty, so the media "
@@ -465,11 +476,7 @@ class DeletionExecutor:
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
-        unavailable = (
-            unavailable_folder(path, allowed_roots)
-            if path.strip() and not os.path.lexists(path)
-            else None
-        )
+        unavailable = _unavailable(path, allowed_roots) if path.strip() else None
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -522,7 +529,7 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        unavailable = None if os.path.lexists(path) else unavailable_folder(path, allowed_roots)
+        unavailable = _unavailable(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
         if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):

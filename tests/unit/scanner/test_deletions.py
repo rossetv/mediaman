@@ -956,6 +956,27 @@ class TestRootUnavailableAudit:
         ).fetchone()
         assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
 
+    def test_a_gone_file_outside_the_delete_roots_is_refused_not_blamed_on_the_mount(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        (root / "Other").mkdir(parents=True)
+        (root / "Other" / "Other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(tmp_path / "old" / "M" / "M.mkv")
+        )
+        _due_row(conn, "m")
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        assert _audits(conn, "m") == ["delete_refused"]
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+
     def test_recovery_holding_a_row_back_audits_it_once_naming_the_folder(
         self, conn, tmp_path, monkeypatch
     ):
