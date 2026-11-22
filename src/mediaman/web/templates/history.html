@@ -15,7 +15,7 @@
   <div class="pill-row u-mb-24">
     {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
     {% for at in action_types %}
-    {{ c.fpill((at | replace('_', ' ') | title), on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
+    {{ c.fpill(('Re-Downloaded' if at == 're_downloaded' else at | replace('_', ' ') | title), on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
     {% endfor %}
     {% if total > 0 %}
     <span class="sub u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>

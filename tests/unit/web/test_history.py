@@ -487,6 +487,20 @@ class TestHistoryPillColour:
         assert pills == [variant]
 
 
+class TestHistoryFilterButtons:
+    def test_redownloaded_filter_button_is_hyphenated(self, app_factory, authed_client, conn):
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/history")
+        assert resp.status_code == 200
+        assert "Re-Downloaded" in resp.text
+        assert "Re Downloaded" not in resp.text
+        assert "Delete Failed" in resp.text
+
+
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
     from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
