@@ -147,7 +147,7 @@
     return url;
   }
 
-  function loadKeepSeasons() {
+  function loadKeepSeasons(refocus) {
     _keepDialogState.showKept = false;
     _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
@@ -170,6 +170,10 @@
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
+        if (refocus === true) {
+          var first = list.querySelector('input');
+          if (first) first.focus();
+        }
       })
       .catch(function () {
         if (request !== _keepDialogRequest) return;
@@ -189,7 +193,12 @@
     retry.className = 'btn btn--secondary btn--sm';
     retry.id = 'keep-seasons-retry';
     retry.textContent = 'Retry';
-    retry.addEventListener('click', loadKeepSeasons);
+    retry.addEventListener('click', function () {
+      /* The button goes with the message; park focus on the list meanwhile. */
+      list.tabIndex = -1;
+      list.focus();
+      loadKeepSeasons(true);
+    });
     list.appendChild(msg);
     list.appendChild(retry);
     retry.focus();
