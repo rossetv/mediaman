@@ -414,8 +414,9 @@
           return MM.api.post(req.url)
             .catch(function (err) {
               if (req.goneIsDone && err && err.status === 404) return;
-              failed.push(req.name);
-            });
+              throw err;
+            })
+            .catch(function () { failed.push(req.name); });
         });
       });
       var chain = removeChain.then(function () {
