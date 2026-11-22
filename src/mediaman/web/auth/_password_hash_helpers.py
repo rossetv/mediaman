@@ -19,6 +19,8 @@ import unicodedata
 
 import bcrypt
 
+from mediaman.web.models._common import _MAX_USERNAME_LEN
+
 #: Single source of truth for the bcrypt cost factor. Tied together so
 #: the dummy hash and every real hash use the same work factor — a
 #: drift here would create a measurable timing channel between
@@ -41,7 +43,7 @@ def _escape_log_char(char: str) -> str:
     return f"\\U{code:08x}"
 
 
-def _sanitise_log_field(value: str, limit: int = 64) -> str:
+def _sanitise_log_field(value: str, limit: int = _MAX_USERNAME_LEN) -> str:
     """Return *value* made safe to write into a log line, cut to *limit* characters.
 
     Backslashes, whitespace and every non-printable character (control,

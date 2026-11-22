@@ -154,6 +154,10 @@ class TestSanitiseLogField:
         names += ["\u540d\u524d", "", "a\\x5cb", "a\\b", "2001:db8:1::/64", "2001:db81::/64"]
         assert len({_sanitise_log_field(n) for n in names}) == len(names)
 
+    def test_names_sharing_a_long_prefix_stay_distinct(self):
+        prefix = "a" * 200
+        assert _sanitise_log_field(prefix + "1") != _sanitise_log_field(prefix + "2")
+
     def test_line_and_paragraph_separators_cannot_split_a_line(self):
         result = _sanitise_log_field("a\u2028b\u2029c\x85d\x0be\x0cf\r\ng")
         assert result.isascii()

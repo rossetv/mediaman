@@ -29,6 +29,7 @@ from mediaman.web.auth.session_store import (
     validate_session,
 )
 from mediaman.web.cookies import is_request_secure, set_session_cookie
+from mediaman.web.models._common import _MAX_USERNAME_LEN
 from mediaman.web.responses import respond_err
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=_LOGIN_RATE_WINDOW_SECONDS
 # history page UI.  Cap attacker-controlled usernames in the audit detail
 # at this many chars to bound the log-row size and prevent a megabyte-
 # username from polluting the history page.
-_AUDIT_USERNAME_LIMIT = 64
+_AUDIT_USERNAME_LIMIT = _MAX_USERNAME_LEN
 
 
 def _ua_hash(user_agent: str) -> str:
