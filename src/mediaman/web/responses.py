@@ -79,3 +79,14 @@ def respond_err(
         body["message"] = message
     body.update(extra)
     return JSONResponse(body, status_code=status)
+
+
+def respond_failure(message: str, *, status: int = 200, **extra: object) -> JSONResponse:
+    """Return a failure envelope whose ``error`` is a sentence for people.
+
+    The sentence is sent under both ``"error"`` and ``"message"``, so
+    clients that read ``message`` and clients that read ``error`` both
+    show it.  Unlike `respond_err`, the status defaults to 200 to match
+    the routes that report a failed action in a normal response.
+    """
+    return respond_err(message, status=status, message=message, **extra)

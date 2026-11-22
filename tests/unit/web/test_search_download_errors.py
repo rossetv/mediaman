@@ -97,3 +97,12 @@ def test_arr_error_in_tracked_check_is_a_plain_503(conn):
         resp = dl._submit_tv(conn, "k", body, None, "admin")
     assert resp.status_code == 503
     assert b"secret" not in resp.body
+
+
+def test_radarr_not_configured_sends_its_sentence_as_message(authed_client):
+    with patch(f"{_MODULE}.build_radarr_from_db", return_value=None):
+        resp = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=11))
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["error"] == "Radarr not configured"
+    assert body["message"] == body["error"]

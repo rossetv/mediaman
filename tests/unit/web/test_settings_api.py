@@ -488,6 +488,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
         assert "required" in resp.json()["error"].lower()
+        assert resp.json()["message"] == resp.json()["error"]
 
     def test_tmdb_missing_key_returns_error(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)

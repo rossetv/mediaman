@@ -54,7 +54,7 @@ from mediaman.web.repository.settings import (
 from mediaman.web.repository.settings import (
     write_settings,
 )
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.settings.core import (
     validate_url_fields as _validate_url_fields,
 )
@@ -306,7 +306,7 @@ def _run_tester_with_timeout(
             return JSONResponse({"ok": False, "error": "timeout"})
     except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
-        return JSONResponse({"ok": False, "error": "Service connection test failed"})
+        return respond_failure("Service connection test failed")
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 

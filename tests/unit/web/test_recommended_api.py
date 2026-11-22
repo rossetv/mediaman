@@ -51,6 +51,7 @@ class TestMintRequiresTmdbId:
         body = resp.json()
         assert not body.get("ok")
         assert "TMDB" in body.get("error", "")
+        assert body["message"] == body["error"]
 
     def test_mint_with_tmdb_id_would_succeed_if_base_url_set(self, conn):
         """Minting with a tmdb_id present does not fail on the identifier check."""

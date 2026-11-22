@@ -165,6 +165,7 @@ class TestDownloadSubmitMovie:
 
         assert resp.status_code == 503
         assert resp.json()["ok"] is False
+        assert resp.json()["message"] == "Radarr not configured"
         # Token must be unmarked so the user can retry after configuring Radarr
         with _USED_TOKENS_LOCK:
             import hashlib
