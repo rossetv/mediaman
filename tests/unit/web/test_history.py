@@ -423,6 +423,7 @@ class TestSchedulerAndMaintenanceActions:
             ("delete_awaiting_scan", "waiting for scan"),
             ("delete_incomplete", "delete incomplete"),
             ("delete_folders_failed", "folder cleanup failed"),
+            ("re_downloaded", "re-downloaded"),
         ],
     )
     def test_action_has_plain_label(self, app_factory, authed_client, conn, action, label):

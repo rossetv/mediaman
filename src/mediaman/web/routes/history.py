@@ -88,6 +88,7 @@ ACTION_LABELS = {
     "delete_awaiting_scan": "waiting for scan",
     "delete_incomplete": "delete incomplete",
     "delete_folders_failed": "folder cleanup failed",
+    "re_downloaded": "re-downloaded",
 }
 
 _DELETE_ROOT_PREFIX = "_delete_root:"
