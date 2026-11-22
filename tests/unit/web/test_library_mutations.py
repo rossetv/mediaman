@@ -466,7 +466,7 @@ class TestMediaDeleteRefusals:
         with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
-        self._assert_refused(resp, conn, "m1", radarr, fact="may already be deleted")
+        self._assert_refused(resp, conn, "m1", radarr, fact="has no entry for this movie")
 
     def test_a_second_radarr_copy_with_a_different_file_is_refused(
         self, app_factory, authed_client, conn

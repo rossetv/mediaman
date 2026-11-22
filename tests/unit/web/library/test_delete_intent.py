@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from unittest.mock import MagicMock, patch
 
@@ -499,6 +500,48 @@ class TestStartupReconciliationIsOffTheStartupPath:
         reconcile.assert_called_once()
         assert reconcile.call_args.args == (conn,)
         assert reconcile.call_args.kwargs["started_before"] == "2026-01-01T00:00:00+00:00"
+
+    def test_background_job_passes_the_stored_delete_roots_to_the_reconcile(self, conn):
+        from mediaman import app_factory
+
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', ?, 0, '2026-01-01T00:00:00+00:00')",
+            (json.dumps(["/media/a", "/media/b"]),),
+        )
+        conn.commit()
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch("mediaman.db.close_db"),
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                return_value=0,
+            ) as reconcile,
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
+
+        assert reconcile.call_args.kwargs["delete_roots"] == ["/media/a", "/media/b"]
+
+    def test_background_job_still_reconciles_with_no_roots_when_they_cannot_be_read(self, conn):
+        from mediaman import app_factory
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch("mediaman.db.close_db"),
+            patch(
+                "mediaman.scanner.repository.read_delete_allowed_roots_setting",
+                side_effect=RuntimeError("settings unreadable"),
+            ),
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                return_value=0,
+            ) as reconcile,
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
+
+        reconcile.assert_called_once()
+        assert reconcile.call_args.kwargs["delete_roots"] == []
 
     def test_background_job_closes_its_connection_even_when_reconcile_fails(self, conn):
         from mediaman import app_factory
