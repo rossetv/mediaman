@@ -113,6 +113,9 @@
 .tile-actions { display: flex; gap: 6px; margin-top: 2px; position: relative; z-index: 2; }
 .tile-actions .btn { flex: 1; min-width: 0; }
 .tile-actions .btn--icon { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; }
+@media (max-width: 639.98px) {
+  .tile-actions .btn--icon { flex-basis: 40px; width: 40px; height: 40px; }
+}
 
 /* /recommended uniform card height.
    Recommendation cards have variable-length titles, descriptions, AI reasons
