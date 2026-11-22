@@ -35,6 +35,7 @@ from mediaman.bootstrap.db import bootstrap_db
 from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
 from mediaman.config import ConfigError, load_config
 from mediaman.core.scrub_filter import install_root_filter
+from mediaman.core.time import now_utc
 from mediaman.db.connection import SchemaTooOldError
 
 logger = logging.getLogger(__name__)
@@ -43,15 +44,28 @@ _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 
 
-def _reconcile_delete_intents_in_background() -> None:
-    """Close delete intents stranded by a crash, on a connection owned by this thread."""
+def _reconcile_delete_intents_in_background(secret_key: str, started_before: str) -> None:
+    """Close delete intents stranded by a crash, on a connection owned by this thread.
+
+    Only intents started before *started_before* (this process's start) are
+    touched; later ones belong to deletes still in flight. An intent is
+    booked deleted only when Radarr/Sonarr confirm the item gone.
+    """
     # rationale: runs on a daemon thread; an exception here must be logged,
     # never allowed to propagate out of the thread.
     try:
         from mediaman.db import get_db
-        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
+        from mediaman.web.repository.delete_intents import (
+            build_verify_gone,
+            reconcile_pending_delete_intents,
+        )
 
-        reconciled = reconcile_pending_delete_intents(get_db())
+        conn = get_db()
+        reconciled = reconcile_pending_delete_intents(
+            conn,
+            verify_gone=build_verify_gone(conn, secret_key),
+            started_before=started_before,
+        )
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
     except Exception:
@@ -77,6 +91,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
     # can be slow and must not hold up the web UI.
     threading.Thread(
         target=_reconcile_delete_intents_in_background,
+        args=(app.state.config.secret_key, now_utc().isoformat()),
         name="delete-intent-reconcile",
         daemon=True,
     ).start()

@@ -5,8 +5,8 @@ local DB cleanup so a crash between those two events can be reconciled
 at startup.  The internal helpers here
 (`_record_delete_intent`, `_complete_delete_intent`,
 `_fail_delete_intent`) are used directly by the route layer in
-`mediaman.web.routes.library_api`; the startup reconciler is wired
-in `mediaman.app_factory`.
+`mediaman.web.routes.library_api`; the startup reconciler and its
+`build_verify_gone` check are wired in `mediaman.app_factory`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ import logging
 import sqlite3
 from collections.abc import Callable
 
+from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
+from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,64 @@ VerifyGone = Callable[[sqlite3.Row], bool | None]
 """Asks Radarr/Sonarr whether an intent's item is gone: True, False, or None when unknown."""
 
 
+def _is_not_found(exc: Exception) -> bool:
+    """True when a Radarr/Sonarr error carries a 404, on a SafeHTTPError or any
+    exception with ``response.status_code``.
+    """
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    resp = getattr(exc, "response", None)
+    return getattr(resp, "status_code", None) == 404
+
+
+def build_verify_gone(conn: sqlite3.Connection, secret_key: str) -> VerifyGone:
+    """Return a `VerifyGone` that asks the Radarr/Sonarr configured in the settings.
+
+    A movie is gone when Radarr answers 404 for it or reports no file; a
+    season is gone when Sonarr lists no episode file for it. Anything less
+    certain answers ``None``.
+    """
+
+    def radarr_gone(target_id: int) -> bool | None:
+        client = build_radarr_from_db(conn, secret_key)
+        if client is None:
+            return None
+        try:
+            movie = client.get_movie_by_id(target_id)
+        except Exception as exc:
+            if _is_not_found(exc):
+                return True
+            raise
+        has_file = movie.get("hasFile")
+        return None if not isinstance(has_file, bool) else not has_file
+
+    def sonarr_gone(target_id: int, media_item_id: str) -> bool | None:
+        row = conn.execute(
+            "SELECT season_number FROM media_items WHERE id = ?", (media_item_id,)
+        ).fetchone()
+        season = row["season_number"] if row else None
+        client = build_sonarr_from_db(conn, secret_key)
+        if season is None or client is None:
+            return None
+        files = client.get_episode_files(target_id)
+        return not any(ef.get("seasonNumber") == season for ef in files)
+
+    def verify_gone(intent: sqlite3.Row) -> bool | None:
+        # rationale: a reconcile must never book an item deleted on doubt;
+        # any failure to ask Radarr/Sonarr counts as "cannot tell".
+        try:
+            target_id = int(intent["target_id"])
+            if intent["target_kind"] == "radarr":
+                return radarr_gone(target_id)
+            if intent["target_kind"] == "sonarr":
+                return sonarr_gone(target_id, intent["media_item_id"])
+        except Exception as exc:
+            logger.warning("delete_intent.verify_failed intent_id=%s error=%s", intent["id"], exc)
+        return None
+
+    return verify_gone
+
+
 def _reconcile_one_intent(
     conn: sqlite3.Connection,
     intent: sqlite3.Row,
@@ -94,10 +154,11 @@ def _reconcile_one_intent(
     intent_id = intent["id"]
     media_item_id = intent["media_item_id"]
     last_error = intent["last_error"]
-    item_exists = conn.execute(
-        "SELECT id FROM media_items WHERE id = ?", (media_item_id,)
+    item = conn.execute(
+        "SELECT title, media_type, tmdb_id, tvdb_id, season_number FROM media_items WHERE id = ?",
+        (media_item_id,),
     ).fetchone()
-    if item_exists is None:
+    if item is None:
         # External call must have succeeded — mark intent complete.
         _complete_delete_intent(conn, intent_id)
         logger.info(
@@ -128,7 +189,18 @@ def _reconcile_one_intent(
     try:
         if verify_gone is not None and verify_gone(intent):
             with conn:
-                log_audit(conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr")
+                audit_id = log_audit(
+                    conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr"
+                )
+                record_deleted_media(
+                    conn,
+                    audit_id,
+                    media_type=item["media_type"],
+                    tmdb_id=item["tmdb_id"],
+                    tvdb_id=item["tvdb_id"],
+                    season_number=item["season_number"],
+                    title=item["title"],
+                )
                 conn.execute(
                     "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
                 )
@@ -163,22 +235,34 @@ def _reconcile_one_intent(
 
 
 def reconcile_pending_delete_intents(
-    conn: sqlite3.Connection, verify_gone: VerifyGone | None = None
+    conn: sqlite3.Connection,
+    verify_gone: VerifyGone | None = None,
+    *,
+    started_before: str | None = None,
 ) -> int:
     """Find unresolved delete intents and close each one.
 
     An interrupted intent whose item the optional *verify_gone* cannot
     confirm gone is closed as failed; the media row stays.
 
+    With *started_before* (an ISO timestamp as ``now_utc().isoformat()``
+    writes it) only intents started earlier are touched, so a run that
+    overlaps live requests leaves their in-flight deletes alone.
+
     Takes an explicit connection so the caller can give it one owned by
     the thread it runs on.
 
     Returns the number of intents resolved during this call.
     """
-    pending = conn.execute(
+    sql = (
         "SELECT id, media_item_id, target_kind, target_id, last_error "
         "FROM delete_intents WHERE completed_at IS NULL"
-    ).fetchall()
+    )
+    params: tuple[str, ...] = ()
+    if started_before is not None:
+        sql += " AND started_at < ?"
+        params = (started_before,)
+    pending = conn.execute(sql, params).fetchall()
     resolved = 0
     for row in pending:
         if _reconcile_one_intent(conn, row, verify_gone):

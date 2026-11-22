@@ -7,7 +7,9 @@ import pytest
 import requests
 
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION
+from mediaman.core.time import now_utc
 from mediaman.services.infra import SafeHTTPError
+from mediaman.web.repository.delete_intents import build_verify_gone
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -16,36 +18,15 @@ from mediaman.web.routes.library_api import (
     reconcile_pending_delete_intents,
 )
 from mediaman.web.routes.library_api import router as library_api_router
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
-
-
-def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
-    insert_media_item(
-        conn,
-        id=media_id,
-        title="Test Movie",
-        media_type="movie",
-        plex_rating_key="rk1",
-        file_path="/media/movie.mkv",
-        file_size_bytes=1_000_000,
-        radarr_id=radarr_id,
-    )
-
-
-def _insert_tv_season(conn, media_id: str = "s1") -> None:
-    insert_media_item(
-        conn,
-        id=media_id,
-        title="The Show",
-        media_type="tv_season",
-        plex_rating_key="rk2",
-        file_path="/media/show",
-        file_size_bytes=2_000_000,
-        sonarr_id=202,
-        season_number=1,
-        show_title="The Show",
-        show_rating_key="show-rk",
-    )
+from tests.helpers.factories import insert_scheduled_action
+from tests.unit.web.test_library_mutations import (
+    RADARR,
+    SONARR,
+    _insert_movie,
+    _insert_tv_season,
+    _radarr,
+    _sonarr,
+)
 
 
 def _app(app_factory, conn):
@@ -85,11 +66,9 @@ class TestDeleteIntentPersistence:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -107,10 +86,8 @@ class TestDeleteIntentPersistence:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        mock_radarr = MagicMock()
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        mock_radarr = _radarr()
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -127,14 +104,12 @@ class TestDeleteIntentPersistence:
 
         from mediaman.services.infra import SafeHTTPError
 
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = SafeHTTPError(
             status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
         )
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 502
@@ -195,7 +170,32 @@ class TestReconcilePendingDeleteIntents:
         assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
 
         assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone() is None
-        assert "deleted" in _audit_actions(conn, "m2")
+        audit = conn.execute(
+            "SELECT id FROM audit_log WHERE media_item_id = 'm2' AND action = 'deleted'"
+        ).fetchone()
+        deleted = conn.execute(
+            "SELECT media_type, tmdb_id, title FROM deleted_media WHERE audit_id = ?",
+            (audit["id"],),
+        ).fetchone()
+        assert tuple(deleted) == ("movie", 550, "Test Movie")
+
+    def test_intent_started_after_the_cutoff_is_left_for_its_request(self, conn):
+        """A run overlapping live requests must not fail a delete still in flight."""
+        _insert_movie(conn, "m2", radarr_id=None)
+        intent_id = _record_delete_intent(conn, "m2", "radarr", "none")
+
+        assert (
+            reconcile_pending_delete_intents(conn, started_before="2000-01-01T00:00:00+00:00") == 0
+        )
+
+        intent = conn.execute(
+            "SELECT completed_at FROM delete_intents WHERE id = ?", (intent_id,)
+        ).fetchone()
+        assert intent["completed_at"] is None
+        assert _audit_actions(conn, "m2") == []
+        assert (
+            reconcile_pending_delete_intents(conn, started_before="9999-01-01T00:00:00+00:00") == 1
+        )
 
     def test_reconcile_is_idempotent(self, conn):
         """Running reconcile twice is safe; second run resolves nothing new."""
@@ -252,13 +252,11 @@ class TestFailedArrDeleteSurvivesRestart:
         insert_scheduled_action(conn, media_item_id="m1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = SafeHTTPError(
             status_code=500, body_snippet="boom", url="http://radarr/"
         )
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             assert client.post("/api/media/m1/delete").status_code == 502
 
         _assert_kept_after_restart(conn, "m1")
@@ -271,11 +269,9 @@ class TestFailedArrDeleteSurvivesRestart:
         insert_scheduled_action(conn, media_item_id="s1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
-        mock_sonarr = MagicMock()
+        mock_sonarr = _sonarr()
         mock_sonarr.unmonitor_season.side_effect = requests.ConnectionError("refused")
-        with patch(
-            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
-        ):
+        with patch(SONARR, return_value=mock_sonarr):
             assert client.post("/api/media/s1/delete").status_code == 502
 
         mock_sonarr.delete_episode_files.assert_called_once()
@@ -290,10 +286,10 @@ class TestFailedArrDeleteSurvivesRestart:
         insert_scheduled_action(conn, media_item_id="m1", action=ACTION_SCHEDULED_DELETION)
         client = authed_client(_app(app_factory, conn), conn)
 
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = KeyError("id")
         with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch(RADARR, return_value=mock_radarr),
             pytest.raises(KeyError),
         ):
             client.post("/api/media/m1/delete")
@@ -309,6 +305,80 @@ class TestFailedArrDeleteSurvivesRestart:
 
         _assert_kept_after_restart(conn, "m1")
         assert reconcile_pending_delete_intents(conn) == 0
+
+
+def _intent(conn, kind: str, target_id: str, media_id: str):
+    intent_id = _record_delete_intent(conn, media_id, kind, target_id)
+    return conn.execute(
+        "SELECT id, media_item_id, target_kind, target_id, last_error "
+        "FROM delete_intents WHERE id = ?",
+        (intent_id,),
+    ).fetchone()
+
+
+VERIFY_RADARR = "mediaman.web.repository.delete_intents.build_radarr_from_db"
+VERIFY_SONARR = "mediaman.web.repository.delete_intents.build_sonarr_from_db"
+
+
+class TestBuildVerifyGone:
+    """Only a clear answer from Radarr/Sonarr books an interrupted delete as done."""
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [
+            ({"side_effect": SafeHTTPError(404, "Not Found", "radarr/")}, True),
+            ({"return_value": {"id": 101, "hasFile": False}}, True),
+            ({"return_value": {"id": 101, "hasFile": True}}, False),
+            ({"return_value": {"id": 101}}, None),
+            ({"side_effect": requests.ConnectionError("refused")}, None),
+            ({"side_effect": SafeHTTPError(500, "boom", "radarr/")}, None),
+        ],
+        ids=["404", "no-file", "has-file", "unclear", "unreachable", "server-error"],
+    )
+    def test_movie(self, conn, answer, expected):
+        _insert_movie(conn)
+        radarr = MagicMock()
+        radarr.get_movie_by_id.configure_mock(**answer)
+
+        with patch(VERIFY_RADARR, return_value=radarr):
+            result = build_verify_gone(conn, "key")(_intent(conn, "radarr", "101", "m1"))
+
+        assert result is expected
+        radarr.get_movie_by_id.assert_called_once_with(101)
+
+    @pytest.mark.parametrize(
+        ("files", "expected"),
+        [
+            ([{"id": 3, "seasonNumber": 2}], True),
+            ([{"id": 1, "seasonNumber": 1}, {"id": 3, "seasonNumber": 2}], False),
+            (requests.ConnectionError("refused"), None),
+        ],
+        ids=["season-empty", "season-has-files", "unreachable"],
+    )
+    def test_season(self, conn, files, expected):
+        _insert_tv_season(conn)
+        sonarr = MagicMock()
+        if isinstance(files, Exception):
+            sonarr.get_episode_files.side_effect = files
+        else:
+            sonarr.get_episode_files.return_value = files
+
+        with patch(VERIFY_SONARR, return_value=sonarr):
+            result = build_verify_gone(conn, "key")(_intent(conn, "sonarr", "202", "s1"))
+
+        assert result is expected
+
+    def test_arr_not_configured_cannot_tell(self, conn):
+        _insert_movie(conn)
+        with patch(VERIFY_RADARR, return_value=None):
+            assert build_verify_gone(conn, "key")(_intent(conn, "radarr", "101", "m1")) is None
+
+    def test_intent_without_a_usable_target_id_cannot_tell(self, conn):
+        _insert_movie(conn)
+        radarr = MagicMock()
+        with patch(VERIFY_RADARR, return_value=radarr):
+            assert build_verify_gone(conn, "key")(_intent(conn, "radarr", "none", "m1")) is None
+        radarr.get_movie_by_id.assert_not_called()
 
 
 class TestStartupReconciliationIsOffTheStartupPath:
@@ -330,6 +400,9 @@ class TestStartupReconciliationIsOffTheStartupPath:
 
         reconcile.assert_not_called()
         assert thread_cls.call_args.kwargs["daemon"] is True
+        secret_key, started_before = thread_cls.call_args.kwargs["args"]
+        assert secret_key is app.state.config.secret_key
+        assert started_before <= now_utc().isoformat()
         thread_cls.return_value.start.assert_called_once()
 
     def test_background_job_uses_its_own_connection_and_swallows_errors(self, conn):
@@ -342,7 +415,26 @@ class TestStartupReconciliationIsOffTheStartupPath:
                 side_effect=RuntimeError("boom"),
             ) as reconcile,
         ):
-            app_factory._reconcile_delete_intents_in_background()
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
 
         get_db.assert_called_once()
-        reconcile.assert_called_once_with(conn)
+        reconcile.assert_called_once()
+        assert reconcile.call_args.args == (conn,)
+        assert reconcile.call_args.kwargs["started_before"] == "2026-01-01T00:00:00+00:00"
+
+    def test_background_job_books_an_intent_deleted_when_radarr_confirms_it_gone(self, conn):
+        from mediaman import app_factory
+
+        _insert_movie(conn)
+        _record_delete_intent(conn, "m1", "radarr", "101")
+        radarr = MagicMock()
+        radarr.get_movie_by_id.side_effect = SafeHTTPError(404, "Not Found", "radarr/")
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch(VERIFY_RADARR, return_value=radarr),
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "9999-01-01T00:00:00+00:00")
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm1'").fetchone() is None
+        assert "deleted" in _audit_actions(conn, "m1")

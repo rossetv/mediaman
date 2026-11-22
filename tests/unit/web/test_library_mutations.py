@@ -2,54 +2,153 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
+from mediaman.db import get_db
+from mediaman.services.infra import SafeHTTPError
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
+from mediaman.web.routes.library_api import delete as delete_route
 from mediaman.web.routes.library_api import router as library_api_router
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
+MOVIE_DIR = "/media/movies/Test Movie (2020)"
+MOVIE_FILE = {"path": f"{MOVIE_DIR}/Test Movie (2020).mkv", "size": 1_000_000}
+SEASON_DIR = "/media/tv/The Show/Season 01"
+SEASON_FILES = [
+    {"path": f"{SEASON_DIR}/The Show - S01E01.mkv", "size": 500},
+    {"path": f"{SEASON_DIR}/The Show - S01E02.mkv", "size": 600},
+]
+RADARR = "mediaman.web.routes.library_api.build_radarr_from_db"
+SONARR = "mediaman.web.routes.library_api.build_sonarr_from_db"
 
-def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
-    """Insert a minimal movie row into media_items."""
+
+def _set_ids(conn, media_id: str, **fields) -> None:
+    for column, value in fields.items():
+        if column == "tracked_files" and value is not None:
+            value = json.dumps(value)
+        conn.execute(f"UPDATE media_items SET {column} = ? WHERE id = ?", (value, media_id))
+    conn.commit()
+
+
+def _insert_movie(
+    conn,
+    media_id: str = "m1",
+    radarr_id: int | None = 101,
+    tmdb_id: int | None = 550,
+    tracked_files: list | None = None,
+) -> None:
+    """Insert a movie row whose ids and files match `_radarr()`'s entry."""
+    tracked = [MOVIE_FILE] if tracked_files is None else tracked_files
     insert_media_item(
         conn,
         id=media_id,
         title="Test Movie",
         media_type="movie",
         plex_rating_key="rk1",
-        file_path="/media/movie.mkv",
+        file_path=tracked[0]["path"] if tracked else "/media/movie.mkv",
         file_size_bytes=1_000_000,
         radarr_id=radarr_id,
     )
+    _set_ids(conn, media_id, tmdb_id=tmdb_id, tracked_files=tracked)
 
 
 def _insert_tv_season(
-    conn, media_id: str = "s1", sonarr_id: int | None = 202, season: int = 1
+    conn,
+    media_id: str = "s1",
+    sonarr_id: int | None = 202,
+    season: int = 1,
+    tvdb_id: int | None = 81189,
+    show_rating_key: str = "show-rk",
+    tracked_files: list | None = None,
 ) -> None:
-    """Insert a minimal TV season row into media_items."""
+    """Insert a season row whose ids and files match `_sonarr()`'s series."""
     insert_media_item(
         conn,
         id=media_id,
         title="The Show",
         media_type="tv_season",
-        plex_rating_key="rk2",
-        file_path="/media/show",
+        plex_rating_key=f"rk-{media_id}",
+        file_path=SEASON_DIR,
         file_size_bytes=2_000_000,
         sonarr_id=sonarr_id,
         season_number=season,
         show_title="The Show",
-        show_rating_key="show-rk",
+        show_rating_key=show_rating_key,
     )
+    tracked = SEASON_FILES if tracked_files is None else tracked_files
+    _set_ids(conn, media_id, tvdb_id=tvdb_id, tracked_files=tracked)
+
+
+def _radarr(**entry_overrides) -> MagicMock:
+    """A Radarr client whose live entry is the movie `_insert_movie` stores."""
+    entry = {
+        "id": 101,
+        "tmdbId": 550,
+        "path": "/movies/Test Movie (2020)",
+        "hasFile": True,
+        "movieFile": {"relativePath": "Test Movie (2020).mkv", "size": 1_000_000},
+        **entry_overrides,
+    }
+    client = MagicMock()
+    client.get_movie_by_id.return_value = entry
+    client.get_movie_by_tmdb.return_value = entry
+    return client
+
+
+def _sonarr(extra_files: list | None = None) -> MagicMock:
+    """A Sonarr client whose series and season 1 files are the ones `_insert_tv_season` stores."""
+    series = {
+        "id": 202,
+        "tvdbId": 81189,
+        "path": "/tv/The Show",
+        "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
+    }
+    files = [
+        {
+            "id": 1,
+            "seasonNumber": 1,
+            "relativePath": "Season 01/The Show - S01E01.mkv",
+            "size": 500,
+        },
+        {
+            "id": 2,
+            "seasonNumber": 1,
+            "relativePath": "Season 01/The Show - S01E02.mkv",
+            "size": 600,
+        },
+        *(extra_files or []),
+    ]
+    client = MagicMock()
+    client.get_series_by_id.return_value = series
+    client.get_series_by_tvdb.return_value = series
+    client.get_episode_files.return_value = files
+    client.has_remaining_files.return_value = True
+    return client
 
 
 def _app(app_factory, conn):
     return app_factory(library_router, library_api_router, conn=conn)
+
+
+def _audit_actions(conn, media_id: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT action FROM audit_log WHERE media_item_id = ?", (media_id,)
+    ).fetchall()
+    return [r["action"] for r in rows]
+
+
+def _row_exists(conn, media_id: str) -> bool:
+    return (
+        conn.execute("SELECT 1 FROM media_items WHERE id = ?", (media_id,)).fetchone() is not None
+    )
 
 
 class TestMediaDelete:
@@ -79,67 +178,137 @@ class TestMediaDelete:
         resp = client.post("/api/media/does-not-exist/delete")
         assert resp.status_code == 403
 
-    def test_delete_movie_calls_radarr_and_removes_row(self, app_factory, authed_client, conn):
+    def test_movie_is_deleted_through_radarr_and_its_identity_kept(
+        self, app_factory, authed_client, conn
+    ):
         _insert_movie(conn, radarr_id=101)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
 
-        mock_radarr = MagicMock()
-
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["ok"] is True
-        assert data["id"] == "m1"
+        assert resp.json()["id"] == "m1"
+        assert "Radarr" in resp.json()["message"]
+        assert "exclusion" in resp.json()["message"]
+        radarr.delete_movie.assert_called_once_with(101)
+        assert not _row_exists(conn, "m1")
+        audit = conn.execute(
+            "SELECT id FROM audit_log WHERE media_item_id = 'm1' AND action = 'deleted'"
+        ).fetchone()
+        deleted = conn.execute(
+            "SELECT media_type, tmdb_id, title FROM deleted_media WHERE audit_id = ?",
+            (audit["id"],),
+        ).fetchone()
+        assert tuple(deleted) == ("movie", 550, "Test Movie")
 
-        mock_radarr.delete_movie.assert_called_once_with(101)
-
-        # Row must be gone from DB
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is None
-
-    def test_delete_movie_without_radarr_id_skips_radarr(self, app_factory, authed_client, conn):
-        """A movie with no stored radarr_id skips Radarr delete but still removes the DB row."""
+    def test_movie_without_a_stored_radarr_id_is_found_by_tmdb_id(
+        self, app_factory, authed_client, conn
+    ):
         _insert_movie(conn, radarr_id=None)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
 
-        mock_radarr = MagicMock()
-
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
-        mock_radarr.delete_movie.assert_not_called()
+        radarr.get_movie_by_tmdb.assert_called_once_with(550)
+        radarr.delete_movie.assert_called_once_with(101)
+        assert not _row_exists(conn, "m1")
 
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is None
-
-    def test_delete_tv_season_calls_sonarr(self, app_factory, authed_client, conn):
+    def test_season_is_deleted_and_unmonitored_through_sonarr(
+        self, app_factory, authed_client, conn
+    ):
         _insert_tv_season(conn, sonarr_id=202, season=1)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
 
-        mock_sonarr = MagicMock()
-        mock_sonarr.has_remaining_files.return_value = True  # series still has other seasons
-
-        with patch(
-            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
-        ):
+        with patch(SONARR, return_value=sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 200
-        mock_sonarr.delete_episode_files.assert_called_once_with(202, 1)
-        mock_sonarr.unmonitor_season.assert_called_once_with(202, 1)
+        assert resp.json()["message"].startswith("Season 1 of The Show deleted through Sonarr")
+        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.unmonitor_season.assert_called_once_with(202, 1)
+        sonarr.delete_series.assert_not_called()
+        assert not _row_exists(conn, "s1")
+        deleted = conn.execute(
+            "SELECT media_type, tvdb_id, season_number FROM deleted_media"
+        ).fetchone()
+        assert tuple(deleted) == ("tv_season", 81189, 1)
 
-        row = conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
-        assert row is None
+    def test_season_without_a_stored_sonarr_id_is_found_by_tvdb_id(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn, sonarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.get_series_by_tvdb.assert_called_once_with(81189)
+        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+
+    def test_last_season_with_no_files_left_removes_the_show_with_exclusion(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        sonarr.has_remaining_files.return_value = False
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.delete_series.assert_called_once_with(202)
+        assert "show was removed" in resp.json()["message"]
+
+    def test_show_is_kept_in_sonarr_while_mediaman_tracks_another_of_its_seasons(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        _insert_tv_season(
+            conn,
+            "s2",
+            season=2,
+            tracked_files=[{"path": "/elsewhere/The Show/Season 02/e1.mkv", "size": 1}],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        sonarr.has_remaining_files.return_value = False
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.delete_series.assert_not_called()
+
+    def test_show_is_kept_in_sonarr_while_another_item_uses_files_in_its_folder(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        _insert_tv_season(
+            conn,
+            "other",
+            show_rating_key="other-show",
+            tvdb_id=None,
+            tracked_files=[{"path": "/media/tv/The Show/Specials/extra.mkv", "size": 1}],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        sonarr.has_remaining_files.return_value = False
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.delete_series.assert_not_called()
 
     def test_delete_also_removes_scheduled_actions(self, app_factory, authed_client, conn):
         """Deleting a media item also prunes its scheduled_actions rows, a lapsed snooze too."""
@@ -152,14 +321,9 @@ class TestMediaDelete:
             token="tok1",
             token_used=True,
         )
+        client = authed_client(_app(app_factory, conn), conn)
 
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=_radarr()):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -167,6 +331,238 @@ class TestMediaDelete:
             "SELECT id FROM scheduled_actions WHERE media_item_id='m1'"
         ).fetchone()
         assert sa_row is None
+
+    def test_movie_is_verified_then_keep_rechecked_then_deleted(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        order: list[str] = []
+        radarr = _radarr()
+        radarr.delete_movie.side_effect = lambda _id: order.append("delete")
+        real_verify = delete_route.verify_movie
+        real_recheck = delete_route.recheck_deletable
+
+        def verify(*args, **kwargs):
+            order.append("verify")
+            return real_verify(*args, **kwargs)
+
+        def recheck(*args, **kwargs):
+            order.append("recheck")
+            return real_recheck(*args, **kwargs)
+
+        with (
+            patch(RADARR, return_value=radarr),
+            patch.object(delete_route, "verify_movie", side_effect=verify),
+            patch.object(delete_route, "recheck_deletable", side_effect=recheck),
+        ):
+            assert client.post("/api/media/m1/delete").status_code == 200
+
+        assert order == ["verify", "recheck", "delete"]
+
+
+class TestMediaDeleteRefusals:
+    """A delete that cannot be confirmed safe answers 409 and changes nothing."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
+        _DELETE_LIMITER.reset()
+
+    def _assert_refused(self, resp, conn, media_id: str, client_mock, *, fact: str) -> None:
+        assert resp.status_code == 409
+        assert resp.json()["ok"] is False
+        assert fact in resp.json()["message"]
+        assert _row_exists(conn, media_id)
+        assert _audit_actions(conn, media_id) == []
+        if client_mock is not None:
+            for name in ("delete_movie", "delete_episode_files", "delete_series"):
+                getattr(client_mock, name).assert_not_called()
+
+    def test_radarr_not_configured(self, app_factory, authed_client, conn):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        with patch(RADARR, return_value=None):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", None, fact="Radarr is not set up")
+
+    def test_sonarr_not_configured(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        with patch(SONARR, return_value=None):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", None, fact="Sonarr is not set up")
+
+    def test_movie_without_a_tmdb_id(self, app_factory, authed_client, conn):
+        _insert_movie(conn, tmdb_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="TMDB")
+
+    def test_season_without_a_tvdb_id(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn, tvdb_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="TVDB")
+
+    def test_movie_radarr_does_not_have(self, app_factory, authed_client, conn):
+        _insert_movie(conn, radarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        radarr.get_movie_by_tmdb.return_value = None
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="no entry")
+
+    def test_show_sonarr_does_not_have(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn, sonarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        sonarr.get_series_by_tvdb.return_value = None
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="no entry")
+
+    def test_a_404_on_the_lookup_is_not_taken_as_already_gone(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn, radarr_id=101)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        radarr.get_movie_by_id.side_effect = SafeHTTPError(404, "Not Found", "radarr/")
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="no entry")
+
+    def test_a_second_radarr_copy_with_a_different_file_is_refused(
+        self, app_factory, authed_client, conn
+    ):
+        """Same TMDB id and folder name, but a 4K file Plex never reported."""
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr(
+            movieFile={"relativePath": "Test Movie (2020) 2160p.mkv", "size": 40_000_000_000}
+        )
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="different file")
+
+    def test_a_season_with_a_sonarr_file_plex_does_not_show_is_refused(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr(
+            extra_files=[
+                {
+                    "id": 9,
+                    "seasonNumber": 1,
+                    "relativePath": "Season 01/The Show - S01E03.mkv",
+                    "size": 700,
+                }
+            ]
+        )
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="Plex does not show")
+
+    def test_scheduled_deletion_in_progress(self, app_factory, authed_client, conn):
+        _insert_movie(conn)
+        insert_scheduled_action(conn, media_item_id="m1", action="scheduled_deletion")
+        conn.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
+        conn.commit()
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="in progress")
+
+    def test_scheduled_deletion_starting_during_the_check(self, app_factory, authed_client, conn):
+        _insert_movie(conn)
+        insert_scheduled_action(conn, media_item_id="m1", action="scheduled_deletion")
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        entry = radarr.get_movie_by_id.return_value
+
+        def deletion_starts(_id):
+            db = get_db()
+            db.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
+            db.commit()
+            return entry
+
+        radarr.get_movie_by_id.side_effect = deletion_starts
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="in progress")
+
+    def test_another_item_using_the_movie_folder(self, app_factory, authed_client, conn):
+        """Radarr's deleteFiles removes the whole folder, so a second library's copy blocks it."""
+        _insert_movie(conn)
+        _insert_movie(
+            conn,
+            "m2",
+            radarr_id=None,
+            tracked_files=[{"path": f"{MOVIE_DIR}/Test Movie (2020) 2160p.mkv", "size": 9}],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="Another library item")
+
+    def test_another_item_tracking_a_file_of_the_season(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn)
+        _insert_tv_season(conn, "copy", show_rating_key="copy-show", tracked_files=SEASON_FILES[:1])
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="Another library item")
+
+    def test_radarr_unreachable_on_the_check_deletes_nothing(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        radarr.get_movie_by_id.side_effect = requests.ConnectionError("refused")
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 502
+        radarr.delete_movie.assert_not_called()
+        assert _row_exists(conn, "m1")
+        assert _audit_actions(conn, "m1") == []
 
 
 class TestMediaDeleteRefusesKeptItems:
@@ -200,10 +596,8 @@ class TestMediaDeleteRefusesKeptItems:
         )
         client = authed_client(_app(app_factory, conn), conn)
 
-        mock_radarr = MagicMock()
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        mock_radarr = _radarr()
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 409
@@ -217,34 +611,34 @@ class TestMediaDeleteRefusesKeptItems:
         insert_kept_show(conn, show_rating_key="show-rk", action="protected_forever")
         client = authed_client(_app(app_factory, conn), conn)
 
-        mock_sonarr = MagicMock()
-        with patch(
-            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
-        ):
+        mock_sonarr = _sonarr()
+        with patch(SONARR, return_value=mock_sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 409
         mock_sonarr.delete_episode_files.assert_not_called()
         assert conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
 
-    def test_keep_landing_after_the_snapshot_is_refused(self, app_factory, authed_client, conn):
-        _insert_movie(conn, radarr_id=None)
+    def test_keep_landing_during_the_check_is_refused(self, app_factory, authed_client, conn):
+        _insert_movie(conn)
         client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        entry = radarr.get_movie_by_id.return_value
 
-        def keep_lands(_snapshot, *, conn, **_kwargs):
+        def keep_lands(_id):
             insert_scheduled_action(
-                conn, media_item_id="m1", action="protected_forever", token="tok1"
+                get_db(), media_item_id="m1", action="protected_forever", token="tok1"
             )
-            return None, None
+            return entry
 
-        with patch(
-            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
-            side_effect=keep_lands,
-        ):
+        radarr.get_movie_by_id.side_effect = keep_lands
+
+        with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 409
         assert resp.json()["error"] == "kept"
+        radarr.delete_movie.assert_not_called()
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
         assert conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
         assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
@@ -257,17 +651,16 @@ class TestMediaDeleteRefusesKeptItems:
     ):
         _insert_movie(conn)
         client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
 
-        def keep_lands_after_arr_delete(_snapshot, *, conn, **_kwargs):
+        def keep_lands_during_delete(_id):
             insert_scheduled_action(
-                conn, media_item_id="m1", action="protected_forever", token="tok1"
+                get_db(), media_item_id="m1", action="protected_forever", token="tok1"
             )
-            return 1, None
 
-        with patch(
-            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
-            side_effect=keep_lands_after_arr_delete,
-        ):
+        radarr.delete_movie.side_effect = keep_lands_during_delete
+
+        with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -289,57 +682,43 @@ class TestMediaDeleteTransactional:
     def test_arr_failure_returns_502_and_preserves_row(self, app_factory, authed_client, conn):
         """If Radarr delete raises, the endpoint returns 502 and keeps the DB row."""
         _insert_movie(conn, radarr_id=101)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
 
-        from mediaman.services.infra import SafeHTTPError
-
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = SafeHTTPError(
             status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
         )
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 502
-        # Row must still be present
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is not None
+        assert _row_exists(conn, "m1")
 
-    def test_arr_404_treated_as_already_gone(self, app_factory, authed_client, conn):
-        """Arr returning 404 means already-deleted upstream — DB row must still be pruned."""
+    def test_arr_404_on_the_delete_is_treated_as_already_gone(
+        self, app_factory, authed_client, conn
+    ):
+        """A 404 answering the DELETE itself means already deleted upstream."""
         _insert_movie(conn, radarr_id=101)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
 
-        from mediaman.services.infra import SafeHTTPError
-
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = SafeHTTPError(
             status_code=404, body_snippet="Not Found", url="http://radarr/"
         )
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is None
+        assert not _row_exists(conn, "m1")
 
     def test_retry_after_failure_succeeds(self, app_factory, authed_client, conn):
         """After a transient Arr failure, a retry must succeed (idempotency)."""
         _insert_movie(conn, radarr_id=101)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
 
-        from mediaman.services.infra import SafeHTTPError
-
-        mock_radarr = MagicMock()
+        mock_radarr = _radarr()
         mock_radarr.delete_movie.side_effect = [
             SafeHTTPError(
                 status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
@@ -347,16 +726,13 @@ class TestMediaDeleteTransactional:
             None,
         ]
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             first = client.post("/api/media/m1/delete")
             assert first.status_code == 502
             second = client.post("/api/media/m1/delete")
             assert second.status_code == 200
 
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is None
+        assert not _row_exists(conn, "m1")
 
 
 class TestMediaDeleteBareRequestsException:
@@ -377,26 +753,20 @@ class TestMediaDeleteBareRequestsException:
         self, app_factory, authed_client, conn
     ):
         """requests.ConnectionError from Radarr → 502, row preserved, intent has last_error."""
-        import requests as _requests
-
         _insert_movie(conn, radarr_id=101)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
 
-        mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("connection refused")
+        mock_radarr = _radarr()
+        mock_radarr.delete_movie.side_effect = requests.ConnectionError("connection refused")
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+        with patch(RADARR, return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
 
         # DB row must be preserved — delete was not confirmed
-        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
-        assert row is not None
+        assert _row_exists(conn, "m1")
 
         # Intent must have been recorded and have last_error set (not silently stranded)
         intents = conn.execute(
@@ -411,25 +781,19 @@ class TestMediaDeleteBareRequestsException:
         self, app_factory, authed_client, conn
     ):
         """requests.ConnectionError from Sonarr → 502, row preserved, intent has last_error."""
-        import requests as _requests
-
         _insert_tv_season(conn, sonarr_id=202, season=1)
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+        client = authed_client(_app(app_factory, conn), conn)
 
-        mock_sonarr = MagicMock()
-        mock_sonarr.delete_episode_files.side_effect = _requests.ConnectionError("refused")
+        mock_sonarr = _sonarr()
+        mock_sonarr.delete_episode_files.side_effect = requests.ConnectionError("refused")
 
-        with patch(
-            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
-        ):
+        with patch(SONARR, return_value=mock_sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
 
-        row = conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
-        assert row is not None
+        assert _row_exists(conn, "s1")
 
         intents = conn.execute(
             "SELECT last_error FROM delete_intents WHERE media_item_id = 's1'"
