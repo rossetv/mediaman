@@ -23,6 +23,8 @@
   var POLL_RETRY_MS = [2000, 4000, 8000, 10000];
   var POLL_MAX_FAILS = 5;
   var POLL_MAX_MS = 10 * 60 * 1000;
+  /* A hung status request is aborted and counts as one failed poll. */
+  var POLL_TIMEOUT_MS = 10000;
 
   function updateScanStatus(msg) {
     var el = document.getElementById('scan-status');
@@ -48,7 +50,7 @@
     var fails = 0;
     setTimeout(function check() {
       _scanElapsed = Math.round((Date.now() - _scanStart) / 1000);
-      MM.api.get('/api/scan/status')
+      MM.api.get('/api/scan/status', { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
         .then(function (data) {
           fails = 0;
           if (data.running) {
