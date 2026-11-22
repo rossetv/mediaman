@@ -179,6 +179,50 @@ class TestReconcilePendingDeleteIntents:
         ).fetchone()
         assert tuple(deleted) == ("movie", 550, "Test Movie")
 
+    def test_verified_gone_is_not_booked_while_a_tracked_file_is_still_on_disk(
+        self, conn, tmp_path
+    ):
+        kept = tmp_path / "Test Movie (2020).mkv"
+        kept.write_bytes(b"x")
+        _insert_movie(conn, "m2", tracked_files=[{"path": str(kept), "size": 1}])
+        intent_id = _record_delete_intent(conn, "m2", "radarr", "101")
+
+        assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
+        intent = conn.execute(
+            "SELECT completed_at, last_error FROM delete_intents WHERE id = ?", (intent_id,)
+        ).fetchone()
+        assert intent["completed_at"] is not None
+        assert "press Delete again" in intent["last_error"]
+        assert _audit_actions(conn, "m2") == ["delete_failed"]
+
+    def test_verified_gone_season_is_not_booked_while_an_episode_is_still_on_disk(
+        self, conn, tmp_path
+    ):
+        left = tmp_path / "S01E02.mkv"
+        left.write_bytes(b"x")
+        files = [
+            {"path": str(tmp_path / "S01E01.mkv"), "size": 1},
+            {"path": str(left), "size": 1},
+        ]
+        _insert_tv_season(conn, "s2", tracked_files=files)
+        _record_delete_intent(conn, "s2", "sonarr", "202")
+
+        assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 's2'").fetchone()
+        assert "deleted" not in _audit_actions(conn, "s2")
+
+    def test_verified_gone_is_booked_when_the_tracked_files_are_gone_locally(self, conn, tmp_path):
+        gone = [{"path": str(tmp_path / "gone.mkv"), "size": 1}]
+        _insert_movie(conn, "m2", tracked_files=gone)
+        _record_delete_intent(conn, "m2", "radarr", "101")
+
+        assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone() is None
+
     def test_intent_started_after_the_cutoff_is_left_for_its_request(self, conn):
         """A run overlapping live requests must not fail a delete still in flight."""
         _insert_movie(conn, "m2", radarr_id=None)
