@@ -167,17 +167,15 @@
     /* Replaced by a page whose unsaved edits a login redirect would lose. */
     hasUnsavedChanges: function () { return false; },
 
-    /* The server's own words for a failure, or ``fallback`` when it gave
-     * none: a reply with no message leaves an APIError holding only its
-     * code, or "HTTP <status>", which mean nothing to a person. */
+    /* The app's own message for a failure, or ``fallback``. Only a JSON body
+     * that set ``message`` counts: otherwise the error holds a status line
+     * or a bare code, which vary by proxy and mean nothing to a person. A
+     * lost connection keeps its own sentence. */
     messageOf: function (err, fallback) {
       if (!(err instanceof APIError)) return fallback;
-      var msg = err.message;
-      if (!msg || msg === err.error ||
-          (msg === 'HTTP ' + err.status && err.error === 'http_' + err.status)) {
-        return fallback;
-      }
-      return msg;
+      if (err.error === 'network_error') return err.message;
+      var msg = err.data && err.data.message;
+      return (typeof msg === 'string' && msg) ? msg : fallback;
     },
 
     get: function (endpoint, options) {
