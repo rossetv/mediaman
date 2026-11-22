@@ -83,7 +83,13 @@
         btn.disabled = true;
         MM.api.delete('/api/subscribers/' + id)
           .then(function () { loadSubscribers(); })
-          .catch(function () { btn.disabled = false; });
+          .catch(function (err) {
+            btn.disabled = false;
+            var msg = (err && err.message) || "Couldn't remove subscriber.";
+            if (window.UIFeedback && window.UIFeedback.error) {
+              window.UIFeedback.error(msg);
+            } else { window.alert(msg); }
+          });
       }
 
       var addSubBtn = document.getElementById('btn-add-subscriber');

@@ -69,7 +69,7 @@
   {% call c.setg_card(title="AI features", sub="GPT-powered recommendations surfaced in newsletters and on the Recommended page.") %}
     {% set sugg_on = settings.get('suggestions_enabled', True) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row("AI recommendations", "Generates a short list of \"because you watched…\" picks using your OpenAI key. Disabling hides the Recommended tab entirely.") %}
-      <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0"
+      <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0" aria-label="AI recommendations"
             data-toggle data-target="suggestions_enabled"
             aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
       <input type="hidden" id="suggestions_enabled" value="{{ 'true' if sugg_on else 'false' }}">

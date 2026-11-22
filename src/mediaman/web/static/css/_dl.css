@@ -206,7 +206,7 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.dl-compact-pct--muted { color: var(--t4); }
+.dl-compact-pct--muted { color: var(--t3); }
 .dl-compact-eta { font-size: 11px; color: var(--t3); }
 .dl-upcoming-row { opacity: .85; }
 

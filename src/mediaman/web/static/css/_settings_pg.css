@@ -205,7 +205,8 @@
   transition: border-color .15s, background .15s;
   width: 100%; min-width: 0;
 }
-.setg-pg .inp:focus { outline: 0; border-color: var(--accent); background: var(--s3); }
+.setg-pg .inp:focus { border-color: var(--accent); background: var(--s3); }
+.setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
 .setg-pg .inp::placeholder { color: var(--t4); }
 .setg-pg select.inp {
   cursor: pointer; padding-right: 34px; appearance: none;
@@ -239,7 +240,7 @@
   display: flex; align-items: center; gap: 8px;
 }
 .setg-pg .fld-lbl .opt {
-  font-size: 10px; font-weight: 500; color: var(--t4);
+  font-size: 10px; font-weight: 500; color: var(--t3);
   text-transform: none; letter-spacing: 0;
   padding: 1px 7px; border-radius: var(--r-pill);
   background: var(--s3);

@@ -174,7 +174,7 @@
   flex-wrap: wrap;
 }
 /* Dynamically-created loading / error states inside modal-actions */
-.modal-loading { padding: 24px; color: var(--t4); }
+.modal-loading { padding: 24px; color: var(--t3); }
 .modal-error   { padding: 24px; color: var(--danger); }
 .modal-err-close {
   margin-left: 10px;
