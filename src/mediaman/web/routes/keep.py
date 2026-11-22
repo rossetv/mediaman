@@ -26,6 +26,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
+from mediaman.crypto import sign_poster_url
 from mediaman.db import get_db
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.scheduled_actions import (
@@ -152,12 +153,17 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     # jitters across midnight.
     days_left = _days_left(execute_at, now)
 
+    # The page is opened logged out from an email, so the poster needs a signed URL.
+    rating_key = item_dict.get("plex_rating_key")
+    poster_url = sign_poster_url(rating_key, config.secret_key) if rating_key else ""
+
     return templates.TemplateResponse(
         request,
         "keep.html",
         {
             "state": state,
             "item": item_dict,
+            "poster_url": poster_url,
             "token": token,
             "is_admin": _is_admin(request),
             "execute_at": execute_at,
