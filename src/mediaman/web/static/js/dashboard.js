@@ -23,7 +23,8 @@
   var POLL_RETRY_MS = [2000, 4000, 8000, 10000];
   var POLL_MAX_FAILS = 5;
   var POLL_MAX_MS = 10 * 60 * 1000;
-  /* A hung status request is aborted and counts as one failed poll. */
+  /* A hung status request is aborted and counts as one failed poll. Polls give
+     up after POLL_MAX_FAILS in a row or POLL_MAX_MS of unbroken failure. */
   var POLL_TIMEOUT_MS = 10000;
 
   function updateScanStatus(msg) {
@@ -48,11 +49,15 @@
 
   function pollScanStatus(btn) {
     var fails = 0;
+    var firstFailAt = 0;
     setTimeout(function check() {
       _scanElapsed = Math.round((Date.now() - _scanStart) / 1000);
-      MM.api.get('/api/scan/status', { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) })
+      var ctrl = new AbortController();
+      var abortTimer = setTimeout(function () { ctrl.abort(); }, POLL_TIMEOUT_MS);
+      MM.api.get('/api/scan/status', { signal: ctrl.signal })
         .then(function (data) {
           fails = 0;
+          firstFailAt = 0;
           if (data.running) {
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
@@ -89,7 +94,8 @@
         })
         .catch(function () {
           fails += 1;
-          if (fails >= POLL_MAX_FAILS || Date.now() - _scanStart >= POLL_MAX_MS) {
+          if (!firstFailAt) firstFailAt = Date.now();
+          if (fails >= POLL_MAX_FAILS || Date.now() - firstFailAt >= POLL_MAX_MS) {
             btn.classList.remove('scan-running');
             btn.textContent = 'Scan now';
             btn.disabled = false;
@@ -100,7 +106,8 @@
             return;
           }
           setTimeout(check, POLL_RETRY_MS[Math.min(fails, POLL_RETRY_MS.length) - 1]);
-        });
+        })
+        .finally(function () { clearTimeout(abortTimer); });
     }, 3000);
   }
 
