@@ -227,6 +227,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     nzb_client = build_nzbget_from_db(conn, secret_key)
     nzb_queue: list[dict[str, object]] = []
     nzb_status: dict[str, object] = {}
+    nzb_fetch_failed = False
 
     if nzb_client:
         try:
@@ -234,6 +235,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
             nzb_queue = nzb_client.get_queue()
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
+            nzb_fetch_failed = True
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
     download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
@@ -265,7 +267,10 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
-    _maybe_record_completions(conn, current_map, secret_key)
+    # A failed NZBGet fetch looks like an empty queue, which would report every
+    # NZB-only item as finished; keep the previous snapshot until a poll succeeds.
+    if not nzb_fetch_failed:
+        _maybe_record_completions(conn, current_map, secret_key)
 
     # 7. Hero selection
     hero, queue = select_hero(items_as_dicts)

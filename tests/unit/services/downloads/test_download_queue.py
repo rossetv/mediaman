@@ -203,3 +203,53 @@ class TestBuildEpisodeDicts:
         assert result[0]["title"] == ""
         assert result[0]["progress"] == 0
         assert result[0]["is_pack_episode"] is False
+
+
+class TestFailedNzbgetPollKeepsSnapshot:
+    def _run(self, nzb_client):
+        from unittest.mock import MagicMock, patch
+
+        import mediaman.services.downloads.download_queue as dq
+
+        dq._reset_previous_queue()
+        manual = {"id": "nzbget:1", "title": "Manual", "kind": "movie"}
+        with dq._state_lock:
+            dq._previous_queue = {"nzbget:1": manual}
+            dq._previous_initialised = True
+        recorded: list = []
+        with (
+            patch.object(dq, "fetch_arr_queue", return_value=[]),
+            patch.object(dq, "_arr_base_urls", return_value={}),
+            patch.object(dq, "build_nzbget_from_db", return_value=nzb_client),
+            patch.object(dq, "_enrich_with_tmdb_ids"),
+            patch.object(
+                dq,
+                "record_verified_completions",
+                side_effect=lambda c, done, k: recorded.extend(done),
+            ),
+            patch.object(dq, "fetch_and_sync_recent_downloads", return_value=[]),
+        ):
+            dq.build_downloads_response(MagicMock(), "k")
+        snapshot = dict(dq._previous_queue)
+        dq._reset_previous_queue()
+        return recorded, snapshot
+
+    def test_failed_fetch_reports_no_completions_and_keeps_snapshot(self):
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.nzbget import NzbgetError
+
+        client = MagicMock()
+        client.get_status.side_effect = NzbgetError("boom")
+        recorded, snapshot = self._run(client)
+        assert recorded == []
+        assert "nzbget:1" in snapshot
+
+    def test_successful_empty_list_still_reports_completion(self):
+        from unittest.mock import MagicMock
+
+        client = MagicMock()
+        client.get_status.return_value = {}
+        client.get_queue.return_value = []
+        recorded, _ = self._run(client)
+        assert [c["dl_id"] for c in recorded] == ["nzbget:1"]
