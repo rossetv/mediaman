@@ -87,6 +87,13 @@
     window.location.reload();
   }
 
+  /* After a slow request, move focus only if the user has not moved it
+     somewhere else in the meantime. */
+  function focusStillIn(el) {
+    var active = document.activeElement;
+    return !active || active === document.body || el.contains(active);
+  }
+
   /**
    * Submit a keep/snooze request for a media item.
    * For TV seasons (showRk truthy), opens the season-picker dialog.
@@ -115,7 +122,7 @@
           if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
           window.UIFeedback.error("Couldn't save keep. " + msg);
           var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-          if (trigger) trigger.focus();
+          if (trigger && focusStillIn(wrapper)) trigger.focus();
         });
       return;
     }
@@ -170,7 +177,7 @@
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
-        if (refocus === true) {
+        if (refocus === true && focusStillIn(list)) {
           var first = list.querySelector('input');
           if (first) first.focus();
         }
