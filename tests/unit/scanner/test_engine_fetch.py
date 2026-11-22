@@ -466,3 +466,29 @@ class TestSyncWriteIsolation:
         assert summary["synced"] == 2
         assert summary["errors"] == 1
         assert not conn.in_transaction
+
+    def test_item_failure_that_ends_the_transaction_counts_as_an_error(self, conn, mock_plex):
+        """A fatal SQLite error ends the transaction, so the savepoint is gone."""
+        import sqlite3
+        from unittest.mock import patch
+
+        from mediaman.scanner.fetch import PlexItemFetch
+
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="test-key",
+        )
+        f = PlexItemFetch(
+            item={"plex_rating_key": "1"}, library_id="1", media_type="movie", watch_history=[]
+        )
+
+        def fatal(*_a, **_k):
+            conn.rollback()
+            raise sqlite3.OperationalError("disk I/O error")
+
+        with patch("mediaman.scanner.engine._phase_upsert_item", side_effect=fatal):
+            assert engine._upsert_item_isolated(f) is False
+        assert not conn.in_transaction
