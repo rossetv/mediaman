@@ -704,8 +704,16 @@ class TestKeepFormFailurePage:
         )
         return token
 
+    def _unprotect(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "UPDATE scheduled_actions SET action='scheduled_deletion', token_used=0, "
+            "snooze_duration=NULL"
+        )
+        conn.commit()
+
     def test_reused_token_renders_a_sentence_and_no_json(self, conn):
         token = self._used_token(conn)
+        self._unprotect(conn)
 
         resp = self._client(conn).post(
             f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
@@ -734,3 +742,49 @@ class TestKeepFormFailurePage:
 
         assert resp.status_code == 409
         assert resp.json() == {"ok": False, "error": "already_processed"}
+
+    def test_repeat_keep_of_a_protected_item_shows_the_protected_page(self, conn):
+        token = self._used_token(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert "Protected until" in resp.text
+        assert "We could not keep this item" not in resp.text
+
+    def test_used_token_on_an_unprotected_item_says_it_could_not_keep(self, conn):
+        token = self._used_token(conn)
+        self._unprotect(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert "We could not keep this item" in resp.text
+        assert "Sign in for more options" in resp.text
+
+    def test_an_unknown_error_code_still_renders_a_page(self, conn):
+        from starlette.requests import Request
+
+        from mediaman.web.routes.keep import _submit_failure
+
+        client = self._client(conn)
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"content-type", b"application/x-www-form-urlencoded"),
+                (b"accept", b"text/html"),
+            ],
+            "app": client.app,
+            "method": "POST",
+            "path": "/keep/x",
+            "query_string": b"",
+        }
+
+        resp = _submit_failure(Request(scope), "something_new", 500)
+
+        assert resp.status_code == 500
+        assert b"nothing was changed" in resp.body
