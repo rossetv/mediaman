@@ -13,7 +13,7 @@
 
   // Only an API error's message is meant for the reader; anything else is a bug.
   function userMessage(err) {
-    return (err instanceof MM.api.APIError && err.message) || 'Try again.';
+    return MM.api.messageOf(err, 'Try again.');
   }
 
   async function removeKeep(mediaItemId) {

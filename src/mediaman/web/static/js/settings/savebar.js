@@ -87,9 +87,9 @@
     }
     if (data && typeof data.detail === 'string') return data.detail;
     if (data && data.message) return data.message;
-    if (data && data.error) return SAVE_ERROR_WORDS[data.error] || 'Save failed (' + data.error + ')';
+    if (data && data.error) return SAVE_ERROR_WORDS[data.error] || 'Save failed — try again.';
     if (statusCode === 429) return 'Too many saves — slow down for a moment.';
-    return 'Save failed (HTTP ' + (statusCode || '?') + ')';
+    return 'Save failed — try again.';
   }
 
   function init(opts) {
@@ -197,7 +197,7 @@
           } else {
             // Status 0 is a request that never reached the server; its
             // message is the shared network wording.
-            setSaveError((err && err.message) || 'Save failed — try again.');
+            setSaveError(MM.api.messageOf(err, 'Save failed — try again.'));
           }
           reenable();
         });

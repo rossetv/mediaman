@@ -163,7 +163,7 @@
       })
       .catch(function (err) {
         confirmBtn.setAttribute('aria-disabled', 'false');
-        window.UIFeedback.error('Couldn’t abandon: ' + (err.message || err));
+        window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
       });
   }
 

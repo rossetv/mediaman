@@ -76,7 +76,7 @@
         }
       })
       .catch(function(err) {
-        showResult(false, (err instanceof MM.api.APIError && err.message) || 'Something went wrong. Try again.');
+        showResult(false, MM.api.messageOf(err, 'Something went wrong. Try again.'));
       });
   }
 

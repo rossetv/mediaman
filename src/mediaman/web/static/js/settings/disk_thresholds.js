@@ -206,7 +206,7 @@
           if (data.error) { paintState(card, 'err', threshold, data.error); return; }
           paintState(card, null, threshold, null, data.usage_pct);
         })
-        .catch(function (err) { paintState(card, 'err', threshold, (err && err.message) || 'Fetch error'); });
+        .catch(function (err) { paintState(card, 'err', threshold, MM.api.messageOf(err, 'Couldn’t check this folder. Try again.')); });
     }
     pathInput.addEventListener('blur', refresh);
     thrInput.addEventListener('change', refresh);
