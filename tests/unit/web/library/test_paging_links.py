@@ -74,10 +74,26 @@ def test_page_past_the_end_shows_the_last_page(client, conn):
     assert '<button class="page-btn active">2</button>' in page
 
 
-def test_empty_library_past_the_end_stays_on_page_one(client):
-    page = client.get("/library", params={"page": 5}).text
+def test_search_past_the_end_shows_the_last_page_of_the_matches(client, conn):
+    _add_movies(conn, 2)
+    for i in range(3):
+        insert_media_item(
+            conn,
+            id=f"a{i}",
+            title=f"Alien {i}",
+            media_type="movie",
+            plex_rating_key=f"rk-a{i}",
+            file_path="/f",
+            file_size_bytes=1,
+        )
 
-    assert "Your library is empty" in page or "Connect Plex" in page
+    page = client.get("/library", params={"q": "Alien", "page": 9, "per_page": 2}).text
+
+    assert "3–3 of 3" in page
+    assert '<button class="page-btn active">2</button>' in page
+    hrefs = [html.unescape(h) for h in re.findall(r'class="page-btn" href="([^"]+)"', page)]
+    assert hrefs
+    assert all(parse_qs(urlsplit(h).query)["q"] == ["Alien"] for h in hrefs)
 
 
 def test_sort_select_offers_recently_added_and_selects_it_by_default(client, conn):
