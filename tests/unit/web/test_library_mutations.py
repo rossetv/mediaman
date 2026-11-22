@@ -137,7 +137,6 @@ def _sonarr(extra_files: list | None = None) -> MagicMock:
     client.get_series_by_tvdb.return_value = series
     client.get_episode_files.side_effect = lambda _series_id: list(listed["files"])
     client.delete_episode_files.side_effect = delete_season_files
-    client.has_remaining_files.return_value = True
     return client
 
 
@@ -260,62 +259,20 @@ class TestMediaDelete:
         sonarr.get_series_by_tvdb.assert_called_once_with(81189)
         sonarr.delete_episode_files.assert_called_once_with(202, 1)
 
-    def test_last_season_with_no_files_left_removes_the_show_with_exclusion(
+    def test_last_season_with_no_files_left_keeps_the_show_in_sonarr(
         self, app_factory, authed_client, conn
     ):
         _insert_tv_season(conn)
         client = authed_client(_app(app_factory, conn), conn)
         sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
 
         with patch(SONARR, return_value=sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 200
-        sonarr.delete_series.assert_called_once_with(202)
-        assert "show was removed" in resp.json()["message"]
-
-    def test_show_is_kept_in_sonarr_while_mediaman_tracks_another_of_its_seasons(
-        self, app_factory, authed_client, conn
-    ):
-        _insert_tv_season(conn)
-        _insert_tv_season(
-            conn,
-            "s2",
-            season=2,
-            tracked_files=[{"path": "/elsewhere/The Show/Season 02/e1.mkv", "size": 1}],
-        )
-        client = authed_client(_app(app_factory, conn), conn)
-        sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
-
-        with patch(SONARR, return_value=sonarr):
-            resp = client.post("/api/media/s1/delete")
-
-        assert resp.status_code == 200
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.unmonitor_season.assert_called_once_with(202, 1)
         sonarr.delete_series.assert_not_called()
-
-    def test_show_is_kept_in_sonarr_while_another_item_uses_files_in_its_folder(
-        self, app_factory, authed_client, conn
-    ):
-        _insert_tv_season(conn)
-        _insert_tv_season(
-            conn,
-            "other",
-            show_rating_key="other-show",
-            tvdb_id=None,
-            tracked_files=[{"path": "/media/tv/The Show/Specials/extra.mkv", "size": 1}],
-        )
-        client = authed_client(_app(app_factory, conn), conn)
-        sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
-
-        with patch(SONARR, return_value=sonarr):
-            resp = client.post("/api/media/s1/delete")
-
-        assert resp.status_code == 200
-        sonarr.delete_series.assert_not_called()
+        assert "removed" not in resp.json()["message"]
 
     def test_delete_also_removes_scheduled_actions(self, app_factory, authed_client, conn):
         """Deleting a media item also prunes its scheduled_actions rows, a lapsed snooze too."""

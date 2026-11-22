@@ -90,14 +90,6 @@ class _SonarrMixin:
             f"/api/v3/series/{series_id}?deleteFiles=true&{self.spec.exclusion_param}=true"  # type: ignore[attr-defined]
         )
 
-    def has_remaining_files(self, series_id: int) -> bool:
-        self._require_series("has_remaining_files")  # type: ignore[attr-defined]
-        efs = cast(
-            list[ArrEpisodeFile],
-            self._get(f"/api/v3/episodefile?seriesId={series_id}"),  # type: ignore[attr-defined]
-        )
-        return bool(efs)
-
     def get_series(self) -> list[SonarrSeries]:
         self._require_series("get_series")  # type: ignore[attr-defined]
         data = self._get("/api/v3/series")  # type: ignore[attr-defined]

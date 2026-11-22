@@ -238,21 +238,6 @@ def recheck_deletable(conn: sqlite3.Connection, media_id: str) -> None:
     _refuse_if_not_deletable(conn, media_id, row["show_rating_key"])
 
 
-def show_has_other_items(
-    conn: sqlite3.Connection,
-    media_id: str,
-    *,
-    show_rating_key: str | None,
-    tvdb_id: int | None,
-) -> bool:
-    """True when mediaman holds another row of the same show as *media_id*."""
-    row = conn.execute(
-        "SELECT 1 FROM media_items WHERE id != ? AND (show_rating_key = ? OR tvdb_id = ?)",
-        (media_id, show_rating_key, tvdb_id),
-    ).fetchone()
-    return row is not None
-
-
 def tracked_files_of_same_title(
     conn: sqlite3.Connection,
     media_id: str,

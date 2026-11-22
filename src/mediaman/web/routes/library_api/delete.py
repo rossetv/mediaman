@@ -39,7 +39,6 @@ from mediaman.web.repository.library_api import (
     finalise_delete_in_tx,
     other_item_uses_paths,
     recheck_deletable,
-    show_has_other_items,
     snapshot_media_for_delete,
     tracked_files_of_same_title,
 )
@@ -250,12 +249,10 @@ def _delete_season(
 ) -> tuple[int, str | JSONResponse]:
     """Verify the season against Sonarr, delete its files and unmonitor it.
 
-    The show itself is removed (with an import exclusion) only when Sonarr
-    has no files left for it, mediaman tracks no other season of it and no
-    other item uses files in its folder: Sonarr removes the whole show
-    folder, and any file still in it would go unverified. A failure after the season files were removed keeps the DB
-    row: Sonarr did not confirm the whole delete, and each step is safe to
-    retry.
+    The show stays in Sonarr: removing it would drop its future seasons and
+    any file Sonarr holds outside this season. A failure after the season
+    files were removed keeps the DB row: Sonarr did not confirm the whole
+    delete, and each step is safe to retry.
 
     Raises:
         _Refused: when a check failed before anything was deleted.
@@ -297,12 +294,10 @@ def _delete_season(
     tracked_paths = _tracked_paths(snapshot)
     if other_item_uses_paths(conn, media_id, files=tracked_paths):
         raise _Refused("Another library item uses files of this season; nothing was deleted")
-    series_folders = _local_folders(tracked_paths, series.get("path"), 2)
     _recheck(conn, media_id)
 
     intent_id = _record_delete_intent(conn, media_id, "sonarr", str(sid))
     files_removed = False
-    show_removed = False
 
     def failed_detail() -> str:
         detail = f"Sonarr did not confirm the delete of '{title}' S{season_num} by {username}"
@@ -325,19 +320,6 @@ def _delete_season(
         files_removed = True
         client.unmonitor_season(sid, season_num)
         logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
-        if (
-            series_folders
-            and not client.has_remaining_files(sid)
-            and not show_has_other_items(
-                conn, media_id, show_rating_key=snapshot.show_rating_key, tvdb_id=tvdb_id
-            )
-            and not other_item_uses_paths(conn, media_id, folders=series_folders)
-        ):
-            client.delete_series(sid)
-            show_removed = True
-            logger.info(
-                "No files remain for '%s' — deleted series from Sonarr with exclusion", title
-            )
     except _ARR_ERRORS as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
         if _is_not_found(exc):
@@ -350,10 +332,7 @@ def _delete_season(
     except Exception as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
         raise
-    message = f"Season {season_num} of {title} deleted through Sonarr and unmonitored"
-    if show_removed:
-        message += "; the show was removed from Sonarr and added to the import exclusion list"
-    return intent_id, message
+    return intent_id, f"Season {season_num} of {title} deleted through Sonarr and unmonitored"
 
 
 def _run_arr_delete_branch(
