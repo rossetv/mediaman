@@ -205,6 +205,13 @@
       });
   }
 
+  /* True while focus is inside el or nowhere in particular, so a user who has
+     moved on keeps their place. */
+  function focusStillIn(el) {
+    var active = document.activeElement;
+    return !active || active === document.body || el.contains(active);
+  }
+
   /* Submit a keep request from a dashboard tile. The library.html keep-dialog
      flow is too heavy for the dashboard scheduled view, so we just submit
      directly with the chosen duration. */
@@ -233,7 +240,7 @@
         if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't save keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-        if (trigger) trigger.focus();
+        if (trigger && focusStillIn(wrapper)) trigger.focus();
       });
   }
 
