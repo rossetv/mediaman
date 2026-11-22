@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.core.deleted_media import DeletedMedia, fetch_deleted_media
 from mediaman.core.format import (
     days_ago,
     format_bytes,
@@ -130,6 +131,19 @@ def _was_redownloaded_after(
     return bool(last_redownload and last_redownload > deletion_created_at)
 
 
+def _redownload_payload(stored: DeletedMedia | None, title: str) -> dict[str, object] | None:
+    """Return the re-download request body, or ``None`` when the stored row lacks the id."""
+    if stored is None:
+        return None
+    if stored.media_type == "movie":
+        if stored.tmdb_id:
+            return {"title": title, "tmdb_id": stored.tmdb_id}
+        return None
+    if stored.tvdb_id and stored.season_number is not None:
+        return {"title": title, "tvdb_id": stored.tvdb_id, "season_number": stored.season_number}
+    return None
+
+
 def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[dict[str, object]]:
     """Return up to 10 recent deleted audit_log entries, skipping ones with a newer
     re-download. Pages through audit_log in batches up to a hard cap so the filtering cannot
@@ -150,12 +164,15 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
         if not rows:
             break
 
+        stored_by_audit = fetch_deleted_media(conn, [r.audit_id for r in rows])
+
         for row in rows:
             if row.audit_id in seen_ids:
                 continue
             seen_ids.add(row.audit_id)
 
-            title = row.title
+            stored = stored_by_audit.get(row.audit_id)
+            title = row.title or (stored.title if stored else None)
             if not title:
                 title = title_from_audit_detail(row.detail)
             # When the deletion row carries a tmdb_id we can also consult the redownload index
@@ -179,6 +196,7 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
                     "poster_url": poster_url,
                     "deleted_ago": days_ago(row.created_at),
                     "reclaimed": format_bytes(row.space_reclaimed_bytes),
+                    "redownload": _redownload_payload(stored, title),
                 }
             )
             if not poster_url:

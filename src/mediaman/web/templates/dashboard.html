@@ -26,6 +26,17 @@
     </div>
   </div>
 
+  {% if unavailable_roots %}
+  <div class="root-banner" role="alert">
+    <i class="fa-solid fa-triangle-exclamation root-banner-icon" aria-hidden="true"></i>
+    <ul class="root-banner-list">
+      {% for root, waiting in unavailable_roots %}
+      <li><span class="root-banner-path">{{ root }}</span> is empty or not mounted: {{ waiting }} scheduled deletion{{ 's' if waiting != 1 }} {{ 'are' if waiting != 1 else 'is' }} waiting</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {# Storage — bespoke layout (storage-num has nested <small>, legend dots use
      CSS-classed helpers rather than inline colours). Macro c.storage uses a
      {color, value} schema that doesn't fit, so we keep the inline markup.
@@ -122,17 +133,16 @@
           <div class="u-small">Deleted {{ item.deleted_ago }}</div>
         </div>
         <div class="u-small">{{ item.reclaimed }}</div>
-        {# Pass stable identifiers; button is disabled when no identifier is available.
-           TODO: c.btn's data_attrs auto-escapes with `| e`, which breaks the
-           `| tojson`-encoded values these buttons rely on (JS reads
-           dataset.title via JSON.parse). Until the macro supports raw-value
-           data-attrs, this stays inline. #}
+        {# Rendered only when the stored identity has the id the route needs; older
+           rows have none. c.btn's data_attrs escapes with `| e`, which breaks the
+           `| tojson` payload the JS reads, so this stays inline. #}
+        {% if item.redownload %}
         <button class="btn btn--secondary btn--sm" type="button"
                 data-action="redownload"
-                data-title='{{ item.title | tojson }}'
-                data-media-item-id='{{ item.media_item_id | tojson }}'
-                data-media-type='{{ item.media_type | tojson }}'
-                {% if not item.media_item_id and not item.title %}disabled aria-disabled="true"{% endif %}>Re-download</button>
+                data-redownload='{{ item.redownload | tojson }}'>Re-download</button>
+        {% else %}
+        <span></span>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

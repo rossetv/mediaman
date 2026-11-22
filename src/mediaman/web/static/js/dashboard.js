@@ -82,15 +82,12 @@
       });
   }
 
-  /* Re-download a deleted item using stable identifiers from data-*.
-     Identifiers, never raw titles, drive the API call. */
+  /* Re-download a deleted item with the ids stored when it was deleted. */
   function redownload(btn) {
-    var title, mediaItemId, mediaType;
-    try { title = JSON.parse(btn.dataset.title); } catch (_) { title = ''; }
-    try { mediaItemId = JSON.parse(btn.dataset.mediaItemId); } catch (_) { mediaItemId = ''; }
-    try { mediaType = JSON.parse(btn.dataset.mediaType); } catch (_) { mediaType = ''; }
+    var payload;
+    try { payload = JSON.parse(btn.dataset.redownload); } catch (_) { payload = null; }
 
-    if (!mediaItemId && !title) {
+    if (!payload) {
       if (window.UIFeedback) {
         window.UIFeedback.error('No identifier available — cannot re-download this item.');
       }
@@ -99,9 +96,7 @@
 
     btn.disabled = true;
     btn.textContent = 'Adding…';
-    MM.api.post('/api/media/redownload', {
-      title: title, media_item_id: mediaItemId, media_type: mediaType,
-    })
+    MM.api.post('/api/media/redownload', payload)
       .then(function () {
         btn.textContent = 'Queued ✓';
         btn.classList.add('is-success');
