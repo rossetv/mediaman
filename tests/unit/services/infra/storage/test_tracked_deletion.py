@@ -164,6 +164,53 @@ def test_the_sidecars_of_an_already_removed_video_are_swept_when_named(tmp_path)
     assert other_sidecar.exists()
 
 
+def test_a_swept_video_under_a_dropped_mount_is_reported_failed(tmp_path):
+    root = _write(tmp_path / "media" / "local" / "Other.mkv").parent.parent
+    (root / "nas").mkdir()
+    video = root / "nas" / "Film" / "Film.mkv"
+
+    result = delete_tracked_files(
+        [{"path": str(video), "size": 100}],
+        allowed_roots=[str(root)],
+        sweep_sidecars_of={str(video)},
+    )
+
+    assert [path for path, _ in result.failed] == [str(video)]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores folder permissions")
+def test_a_swept_video_whose_folder_cannot_be_listed_is_reported_failed(tmp_path):
+    root = tmp_path / "movies"
+    _write(root / "Film" / "Film.en.srt")
+    video = root / "Film" / "Film.mkv"
+    video.parent.chmod(0o311)
+    try:
+        result = delete_tracked_files(
+            [{"path": str(video), "size": 100}],
+            allowed_roots=[str(root)],
+            sweep_sidecars_of={str(video)},
+        )
+    finally:
+        video.parent.chmod(0o755)
+
+    assert [path for path, _ in result.failed] == [str(video)]
+
+
+def test_a_swept_video_whose_folder_holds_no_sidecars_is_not_failed(tmp_path):
+    root = tmp_path / "movies"
+    video = root / "Film" / "Film.mkv"
+    _write(root / "Film" / "poster.jpg")
+
+    result = delete_tracked_files(
+        [{"path": str(video), "size": 100}],
+        allowed_roots=[str(root)],
+        sweep_sidecars_of={str(video)},
+    )
+
+    assert result.failed == []
+    assert result.removed == []
+
+
 def test_a_tracked_file_outside_the_roots_is_refused_before_anything_is_removed(tmp_path):
     root = tmp_path / "tv"
     inside = _write(root / "Show" / "e01.mkv")

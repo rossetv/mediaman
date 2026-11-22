@@ -443,7 +443,10 @@ def delete_tracked_files(
     ``skipped_protected``. A tracked file that is missing is reported in
     ``not_found`` and its sidecars are left alone, unless its path is in
     *sweep_sidecars_of*: a video already removed whose sidecars may have
-    failed to go, so they are looked for and removed by the same rules.
+    failed to go, so they are looked for and removed by the same rules. A
+    video whose folder cannot be listed when its sidecars are looked for, or
+    is missing while ``unavailable_folder`` finds its mount down, is reported
+    in ``failed``.
     """
     roots = _validate_delete_roots(allowed_roots)
     targets = [_checked_tracked_path(entry, roots) for entry in tracked_files]
@@ -479,7 +482,19 @@ def delete_tracked_files(
         else:
             removed.append(str(target))
             freed += size
-        for sidecar in _sidecars_of(target, protected):
+        try:
+            sidecars = _sidecars_of(target, protected)
+        except OSError as exc:
+            # A folder gone while its delete root still has content took its
+            # sidecars with it (an earlier pass may have removed it bare); a
+            # dropped mount or an unreadable folder cannot show them gone.
+            if (
+                not isinstance(exc, FileNotFoundError)
+                or unavailable_folder(str(target), allowed_roots) is not None
+            ):
+                failed.append((str(target), f"its folder could not be listed: {exc}"))
+            continue
+        for sidecar in sidecars:
             try:
                 size = _unlink_regular_file(sidecar, roots)
             except (DeletionRefused, OSError) as exc:
@@ -649,18 +664,17 @@ def _is_protected(path: Path, protected: dict[str, list[str]]) -> bool:
 
 
 def _sidecars_of(video: Path, protected: dict[str, list[str]]) -> list[Path]:
-    """Return the sidecar files of *video* in its folder, skipping *protected* ones."""
+    """Return the sidecar files of *video* in its folder, skipping *protected* ones.
+
+    Raises ``OSError`` when the folder is missing or cannot be listed.
+    """
     folder = video.parent
-    real_folder = folder.resolve()
-    try:
-        with os.scandir(real_folder) as entries:
-            regular = {
-                e.name: e.is_file(follow_symlinks=False)
-                for e in entries
-                if not e.is_dir(follow_symlinks=False)
-            }
-    except OSError:
-        return []
+    with os.scandir(folder.resolve()) as entries:
+        regular = {
+            e.name: e.is_file(follow_symlinks=False)
+            for e in entries
+            if not e.is_dir(follow_symlinks=False)
+        }
     stem = video.stem
     owner_stems = {Path(n).stem for n in regular if _extension(n) not in _SIDECAR_EXTENSIONS}
     if stem in owner_stems:
