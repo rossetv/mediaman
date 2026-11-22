@@ -93,7 +93,10 @@
     list.textContent = 'Loading…';
     var url = seasonsUrl();
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
-    document.getElementById('keep-dialog-confirm').textContent = 'Keep';
+    var confirmBtn = document.getElementById('keep-dialog-confirm');
+    confirmBtn.textContent = 'Keep';
+    /* A keep still running for the show opened before must not lock this one. */
+    confirmBtn.disabled = false;
     var request = ++_keepDialogRequest;
     MM.api.get(url)
       .then(function (data) {
@@ -198,8 +201,30 @@
     }
 
     var btn = document.getElementById('keep-dialog-confirm');
+    var btnLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Keeping…';
+
+    /* The requests below outlive this click: the dialog may be closed and
+       opened for another show meanwhile, so everything they need is read
+       now, and the dialog's buttons are touched only while it is still the
+       one that was open. */
+    var rk = _keepDialogState.showRk;
+    var showKept = _keepDialogState.showKept;
+    var dur = _keepDialogState.duration || '30 days';
+    var seasonsRequestUrl = seasonsUrl();
+    var request = _keepDialogRequest;
+    function dialogIsOpen() { return request === _keepDialogRequest; }
+    function restoreButton() {
+      if (!dialogIsOpen()) return;
+      btn.disabled = false;
+      btn.textContent = btnLabel;
+    }
+    /* A keep that finished for a dialog no longer shown must not reload the
+       page under the one that is. */
+    function done(data) {
+      if (dialogIsOpen()) reloadAfterKeep(data);
+    }
 
     if (allChecked) {
       if (selectedIds.length === 0) {
@@ -208,19 +233,17 @@
         });
       }
       MM.api.post(
-        '/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep',
-        { duration: _keepDialogState.duration, season_ids: selectedIds }
+        '/api/show/' + encodeURIComponent(rk) + '/keep',
+        { duration: dur, season_ids: selectedIds }
       )
-        .then(reloadAfterKeep)
+        .then(done)
         .catch(function (err) {
           var msg = (err && err.message) || 'Try again.';
           window.UIFeedback.error("Couldn't save keep. " + msg);
-          btn.disabled = false;
-          btn.textContent = 'Keep';
+          restoreButton();
         });
     } else {
       /* Failures are reported by the season names the dialog shows. */
-      var dur = _keepDialogState.duration || '30 days';
       var names = {};
       var unticked = [];
       document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
@@ -245,14 +268,23 @@
       keepChain = keepChain.then(function () {
         if (failed.length) return;
         var ended = Promise.resolve(true);
-        if (_keepDialogState.showKept) {
-          ended = MM.api.post('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/remove')
-            .then(function () { _keepDialogState.showKept = false; return true; })
+        if (showKept) {
+          ended = MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove')
+            .catch(function (err) {
+              /* 404: no show keep any more (removed in another tab, or the
+                 reply to an earlier try was lost), which is what was asked. */
+              if (err && err.status === 404) return;
+              throw err;
+            })
+            .then(function () {
+              if (dialogIsOpen()) _keepDialogState.showKept = false;
+              return true;
+            })
             .catch(function () { failed.push('the show keep'); return false; });
         }
         return ended.then(function (ok) {
           if (!ok || !unticked.length) return;
-          return MM.api.get(seasonsUrl()).then(function (data) {
+          return MM.api.get(seasonsRequestUrl).then(function (data) {
             var keptNow = {};
             data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
             var chain = Promise.resolve();
@@ -273,10 +305,9 @@
           if (running && running.message) {
             window.UIFeedback.toast(running.message, { duration: 8000 });
           }
-          btn.disabled = false;
-          btn.textContent = 'Keep';
+          restoreButton();
         } else {
-          reloadAfterKeep(running);
+          done(running);
         }
       });
     }
