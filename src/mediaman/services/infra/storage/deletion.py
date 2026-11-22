@@ -391,14 +391,16 @@ class TrackedFilesResult:
 
     ``removed`` lists every file unlinked (tracked files and their sidecars),
     ``bytes_freed`` sums only their sizes, ``not_found`` lists the tracked
-    files that were not on disk, and ``skipped_protected`` the tracked files
-    kept because another item tracks them.
+    files that were not on disk, ``skipped_protected`` the tracked files
+    kept because another item tracks them, and ``failed`` each file whose
+    removal failed, with the reason.
     """
 
     removed: list[str]
     bytes_freed: int
     not_found: list[str]
     skipped_protected: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
 
 
 def delete_tracked_files(
@@ -411,9 +413,11 @@ def delete_tracked_files(
 
     *tracked_files* holds ``{"path", "size"}`` entries. Every path is checked
     before anything is removed, by the same rules as ``delete_path`` (absolute,
-    strict descendant of a validated root, not a symlink) and it must be a
-    regular file; any failure raises ``DeletionRefused`` with nothing removed.
-    Each removal re-checks the root, device and file type at unlink time.
+    strict descendant of a validated root, not a symlink, on the root's
+    device) and it must be a regular file; any failure raises
+    ``DeletionRefused`` with nothing removed. Each removal re-checks the root,
+    device and file type at unlink time; a file that fails then is reported in
+    ``failed`` (with its sidecars left alone) and the others still go.
 
     A sidecar is a regular file beside the video named ``<stem>.<tags>.<ext>``
     with only language or flag tags and a subtitle or ``.nfo`` extension. A
@@ -431,6 +435,7 @@ def delete_tracked_files(
     removed: list[str] = []
     not_found: list[str] = []
     skipped: list[str] = []
+    failed: list[tuple[str, str]] = []
     freed = 0
     seen: set[Path] = set()
     for target in targets:
@@ -441,19 +446,31 @@ def delete_tracked_files(
         if _is_protected(target, protected):
             skipped.append(str(target))
             continue
-        size = _unlink_regular_file(target, roots)
+        try:
+            size = _unlink_regular_file(target, roots)
+        except (DeletionRefused, OSError) as exc:
+            failed.append((str(target), str(exc)))
+            continue
         if size is None:
             not_found.append(str(target))
             continue
         removed.append(str(target))
         freed += size
         for sidecar in _sidecars_of(target, protected):
-            size = _unlink_regular_file(sidecar, roots)
+            try:
+                size = _unlink_regular_file(sidecar, roots)
+            except (DeletionRefused, OSError) as exc:
+                failed.append((str(sidecar), str(exc)))
+                continue
             if size is not None:
                 removed.append(str(sidecar))
                 freed += size
     return TrackedFilesResult(
-        removed=removed, bytes_freed=freed, not_found=not_found, skipped_protected=skipped
+        removed=removed,
+        bytes_freed=freed,
+        not_found=not_found,
+        skipped_protected=skipped,
+        failed=failed,
     )
 
 
@@ -533,7 +550,7 @@ def _checked_tracked_path(entry: object, roots: list[Path]) -> Path:
     if raw.name in ("", ".", ".."):
         raise DeletionRefused(f"Refusing to delete '{raw}' — not a file path.")
     real = raw.parent.resolve() / raw.name
-    _pinned_root(real, roots)
+    pinned = _pinned_root(real, roots)
     try:
         lst = os.lstat(real)
     except FileNotFoundError:
@@ -542,7 +559,22 @@ def _checked_tracked_path(entry: object, roots: list[Path]) -> Path:
         raise DeletionRefused(f"Refusing to delete '{raw}' — target path is a symlink.")
     if not _stat.S_ISREG(lst.st_mode):
         raise DeletionRefused(f"Refusing to delete '{raw}' — not a regular file.")
+    _require_root_device(real, lst, pinned)
     return raw
+
+
+def _require_root_device(real: Path, lst: os.stat_result, pinned: Path) -> None:
+    """Refuse unless *lst* (the stat of *real*) is on the same device as root *pinned*."""
+    try:
+        root_dev = os.stat(pinned).st_dev
+    except FileNotFoundError as exc:
+        raise DeletionRefused(
+            f"Refusing to delete '{real}' — allowed root '{pinned}' no longer exists."
+        ) from exc
+    if lst.st_dev != root_dev:
+        raise DeletionRefused(
+            f"Refusing to delete '{real}' — different device from allowed root '{pinned}'."
+        )
 
 
 def _unlink_regular_file(path: Path, roots: list[Path]) -> int | None:
@@ -557,16 +589,7 @@ def _unlink_regular_file(path: Path, roots: list[Path]) -> int | None:
         lst = os.lstat(real)
     except FileNotFoundError:
         return None
-    try:
-        root_dev = os.stat(pinned).st_dev
-    except FileNotFoundError as exc:
-        raise DeletionRefused(
-            f"Refusing to delete '{real}' — allowed root '{pinned}' no longer exists."
-        ) from exc
-    if lst.st_dev != root_dev:
-        raise DeletionRefused(
-            f"Refusing to delete '{real}' — different device from allowed root '{pinned}'."
-        )
+    _require_root_device(real, lst, pinned)
     if not _stat.S_ISREG(lst.st_mode):
         raise DeletionRefused(f"Refusing to delete '{real}' — not a regular file.")
     os.unlink(real)

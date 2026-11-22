@@ -248,6 +248,48 @@ def test_a_protected_file_reached_through_a_symlinked_folder_is_kept(tmp_path):
     assert result.removed == []
 
 
+def test_a_tracked_file_on_another_device_is_refused_before_anything_is_removed(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "tv"
+    first = _write(root / "Show" / "e01.mkv")
+    foreign = _write(root / "Show" / "e02.mkv")
+    real_lstat = os.lstat
+
+    def lstat_with_foreign_device(path, *args, **kwargs):
+        st = real_lstat(path, *args, **kwargs)
+        if os.fspath(path) == str(foreign):
+            fields = list(st)
+            fields[2] = st.st_dev + 1
+            return os.stat_result(fields)
+        return st
+
+    monkeypatch.setattr(os, "lstat", lstat_with_foreign_device)
+
+    with pytest.raises(DeletionRefused):
+        delete_tracked_files(_tracked(first, foreign), allowed_roots=[str(root)])
+
+    assert first.exists() and foreign.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores folder permissions")
+def test_a_file_that_cannot_be_unlinked_is_reported_and_the_rest_still_counted(tmp_path):
+    root = tmp_path / "tv"
+    removable = _write(root / "Show" / "e01.mkv", size=100)
+    locked_folder = root / "Locked"
+    stuck = _write(locked_folder / "e02.mkv")
+    locked_folder.chmod(0o555)
+    try:
+        result = delete_tracked_files(_tracked(removable, stuck), allowed_roots=[str(root)])
+    finally:
+        locked_folder.chmod(0o755)
+
+    assert result.removed == [str(removable)]
+    assert result.bytes_freed == 100
+    assert [path for path, _reason in result.failed] == [str(stuck)]
+    assert stuck.exists()
+
+
 def test_emptied_folders_are_not_removed_above_the_boundary(tmp_path):
     root = tmp_path / "data"
     film = _write(root / "movies" / "Film" / "Film.mkv")
