@@ -211,8 +211,8 @@ def maybe_trigger_search(
     """Trigger a Radarr/Sonarr search for a stalled item, with throttling.
 
     ``secret_key`` is required for decrypting the stored Radarr/Sonarr API
-    key. When not supplied (empty string) the search is skipped — this
-    preserves backward compatibility for callers that don't yet hold a key.
+    key. When not supplied (empty string) the search is skipped, for
+    callers that don't hold a key.
 
     Does nothing when:
     - item is upcoming (Radarr/Sonarr correctly won't search for it)

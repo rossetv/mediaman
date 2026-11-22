@@ -88,9 +88,9 @@ def _resolve_prune_libs(
     second consecutive suspicious look at that specific library, exactly as
     remove_orphans' docstring promises. Libraries seeing their first
     suspicious scan are recorded as pending and deferred; they get pruned only
-    if the next scan is still suspicious. This replaces the old whole-set
-    subset test, which could prune a library on its first suspicious scan
-    merely because it was part of a larger previously-pending set.
+    if the next scan is still suspicious. A whole-set subset test would
+    prune a library on its first suspicious scan merely because it was
+    part of a larger previously-pending set.
 
     A healthy scan (``reason is None``) prunes every scanned library and clears
     any pending marker for them. Persists the updated pending set as a

@@ -328,7 +328,7 @@ class TestDiscoverEndpoint:
 
 
 class TestFetchDiscoverShelf:
-    """``_fetch_discover_shelf`` (lifted out of the ``api_discover``
+    """``_fetch_discover_shelf`` (called by the ``api_discover``
     handler) owns the discover TTL-cache: hit/miss decision, the
     ``media_type`` stamp on cache-miss results, and the bounded-cache
     clear-on-overflow."""

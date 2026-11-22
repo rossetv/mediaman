@@ -27,13 +27,11 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     """Parse a stored ``execute_at`` string and return a tz-aware UTC datetime.
 
     Returns *default* (treat-as-expired) when *raw* is empty,
-    unparseable, or otherwise invalid — this is the same fallback the
-    keep routes used inline before extraction.
+    unparseable, or otherwise invalid.
 
-    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, which
-    preserves the previous inline ``datetime.fromisoformat`` behaviour
-    exactly: any value that the old code treated as "unparseable →
-    expired" still is.  Naive datetimes are stamped UTC.
+    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, so any value
+    that is not strict ISO-8601 counts as unparseable → expired.  Naive
+    datetimes are stamped UTC.
     """
     text = str(raw or "")
     parsed = parse_iso_strict_utc(text)

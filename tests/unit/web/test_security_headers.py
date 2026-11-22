@@ -53,7 +53,7 @@ class TestSecurityHeadersMiddleware:
         assert "img-src 'self' data: blob: https:" in csp
 
     def test_hsts_off_by_default(self, monkeypatch):
-        """HSTS is now opt-in.  Without ``MEDIAMAN_HSTS_ENABLED=true`` the
+        """HSTS is opt-in.  Without ``MEDIAMAN_HSTS_ENABLED=true`` the
         header MUST NOT be emitted, even on a plain HTTP request — a
         misconfigured plaintext deploy that ships HSTS would lock real
         users out of the origin for two years."""
@@ -287,7 +287,7 @@ class TestCSRFExemptAllowlist:
         assert resp.status_code == 403
 
     def test_new_post_under_unsubscribe_prefix_is_checked(self):
-        """A POST to /unsubscribe/<anything> is no longer exempt — only
+        """A POST to /unsubscribe/<anything> is not exempt — only
         the exact path /unsubscribe is on the allowlist."""
         app = FastAPI()
         register_security_middleware(app)
@@ -435,7 +435,7 @@ class TestTrustedHostMiddleware:
     """
 
     def test_default_wildcard_accepts_anything(self, monkeypatch):
-        """Backward-compat: when the env var is unset the app keeps
+        """When the env var is unset the app keeps
         accepting any Host (with a startup warning logged)."""
         monkeypatch.delenv("MEDIAMAN_ALLOWED_HOSTS", raising=False)
         app = FastAPI()

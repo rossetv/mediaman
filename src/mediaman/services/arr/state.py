@@ -201,8 +201,7 @@ def _build_arr_index(
             or ``"build_sonarr_cache"``).
 
     Warns on duplicate ``tmdbId`` values in the library — takes the later entry,
-    matching dict-update semantics and matching the behaviour of the old per-function
-    implementations.
+    matching dict-update semantics.
     """
     index: dict[int, RadarrMovie] | dict[int, SonarrSeries] = {}
     for item in getattr(client, items_getter)():

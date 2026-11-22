@@ -1,4 +1,4 @@
-"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel.
+"""Media delete pipeline (POST /api/media/{id}/delete).
 
 The barrel mounts this router and re-exports _DELETE_LIMITER so tests can patch
 it at the barrel.

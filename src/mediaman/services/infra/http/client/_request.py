@@ -88,7 +88,7 @@ def _dispatch(
 ) -> requests.Response:
     """Issue a single HTTP request via *caller* with safe defaults.
 
-    Split out so tests can patch the transport at one well-known point
+    A separate function so tests can patch the transport at one well-known point
     without caring about the retry / SSRF machinery above it.
     """
     resp: requests.Response = caller.request(

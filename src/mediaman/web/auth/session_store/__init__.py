@@ -159,7 +159,7 @@ def validate_session(
     only opened when state actually changes (idle/expired delete,
     fingerprint mismatch delete, last_used_at refresh, periodic
     expired-row sweep).  This means a quiet stream of authenticated
-    requests do not block one another or competes with the
+    requests do not block one another or compete with the
     scheduler for the WAL writer slot.
 
     ``request_supplied`` is the fingerprint-binding fail-closed signal. When ``None`` (the default) it is inferred: a caller that

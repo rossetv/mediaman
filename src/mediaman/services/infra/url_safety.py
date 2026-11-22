@@ -54,8 +54,8 @@ public API and the allowlist composition.
 
 # rationale: this file is one cohesive security concept — "the single place in the
 # codebase that performs SSRF safety analysis" — and the genuinely separable
-# part (the stateless deny-list constants and predicates) has *already* been
-# extracted to ``_url_safety_blocks.py``. What remains does not decompose
+# part (the stateless deny-list constants and predicates) lives in
+# ``_url_safety_blocks.py``. What remains does not decompose
 # along a clean seam: the apparent allowlist-composition boundary
 # (``allowed_outbound_hosts`` / ``_extract_host``) is small and is
 # entangled with the analysis path through the shared ``PINNED_EXTERNAL_HOSTS``

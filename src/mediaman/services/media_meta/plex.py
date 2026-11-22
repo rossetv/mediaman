@@ -205,7 +205,7 @@ class PlexClient:
             if not viewed_at_ts:
                 continue
             # A single malformed ``viewedAt`` / ``accountID`` (non-numeric,
-            # negative, garbage) used to abort the entire history fetch
+            # negative, garbage) would abort the entire history fetch
             # because both ``int(...)`` and ``datetime.fromtimestamp``
             # raise ``ValueError``/``OSError`` on bad input.  Skip the
             # offending row instead so a single corrupt record doesn't

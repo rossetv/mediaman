@@ -295,8 +295,8 @@ def _apply_lockout(
     Window-extension policy:
 
     * If the account is NOT currently locked, slide the window
-      forward to ``now + minutes``. This makes a sustained attack burn against an ever-fresh
-      timer.
+      forward to ``now + minutes``. This makes a sustained attack burn against
+      an ever-fresh timer.
     * If the account IS currently locked AND the new threshold is
       STRICTER than the previous threshold this row was last
       locked at (10-failure / 15-failure escalation), promote the

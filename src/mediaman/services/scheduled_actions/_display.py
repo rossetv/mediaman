@@ -43,10 +43,8 @@ def format_added_display(raw_added: object) -> str:
     characters of the raw string when parsing fails so the template
     still has *something* to render.
 
-    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, which
-    preserves the previous inline ``datetime.fromisoformat`` behaviour
-    exactly: any value that the old code would have routed to the
-    string-slice fallback still does.
+    Delegates to ``mediaman.core.time.parse_iso_strict_utc``, so any value
+    that is not strict ISO-8601 takes the string-slice fallback.
     """
     text = str(raw_added or "")
     if not text:

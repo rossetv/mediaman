@@ -73,7 +73,7 @@ def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[st
     can require both the scheme AND host of the origin/referer to match
     the request URL.
 
-    Two correctness fixes over the previous prefix-stripping logic:
+    Parsing with ``urlsplit`` rather than stripping a prefix gets two cases right:
 
     1. **IPv6** — ``urlsplit("https://[2001:db8::1]:443").hostname``
        returns ``"2001:db8::1"`` cleanly; ``rsplit(":", 1)[0]`` would chop
@@ -126,9 +126,8 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     legacy browsers, in-app webviews, and anything that might ship
     cookies without honouring the SameSite attribute.
 
-    The comparison is **host-only by default**, not (scheme, host). A
-    previous hardening that always compared scheme and host broke real
-    reverse-proxy deployments where uvicorn sees
+    The comparison is **host-only by default**, not (scheme, host). Comparing
+    scheme and host would break reverse-proxy deployments where uvicorn sees
     ``request.url.scheme == "http"`` but the browser is on ``https://``
     and sets ``Origin: https://...``. Trusting ``X-Forwarded-Proto`` to
     rewrite the scheme is itself a footgun (it requires

@@ -37,8 +37,8 @@ def parse_iso_strict_utc(value: str | None) -> datetime | None:
 
     Unlike parse_iso_utc this rejects subtly malformed strings
     (trailing ``Z``, oversized fractional seconds, etc.) rather than
-    coercing them — use it where the previous inline code path treated
-    "unparseable" as "treat as expired / unknown".  Naive datetimes are
+    coercing them — use it where "unparseable" means "treat as expired /
+    unknown".  Naive datetimes are
     interpreted as UTC, matching parse_iso_utc's convention.
     """
     if not value:

@@ -85,7 +85,7 @@ def test_keep_page_active_state_has_h1():
 
 
 def test_download_page_has_h1():
-    """Download.html had no h1. The cinematic title is now an
+    """Download.html had no h1. The cinematic title is an
     h1, the queued state has an sr-only h1, and expired state has its
     own h1."""
     dl = _tpl("download.html")
@@ -100,7 +100,7 @@ def test_keep_page_posters_use_empty_alt():
     ``alt={{ item.title }}`` which would double-announce."""
     keep = _tpl("keep.html")
     assert 'alt="{{ item.title }}"' not in keep
-    # All three poster <img> blocks now use alt="".
+    # All three poster <img> blocks use alt="".
     poster_imgs = [line for line in keep.splitlines() if "/api/poster/" in line and "<img" in line]
     assert len(poster_imgs) >= 3
     for line in poster_imgs:
@@ -126,7 +126,7 @@ def test_protected_uses_poster_macro():
     # poster_url so the macro's img (with empty poster_alt) handles rendering.
     assert prot.count("call c.tile(") == 3
     assert prot.count('poster_url="/api/poster/"') == 3
-    # The standalone c.poster calls are retired — the macro is now SSOT.
+    # The standalone c.poster calls are retired — the macro is the single source.
     assert "{{ c.poster(item) }}" not in prot
 
 
@@ -198,9 +198,9 @@ def test_search_inline_script_renders_modal_title_as_h2():
 
 def test_recommended_inline_script_renders_modal_title_as_h2():
     """Recommended.html builds the title via DOM methods —
-    it must instantiate an h2 with the matching id. The script now lives
-    in static/js/recommended.js after the CSP-nonce extraction; the
-    template references it via a <script src> tag."""
+    it must instantiate an h2 with the matching id. The script lives
+    in static/js/recommended.js; the template references it via a
+    <script src> tag."""
     rec = _tpl("recommended.html")
     assert '<script src="/static/js/recommended.js" defer></script>' in rec
     rec_js = (REPO / "src/mediaman/web/static/js/recommended.js").read_text(encoding="utf-8")

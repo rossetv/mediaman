@@ -5,7 +5,7 @@
 and through ``test_mailgun.py`` (the full-jitter, connect-only POST path).
 These tests pin the pieces those suites do not reach directly: the
 cross-iteration carry-over state (the ``last_status`` / ``last_snippet``
-values) that the function decomposition threads through a ``_LoopState``, and
+values) that the retry loop threads through a ``_LoopState``, and
 the per-call retry options. If a future change mis-threads that state, the
 retry policy breaks silently — these tests fail loudly instead.
 """

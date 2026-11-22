@@ -72,7 +72,7 @@ class TestArrClientSonarr:
         assert _calls(fake_http, "PUT") == []
 
     def test_unmonitor_season_raises_when_season_missing(self, client, fake_http, fake_response):
-        """Missing season number now fails loudly rather than silently no-oping."""
+        """Missing season number fails loudly rather than silently no-oping."""
         fake_http.queue(
             "GET",
             fake_response(
@@ -301,13 +301,13 @@ class TestArrClientSonarr:
         assert result["id"] == 10
 
     def test_add_series_raises_when_no_root_folder(self, client, fake_http, fake_response):
-        """Empty rootfolder list now fails loudly instead of inventing /tv."""
+        """Empty rootfolder list fails loudly instead of inventing /tv."""
         fake_http.queue("GET", fake_response(json_data=[]))
         with pytest.raises(ArrConfigError, match="no root folders configured"):
             client.add_series(tvdb_id=1, title="Test")
 
     def test_add_series_raises_when_no_quality_profile(self, client, fake_http, fake_response):
-        """Empty qualityprofile list now fails loudly rather than picking id=4."""
+        """Empty qualityprofile list fails loudly rather than picking id=4."""
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
         fake_http.queue("GET", fake_response(json_data=[]))
         with pytest.raises(ArrConfigError, match="no quality profiles configured"):

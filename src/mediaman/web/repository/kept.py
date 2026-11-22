@@ -56,11 +56,11 @@ def resolve_show_rating_key(
 ) -> tuple[str | None, str | None]:
     """Return ``(resolved_key, error)`` for a keep-show request.
 
-    IDOR risk closed by this helper: the previous implementation fell back
-    to matching seasons by show_title whenever the supplied rating key was
-    missing on the stored rows.  Two distinct shows sharing a title (a
-    common case — remakes, international versions) collided in that branch
-    so user A keeping *Kingdom* would also match user B's *Kingdom* rows.
+    IDOR risk closed by this helper: it never falls back to matching seasons
+    by show_title when the supplied rating key is missing on the stored
+    rows.  Two distinct shows sharing a title (a common case — remakes,
+    international versions) would collide, so user A keeping *Kingdom*
+    would also match user B's *Kingdom* rows.
 
     Resolution rules:
       (a) supplied_key is present and at least one media_items row carries

@@ -1,7 +1,7 @@
 """Email rendering helpers for download-ready notifications.
 
 Owns the "build the Jinja template, gather TMDB/Sonarr/Radarr metadata,
-and render the email payload" concern.  Split from
+and render the email payload" concern, kept apart from
 mediaman.services.downloads.notifications so the orchestration
 file stays scannable; the orchestrator drives DB claims, *arr probes,
 and Mailgun dispatch only.

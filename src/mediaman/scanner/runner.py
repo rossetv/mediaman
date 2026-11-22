@@ -107,9 +107,9 @@ class PlexClientBundle(NamedTuple):
 logger = logging.getLogger(__name__)
 
 
-# Module-level Plex client cache. The previous code rebuilt PlexClient on
-# every ``run_library_sync`` call (every 30 min by default) — each rebuild
-# re-validates the URL via the SSRF guard and decrypts the stored token. The
+# Module-level Plex client cache. Rebuilding PlexClient on every
+# ``run_library_sync`` call (every 30 min by default) would re-validate the
+# URL via the SSRF guard and decrypt the stored token each time. The
 # cache reuses the existing client until the underlying settings change, keyed
 # on a hash of (raw plex_url, raw encrypted plex_token row). The hash
 # deliberately uses the raw encrypted token so we never need to decrypt just

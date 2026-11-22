@@ -1,4 +1,4 @@
-"""Radarr branch of the redownload flow, split out of .redownload.
+"""Radarr branch of the redownload flow.
 The shared lookup matcher and audit-ID picker live in ._redownload_match.
 """
 

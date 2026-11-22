@@ -93,7 +93,7 @@ def fetch_arr_queue(conn: sqlite3.Connection, secret_key: str) -> list[ArrCard]:
     Returns a list of download cards.  Movies are one card each.
     TV series are grouped into a single card with an ``episodes`` list.
 
-    This is the backward-compatible wrapper around ``fetch_arr_queue_result``.
+    This is the wrapper around ``fetch_arr_queue_result`` that drops its error report.
     Callers that need to surface fetch errors to the UI should use that function
     instead.
     """

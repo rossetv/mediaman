@@ -138,7 +138,7 @@ class BodySizeLimitMiddleware:
     # to decide whether a final 413 is still safe. Lifting them into a
     # factory would force that state into a shared mutable object, scattering
     # the request-size DoS-cap accounting away from its enforcement point;
-    # the declared-length fast path is extracted (``_declared_length_over_cap``)
+    # the declared-length fast path is a separate function (``_declared_length_over_cap``)
     # but the streaming counter stays co-located with its cap check by design.
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

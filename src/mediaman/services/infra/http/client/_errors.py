@@ -1,6 +1,6 @@
 """Error type for ``SafeHTTPClient``.
 
-Split out from the orchestration so both the request engine
+Kept apart from the orchestration so both the request engine
 (``_request``) and the client class (``_core``) can import
 ``SafeHTTPError`` without a circular dependency. Re-exported from the
 package barrel so ``from mediaman.services.infra.http.client import

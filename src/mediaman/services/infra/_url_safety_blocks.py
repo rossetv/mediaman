@@ -69,8 +69,7 @@ _ALLOWED_DOCKER_HOSTNAMES = frozenset(
 )
 
 #: IPv4 networks that have no legitimate outbound use. CGNAT (100.64/10)
-#: is the key addition over the old list — it is routable on a few ISPs
-#: but an attacker could still use it to reach a colocated admin panel.
+#: is routable on a few ISPs but an attacker could still use it to reach a colocated admin panel.
 _BLOCKED_V4_NETS = (
     ipaddress.ip_network("0.0.0.0/8"),  # "this" network
     ipaddress.ip_network("100.64.0.0/10"),  # CGNAT

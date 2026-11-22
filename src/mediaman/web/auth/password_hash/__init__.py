@@ -35,11 +35,11 @@ the digest (44 bytes — comfortably under bcrypt's limit) and feeding
 the result into bcrypt. Two distinct long passwords therefore have
 distinct SHA-256 digests and bcrypt sees full-entropy inputs.
 
-The gate is keyed on input length so existing ``admin_users`` rows
-hashed before this change landed continue to verify: any password short
+The gate is keyed on input length so ``admin_users`` rows
+hashed without the pre-hash still verify: any password short
 enough for bcrypt to accept directly (≤ 72 bytes) bypasses the pre-hash
-on both the set and verify paths and hits the same bytes the original
-``hashpw`` did. No backfill or lazy migration is required — the only
+on both the set and verify paths and hits the same bytes a plain
+``hashpw`` does. No backfill or lazy migration is required — the only
 behaviour change is for pathological inputs over 72 bytes, which
 nobody could ever have logged in with reliably anyway.
 

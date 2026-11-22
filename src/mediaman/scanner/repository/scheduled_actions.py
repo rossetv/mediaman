@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 # The action that means deletion is already lined up.
 DELETION_ACTION = "scheduled_deletion"
 
-# Re-export protection names so existing ``from .scheduled_actions import …``
-# call sites continue to resolve without change.
+# Re-export protection names so ``from .scheduled_actions import …``
+# call sites resolve.
 __all__ = [
     "DELETION_ACTION",
     "ClearedDeletions",

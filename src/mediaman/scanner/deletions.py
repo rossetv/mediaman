@@ -411,7 +411,7 @@ class DeletionExecutor:
         reclaimed_bytes = 0
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
         # Fail closed once, before the loop: deletion must refuse when
-        # MEDIAMAN_DELETE_ROOTS is unset. Lifted out of the per-row
+        # MEDIAMAN_DELETE_ROOTS is unset. Checked outside the per-row
         # loop so the refusal is logged a single time, not once per pending
         # row. Snooze cleanup below still runs so expired snoozes
         # re-enter the pipeline once roots are configured.

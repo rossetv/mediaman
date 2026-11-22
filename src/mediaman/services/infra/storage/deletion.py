@@ -232,7 +232,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
                 "Configure delete_allowed_roots with real directories only."
             )
 
-    # Missing: silent no-op (matches previous behaviour).
+    # Missing: silent no-op.
     try:
         lst = os.lstat(str(resolved))
     except FileNotFoundError:
