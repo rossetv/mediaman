@@ -116,6 +116,17 @@ class TestEnrichRecommendations:
         assert recs[0].get("imdb_rating") == "8.0"
         assert recs[0].get("metascore") == "75"
 
+    def test_season_title_stripped_for_omdb_lookup(self, conn):
+        cls, _inst = _mock_tmdb(search_return=None)
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}) as fr,
+        ):
+            recs = [_rec(title="Show — Season 2", media_type="tv")]
+            enrich_recommendations(recs, conn, _SECRET_KEY)
+
+        assert fr.call_args.args[0] == "Show"
+
     def test_imdb_score_used_as_fallback_rating(self, conn):
         """When TMDB has no rating, fall back to the IMDb score from OMDb."""
         cls, _inst = _mock_tmdb(search_return=None)
