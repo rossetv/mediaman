@@ -573,12 +573,21 @@
     });
   }
 
-  function removeKeep(mediaId) {
+  /* Guarded like a movie keep, on the same flag, so the row never has two
+     requests in flight. */
+  function removeKeep(btn, mediaId) {
+    var wrapper = btn.closest('.keep-wrapper');
+    if (!wrapper || wrapper.dataset.keepBusy === '1') return;
+    wrapper.dataset.keepBusy = '1';
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
       .catch(function (err) {
+        delete wrapper.dataset.keepBusy;
         var msg = (err && err.message) || 'Try again.';
+        if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't remove keep. " + msg);
+        var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+        if (trigger && focusStillIn(wrapper)) trigger.focus();
       });
   }
 
@@ -735,7 +744,7 @@
       /* dataset value is JSON-encoded by the template — parse it safely. */
       var mid;
       try { mid = JSON.parse(removeBtn.dataset.removeKeepId); } catch (_) { return; }
-      removeKeep(mid);
+      removeKeep(removeBtn, mid);
       return;
     }
     var deleteBtn = e.target.closest('[data-action="confirm-delete"]');
