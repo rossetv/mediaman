@@ -167,6 +167,17 @@
     /* Replaced by a page whose unsaved edits a login redirect would lose. */
     hasUnsavedChanges: function () { return false; },
 
+    /* The app's own message for a failure, or ``fallback``. Only a JSON body
+     * that set ``message`` counts: otherwise the error holds a status line
+     * or a bare code, which vary by proxy and mean nothing to a person. A
+     * lost connection keeps its own sentence. */
+    messageOf: function (err, fallback) {
+      if (!(err instanceof APIError)) return fallback;
+      if (err.error === 'network_error') return err.message;
+      var msg = err.data && err.data.message;
+      return (typeof msg === 'string' && msg) ? msg : fallback;
+    },
+
     get: function (endpoint, options) {
       return request('GET', endpoint, undefined, options);
     },

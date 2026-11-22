@@ -32,8 +32,12 @@
      Keep disabled until its chain settles, so two chains never interleave. */
   var _keepChains = {};
 
+  function chainKeyFor(showRk, showTitle) {
+    return showRk || 'title:' + showTitle;
+  }
+
   function keepChainKey() {
-    return _keepDialogState.showRk || 'title:' + _keepDialogState.showTitle;
+    return chainKeyFor(_keepDialogState.showRk, _keepDialogState.showTitle);
   }
 
   function trackKeepChain(key, chain) {
@@ -57,8 +61,9 @@
 
   /* While a chain for this show runs, neither Keep/Update nor Remove all may
      start another. When it settles, a dialog still showing the show reads the
-     seasons again, since the chain changed them. */
-  function holdKeepWhileSaving(request) {
+     seasons again, since the chain changed them; focusAfter, if given, says
+     what to focus once they are back. */
+  function holdKeepWhileSaving(request, focusAfter) {
     var note = keepChainNote();
     var chain = _keepChains[keepChainKey()];
     var confirmBtn = document.getElementById('keep-dialog-confirm');
@@ -72,7 +77,7 @@
       confirmBtn.disabled = false;
       removeBtn.disabled = false;
       note.textContent = '';
-      loadKeepSeasons();
+      loadKeepSeasons(focusAfter);
     });
   }
 
@@ -85,6 +90,15 @@
       return;
     }
     window.location.reload();
+  }
+
+  /* A press refused because another request is in flight: close the menu,
+     say why, and put focus back on the trigger. */
+  function explainBusy(wrapper, text) {
+    if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
+    window.UIFeedback.toast(text);
+    var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+    if (trigger) trigger.focus();
   }
 
   /**
@@ -102,13 +116,26 @@
     var hasRk = wrapper.dataset.hasRk === 'true';
 
     if (!isTv) {
+      /* A second click while the request runs sends nothing; the flag is
+         cleared only on failure, since success reloads the page. */
+      if (wrapper.dataset.keepBusy === '1') return;
+      wrapper.dataset.keepBusy = '1';
       MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
         { duration: duration })
         .then(reloadAfterKeep)
         .catch(function (err) {
-          var msg = (err && err.message) || 'Try again.';
+          delete wrapper.dataset.keepBusy;
+          var msg = MM.api.messageOf(err, 'Try again.');
+          if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
           window.UIFeedback.error("Couldn't save keep. " + msg);
+          var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+          if (trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
         });
+      return;
+    }
+    /* A Remove keep still running on this row would race the dialog's keep. */
+    if (wrapper.dataset.keepBusy === '1') {
+      explainBusy(wrapper, 'Still removing the keep for this show. Try again in a moment.');
       return;
     }
     _keepDialogState.showRk = showRk;
@@ -139,7 +166,9 @@
     return url;
   }
 
-  function loadKeepSeasons() {
+  /* focusAfter returns the element to focus once the seasons are shown; it
+     is used only while focus is still in the list or nowhere. */
+  function loadKeepSeasons(focusAfter) {
     _keepDialogState.showKept = false;
     _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
@@ -148,8 +177,7 @@
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     var confirmBtn = document.getElementById('keep-dialog-confirm');
     confirmBtn.textContent = 'Keep';
-    /* A keep still running for the show opened before must not lock this one. */
-    confirmBtn.disabled = false;
+    confirmBtn.disabled = true;
     var request = ++_keepDialogRequest;
     holdKeepWhileSaving(request);
     MM.api.get(url)
@@ -162,10 +190,40 @@
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
+        /* A keep still running for this show holds Keep until it settles. */
+        confirmBtn.disabled = !!_keepChains[keepChainKey()];
+        if (focusAfter && MM.dom.focusStillIn(list)) {
+          var target = focusAfter();
+          if (target) target.focus();
+        }
       })
       .catch(function () {
-        if (request === _keepDialogRequest) list.textContent = "Couldn't load seasons.";
+        if (request !== _keepDialogRequest) return;
+        showSeasonsLoadFailure(list, confirmBtn);
       });
+  }
+
+  /* Keep stays off until the seasons load, so it can never report an empty
+     pick; Retry reads them again. */
+  function showSeasonsLoadFailure(list, confirmBtn) {
+    confirmBtn.disabled = true;
+    list.replaceChildren();
+    var msg = document.createElement('span');
+    msg.textContent = "Couldn't load the seasons. ";
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn--secondary btn--sm';
+    retry.id = 'keep-seasons-retry';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', function () {
+      /* The button goes with the message; park focus on the list meanwhile. */
+      list.tabIndex = -1;
+      list.focus();
+      loadKeepSeasons(function () { return list.querySelector('input'); });
+    });
+    list.appendChild(msg);
+    list.appendChild(retry);
+    retry.focus();
   }
 
   function closeKeepDialog() {
@@ -256,6 +314,13 @@
 
     var btn = document.getElementById('keep-dialog-confirm');
     var btnLabel = btn.textContent;
+    /* Disabling the focused button would drop focus out of the dialog; park
+       it on the season list, as Retry does, until the button is back. */
+    var list = document.getElementById('keep-season-list');
+    if (document.activeElement === btn) {
+      list.tabIndex = -1;
+      list.focus();
+    }
     btn.disabled = true;
     btn.textContent = 'Keeping…';
     var removeAllBtn = document.getElementById('keep-dialog-remove');
@@ -280,9 +345,11 @@
     }
     function restoreButton() {
       if (!dialogIsOpen()) return;
+      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
       btn.disabled = false;
       btn.textContent = btnLabel;
       if (removeAllBtn) removeAllBtn.disabled = false;
+      if (refocus) btn.focus();
     }
     /* A keep that finished for a dialog no longer shown must not reload the
        page under the one that is. */
@@ -305,7 +372,7 @@
       )
         .then(done)
         .catch(function (err) {
-          var msg = (err && err.message) || 'Try again.';
+          var msg = MM.api.messageOf(err, 'Try again.');
           window.UIFeedback.error(say("Couldn't save keep. " + msg));
           restoreButton();
         });
@@ -437,8 +504,11 @@
       });
       trackKeepChain(chainKey, chain);
       /* Holds Keep and Remove all, then reads the seasons again, so a retry
-         sends only what is still kept. */
-      holdKeepWhileSaving(request);
+         sends only what is still kept. Remove all was disabled through the
+         requests, so focus fell to the page: after a failure it goes back. */
+      holdKeepWhileSaving(request, function () {
+        return failed.length ? removeBtn : null;
+      });
     });
   }
 
@@ -521,12 +591,27 @@
     });
   }
 
-  function removeKeep(mediaId) {
+  /* Guarded like a movie keep, on the same flag, so the row never has two
+     requests in flight. */
+  function removeKeep(btn, mediaId) {
+    var wrapper = btn.closest('.keep-wrapper');
+    if (!wrapper || wrapper.dataset.keepBusy === '1') return;
+    /* Nor while a keep from the dialog is still saving for this show. */
+    if (wrapper.dataset.tv === 'true' &&
+        _keepChains[chainKeyFor(wrapper.dataset.showRk || '', wrapper.dataset.showTitle || '')]) {
+      explainBusy(wrapper, 'Still saving the keep for this show. Try again in a moment.');
+      return;
+    }
+    wrapper.dataset.keepBusy = '1';
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Try again.';
+        delete wrapper.dataset.keepBusy;
+        var msg = MM.api.messageOf(err, 'Try again.');
+        if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't remove keep. " + msg);
+        var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+        if (trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
       });
   }
 
@@ -554,7 +639,28 @@
   var _searchTimer = null;
   function debounceSubmit() {
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
+    _searchTimer = setTimeout(function () {
+      /* The reload drops focus; the flag lets the next load put it back. */
+      try { sessionStorage.setItem('library-search-refocus', String(Date.now())); } catch (_) { /* focus is then simply not restored */ }
+      document.getElementById('toolbar-form').submit();
+    }, 400);
+  }
+
+  function refocusSearchAfterReload(input) {
+    var flagged = false;
+    try {
+      /* Only the load the submit itself led to may refocus: a flag left
+         behind by a submit that landed on another page is stale. */
+      var age = Date.now() - Number(sessionStorage.getItem('library-search-refocus'));
+      flagged = age >= 0 && age < 5000;
+      sessionStorage.removeItem('library-search-refocus');
+    } catch (_) { /* nothing stored, nothing to restore */ }
+    /* The search form always sends q, even empty; a load without it came
+       from somewhere else, such as the sign-in after an expired session. */
+    if (!flagged || !new URLSearchParams(window.location.search).has('q')) return;
+    input.focus();
+    var end = input.value.length;
+    input.setSelectionRange(end, end);
   }
 
   function wire() {
@@ -579,7 +685,7 @@
         MM.api.post('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete')
           .then(function () { window.location.reload(); })
           .catch(function (err) {
-            var msg = (err && err.message) || 'Try again.';
+            var msg = MM.api.messageOf(err, 'Try again.');
             window.UIFeedback.error("Couldn't delete item. " + msg);
           });
         closeDeleteModal();
@@ -635,6 +741,7 @@
     var searchInput = document.querySelector('#toolbar-form input[name="q"]');
     if (searchInput) {
       searchInput.addEventListener('input', debounceSubmit);
+      refocusSearchAfterReload(searchInput);
     }
   }
 
@@ -661,7 +768,7 @@
       /* dataset value is JSON-encoded by the template — parse it safely. */
       var mid;
       try { mid = JSON.parse(removeBtn.dataset.removeKeepId); } catch (_) { return; }
-      removeKeep(mid);
+      removeKeep(removeBtn, mid);
       return;
     }
     var deleteBtn = e.target.closest('[data-action="confirm-delete"]');

@@ -113,7 +113,7 @@
       });
       if (activeEl && id !== lastActiveHref && rail && rail.scrollWidth > rail.clientWidth) {
         var target = activeEl.offsetLeft - (rail.clientWidth - activeEl.offsetWidth) / 2;
-        rail.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+        rail.scrollTo({ left: Math.max(0, target), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       }
       lastActiveHref = id;
     }

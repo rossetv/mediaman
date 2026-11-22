@@ -123,6 +123,12 @@ def library_page(
     stats = fetch_stats(conn)
 
     total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        # A stale link or a reload after removing the last row lands past the end.
+        page = total_pages
+        items, total = fetch_library(
+            conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
+        )
     page_start = (page - 1) * per_page + 1 if total else 0
     page_end = min(page * per_page, total)
 

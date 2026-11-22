@@ -44,6 +44,9 @@
   let currentDetail   = null;
   let seasonTickState = new Map();
   let lockedSeasons   = new Set();
+  /* Bumped on every open and close so a delayed close can tell whether
+     the modal it was started in is still showing. */
+  let openCount       = 0;
 
   /* Injected at init time. */
   let _refreshCurrentView = null;
@@ -52,7 +55,10 @@
      setupDetail owns display:flex/none + aria-hidden + body overflow +
      ModalA11y registration. The close-bar button uses [data-close-modal]
      which is wired automatically. */
-  const detailModal = MM.modal.setupDetail(modal);
+  const detailModal = MM.modal.setupDetail(modal, {
+    /* Esc and backdrop close without going through closeModal. */
+    onClose: function() { openCount += 1; },
+  });
   function closeModal() { detailModal.close(); }
 
   function escapeHtml(v) { return MM.search.shelves.escapeHtml(v); }
@@ -78,6 +84,7 @@
   }
 
   async function openDetail(mediaType, tmdbId) {
+    openCount += 1;
     detailModal.open();
     resetModal();
     const loading = document.createElement("div");
@@ -127,16 +134,14 @@
         '</h2></div>';
     }
 
-    // genres are joined before escaping; the separator " · " contains no HTML
-    // special chars, so escapeHtml on the joined string catches any stray < > &
-    // in individual genre values — safe as-is.
-    const genres  = (d.genres || []).join(" · ");
     const runtime = d.runtime ? d.runtime + " min" : "";
     const quickBits = [
       '<span class="type-pill' + (d.media_type === "movie" ? " type-pill--movie" : "") + '">' + (d.media_type === "movie" ? "Movie" : "TV Series") + '</span>',
-      genres  ? '<span class="meta-text">' + escapeHtml(genres) + '</span>' : "",
-      runtime ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
-      d.director ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",
+      (d.genres || []).map(function(g) {
+        return '<span class="meta-text">' + escapeHtml(g) + '</span>';
+      }).join(""),
+      runtime ? '<span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
+      d.director ? '<span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",
     ].filter(Boolean).join("");
     modalEl.quick.innerHTML = quickBits;
 
@@ -328,6 +333,7 @@
   async function submitDownload(payload) {
     const btn = document.getElementById("modal-primary-btn");
     const label = btn.textContent;
+    const startedIn = openCount;
     btn.disabled    = true;
     btn.textContent = "Adding…";
     try {
@@ -335,12 +341,13 @@
       btn.textContent = "Added ✓";
       btn.classList.add("is-added");
       setTimeout(function() {
-        closeModal();
+        if (startedIn === openCount) closeModal();
         if (_refreshCurrentView) _refreshCurrentView();
       }, 1200);
     } catch (err) {
       btn.textContent = label;
       btn.disabled    = false;
+      btn.focus();
       const msg = (err && err.message) || "Failed";
       if (window.UIFeedback) window.UIFeedback.error(msg.slice(0, 200));
     }

@@ -121,6 +121,7 @@
 
   function triggerScan(btn) {
     btn.disabled = true;
+    btn.classList.remove('is-error', 'is-success');
     btn.classList.add('scan-running');
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
@@ -131,12 +132,19 @@
         if (data.status === 'already_running') updateScanStatus('Scan already in progress');
         pollScanStatus(btn);
       })
-      .catch(function () {
+      .catch(function (err) {
+        var reason = "Couldn't start the scan. " + MM.api.messageOf(err, 'Try again.');
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
         btn.disabled = false;
         updateScanStatus('');
+        var statusEl = document.getElementById('scan-status');
+        if (statusEl) {
+          statusEl.textContent = reason;
+          statusEl.classList.add('scan-status--error');
+        }
+        if (window.UIFeedback) window.UIFeedback.error(reason);
       });
   }
 
@@ -153,6 +161,7 @@
     }
 
     btn.disabled = true;
+    btn.classList.remove('is-error', 'is-success');
     btn.textContent = 'Adding…';
     MM.api.post('/api/media/redownload', payload)
       .then(function () {
@@ -160,8 +169,15 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Failed';
-        btn.textContent = msg.length < 30 ? msg : 'Failed';
+        var msg = MM.api.messageOf(err, '');
+        if (msg && msg.length < 30) {
+          btn.textContent = msg;
+        } else {
+          btn.textContent = 'Failed';
+          if (window.UIFeedback) {
+            window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
+          }
+        }
         btn.classList.add('is-error');
         btn.disabled = false;
       });
@@ -191,8 +207,7 @@
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
-        window.UIFeedback.error("Couldn't clear scheduled deletions. " + msg);
+        window.UIFeedback.error("Couldn't clear scheduled deletions. " + MM.api.messageOf(err, 'Try again.'));
         btn.disabled = false;
         btn.textContent = label;
       });
@@ -204,6 +219,10 @@
   function dashSubmitKeep(btn, duration) {
     var wrapper = btn.closest('.keep-wrapper');
     if (!wrapper) return;
+    /* A second click while the request runs sends nothing; the flag is
+       cleared only on failure, since success reloads the page. */
+    if (wrapper.dataset.keepBusy === '1') return;
+    wrapper.dataset.keepBusy = '1';
     var mediaId = wrapper.dataset.id;
     MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
       { duration: duration })
@@ -217,8 +236,14 @@
         window.location.reload();
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
+        delete wrapper.dataset.keepBusy;
+        var msg = MM.api.messageOf(err, 'Try again.');
+        if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't save keep. " + msg);
+        var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+        /* Focus left in the closed menu would be lost; the main button keeps its own. */
+        var menu = wrapper.querySelector('.snooze-dropdown');
+        if (trigger && menu && MM.dom.focusStillIn(menu)) trigger.focus();
       });
   }
 

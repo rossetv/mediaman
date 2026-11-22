@@ -146,7 +146,7 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: -.01em;
-  background: rgba(255,69,58,.92);
+  background: #d70015; /* opaque: white text is 5.4:1 whatever sits behind */
   color: #fff;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);

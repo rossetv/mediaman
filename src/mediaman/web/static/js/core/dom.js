@@ -28,6 +28,10 @@
  *     when e.target.closest(selector) matches inside container.
  *     Returns a cleanup function.
  *
+ *   MM.dom.focusStillIn(el)
+ *     True while focus is inside el or nowhere in particular. Used after a
+ *     slow request so a user who has moved on keeps their place.
+ *
  * No external dependencies. Safe to load in any order relative to other
  * core modules — no cross-module calls.
  */
@@ -41,6 +45,12 @@
     /** querySelector with optional context element. */
     q: function (selector, ctx) {
       return (ctx || document).querySelector(selector);
+    },
+
+    /** True while focus is inside el, or on the body (nowhere in particular). */
+    focusStillIn: function (el) {
+      var active = document.activeElement;
+      return !active || active === document.body || el.contains(active);
     },
 
     /** querySelectorAll — always returns a plain Array. */

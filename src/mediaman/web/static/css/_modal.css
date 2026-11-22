@@ -101,7 +101,8 @@
 .detail-modal-quick .type-pill--movie,
 .type-pill--movie { background: var(--rgba-orange-bg); color: var(--orange); }
 .meta-text { color: var(--t2); font-size: 13px; }
-.meta-dot { color: var(--t4); }
+/* The separator belongs to the item after it, so a dot can start a line but never end one. */
+.detail-modal-quick .meta-text + .meta-text::before { content: "·"; color: var(--t4); margin-right: 8px; }
 
 .detail-modal-ratings { display: flex; flex-wrap: wrap; gap: 6px; }
 .rating-pill {
@@ -378,6 +379,7 @@
 }
 .keep-season-item label,
 .keep-season-name { flex-shrink: 0; white-space: nowrap; }
+.keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }

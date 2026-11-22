@@ -64,9 +64,12 @@
 
     function renderStorage(s) {
       big.replaceChildren();
-      big.appendChild(document.createTextNode(s.used + ' '));
+      // Non-breaking spaces keep each figure with its unit, and the dot with
+      // the figure after it, so a wrapped line can start with "·" but never end with it.
+      var nb = function (v) { return String(v).replace(/ /g, '\u00a0'); };
+      big.appendChild(document.createTextNode(nb(s.used) + ' '));
       var small = document.createElement('small');
-      small.textContent = 'of ' + s.total + ' used · ' + s.free + ' free';
+      small.textContent = 'of ' + nb(s.total) + ' used ·\u00a0' + nb(s.free) + ' free';
       big.appendChild(small);
 
       bar.replaceChildren();

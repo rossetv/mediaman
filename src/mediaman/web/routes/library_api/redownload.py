@@ -20,6 +20,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.responses import respond_err
 from mediaman.web.routes.library_api._redownload_match import AddRefused
 from mediaman.web.routes.library_api._redownload_radarr import _redownload_movie
 from mediaman.web.routes.library_api._redownload_sonarr import _redownload_season
@@ -57,7 +58,7 @@ class _RedownloadRequest(BaseModel):
 
 
 def _bad_request(error: str) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": error}, status_code=400)
+    return respond_err(error, message=error)
 
 
 def _is_already_added(exc: SafeHTTPError) -> bool:
@@ -74,18 +75,19 @@ _ARR_FAILURES = (AddRefused, SafeHTTPError, requests.RequestException, ArrError,
 
 
 def _not_configured(service: str) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": f"{service} is not configured"}, status_code=409)
+    text = f"{service} is not configured"
+    return respond_err(text, status=409, message=text)
 
 
 def _arr_failure(exc: Exception, service: str, title: str) -> JSONResponse:
     if isinstance(exc, AddRefused):
         if _is_already_added(exc.cause):
-            return JSONResponse({"ok": False, "error": f"'{title}' already exists in {service}"})
+            text = f"'{title}' already exists in {service}"
+            return respond_err(text, status=200, message=text)
         exc = exc.cause
     logger.error("Re-download via %s failed for '%s': %s", service, title, exc, exc_info=exc)
-    return JSONResponse(
-        {"ok": False, "error": "Download request failed — check service connectivity"}
-    )
+    text = "Download request failed — check service connectivity"
+    return respond_err(text, status=200, message=text)
 
 
 @router.post("/api/media/redownload")
@@ -103,10 +105,8 @@ def api_media_redownload(
 
     if not _REDOWNLOAD_LIMITER.check(username):
         logger.warning("media.redownload_throttled user=%s", _sanitise_log_field(username))
-        return JSONResponse(
-            {"ok": False, "error": "Too many redownload requests — slow down"},
-            status_code=429,
-        )
+        text = "Too many redownload requests — slow down"
+        return respond_err(text, status=429, message=text)
 
     title = body.title.strip()[:256]
     if not title:
