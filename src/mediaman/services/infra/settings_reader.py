@@ -48,6 +48,20 @@ def get_media_path() -> str:
     return os.environ.get("MEDIAMAN_MEDIA_PATH", "/media").strip() or "/media"
 
 
+def plex_is_configured(conn: sqlite3.Connection) -> bool:
+    """Return whether both the Plex URL and token settings hold a value.
+
+    Reads the raw rows without decrypting the token, the same emptiness test
+    the scanner's client builder applies, so a rotated secret key does not
+    make a configured install look unconfigured.
+    """
+    rows = conn.execute(
+        "SELECT key, value FROM settings WHERE key IN ('plex_url', 'plex_token')"
+    ).fetchall()
+    filled = {r["key"] for r in rows if r["value"] and str(r["value"]).strip()}
+    return filled == {"plex_url", "plex_token"}
+
+
 def get_setting(
     conn: sqlite3.Connection,
     key: str,

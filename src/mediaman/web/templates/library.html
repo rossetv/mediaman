@@ -226,8 +226,16 @@
 
   {% else %}
   {# Empty state #}
-  {% set _empty_headline = "No results" if (q or current_type) else "Your library is empty" %}
-  {% set _empty_sub = "Try adjusting your search or filters." if (q or current_type) else "Run a scan to pull in media from Plex." %}
+  {% if q or current_type %}
+  {% set _empty_headline = "No results" %}
+  {% set _empty_sub = "Try adjusting your search or filters." %}
+  {% elif not plex_configured %}
+  {% set _empty_headline = "Connect Plex to get started" %}
+  {% set _empty_sub = '<a href="/settings">Open Settings</a> to add your Plex URL and token.' %}
+  {% else %}
+  {% set _empty_headline = "Your library is empty" %}
+  {% set _empty_sub = "Run a scan to pull in media from Plex." %}
+  {% endif %}
   {{ c.empty(_empty_headline, sub=_empty_sub) }}
   {% endif %}
 
