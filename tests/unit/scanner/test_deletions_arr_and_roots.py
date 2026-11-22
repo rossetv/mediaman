@@ -180,9 +180,8 @@ class TestVerifiedUnmonitor:
         [
             ({**_MOVIE, "tmdbId": 604}, "TMDB id"),
             ({**_MOVIE, "path": "/data/movies-4k/Film (2020) 4K"}, "folder"),
-            (None, "no entry"),
         ],
-        ids=["other-id", "other-folder", "missing"],
+        ids=["other-id", "other-folder"],
     )
     def test_a_movie_radarr_does_not_match_is_booked_deleted_and_not_unmonitored(
         self, conn, movie, entry, reason
@@ -325,6 +324,26 @@ class TestVerifiedUnmonitor:
         assert result["deleted"] == 1
         sonarr.unmonitor_season.assert_not_called()
 
+    def test_a_movie_radarr_has_no_entry_for_is_booked_without_an_audit_row(self, conn, movie):
+        conn.execute("UPDATE media_items SET radarr_id = NULL WHERE id = 'm1'")
+        conn.commit()
+        radarr = _radarr(None)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        radarr.unmonitor_movie.assert_not_called()
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
+
+    def test_a_season_sonarr_has_no_entry_for_is_booked_without_an_audit_row(self, conn, season):
+        sonarr = _sonarr(None)
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+        assert _audit(conn, "s1", "unmonitor_skipped") == []
+
     def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
         radarr = _radarr(_MOVIE)
         error = requests.HTTPError("not found")
@@ -334,7 +353,7 @@ class TestVerifiedUnmonitor:
         DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
         radarr.unmonitor_movie.assert_not_called()
-        assert "no entry" in _audit(conn, "m1", "unmonitor_skipped")[0]
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
 
     def test_no_radarr_configured_skips_the_unmonitor_without_an_audit_row(self, conn, movie):
         result = DeletionExecutor(conn=conn).execute()

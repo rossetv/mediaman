@@ -487,6 +487,10 @@ def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
     return {(os.path.basename(path), size) for path, size in sizes.items()}
 
 
+def _no_entry(is_movie: bool) -> str:
+    return "Radarr has no entry for this movie" if is_movie else "Sonarr has no entry for this show"
+
+
 def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
     tmdb_id = row.tmdb_id
@@ -498,7 +502,7 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         else client.get_movie_by_tmdb(tmdb_id)
     )
     if not entry or not isinstance(entry.get("id"), int):
-        return "Radarr has no entry for this movie"
+        return _no_entry(True)
     if entry.get("tmdbId") != tmdb_id:
         return "Radarr's entry is a different movie (TMDB id differs)"
     index = build_arr_index([entry], [])
@@ -537,7 +541,7 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
         else client.get_series_by_tvdb(tvdb_id)
     )
     if not series or not isinstance(series.get("id"), int):
-        return "Sonarr has no entry for this show"
+        return _no_entry(False)
     if series.get("tvdbId") != tvdb_id:
         return "Sonarr's entry is a different show (TVDB id differs)"
     index = build_arr_index([], [series])
@@ -584,8 +588,8 @@ def _unmonitor_deleted(
 
     Only ever unmonitors: the files are already gone, so a wrong match could
     at worst stop a download, never delete anything. With no client for the
-    item's kind there is nothing to unmonitor; any other skip is audited as
-    ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
+    item's kind, or no entry for the item in it, there is nothing to unmonitor;
+    any other skip is audited as ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
     committed, so a slow response never holds the write lock; does not commit.
     """
     is_movie = row.media_type == "movie"
@@ -597,11 +601,20 @@ def _unmonitor_deleted(
         reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS as exc:
         if _is_not_found(exc):
-            reason = f"{service} has no entry for this {'movie' if is_movie else 'show'}"
+            reason = _no_entry(is_movie)
         else:
             logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
             reason = f"{service} could not be reached or returned an error"
     if reason is None:
+        return
+    if reason == _no_entry(is_movie):
+        # Nothing to unmonitor, and nothing it could download again.
+        logger.info(
+            "engine.delete.unmonitor_none id=%s media_id=%s — %s",
+            row.id,
+            row.media_item_id,
+            reason,
+        )
         return
     logger.warning(
         "engine.delete.unmonitor_skipped id=%s media_id=%s — %s", row.id, row.media_item_id, reason
