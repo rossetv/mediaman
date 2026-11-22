@@ -133,8 +133,10 @@
         pollScanStatus(btn);
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
-        var reason = "Couldn't start the scan. " + msg;
+        /* With no message in the reply, the shared helper falls back to the
+           bare error code, which means nothing to a person. */
+        var msg = err instanceof MM.api.APIError && err.message !== err.error ? err.message : '';
+        var reason = "Couldn't start the scan. " + (msg || 'Try again.');
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
