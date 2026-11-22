@@ -20,6 +20,7 @@ from mediaman.services.arr.state import is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 
@@ -132,7 +133,7 @@ router = APIRouter()
 
 def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
     if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
-        logger.warning("search.download_throttled user=%s", admin)
+        logger.warning("search.download_throttled user=%s", _sanitise_log_field(admin))
         return JSONResponse(
             {"ok": False, "error": "Too many download requests — slow down"},
             status_code=429,
@@ -156,7 +157,7 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
     if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
             "search.download_duplicate_suppressed user=%s tmdb=%s type=%s seasons=%s",
-            admin,
+            _sanitise_log_field(admin),
             body.tmdb_id,
             body.media_type,
             seasons_token,

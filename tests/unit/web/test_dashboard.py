@@ -561,3 +561,28 @@ class TestScheduledSeasonRow:
 
         assert row["type_label"] == "ANIME \u00b7 S3"
         assert row["badge_class"] == "badge-anime"
+
+
+class TestScheduledSeasonPill:
+    def test_tv_season_pill_uses_the_tv_colour(self, app_factory, authed_client, conn):
+        insert_media_item(
+            conn,
+            id="sea2",
+            title="Show S3",
+            media_type="tv_season",
+            plex_rating_key="rk-sea2",
+            show_title="Show",
+            season_number=3,
+            file_path="/p",
+            file_size_bytes=1,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="sea2",
+            action="scheduled_deletion",
+            execute_at=(datetime.now(UTC) + timedelta(days=5)).isoformat(),
+        )
+
+        html = _dashboard_html(app_factory, authed_client, conn)
+
+        assert re.search(r'class="pill pill--tv">\s*TV · S3', html)

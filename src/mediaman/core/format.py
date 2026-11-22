@@ -46,6 +46,9 @@ def title_from_audit_detail(detail: str | None, *, strict: bool = False) -> str:
     dashboard/newsletter than a generic placeholder for a row that simply
     used an unrecognised wording.
 
+    ``"Not deleted: A \u2014 B \u2014 reason"`` yields ``"A"``: the text is ambiguous, so the
+    title ends at the first dash.
+
     With ``strict=True`` an unrecognised wording returns ``"Unknown"`` instead of the echo.
 
     Long inputs are truncated to _AUDIT_TITLE_MAX_INPUT before

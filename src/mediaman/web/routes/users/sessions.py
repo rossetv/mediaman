@@ -9,6 +9,7 @@ from starlette.responses import Response
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.reauth import revoke_all_reauth_for, revoke_reauth
 from mediaman.web.auth.session_store import (
@@ -84,7 +85,7 @@ def api_revoke_other_sessions(
         }
     )
     set_session_cookie(response, new_token, secure=is_request_secure(request))
-    logger.info("session.revoke_all user=%s revoked=%d", admin, destroyed)
+    logger.info("session.revoke_all user=%s revoked=%d", _sanitise_log_field(admin), destroyed)
     security_event(
         conn,
         event="session.revoke_all",

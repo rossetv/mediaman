@@ -71,7 +71,7 @@ def _short_circuit_authenticate(
         logger.warning(
             "auth.account_locked user=%s ip=%s reason=lockout_active",
             _sanitise_log_field(username),
-            _sanitise_log_field(client_ip),
+            client_ip,
         )
         return False
 

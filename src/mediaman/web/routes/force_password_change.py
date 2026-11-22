@@ -122,7 +122,7 @@ def _rotate_and_reissue(
     if not ok:
         logger.info(
             "force_password_change.wrong_old user=%s ip=%s",
-            username,
+            _sanitise_log_field(username),
             client_ip,
         )
         security_event(
@@ -183,7 +183,9 @@ def force_change_submit(
         return _render(error="Too many attempts — wait a moment and try again.")
     if not _FORCE_CHANGE_IP_LIMITER.check(client_ip):
         logger.warning(
-            "force_password_change.throttled user=%s scope=ip ip=%s", username, client_ip
+            "force_password_change.throttled user=%s scope=ip ip=%s",
+            _sanitise_log_field(username),
+            client_ip,
         )
         return _render(error="Too many attempts — wait a moment and try again.")
 

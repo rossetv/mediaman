@@ -26,6 +26,7 @@ from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.match import verify_movie, verify_season
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.delete_intents import (
     _complete_delete_intent,
@@ -476,7 +477,7 @@ def _finalise_delete(
         detail += f" [rk:{rk}]"
     finalise_delete_in_tx(conn, snapshot, media_id=media_id, audit_detail=detail, actor=username)
     _complete_delete_intent(conn, intent_id)
-    logger.info("Deleted %s (%s) by %s", media_id, title, username)
+    logger.info("Deleted %s (%s) by %s", media_id, title, _sanitise_log_field(username))
 
 
 @router.post("/api/media/{media_id}/delete")
@@ -501,7 +502,7 @@ def api_media_delete(
       drop the media_items row, mark the intent complete.
     """
     if not _DELETE_LIMITER.check(username):
-        logger.warning("media.delete_throttled user=%s", username)
+        logger.warning("media.delete_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many delete operations — slow down"
         )

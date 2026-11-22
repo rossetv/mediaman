@@ -113,7 +113,7 @@ def create_session(
         fingerprint = ""
     logger.debug(
         "session.fingerprint_issued user=%s mode=%s bound=%s",
-        username,
+        _sanitise_log_field(username),
         mode,
         bool(fingerprint),
     )
@@ -194,7 +194,7 @@ def validate_session(
         if expires_dt is None:
             logger.info(
                 "session.hard_expiry_unparseable user=%s expires_at=%r",
-                row["username"],
+                _sanitise_log_field(row["username"]),
                 row["expires_at"],
             )
         _try_delete_session(conn, token_hash, reason="corrupt_expiry")
@@ -300,7 +300,9 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
         revoke_all_reauth_for(conn, username)
     except sqlite3.Error:
         logger.warning(
-            "session.destroy_all: revoke_all_reauth_for failed user=%s", username, exc_info=True
+            "session.destroy_all: revoke_all_reauth_for failed user=%s",
+            _sanitise_log_field(username),
+            exc_info=True,
         )
     return cur.rowcount
 

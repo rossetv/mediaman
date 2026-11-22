@@ -131,7 +131,7 @@ def _flag_weak_password(
         if not already_flagged:
             logger.info(
                 "auth.weak_password_detected user=%s ip=%s — flagged for rotation",
-                username,
+                _sanitise_log_field(username),
                 client_ip,
             )
             security_event(

@@ -170,7 +170,7 @@ def clear_scheduled(
         "Cleared %d scheduled deletions (%d already being deleted) by %s",
         result.cleared,
         result.already_deleting,
-        admin,
+        _sanitise_log_field(admin),
     )
     return {"ok": True, "cleared": result.cleared, "already_deleting": result.already_deleting}
 
