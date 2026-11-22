@@ -53,11 +53,12 @@ def test_sidecars_of_a_tracked_film_go_but_a_stem_prefix_film_keeps_its_own(tmp_
         _write(folder / "Alien.srt"),
         _write(folder / "Alien.en.srt"),
         _write(folder / "Alien.pt-BR.forced.ass"),
+        _write(folder / "Alien.zh-Hans.srt"),
+        _write(folder / "Alien.ger.sdh.srt"),
         _write(folder / "Alien.nfo"),
     ]
     kept = [
         _write(folder / "Alien.Resurrection.en.srt"),
-        _write(folder / "Alien.mp4"),
         _write(folder / "Alien.Two.mkv"),
         _write(folder / "Alien.Two.srt"),
     ]
@@ -217,6 +218,32 @@ def test_a_folder_reached_through_a_symlinked_parent_is_not_removed(tmp_path):
         remove_empty_folders(result.removed, allowed_roots=[str(root)], boundaries=boundaries) == []
     )
     assert (root / "Real").is_dir()
+
+
+def test_a_word_that_is_no_language_tag_does_not_make_a_sidecar(tmp_path):
+    root = tmp_path / "movies"
+    folder = root / "Alien"
+    film = _write(folder / "Alien.mkv")
+    other_film = _write(folder / "Alien.Two.mts")
+    kept = [_write(folder / "Alien.Two.srt"), _write(folder / "Alien.the.nfo")]
+
+    delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+
+    assert not film.exists()
+    assert other_film.exists()
+    assert all(k.exists() for k in kept)
+
+
+def test_a_sidecar_stays_while_another_file_with_its_stem_remains(tmp_path):
+    root = tmp_path / "movies"
+    film = _write(root / "Film" / "Film.mkv")
+    other_cut = _write(root / "Film" / "Film.mp4")
+    subtitles = _write(root / "Film" / "Film.en.srt")
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+
+    assert result.removed == [str(film)]
+    assert other_cut.exists() and subtitles.exists()
 
 
 def test_a_protected_tracked_file_is_kept_and_reported(tmp_path):

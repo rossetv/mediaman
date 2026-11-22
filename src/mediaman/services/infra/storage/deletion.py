@@ -367,17 +367,27 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
 
 
 _SIDECAR_EXTENSIONS = frozenset({"srt", "ass", "ssa", "sub", "idx", "vtt", "nfo"})
-_VIDEO_EXTENSIONS = frozenset(
-    {
-        "3gp", "avi", "divx", "flv", "iso", "m2ts", "m4v", "mkv", "mov",
-        "mp4", "mpeg", "mpg", "ogm", "ts", "vob", "webm", "wmv",
-    }
-)  # fmt: skip
-# A part between the stem and the extension: a language code such as "en",
-# "pt-BR" or "zh-Hans", or a subtitle flag.
-_SIDECAR_TAG = re.compile(
-    r"[a-z]{2,3}(?:[-_][a-z0-9]{2,4})?|forced|sdh|cc|hi|default|foreign", re.IGNORECASE
-)
+_SUBTITLE_FLAGS = frozenset({"forced", "sdh", "cc", "hi", "default", "foreign"})
+# ISO 639-1, then the common ISO 639-2 codes. The bibliographic codes that are
+# also English words (may, per, ice, ...) are left out; their terminology
+# codes (msa, fas, isl, ...) stand in.
+_ISO_639_CODES = """
+    aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch
+    co cr cs cu cv cy da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga
+    gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja
+    jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv
+    mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or
+    os pa pi pl ps pt qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr
+    ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi
+    vo wa wo xh yi yo za zh zu
+    afr amh ara aze bos bul cat ces chi cym cze dan deu dut ell eng est eus fas
+    fil fin fra fre ger gle glg gre guj heb hin hrv hun hye ind isl ita jpn kan
+    kat kaz khm kor lao lav lit mal mkd msa mya nep nld nno nob nor pol por ron
+    rus slk slv spa sqi srp swa swe tel tgl tha tur ukr und urd uzb vie yue zho
+"""
+_LANGUAGE_CODES = frozenset(_ISO_639_CODES.split())
+# A language code with an optional region ("pt-BR", "es-419") or script ("zh-Hans").
+_LANGUAGE_TAG = re.compile(r"([a-z]{2,3})(?:[-_](?:[a-z]{2}|[0-9]{3}|[a-z]{4}))?", re.IGNORECASE)
 _ARTWORK = re.compile(
     r"(?:poster|fanart|folder|banner|landscape|clearlogo|clearart|thumb|discart"
     r"|season[a-z0-9-]*-(?:poster|banner|fanart))\.(?:jpg|png)",
@@ -420,9 +430,12 @@ def delete_tracked_files(
     ``failed`` (with its sidecars left alone) and the others still go.
 
     A sidecar is a regular file beside the video named ``<stem>.<tags>.<ext>``
-    with only language or flag tags and a subtitle or ``.nfo`` extension. A
-    file that a longer video stem in the folder claims (``Alien.Two.srt`` when
-    ``Alien.Two.mkv`` is there) belongs to that video. A path in
+    with only language (ISO 639) or flag tags and a subtitle or ``.nfo``
+    extension. Any other file in the folder whose extension is not a sidecar
+    one owns the sidecars of its stem: while one with the video's own stem
+    remains (``Film.mp4`` beside ``Film.mkv``) no sidecar is removed, and a
+    longer stem claims its own (``Alien.Two.srt`` beside ``Alien.Two.mts``
+    belongs to that file). A path in
     *protected_paths* (tracked by other items) is never removed, whether it
     is spelled as given or reached through a symlinked folder: a protected
     tracked file is kept, with its sidecars, and reported in
@@ -631,14 +644,21 @@ def _sidecars_of(video: Path, protected: dict[str, list[str]]) -> list[Path]:
     real_folder = folder.resolve()
     try:
         with os.scandir(real_folder) as entries:
-            names = [e.name for e in entries if e.is_file(follow_symlinks=False)]
+            regular = {
+                e.name: e.is_file(follow_symlinks=False)
+                for e in entries
+                if not e.is_dir(follow_symlinks=False)
+            }
     except OSError:
         return []
     stem = video.stem
-    video_stems = {stem} | {Path(n).stem for n in names if _extension(n) in _VIDEO_EXTENSIONS}
+    owner_stems = {Path(n).stem for n in regular if _extension(n) not in _SIDECAR_EXTENSIONS}
+    if stem in owner_stems:
+        return []
+    owner_stems.add(stem)
     sidecars: list[Path] = []
-    for name in names:
-        if not _is_sidecar(name, stem, video_stems):
+    for name, is_regular in regular.items():
+        if not is_regular or not _is_sidecar(name, stem, owner_stems):
             continue
         candidate = folder / name
         if _is_protected(candidate, protected):
@@ -647,15 +667,22 @@ def _sidecars_of(video: Path, protected: dict[str, list[str]]) -> list[Path]:
     return sidecars
 
 
-def _is_sidecar(name: str, stem: str, video_stems: set[str]) -> bool:
+def _is_sidecar_tag(tag: str) -> bool:
+    if tag.lower() in _SUBTITLE_FLAGS:
+        return True
+    match = _LANGUAGE_TAG.fullmatch(tag)
+    return match is not None and match.group(1).lower() in _LANGUAGE_CODES
+
+
+def _is_sidecar(name: str, stem: str, owner_stems: set[str]) -> bool:
     if not name.startswith(stem + "."):
         return False
     *tags, extension = name[len(stem) + 1 :].split(".")
     if extension.lower() not in _SIDECAR_EXTENSIONS:
         return False
-    if not all(_SIDECAR_TAG.fullmatch(tag) for tag in tags):
+    if not all(_is_sidecar_tag(tag) for tag in tags):
         return False
-    owner = max((s for s in video_stems if name.startswith(s + ".")), key=len)
+    owner = max((s for s in owner_stems if name.startswith(s + ".")), key=len)
     return owner == stem
 
 
