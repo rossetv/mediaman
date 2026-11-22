@@ -8,6 +8,7 @@ import logging
 import sqlite3
 import threading
 
+import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -21,6 +22,7 @@ from mediaman.db import (
     start_refresh_run,
 )
 from mediaman.services.arr.build import build_plex_from_db
+from mediaman.services.infra import SSRFRefused
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.throttle import (
     RECOMMENDATION_REFRESH_COOLDOWN_HOURS,
@@ -196,7 +198,12 @@ def api_refresh_recommendations(
         return JSONResponse({"status": "already_running"})
 
     config = request.app.state.config
-    plex = build_plex_from_db(conn, config.secret_key)
+    try:
+        plex = build_plex_from_db(conn, config.secret_key)
+    except (SSRFRefused, requests.RequestException, ValueError):
+        logger.exception("Could not build the Plex client for a manual refresh")
+        finish_refresh_run(conn, run_id, "error", "Plex client could not be built")
+        return JSONResponse({"ok": False, "error": "Could not connect to Plex"})
     if not plex:
         finish_refresh_run(conn, run_id, "error", "Plex not configured")
         return JSONResponse({"ok": False, "error": "Plex not configured"})

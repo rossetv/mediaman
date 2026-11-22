@@ -111,6 +111,20 @@ class TestPlexLibrariesEndpoint:
         assert data["libraries"] == []
         assert data["error"] == "fetch_failed"
 
+    def test_returns_fetch_failed_when_plex_url_is_refused(self, app_factory, authed_client, conn):
+        from mediaman.services.infra import SSRFRefused
+
+        client = _client(app_factory, authed_client, conn)
+        with patch(
+            "mediaman.web.routes.settings.api.build_plex_from_db",
+            side_effect=SSRFRefused("blocked"),
+        ):
+            resp = client.get("/api/plex/libraries")
+
+        assert resp.status_code == 200
+        assert resp.json()["error"] == "fetch_failed"
+        assert resp.json()["libraries"] == []
+
     def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""
         app = _app(app_factory, conn)
