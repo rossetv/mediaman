@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
@@ -143,3 +144,44 @@ class TestFolderCleanupFailure:
         assert _status(conn) is None
         assert _actions(conn, "delete_failed_permanent") == []
         assert "folder busy" in _actions(conn, "delete_folders_failed")[0]["detail"]
+
+
+class TestRecoveryProof:
+    def _stuck(self, conn, two_parts):
+        conn.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
+        conn.commit()
+
+    def test_files_gone_without_a_record_of_removing_them_are_not_booked_deleted(
+        self, conn, two_parts, tmp_path
+    ):
+        # Both parts moved away while the row was stuck; the folders still hold other files.
+        for part in two_parts:
+            os.rename(part, tmp_path / part.name)
+            (part.parent / "other.mkv").write_bytes(b"x")
+        self._stuck(conn, two_parts)
+
+        booked = recover_stuck_deletions(conn)
+
+        assert booked == []
+        assert _status(conn) == "pending"
+        assert _actions(conn, "deleted") == []
+        assert len(_actions(conn, "delete_awaiting_scan")) == 1
+
+    def test_files_this_deletion_recorded_removing_are_booked_with_the_recorded_bytes(
+        self, conn, two_parts
+    ):
+        cd1, cd2 = two_parts
+        _pass_with_cd2_locked(conn, cd2)
+        cd2.unlink()
+        (cd2.parent / "poster.jpg").write_bytes(b"p")
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = json_set(removed_files, '$.paths',"
+            " json_array(?, ?)), delete_status = 'deleting'",
+            (str(cd1), str(cd2)),
+        )
+        conn.commit()
+
+        recover_stuck_deletions(conn)
+
+        assert _status(conn) is None
+        assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [4]

@@ -38,6 +38,15 @@ def _track(conn, media_id, *paths):
     conn.commit()
 
 
+def _record_removed(conn, media_id, *paths, size=0):
+    """Record *paths* as removed by an earlier pass of the item's deletion."""
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = ? WHERE media_item_id = ?",
+        (json.dumps({"paths": [str(p) for p in paths], "bytes": size}), media_id),
+    )
+    conn.commit()
+
+
 def _insert_media(conn, *, media_id="m1", title="Test Film", file_path="/tmp/test.mkv"):
     """Insert a movie whose one tracked file is *file_path* (none for a blank path)."""
     insert_media_item(
@@ -289,6 +298,7 @@ class TestRecoverStuckDeletions:
             token_used=False,
             delete_status="deleting",
         )
+        _record_removed(conn, "m3", missing_path)
 
         recover_stuck_deletions(conn)
 
@@ -1475,6 +1485,7 @@ class TestKeepAndClearAroundARemoval:
             token_used=False,
             delete_status="deleting",
         )
+        _record_removed(conn, "m1", root / "Gone.mkv")
 
         recover_stuck_deletions(conn)
 
@@ -2044,6 +2055,7 @@ class TestTrackedFiles:
             token_used=False,
             delete_status="deleting",
         )
+        _record_removed(conn, "s1", folder / "Show - s01e01.mkv", size=300)
 
         recover_stuck_deletions(conn)
 

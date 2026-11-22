@@ -242,7 +242,10 @@ class TestVerifiedUnmonitor:
     def test_a_deletion_completed_by_crash_recovery_is_unmonitored(self, conn, movie):
         movie.unlink()
         (movie.parent / "poster.jpg").write_bytes(b"x")
-        conn.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status = 'deleting', removed_files = ?",
+            (json.dumps({"paths": [str(movie)], "bytes": 4}),),
+        )
         conn.commit()
         radarr = _radarr(_MOVIE)
 

@@ -111,14 +111,6 @@ def _folder_limit(row: DeletionRow, path: str) -> str:
     return folder
 
 
-def _tracked_size(row: DeletionRow) -> int:
-    return sum(
-        size
-        for entry in row.tracked_files or []
-        if isinstance(entry, dict) and isinstance(size := entry.get("size"), int)
-    )
-
-
 def _first_unavailable(paths: list[str], allowed_roots: list[str]) -> str | None:
     """Return the folder found missing or empty above any of *paths*, else None."""
     # One check per folder: files beside each other share the answer.
@@ -138,14 +130,18 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
 
     * No tracked files recorded -> nothing proves the files are gone. Reset
       to ``pending``; the live pass then waits for a scan to record them.
-    * Every tracked file absent **and** each stored path was within the
-      configured delete roots -> the removal completed but the follow-up
-      bookkeeping was never committed. Convert to a normal ``deleted``
-      cleanup: write the audit entry (crediting the tracked files' sizes)
-      and drop the row. Folders left holding only artwork do not count as
-      files. If a keep or snooze was written over the row during the
-      removal, the keep stands: audit that the media is gone and reset to
-      ``pending``, never booking it as a scheduled deletion.
+    * Every tracked file absent, but one not recorded as removed by an
+      earlier pass of this deletion -> nothing proves mediaman removed it
+      (it may only have moved). Reset to ``pending`` and audit once that it
+      waits for a scan, as the live pass does.
+    * Every tracked file absent and recorded as removed, **and** each stored
+      path was within the configured delete roots -> the removal completed
+      but the follow-up bookkeeping was never committed. Convert to a normal
+      ``deleted`` cleanup: write the audit entry (crediting the recorded
+      bytes) and drop the row. Folders left holding only artwork do not
+      count as files. If a keep or snooze was written over the row during
+      the removal, the keep stands: audit that the media is gone and reset
+      to ``pending``, never booking it as a scheduled deletion.
     * Files absent **but** a stored path was NOT within the configured
       delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
       the crash and restart, or the path was always bogus) -> mediaman
@@ -213,6 +209,23 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
             )
             _audit_root_unavailable(conn, row, unavailable)
             repository.mark_delete_status(conn, row.id, "pending")
+        elif not {str(Path(path)) for path in paths} <= row.removed_paths:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r — files gone, but this deletion did not "
+                "record removing them all; reverting status to 'pending' until a scan "
+                "records where they are",
+                row.id,
+                row.file_path,
+            )
+            _audit_once(
+                conn,
+                row,
+                "delete_awaiting_scan",
+                f"Not deleted yet: {row.title} — its files are gone, but mediaman did not "
+                "record removing them; the deletion waits for the next scan to record "
+                "where they are",
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
         elif row.action != DELETION_ACTION:
             logger.warning(
                 "engine.delete.recover id=%s path=%r action=%r — files gone, but the "
@@ -236,7 +249,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
                 row.id,
                 row.file_path,
             )
-            _book_deleted(conn, row, "Deleted (recovered)", _tracked_size(row) or None)
+            _book_deleted(conn, row, "Deleted (recovered)", row.removed_bytes or None)
             booked.append(row)
         conn.commit()
     return booked
