@@ -1247,6 +1247,18 @@ class TestMediaRedownload:
         sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2], [2])
         sonarr.remonitor_season.assert_not_called()
 
+    @pytest.mark.parametrize("held", [True, False], ids=["remonitored", "added"])
+    def test_a_season_redownload_is_audited_under_the_token_the_dashboard_matches(
+        self, post, conn, held
+    ):
+        sonarr = MagicMock()
+        sonarr.get_series_by_tvdb.return_value = {"id": 202, "tvdbId": 999} if held else None
+        post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
+        rows = conn.execute(
+            "SELECT media_item_id FROM audit_log WHERE action = 're_downloaded'"
+        ).fetchall()
+        assert [r["media_item_id"] for r in rows] == ["tvdb:999:s2"]
+
     def test_a_movie_request_without_radarr_is_refused(self, post):
         resp = post({"title": "Dune", "tmdb_id": 42}, radarr=None, sonarr=MagicMock())
         assert resp.status_code == 409
