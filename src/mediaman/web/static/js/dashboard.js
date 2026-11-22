@@ -119,6 +119,14 @@
     }, 3000);
   }
 
+  /* The server's reason, or "Try again." when it gave none: with no message
+     in the reply the shared helper falls back to the bare error code, which
+     means nothing to a person. */
+  function failureReason(err) {
+    var msg = err instanceof MM.api.APIError && err.message !== err.error ? err.message : '';
+    return msg || 'Try again.';
+  }
+
   function triggerScan(btn) {
     btn.disabled = true;
     btn.classList.remove('is-error', 'is-success');
@@ -133,10 +141,7 @@
         pollScanStatus(btn);
       })
       .catch(function (err) {
-        /* With no message in the reply, the shared helper falls back to the
-           bare error code, which means nothing to a person. */
-        var msg = err instanceof MM.api.APIError && err.message !== err.error ? err.message : '';
-        var reason = "Couldn't start the scan. " + (msg || 'Try again.');
+        var reason = "Couldn't start the scan. " + failureReason(err);
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
@@ -202,8 +207,7 @@
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
-        window.UIFeedback.error("Couldn't clear scheduled deletions. " + msg);
+        window.UIFeedback.error("Couldn't clear scheduled deletions. " + failureReason(err));
         btn.disabled = false;
         btn.textContent = label;
       });
