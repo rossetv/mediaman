@@ -258,7 +258,12 @@
     var request = _keepDialogRequest;
     var chainKey = keepChainKey();
     var chain;
+    var showTitle = _keepDialogState.showTitle;
     function dialogIsOpen() { return request === _keepDialogRequest; }
+    /* A toast from a dialog no longer shown must say whose keep it is. */
+    function say(msg) {
+      return dialogIsOpen() || !showTitle ? msg : showTitle + ': ' + msg;
+    }
     function restoreButton() {
       if (!dialogIsOpen()) return;
       btn.disabled = false;
@@ -268,6 +273,9 @@
        page under the one that is. */
     function done(data) {
       if (dialogIsOpen()) reloadAfterKeep(data);
+      else if (data && data.deletion_running && data.message) {
+        window.UIFeedback.toast(say(data.message), { duration: 8000 });
+      }
     }
 
     if (allChecked) {
@@ -283,7 +291,7 @@
         .then(done)
         .catch(function (err) {
           var msg = (err && err.message) || 'Try again.';
-          window.UIFeedback.error("Couldn't save keep. " + msg);
+          window.UIFeedback.error(say("Couldn't save keep. " + msg));
           restoreButton();
         });
     } else {
@@ -345,9 +353,9 @@
       });
       chain = keepChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Keep failed for: ' + failed.join(', '));
+          window.UIFeedback.error(say('Keep failed for: ' + failed.join(', ')));
           if (running && running.message) {
-            window.UIFeedback.toast(running.message, { duration: 8000 });
+            window.UIFeedback.toast(say(running.message), { duration: 8000 });
           }
           restoreButton();
         } else {
