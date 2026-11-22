@@ -23,6 +23,10 @@ def _tracked(*paths):
     return [{"path": str(p), "size": p.stat().st_size if p.exists() else 0} for p in paths]
 
 
+def _up_to(result, folder):
+    return {path: str(folder) for path in result.removed}
+
+
 def test_untracked_episode_and_its_season_folder_are_kept(tmp_path):
     root = tmp_path / "tv"
     season = root / "Show" / "Season 01"
@@ -31,7 +35,9 @@ def test_untracked_episode_and_its_season_folder_are_kept(tmp_path):
     untracked = _write(season / "Show S01E03.mkv")
 
     result = delete_tracked_files(_tracked(e1, e2), allowed_roots=[str(root)])
-    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=_up_to(result, root / "Show")
+    )
 
     assert not e1.exists() and not e2.exists()
     assert untracked.exists()
@@ -84,7 +90,9 @@ def test_a_folder_left_with_only_artwork_goes_and_a_busy_parent_stays(tmp_path):
     kept = _write(show / "Season 01" / "Show S01E01.mkv")
 
     result = delete_tracked_files(_tracked(episode), allowed_roots=[str(root)])
-    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=_up_to(result, show)
+    )
 
     assert removed_folders == [str(season)]
     assert not season.exists()
@@ -99,7 +107,10 @@ def test_a_folder_with_non_artwork_left_is_kept(tmp_path):
 
     result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
 
-    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    boundaries = _up_to(result, root / "Film")
+    assert (
+        remove_empty_folders(result.removed, allowed_roots=[str(root)], boundaries=boundaries) == []
+    )
     assert notes.exists() and (root / "Film" / "poster.jpg").exists()
 
 
@@ -110,7 +121,9 @@ def test_emptied_folders_walk_up_but_stop_below_the_root(tmp_path):
     _write(root / "Show" / "season01-poster.png")
 
     result = delete_tracked_files(_tracked(episode), allowed_roots=[str(root)])
-    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=_up_to(result, root / "Show")
+    )
 
     assert removed_folders == [str(root / "Show" / "Season 01"), str(root / "Show")]
     assert root.is_dir()
@@ -164,7 +177,9 @@ def test_a_symlinked_sidecar_and_a_symlinked_folder_are_not_followed(tmp_path):
     os.symlink(tmp_path / "elsewhere", linked_dir)
 
     result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
-    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=_up_to(result, root / "Film")
+    )
 
     assert elsewhere.exists()
     assert (root / "Film" / "Film.en.srt").is_symlink()
@@ -180,7 +195,10 @@ def test_a_folder_holding_a_symlinked_poster_is_kept(tmp_path):
 
     result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
 
-    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    boundaries = _up_to(result, root / "Film")
+    assert (
+        remove_empty_folders(result.removed, allowed_roots=[str(root)], boundaries=boundaries) == []
+    )
     assert (root / "Film" / "poster.jpg").is_symlink() and elsewhere.exists()
 
 
@@ -194,5 +212,53 @@ def test_a_folder_reached_through_a_symlinked_parent_is_not_removed(tmp_path):
     )
 
     assert not film.exists()
-    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    boundaries = _up_to(result, root / "Real")
+    assert (
+        remove_empty_folders(result.removed, allowed_roots=[str(root)], boundaries=boundaries) == []
+    )
     assert (root / "Real").is_dir()
+
+
+def test_emptied_folders_are_not_removed_above_the_boundary(tmp_path):
+    root = tmp_path / "data"
+    film = _write(root / "movies" / "Film" / "Film.mkv")
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=_up_to(result, film.parent)
+    )
+
+    assert removed_folders == [str(film.parent)]
+    assert (root / "movies").is_dir()
+
+
+def test_a_configured_root_below_the_boundary_is_never_removed(tmp_path):
+    outer = tmp_path / "x"
+    movies = outer / "library" / "movies"
+    film = _write(movies / "F" / "F.mkv")
+    roots = [str(outer), str(movies)]
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=roots)
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=roots, boundaries=_up_to(result, outer / "library")
+    )
+
+    assert removed_folders == [str(movies / "F")]
+    assert movies.is_dir()
+
+
+@pytest.mark.parametrize("boundary", ["root", "outside", "missing"])
+def test_a_boundary_that_is_not_below_a_root_removes_only_the_files_own_folder(tmp_path, boundary):
+    root = tmp_path / "tv"
+    episode = _write(root / "Show" / "Season 01" / "e01.mkv")
+    _write(root / "Show" / "fanart.jpg")
+    given = {"root": str(root), "outside": str(tmp_path / "elsewhere"), "missing": None}[boundary]
+    boundaries = {} if given is None else {str(episode): given}
+
+    result = delete_tracked_files(_tracked(episode), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(
+        result.removed, allowed_roots=[str(root)], boundaries=boundaries
+    )
+
+    assert removed_folders == [str(root / "Show" / "Season 01")]
+    assert (root / "Show" / "fanart.jpg").exists()

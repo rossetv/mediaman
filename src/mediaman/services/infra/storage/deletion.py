@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import re
 import stat as _stat
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -447,29 +447,60 @@ def delete_tracked_files(
     return TrackedFilesResult(removed=removed, bytes_freed=freed, not_found=not_found)
 
 
-def remove_empty_folders(removed_files: list[str], *, allowed_roots: list[str]) -> list[str]:
+def remove_empty_folders(
+    removed_files: list[str], *, allowed_roots: list[str], boundaries: Mapping[str, str]
+) -> list[str]:
     """Remove the folders *removed_files* left bare, walking up; return those removed.
 
     A folder is bare when it holds nothing, or only regular files that are
     standard artwork (``poster.jpg``, ``season01-banner.png`` and the like) or
     ``.nfo`` files; those files are removed first, then the folder. The walk
-    stops at the first folder that is not bare, never reaches a delete root
-    or a denied folder, and stops on any symlink, subfolder or other device.
-    A folder reached through a symlinked parent is skipped. Raises
-    ``DeletionRefused`` only for a bad allowlist.
+    stops at the first folder that is not bare, never removes a delete root,
+    a folder above one or a denied folder, and stops on any symlink,
+    subfolder or other device. A folder reached through a symlinked parent is
+    skipped. Raises ``DeletionRefused`` only for a bad allowlist.
+
+    *boundaries* maps each path in *removed_files* to the highest folder its
+    walk may remove: the film's own folder, or the series folder for a
+    season. A boundary that is missing, not strictly inside a delete root,
+    or not above the file limits that walk to the file's own folder.
     """
     roots = _validate_delete_roots(allowed_roots)
-    starts: dict[Path, None] = {}
+    limits: dict[Path, Path] = {}
     for removed_file in removed_files:
         parent = Path(removed_file).parent
-        if parent.is_absolute() and not os.path.islink(parent):
-            starts[parent.resolve()] = None
+        if not parent.is_absolute() or os.path.islink(parent):
+            continue
+        start = parent.resolve()
+        limit = _walk_limit(start, boundaries.get(removed_file), roots)
+        current = limits.get(start)
+        # Files sharing a folder but given different boundaries walk only as
+        # far as the lower one allows.
+        if current is None or len(limit.parts) > len(current.parts):
+            limits[start] = limit
     removed: list[str] = []
-    for folder in starts:
+    for folder, limit in limits.items():
         while _remove_bare_folder(folder, roots):
             removed.append(str(folder))
+            if folder == limit:
+                break
             folder = folder.parent
     return removed
+
+
+def _walk_limit(start: Path, boundary: object, roots: list[Path]) -> Path:
+    """Return *boundary* resolved when it is a valid limit for a walk from *start*, else *start*."""
+    if not isinstance(boundary, str) or not os.path.isabs(boundary):
+        return start
+    try:
+        limit = Path(boundary).resolve()
+    except (OSError, RuntimeError):
+        return start
+    if limit in roots or not any(root in limit.parents for root in roots):
+        return start
+    if limit != start and limit not in start.parents:
+        return start
+    return limit
 
 
 def _pinned_root(resolved: Path, roots: list[Path]) -> Path:
@@ -576,6 +607,8 @@ def _is_folder_dressing(name: str) -> bool:
 
 def _remove_bare_folder(folder: Path, roots: list[Path]) -> bool:
     """Remove *folder* if it holds only artwork or ``.nfo`` files; return True if removed."""
+    if any(folder == root or folder in root.parents for root in roots):
+        return False
     matching = [root for root in roots if root in folder.parents]
     if not matching or _is_forbidden_root(folder):
         return False
