@@ -197,9 +197,14 @@ _LOCAL_FILES_LEFT_MESSAGE = (
     "{service} answered the delete, but a file of this {what} is still on disk, so "
     "mediaman did not book it as deleted. The next library scan will update it."
 )
-_RADARR_MOVIE_GONE_MESSAGE = (
-    "Radarr no longer has this movie and its files are not on disk, so it may already be "
-    "deleted. Nothing was deleted now; the next library scan will update it."
+_RADARR_ID_UNKNOWN_MESSAGE = (
+    "Radarr does not list this movie under the id mediaman has, and its files are not on "
+    "disk, so it may already be deleted. Nothing was deleted now; the next library scan "
+    "will update it."
+)
+_RADARR_NO_ENTRY_MESSAGE = (
+    "Radarr has no entry for this movie and its files are not on disk, so it may already "
+    "be deleted. Nothing was deleted now; the next library scan will update it."
 )
 _SONARR_FILES_LEFT_MESSAGE = (
     "Sonarr still lists files of this season after the delete, so mediaman could not "
@@ -229,11 +234,10 @@ def _delete_movie(
     radarr_id = snapshot.radarr_id
     # A 404 never books the item: a mount that is down also makes paths look gone.
     tracked = _tracked_paths(snapshot)
-    missing = (
-        _RADARR_MOVIE_GONE_MESSAGE
-        if tracked and not _on_disk(tracked)
-        else "Radarr has no entry for this movie; nothing was deleted"
-    )
+    if tracked and not _on_disk(tracked):
+        missing = _RADARR_ID_UNKNOWN_MESSAGE if radarr_id else _RADARR_NO_ENTRY_MESSAGE
+    else:
+        missing = "Radarr has no entry for this movie; nothing was deleted"
     entry: RadarrMovie | None
     if radarr_id:
         entry = _lookup(
