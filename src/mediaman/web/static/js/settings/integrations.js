@@ -45,27 +45,45 @@
       });
     },
 
+    /* The pill label changes on the page-load auto-check too, so only this
+       separate region is announced, and only for a pressed Test. */
+    announce: function (service, text) {
+      document.querySelectorAll('[data-conn="' + service + '"] [data-conn-announce]').forEach(function (el) {
+        el.textContent = text;
+      });
+    },
+
     init: function () {
       var self = MM.settings.integrations;
 
+      function serviceName(btn) {
+        var h = btn.closest('.intg-card') && btn.closest('.intg-card').querySelector('h3');
+        return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
+      }
+
       function testService(service, btn) {
         self.setConnStatus(service, 'untested', 'Testing…');
+        if (btn) self.announce(service, '');
         if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
           .then(function () {
             self.setConnStatus(service, 'ok', 'Connected');
-            if (btn) btn.textContent = 'OK ✓';
+            if (btn) { btn.textContent = 'OK ✓'; self.announce(service, serviceName(btn) + ': Connected'); }
           })
           .catch(function (err) {
             // MM.api rejects on ok:false too, so a failed test lands here.
             var label = MM.api.messageOf(err, 'Connection failed');
             self.setConnStatus(service, 'err', label);
-            if (btn) btn.textContent = 'Failed';
+            if (btn) { btn.textContent = 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
           })
           .then(function () {
             // .then used as finally (broad browser compat).
             if (!btn) return;
-            setTimeout(function () { btn.textContent = 'Test'; btn.disabled = false; }, 1600);
+            setTimeout(function () {
+              var keepFocus = MM.dom.focusStillIn(btn);
+              btn.textContent = 'Test'; btn.disabled = false;
+              if (keepFocus) btn.focus();
+            }, 1600);
           });
       }
 

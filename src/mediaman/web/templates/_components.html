@@ -352,6 +352,7 @@
 {% macro conn_pill(service) -%}
 <span class="conn untested" data-conn="{{ service }}">
   <span class="conn-dot"></span><span data-conn-label>Untested</span>
+  <span class="sr-only" role="status" data-conn-announce></span>
 </span>
 {%- endmacro %}
 
