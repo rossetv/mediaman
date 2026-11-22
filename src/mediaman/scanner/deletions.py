@@ -7,7 +7,7 @@ All deletion-time concerns live here:
   the DB cleanup commit.
 * Allowlist enforcement via repository.read_delete_allowed_roots_setting.
 * The two-phase delete loop that unmonitors *arr clients only after the
-  SQLite write lock has been released.
+  SQLite write lock has been released, and only an entry that matches.
 * The record of which delete roots or folders the last live pass found
   missing or empty, for the dashboard.
 
@@ -46,6 +46,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.match import build_arr_index, index_match_movie, index_match_season
 from mediaman.services.infra import (
     DeletionRefused,
     SafeHTTPError,
@@ -126,7 +127,7 @@ def _first_unavailable(paths: list[str], allowed_roots: list[str]) -> str | None
     return None
 
 
-def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
+def recover_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
     Called at the start of a *live* DeletionExecutor.execute pass
@@ -160,10 +161,12 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     Idempotent; safe to call on every startup. Does not itself delete
     any files — purely a state reconciliation. Each row is committed before
     the next row's disk checks, so a hung mount never holds the write lock.
+    Returns the rows booked as deleted.
     """
+    booked: list[DeletionRow] = []
     rows = repository.fetch_stuck_deletions(conn)
     if not rows:
-        return
+        return booked
 
     # Read the allowlist once so the file-absent branch can confirm the
     # stored paths were ever deletable before crediting freed bytes.
@@ -233,7 +236,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 row.file_path,
             )
             _book_deleted(conn, row, "Deleted (recovered)", _tracked_size(row) or None)
+            booked.append(row)
         conn.commit()
+    return booked
 
 
 # rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
@@ -367,41 +372,113 @@ def _book_deleted(
     repository.delete_scheduled_action(conn, row.id)
 
 
-def _unmonitor_arr(
+_ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
+
+
+def _is_not_found(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    return getattr(getattr(exc, "response", None), "status_code", None) == 404
+
+
+def _unmonitor_movie(row: DeletionRow, client: ArrClient | None) -> str | None:
+    """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
+    if client is None:
+        return "Radarr is not configured"
+    tmdb_id = row.tmdb_id
+    if not tmdb_id:
+        return "Plex has no TMDB id for this movie"
+    entry = (
+        client.get_movie_by_id(row.radarr_id)
+        if row.radarr_id
+        else client.get_movie_by_tmdb(tmdb_id)
+    )
+    if not entry or not isinstance(entry.get("id"), int):
+        return "Radarr has no entry for this movie"
+    if entry.get("tmdbId") != tmdb_id:
+        return "Radarr's entry is a different movie (TMDB id differs)"
+    # The files are gone, so the id and the folder name are all left to check.
+    index = build_arr_index([entry], [])
+    for path in _tracked_paths(row) or []:
+        radarr_id = index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)
+        if radarr_id is not None:
+            client.unmonitor_movie(radarr_id)
+            return None
+    return "Radarr's folder for this movie is not the one Plex used"
+
+
+def _unmonitor_season(row: DeletionRow, client: ArrClient | None) -> str | None:
+    """Unmonitor the Sonarr season matching *row*; return why not when it does not match."""
+    if client is None:
+        return "Sonarr is not configured"
+    tvdb_id = row.tvdb_id
+    if not tvdb_id:
+        return "Plex has no TVDB id for this show"
+    season = row.season_number
+    if season is None:
+        return "mediaman does not know this season's number"
+    series = (
+        client.get_series_by_id(row.sonarr_id)
+        if row.sonarr_id
+        else client.get_series_by_tvdb(tvdb_id)
+    )
+    if not series or not isinstance(series.get("id"), int):
+        return "Sonarr has no entry for this show"
+    if series.get("tvdbId") != tvdb_id:
+        return "Sonarr's entry is a different show (TVDB id differs)"
+    index = build_arr_index([], [series])
+    ref = index.series.get(tvdb_id)
+    if ref is None or season not in ref.seasons:
+        return "Sonarr does not have this season"
+    for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}:
+        sonarr_id = index_match_season(
+            index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
+        )
+        if sonarr_id is not None:
+            client.unmonitor_season(sonarr_id, season)
+            return None
+    return "Sonarr's folder for this show is not the one Plex used"
+
+
+def _unmonitor_deleted(
+    conn: sqlite3.Connection,
     row: DeletionRow,
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
 ) -> None:
-    """Send best-effort unmonitor calls to Radarr/Sonarr.
+    """Stop Radarr/Sonarr re-downloading a deleted item, after checking it is the same item.
 
-    Failures are non-fatal: logged as warnings and swallowed so a
-    slow or unavailable *arr instance never blocks the deletion loop.
-    Must be called *after* the SQLite write lock has been released
-    (i.e. after ``_commit_deletion``).
+    Only ever unmonitors: the files are already gone, so a wrong match could
+    at worst stop a download, never delete anything. A skip is audited as
+    ``unmonitor_skipped``; the deletion stays booked. Runs after the deletion
+    committed, so a slow response never holds the write lock; does not commit.
     """
-    # Unmonitor in *arr clients — failures are non-fatal and
-    # happen outside any open transaction.
-    if row.radarr_id and radarr_client:
-        try:
-            radarr_client.unmonitor_movie(row.radarr_id)
-        except (SafeHTTPError, requests.RequestException, ArrError):
-            logger.warning(
-                "Failed to unmonitor movie %s after deletion",
-                row.radarr_id,
-                exc_info=True,
-            )
-
-    if row.sonarr_id and row.season_number is not None and sonarr_client:
-        try:
-            sonarr_client.unmonitor_season(row.sonarr_id, row.season_number)
-        except (SafeHTTPError, requests.RequestException, ArrError):
-            logger.warning(
-                "Failed to unmonitor season %s of series %s after deletion",
-                row.season_number,
-                row.sonarr_id,
-                exc_info=True,
-            )
+    is_movie = row.media_type == "movie"
+    service = "Radarr" if is_movie else "Sonarr"
+    try:
+        if is_movie:
+            reason = _unmonitor_movie(row, radarr_client)
+        else:
+            reason = _unmonitor_season(row, sonarr_client)
+    except _ARR_ERRORS as exc:
+        if _is_not_found(exc):
+            reason = f"{service} has no entry for this {'movie' if is_movie else 'show'}"
+        else:
+            logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
+            reason = f"{service} could not be reached or returned an error"
+    if reason is None:
+        return
+    logger.warning(
+        "engine.delete.unmonitor_skipped id=%s media_id=%s — %s", row.id, row.media_item_id, reason
+    )
+    log_audit(
+        conn,
+        row.media_item_id,
+        "unmonitor_skipped",
+        f"Not unmonitored in {service}: {row.title} — {reason}; it was deleted, but "
+        f"{service} may download it again",
+    )
 
 
 def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
@@ -537,7 +614,8 @@ class DeletionExecutor:
 
     Runs the deletion loop:
     allowlist read, stuck-state recovery, two-phase on-disk rm, audit
-    logging, and best-effort Radarr/Sonarr unmonitor calls.
+    logging, best-effort Radarr/Sonarr unmonitor calls after a match, and
+    the record of delete roots or folders found missing or empty.
 
     Args:
         conn: Open SQLite connection.
@@ -552,6 +630,7 @@ class DeletionExecutor:
             and must not mutate ``scheduled_actions``.
         sonarr_client: Optional Sonarr API client for unmonitor calls.
         radarr_client: Optional Radarr API client for unmonitor calls.
+            Neither is ever asked to delete files.
     """
 
     def __init__(
@@ -611,8 +690,13 @@ class DeletionExecutor:
         documented "dry-run mutates nothing" contract honest.
         """
         if not self._dry_run:
-            recover_stuck_deletions(self._conn)
+            for row in recover_stuck_deletions(self._conn):
+                self._unmonitor(row)
+            self._conn.commit()
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
+
+    def _unmonitor(self, row: DeletionRow) -> None:
+        _unmonitor_deleted(self._conn, row, radarr_client=self._radarr, sonarr_client=self._sonarr)
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
@@ -775,7 +859,8 @@ class DeletionExecutor:
         # is best-effort and a slow response must not hold the write lock.
         self._conn.commit()
         for done in closed:
-            _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
+            self._unmonitor(done)
+        self._conn.commit()
         return closed, result.bytes_freed
 
     def _settle(

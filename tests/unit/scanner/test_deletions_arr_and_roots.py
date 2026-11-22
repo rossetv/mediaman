@@ -7,6 +7,7 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
@@ -68,6 +69,31 @@ def _status(conn, media_id):
 
 
 @pytest.fixture
+def movie(conn, tmp_path, monkeypatch):
+    """A due movie at <root>/Film (2020)/film.mkv with TMDB id 603 and Radarr id 42."""
+    root = tmp_path / "movies"
+    folder = root / "Film (2020)"
+    folder.mkdir(parents=True)
+    (root / "Other").mkdir()
+    (root / "Other" / "other.mkv").write_bytes(b"x")
+    video = folder / "film.mkv"
+    video.write_bytes(b"data")
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+    _item(conn, "m1", file_path=video, files=[video], radarr_id=42, tmdb_id=603)
+    return video
+
+
+def _radarr(entry):
+    radarr = MagicMock()
+    radarr.get_movie_by_id.return_value = entry
+    radarr.get_movie_by_tmdb.return_value = entry
+    return radarr
+
+
+_MOVIE = {"id": 42, "tmdbId": 603, "path": "/data/movies/Film (2020)"}
+
+
+@pytest.fixture
 def season(conn, tmp_path, monkeypatch):
     """Due season 1 at <root>/Show/Season 1 with TVDB id 81189 and Sonarr id 7."""
     root = tmp_path / "tv"
@@ -104,6 +130,140 @@ def _sonarr(series):
     sonarr.get_series_by_id.return_value = series
     sonarr.get_series_by_tvdb.return_value = series
     return sonarr
+
+
+class TestVerifiedUnmonitor:
+    def test_a_deleted_movie_matching_radarr_is_unmonitored_without_deleting_files(
+        self, conn, movie
+    ):
+        radarr = _radarr(_MOVIE)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        radarr.unmonitor_movie.assert_called_once_with(42)
+        radarr.delete_movie.assert_not_called()
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
+
+    def test_a_movie_without_a_stored_radarr_id_is_found_by_tmdb_id(self, conn, movie):
+        conn.execute("UPDATE media_items SET radarr_id = NULL WHERE id = 'm1'")
+        conn.commit()
+        radarr = _radarr(_MOVIE)
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        radarr.get_movie_by_tmdb.assert_called_once_with(603)
+        radarr.unmonitor_movie.assert_called_once_with(42)
+
+    def test_a_deleted_season_matching_sonarr_is_unmonitored_without_deleting_files(
+        self, conn, season
+    ):
+        sonarr = _sonarr(_SERIES)
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_called_once_with(7, 1)
+        sonarr.delete_episode_files.assert_not_called()
+        sonarr.delete_series.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("entry", "reason"),
+        [
+            ({**_MOVIE, "tmdbId": 604}, "TMDB id"),
+            ({**_MOVIE, "path": "/data/movies-4k/Film (2020) 4K"}, "folder"),
+            (None, "no entry"),
+        ],
+        ids=["other-id", "other-folder", "missing"],
+    )
+    def test_a_movie_radarr_does_not_match_is_booked_deleted_and_not_unmonitored(
+        self, conn, movie, entry, reason
+    ):
+        conn.execute("UPDATE media_items SET radarr_id = NULL WHERE id = 'm1'")
+        conn.commit()
+        radarr = _radarr(entry)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        assert not movie.exists()
+        radarr.unmonitor_movie.assert_not_called()
+        skipped = _audit(conn, "m1", "unmonitor_skipped")
+        assert len(skipped) == 1 and reason in skipped[0]
+
+    @pytest.mark.parametrize(
+        ("series", "reason"),
+        [
+            ({**_SERIES, "tvdbId": 1}, "TVDB id"),
+            ({**_SERIES, "seasons": [{"seasonNumber": 2}]}, "season"),
+            ({**_SERIES, "path": "/data/tv/Another Show"}, "folder"),
+        ],
+        ids=["other-id", "no-season", "other-folder"],
+    )
+    def test_a_season_sonarr_does_not_match_is_not_unmonitored(self, conn, season, series, reason):
+        sonarr = _sonarr(series)
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+        skipped = _audit(conn, "s1", "unmonitor_skipped")
+        assert len(skipped) == 1 and reason in skipped[0]
+
+    def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
+        radarr = _radarr(_MOVIE)
+        error = requests.HTTPError("not found")
+        error.response = MagicMock(status_code=404)
+        radarr.get_movie_by_id.side_effect = error
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        radarr.unmonitor_movie.assert_not_called()
+        assert "no entry" in _audit(conn, "m1", "unmonitor_skipped")[0]
+
+    def test_no_radarr_configured_is_audited_and_the_deletion_stands(self, conn, movie):
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 1
+        assert _status(conn, "m1") is None
+        assert "not configured" in _audit(conn, "m1", "unmonitor_skipped")[0]
+
+    @pytest.mark.parametrize("failing", ["get_movie_by_id", "unmonitor_movie"])
+    def test_a_radarr_error_is_audited_and_the_deletion_stands(self, conn, movie, failing):
+        radarr = _radarr(_MOVIE)
+        getattr(radarr, failing).side_effect = requests.ConnectionError("refused")
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        assert _audit(conn, "m1", "deleted")
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
+
+    def test_a_deletion_completed_by_crash_recovery_is_unmonitored(self, conn, movie):
+        movie.unlink()
+        (movie.parent / "poster.jpg").write_bytes(b"x")
+        conn.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
+        conn.commit()
+        radarr = _radarr(_MOVIE)
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert _audit(conn, "m1", "deleted")
+        radarr.unmonitor_movie.assert_called_once_with(42)
+
+    def test_dry_run_calls_neither_radarr_nor_sonarr(self, conn, movie):
+        radarr, sonarr = _radarr(_MOVIE), _sonarr(_SERIES)
+
+        DeletionExecutor(
+            conn=conn,
+            dry_run=True,
+            cleanup_snoozes=False,
+            radarr_client=radarr,
+            sonarr_client=sonarr,
+        ).execute()
+
+        assert radarr.method_calls == [] and sonarr.method_calls == []
+        assert movie.exists()
 
 
 class TestRootState:

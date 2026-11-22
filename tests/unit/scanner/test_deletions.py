@@ -203,6 +203,7 @@ class TestSuccessfulDeletion:
             radarr_id=42,
         )
         _track(conn, "r1", real_file)
+        conn.execute("UPDATE media_items SET tmdb_id = 603 WHERE id = 'r1'")
         insert_scheduled_action(
             conn,
             media_item_id="r1",
@@ -214,6 +215,11 @@ class TestSuccessfulDeletion:
         )
 
         fake_radarr = MagicMock()
+        fake_radarr.get_movie_by_id.return_value = {
+            "id": 42,
+            "tmdbId": 603,
+            "path": f"/data/{tmp_path.name}",
+        }
         DeletionExecutor(conn=conn, dry_run=False, radarr_client=fake_radarr).execute()
 
         fake_radarr.unmonitor_movie.assert_called_once_with(42)
@@ -559,9 +565,13 @@ def _actions(conn, media_id):
 
 
 def _audits(conn, media_id):
+    """Return the item's audit actions, leaving out the unmonitor outcome tested on its own."""
     return [
         r["action"]
-        for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id=?", (media_id,))
+        for r in conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id=? AND action != 'unmonitor_skipped'",
+            (media_id,),
+        )
     ]
 
 
@@ -615,6 +625,7 @@ class TestChangeDuringPass:
         insert_media_item(conn, id="b", plex_rating_key="b", file_path=str(second), radarr_id=2)
         _track(conn, "a", first)
         _track(conn, "b", second)
+        conn.execute("UPDATE media_items SET tmdb_id = 600 + radarr_id WHERE id IN ('a', 'b')")
         _due_row(conn, "a")
         _due_row(conn, "b")
         other = init_db(str(db_path))
@@ -624,6 +635,11 @@ class TestChangeDuringPass:
                 change(other, "b")
 
         radarr = MagicMock()
+        radarr.get_movie_by_id.side_effect = lambda radarr_id: {
+            "id": radarr_id,
+            "tmdbId": 600 + radarr_id,
+            "path": "/data/movies",
+        }
         radarr.unmonitor_movie.side_effect = unmonitor
 
         result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
@@ -660,6 +676,7 @@ class TestSharedFolder:
             file_path=str(path),
             file_size_bytes=size,
         )
+        conn.execute("UPDATE media_items SET tvdb_id = 81189 WHERE id = ?", (media_id,))
         _track(conn, media_id, *(files or [f"{path}/Show - s0{number}e01.mkv"]))
 
     @pytest.mark.parametrize(
@@ -738,6 +755,12 @@ class TestSharedFolder:
         _due_row(conn, "s1")
         _due_row(conn, "s2")
         sonarr = MagicMock()
+        sonarr.get_series_by_id.return_value = {
+            "id": 7,
+            "tvdbId": 81189,
+            "path": "/data/tv/Show",
+            "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
+        }
 
         result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
 
