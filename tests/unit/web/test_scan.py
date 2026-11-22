@@ -152,12 +152,12 @@ class TestScanWorkerFailure:
         from mediaman.web.routes import scan as scan_mod
 
         real_open = scan_mod.open_thread_connection
-        calls = {"n": 0}
+        failed = {"done": False}
 
         def flaky_open(path):
-            # 1st call is the heartbeat thread, 2nd the worker, later ones recovery.
-            calls["n"] += 1
-            if calls["n"] == 2:
+            # Only the worker's first open fails; the heartbeat and the recovery open succeed.
+            if threading.current_thread().name == "manual-scan-worker" and not failed["done"]:
+                failed["done"] = True
                 raise sqlite3.OperationalError("unable to open database file")
             return real_open(path)
 
@@ -190,6 +190,53 @@ class TestScanSkippedNoPlex:
             "status": "skipped",
             "reason": "Plex not configured",
         }
+
+
+class TestScanErrorStatus:
+    def test_status_reports_error_without_exception_text(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        from mediaman.db import finish_scan_run, start_scan_run
+
+        run_id = start_scan_run(conn)
+        finish_scan_run(conn, run_id, "error", "Traceback ... token=sekret")
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        body = client.get("/api/scan/status").json()
+        assert body["running"] is False
+        assert body["status"] == "error"
+        assert body["reason"]
+        assert "sekret" not in body["reason"]
+
+    def test_recovery_open_oserror_is_logged_not_raised(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        import threading
+
+        from mediaman.web.routes import scan as scan_mod
+
+        real_open = scan_mod.open_thread_connection
+        state = {"worker_calls": 0}
+
+        def open_fn(path):
+            if threading.current_thread().name == "manual-scan-worker":
+                state["worker_calls"] += 1
+                import sqlite3
+
+                if state["worker_calls"] == 1:
+                    raise sqlite3.OperationalError("unable to open database file")
+                raise OSError("no space left")
+            return real_open(path)
+
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        with (
+            patch.object(scan_mod, "open_thread_connection", side_effect=open_fn),
+            patch.object(scan_mod.logger, "exception") as log_exc,
+        ):
+            client.post("/api/scan/trigger")
+            for t in threading.enumerate():
+                if t.name == "manual-scan-worker":
+                    t.join(timeout=10)
+        assert any("Could not mark" in str(c.args[0]) for c in log_exc.call_args_list)
 
 
 class TestScanStatus:

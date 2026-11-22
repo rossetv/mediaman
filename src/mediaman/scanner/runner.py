@@ -61,6 +61,7 @@ def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
 
 
 SCAN_SKIPPED_NO_PLEX = "Plex not configured"
+SCAN_SKIPPED_PLEX_UNREACHABLE = "Plex could not be reached"
 
 
 class ScanSummary(TypedDict, total=False):
@@ -328,7 +329,7 @@ def run_scan_from_db(
 
     Returns the summary dict from ScanEngine.run_scan, or an empty
     dict carrying only ``skipped_reason`` if the minimum required settings
-    (plex_url / plex_token) are absent.
+    (plex_url / plex_token) are absent or the Plex client cannot be built.
 
     Args:
         conn: Open SQLite connection with row_factory set to sqlite3.Row.
@@ -339,15 +340,16 @@ def run_scan_from_db(
     """
     from mediaman.scanner.engine import ScanEngine
 
+    plex_url = repository.read_setting(conn, "plex_url")
+    plex_token = repository.read_setting(conn, "plex_token")
     result = _build_plex_client(conn, secret_key)
     if result is None:
-        logger.warning("Scan skipped — plex_url or plex_token not configured")
-        # A configured but refused URL also lands here; only a missing setting is "not configured".
-        if not repository.read_setting(conn, "plex_url") or not repository.read_setting(
-            conn, "plex_token"
-        ):
+        # A configured but refused or unbuildable client also lands here.
+        if not plex_url or not plex_token:
+            logger.warning("Scan skipped — plex_url or plex_token not configured")
             return {"skipped_reason": SCAN_SKIPPED_NO_PLEX}
-        return {}
+        logger.warning("Scan skipped — Plex client could not be built")
+        return {"skipped_reason": SCAN_SKIPPED_PLEX_UNREACHABLE}
     plex, lib_ids, lib_types, lib_titles = result
 
     if not skip_disk_check:

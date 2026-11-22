@@ -113,7 +113,7 @@ def trigger_scan(
                 finally:
                     if err_conn is not thread_conn:
                         err_conn.close()
-            except sqlite3.Error:
+            except (sqlite3.Error, OSError):
                 logger.exception("Could not mark the failed scan run as finished")
         finally:
             stop_heartbeat.set()
@@ -135,6 +135,9 @@ def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     row = conn.execute("SELECT status, error FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
     if row is not None and row["status"] == "skipped":
         return {"running": False, "status": "skipped", "reason": row["error"]}
+    if row is not None and row["status"] == "error":
+        # The stored error text can be an exception message; show a fixed one.
+        return {"running": False, "status": "error", "reason": "see the server log for details"}
     return {"running": False}
 
 

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, is_refresh_running, set_connection
 from mediaman.main import create_app
-from mediaman.services.infra import SSRFRefused
+from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.openai.recommendations import throttle as _throttle
 from mediaman.web.routes.recommended import api as _rec_api
 from mediaman.web.routes.recommended import refresh as _rec_refresh
@@ -161,7 +161,14 @@ class TestRefreshRateLimit:
             resp = authed_client.post("/api/recommended/refresh")
         assert resp.status_code == 200
 
-    @pytest.mark.parametrize("exc", [SSRFRefused("blocked"), ValueError("bad url")])
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            SSRFRefused("blocked"),
+            ValueError("bad url"),
+            ConfigDecryptError("plex_token", ValueError("x")),
+        ],
+    )
     def test_plex_client_build_failure_releases_lease(self, authed_client, app, exc):
         with patch.object(_rec_refresh, "build_plex_from_db", side_effect=exc):
             resp = authed_client.post("/api/recommended/refresh")

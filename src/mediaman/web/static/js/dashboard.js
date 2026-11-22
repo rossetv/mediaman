@@ -59,6 +59,12 @@
               link.textContent = 'Open Settings';
               skipEl.appendChild(link);
             }
+          } else if (data.status === 'error') {
+            btn.classList.remove('scan-running');
+            btn.textContent = 'Scan now';
+            btn.disabled = false;
+            var errEl = document.getElementById('scan-status');
+            if (errEl) errEl.textContent = 'Scan failed: ' + (data.reason || 'unknown error');
           } else {
             btn.classList.remove('scan-running');
             btn.classList.add('is-success');
