@@ -25,6 +25,7 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository.kept import (
     delete_kept_show,
+    delete_show_scheduled_deletions,
     fetch_existing_actions_for_seasons,
     fetch_owned_season_ids,
     fetch_show_keep_row,
@@ -203,6 +204,8 @@ def api_keep_show(
             created_at=now_iso_str,
         )
         deletion_running = set_protected_state(conn, to_update=to_update, to_insert=to_insert)
+        # The scan skips a season still scheduled, so one left here would go under the keep.
+        deletion_running |= delete_show_scheduled_deletions(conn, resolved_key)
         log_audit(
             conn,
             resolved_key,
