@@ -98,34 +98,32 @@ def _is_not_found(exc: Exception) -> bool:
 def build_verify_gone(conn: sqlite3.Connection, secret_key: str) -> VerifyGone:
     """Return a `VerifyGone` that asks the Radarr/Sonarr configured in the settings.
 
-    A movie is gone when Radarr answers 404 for it or reports no file; a
-    season is gone when Sonarr lists no episode file for it. Anything less
-    certain answers ``None``.
+    Only a 404 for the Radarr movie or Sonarr series proves the item gone.
+    ``hasFile: false`` or an empty episode-file list is not proof: Radarr and
+    Sonarr report that too when their storage mount is down. An entry still
+    listed answers ``False``; an error asking answers ``None``.
     """
+
+    def entry_gone(fetch: Callable[[], object]) -> bool:
+        try:
+            fetch()
+        except Exception as exc:
+            if _is_not_found(exc):
+                return True
+            raise
+        return False
 
     def radarr_gone(target_id: int) -> bool | None:
         client = build_radarr_from_db(conn, secret_key)
         if client is None:
             return None
-        try:
-            movie = client.get_movie_by_id(target_id)
-        except Exception as exc:
-            if _is_not_found(exc):
-                return True
-            raise
-        has_file = movie.get("hasFile")
-        return None if not isinstance(has_file, bool) else not has_file
+        return entry_gone(lambda: client.get_movie_by_id(target_id))
 
-    def sonarr_gone(target_id: int, media_item_id: str) -> bool | None:
-        row = conn.execute(
-            "SELECT season_number FROM media_items WHERE id = ?", (media_item_id,)
-        ).fetchone()
-        season = row["season_number"] if row else None
+    def sonarr_gone(target_id: int) -> bool | None:
         client = build_sonarr_from_db(conn, secret_key)
-        if season is None or client is None:
+        if client is None:
             return None
-        files = client.get_episode_files(target_id)
-        return not any(ef.get("seasonNumber") == season for ef in files)
+        return entry_gone(lambda: client.get_series_by_id(target_id))
 
     def verify_gone(intent: sqlite3.Row) -> bool | None:
         # rationale: a reconcile must never book an item deleted on doubt;
@@ -135,7 +133,7 @@ def build_verify_gone(conn: sqlite3.Connection, secret_key: str) -> VerifyGone:
             if intent["target_kind"] == "radarr":
                 return radarr_gone(target_id)
             if intent["target_kind"] == "sonarr":
-                return sonarr_gone(target_id, intent["media_item_id"])
+                return sonarr_gone(target_id)
         except Exception as exc:
             logger.warning("delete_intent.verify_failed intent_id=%s error=%s", intent["id"], exc)
         return None

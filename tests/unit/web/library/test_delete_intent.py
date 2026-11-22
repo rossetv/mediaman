@@ -327,9 +327,9 @@ class TestBuildVerifyGone:
         ("answer", "expected"),
         [
             ({"side_effect": SafeHTTPError(404, "Not Found", "radarr/")}, True),
-            ({"return_value": {"id": 101, "hasFile": False}}, True),
+            ({"return_value": {"id": 101, "hasFile": False}}, False),
             ({"return_value": {"id": 101, "hasFile": True}}, False),
-            ({"return_value": {"id": 101}}, None),
+            ({"return_value": {"id": 101}}, False),
             ({"side_effect": requests.ConnectionError("refused")}, None),
             ({"side_effect": SafeHTTPError(500, "boom", "radarr/")}, None),
         ],
@@ -347,26 +347,25 @@ class TestBuildVerifyGone:
         radarr.get_movie_by_id.assert_called_once_with(101)
 
     @pytest.mark.parametrize(
-        ("files", "expected"),
+        ("answer", "expected"),
         [
-            ([{"id": 3, "seasonNumber": 2}], True),
-            ([{"id": 1, "seasonNumber": 1}, {"id": 3, "seasonNumber": 2}], False),
-            (requests.ConnectionError("refused"), None),
+            ({"side_effect": SafeHTTPError(404, "Not Found", "sonarr/")}, True),
+            ({"return_value": {"id": 202, "seasons": [{"seasonNumber": 1}]}}, False),
+            ({"side_effect": requests.ConnectionError("refused")}, None),
         ],
-        ids=["season-empty", "season-has-files", "unreachable"],
+        ids=["404", "show-listed", "unreachable"],
     )
-    def test_season(self, conn, files, expected):
+    def test_season(self, conn, answer, expected):
         _insert_tv_season(conn)
         sonarr = MagicMock()
-        if isinstance(files, Exception):
-            sonarr.get_episode_files.side_effect = files
-        else:
-            sonarr.get_episode_files.return_value = files
+        sonarr.get_series_by_id.configure_mock(**answer)
+        sonarr.get_episode_files.return_value = []
 
         with patch(VERIFY_SONARR, return_value=sonarr):
             result = build_verify_gone(conn, "key")(_intent(conn, "sonarr", "202", "s1"))
 
         assert result is expected
+        sonarr.get_series_by_id.assert_called_once_with(202)
 
     def test_arr_not_configured_cannot_tell(self, conn):
         _insert_movie(conn)
