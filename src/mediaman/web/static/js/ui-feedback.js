@@ -58,10 +58,18 @@
       });
     };
     host.appendChild(node);
+    // Toasts already fading out leave the height measure: they are going.
+    var overBudget = function () {
+      var leaving = Array.prototype.filter.call(host.children, function (c) {
+        return c.classList.contains('is-leaving');
+      });
+      leaving.forEach(function (c) { c.style.display = 'none'; });
+      var over = host.scrollHeight > host.clientHeight;
+      leaving.forEach(function (c) { c.style.display = ''; });
+      return over;
+    };
     var kids = live().filter(function (c) { return c !== node; });
-    while (kids.length > 0 &&
-           (kids.length >= 3 ||
-            (kids.length + 1 === host.children.length && host.scrollHeight > host.clientHeight))) {
+    while (kids.length > 0 && (kids.length >= 3 || overBudget())) {
       var victim = kids.filter(function (c) {
         return !c.classList.contains('ui-toast--error');
       })[0] || kids[0];
@@ -78,6 +86,7 @@
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || 4000;
     setTimeout(function () {
+      node.classList.add('is-leaving');
       node.classList.remove('is-visible');
       setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 250);
     }, duration);
