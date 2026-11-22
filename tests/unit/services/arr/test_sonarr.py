@@ -392,6 +392,35 @@ class TestLookupSeriesByTmdb:
             client.lookup_series_by_tmdb(12345)
 
 
+class TestGetSeriesByTvdb:
+    def test_filters_server_side_and_returns_the_series(self, client, fake_http, fake_response):
+        fake_http.queue(
+            "GET",
+            fake_response(json_data=[{"id": 7, "tvdbId": 81189, "path": "/tv/Breaking Bad"}]),
+        )
+        series = client.get_series_by_tvdb(81189)
+        assert series is not None
+        assert series["id"] == 7
+        assert "/api/v3/series?tvdbId=81189" in _calls(fake_http, "GET")[0][1]
+
+    def test_returns_none_when_not_in_library(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=[]))
+        assert client.get_series_by_tvdb(81189) is None
+
+
+class TestGetEpisodeFiles:
+    def test_lists_the_series_episode_files(self, client, fake_http, fake_response):
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data=[{"id": 3, "seasonNumber": 1, "relativePath": "S1/E1.mkv", "size": 9}]
+            ),
+        )
+        files = client.get_episode_files(42)
+        assert files[0]["size"] == 9
+        assert "/api/v3/episodefile?seriesId=42" in _calls(fake_http, "GET")[0][1]
+
+
 class TestAddSeriesWithSeasons:
     def test_sends_correct_monitored_flags(self, client, fake_http, fake_response):
         lookup_result = [

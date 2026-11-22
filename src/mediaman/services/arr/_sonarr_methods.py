@@ -111,6 +111,20 @@ class _SonarrMixin:
             )
         return cast(SonarrSeries, data)
 
+    def get_series_by_tvdb(self, tvdb_id: int) -> SonarrSeries | None:
+        """Find a series in the library by its TVDB ID, or ``None`` if not found.
+
+        Uses Sonarr's ``GET /api/v3/series?tvdbId=`` server-side filter,
+        which returns a (possibly empty) list of matching library entries.
+        """
+        self._require_series("get_series_by_tvdb")  # type: ignore[attr-defined]
+        data = self._get(f"/api/v3/series?tvdbId={tvdb_id}")  # type: ignore[attr-defined]
+        if not isinstance(data, list) or not data:
+            logger.debug("get_series_by_tvdb: no match for tvdb_id=%s", tvdb_id)
+            return None
+        first = data[0]
+        return cast(SonarrSeries, first) if isinstance(first, dict) else None
+
     def get_episodes(self, series_id: int) -> list[ArrEpisode]:
         self._require_series("get_episodes")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
