@@ -50,3 +50,23 @@ def test_root_state_malformed_is_empty(tmp_path):
         )
         assert read_delete_root_state(conn) == {}
     conn.close()
+
+
+def test_redownload_tokens_by_media_type():
+    from mediaman.core.deleted_media import DeletedMedia, redownload_tokens
+
+    movie = DeletedMedia(1, "movie", 7, None, None, "M")
+    season = DeletedMedia(2, "season", None, 9, 3, "S")
+    assert redownload_tokens(movie) == ["tmdb:7"]
+    assert redownload_tokens(season) == ["tvdb:9", "tvdb:9:s3"]
+    assert redownload_tokens(DeletedMedia(3, "movie", None, None, None, "M")) == []
+    assert redownload_tokens(None) == []
+
+
+def test_was_redownloaded_after_needs_a_newer_match():
+    from mediaman.core.deleted_media import was_redownloaded_after
+
+    times = {"tmdb:7": "2026-02-01", "other": "2026-03-01"}
+    assert was_redownloaded_after("2026-01-01", ["tmdb:7"], times)
+    assert not was_redownloaded_after("2026-02-01", ["tmdb:7"], times)
+    assert not was_redownloaded_after("2026-01-01", ["tmdb:8"], times)
