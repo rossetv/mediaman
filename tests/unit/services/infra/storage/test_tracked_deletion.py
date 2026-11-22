@@ -1,0 +1,198 @@
+"""Tests for deleting an item's tracked files and the folders they leave empty."""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from mediaman.services.infra.storage import (
+    DeletionRefused,
+    delete_tracked_files,
+    remove_empty_folders,
+)
+
+
+def _write(path, size=10):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x" * size)
+    return path
+
+
+def _tracked(*paths):
+    return [{"path": str(p), "size": p.stat().st_size if p.exists() else 0} for p in paths]
+
+
+def test_untracked_episode_and_its_season_folder_are_kept(tmp_path):
+    root = tmp_path / "tv"
+    season = root / "Show" / "Season 01"
+    e1 = _write(season / "Show S01E01.mkv")
+    e2 = _write(season / "Show S01E02.mkv")
+    untracked = _write(season / "Show S01E03.mkv")
+
+    result = delete_tracked_files(_tracked(e1, e2), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+
+    assert not e1.exists() and not e2.exists()
+    assert untracked.exists()
+    assert season.is_dir()
+    assert removed_folders == []
+
+
+def test_sidecars_of_a_tracked_film_go_but_a_stem_prefix_film_keeps_its_own(tmp_path):
+    root = tmp_path / "movies"
+    folder = root / "Alien"
+    film = _write(folder / "Alien.mkv")
+    sidecars = [
+        _write(folder / "Alien.srt"),
+        _write(folder / "Alien.en.srt"),
+        _write(folder / "Alien.pt-BR.forced.ass"),
+        _write(folder / "Alien.nfo"),
+    ]
+    kept = [
+        _write(folder / "Alien.Resurrection.en.srt"),
+        _write(folder / "Alien.mp4"),
+        _write(folder / "Alien.Two.mkv"),
+        _write(folder / "Alien.Two.srt"),
+    ]
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+
+    assert not film.exists()
+    assert all(not s.exists() for s in sidecars)
+    assert all(k.exists() for k in kept)
+    assert sorted(result.removed) == sorted(str(p) for p in [film, *sidecars])
+
+
+def test_a_sidecar_another_item_tracks_is_kept(tmp_path):
+    root = tmp_path / "movies"
+    film = _write(root / "Film" / "Film.mkv")
+    shared = _write(root / "Film" / "Film.en.srt")
+
+    delete_tracked_files(_tracked(film), allowed_roots=[str(root)], protected_paths={str(shared)})
+
+    assert shared.exists()
+
+
+def test_a_folder_left_with_only_artwork_goes_and_a_busy_parent_stays(tmp_path):
+    root = tmp_path / "tv"
+    show = root / "Show"
+    season = show / "Season 02"
+    episode = _write(season / "Show S02E01.mkv")
+    _write(season / "poster.jpg")
+    _write(season / "tvshow.nfo")
+    kept = _write(show / "Season 01" / "Show S01E01.mkv")
+
+    result = delete_tracked_files(_tracked(episode), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+
+    assert removed_folders == [str(season)]
+    assert not season.exists()
+    assert show.is_dir() and kept.exists()
+
+
+def test_a_folder_with_non_artwork_left_is_kept(tmp_path):
+    root = tmp_path / "movies"
+    film = _write(root / "Film" / "Film.mkv")
+    _write(root / "Film" / "poster.jpg")
+    notes = _write(root / "Film" / "notes.txt")
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+
+    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    assert notes.exists() and (root / "Film" / "poster.jpg").exists()
+
+
+def test_emptied_folders_walk_up_but_stop_below_the_root(tmp_path):
+    root = tmp_path / "tv"
+    episode = _write(root / "Show" / "Season 01" / "e01.mkv")
+    _write(root / "Show" / "fanart.jpg")
+    _write(root / "Show" / "season01-poster.png")
+
+    result = delete_tracked_files(_tracked(episode), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+
+    assert removed_folders == [str(root / "Show" / "Season 01"), str(root / "Show")]
+    assert root.is_dir()
+
+
+def test_a_missing_tracked_file_is_reported_and_not_counted(tmp_path):
+    root = tmp_path / "tv"
+    present = _write(root / "Show" / "e01.mkv", size=100)
+    missing = root / "Show" / "e02.mkv"
+
+    result = delete_tracked_files(
+        [{"path": str(present), "size": 100}, {"path": str(missing), "size": 5000}],
+        allowed_roots=[str(root)],
+    )
+
+    assert result.removed == [str(present)]
+    assert result.not_found == [str(missing)]
+    assert result.bytes_freed == 100
+
+
+def test_a_tracked_file_outside_the_roots_is_refused_before_anything_is_removed(tmp_path):
+    root = tmp_path / "tv"
+    inside = _write(root / "Show" / "e01.mkv")
+    outside = _write(tmp_path / "elsewhere" / "e02.mkv")
+
+    with pytest.raises(DeletionRefused):
+        delete_tracked_files(_tracked(inside, outside), allowed_roots=[str(root)])
+
+    assert inside.exists() and outside.exists()
+
+
+def test_a_symlinked_tracked_file_is_refused_and_its_target_kept(tmp_path):
+    root = tmp_path / "movies"
+    target = _write(root / "Real" / "Film.mkv")
+    link = root / "Linked" / "Film.mkv"
+    link.parent.mkdir(parents=True)
+    os.symlink(target, link)
+
+    with pytest.raises(DeletionRefused):
+        delete_tracked_files(_tracked(link), allowed_roots=[str(root)])
+
+    assert target.exists() and link.is_symlink()
+
+
+def test_a_symlinked_sidecar_and_a_symlinked_folder_are_not_followed(tmp_path):
+    root = tmp_path / "movies"
+    elsewhere = _write(tmp_path / "elsewhere" / "subs.srt")
+    film = _write(root / "Film" / "Film.mkv")
+    os.symlink(elsewhere, root / "Film" / "Film.en.srt")
+    linked_dir = root / "Film" / "extras"
+    os.symlink(tmp_path / "elsewhere", linked_dir)
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+    removed_folders = remove_empty_folders(result.removed, allowed_roots=[str(root)])
+
+    assert elsewhere.exists()
+    assert (root / "Film" / "Film.en.srt").is_symlink()
+    assert removed_folders == []
+    assert linked_dir.is_symlink()
+
+
+def test_a_folder_holding_a_symlinked_poster_is_kept(tmp_path):
+    root = tmp_path / "movies"
+    elsewhere = _write(tmp_path / "elsewhere" / "art.jpg")
+    film = _write(root / "Film" / "Film.mkv")
+    os.symlink(elsewhere, root / "Film" / "poster.jpg")
+
+    result = delete_tracked_files(_tracked(film), allowed_roots=[str(root)])
+
+    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    assert (root / "Film" / "poster.jpg").is_symlink() and elsewhere.exists()
+
+
+def test_a_folder_reached_through_a_symlinked_parent_is_not_removed(tmp_path):
+    root = tmp_path / "movies"
+    film = _write(root / "Real" / "Film.mkv")
+    os.symlink(root / "Real", root / "Linked")
+
+    result = delete_tracked_files(
+        [{"path": str(root / "Linked" / "Film.mkv"), "size": 10}], allowed_roots=[str(root)]
+    )
+
+    assert not film.exists()
+    assert remove_empty_folders(result.removed, allowed_roots=[str(root)]) == []
+    assert (root / "Real").is_dir()

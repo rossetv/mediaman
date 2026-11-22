@@ -3,7 +3,9 @@
 This module owns the destructive operations that consume the validated
 delete-root allowlist: the public ``delete_path`` entry point and its
 private ``_safe_rmtree`` recursive remover (not exported from the package
-barrel — ``delete_path`` is the only public way to trigger a deletion). The
+barrel — ``delete_path`` is the only public way to trigger a recursive
+deletion), and the narrower ``delete_tracked_files`` (an item's own files and
+their sidecars) with ``remove_empty_folders`` (the folders those leave bare). The
 allowlist *validation* helpers (forbidden-root refusal, atomic symlink check)
 live in ``_delete_roots``.
 
@@ -24,11 +26,16 @@ claim of per-entry atomicity. See the ``# rationale:`` block on
 from __future__ import annotations
 
 import os
+import re
 import stat as _stat
+from collections.abc import Collection
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from mediaman.services.infra.storage._delete_roots import (
     DeletionRefused,
+    _is_forbidden_root,
     _validate_delete_roots,
 )
 
@@ -357,3 +364,251 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
 
     # Finally remove the top-level directory itself.
     os.rmdir(str(resolved))
+
+
+_SIDECAR_EXTENSIONS = frozenset({"srt", "ass", "ssa", "sub", "idx", "vtt", "nfo"})
+_VIDEO_EXTENSIONS = frozenset(
+    {
+        "3gp", "avi", "divx", "flv", "iso", "m2ts", "m4v", "mkv", "mov",
+        "mp4", "mpeg", "mpg", "ogm", "ts", "vob", "webm", "wmv",
+    }
+)  # fmt: skip
+# A part between the stem and the extension: a language code such as "en",
+# "pt-BR" or "zh-Hans", or a subtitle flag.
+_SIDECAR_TAG = re.compile(
+    r"[a-z]{2,3}(?:[-_][a-z0-9]{2,4})?|forced|sdh|cc|hi|default|foreign", re.IGNORECASE
+)
+_ARTWORK = re.compile(
+    r"(?:poster|fanart|folder|banner|landscape|clearlogo|clearart|thumb|discart"
+    r"|season[a-z0-9-]*-(?:poster|banner|fanart))\.(?:jpg|png)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class TrackedFilesResult:
+    """What ``delete_tracked_files`` did.
+
+    ``removed`` lists every file unlinked (tracked files and their sidecars),
+    ``bytes_freed`` sums only their sizes, and ``not_found`` lists the tracked
+    files that were not on disk.
+    """
+
+    removed: list[str]
+    bytes_freed: int
+    not_found: list[str]
+
+
+def delete_tracked_files(
+    tracked_files: list[dict[str, Any]],
+    *,
+    allowed_roots: list[str],
+    protected_paths: Collection[str] = frozenset(),
+) -> TrackedFilesResult:
+    """Remove each tracked file of an item and its same-stem sidecars, nothing else.
+
+    *tracked_files* holds ``{"path", "size"}`` entries. Every path is checked
+    before anything is removed, by the same rules as ``delete_path`` (absolute,
+    strict descendant of a validated root, not a symlink) and it must be a
+    regular file; any failure raises ``DeletionRefused`` with nothing removed.
+    Each removal re-checks the root, device and file type at unlink time.
+
+    A sidecar is a regular file beside the video named ``<stem>.<tags>.<ext>``
+    with only language or flag tags and a subtitle or ``.nfo`` extension. A
+    file that a longer video stem in the folder claims (``Alien.Two.srt`` when
+    ``Alien.Two.mkv`` is there) belongs to that video, and a path in
+    *protected_paths* (tracked by other items) is never removed. A tracked
+    file that is missing is reported in ``not_found`` and its sidecars are
+    left alone.
+    """
+    roots = _validate_delete_roots(allowed_roots)
+    targets = [_checked_tracked_path(entry, roots) for entry in tracked_files]
+    protected = {os.path.normpath(p) for p in protected_paths if isinstance(p, str)}
+    removed: list[str] = []
+    not_found: list[str] = []
+    freed = 0
+    seen: set[Path] = set()
+    for target in targets:
+        real = target.parent.resolve() / target.name
+        if real in seen:
+            continue
+        seen.add(real)
+        size = _unlink_regular_file(target, roots)
+        if size is None:
+            not_found.append(str(target))
+            continue
+        removed.append(str(target))
+        freed += size
+        for sidecar in _sidecars_of(target, protected):
+            size = _unlink_regular_file(sidecar, roots)
+            if size is not None:
+                removed.append(str(sidecar))
+                freed += size
+    return TrackedFilesResult(removed=removed, bytes_freed=freed, not_found=not_found)
+
+
+def remove_empty_folders(removed_files: list[str], *, allowed_roots: list[str]) -> list[str]:
+    """Remove the folders *removed_files* left bare, walking up; return those removed.
+
+    A folder is bare when it holds nothing, or only regular files that are
+    standard artwork (``poster.jpg``, ``season01-banner.png`` and the like) or
+    ``.nfo`` files; those files are removed first, then the folder. The walk
+    stops at the first folder that is not bare, never reaches a delete root
+    or a denied folder, and stops on any symlink, subfolder or other device.
+    A folder reached through a symlinked parent is skipped. Raises
+    ``DeletionRefused`` only for a bad allowlist.
+    """
+    roots = _validate_delete_roots(allowed_roots)
+    starts: dict[Path, None] = {}
+    for removed_file in removed_files:
+        parent = Path(removed_file).parent
+        if parent.is_absolute() and not os.path.islink(parent):
+            starts[parent.resolve()] = None
+    removed: list[str] = []
+    for folder in starts:
+        while _remove_bare_folder(folder, roots):
+            removed.append(str(folder))
+            folder = folder.parent
+    return removed
+
+
+def _pinned_root(resolved: Path, roots: list[Path]) -> Path:
+    """Return the longest root *resolved* strictly descends from, or refuse."""
+    matching = [root for root in roots if root in resolved.parents]
+    if not matching:
+        raise DeletionRefused(
+            f"Refusing to delete '{resolved}' — must be a strict descendant of "
+            f"an allowed root. Allowed roots: {[str(r) for r in roots]}"
+        )
+    return max(matching, key=lambda root: len(root.parts))
+
+
+def _checked_tracked_path(entry: object, roots: list[Path]) -> Path:
+    """Return the tracked file's path once it passes ``delete_path``'s checks."""
+    path = entry.get("path") if isinstance(entry, dict) else None
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise DeletionRefused(f"Refusing to delete tracked file {entry!r} — not an absolute path.")
+    raw = Path(path)
+    if raw.name in ("", ".", ".."):
+        raise DeletionRefused(f"Refusing to delete '{raw}' — not a file path.")
+    real = raw.parent.resolve() / raw.name
+    _pinned_root(real, roots)
+    try:
+        lst = os.lstat(real)
+    except FileNotFoundError:
+        return raw
+    if _stat.S_ISLNK(lst.st_mode) or raw.is_symlink():
+        raise DeletionRefused(f"Refusing to delete '{raw}' — target path is a symlink.")
+    if not _stat.S_ISREG(lst.st_mode):
+        raise DeletionRefused(f"Refusing to delete '{raw}' — not a regular file.")
+    return raw
+
+
+def _unlink_regular_file(path: Path, roots: list[Path]) -> int | None:
+    """Unlink the regular file at *path* and return its size, or None if it is missing.
+
+    Only the parent is resolved, so a final component swapped for a symlink
+    is seen by ``lstat`` and refused rather than followed.
+    """
+    real = path.parent.resolve() / path.name
+    pinned = _pinned_root(real, roots)
+    try:
+        lst = os.lstat(real)
+    except FileNotFoundError:
+        return None
+    try:
+        root_dev = os.stat(pinned).st_dev
+    except FileNotFoundError as exc:
+        raise DeletionRefused(
+            f"Refusing to delete '{real}' — allowed root '{pinned}' no longer exists."
+        ) from exc
+    if lst.st_dev != root_dev:
+        raise DeletionRefused(
+            f"Refusing to delete '{real}' — different device from allowed root '{pinned}'."
+        )
+    if not _stat.S_ISREG(lst.st_mode):
+        raise DeletionRefused(f"Refusing to delete '{real}' — not a regular file.")
+    os.unlink(real)
+    return lst.st_size
+
+
+def _extension(name: str) -> str:
+    return name.rpartition(".")[2].lower() if "." in name else ""
+
+
+def _sidecars_of(video: Path, protected: set[str]) -> list[Path]:
+    """Return the sidecar files of *video* in its folder, skipping *protected* ones."""
+    folder = video.parent
+    real_folder = folder.resolve()
+    try:
+        with os.scandir(real_folder) as entries:
+            names = [e.name for e in entries if e.is_file(follow_symlinks=False)]
+    except OSError:
+        return []
+    stem = video.stem
+    video_stems = {stem} | {Path(n).stem for n in names if _extension(n) in _VIDEO_EXTENSIONS}
+    sidecars: list[Path] = []
+    for name in names:
+        if not _is_sidecar(name, stem, video_stems):
+            continue
+        candidate = folder / name
+        if os.path.normpath(candidate) in protected or str(real_folder / name) in protected:
+            continue
+        sidecars.append(candidate)
+    return sidecars
+
+
+def _is_sidecar(name: str, stem: str, video_stems: set[str]) -> bool:
+    if not name.startswith(stem + "."):
+        return False
+    *tags, extension = name[len(stem) + 1 :].split(".")
+    if extension.lower() not in _SIDECAR_EXTENSIONS:
+        return False
+    if not all(_SIDECAR_TAG.fullmatch(tag) for tag in tags):
+        return False
+    owner = max((s for s in video_stems if name.startswith(s + ".")), key=len)
+    return owner == stem
+
+
+def _is_folder_dressing(name: str) -> bool:
+    return _extension(name) == "nfo" or _ARTWORK.fullmatch(name) is not None
+
+
+def _remove_bare_folder(folder: Path, roots: list[Path]) -> bool:
+    """Remove *folder* if it holds only artwork or ``.nfo`` files; return True if removed."""
+    matching = [root for root in roots if root in folder.parents]
+    if not matching or _is_forbidden_root(folder):
+        return False
+    pinned = max(matching, key=lambda root: len(root.parts))
+    try:
+        root_dev = os.stat(pinned).st_dev
+        fd = os.open(folder, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
+    except OSError:
+        return False
+    try:
+        if os.fstat(fd).st_dev != root_dev:
+            return False
+        dressing: list[str] = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                entry_stat = entry.stat(follow_symlinks=False)
+                if (
+                    not _stat.S_ISREG(entry_stat.st_mode)
+                    or entry_stat.st_dev != root_dev
+                    or not _is_folder_dressing(entry.name)
+                ):
+                    return False
+                dressing.append(entry.name)
+        for name in dressing:
+            os.unlink(name, dir_fd=fd)
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    try:
+        # rmdir neither follows a final symlink nor removes a folder that
+        # gained an entry since the scan.
+        os.rmdir(folder)
+    except OSError:
+        return False
+    return True
