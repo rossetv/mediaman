@@ -51,6 +51,10 @@
   /* Titles with an Add in flight, by media type and TMDB id. The request
      outlives the modal, so a reopened title must still show it as busy. */
   const adding        = new Set();
+  /* Titles added successfully during this page session, same keys. A detail
+     reply that was already in flight when the Add finished carries the state
+     from before it, so the button cannot trust the reply alone. */
+  const added         = new Set();
 
   /* Injected at init time. */
   let _refreshCurrentView = null;
@@ -300,7 +304,9 @@
     let disabled = false;
     let click    = null;
 
-    if (adding.has(addKey(d.media_type, d.tmdb_id))) {
+    if (added.has(addKey(d.media_type, d.tmdb_id))) {
+      label = "Added ✓"; variant = "is-added"; disabled = true;
+    } else if (adding.has(addKey(d.media_type, d.tmdb_id))) {
       label = "Adding…"; disabled = true;
     } else if (d.media_type === "movie") {
       if (d.download_state === "in_library")      { label = "In Library ✓"; variant = "ready";  disabled = true; }
@@ -357,6 +363,7 @@
     try {
       await MM.api.post("/api/search/download", payload);
       adding.delete(key);
+      added.add(key);
       const shown = showing();
       const shownIn = openCount;
       if (shown) {
