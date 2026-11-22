@@ -123,7 +123,7 @@
         .then(reloadAfterKeep)
         .catch(function (err) {
           delete wrapper.dataset.keepBusy;
-          var msg = (err && err.message) || 'Try again.';
+          var msg = MM.api.messageOf(err, 'Try again.');
           if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
           window.UIFeedback.error("Couldn't save keep. " + msg);
           var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
@@ -360,7 +360,7 @@
       )
         .then(done)
         .catch(function (err) {
-          var msg = (err && err.message) || 'Try again.';
+          var msg = MM.api.messageOf(err, 'Try again.');
           window.UIFeedback.error(say("Couldn't save keep. " + msg));
           restoreButton();
         });
@@ -598,7 +598,7 @@
       .then(function () { window.location.reload(); })
       .catch(function (err) {
         delete wrapper.dataset.keepBusy;
-        var msg = (err && err.message) || 'Try again.';
+        var msg = MM.api.messageOf(err, 'Try again.');
         if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't remove keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
@@ -676,7 +676,7 @@
         MM.api.post('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete')
           .then(function () { window.location.reload(); })
           .catch(function (err) {
-            var msg = (err && err.message) || 'Try again.';
+            var msg = MM.api.messageOf(err, 'Try again.');
             window.UIFeedback.error("Couldn't delete item. " + msg);
           });
         closeDeleteModal();

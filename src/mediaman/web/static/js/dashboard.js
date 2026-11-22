@@ -119,14 +119,6 @@
     }, 3000);
   }
 
-  /* The server's reason, or "Try again." when it gave none: with no message
-     in the reply the shared helper falls back to the bare error code, which
-     means nothing to a person. */
-  function failureReason(err) {
-    var msg = err instanceof MM.api.APIError && err.message !== err.error ? err.message : '';
-    return msg || 'Try again.';
-  }
-
   function triggerScan(btn) {
     btn.disabled = true;
     btn.classList.remove('is-error', 'is-success');
@@ -141,7 +133,7 @@
         pollScanStatus(btn);
       })
       .catch(function (err) {
-        var reason = "Couldn't start the scan. " + failureReason(err);
+        var reason = "Couldn't start the scan. " + MM.api.messageOf(err, 'Try again.');
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
@@ -176,7 +168,7 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Failed';
+        var msg = MM.api.messageOf(err, 'Failed');
         btn.textContent = msg.length < 30 ? msg : 'Failed';
         btn.classList.add('is-error');
         btn.disabled = false;
@@ -207,7 +199,7 @@
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function (err) {
-        window.UIFeedback.error("Couldn't clear scheduled deletions. " + failureReason(err));
+        window.UIFeedback.error("Couldn't clear scheduled deletions. " + MM.api.messageOf(err, 'Try again.'));
         btn.disabled = false;
         btn.textContent = label;
       });
@@ -237,7 +229,7 @@
       })
       .catch(function (err) {
         delete wrapper.dataset.keepBusy;
-        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
+        var msg = MM.api.messageOf(err, 'Try again.');
         window.UIFeedback.error("Couldn't save keep. " + msg);
       });
   }

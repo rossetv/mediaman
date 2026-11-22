@@ -167,6 +167,19 @@
     /* Replaced by a page whose unsaved edits a login redirect would lose. */
     hasUnsavedChanges: function () { return false; },
 
+    /* The server's own words for a failure, or ``fallback`` when it gave
+     * none: a reply with no message leaves an APIError holding only its
+     * code, or "HTTP <status>", which mean nothing to a person. */
+    messageOf: function (err, fallback) {
+      if (!(err instanceof APIError)) return fallback;
+      var msg = err.message;
+      if (!msg || msg === err.error ||
+          (msg === 'HTTP ' + err.status && err.error === 'http_' + err.status)) {
+        return fallback;
+      }
+      return msg;
+    },
+
     get: function (endpoint, options) {
       return request('GET', endpoint, undefined, options);
     },
