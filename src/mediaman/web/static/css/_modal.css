@@ -101,11 +101,8 @@
 .detail-modal-quick .type-pill--movie,
 .type-pill--movie { background: var(--rgba-orange-bg); color: var(--orange); }
 .meta-text { color: var(--t2); font-size: 13px; }
-.meta-dot { color: var(--t4); }
-/* Wrapped items are separated by the gap alone, so no line ends in a dot. */
-@media (max-width: 639.98px) {
-  .detail-modal-quick .meta-dot { display: none; }
-}
+/* The separator belongs to the item after it, so a dot can start a line but never end one. */
+.detail-modal-quick .meta-text + .meta-text::before { content: "·"; color: var(--t4); margin-right: 8px; }
 
 .detail-modal-ratings { display: flex; flex-wrap: wrap; gap: 6px; }
 .rating-pill {

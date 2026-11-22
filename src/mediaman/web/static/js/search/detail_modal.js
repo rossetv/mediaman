@@ -139,9 +139,9 @@
       '<span class="type-pill' + (d.media_type === "movie" ? " type-pill--movie" : "") + '">' + (d.media_type === "movie" ? "Movie" : "TV Series") + '</span>',
       (d.genres || []).map(function(g) {
         return '<span class="meta-text">' + escapeHtml(g) + '</span>';
-      }).join('<span class="meta-dot">·</span>'),
-      runtime ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
-      d.director ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",
+      }).join(""),
+      runtime ? '<span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
+      d.director ? '<span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",
     ].filter(Boolean).join("");
     modalEl.quick.innerHTML = quickBits;
 
