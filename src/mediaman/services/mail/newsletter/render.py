@@ -64,11 +64,14 @@ def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool
         size_str = f"{total_size_bytes / (1 << 30):.1f} GB"
     elif total_size_bytes >= 1 << 20:
         size_str = f"{total_size_bytes / (1 << 20):.0f} MB"
+    elif total_size_bytes > 0:
+        size_str = f"{max(1, round(total_size_bytes / 1024))} KB"
     else:
-        size_str = f"{total_size_bytes} B"
+        size_str = ""
     subject = (
         f"Mediaman Weekly Report — {len(scheduled_items)} item"
         f"{'s' if len(scheduled_items) != 1 else ''} scheduled"
-        f" · {size_str} to reclaim"
     )
+    if size_str:
+        subject += f" · {size_str} to reclaim"
     return f"[DRY RUN] {subject}" if dry_run else subject
