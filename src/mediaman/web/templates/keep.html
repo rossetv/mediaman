@@ -185,7 +185,7 @@
         <div class="expired-icon">
           <i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>
         </div>
-        <div class="expired-title">We could not keep this item</div>
+        <h1 class="expired-title">We could not keep this item</h1>
         <div class="expired-detail">{{ error_message }}</div>
       </div>
 
@@ -216,7 +216,9 @@
         <div class="expired-icon">
           <i class="fa-regular fa-clock" aria-hidden="true"></i>
         </div>
-        <div class="expired-title">This link has expired</div>
+        {# The item's title, when shown above, is the page's h1. #}
+        {% set level = "h2" if item and item.plex_rating_key else "h1" %}
+        <{{ level }} class="expired-title">This link has expired</{{ level }}>
         <div class="expired-detail">
           The protection window for this item has passed.<br>
           Sign in to the dashboard to manage your library.

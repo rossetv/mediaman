@@ -185,7 +185,14 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 
 .expired-msg { margin: 24px 0; color: var(--t2); }
 .expired-icon { display: grid; place-items: center; margin-bottom: 12px; color: var(--t3); font-size: 32px; }
-.expired-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.expired-title {
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: inherit;
+  line-height: inherit;
+  margin-bottom: 6px;
+}
 .expired-detail { font-size: 13px; line-height: 1.5; color: var(--t3); }
 
 
