@@ -151,8 +151,7 @@
       cb.dataset.seasonId = s.id;
       cb.checked = s.kept || !anyKept;
       cb.addEventListener('change', function () {
-        var boxes = list.querySelectorAll('input[data-season-id]');
-        allCb.checked = Array.prototype.every.call(boxes, function (c) { return c.checked; });
+        if (!cb.checked) allCb.checked = false;
       });
       var label = document.createElement('label');
       label.htmlFor = 'keep-season-' + s.id;
