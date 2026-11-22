@@ -25,8 +25,7 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER
 from mediaman.web.repository.kept import (
-    delete_protection,
-    fetch_active_protection,
+    delete_protections,
     fetch_protected_items,
     fetch_seasons_for_show,
     fetch_show_kept_status,
@@ -122,20 +121,19 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
         )
 
     conn = get_db()
-    action_id = fetch_active_protection(conn, media_item_id)
-
-    if action_id is None:
-        return respond_err("not_found", status=404, message="No active protection found")
-
     with conn:
-        delete_protection(conn, action_id)
-        log_audit(
-            conn,
-            media_item_id,
-            "unprotected",
-            f"Protection removed by {username}",
-            actor=username,
-        )
+        removed = delete_protections(conn, media_item_id)
+        if removed:
+            log_audit(
+                conn,
+                media_item_id,
+                "unprotected",
+                f"Protection removed by {username} ({removed} keep{'s' if removed != 1 else ''})",
+                actor=username,
+            )
+
+    if not removed:
+        return respond_err("not_found", status=404, message="No active protection found")
 
     logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
     return respond_ok()

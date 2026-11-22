@@ -173,21 +173,6 @@ def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> Sh
     return ShowKeptRow(action=row["action"], execute_at=row["execute_at"])
 
 
-def fetch_active_protection(conn: sqlite3.Connection, media_item_id: str) -> int | None:
-    """Return the id of the most-recent active protection row, or None.
-
-    Picks the most-recent protection row to avoid targeting a stale snooze
-    when a newer protect/snooze has already been applied.
-    """
-    row = conn.execute(
-        "SELECT id FROM scheduled_actions "
-        "WHERE media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
-        "ORDER BY id DESC LIMIT 1",
-        (media_item_id,),
-    ).fetchone()
-    return row["id"] if row is not None else None
-
-
 def fetch_existing_actions_for_seasons(
     conn: sqlite3.Connection, season_ids: list[str]
 ) -> dict[str, int]:
@@ -267,8 +252,17 @@ def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -
     return [r["id"] for r in rows]
 
 
-def delete_protection(conn: sqlite3.Connection, action_id: int) -> None:
-    conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
+def delete_protections(conn: sqlite3.Connection, media_item_id: str) -> int:
+    """Delete every keep (forever or snoozed) on the item and return how many went.
+
+    Scheduled-deletion rows, and any row the deletion pass is working on, are left alone.
+    """
+    return conn.execute(
+        "DELETE FROM scheduled_actions "
+        "WHERE media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
+        "AND delete_status IS NOT 'deleting'",
+        (media_item_id,),
+    ).rowcount
 
 
 def upsert_kept_show(

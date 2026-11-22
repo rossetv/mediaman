@@ -104,6 +104,31 @@ class TestApiUnprotect:
         assert audit["action"] == "unprotected"
 
 
+class TestApiUnprotectEveryKeep:
+    def test_one_press_removes_every_keep_and_writes_one_audit_row(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+        insert_media_item(conn, id="m1", title="Dune", plex_rating_key="rk1", file_size_bytes=0)
+        for n, action in enumerate(("snoozed", "protected_forever")):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action=action, execute_at=None, token=f"t{n}"
+            )
+        scheduled = insert_scheduled_action(
+            conn, media_item_id="m1", action="scheduled_deletion", token="t-sched"
+        )
+        conn.commit()
+
+        assert client.post("/api/media/m1/unprotect").status_code == 200
+
+        left = conn.execute("SELECT id, action FROM scheduled_actions").fetchall()
+        assert [(r["id"], r["action"]) for r in left] == [(scheduled, "scheduled_deletion")]
+        audits = conn.execute("SELECT detail FROM audit_log WHERE action='unprotected'").fetchall()
+        assert len(audits) == 1
+        assert "2 keeps" in audits[0]["detail"]
+        assert client.post("/api/media/m1/unprotect").status_code == 404
+
+
 class TestApiShowSeasons:
     def test_requires_auth(self, app_factory, conn):
         app = app_factory(kept_router, conn=conn)
