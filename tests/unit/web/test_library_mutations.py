@@ -453,7 +453,20 @@ class TestMediaDeleteRefusals:
         with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
-        self._assert_refused(resp, conn, "m1", radarr, fact="may already be deleted")
+        self._assert_refused(resp, conn, "m1", radarr, fact="under the id mediaman has")
+
+    def test_no_stored_id_and_an_empty_lookup_with_every_file_gone_says_may_already_be_deleted(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn, radarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        radarr.get_movie_by_tmdb.return_value = None
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="has no entry for this movie")
 
     def test_a_second_radarr_copy_with_a_different_file_is_refused(
         self, app_factory, authed_client, conn

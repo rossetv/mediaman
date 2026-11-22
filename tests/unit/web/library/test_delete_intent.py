@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from unittest.mock import MagicMock, patch
 
@@ -194,8 +195,43 @@ class TestReconcilePendingDeleteIntents:
             "SELECT completed_at, last_error FROM delete_intents WHERE id = ?", (intent_id,)
         ).fetchone()
         assert intent["completed_at"] is not None
-        assert "press Delete again" in intent["last_error"]
+        assert "Radarr no longer has it" in intent["last_error"]
+        assert "press Delete again" not in intent["last_error"]
         assert _audit_actions(conn, "m2") == ["delete_failed"]
+
+    def test_verified_gone_is_not_booked_when_the_media_folder_looks_unmounted(
+        self, conn, tmp_path
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        gone = [{"path": str(root / "Test Movie" / "movie.mkv"), "size": 1}]
+        _insert_movie(conn, "m2", tracked_files=gone)
+        intent_id = _record_delete_intent(conn, "m2", "radarr", "101")
+
+        reconcile_pending_delete_intents(
+            conn, verify_gone=lambda _i: True, delete_roots=[str(root)]
+        )
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
+        intent = conn.execute(
+            "SELECT last_error FROM delete_intents WHERE id = ?", (intent_id,)
+        ).fetchone()
+        assert "may not be mounted" in intent["last_error"]
+        assert _audit_actions(conn, "m2") == ["delete_failed"]
+
+    def test_verified_gone_is_booked_when_the_media_folder_has_content(self, conn, tmp_path):
+        root = tmp_path / "movies"
+        root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
+        gone = [{"path": str(root / "Test Movie" / "movie.mkv"), "size": 1}]
+        _insert_movie(conn, "m2", tracked_files=gone)
+        _record_delete_intent(conn, "m2", "radarr", "101")
+
+        reconcile_pending_delete_intents(
+            conn, verify_gone=lambda _i: True, delete_roots=[str(root)]
+        )
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone() is None
 
     def test_verified_gone_season_is_not_booked_while_an_episode_is_still_on_disk(
         self, conn, tmp_path
@@ -464,6 +500,48 @@ class TestStartupReconciliationIsOffTheStartupPath:
         reconcile.assert_called_once()
         assert reconcile.call_args.args == (conn,)
         assert reconcile.call_args.kwargs["started_before"] == "2026-01-01T00:00:00+00:00"
+
+    def test_background_job_passes_the_stored_delete_roots_to_the_reconcile(self, conn):
+        from mediaman import app_factory
+
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', ?, 0, '2026-01-01T00:00:00+00:00')",
+            (json.dumps(["/media/a", "/media/b"]),),
+        )
+        conn.commit()
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch("mediaman.db.close_db"),
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                return_value=0,
+            ) as reconcile,
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
+
+        assert reconcile.call_args.kwargs["delete_roots"] == ["/media/a", "/media/b"]
+
+    def test_background_job_still_reconciles_with_no_roots_when_they_cannot_be_read(self, conn):
+        from mediaman import app_factory
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch("mediaman.db.close_db"),
+            patch(
+                "mediaman.scanner.repository.read_delete_allowed_roots_setting",
+                side_effect=RuntimeError("settings unreadable"),
+            ),
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                return_value=0,
+            ) as reconcile,
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
+
+        reconcile.assert_called_once()
+        assert reconcile.call_args.kwargs["delete_roots"] == []
 
     def test_background_job_closes_its_connection_even_when_reconcile_fails(self, conn):
         from mediaman import app_factory
