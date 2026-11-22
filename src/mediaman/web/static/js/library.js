@@ -651,6 +651,11 @@
             end: input.selectionEnd,
             dir: input.selectionDirection
           }));
+        } else if (document.activeElement && document.activeElement.id) {
+          sessionStorage.setItem('library-search-refocus', JSON.stringify({
+            at: Date.now(),
+            elsewhereId: document.activeElement.id
+          }));
         } else {
           sessionStorage.removeItem('library-search-refocus');
         }
@@ -671,6 +676,14 @@
     /* The search form always sends q, even empty; a load without it came
        from somewhere else, such as the sign-in after an expired session. */
     if (!(age >= 0 && age < 5000) || !new URLSearchParams(window.location.search).has('q')) return;
+    if (saved.elsewhereId) {
+      /* The reload replaced the element the user had tabbed to; hand focus
+         to its successor, but never take it from wherever it already is. */
+      var next = document.getElementById(saved.elsewhereId);
+      var active = document.activeElement;
+      if (next && (!active || active === document.body)) next.focus();
+      return;
+    }
     input.focus();
     var len = input.value.length;
     var start = Math.min(Number(saved.start), len);
