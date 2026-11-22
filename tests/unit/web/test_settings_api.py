@@ -7,9 +7,11 @@ from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import encrypt_value
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit.instances import (
     SETTINGS_TEST_LIMITER,
     SETTINGS_WRITE_LIMITER,
@@ -557,7 +559,9 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
     def test_omdb_without_error_sentence_sends_code_only(self, app_factory, authed_client, conn):
         resp = self._omdb_answer(app_factory, authed_client, conn, {"Response": "False"})
-        assert resp.json() == {"ok": False, "error": "auth_failed"}
+        data = resp.json()
+        assert data["error"] == "auth_failed"
+        assert "rejected" in data["message"]
 
     def test_openai_success_via_safe_http_client(self, app_factory, authed_client, conn):
         """A 200 from the SafeHTTPClient returns ok=True."""
@@ -636,6 +640,53 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         data = resp.json()
         assert data["ok"] is False
         assert "ssrf_refused" in data["error"]
+
+
+class TestTesterFailureMessages:
+    """Every failed connection test carries a plain message that tells the failure kinds apart,
+    beside the machine code the page does not show."""
+
+    @pytest.mark.parametrize(
+        ("raised", "code", "words"),
+        [
+            (SafeHTTPError(401, "Unauthorized", "u"), "auth_failed", "rejected"),
+            (SafeHTTPError(0, "refused by SSRF guard", "u"), "ssrf_refused", "allowed"),
+            (SafeHTTPError(0, "transport error: timeout", "u"), "timeout", "in time"),
+            (
+                SafeHTTPError(0, "transport error: ConnectionError", "u"),
+                "connection_refused",
+                "reach",
+            ),
+            (SafeHTTPError(500, "boom", "u"), "other: HTTP 500", "HTTP 500"),
+        ],
+    )
+    def test_each_failure_kind_has_its_own_message(
+        self, app_factory, authed_client, conn, raised, code, words
+    ):
+        insert_settings(conn, openai_api_key="sk-goodkey1234")
+        client = _client(app_factory, authed_client, conn)
+        with patch("mediaman.services.infra.http.client._dispatch", side_effect=raised):
+            data = client.post("/api/settings/test/openai").json()
+        assert data["error"] == code
+        assert words in data["message"]
+
+    def test_invalid_key_characters_have_a_message(self, app_factory, authed_client, conn):
+        insert_settings(conn, tmdb_read_token="bad\nevil")
+        client = _client(app_factory, authed_client, conn)
+        data = client.post("/api/settings/test/tmdb").json()
+        assert data["error"].startswith("auth_failed")
+        assert "characters" in data["message"]
+
+    def test_plex_transport_failures_have_a_message(self, app_factory, authed_client, conn):
+        insert_settings(conn, plex_url="http://plex:32400", plex_token="tok")
+        client = _client(app_factory, authed_client, conn)
+        with patch(
+            "mediaman.services.media_meta.plex.PlexClient",
+            side_effect=requests.Timeout("timed out"),
+        ):
+            data = client.post("/api/settings/test/plex").json()
+        assert data["error"] == "timeout"
+        assert "in time" in data["message"]
 
 
 class TestSettingsTestServiceRateLimit:
