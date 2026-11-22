@@ -50,7 +50,7 @@ from mediaman.scanner.deletions import (
     DeletionExecutor,
     DeletionResult,
 )
-from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher
+from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher, PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
@@ -225,7 +225,9 @@ class ScanEngine:
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
             seen_lib_keys.update(fetched.skipped_keys)
             for f in fetched.items:
-                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
+                if not self._upsert_item_isolated(f):
+                    summary["errors"] += 1
+                    continue
                 summary["synced"] += 1
             try:
                 lib_set = _coerce_lib_ids([lib_id])
@@ -239,6 +241,29 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
+
+    def _upsert_item_isolated(self, f: PlexItemFetch) -> bool:
+        """Upsert one item inside its own savepoint; return False if it failed.
+
+        A failure rolls back only this item so the rest of the library
+        still syncs.
+        """
+        if not self._conn.in_transaction:
+            self._conn.execute("BEGIN")
+        self._conn.execute("SAVEPOINT sync_item")
+        try:
+            _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
+        except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
+            # rationale: per-item isolation, same narrow set as the scan loop
+            self._conn.execute("ROLLBACK TO sync_item")
+            self._conn.execute("RELEASE sync_item")
+            logger.exception(
+                "Library sync item failed (plex_rating_key=%s)",
+                f.item.get("plex_rating_key", "?"),
+            )
+            return False
+        self._conn.execute("RELEASE sync_item")
+        return True
 
     def run_scan(self) -> dict[str, int]:
         """Execute a full scan and return a summary dict.
