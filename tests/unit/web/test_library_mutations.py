@@ -260,8 +260,9 @@ class TestMediaDelete:
         sonarr.get_episode_files.side_effect = import_lands_after_the_check
 
         with patch(SONARR, return_value=sonarr):
-            client.post("/api/media/s1/delete")
+            resp = client.post("/api/media/s1/delete")
 
+        assert resp.status_code == 409
         sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
     def test_season_without_a_stored_sonarr_id_is_found_by_tvdb_id(
