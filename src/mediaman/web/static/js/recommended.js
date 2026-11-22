@@ -68,9 +68,9 @@
         btn.classList.add('btn--danger');
         btn.style.opacity = '1';
         btn.disabled = false;
-        btn.title = (err && err.message) || '';
+        btn.title = MM.api.messageOf(err, '');
         if (window.UIFeedback) {
-          window.UIFeedback.error((err && err.message) || 'Download failed');
+          window.UIFeedback.error(MM.api.messageOf(err, 'Download failed'));
         }
       });
   }
@@ -93,7 +93,7 @@
         btn.className = 'btn-download';
         btn.disabled = false;
         if (window.UIFeedback) {
-          window.UIFeedback.error((err && err.message) || 'Download failed');
+          window.UIFeedback.error(MM.api.messageOf(err, 'Download failed'));
         }
       });
   }

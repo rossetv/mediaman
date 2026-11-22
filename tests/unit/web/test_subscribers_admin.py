@@ -6,6 +6,7 @@ and api_send_newsletter in mediaman.web.routes.subscribers.
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -127,6 +128,15 @@ class TestAddSubscriber:
 
         resp = authed_client.post("/api/subscribers", data={"email": "dupe@example.com"})
         assert resp.status_code == 409
+
+    def test_a_database_failure_answers_with_a_message_for_people(self, authed_client):
+        with patch(
+            "mediaman.web.routes.subscribers.try_add_subscriber",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ):
+            resp = authed_client.post("/api/subscribers", data={"email": "new@example.com"})
+        assert resp.status_code == 500
+        assert resp.json()["message"]
 
     def test_rejects_invalid_email_format(self, authed_client):
         resp = authed_client.post("/api/subscribers", data={"email": "not-an-email"})

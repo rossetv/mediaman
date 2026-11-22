@@ -83,6 +83,17 @@ def _register(name: str) -> Callable[[_TesterFn], _TesterFn]:
     return decorator
 
 
+def _failure(code: str, message: str) -> JSONResponse:
+    """A failed test: ``error`` is the machine code, ``message`` the sentence the page shows."""
+    return JSONResponse({"ok": False, "error": code, "message": message})
+
+
+_REJECTED = "The service rejected the credentials."
+_TIMED_OUT = "The service didn't answer in time."
+_UNREACHABLE = "Couldn't reach the service."
+_BAD_KEY_CHARS = "The key contains characters that aren't allowed."
+
+
 def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:
     """Convert a SafeHTTPError to a test-result JSONResponse, covering SSRF refusal, transport
     errors (timeout, connection refused) and HTTP auth failures; other status codes get a
@@ -91,13 +102,17 @@ def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:
     if exc.status_code == 0:
         snippet = exc.body_snippet
         if "refused by SSRF" in snippet:
-            return JSONResponse({"ok": False, "error": "ssrf_refused"})
+            return _failure("ssrf_refused", "That address isn't allowed.")
         if "transport error" in snippet:
-            kind = "timeout" if "timeout" in snippet.lower() else "connection_refused"
-            return JSONResponse({"ok": False, "error": kind})
+            if "timeout" in snippet.lower():
+                return _failure("timeout", _TIMED_OUT)
+            return _failure("connection_refused", _UNREACHABLE)
     if exc.status_code in (401, 403):
-        return JSONResponse({"ok": False, "error": "auth_failed"})
-    return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
+        return _failure("auth_failed", _REJECTED)
+    return _failure(
+        f"other: HTTP {exc.status_code}",
+        f"The service answered with an error (HTTP {exc.status_code}).",
+    )
 
 
 def _test_bearer_api(url: str, api_key: str) -> JSONResponse:
@@ -160,8 +175,9 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
         # Use isinstance rather than string-matching: requests.Timeout messages
         # say "timed out" not "timeout", so the string check silently mis-maps
         # Timeout → connection_refused.
-        kind = "timeout" if isinstance(exc, _requests.Timeout) else "connection_refused"
-        return JSONResponse({"ok": False, "error": kind})
+        if isinstance(exc, _requests.Timeout):
+            return _failure("timeout", _TIMED_OUT)
+        return _failure("connection_refused", _UNREACHABLE)
 
 
 @_register("sonarr")
@@ -222,9 +238,7 @@ def test_openai(settings: dict[str, object]) -> JSONResponse:
     if not api_key:
         return respond_failure("OpenAI API key is required", status=200)
     if not _API_KEY_RE.match(api_key):
-        return JSONResponse(
-            {"ok": False, "error": "auth_failed: API key contains invalid characters"}
-        )
+        return _failure("auth_failed: API key contains invalid characters", _BAD_KEY_CHARS)
     return _test_bearer_api(_OPENAI_MODELS_URL, api_key)
 
 
@@ -234,9 +248,7 @@ def test_tmdb(settings: dict[str, object]) -> JSONResponse:
     if not read_token:
         return respond_failure("TMDB Read Token is required", status=200)
     if not _API_KEY_RE.match(read_token):
-        return JSONResponse(
-            {"ok": False, "error": "auth_failed: token contains invalid characters"}
-        )
+        return _failure("auth_failed: token contains invalid characters", _BAD_KEY_CHARS)
     return _test_bearer_api(_TMDB_CONFIG_URL, read_token)
 
 
@@ -246,9 +258,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
     if not api_key:
         return respond_failure("OMDB API key is required", status=200)
     if not _API_KEY_RE.match(api_key):
-        return JSONResponse(
-            {"ok": False, "error": "auth_failed: API key contains invalid characters"}
-        )
+        return _failure("auth_failed: API key contains invalid characters", _BAD_KEY_CHARS)
     try:
         # Tester hits a pinned host (www.omdbapi.com); no conn-derived allowlist applies.
         resp = SafeHTTPClient().get(
@@ -262,7 +272,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
         omdb_error = data.get("Error")
         if omdb_error:
             return JSONResponse({"ok": False, "error": omdb_error, "message": omdb_error})
-        return JSONResponse({"ok": False, "error": "auth_failed"})
+        return _failure("auth_failed", _REJECTED)
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
 

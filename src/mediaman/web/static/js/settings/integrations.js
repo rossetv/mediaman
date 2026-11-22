@@ -52,19 +52,13 @@
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
-          .then(function (data) {
-            if (data.ok) {
-              self.setConnStatus(service, 'ok', 'Connected');
-              if (btn) btn.textContent = 'OK ✓';
-            } else {
-              self.setConnStatus(service, 'err', data.error || 'Error');
-              if (btn) btn.textContent = 'Failed';
-            }
+          .then(function () {
+            self.setConnStatus(service, 'ok', 'Connected');
+            if (btn) btn.textContent = 'OK ✓';
           })
           .catch(function (err) {
-            // MM.api rejects on ok:false too; distinguish connection errors
-            // from a well-formed failure response.
-            var label = (err && err.message) || 'Connection failed';
+            // MM.api rejects on ok:false too, so a failed test lands here.
+            var label = MM.api.messageOf(err, 'Connection failed');
             self.setConnStatus(service, 'err', label);
             if (btn) btn.textContent = 'Failed';
           })
@@ -106,8 +100,8 @@
           self.setConnStatus(c.service, 'untested', 'Testing…');
           setTimeout(function () {
             MM.api.post('/api/settings/test/' + encodeURIComponent(c.service))
-              .then(function (data) {
-                self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (data.error || 'Error'));
+              .then(function () {
+                self.setConnStatus(c.service, 'ok', 'Connected');
               })
               .catch(function (err) {
                 // err is an APIError with .status and .message. 429 is the
@@ -115,8 +109,7 @@
                 // show it distinctly if it still fires.
                 var label;
                 if (err && err.status === 429)         label = 'Rate limited';
-                else if (err && err.message)           label = err.message;
-                else                                   label = 'Connection failed';
+                else                                   label = MM.api.messageOf(err, 'Connection failed');
                 self.setConnStatus(c.service, 'err', label);
               });
           }, idx * 200);

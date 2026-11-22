@@ -148,6 +148,9 @@
   margin-top: 2px;
 }
 .grid-tiles-lg .tile-actions { margin-top: auto; }
+/* Dashboard: grid items already stretch to the row, so pinning the Keep row
+   lines the buttons up across tiles of differing title and meta length. */
+.grid-tiles .keep-wrapper.tile-actions { margin-top: auto; }
 
 /* Grids */
 .grid           { display: grid; gap: 20px; }

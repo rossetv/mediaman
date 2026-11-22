@@ -140,7 +140,7 @@ def api_add_subscriber(
         outcome = try_add_subscriber(conn, email=email, now=now)
     except sqlite3.Error:
         logger.exception("subscriber.add failed user=%s", _sanitise_log_field(username))
-        return respond_err("internal_error", status=500)
+        return respond_err("internal_error", status=500, message="Couldn't add subscriber.")
 
     if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
         return respond_err("already_subscribed", status=409, message="Email already subscribed")
