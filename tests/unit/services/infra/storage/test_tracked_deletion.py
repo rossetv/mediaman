@@ -178,6 +178,23 @@ def test_a_swept_video_under_a_dropped_mount_is_reported_failed(tmp_path):
     assert [path for path, _ in result.failed] == [str(video)]
 
 
+def test_a_swept_video_whose_folder_is_missing_names_the_empty_folder_above_it(tmp_path):
+    root = _write(tmp_path / "tv" / "Other" / "o.mkv").parent.parent
+    (root / "Show").mkdir()
+    video = root / "Show" / "Season 1" / "e01.mkv"
+
+    result = delete_tracked_files(
+        [{"path": str(video), "size": 100}],
+        allowed_roots=[str(root)],
+        sweep_sidecars_of={str(video)},
+    )
+
+    [(path, reason)] = result.failed
+    assert path == str(video)
+    # Named on its own, not only as the start of the missing folder's path.
+    assert str(root / "Show") in reason.replace(str(video.parent), "")
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores folder permissions")
 def test_a_swept_video_whose_folder_cannot_be_listed_is_reported_failed(tmp_path):
     root = tmp_path / "movies"

@@ -12,12 +12,14 @@ at startup.  The internal helpers here
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from collections.abc import Callable
 
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.web.repository.library_api import _parse_tracked_files
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,23 @@ def build_verify_gone(conn: sqlite3.Connection, secret_key: str) -> VerifyGone:
     return verify_gone
 
 
+def _tracked_file_on_disk(conn: sqlite3.Connection, media_item_id: str) -> bool:
+    """True when any file tracked for the item still exists locally.
+
+    The Arr answering 404 does not prove its files are gone from mediaman's
+    storage: a delete cut short while waiting for them to vanish leaves them.
+    """
+    row = conn.execute(
+        "SELECT tracked_files FROM media_items WHERE id = ?", (media_item_id,)
+    ).fetchone()
+    entries = _parse_tracked_files(row["tracked_files"]) if row else None
+    return any(
+        os.path.lexists(path)
+        for entry in entries or ()
+        if isinstance(path := entry.get("path"), str) and path
+    )
+
+
 def _reconcile_one_intent(
     conn: sqlite3.Connection,
     intent: sqlite3.Row,
@@ -185,7 +204,11 @@ def _reconcile_one_intent(
     # backlog; every error must roll back the current intent's transaction
     # and leave it pending so the next run retries without aborting the rest.
     try:
-        if verify_gone is not None and verify_gone(intent):
+        if (
+            verify_gone is not None
+            and verify_gone(intent)
+            and not _tracked_file_on_disk(conn, media_item_id)
+        ):
             with conn:
                 audit_id = log_audit(
                     conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr"
@@ -210,7 +233,7 @@ def _reconcile_one_intent(
                 media_item_id,
             )
             return True
-        # Cut off before the Arr confirmed anything: the files may remain,
+        # Cut off before the Arr confirmed anything, or its files remain locally:
         # so keep the row for the operator to delete again.
         _fail_delete_intent(
             conn, intent_id, media_item_id, _INTERRUPTED_DETAIL, _INTERRUPTED_DETAIL

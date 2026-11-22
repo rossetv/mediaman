@@ -488,11 +488,12 @@ def delete_tracked_files(
             # A folder gone while its delete root still has content took its
             # sidecars with it (an earlier pass may have removed it bare); a
             # dropped mount or an unreadable folder cannot show them gone.
-            if (
-                not isinstance(exc, FileNotFoundError)
-                or unavailable_folder(str(target), allowed_roots) is not None
-            ):
+            if not isinstance(exc, FileNotFoundError):
                 failed.append((str(target), f"its folder could not be listed: {exc}"))
+            elif (empty := unavailable_folder(str(target), allowed_roots)) is not None:
+                failed.append(
+                    (str(target), f"its folder is missing and {empty} is empty or not mounted")
+                )
             continue
         for sidecar in sidecars:
             try:
