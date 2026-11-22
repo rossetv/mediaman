@@ -9,6 +9,7 @@ shape.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import cast
 
 from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
@@ -27,57 +28,42 @@ class _SonarrMixin:
     silently issuing the wrong URL shape.
     """
 
-    def delete_episode_files(self, series_id: int, season_number: int) -> None:
-        """Delete all episode files for a season from disk via Sonarr.
+    def delete_episode_files(self, episode_file_ids: Sequence[int]) -> None:
+        """Delete the given episode files from disk via Sonarr.
 
-        Uses the ``/api/v3/episodefile/bulk`` endpoint (single POST with
-        an ``episodeFileIds`` list) rather than N serial DELETEs, which
-        would hammer Sonarr on large seasons.
+        Takes ids rather than a season so only files the caller has checked
+        are deleted, never one imported since.  Calls
+        ``DELETE /api/v3/episodefile/bulk`` with ``{"episodeFileIds": [...]}``
+        (one request, supported since Sonarr v3) and falls back to serial
+        deletes when that endpoint answers 404 (Sonarr too old).  In the
+        fallback a 404 for one file means Sonarr already dropped it, so the
+        rest are still deleted.
 
         Raises ``ArrKindMismatch`` when called on a Radarr client.
         """
         self._require_series("delete_episode_files")  # type: ignore[attr-defined]
-        efs = cast(
-            list[ArrEpisodeFile],
-            self._get(f"/api/v3/episodefile?seriesId={series_id}"),  # type: ignore[attr-defined]
-        )
-        ids = [
-            int(ef["id"])
-            for ef in efs
-            if ef.get("seasonNumber") == season_number and ef.get("id") is not None
-        ]
-        if ids:
-            self._delete_bulk_episode_files(ids)
-
-    def _delete_bulk_episode_files(self, episode_file_ids: list[int]) -> None:
-        """Delete multiple episode files in a single Sonarr API call.
-
-        Calls ``DELETE /api/v3/episodefile/bulk`` with
-        ``{"episodeFileIds": [...]}`` — supported since Sonarr v3.
-        Falls back to serial deletes when the endpoint returns 404
-        (Sonarr version too old). In the fallback a 404 for one file means
-        Sonarr already dropped it, so the rest are still deleted.
-        """
+        ids = list(episode_file_ids)
+        if not ids:
+            return
         try:
             self._http.delete(  # type: ignore[attr-defined]
                 "/api/v3/episodefile/bulk",
                 headers=self._headers,  # type: ignore[attr-defined]
-                json={"episodeFileIds": episode_file_ids},
+                json={"episodeFileIds": ids},
             )
         except SafeHTTPError as exc:
-            if exc.status_code == 404:
-                logger.debug(
-                    "sonarr.delete_episode_files: bulk endpoint not available "
-                    "(HTTP 404), falling back to serial deletes"
-                )
-                for ef_id in episode_file_ids:
-                    try:
-                        self._delete(f"/api/v3/episodefile/{ef_id}")  # type: ignore[attr-defined]
-                    except SafeHTTPError as file_exc:
-                        if file_exc.status_code != 404:
-                            raise
-            else:
+            if exc.status_code != 404:
                 raise
+            logger.debug(
+                "sonarr.delete_episode_files: bulk endpoint not available "
+                "(HTTP 404), falling back to serial deletes"
+            )
+            for ef_id in ids:
+                try:
+                    self._delete(f"/api/v3/episodefile/{ef_id}")  # type: ignore[attr-defined]
+                except SafeHTTPError as file_exc:
+                    if file_exc.status_code != 404:
+                        raise
 
     def delete_series(self, series_id: int) -> None:
         """Delete a series from Sonarr, its files, and add to exclusion list."""

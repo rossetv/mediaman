@@ -506,106 +506,59 @@ class TestAddSeriesWithSeasons:
 class TestDeleteEpisodeFiles:
     """Bulk DELETE via /api/v3/episodefile/bulk with 404 fallback."""
 
-    def test_bulk_delete_sends_single_request(self, client, fake_http, fake_response):
-        """All episode-file ids for the season are sent in one DELETE."""
-        fake_http.queue(
-            "GET",
-            fake_response(
-                json_data=[
-                    {"id": 1, "seasonNumber": 1},
-                    {"id": 2, "seasonNumber": 1},
-                    {"id": 3, "seasonNumber": 2},  # different season — must be excluded
-                ]
-            ),
-        )
+    def test_only_the_given_ids_are_deleted_in_one_request(self, client, fake_http, fake_response):
         fake_http.queue("DELETE", fake_response(content=b""))
 
-        client.delete_episode_files(series_id=10, season_number=1)
+        client.delete_episode_files([1, 2])
 
+        assert _calls(fake_http, "GET") == []
         delete_calls = _calls(fake_http, "DELETE")
         assert len(delete_calls) == 1
+        assert "episodefile/bulk" in delete_calls[0][1]
         assert delete_calls[0][2]["json"] == {"episodeFileIds": [1, 2]}
-
-    def test_bulk_delete_sends_to_bulk_endpoint(self, client, fake_http, fake_response):
-        fake_http.queue("GET", fake_response(json_data=[{"id": 5, "seasonNumber": 3}]))
-        fake_http.queue("DELETE", fake_response(content=b""))
-
-        client.delete_episode_files(series_id=7, season_number=3)
-
-        _, url, _ = _calls(fake_http, "DELETE")[0]
-        assert "episodefile/bulk" in url
 
     def test_404_on_bulk_falls_back_to_serial(self, client, fake_http, fake_response):
         """When bulk endpoint returns 404, fall back to one DELETE per file."""
-        fake_http.queue(
-            "GET",
-            fake_response(
-                json_data=[
-                    {"id": 10, "seasonNumber": 1},
-                    {"id": 11, "seasonNumber": 1},
-                ]
-            ),
-        )
         fake_http.queue("DELETE", fake_response(status=404, text="not found"))
         fake_http.queue("DELETE", fake_response(content=b""))
         fake_http.queue("DELETE", fake_response(content=b""))
 
-        client.delete_episode_files(series_id=5, season_number=1)
+        client.delete_episode_files([10, 11])
 
-        delete_calls = _calls(fake_http, "DELETE")
-        # First call was the bulk attempt (404), then two serial calls
-        assert len(delete_calls) == 3
-        serial_urls = [c[1] for c in delete_calls[1:]]
-        assert any("10" in u for u in serial_urls)
-        assert any("11" in u for u in serial_urls)
+        serial_urls = [c[1] for c in _calls(fake_http, "DELETE")[1:]]
+        assert [u.rsplit("/", 1)[-1] for u in serial_urls] == ["10", "11"]
 
     def test_serial_fallback_carries_on_past_a_file_already_gone(
         self, client, fake_http, fake_response
     ):
-        fake_http.queue(
-            "GET",
-            fake_response(json_data=[{"id": 10, "seasonNumber": 1}, {"id": 11, "seasonNumber": 1}]),
-        )
         fake_http.queue("DELETE", fake_response(status=404, text="not found"))
         fake_http.queue("DELETE", fake_response(status=404, text="not found"))
         fake_http.queue("DELETE", fake_response(content=b""))
 
-        client.delete_episode_files(series_id=5, season_number=1)
+        client.delete_episode_files([10, 11])
 
         assert _calls(fake_http, "DELETE")[2][1].endswith("/api/v3/episodefile/11")
 
     def test_serial_fallback_still_raises_a_server_error(self, client, fake_http, fake_response):
         from mediaman.services.infra import SafeHTTPError
 
-        fake_http.queue("GET", fake_response(json_data=[{"id": 10, "seasonNumber": 1}]))
         fake_http.queue("DELETE", fake_response(status=404, text="not found"))
         fake_http.queue("DELETE", fake_response(status=500, text="server error"))
 
         with pytest.raises(SafeHTTPError):
-            client.delete_episode_files(series_id=5, season_number=1)
+            client.delete_episode_files([10])
 
     def test_non_404_http_error_propagates(self, client, fake_http, fake_response):
         """A 500 from the bulk endpoint must not be silently swallowed."""
         from mediaman.services.infra import SafeHTTPError
 
-        fake_http.queue("GET", fake_response(json_data=[{"id": 99, "seasonNumber": 2}]))
         fake_http.queue("DELETE", fake_response(status=500, text="server error"))
 
         with pytest.raises(SafeHTTPError):
-            client.delete_episode_files(series_id=1, season_number=2)
+            client.delete_episode_files([99])
 
-    def test_no_matching_files_sends_no_delete(self, client, fake_http, fake_response):
-        """If no episode files match the season, DELETE is never called."""
-        fake_http.queue(
-            "GET",
-            fake_response(
-                json_data=[
-                    {"id": 1, "seasonNumber": 2},  # wrong season
-                ]
-            ),
-        )
-
-        client.delete_episode_files(series_id=3, season_number=1)
+    def test_no_ids_sends_no_delete(self, client, fake_http):
+        client.delete_episode_files([])
 
         assert _calls(fake_http, "DELETE") == []
 

@@ -129,8 +129,8 @@ def _sonarr(extra_files: list | None = None) -> MagicMock:
     ]
     listed = {"files": files}
 
-    def delete_season_files(_series_id: int, season: int) -> None:
-        listed["files"] = [f for f in listed["files"] if f["seasonNumber"] != season]
+    def delete_season_files(ids: list[int]) -> None:
+        listed["files"] = [f for f in listed["files"] if f["id"] not in ids]
 
     client = MagicMock()
     client.get_series_by_id.return_value = series
@@ -236,7 +236,7 @@ class TestMediaDelete:
 
         assert resp.status_code == 200
         assert resp.json()["message"].startswith("Season 1 of The Show deleted through Sonarr")
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
         sonarr.unmonitor_season.assert_called_once_with(202, 1)
         sonarr.delete_series.assert_not_called()
         assert not _row_exists(conn, "s1")
@@ -244,6 +244,26 @@ class TestMediaDelete:
             "SELECT media_type, tvdb_id, season_number FROM deleted_media"
         ).fetchone()
         assert tuple(deleted) == ("tv_season", 81189, 1)
+
+    def test_only_the_verified_episode_files_are_deleted(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        verified = sonarr.get_episode_files.side_effect
+        imported = {"id": 9, "seasonNumber": 1, "relativePath": "Season 01/new.mkv", "size": 7}
+        calls = {"n": 0}
+
+        def import_lands_after_the_check(series_id):
+            calls["n"] += 1
+            return verified(series_id) + ([imported] if calls["n"] > 1 else [])
+
+        sonarr.get_episode_files.side_effect = import_lands_after_the_check
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
     def test_season_without_a_stored_sonarr_id_is_found_by_tvdb_id(
         self, app_factory, authed_client, conn
@@ -257,7 +277,7 @@ class TestMediaDelete:
 
         assert resp.status_code == 200
         sonarr.get_series_by_tvdb.assert_called_once_with(81189)
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
     def test_last_season_with_no_files_left_keeps_the_show_in_sonarr(
         self, app_factory, authed_client, conn

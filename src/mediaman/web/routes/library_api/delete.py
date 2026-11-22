@@ -291,6 +291,11 @@ def _delete_season(
         for other in others
     ):
         raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Sonarr season", service="Sonarr"))
+    verified_ids = {
+        ef["id"]
+        for ef in episode_files
+        if ef.get("seasonNumber") == season_num and isinstance(ef.get("id"), int)
+    }
     tracked_paths = _tracked_paths(snapshot)
     if other_item_uses_paths(conn, media_id, files=tracked_paths):
         raise _Refused("Another library item uses files of this season; nothing was deleted")
@@ -306,8 +311,8 @@ def _delete_season(
         return detail
 
     try:
-        client.delete_episode_files(sid, season_num)
-        if any(ef.get("seasonNumber") == season_num for ef in client.get_episode_files(sid)):
+        client.delete_episode_files(sorted(verified_ids))
+        if any(ef.get("id") in verified_ids for ef in client.get_episode_files(sid)):
             _fail_delete_intent(
                 conn,
                 intent_id,
