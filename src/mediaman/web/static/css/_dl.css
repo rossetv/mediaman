@@ -422,7 +422,9 @@
   .dl-hero-poster { width: 110px; }
   .dl-hero-info { width: 100%; }
   .dl-hero-title { overflow-wrap: anywhere; }
-  .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 56px; }
+  .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
-  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 12px; margin-top: -16px; }
+  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -20px; }
+  .dl-hero-episodes-toggle,
+  .dl-compact-episodes-toggle { min-height: 40px; }
 }

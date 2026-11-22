@@ -194,6 +194,10 @@
 
 /* Phone tap targets: a 40px hit area on small buttons and the keep menu. */
 @media (max-width: 639.98px) {
-  .btn--sm { min-height: 40px; }
+  .btn { min-height: 40px; }
+  .btn.btn--icon { width: 40px; height: 40px; flex-shrink: 0; }
   .keep-trigger { height: 40px; }
+  /* Links inside empty-state text get a larger hit area without moving the text. */
+  .empty p a { position: relative; }
+  .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
 }

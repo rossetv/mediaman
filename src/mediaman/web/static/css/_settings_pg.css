@@ -390,3 +390,17 @@
 .setg-pg .disk-badge.ok   { color: var(--success); background: rgba(48,209,88,.12); }
 .setg-pg .disk-badge.warn { color: var(--warning); background: rgba(255,214,10,.12); }
 .setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
+
+/* Phone tap targets: a 40px hit area on the settings controls, with the look
+   unchanged where it is the pill or switch itself that stays small. */
+@media (max-width: 639.98px) {
+  .setg-pg .setg-rail-item { min-height: 40px; }
+  .setg-pg .btn-test { min-height: 40px; }
+  .setg-pg .tog::before,
+  .setg-pg .inp-reveal::before { content: ""; position: absolute; inset: -7px -4px; }
+  /* Helper-text links: the extra height goes below the line, not onto the input above. */
+  .setg-pg .fld-sub a,
+  .setg-pg .setg-row-sub a { position: relative; }
+  .setg-pg .fld-sub a::before,
+  .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
+}

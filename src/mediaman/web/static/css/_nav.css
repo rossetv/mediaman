@@ -192,6 +192,7 @@
 @media (max-width: 699.98px) {
   .nav-glass { display: none; }
   .nav-topbar { display: flex; }
+  .nav-topbar .brand { display: inline-flex; align-items: center; min-height: 40px; }
   .nav-tabs   { display: flex; }
   /* Reserve room for the bottom tab bar so content isn't hidden under it. */
   .container,

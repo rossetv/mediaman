@@ -399,3 +399,8 @@
   .setg-pg .usr-self-head { flex-wrap: wrap; }
   .setg-pg .usr-self-head .usr-self-actions { flex-basis: 100%; }
 }
+
+@media (max-width: 639.98px) {
+  .setg-pg .link-danger,
+  .setg-pg .sub-row .link-danger { min-height: 40px; }
+}
