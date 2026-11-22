@@ -138,16 +138,21 @@ def login_ip_key(username: str, client_ip: str) -> str:
     return f"{_LOGIN_IP_PREFIX}{_ip_bucket(client_ip)}{_NAMESPACE_MARK}{username}"
 
 
-def _log_fields(key: str) -> tuple[str, str]:
-    """Return ``(bucket, username)`` of a counter *key*, sanitised for a log line.
+def _log_fields(key: str) -> tuple[str, str, str]:
+    """Return ``(scope, bucket, username)`` of a counter *key*, ready for a log line.
 
-    A per-IP login key is split into its bucket and username; any other key
-    has no bucket and is logged whole.
+    The bucket is the IP bucket of a per-IP login key, ``-`` otherwise. It
+    comes from ``_ip_bucket``, a validated address, so it is logged as is;
+    the username is escaped.
     """
     if key.startswith(_LOGIN_IP_PREFIX):
         bucket, _, name = key[len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)
-        return _sanitise_log_field(bucket), _sanitise_log_field(name)
-    return "-", _sanitise_log_field(key)
+        return "login-ip", bucket, _sanitise_log_field(name)
+    if key.startswith(REAUTH_LOCKOUT_PREFIX):
+        return "reauth", "-", _sanitise_log_field(key[len(REAUTH_LOCKOUT_PREFIX) :])
+    if key.startswith(_ESCAPED_LOGIN_PREFIX):
+        return "login", "-", _sanitise_log_field(key[len(_ESCAPED_LOGIN_PREFIX) :])
+    return "login", "-", _sanitise_log_field(key)
 
 
 def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
@@ -253,9 +258,11 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     # must not be able to escape the lock by garbling it.
     locked_until = parse_iso_strict_utc(raw_locked_until)
     if locked_until is None:
-        bucket, name = _log_fields(username)
+        scope, bucket, name = _log_fields(username)
         logger.warning(
-            "auth.lockout_corrupt_locked_until user=%s ip=%s locked_until=%r reason=fail_closed",
+            "auth.lockout_corrupt_locked_until scope=%s user=%s ip=%s "
+            "locked_until=%r reason=fail_closed",
+            scope,
             name,
             bucket,
             raw_locked_until,
@@ -393,19 +400,21 @@ def _apply_lockout(
                 "UPDATE login_failures SET locked_until = ? WHERE username = ?",
                 (_iso(now + timedelta(minutes=minutes)), username),
             )
-            bucket, name = _log_fields(username)
+            scope, bucket, name = _log_fields(username)
             logger.warning(
-                "auth.account_locked user=%s ip=%s count=%d minutes=%d",
+                "auth.account_locked scope=%s user=%s ip=%s count=%d minutes=%d",
+                scope,
                 name,
                 bucket,
                 count,
                 minutes,
             )
         else:
-            bucket, name = _log_fields(username)
+            scope, bucket, name = _log_fields(username)
             logger.info(
-                "auth.lock_window_unchanged user=%s ip=%s count=%d minutes=%d "
+                "auth.lock_window_unchanged scope=%s user=%s ip=%s count=%d minutes=%d "
                 "reason=already_locked_no_escalation",
+                scope,
                 name,
                 bucket,
                 count,

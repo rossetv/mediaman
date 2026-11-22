@@ -140,6 +140,28 @@ class TestSanitiseLogField:
         result = _sanitise_log_field("short", limit=64)
         assert not result.endswith("...")
 
+    def test_distinct_inputs_give_distinct_text(self):
+        names = [
+            "admin",
+            "admin\u200b",
+            "ad min",
+            "ad\u00a0min",
+            "Jane Doe",
+            "JaneDoe",
+            "jos\u00e9",
+            "jos",
+        ]
+        names += ["\u540d\u524d", "", "a\\x5cb", "a\\b", "2001:db8:1::/64", "2001:db81::/64"]
+        assert len({_sanitise_log_field(n) for n in names}) == len(names)
+
+    def test_line_and_paragraph_separators_cannot_split_a_line(self):
+        result = _sanitise_log_field("a\u2028b\u2029c\x85d\x0be\x0cf\r\ng")
+        assert result.isascii()
+        assert len(result.splitlines()) == 1
+
+    def test_accents_and_scripts_stay_readable(self):
+        assert _sanitise_log_field("jos\u00e9") == "jos\u00e9"
+
     def test_email_style_username_preserved(self):
         result = _sanitise_log_field("user.name@example.com")
         assert result == "user.name@example.com"
