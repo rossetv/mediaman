@@ -133,7 +133,8 @@
         pollScanStatus(btn);
       })
       .catch(function (err) {
-        var reason = (err instanceof MM.api.APIError && err.message) || 'Could not start the scan.';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
+        var reason = "Couldn't start the scan. " + msg;
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
