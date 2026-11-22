@@ -141,6 +141,57 @@ class TestScanTrigger:
         assert resp.json()["status"] == "started"
 
 
+class TestScanWorkerFailure:
+    def test_connection_failure_finishes_run_as_error(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        """A worker connection that cannot open must not leave the lease live."""
+        import sqlite3
+        import threading
+
+        from mediaman.web.routes import scan as scan_mod
+
+        real_open = scan_mod.open_thread_connection
+        calls = {"n": 0}
+
+        def flaky_open(path):
+            # 1st call is the heartbeat thread, 2nd the worker, later ones recovery.
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise sqlite3.OperationalError("unable to open database file")
+            return real_open(path)
+
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        with patch.object(scan_mod, "open_thread_connection", side_effect=flaky_open):
+            client.post("/api/scan/trigger")
+            for t in threading.enumerate():
+                if t.name == "manual-scan-worker":
+                    t.join(timeout=10)
+        row = conn.execute("SELECT status, finished_at FROM scan_runs ORDER BY id DESC").fetchone()
+        assert row["status"] == "error"
+        assert row["finished_at"] is not None
+        assert client.post("/api/scan/trigger").json() == {"status": "started"}
+
+
+class TestScanSkippedNoPlex:
+    def test_status_reports_skip_reason(self, app_factory, authed_client, conn, db_path):
+        import threading
+
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        # No plex_url / plex_token in settings, so the real runner skips.
+        client.post("/api/scan/trigger")
+        for t in threading.enumerate():
+            if t.name == "manual-scan-worker":
+                t.join(timeout=10)
+        assert client.get("/api/scan/status").json() == {
+            "running": False,
+            "status": "skipped",
+            "reason": "Plex not configured",
+        }
+
+
 class TestScanStatus:
     def test_status_requires_auth(self, app_factory, conn, db_path):
         app = _app(app_factory, conn, db_path)
