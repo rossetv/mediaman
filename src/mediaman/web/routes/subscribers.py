@@ -195,12 +195,6 @@ def api_send_newsletter(
 
     conn = get_db()
 
-    if not _NEWSLETTER_LIMITER.check(admin):
-        logger.warning("newsletter.send_throttled user=%s", admin)
-        return respond_err(
-            "too_many_requests", status=429, message="Newsletter send is rate-limited"
-        )
-
     raw_recipients = body.recipients
 
     if not raw_recipients:
@@ -218,6 +212,12 @@ def api_send_newsletter(
         )
         return respond_err(
             "no_valid_recipients", status=400, message="No matching active subscribers"
+        )
+
+    if not _NEWSLETTER_LIMITER.check(admin):
+        logger.warning("newsletter.send_throttled user=%s", admin)
+        return respond_err(
+            "too_many_requests", status=429, message="Newsletter send is rate-limited"
         )
 
     try:
