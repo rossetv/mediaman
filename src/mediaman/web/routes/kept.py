@@ -21,6 +21,7 @@ from mediaman.db import get_db
 from mediaman.scanner.repository import is_show_kept_pure
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER
@@ -115,7 +116,7 @@ def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
 @router.post("/api/media/{media_item_id}/unprotect")
 def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
     if not _UNPROTECT_LIMITER.check(username):
-        logger.warning("media.unprotect_throttled user=%s", username)
+        logger.warning("media.unprotect_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many unprotect operations -- slow down"
         )
@@ -135,7 +136,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     if not removed:
         return respond_err("not_found", status=404, message="No active protection found")
 
-    logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
+    logger.info("Unprotected media_item_id=%s by %s", media_item_id, _sanitise_log_field(username))
     return respond_ok()
 
 

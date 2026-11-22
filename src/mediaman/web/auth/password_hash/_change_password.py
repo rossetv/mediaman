@@ -117,7 +117,9 @@ def _clear_reauth_failure_counter(conn: sqlite3.Connection, namespace: str, user
     try:
         record_success(conn, namespace)
     except sqlite3.Error:  # pragma: no cover — counter cleanup is best-effort
-        logger.exception("password.change counter cleanup failed user=%s", username)
+        logger.exception(
+            "password.change counter cleanup failed user=%s", _sanitise_log_field(username)
+        )
 
 
 # rationale: verify old password, enforce policy, bcrypt the new one, write
@@ -243,5 +245,5 @@ def change_password(
         return False
     if namespace:
         _clear_reauth_failure_counter(conn, namespace, username)
-    logger.info("password.changed user=%s sessions_revoked=all", username)
+    logger.info("password.changed user=%s sessions_revoked=all", _sanitise_log_field(username))
     return True

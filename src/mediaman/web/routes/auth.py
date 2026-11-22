@@ -166,7 +166,7 @@ def login_submit(
         user_agent=user_agent,
         client_ip=client_ip,
     )
-    logger.info("auth.login_success user=%s ip=%s", username, client_ip)
+    logger.info("auth.login_success user=%s ip=%s", _sanitise_log_field(username), client_ip)
     security_event(
         conn,
         event="login.success",
@@ -227,7 +227,7 @@ def logout(request: Request) -> Response:
         _clear_session_cookie(stale_response, secure=secure)
         return stale_response
     destroy_session(conn, token)
-    logger.info("logout: session terminated for user=%s", username)
+    logger.info("logout: session terminated for user=%s", _sanitise_log_field(username))
     security_event(
         conn,
         event="logout",

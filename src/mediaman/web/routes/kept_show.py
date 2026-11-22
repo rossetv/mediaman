@@ -21,6 +21,7 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import resolve_keep_decision
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository.kept import (
@@ -157,7 +158,7 @@ def api_keep_show(
 ) -> JSONResponse:
     """Keep an entire show: all listed seasons plus future seasons via the kept_shows rule."""
     if not _KEEP_SHOW_LIMITER.check(admin):
-        logger.warning("kept_show.keep_throttled user=%s", admin)
+        logger.warning("kept_show.keep_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests",
             status=429,
@@ -219,7 +220,13 @@ def api_keep_show(
             actor=admin,
         )
 
-    logger.info("Kept show %s (%s) -- %s by %s", resolved_key, show_title, duration, admin)
+    logger.info(
+        "Kept show %s (%s) -- %s by %s",
+        resolved_key,
+        show_title,
+        duration,
+        _sanitise_log_field(admin),
+    )
     reply: dict[str, object] = {"deletion_running": deletion_running}
     if deletion_running:
         reply["message"] = (
@@ -257,5 +264,5 @@ def api_remove_show_keep(
             actor=admin,
         )
 
-    logger.info("Removed show keep for %s by %s", show_rating_key, admin)
+    logger.info("Removed show keep for %s by %s", show_rating_key, _sanitise_log_field(admin))
     return respond_ok()

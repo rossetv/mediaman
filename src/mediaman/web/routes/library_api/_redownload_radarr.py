@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.infra import SafeHTTPError
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.library_api import record_redownload
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
@@ -57,5 +58,10 @@ def _redownload_movie(
         service="radarr",
         tmdb_id=tmdb_id,
     )
-    logger.info("Re-downloaded '%s' (tmdb=%s) via Radarr by %s", title, tmdb_id, username)
+    logger.info(
+        "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
+        title,
+        tmdb_id,
+        _sanitise_log_field(username),
+    )
     return JSONResponse({"ok": True, "message": message})

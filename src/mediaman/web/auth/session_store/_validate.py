@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import cast
 
 from mediaman.core.time import parse_iso_strict_utc
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth._session_fingerprint import (
     _client_fingerprint,
     _fingerprint_mode,
@@ -105,11 +106,14 @@ def _idle_expired(
     """
     if last_dt is None and row["last_used_at"]:
         # Corrupt timestamp — fail closed.
-        logger.info("session.idle_expired user=%s reason=corrupt_timestamp", row["username"])
+        logger.info(
+            "session.idle_expired user=%s reason=corrupt_timestamp",
+            _sanitise_log_field(row["username"]),
+        )
         _try_delete_session(conn, token_hash, reason="corrupt_timestamp")
         return True
     if last_dt is not None and now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
-        logger.info("session.idle_expired user=%s", row["username"])
+        logger.info("session.idle_expired user=%s", _sanitise_log_field(row["username"]))
         _try_delete_session(conn, token_hash, reason="idle_expired")
         return True
     return False

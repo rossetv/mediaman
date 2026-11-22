@@ -28,6 +28,7 @@ from mediaman.services.rate_limit.instances import (
 from mediaman.services.rate_limit.instances import (
     SUBSCRIBER_WRITE_LIMITER as _SUBSCRIBER_WRITE_LIMITER,
 )
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.subscribers import (
     AddSubscriberOutcome,
@@ -125,7 +126,7 @@ def api_add_subscriber(
     outcomes to HTTP responses.
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
-        logger.warning("subscriber.add_throttled user=%s", username)
+        logger.warning("subscriber.add_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
         )
@@ -138,13 +139,13 @@ def api_add_subscriber(
     try:
         outcome = try_add_subscriber(conn, email=email, now=now)
     except sqlite3.Error:
-        logger.exception("subscriber.add failed user=%s", username)
+        logger.exception("subscriber.add failed user=%s", _sanitise_log_field(username))
         return respond_err("internal_error", status=500)
 
     if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
         return respond_err("already_subscribed", status=409, message="Email already subscribed")
 
-    logger.info("Subscriber added: %s by %s", email, username)
+    logger.info("Subscriber added: %s by %s", email, _sanitise_log_field(username))
     security_event(
         conn,
         event="subscriber.added",
@@ -162,7 +163,7 @@ def api_remove_subscriber(
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
-        logger.warning("subscriber.remove_throttled user=%s", username)
+        logger.warning("subscriber.remove_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
         )
@@ -181,7 +182,7 @@ def api_remove_subscriber(
             detail={"id": subscriber_id, "email": email},
         )
 
-    logger.info("Subscriber removed: %s by %s", email, username)
+    logger.info("Subscriber removed: %s by %s", email, _sanitise_log_field(username))
     return respond_ok()
 
 
@@ -215,7 +216,7 @@ def api_send_newsletter(
         )
 
     if not _NEWSLETTER_LIMITER.check(admin):
-        logger.warning("newsletter.send_throttled user=%s", admin)
+        logger.warning("newsletter.send_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Newsletter send is rate-limited"
         )

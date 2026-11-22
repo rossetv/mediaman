@@ -21,6 +21,7 @@ from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import resolve_keep_decision
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository.delete_intents import (
@@ -119,7 +120,7 @@ def api_media_keep(
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     if not _KEEP_LIMITER.check(username):
-        logger.warning("media.keep_throttled user=%s", username)
+        logger.warning("media.keep_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many keep operations — slow down"
         )
@@ -151,7 +152,12 @@ def api_media_keep(
     except NotFound:
         return respond_err("not_found", status=404)
 
-    logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
+    logger.info(
+        "Media item %s protected for %s by %s",
+        media_id,
+        snooze_label,
+        _sanitise_log_field(username),
+    )
 
     body: dict[str, object] = {
         "id": media_id,

@@ -21,6 +21,7 @@ from starlette.responses import Response
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
@@ -176,7 +177,9 @@ def force_change_submit(
         )
 
     if not _FORCE_CHANGE_LIMITER.check(username):
-        logger.warning("force_password_change.throttled user=%s scope=user", username)
+        logger.warning(
+            "force_password_change.throttled user=%s scope=user", _sanitise_log_field(username)
+        )
         return _render(error="Too many attempts — wait a moment and try again.")
     if not _FORCE_CHANGE_IP_LIMITER.check(client_ip):
         logger.warning(
@@ -206,5 +209,5 @@ def force_change_submit(
 
     response = RedirectResponse("/", status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))
-    logger.info("force_password_change.ok user=%s ip=%s", username, client_ip)
+    logger.info("force_password_change.ok user=%s ip=%s", _sanitise_log_field(username), client_ip)
     return response
