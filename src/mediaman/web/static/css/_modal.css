@@ -354,6 +354,7 @@
   width: 100%;
   box-shadow: var(--shadow-card);
 }
+.keep-dialog { max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto; }
 .delete-modal-title { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 8px; }
 .delete-modal-body { color: var(--t2); font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
 .delete-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -379,6 +380,14 @@
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
 .keep-all-row { background: var(--s3); font-weight: 500; }
 .keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+/* The ghost button has a border; give the others a transparent one so every
+   button in a dialog row is the same height. */
+.keep-dialog-actions .btn:not(.btn--ghost),
+.delete-modal-actions .btn:not(.btn--ghost) { border: 1px solid transparent; }
+@media (max-width: 639px) {
+  .keep-dur-btn { min-height: 40px; }
+  .snooze-option { min-height: 40px; }
+}
 .u-flex-1 { flex: 1; }
 
 #keep-dialog-remove { display: none; }
