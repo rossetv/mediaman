@@ -672,31 +672,33 @@
   }
 
   var _searchTimer = null;
+  function submitSearch() {
+    var input = document.querySelector('#toolbar-form input[name="q"]');
+    /* The reload drops focus; the flag lets the next load put it back, but
+       only when the user is still in the box (a Tab away is honoured). */
+    try {
+      if (input && document.activeElement === input) {
+        sessionStorage.setItem('library-search-refocus', JSON.stringify({
+          at: Date.now(),
+          start: input.selectionStart,
+          end: input.selectionEnd,
+          dir: input.selectionDirection
+        }));
+      } else if (focusSelector(document.activeElement)) {
+        sessionStorage.setItem('library-search-refocus', JSON.stringify({
+          at: Date.now(),
+          elsewhere: focusSelector(document.activeElement)
+        }));
+      } else {
+        sessionStorage.removeItem('library-search-refocus');
+      }
+    } catch (_) { /* focus is then simply not restored */ }
+    submitToolbar();
+  }
+
   function debounceSubmit() {
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function () {
-      var input = document.querySelector('#toolbar-form input[name="q"]');
-      /* The reload drops focus; the flag lets the next load put it back, but
-         only when the user is still in the box (a Tab away is honoured). */
-      try {
-        if (input && document.activeElement === input) {
-          sessionStorage.setItem('library-search-refocus', JSON.stringify({
-            at: Date.now(),
-            start: input.selectionStart,
-            end: input.selectionEnd,
-            dir: input.selectionDirection
-          }));
-        } else if (focusSelector(document.activeElement)) {
-          sessionStorage.setItem('library-search-refocus', JSON.stringify({
-            at: Date.now(),
-            elsewhere: focusSelector(document.activeElement)
-          }));
-        } else {
-          sessionStorage.removeItem('library-search-refocus');
-        }
-      } catch (_) { /* focus is then simply not restored */ }
-      submitToolbar();
-    }, 400);
+    _searchTimer = setTimeout(submitSearch, 400);
   }
 
   function refocusSearchAfterReload(input) {
@@ -810,7 +812,7 @@
         if (e.key !== 'Enter' || e.isComposing) return;
         e.preventDefault();
         clearTimeout(_searchTimer);
-        submitToolbar();
+        submitSearch();
       });
       refocusSearchAfterReload(searchInput);
     }
