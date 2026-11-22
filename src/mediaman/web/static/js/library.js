@@ -28,6 +28,47 @@
   var _keepDialogRequest = 0;
   var _seasonDeleteRequest = 0;
 
+  /* Keep chains still running, by show. A dialog opened for such a show keeps
+     Keep disabled until its chain settles, so two chains never interleave. */
+  var _keepChains = {};
+
+  function keepChainKey() {
+    return _keepDialogState.showRk || 'title:' + _keepDialogState.showTitle;
+  }
+
+  function trackKeepChain(key, chain) {
+    var tracked = chain.then(function () {}, function () {});
+    _keepChains[key] = tracked;
+    tracked.then(function () { if (_keepChains[key] === tracked) delete _keepChains[key]; });
+  }
+
+  /* The note sits beside the confirm button, made on first use. */
+  function keepChainNote() {
+    var note = document.getElementById('keep-dialog-note');
+    if (!note) {
+      var confirmBtn = document.getElementById('keep-dialog-confirm');
+      note = document.createElement('span');
+      note.id = 'keep-dialog-note';
+      note.className = 'keep-season-details';
+      confirmBtn.parentNode.insertBefore(note, confirmBtn.parentNode.querySelector('.u-flex-1').nextSibling);
+    }
+    return note;
+  }
+
+  function holdKeepWhileSaving(request) {
+    var note = keepChainNote();
+    var chain = _keepChains[keepChainKey()];
+    note.textContent = chain ? 'Saving the previous change…' : '';
+    if (!chain) return;
+    var confirmBtn = document.getElementById('keep-dialog-confirm');
+    confirmBtn.disabled = true;
+    chain.then(function () {
+      if (request !== _keepDialogRequest) return;
+      confirmBtn.disabled = false;
+      note.textContent = '';
+    });
+  }
+
   /* A keep pressed while the item was already being deleted is saved, but its
      files may be gone: show the server's word on it before reloading. */
   function reloadAfterKeep(data) {
@@ -98,6 +139,7 @@
     /* A keep still running for the show opened before must not lock this one. */
     confirmBtn.disabled = false;
     var request = ++_keepDialogRequest;
+    holdKeepWhileSaving(request);
     MM.api.get(url)
       .then(function (data) {
         if (request !== _keepDialogRequest) return;
@@ -214,6 +256,8 @@
     var dur = _keepDialogState.duration || '30 days';
     var seasonsRequestUrl = seasonsUrl();
     var request = _keepDialogRequest;
+    var chainKey = keepChainKey();
+    var chain;
     function dialogIsOpen() { return request === _keepDialogRequest; }
     function restoreButton() {
       if (!dialogIsOpen()) return;
@@ -232,7 +276,7 @@
           selectedIds.push(cb.dataset.seasonId);
         });
       }
-      MM.api.post(
+      chain = MM.api.post(
         '/api/show/' + encodeURIComponent(rk) + '/keep',
         { duration: dur, season_ids: selectedIds }
       )
@@ -299,7 +343,7 @@
           }, function () { failed.push('the seasons to remove keeps from'); });
         });
       });
-      keepChain.then(function () {
+      chain = keepChain.then(function () {
         if (failed.length) {
           window.UIFeedback.error('Keep failed for: ' + failed.join(', '));
           if (running && running.message) {
@@ -311,6 +355,7 @@
         }
       });
     }
+    trackKeepChain(chainKey, chain);
   }
 
   function removeAllKeeps() {
