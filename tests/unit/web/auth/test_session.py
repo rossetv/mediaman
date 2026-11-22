@@ -50,14 +50,14 @@ class TestCreateUser:
 class TestAuthenticate:
     def test_valid_credentials(self, conn):
         create_user(conn, "admin", "correct-password", enforce_policy=False)
-        assert authenticate(conn, "admin", "correct-password") is True
+        assert authenticate(conn, "admin", "correct-password", client_ip="203.0.113.7") is True
 
     def test_wrong_password(self, conn):
         create_user(conn, "admin", "correct-password", enforce_policy=False)
-        assert authenticate(conn, "admin", "wrong-password") is False
+        assert authenticate(conn, "admin", "wrong-password", client_ip="203.0.113.7") is False
 
     def test_nonexistent_user(self, conn):
-        assert authenticate(conn, "nobody", "password") is False
+        assert authenticate(conn, "nobody", "password", client_ip="203.0.113.7") is False
 
 
 class TestSessions:
@@ -310,7 +310,7 @@ class TestChangePasswordDoesNotLockSelf:
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         # Poison the counter via the real login path.
         for _ in range(3):
-            authenticate(conn, "alice", "bad")
+            authenticate(conn, "alice", "bad", client_ip="203.0.113.7")
         # Now change password with the correct current one — must clear.
         ok = change_password(
             conn,
@@ -320,9 +320,11 @@ class TestChangePasswordDoesNotLockSelf:
             enforce_policy=False,
         )
         assert ok is True
+        from mediaman.web.auth.login_lockout import login_ip_key
+
         row = conn.execute(
             "SELECT * FROM login_failures WHERE username = ?",
-            ("alice",),
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert row is None
 

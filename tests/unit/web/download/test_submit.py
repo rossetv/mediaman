@@ -268,6 +268,35 @@ class TestDownloadSubmitMovie:
         count = conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0]
         assert count == 0
 
+    def test_share_link_minted_with_admin_email_still_downloads_and_notifies(
+        self, app_factory, conn, secret_key
+    ):
+        """Share links already sent out carry the admin's email; they keep
+        working and still notify that address when the download is ready."""
+        app = _app(app_factory, conn)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = generate_download_token(
+            email="admin@example.com",
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=7,
+            secret_key=secret_key,
+            ttl_days=7,
+        )
+
+        mock_radarr = MagicMock()
+        with patch(
+            "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr
+        ):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 200
+        mock_radarr.add_movie.assert_called_once_with(42, "Dune")
+        row = conn.execute("SELECT email FROM download_notifications").fetchone()
+        assert row["email"] == "admin@example.com"
+
 
 class TestDownloadSubmitTV:
     @pytest.fixture(autouse=True)

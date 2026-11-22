@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient
 
 import mediaman.web
 from mediaman.config import Config
-from mediaman.crypto import generate_keep_token
+from mediaman.crypto import generate_keep_token, validate_poster_token
 from mediaman.db import set_connection
 from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
@@ -252,6 +253,41 @@ class TestKeepPageRoute:
 
         assert resp.status_code == 200
         assert "active" in resp.text
+
+    def test_logged_out_poster_is_signed_and_falls_back_to_placeholder(self, conn):
+        _insert_media_item(conn)
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        html = client.get(f"/keep/{token}").text
+
+        img = re.search(r'<img src="([^"]+)"[^>]*data-broken-on-error', html)
+        assert img is not None
+        path, _, query = img.group(1).partition("?sig=")
+        assert path == "/api/poster/rk1"
+        payload = validate_poster_token(query, SECRET)
+        assert payload is not None and payload["rk"] == "rk1"
+        assert "item-poster-empty" in html
+
+    def test_expired_poster_is_followed_by_the_placeholder(self, conn, freezer):
+        freezer.move_to("2026-05-10T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        html = client.get(f"/keep/{token}").text
+
+        assert "status-expired" in html
+        assert re.search(
+            r"<img [^>]*data-broken-on-error>\s*<div class=\"item-poster-empty\">", html
+        )
 
     @pytest.mark.parametrize(
         ("now", "deadline", "date_text", "word"),

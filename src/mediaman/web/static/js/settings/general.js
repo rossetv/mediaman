@@ -48,7 +48,7 @@
     var diskThresholds = MM.settings.diskThresholds;
     var selectedLibs   = diskThresholds ? diskThresholds.getSelectedLibs() : [];
     var diskMap        = diskThresholds ? diskThresholds.collect() : {};
-    return {
+    var payload = {
       plex_url:              v('plex_url'),
       plex_public_url:       v('plex_public_url'),
       plex_token:            v('plex_token'),
@@ -78,10 +78,11 @@
       min_age_days:          n('min_age_days'),
       inactivity_days:       n('inactivity_days'),
       grace_days:            n('grace_days'),
-      disk_thresholds:       diskMap,
       suggestions_enabled:   v('suggestions_enabled'),
       auto_abandon_enabled:  v('auto_abandon_enabled'),
     };
+    if (diskMap !== null) payload.disk_thresholds = diskMap;
+    return payload;
   }
 
   function refreshOverviewHero() {

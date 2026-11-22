@@ -205,7 +205,7 @@ class TestChangePassword:
         )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
-        assert authenticate(conn, "admin", "NewStrongPass!99") is True
+        assert authenticate(conn, "admin", "NewStrongPass!99", client_ip="203.0.113.7") is True
 
     def test_change_password_wrong_old_returns_403(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)

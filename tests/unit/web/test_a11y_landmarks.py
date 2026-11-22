@@ -101,7 +101,9 @@ def test_keep_page_posters_use_empty_alt():
     keep = _tpl("keep.html")
     assert 'alt="{{ item.title }}"' not in keep
     # All three poster <img> blocks use alt="".
-    poster_imgs = [line for line in keep.splitlines() if "/api/poster/" in line and "<img" in line]
+    poster_imgs = [
+        line for line in keep.splitlines() if "{{ poster_url }}" in line and "<img" in line
+    ]
     assert len(poster_imgs) >= 3
     for line in poster_imgs:
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"

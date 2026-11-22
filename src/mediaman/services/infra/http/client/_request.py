@@ -109,8 +109,8 @@ def _dispatch(
 def _resolve_outbound(
     url: str,
     allowed_hosts: frozenset[str] | None,
-) -> tuple[bool, str | None, str | None]:
-    """Run the SSRF guard on *url*, returning ``(safe, hostname, pinned_ip)``.
+) -> tuple[bool, str | None, tuple[str, ...] | None]:
+    """Run the SSRF guard on *url*, returning ``(safe, hostname, pinned_ips)``.
 
     ``resolve_safe_outbound_url`` is looked up at call time from the
     package's namespace (via ``sys.modules``) rather than the static import

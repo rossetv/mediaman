@@ -114,6 +114,22 @@ class TestLoginSubmit:
         assert ctx.get("error") is not None
         assert "Too many" in ctx["error"]
 
+    def test_wrong_passwords_from_one_client_do_not_lock_out_another(self, _app, conn):
+        _create_admin(conn)
+        guesser = TestClient(_app, client=("198.51.100.4", 50000))
+        for _ in range(5):
+            guesser.post("/login", data={"username": "admin", "password": "wrong"})
+
+        owner = TestClient(_app, client=("203.0.113.7", 50000))
+        with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
+            resp = owner.post(
+                "/login",
+                data={"username": "admin", "password": "password1234"},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 302
+
     def test_audit_log_written_on_failed_login(self, _app, conn):
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)

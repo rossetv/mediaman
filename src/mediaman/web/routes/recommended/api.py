@@ -105,11 +105,10 @@ def api_share_token(
 
     expires_at = (datetime.now(UTC) + timedelta(days=_SHARE_TOKEN_TTL_DAYS)).isoformat()
 
-    # ``admin`` is a username, not an address — resolve the admin's
-    # notification email (``None`` when unset). The token still authorises
-    # the download; the redeemer skips the notification when it is None.
+    # No email: the payload is only base64, and whoever is given the link can
+    # read it. The redeemer then records no "ready" notification for it.
     share_token = generate_download_token(
-        email=get_user_email(conn, admin),
+        email=None,
         action="download",
         title=row.title,
         media_type=row.media_type,

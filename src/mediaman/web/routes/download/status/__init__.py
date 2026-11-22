@@ -17,7 +17,7 @@ import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.crypto import validate_poll_token
+from mediaman.crypto import generate_poll_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -73,6 +73,19 @@ _STATUS_CACHE_LOCK = threading.Lock()
 # across requests handled by the same worker.
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
 _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
+
+# A poll token with less than this many seconds left (half its default
+# 600-second life) is replaced in the status response, so a page left open
+# on a long download keeps polling instead of freezing at the token's expiry.
+_POLL_TOKEN_REFRESH_SECONDS = 300
+
+# Renewal stops this long after the first token of a chain was issued, so a
+# held token cannot be kept alive forever while a download never finishes.
+_POLL_TOKEN_MAX_CHAIN_SECONDS = 24 * 3600
+
+# Life of a poll token issued before tokens carried their first-issue time;
+# subtracting it from ``exp`` recovers when such a token was issued.
+_LEGACY_POLL_TOKEN_TTL_SECONDS = 600
 
 
 def _reset_status_cache_for_tests() -> None:
@@ -168,6 +181,9 @@ def download_status(
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
         return respond_err("too_many_requests", status=429)
 
+    renewal_due = False
+    poll_media_item_id = ""
+    poll_first_issued = 0
     if not admin:
         # Unauthenticated polling must use a short-lived poll_token.  The
         # long-lived download token is not accepted for status polling — it
@@ -184,6 +200,15 @@ def download_status(
                 and poll_payload.get("tmdb") == tmdb_id
             ):
                 authenticated = True
+                now = time.time()
+                if poll_payload["exp"] - now < _POLL_TOKEN_REFRESH_SECONDS:
+                    poll_first_issued = int(
+                        poll_payload.get(
+                            "first", poll_payload["exp"] - _LEGACY_POLL_TOKEN_TTL_SECONDS
+                        )
+                    )
+                    renewal_due = now - poll_first_issued < _POLL_TOKEN_MAX_CHAIN_SECONDS
+                    poll_media_item_id = poll_payload["mid"]
 
         if not authenticated:
             return respond_err("not_authenticated", status=401)
@@ -207,8 +232,6 @@ def download_status(
             result = _cached_status(
                 service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
             )
-        return JSONResponse(result)
-
     except (requests.RequestException, SafeHTTPError, ArrError):
         # Both transport (RequestException) and Arr-level non-2xx
         # (SafeHTTPError) failures are bounded behaviours we report as
@@ -216,4 +239,20 @@ def download_status(
         # a Radarr/Sonarr 500 would propagate as an unhandled exception
         # and surface as a 500 to the polling client.
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
-        return JSONResponse(_UNKNOWN_ITEM)
+        result = _UNKNOWN_ITEM
+
+    # Renew only while the download is unfinished and the chain is under 24
+    # hours old, so a held token cannot be kept alive forever; an unknown
+    # state (Arr down) still renews until the cap.
+    if renewal_due and result.get("state") != "ready":
+        fresh_poll_token = generate_poll_token(
+            media_item_id=poll_media_item_id,
+            service=service,
+            tmdb_id=tmdb_id,
+            secret_key=config.secret_key,
+            first_issued=poll_first_issued,
+        )
+        # A new dict, so the shared cache entry never carries one visitor's
+        # token to another.
+        return JSONResponse({**result, "poll_token": fresh_poll_token})
+    return JSONResponse(result)

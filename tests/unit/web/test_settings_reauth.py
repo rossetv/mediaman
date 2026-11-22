@@ -55,6 +55,12 @@ class TestSensitiveKeySetMembership:
         for key in ("grace_days", "min_age_days", "inactivity_days", "dry_run"):
             assert key in SENSITIVE_KEYS, f"{key!r} missing from SENSITIVE_KEYS"
 
+    def test_scan_scope_settings_need_reauth(self):
+        from mediaman.web.routes.settings.secrets import has_sensitive_key_changes
+
+        assert has_sensitive_key_changes({"disk_thresholds": {}})
+        assert has_sensitive_key_changes({"plex_libraries": ["1"]})
+
     def test_low_impact_keys_are_not_sensitive(self):
         """Don't gate harmless UI-only knobs behind reauth."""
         for key in ("scan_day", "scan_time"):

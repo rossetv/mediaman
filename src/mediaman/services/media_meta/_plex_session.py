@@ -34,7 +34,7 @@ def _resolve_safe_outbound_url(
     url: str,
     *,
     allowed_hosts: frozenset[str] | None = None,
-) -> tuple[bool, str | None, str | None]:
+) -> tuple[bool, str | None, tuple[str, ...] | None]:
     """Call resolve_safe_outbound_url through the parent plex module's namespace when it is
     imported.
 
@@ -135,7 +135,7 @@ class _SafePlexSession(http_requests.Session):
         #    time, and so a configured Plex URL pointing at an internal
         #    service is refused even if the operator persisted it before
         #    the check existed.
-        safe, hostname, pinned_ip = _resolve_safe_outbound_url(
+        safe, hostname, pinned_ips = _resolve_safe_outbound_url(
             url, allowed_hosts=self._allowed_hosts
         )
         if not safe:
@@ -165,8 +165,8 @@ class _SafePlexSession(http_requests.Session):
 
         # 5. DNS pin + dispatch. The pin closes the rebind window
         #    between the SSRF check above and the actual connect.
-        if hostname and pinned_ip:
-            with pin(hostname, pinned_ip):
+        if hostname and pinned_ips:
+            with pin(hostname, pinned_ips):
                 response = super().request(method, url, **kwargs)
         else:
             response = super().request(method, url, **kwargs)

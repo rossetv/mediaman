@@ -43,7 +43,7 @@ from mediaman.services.infra import (
     delete_path,
     path_within_delete_roots,
 )
-from mediaman.services.infra.storage import delete_root_available
+from mediaman.services.infra.storage import unavailable_folder
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -122,7 +122,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not delete_root_available(file_path, allowed_roots):
+        elif (unavailable := unavailable_folder(file_path, allowed_roots)) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — file absent but its delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -130,6 +130,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 row.id,
                 file_path,
             )
+            _audit_root_unavailable(conn, row, unavailable)
             repository.mark_delete_status(conn, row.id, "pending")
         elif row.action != DELETION_ACTION:
             logger.warning(
@@ -189,15 +190,15 @@ def _delete_file_on_disk(
         delete_path(row.file_path or "", allowed_roots=allowed_roots)
         return True
     except DeletionRefused as exc:
-        # Allowlist refusal: the path is wrong, but the action
-        # row is still valid — reset to pending so a later run
-        # (e.g. once the operator fixes the path) can retry.
-        logger.error(
-            "Refusing to delete '%s' — path is outside configured delete_allowed_roots: %s",
-            row.file_path,
-            exc,
-        )
+        # Safety refusal: the path or its mount is wrong, but the
+        # action row is still valid — reset to pending so a later
+        # run (e.g. once the operator fixes the path) can retry.
+        logger.error("Refusing to delete '%s': %s", row.file_path, exc)
         repository.mark_delete_status(conn, row.id, "pending")
+        detail = f"Not deleted: {row.title} — {exc}"
+        # The refusal repeats every pass until something changes; audit it once.
+        if not is_latest_audit(conn, row.media_item_id, "delete_refused", detail):
+            log_audit(conn, row.media_item_id, "delete_refused", detail)
         conn.commit()
         return False
     except FileNotFoundError as exc:
@@ -320,14 +321,25 @@ def _unmonitor_arr(
             )
 
 
-def _log_root_unavailable(row: DeletionRow, path: str) -> None:
-    logger.error(
-        "engine.delete.root_unavailable id=%s path=%r — target is missing and "
-        "its delete root is missing or empty (media mount down?); leaving "
-        "the row pending",
-        row.id,
-        path,
+def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
+    """Name the folder found missing or empty when the target is gone, else None.
+
+    None too for a path outside the delete roots: its mount is not the cause,
+    and ``delete_path`` refuses it with that reason.
+    """
+    if os.path.lexists(path) or not path_within_delete_roots(path, allowed_roots):
+        return None
+    return unavailable_folder(path, allowed_roots)
+
+
+def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
+    detail = (
+        f"Not deleted yet: {row.title} — {folder} is missing or empty, so the media "
+        "mount may be down; the deletion waits until that folder has content again"
     )
+    # The hold repeats every pass until the folder changes; audit it once.
+    if not is_latest_audit(conn, row.media_item_id, "delete_root_unavailable", detail):
+        log_audit(conn, row.media_item_id, "delete_root_unavailable", detail)
 
 
 class DeletionExecutor:
@@ -464,9 +476,7 @@ class DeletionExecutor:
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
-        mounted = bool(path.strip()) and (
-            os.path.lexists(path) or delete_root_available(path, allowed_roots)
-        )
+        unavailable = _unavailable(path, allowed_roots) if path.strip() else None
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -498,7 +508,7 @@ class DeletionExecutor:
             self._conn.commit()
             return []
 
-        if not self._may_remove(row, path, now_iso, mounted=mounted):
+        if not self._may_remove(row, path, now_iso, unavailable=unavailable):
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return []
@@ -519,10 +529,10 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
+        unavailable = _unavailable(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, co_located, path, now_iso, mounted=mounted):
+        if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -567,7 +577,7 @@ class DeletionExecutor:
         path: str,
         now_iso: str,
         *,
-        mounted: bool,
+        unavailable: str | None,
     ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
@@ -597,16 +607,18 @@ class DeletionExecutor:
                 kept,
             )
             return False
-        return self._may_remove(row, path, now_iso, mounted=mounted)
+        return self._may_remove(row, path, now_iso, unavailable=unavailable)
 
-    def _may_remove(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+    def _may_remove(
+        self, row: DeletionRow, path: str, now_iso: str, *, unavailable: str | None
+    ) -> bool:
         """Return False, logging why, when removing *path* now could lose media.
 
         Before the claim it runs inside the claim's transaction, so the other
         items it reads cannot change before the claim commits; it runs again
-        just before the removal. *mounted* says whether the target, or else its
-        delete root's content, was on disk; it is read before any transaction
-        opens.
+        just before the removal. *unavailable* names the folder found missing or
+        empty when neither the target nor its delete root's content was on
+        disk, else None; it is read before any transaction opens.
         """
         held = fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso)
         if held:
@@ -631,7 +643,15 @@ class DeletionExecutor:
             if not is_latest_audit(self._conn, row.media_item_id, "delete_refused", detail):
                 log_audit(self._conn, row.media_item_id, "delete_refused", detail)
             return False
-        if not mounted:
-            _log_root_unavailable(row, path)
+        if unavailable is not None:
+            logger.error(
+                "engine.delete.root_unavailable id=%s path=%r folder=%r — target is "
+                "missing and its delete root is missing or empty (media mount down?); "
+                "leaving the row pending",
+                row.id,
+                path,
+                unavailable,
+            )
+            _audit_root_unavailable(self._conn, row, unavailable)
             return False
         return True

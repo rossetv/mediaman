@@ -12,12 +12,13 @@ Covers GET /api/download/status:
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from mediaman.crypto import generate_download_token, generate_poll_token
+from mediaman.crypto import generate_download_token, generate_poll_token, validate_poll_token
 from mediaman.web.routes.download.status import (
     _DOWNLOAD_STATUS_LIMITER,
     _format_timeleft,
@@ -304,3 +305,113 @@ class TestPollTokenRequired:
             params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
         )
         assert resp.status_code == 401
+
+
+class TestPollTokenRefresh:
+    """A page left open on a long download keeps a working poll token."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self):
+        from mediaman.web.routes.download import reset_download_caches
+
+        _DOWNLOAD_STATUS_LIMITER.reset()
+        reset_download_caches()
+
+    def _poll(self, conn, poll_token: str, state: str = "downloading"):
+        from mediaman.web.routes.download import status as status_mod
+
+        client = _make_status_app_without_admin(conn)
+        with patch.object(status_mod, "_radarr_status", return_value={"state": state}):
+            return client.get(
+                "/api/download/status",
+                params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
+            )
+
+    def _token(self, ttl_seconds: int, first_issued: int | None = None) -> str:
+        return generate_poll_token(
+            media_item_id="radarr:Test",
+            service="radarr",
+            tmdb_id=42,
+            secret_key=_STATUS_SECRET,
+            ttl_seconds=ttl_seconds,
+            first_issued=first_issued,
+        )
+
+    def _old_style_token(self, ttl_seconds: int) -> str:
+        from mediaman.crypto import tokens
+
+        return tokens._encode_signed(
+            {
+                "mid": "radarr:Test",
+                "svc": "radarr",
+                "tmdb": 42,
+                "nonce": "00",
+                "exp": int(time.time()) + ttl_seconds,
+            },
+            _STATUS_SECRET,
+            tokens._TOKEN_PURPOSE_POLL,
+        )
+
+    def test_token_near_expiry_gets_a_fresh_valid_replacement(self, conn):
+        old = self._token(ttl_seconds=60)
+        resp = self._poll(conn, old)
+
+        assert resp.status_code == 200
+        fresh = resp.json()["poll_token"]
+        payload = validate_poll_token(fresh, _STATUS_SECRET)
+        assert payload is not None
+        assert payload["svc"] == "radarr"
+        assert payload["tmdb"] == 42
+        assert payload["exp"] > validate_poll_token(old, _STATUS_SECRET)["exp"]
+        assert self._poll(conn, fresh).status_code == 200
+
+    def test_token_near_expiry_is_not_renewed_once_download_is_ready(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=60), state="ready")
+
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "ready"
+        assert "poll_token" not in resp.json()
+
+    def test_token_near_expiry_is_renewed_while_status_is_unknown(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=60), state="unknown")
+
+        assert "poll_token" in resp.json()
+
+    def test_token_with_most_of_its_life_left_is_not_replaced(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=600))
+
+        assert resp.status_code == 200
+        assert "poll_token" not in resp.json()
+
+    def test_expired_token_is_refused(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=-1))
+
+        assert resp.status_code == 401
+        assert "poll_token" not in resp.json()
+
+    def test_token_first_issued_over_a_day_ago_is_not_renewed(self, conn):
+        first = int(time.time()) - 86400 - 60
+        resp = self._poll(conn, self._token(ttl_seconds=60, first_issued=first))
+
+        assert resp.status_code == 200
+        assert "poll_token" not in resp.json()
+
+    def test_renewal_carries_the_first_issue_time_forward(self, conn):
+        first = int(time.time()) - 3600
+        resp = self._poll(conn, self._token(ttl_seconds=60, first_issued=first))
+
+        payload = validate_poll_token(resp.json()["poll_token"], _STATUS_SECRET)
+        assert payload is not None
+        assert payload["first"] == first
+
+    def test_token_without_a_first_issue_time_still_works_and_renews(self, conn):
+        old = self._old_style_token(ttl_seconds=60)
+        assert validate_poll_token(old, _STATUS_SECRET) is not None
+
+        resp = self._poll(conn, old)
+
+        assert resp.status_code == 200
+        payload = validate_poll_token(resp.json()["poll_token"], _STATUS_SECRET)
+        assert payload is not None
+        # Its life began 600 seconds before it was due to expire.
+        assert payload["first"] == pytest.approx(time.time() - 540, abs=5)

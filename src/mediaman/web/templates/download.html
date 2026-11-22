@@ -144,8 +144,10 @@
     {% include "_dl_hero_card.html" %}
     {% endwith %}
     <div class="dl-hint">
-      You may close this page &mdash; the download will continue in the background.<br>
+      You may close this page &mdash; the download will continue in the background.
+      {% if item.email %}<br>
       You'll be notified by email when this {{ 'movie' if item.media_type == 'movie' else 'show' }} is available to watch.
+      {% endif %}
     </div>
     <div class="dl-footer u-mt-24">
       <a href="/">Open Mediaman Dashboard &rarr;</a>
@@ -184,7 +186,8 @@
   "poster_url": (item.poster_url or ""),
   "title": (item.title or ""),
   "media_type": (item.media_type or "movie"),
-  "download_state": (item.download_state or "")
+  "download_state": (item.download_state or ""),
+  "notify_by_email": (true if item.email else false)
 } | tojson }}</script>
 <script src="/static/js/downloads/build_dom.js" defer></script>
 <script src="/static/js/download.js" defer></script>

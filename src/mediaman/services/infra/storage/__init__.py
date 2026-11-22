@@ -55,8 +55,8 @@ from mediaman.services.infra.storage._delete_roots import (
 )
 from mediaman.services.infra.storage.deletion import (
     delete_path,
-    delete_root_available,
     path_within_delete_roots,
+    unavailable_folder,
 )
 from mediaman.services.infra.storage.disk_usage import (
     get_aggregate_disk_usage,
@@ -75,9 +75,9 @@ __all__ = [
     "_validate_delete_roots",
     "_validate_single_root",
     "delete_path",
-    "delete_root_available",
     "get_aggregate_disk_usage",
     "get_directory_size",
     "get_disk_usage_for_paths",
     "path_within_delete_roots",
+    "unavailable_folder",
 ]

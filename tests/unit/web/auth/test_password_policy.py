@@ -204,7 +204,7 @@ class TestForceChangeFlag:
         from mediaman.web.auth.password_hash import authenticate, set_must_change_password
         from mediaman.web.auth.password_policy import is_strong
 
-        assert authenticate(conn, "legacy", weak)
+        assert authenticate(conn, "legacy", weak, client_ip="203.0.113.7")
         assert not is_strong(weak, username="legacy")
         set_must_change_password(conn, "legacy", True)
 

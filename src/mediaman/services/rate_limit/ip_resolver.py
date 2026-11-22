@@ -79,6 +79,19 @@ def trusts_every_address(net: IPv4Network | IPv6Network) -> bool:
     return _unmap_network(net).prefixlen == 0
 
 
+# Widest trusted range accepted: a network shorter than this covers too much
+# of the address space to be a plausible set of proxies.
+MIN_TRUSTED_PREFIX_V4 = 8
+MIN_TRUSTED_PREFIX_V6 = 7
+
+
+def trusts_too_much(net: IPv4Network | IPv6Network) -> bool:
+    """Return True when *net*, once unmapped, is wider than IPv4 /8 or IPv6 /7."""
+    net = _unmap_network(net)
+    limit = MIN_TRUSTED_PREFIX_V4 if isinstance(net, IPv4Network) else MIN_TRUSTED_PREFIX_V6
+    return net.prefixlen < limit
+
+
 def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
     """Parse a comma-separated CIDR/IP list from *env_var*.
 
@@ -125,6 +138,15 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
                 token,
             )
             return []
+        if trusts_too_much(net):
+            logger.critical(
+                "%s contains %r, which is wider than IPv4 /%d or IPv6 /%d; skipping it.",
+                env_var,
+                token,
+                MIN_TRUSTED_PREFIX_V4,
+                MIN_TRUSTED_PREFIX_V6,
+            )
+            continue
         networks.append(_unmap_network(net))
     return networks
 

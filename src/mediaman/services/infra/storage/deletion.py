@@ -65,20 +65,22 @@ def path_within_delete_roots(path: str, allowed_roots: list[str]) -> bool:
     return any(root in resolved.parents for root in resolved_roots)
 
 
-def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
-    """Return True iff the delete root holding *path* is a directory with content.
+def unavailable_folder(path: str, allowed_roots: list[str]) -> str | None:
+    """Return the folder found missing or empty above *path*, or None if it has content.
 
-    A media mount that has dropped leaves its mount point missing or empty,
-    and every target under it then looks deleted. A caller that finds its
-    target absent asks this first, so it does not book an unmounted file as
-    removed. Roots and *path* are resolved as ``path_within_delete_roots``
-    resolves them, so a root reached through a symlink or spelled another
-    way still matches. Never raises; any doubt (no matching root, unreadable
-    root) answers False. It does not vet the allowlist: ``delete_path`` does
-    that.
+    The folder looked at is the closest existing one above *path*, or the
+    delete root holding *path* when that is missing; the search stops at that
+    root. A media mount that has dropped leaves its mount point missing or
+    empty, and every target under it then looks deleted. A caller that finds
+    its target absent asks this first, so it does not book an unmounted file
+    as removed. Roots and *path* are resolved as ``path_within_delete_roots``
+    resolves them, so a root reached through a symlink or spelled another way
+    still matches. Never raises; any doubt (no matching root, unreadable
+    folder) names a folder, or *path* itself when there is none to name. It
+    does not vet the allowlist: ``delete_path`` does that.
     """
     if not path or not isinstance(path, str) or not os.path.isabs(path):
-        return False
+        return str(path)
     roots: list[Path] = []
     try:
         target = Path(path).resolve()
@@ -88,15 +90,23 @@ def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
                 if root in target.parents:
                     roots.append(root)
     except (OSError, RuntimeError):
-        return False
+        return path
     if not roots:
-        return False
+        return path
     pinned_root = max(roots, key=lambda root: len(root.parts))
+    # A separate mount below the root that has dropped leaves an empty mount
+    # point while the root itself still has content, so look at the closest
+    # folder that still exists above the target.
+    closest = next(
+        folder for folder in target.parents if folder == pinned_root or os.path.lexists(folder)
+    )
     try:
-        with os.scandir(pinned_root) as entries:
-            return next(entries, None) is not None
+        with os.scandir(closest) as entries:
+            if next(entries, None) is not None:
+                return None
     except OSError:
-        return False
+        pass
+    return str(closest)
 
 
 def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:

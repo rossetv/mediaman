@@ -3,23 +3,27 @@
 # admin unlock + audit).  Splitting by layer (DDL / DML / public API) would
 # fragment the protocol without adding a navigable concept boundary; the file
 # owns exactly one concept.
-"""Persistent per-username login lockout.
+"""Persistent login lockout, per username and client IP.
 
-The existing rate limiter in `mediaman.web.auth.rate_limit` is per-IP
-and in-memory. An attacker rotating through IPs (cheap on any cloud
-provider) can brute-force a known username without ever tripping it,
-and restarting the process wipes the counter.
+The existing rate limiter in `mediaman.services.rate_limit` is per-IP
+and in-memory: restarting the process wipes it.
 
-This module provides a DB-backed per-username counter so a sustained
-brute-force against *any* account gets locked out regardless of source
-IP and survives restarts.
+This module keeps a DB-backed failure counter per username *and* client
+IP (the full IPv4 address, or the /64 prefix for IPv6), so a sustained
+brute-force from one source is locked out and the lock survives
+restarts. Keying on the IP as well means wrong guesses from one address
+lock out only that address: someone who knows a username cannot lock
+its owner out from everywhere else. Admin unlock and a password proved
+elsewhere act on every one of a user's per-IP counters. Behind a reverse
+proxy that is not listed as trusted, every client shares the proxy's IP
+and the lockout is in effect per username.
 
 Semantics
 ---------
 
-* 5-9 consecutive failures → account locked for 15 minutes.
-* 10-14 consecutive failures → account locked for 1 hour.
-* 15+ consecutive failures → account locked for 24 hours.
+* 5-9 consecutive failures → username locked from that IP for 15 minutes.
+* 10-14 consecutive failures → locked from that IP for 1 hour.
+* 15+ consecutive failures → locked from that IP for 24 hours.
   The counter is **not** reset by hitting any threshold; it continues
   climbing while the attacker keeps trying during the lock window,
   which is what makes the escalation reachable.
@@ -51,6 +55,7 @@ increments and delay (or skip) the escalation.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import sqlite3
 import threading
@@ -105,6 +110,52 @@ def login_key(username: str) -> str:
 def reauth_key(username: str) -> str:
     """Return the re-auth failure counter key for *username*."""
     return f"{REAUTH_LOCKOUT_PREFIX}{username}"
+
+
+_LOGIN_IP_PREFIX = f"{_NAMESPACE_MARK}login-ip:"
+
+
+def _ip_bucket(client_ip: str) -> str:
+    """Return the part of *client_ip* a login counter is kept for.
+
+    The full IPv4 address, or the /64 prefix for IPv6: one IPv6 host is
+    usually handed a whole /64, so a per-address key would let it step
+    past its own lock. Never contains the namespace mark.
+    """
+    try:
+        addr = ipaddress.ip_address(client_ip.strip())
+    except ValueError:
+        return client_ip.replace(_NAMESPACE_MARK, "")
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            return str(addr.ipv4_mapped)
+        return str(ipaddress.IPv6Network((int(addr) >> 64 << 64, 64)))
+    return str(addr)
+
+
+def login_ip_key(username: str, client_ip: str) -> str:
+    """Return the login failure counter key for *username* from *client_ip*."""
+    return f"{_LOGIN_IP_PREFIX}{_ip_bucket(client_ip)}{_NAMESPACE_MARK}{username}"
+
+
+def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
+    """Return every stored login counter key of *username*, across all IPs.
+
+    Includes the username-only key older rows were stored under. Matched
+    by splitting each key in Python rather than with ``LIKE``, whose
+    wildcards a username may contain.
+    """
+    rows = conn.execute(
+        "SELECT username FROM login_failures WHERE substr(username, 1, ?) = ?",
+        (len(_LOGIN_IP_PREFIX), _LOGIN_IP_PREFIX),
+    ).fetchall()
+    keys = [
+        row["username"]
+        for row in rows
+        if row["username"][len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)[2] == username
+    ]
+    keys.append(login_key(username))
+    return keys
 
 
 #: After this long with no failures, reset the counter on the next
@@ -449,13 +500,12 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
 
 
 def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> None:
-    """Clear *username*'s login failure counter unless the login is locked.
+    """Clear *username*'s login failure counters, from every IP, that hold no lock.
 
     For a password proved outside the login form (re-auth, password
     change): it ends a streak of typos, but must not lift a lock that
     someone else's guesses set.
     """
-    key = login_key(username)
     _ensure_table(conn)
     # The write lock is taken before the check, so a lock set by a
     # concurrent failure cannot land between the check and the delete.
@@ -463,8 +513,9 @@ def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> No
     # ``locked_until`` values included (those stay locked).
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        if not is_locked_out(conn, key):
-            conn.execute("DELETE FROM login_failures WHERE username = ?", (key,))
+        for key in _user_login_keys(conn, username):
+            if not is_locked_out(conn, key):
+                conn.execute("DELETE FROM login_failures WHERE username = ?", (key,))
 
 
 def prune_stale_failures(conn: sqlite3.Connection) -> int:
@@ -502,7 +553,7 @@ def prune_stale_failures(conn: sqlite3.Connection) -> int:
 
 
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
-    """Clear the login and re-auth failure counters and locks for *username*.
+    """Clear the login (from every IP) and re-auth failure counters and locks for *username*.
 
     Returns True when there was an existing record to delete, False
     when *username* was already unlocked (or never existed). Callers
@@ -515,9 +566,10 @@ def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     if not username:
         return False
     _ensure_table(conn)
-    cur = conn.execute(
-        "DELETE FROM login_failures WHERE username IN (?, ?)",
-        (login_key(username), reauth_key(username)),
+    keys = [*_user_login_keys(conn, username), reauth_key(username)]
+    cur = conn.executemany(
+        "DELETE FROM login_failures WHERE username = ?",
+        [(key,) for key in keys],
     )
     return (cur.rowcount or 0) > 0
 
@@ -550,8 +602,10 @@ def admin_unlock_with_audit(
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        was_locked = is_locked_out(conn, login_key(target_username)) or is_locked_out(
-            conn, reauth_key(target_username)
+        _ensure_table(conn)
+        was_locked = any(
+            is_locked_out(conn, key)
+            for key in [*_user_login_keys(conn, target_username), reauth_key(target_username)]
         )
         cleared = admin_unlock(conn, target_username)
         from mediaman.core.audit import security_event_or_raise

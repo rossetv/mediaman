@@ -3,7 +3,7 @@
  *
  * Reads server-supplied values from the #page-bootstrap JSON island
  * (token, poll_token, service, tmdb_id, poster_url, title, media_type,
- * download_state) and drives the download trigger + polling UI. Lives in
+ * download_state, notify_by_email) and drives the download trigger + polling UI. Lives in
  * its own file, not an inline <script>, so the CSP can forbid inline script.
  */
 (function () {
@@ -25,7 +25,9 @@
   var _title = boot.title || '';
   var _mediaType = boot.media_type || 'movie';
   var _downloadState = boot.download_state || '';
+  var _notifyByEmail = boot.notify_by_email === true;
   var _pollInterval = null;
+  var _pollStopped = false;
 
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
@@ -37,7 +39,11 @@
       .then(function(data) {
         _service = data.service;
         _tmdbId = data.tmdb_id;
-        if (data.poll_token) _pollToken = data.poll_token;
+        if (data.poll_token) {
+          _pollToken = data.poll_token;
+          /* A fresh token means polling can authenticate again. */
+          _pollStopped = false;
+        }
 
         /* Hide cinematic metadata, show hero card wrapper */
         var cinema = document.getElementById('dl-cinema');
@@ -63,8 +69,11 @@
 
         document.getElementById('download-action').style.display = 'none';
 
-        pollStatus();
-        _startPolling();
+        /* A 401 already stopped polling and told the visitor to reload. */
+        if (!_pollStopped) {
+          pollStatus();
+          _startPolling();
+        }
       })
       .catch(function(err) {
         if (err instanceof MM.api.APIError) {
@@ -85,12 +94,13 @@
     var hint = document.createElement('div');
     hint.className = 'dl-hint';
     hint.textContent = 'You may close this page — the download will continue in the background. ';
-    var br = document.createElement('br');
-    hint.appendChild(br);
-    var hintLine2 = document.createTextNode(
-      'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
-    );
-    hint.appendChild(hintLine2);
+    /* A link minted without an email gets no notification, so promise none. */
+    if (_notifyByEmail) {
+      hint.appendChild(document.createElement('br'));
+      hint.appendChild(document.createTextNode(
+        'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
+      ));
+    }
 
     /* Clear wrapper and append */
     wrapper.replaceChildren(hero, hint);
@@ -104,6 +114,7 @@
      timer and the visibilitychange pause so the tab doesn't hammer the
      server while hidden. */
   function _startPolling() {
+    if (!_pollToken) return;
     if (_pollInterval !== null) { clearInterval(_pollInterval); }
     _pollInterval = setInterval(pollStatus, 4000);
   }
@@ -115,7 +126,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       _stopPolling();
-    } else if (_pollInterval === null && _downloadState !== 'ready') {
+    } else if (_pollInterval === null && _downloadState !== 'ready' && !_pollStopped) {
       /* Resume: run one tick immediately then restart the interval. */
       pollStatus();
       _startPolling();
@@ -123,12 +134,15 @@
   });
 
   function pollStatus() {
-    if (!_service || !_tmdbId) return;
+    /* Without a poll token the request can only be refused. */
+    if (!_service || !_tmdbId || !_pollToken) return;
     /* Use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
-      + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
+      + '&poll_token=' + encodeURIComponent(_pollToken);
     MM.api.get(url)
       .then(function(data) {
+        /* The server hands out a replacement before the current poll token expires. */
+        if (data.poll_token) _pollToken = data.poll_token;
         if (data.state === 'ready') {
           _downloadState = 'ready';
           _stopPolling();
@@ -177,7 +191,29 @@
         /* Update episode summary */
         updateEpisodeSummary(wrapper, data.episode_summary);
       })
-      .catch(function() {});
+      .catch(function(err) {
+        /* Other failures are transient; the next tick retries. */
+        if (err instanceof MM.api.APIError && err.status === 401) {
+          _pollStopped = true;
+          _stopPolling();
+          showReloadNotice();
+        }
+      });
+  }
+
+  /* Polling can no longer authenticate: keep the last progress on screen and
+     tell the visitor to reload, rather than leaving a bar that silently stops. */
+  function showReloadNotice() {
+    var wrapper = document.getElementById('dl-hero-wrapper');
+    if (!wrapper) return;
+    var hint = wrapper.querySelector('.dl-hint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.className = 'dl-hint';
+      wrapper.appendChild(hint);
+    }
+    hint.setAttribute('role', 'status');
+    hint.textContent = 'Progress updates have stopped. Reload this page to see the latest status.';
   }
 
   function updateEpisodeRows(wrapper, episodes) {

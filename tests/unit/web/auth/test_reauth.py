@@ -264,7 +264,7 @@ class TestVerifyReauthPassword:
         from mediaman.web.auth.password_hash import authenticate
 
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
 
         assert verify_reauth_password(conn, "alice", "correct-password-99") is True
 
@@ -272,12 +272,15 @@ class TestVerifyReauthPassword:
         from mediaman.web.auth.password_hash import authenticate
 
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
 
         verify_reauth_password(conn, "alice", "wrong")
 
+        from mediaman.web.auth.login_lockout import login_ip_key
+
         plain = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = ?", ("alice",)
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert plain["failure_count"] == 5
 

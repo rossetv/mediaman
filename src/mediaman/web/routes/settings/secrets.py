@@ -71,6 +71,8 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "inactivity_days",
         "grace_days",
         "dry_run",
+        "plex_libraries",
+        "disk_thresholds",
     }
     | SECRET_FIELDS
 )

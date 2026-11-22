@@ -29,11 +29,12 @@ logger = logging.getLogger(__name__)
 def _short_circuit_authenticate(
     conn: sqlite3.Connection,
     username: str,
+    client_ip: str,
 ) -> bool | None:
     """Return a definite answer for the no-bcrypt fast paths.
 
     Returns ``False`` when the request is rejected without bcrypt
-    (empty username, or locked account). Returns ``None`` when the
+    (empty username, or the username is locked from *client_ip*). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
     The locked branch bumps `record_failure` so the escalation thresholds
@@ -41,7 +42,12 @@ def _short_circuit_authenticate(
     the continued hammering is what keeps the anti-DoS band-promotion
     design working. See ``test_login_lockout.py``.
     """
-    from mediaman.web.auth.login_lockout import is_locked_out, login_key, record_failure
+    from mediaman.web.auth.login_lockout import (
+        is_locked_out,
+        login_ip_key,
+        login_key,
+        record_failure,
+    )
 
     # Reject empty usernames before touching bcrypt. Otherwise an
     # unauthenticated attacker can stream empty-username requests at
@@ -54,10 +60,16 @@ def _short_circuit_authenticate(
     # without re-running bcrypt — skip the dummy round and save the
     # CPU. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property.
-    key = login_key(username)
-    if is_locked_out(conn, key):
+    key = login_ip_key(username, client_ip)
+    # A lock stored under the bare username predates per-IP keys and still
+    # holds. It is only read: nothing writes that key any more, so it cannot
+    # be extended and ages out or is cleared by admin unlock. The refusal
+    # matches a per-IP lock, failure count included, so it reveals nothing.
+    if is_locked_out(conn, key) or is_locked_out(conn, login_key(username)):
         record_failure(conn, key)
-        logger.warning("auth.account_locked user=%s reason=lockout_active", username)
+        logger.warning(
+            "auth.account_locked user=%s ip=%s reason=lockout_active", username, client_ip
+        )
         return False
 
     return None
@@ -85,15 +97,17 @@ def _verify_credentials_against_db(
     conn: sqlite3.Connection,
     username: str,
     password: str,
+    client_ip: str,
 ) -> bool:
-    """Run `verify_password` and update the login failure counter."""
-    from mediaman.web.auth.login_lockout import login_key, record_failure, record_success
+    """Run `verify_password` and update the login failure counter for *client_ip*."""
+    from mediaman.web.auth.login_lockout import login_ip_key, record_failure, record_success
 
+    key = login_ip_key(username, client_ip)
     ok = verify_password(conn, username, password)
     if ok:
-        record_success(conn, login_key(username))
+        record_success(conn, key)
     else:
-        record_failure(conn, login_key(username))
+        record_failure(conn, key)
     return ok
 
 
@@ -101,8 +115,14 @@ def authenticate(
     conn: sqlite3.Connection,
     username: str,
     password: str,
+    *,
+    client_ip: str,
 ) -> bool:
-    """Verify username/password credentials.
+    """Verify username/password credentials for a login from *client_ip*.
+
+    The lockout counts failures per username and client IP (see
+    `mediaman.web.auth.login_lockout`), so wrong guesses from one address
+    do not lock the user out from another.
 
     Always performs a bcrypt check — even for nonexistent users — to
     prevent timing-based username enumeration.
@@ -112,7 +132,7 @@ def authenticate(
     * Empty username — there is no user to authenticate, and burning a
       bcrypt round per request would let an unauthenticated attacker
       DoS the server's CPU by streaming empty-username login attempts.
-    * Account already locked — `mediaman.web.auth.login_lockout`
+    * Username already locked from this IP — `mediaman.web.auth.login_lockout`
       already knows the answer is "no" without re-checking the hash.
       Skipping bcrypt here cuts the cost of a sustained brute-force
       hammering a locked account from one bcrypt round per attempt
@@ -134,7 +154,7 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    short_circuit = _short_circuit_authenticate(conn, username)
+    short_circuit = _short_circuit_authenticate(conn, username, client_ip)
     if short_circuit is not None:
         return short_circuit
-    return _verify_credentials_against_db(conn, username, password)
+    return _verify_credentials_against_db(conn, username, password, client_ip)

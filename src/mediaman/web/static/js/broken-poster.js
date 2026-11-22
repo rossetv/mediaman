@@ -32,4 +32,14 @@
     },
     true,
   );
+
+  // This script is deferred, so an image that failed before it ran fired its
+  // ``error`` event unseen; mark those now.
+  var failed = document.querySelectorAll('img[data-broken-on-error]');
+  for (var i = 0; i < failed.length; i++) {
+    var img = failed[i];
+    if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) {
+      img.dataset.broken = '';
+    }
+  }
 })();

@@ -886,6 +886,26 @@ class TestMissingTarget:
         assert "deleted" not in _audits(conn, "m")
         radarr.unmonitor_movie.assert_not_called()
 
+    def test_dropped_mount_below_the_root_leaves_the_row_pending(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "media"
+        (root / "tv" / "local" / "Other").mkdir(parents=True)
+        (root / "tv" / "local" / "Other" / "Other.mkv").write_bytes(b"x")
+        (root / "tv" / "nas").mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(root / "tv" / "nas" / "Show")
+        )
+        _due_row(conn, "m")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+        assert "deleted" not in _audits(conn, "m")
+
     def test_file_gone_while_mount_is_up_closes_the_row(self, conn, tmp_path, monkeypatch):
         root = tmp_path / "movies"
         (root / "Other").mkdir(parents=True)
@@ -900,6 +920,92 @@ class TestMissingTarget:
         assert _actions(conn, "m") == []
         assert _audits(conn, "m") == ["deleted"]
         assert (root / "Other" / "Other.mkv").exists()
+
+
+class TestRootUnavailableAudit:
+    def _audit_rows(self, conn, media_id):
+        return conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id=? AND action='delete_root_unavailable'",
+            (media_id,),
+        ).fetchall()
+
+    @pytest.mark.parametrize("layout", ["empty_movie_folder", "missing_root"])
+    def test_a_row_held_back_on_every_pass_is_audited_once_naming_the_folder(
+        self, conn, tmp_path, monkeypatch, layout
+    ):
+        root = tmp_path / "movies"
+        folder = root / "Dune (2021)"
+        if layout == "empty_movie_folder":
+            folder.mkdir(parents=True)
+            empty = folder
+        else:
+            empty = root
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(folder / "Dune.mkv"))
+        _due_row(conn, "m")
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        audits = self._audit_rows(conn, "m")
+        assert len(audits) == 1
+        assert str(empty) in audits[0]["detail"]
+        assert "deleted" not in _audits(conn, "m")
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+
+    def test_a_gone_file_outside_the_delete_roots_is_refused_not_blamed_on_the_mount(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        (root / "Other").mkdir(parents=True)
+        (root / "Other" / "Other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(tmp_path / "old" / "M" / "M.mkv")
+        )
+        _due_row(conn, "m")
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        assert _audits(conn, "m") == ["delete_refused"]
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+
+    def test_recovery_holding_a_row_back_audits_it_once_naming_the_folder(
+        self, conn, tmp_path, monkeypatch
+    ):
+        folder = tmp_path / "movies" / "Dune (2021)"
+        folder.mkdir(parents=True)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(folder.parent))
+        insert_media_item(conn, id="m", plex_rating_key="m", file_path=str(folder / "Dune.mkv"))
+        insert_scheduled_action(
+            conn,
+            media_item_id="m",
+            action="scheduled_deletion",
+            token="tok-m",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+        audits = self._audit_rows(conn, "m")
+        DeletionExecutor(conn=conn).execute()
+
+        assert len(audits) == 1
+        assert str(folder) in audits[0]["detail"]
+        assert len(self._audit_rows(conn, "m")) == 1
+        assert "deleted" not in _audits(conn, "m")
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
 
 
 class TestSharedFolderPathSpelling:
@@ -1005,18 +1111,18 @@ class TestDiskChecksOutsideWriteLock:
         from mediaman.scanner import deletions
 
         real_lexists = os.path.lexists
-        real_root_available = deletions.delete_root_available
+        real_unavailable_folder = deletions.unavailable_folder
 
         def lexists(path):
             seen.append(conn.in_transaction)
             return real_lexists(path)
 
-        def root_available(path, roots):
+        def unavailable_folder(path, roots):
             seen.append(conn.in_transaction)
-            return real_root_available(path, roots)
+            return real_unavailable_folder(path, roots)
 
         monkeypatch.setattr(os.path, "lexists", lexists)
-        monkeypatch.setattr(deletions, "delete_root_available", root_available)
+        monkeypatch.setattr(deletions, "unavailable_folder", unavailable_folder)
 
     def test_pass_checks_a_missing_target_with_no_transaction_open(
         self, conn, tmp_path, monkeypatch
@@ -1104,6 +1210,26 @@ class TestRefusalAudit:
         DeletionExecutor(conn=conn).execute()
 
         assert _audits(conn, "s1") == ["delete_refused", "delete_refused"]
+
+
+class TestSafetyRefusalAudit:
+    def test_a_refused_removal_is_audited_once_with_its_reason(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "library"
+        root.mkdir()
+        (root / "movie.mkv").write_text("keep")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        _insert_media(conn, file_path=str(root))
+        _insert_pending_deletion(conn)
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [r["action"] for r in rows] == ["delete_refused"]
+        assert "strict descendant" in rows[0]["detail"]
+        assert (root / "movie.mkv").exists()
 
 
 class TestKeepAndClearAroundARemoval:

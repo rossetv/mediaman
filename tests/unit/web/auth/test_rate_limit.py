@@ -266,6 +266,11 @@ class TestCatchAllTrustedProxy:
 
         assert get_client_ip(FakeRequest()) == "10.0.0.1"
 
+    @pytest.mark.parametrize("entry", ["0.0.0.0/1", "1.0.0.0/7", "::/1", "::/6", "::ffff:0:0/97"])
+    def test_too_wide_entry_is_skipped(self, monkeypatch, entry):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", f"10.0.0.0/8,{entry}")
+        assert [str(n) for n in trusted_proxies()] == ["10.0.0.0/8"]
+
     def test_normal_network_still_trusted(self, monkeypatch):
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
         assert [str(n) for n in trusted_proxies()] == ["10.0.0.0/8"]

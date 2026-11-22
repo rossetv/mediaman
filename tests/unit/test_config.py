@@ -104,3 +104,28 @@ class TestLoadConfig:
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secrets.token_hex(32))
         cfg = load_config()
         assert cfg.secret_key
+
+
+_WIDE = ["0.0.0.0/1", "1.0.0.0/7", "::/1", "::/6", "::ffff:0:0/97", "10.0.0.0/8,128.0.0.0/1"]
+_NARROW = ["10.0.0.0/8", "192.168.0.0/16", "fd00::/8", "10.0.0.5", "::1", "10.0.0.0/8, 172.16.0.1"]
+
+
+class TestTrustedProxyWidth:
+    @pytest.mark.parametrize("value", _WIDE)
+    def test_too_wide_range_is_refused(self, monkeypatch, value):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", value)
+        with pytest.raises(ConfigError, match="too wide"):
+            load_config()
+
+    @pytest.mark.parametrize("value", _NARROW)
+    def test_reasonable_range_is_accepted(self, monkeypatch, value):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", value)
+        assert load_config().trusted_proxies == value
+
+    @pytest.mark.parametrize("value", ["*", "0.0.0.0/0", "::/0"])
+    def test_catch_all_is_left_to_the_startup_validator(self, monkeypatch, value):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", value)
+        assert load_config().trusted_proxies == value

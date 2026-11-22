@@ -271,7 +271,7 @@ class SafeHTTPClient:
         # SSRF re-validation on every call (re-resolves DNS — the rebind
         # defence). ``_resolve_outbound`` performs the ``sys.modules`` lookup
         # of the guard so tests can patch it; see its docstring.
-        safe, hostname, pinned_ip = _resolve_outbound(url, self._allowed_hosts)
+        safe, hostname, pinned_ips = _resolve_outbound(url, self._allowed_hosts)
         if not safe:
             raise SafeHTTPError(
                 status_code=0,
@@ -300,7 +300,7 @@ class SafeHTTPClient:
         def _read_fn(response: requests.Response) -> bytes:
             return _read_capped(response, cap, expected_content_type=expected_content_type)
 
-        ctx = pin(hostname, pinned_ip) if (hostname and pinned_ip) else contextlib.nullcontext()
+        ctx = pin(hostname, pinned_ips) if (hostname and pinned_ips) else contextlib.nullcontext()
         with ctx:
             return dispatch_loop(
                 dispatch_fn=_dispatch_fn,

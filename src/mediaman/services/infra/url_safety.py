@@ -227,18 +227,18 @@ def _host_in_allowlist(hostname: str, allowed_hosts: frozenset[str] | set[str]) 
     return h in {a.lower().rstrip(".") for a in allowed_hosts}
 
 
-def _parse_and_normalise(url: str) -> tuple[bool, str | None, str | None]:
+def _parse_and_normalise(url: str) -> tuple[bool, str | None, None]:
     """Parse and IDN-normalise *url*, applying the DNS-free reject rules.
 
     Returns ``(ok, host, None)`` mirroring
-    ``resolve_safe_outbound_url``'s ``(safe, hostname, pinned_ip)``
+    ``resolve_safe_outbound_url``'s ``(safe, hostname, pinned_ips)``
     shape so the caller can forward a reject verbatim:
 
     * On rejection, ``ok`` is ``False`` and the second element is the
       hostname to attribute — ``None`` when the URL was malformed before
       host extraction, the **raw** hostname for a pre-IDN metadata-name
       hit or an IDN-normalisation failure, the **normalised** hostname for
-      a post-IDN metadata-name hit. ``pinned_ip`` is always ``None``.
+      a post-IDN metadata-name hit. ``pinned_ips`` is always ``None``.
     * On success, ``ok`` is ``True`` and the second element is the
       IDN-normalised hostname the caller continues with.
 
@@ -287,10 +287,10 @@ def _check_literal_or_resolved(
     normalised: str,
     *,
     strict: bool,
-) -> tuple[bool, str | None, str | None]:
+) -> tuple[bool, str | None, tuple[str, ...] | None]:
     """Resolve *normalised* to a validated pin, or reject it.
 
-    Returns the final ``(safe, hostname, pinned_ip)`` for the IP-level
+    Returns the final ``(safe, hostname, pinned_ips)`` for the IP-level
     portion of ``resolve_safe_outbound_url``. *normalised* has already
     passed every DNS-free check; this is the part that may touch the
     resolver.
@@ -305,9 +305,8 @@ def _check_literal_or_resolved(
       resolver that could otherwise redirect the connect.
     * **Hostname** — resolved via ``socket.getaddrinfo``; rejected if it
       fails to resolve at all, or if *any* returned address is blocked.
-      The first safe address is pinned (every returned address has already
-      been confirmed safe — the first is chosen for stability across
-      calls).
+      Otherwise the first IPv6 and the first IPv4 address are pinned, in
+      resolver order.
     """
     # Literal IP in the URL → check directly, skip DNS.
     try:
@@ -325,7 +324,7 @@ def _check_literal_or_resolved(
         # resolver and makes the connect deterministic with the
         # validated answer, regardless of what's installed on the
         # process-wide ``socket.getaddrinfo``.
-        return True, normalised, normalised
+        return True, normalised, (normalised,)
 
     # Hostname → resolve and reject if *any* returned address is blocked,
     # OR if the name fails to resolve at all. A non-resolving name is not
@@ -339,12 +338,15 @@ def _check_literal_or_resolved(
         if _ip_is_blocked(ip, strict=strict):
             return False, normalised, None
 
-    # Pin the first safe address we got back. Every address in ``addrs``
-    # has already been confirmed safe, so the choice is irrelevant for
-    # security; we use the first one for stability across calls. The
-    # caller installs this in a thread-local DNS pin so the eventual
-    # ``socket.getaddrinfo`` returns the same address we just verified.
-    return True, normalised, str(addrs[0])
+    # Every address was validated above, but pin only the first of each
+    # family: urllib3 gives each pinned address the full connect timeout, so
+    # a host with many unreachable addresses would otherwise hold a worker
+    # for N x timeout x retries. One v6 and one v4 still lets a dual-stack
+    # host (``localhost`` -> ``::1`` then ``127.0.0.1``) fall back.
+    first_v6 = next((ip for ip in addrs if ip.version == 6), None)
+    first_v4 = next((ip for ip in addrs if ip.version == 4), None)
+    pinned = [ip for ip in addrs if ip in (first_v6, first_v4)]
+    return True, normalised, tuple(str(ip) for ip in pinned)
 
 
 def resolve_safe_outbound_url(
@@ -352,21 +354,22 @@ def resolve_safe_outbound_url(
     *,
     strict_egress: bool | None = None,
     allowed_hosts: frozenset[str] | set[str] | None = None,
-) -> tuple[bool, str | None, str | None]:
-    """Validate *url* and return a pinned IP for the eventual connection.
+) -> tuple[bool, str | None, tuple[str, ...] | None]:
+    """Validate *url* and return the pinned addresses for the eventual connection.
 
-    Returns ``(safe, hostname, pinned_ip)``:
+    Returns ``(safe, hostname, pinned_ips)``:
 
     * ``safe`` — ``True`` only if every check in
       ``is_safe_outbound_url`` passes.
     * ``hostname`` — the IDN-normalised hostname from the URL, or
       ``None`` if the URL was malformed before host extraction. Useful
       to the caller for installing a host-specific DNS pin.
-    * ``pinned_ip`` — the **validated** address that the eventual
-      connection must use, or ``None`` if no pin is required (URL
-      already contains a literal IP, or the URL was rejected). When
-      present, callers must connect to this exact address rather than
-      re-resolving the hostname — that's the DNS-rebinding defence.
+    * ``pinned_ips`` — every **validated** address, in resolver order,
+      that the eventual connection may use (a literal-IP URL is pinned
+      to itself), or ``None`` if the URL was rejected or names a Docker
+      bridge host. When present, callers must connect only to these
+      addresses, trying them in order, rather than re-resolving the
+      hostname — that's the DNS-rebinding defence.
 
     When *allowed_hosts* is provided, the URL's hostname must appear in
     that set (after IDN normalisation) **or** in
@@ -387,7 +390,7 @@ def resolve_safe_outbound_url(
     if not ok:
         # ``_parse_and_normalise`` already shaped the reject tuple
         # (malformed → ``None`` host; metadata-name hit → the attributed
-        # hostname), and ``pinned_ip`` is always ``None`` on its rejects.
+        # hostname), and ``pinned_ips`` is always ``None`` on its rejects.
         return ok, normalised, None
     # ``ok`` is True ⇒ ``normalised`` is the IDN-normalised hostname. Fail
     # closed if that invariant is ever broken rather than ``assert`` it: an
@@ -464,7 +467,7 @@ def is_safe_outbound_url(
     deny-list checks still apply on top — an allowlisted host that
     resolves to a metadata IP is still refused.
     """
-    safe, _hostname, _pinned_ip = resolve_safe_outbound_url(
+    safe, _hostname, _pinned_ips = resolve_safe_outbound_url(
         url,
         strict_egress=strict_egress,
         allowed_hosts=allowed_hosts,

@@ -24,6 +24,7 @@
   MM.settings = MM.settings || {};
 
   var PLEX_LIBRARIES = [];
+  var LOADED = false;
   var SELECTED_LIBS = [];
   var DISK_THRESHOLDS = {};
 
@@ -265,7 +266,10 @@
     }
   }
 
+  // Returns null until the library load has succeeded (still running, or failed):
+  // the rows are not drawn, so an empty result would read as "clear every threshold".
   function collect() {
+    if (!LOADED) return null;
     var out = {};
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
       var libId = card.dataset.libId;
@@ -280,10 +284,22 @@
     MM.api.get('/api/plex/libraries')
       .then(function (data) {
         PLEX_LIBRARIES = data.libraries || [];
+        LOADED = true;
         renderLibraryPills();
         renderDiskRows();
       })
-      .catch(function () { PLEX_LIBRARIES = []; renderLibraryPills(); });
+      .catch(function () {
+        PLEX_LIBRARIES = [];
+        LOADED = false;
+        renderLibraryPills();
+        var rows = document.getElementById('disk-threshold-rows');
+        if (rows) {
+          var note = document.createElement('div');
+          note.className = 'fld-sub';
+          note.textContent = 'Could not load Plex libraries; disk thresholds are unchanged.';
+          rows.replaceChildren(note);
+        }
+      });
   }
 
   function init(opts) {

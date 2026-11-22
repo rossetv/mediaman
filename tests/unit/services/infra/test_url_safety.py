@@ -357,7 +357,7 @@ class TestResolveSafeOutboundUrl:
         safe, hostname, ip = resolve_safe_outbound_url("http://radarr.example.com/")
         assert safe is True
         assert hostname == "radarr.example.com"
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34",)
 
     def test_returns_self_pin_for_literal_ip_url(self):
         """A URL with a literal IP is pinned to itself.
@@ -371,7 +371,7 @@ class TestResolveSafeOutboundUrl:
         safe, hostname, ip = resolve_safe_outbound_url("http://192.0.2.1:7878/")
         assert safe is True
         assert hostname == "192.0.2.1"
-        assert ip == "192.0.2.1"
+        assert ip == ("192.0.2.1",)
 
     def test_unsafe_url_returns_no_pin(self, fake_dns):
         """A blocked URL must never return a pinned IP."""
@@ -380,14 +380,39 @@ class TestResolveSafeOutboundUrl:
         assert safe is False
         assert ip is None
 
-    def test_pin_is_first_safe_address(self, fake_dns):
-        """When DNS returns multiple addresses, the pin must be the first
-        one — every address has been validated, so any of them is safe,
-        but stability matters across calls."""
+    def test_pin_holds_first_v6_and_first_v4_in_resolver_order(self, fake_dns):
+        """Every address is validated but only one per family is pinned, so
+        a host with many dead addresses cannot stall a worker, while a
+        dual-stack host still has one fallback."""
+        fake_dns(["2001:db8::1", "2001:db8::2", "93.184.216.34", "93.184.216.35"])
+        safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert safe is True
+        assert ip == ("2001:db8::1", "93.184.216.34")
+
+    def test_pin_keeps_resolver_order_when_v4_comes_first(self, fake_dns):
+        fake_dns(["93.184.216.34", "2001:db8::1", "93.184.216.35"])
+        _safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert ip == ("93.184.216.34", "2001:db8::1")
+
+    def test_single_family_host_pins_only_its_first_address(self, fake_dns):
         fake_dns(["93.184.216.34", "93.184.216.35"])
         safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
         assert safe is True
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34",)
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ["93.184.216.34", "2001:db8::1", "169.254.169.254"],
+            ["93.184.216.34", "93.184.216.35", "93.184.216.36", "169.254.169.254"],
+            ["2001:db8::1", "fd00::1"],
+        ],
+    )
+    def test_blocked_address_beyond_the_pinned_ones_refuses_the_url(self, fake_dns, answer):
+        fake_dns(answer)
+        safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert safe is False
+        assert ip is None
 
     def test_unresolvable_host_returns_no_pin(self, monkeypatch):
         def fake_getaddrinfo(host, port, *args, **kwargs):
@@ -446,7 +471,7 @@ class TestResolverTimeout:
         fake_dns(["93.184.216.34"])
         safe, _hostname, ip = resolve_safe_outbound_url("http://fast-dns.example.com/")
         assert safe is True
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34",)
 
 
 @pytest.fixture
