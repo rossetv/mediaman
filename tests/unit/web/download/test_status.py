@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from mediaman.crypto import generate_download_token, generate_poll_token
+from mediaman.crypto import generate_download_token, generate_poll_token, validate_poll_token
 from mediaman.web.routes.download.status import (
     _DOWNLOAD_STATUS_LIMITER,
     _format_timeleft,
@@ -304,3 +304,58 @@ class TestPollTokenRequired:
             params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
         )
         assert resp.status_code == 401
+
+
+class TestPollTokenRefresh:
+    """A page left open on a long download keeps a working poll token."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self):
+        from mediaman.web.routes.download import reset_download_caches
+
+        _DOWNLOAD_STATUS_LIMITER.reset()
+        reset_download_caches()
+
+    def _poll(self, conn, poll_token: str):
+        from mediaman.web.routes.download import status as status_mod
+
+        client = _make_status_app_without_admin(conn)
+        with patch.object(status_mod, "_radarr_status", return_value={"state": "downloading"}):
+            return client.get(
+                "/api/download/status",
+                params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
+            )
+
+    def _token(self, ttl_seconds: int) -> str:
+        return generate_poll_token(
+            media_item_id="radarr:Test",
+            service="radarr",
+            tmdb_id=42,
+            secret_key=_STATUS_SECRET,
+            ttl_seconds=ttl_seconds,
+        )
+
+    def test_token_near_expiry_gets_a_fresh_valid_replacement(self, conn):
+        old = self._token(ttl_seconds=60)
+        resp = self._poll(conn, old)
+
+        assert resp.status_code == 200
+        fresh = resp.json()["poll_token"]
+        payload = validate_poll_token(fresh, _STATUS_SECRET)
+        assert payload is not None
+        assert payload["svc"] == "radarr"
+        assert payload["tmdb"] == 42
+        assert payload["exp"] > validate_poll_token(old, _STATUS_SECRET)["exp"]
+        assert self._poll(conn, fresh).status_code == 200
+
+    def test_token_with_most_of_its_life_left_is_not_replaced(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=600))
+
+        assert resp.status_code == 200
+        assert "poll_token" not in resp.json()
+
+    def test_expired_token_is_refused(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=-1))
+
+        assert resp.status_code == 401
+        assert "poll_token" not in resp.json()

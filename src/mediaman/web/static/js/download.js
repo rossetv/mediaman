@@ -26,6 +26,7 @@
   var _mediaType = boot.media_type || 'movie';
   var _downloadState = boot.download_state || '';
   var _pollInterval = null;
+  var _pollStopped = false;
 
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
@@ -115,7 +116,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       _stopPolling();
-    } else if (_pollInterval === null && _downloadState !== 'ready') {
+    } else if (_pollInterval === null && _downloadState !== 'ready' && !_pollStopped) {
       /* Resume: run one tick immediately then restart the interval. */
       pollStatus();
       _startPolling();
@@ -129,6 +130,8 @@
       + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
     MM.api.get(url)
       .then(function(data) {
+        /* The server hands out a replacement before the current poll token expires. */
+        if (data.poll_token) _pollToken = data.poll_token;
         if (data.state === 'ready') {
           _downloadState = 'ready';
           _stopPolling();
@@ -177,7 +180,29 @@
         /* Update episode summary */
         updateEpisodeSummary(wrapper, data.episode_summary);
       })
-      .catch(function() {});
+      .catch(function(err) {
+        /* Other failures are transient; the next tick retries. */
+        if (err instanceof MM.api.APIError && err.status === 401) {
+          _pollStopped = true;
+          _stopPolling();
+          showReloadNotice();
+        }
+      });
+  }
+
+  /* Polling can no longer authenticate: keep the last progress on screen and
+     tell the visitor to reload, rather than leaving a bar that silently stops. */
+  function showReloadNotice() {
+    var wrapper = document.getElementById('dl-hero-wrapper');
+    if (!wrapper) return;
+    var hint = wrapper.querySelector('.dl-hint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.className = 'dl-hint';
+      wrapper.appendChild(hint);
+    }
+    hint.setAttribute('role', 'status');
+    hint.textContent = 'Progress updates have stopped. Reload this page to see the latest status.';
   }
 
   function updateEpisodeRows(wrapper, episodes) {
