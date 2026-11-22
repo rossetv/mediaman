@@ -77,16 +77,21 @@
     loadKeepSeasons();
   }
 
-  function loadKeepSeasons() {
-    _keepDialogState.showKept = false;
-    _keepDialogState.keptSeasonIds = [];
-    var list = document.getElementById('keep-season-list');
-    list.textContent = 'Loading…';
+  function seasonsUrl() {
     var rk = _keepDialogState.showRk || '_by_title';
     var url = '/api/show/' + encodeURIComponent(rk) + '/seasons';
     if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
       url += '?title=' + encodeURIComponent(_keepDialogState.showTitle);
     }
+    return url;
+  }
+
+  function loadKeepSeasons() {
+    _keepDialogState.showKept = false;
+    _keepDialogState.keptSeasonIds = [];
+    var list = document.getElementById('keep-season-list');
+    list.textContent = 'Loading…';
+    var url = seasonsUrl();
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     document.getElementById('keep-dialog-confirm').textContent = 'Keep';
     var request = ++_keepDialogRequest;
@@ -214,8 +219,14 @@
           btn.textContent = 'Keep';
         });
     } else {
-      /* Check each request; report failed season IDs. */
+      /* Failures are reported by the season names the dialog shows. */
       var dur = _keepDialogState.duration || '30 days';
+      var names = {};
+      var unticked = [];
+      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+        names[cb.dataset.seasonId] = cb.labels[0].textContent;
+        if (!cb.checked) unticked.push(cb.dataset.seasonId);
+      });
       /* Sequential loop — accumulates failures, continues after each one. */
       var keepChain = Promise.resolve();
       var failed = [];
@@ -224,32 +235,41 @@
         keepChain = keepChain.then(function () {
           return MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
             .then(function (data) { if (data && data.deletion_running) running = data; })
-            .catch(function () { failed.push(sid); });
+            .catch(function () { failed.push(names[sid]); });
         });
       });
-      /* A show keep covers every season, so unticking one ends it: the show
-         keep goes and each unticked season loses the keep it had from it. */
-      if (_keepDialogState.showKept) {
-        var unticked = [];
-        document.querySelectorAll('#keep-season-list input[data-season-id]:not(:checked)').forEach(function (cb) {
-          if (cb.dataset.kept) unticked.push(cb.dataset.seasonId);
-        });
-        keepChain = keepChain.then(function () {
-          if (failed.length) return;
-          var chain = MM.api.post('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/remove')
-            .catch(function () { failed.push('show keep'); });
-          unticked.forEach(function (sid) {
-            chain = chain.then(function () {
-              return MM.api.post('/api/media/' + encodeURIComponent(sid) + '/unprotect')
-                .catch(function () { failed.push(sid); });
+      /* Once every ticked season is kept, an unticked season loses its keep.
+         A show keep covers every season, so it goes first: unticking one
+         season ends it. The seasons are read again because ending the show
+         keep leaves some with no keep of their own to remove. */
+      keepChain = keepChain.then(function () {
+        if (failed.length) return;
+        var ended = Promise.resolve(true);
+        if (_keepDialogState.showKept) {
+          ended = MM.api.post('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/remove')
+            .then(function () { _keepDialogState.showKept = false; return true; })
+            .catch(function () { failed.push('the show keep'); return false; });
+        }
+        return ended.then(function (ok) {
+          if (!ok || !unticked.length) return;
+          return MM.api.get(seasonsUrl()).then(function (data) {
+            var keptNow = {};
+            data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
+            var chain = Promise.resolve();
+            unticked.forEach(function (sid) {
+              if (!keptNow[sid]) return;
+              chain = chain.then(function () {
+                return MM.api.post('/api/media/' + encodeURIComponent(sid) + '/unprotect')
+                  .catch(function () { failed.push(names[sid]); });
+              });
             });
-          });
-          return chain;
+            return chain;
+          }, function () { failed.push('the seasons to remove keeps from'); });
         });
-      }
+      });
       keepChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Keep failed for ' + failed.length + ' item(s): ' + failed.join(', '));
+          window.UIFeedback.error('Keep failed for: ' + failed.join(', '));
           if (running && running.message) {
             window.UIFeedback.toast(running.message, { duration: 8000 });
           }
