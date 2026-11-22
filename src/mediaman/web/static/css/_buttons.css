@@ -185,7 +185,7 @@
 
 /* Mobile touch target — a 44px minimum hit area for filter pills up to the
    width where the bottom nav gives way to the top nav. */
-@media (max-width: 699px) {
+@media (max-width: 699.98px) {
   .fpill { min-height: 44px; }
 }
 

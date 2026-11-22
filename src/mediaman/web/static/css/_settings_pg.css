@@ -145,7 +145,7 @@
 @media (max-width: 720px) {
   .setg-pg .setg-block-hd .sub { text-align: left; width: 100%; }
 }
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   /* Tighten vertical rhythm so sections don't feel marooned on phones. */
   .setg-pg .setg-body .ph { padding: 14px 0 4px; }
   .setg-pg .setg-body .ph h1 { font-size: 30px; line-height: 1.12; }
@@ -193,7 +193,7 @@
 .setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
   .setg-pg .setg-row > :last-child { width: 100%; }
 }
@@ -252,7 +252,7 @@
 .setg-pg .fld-sub a { color: var(--accent); }
 .setg-pg .fld-row { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
 .setg-pg .fld-row--full { grid-template-columns: 1fr; }
-@media (max-width: 640px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
+@media (max-width: 639.98px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
 
 .setg-pg .tog {
   position: relative; width: 44px; height: 26px;
@@ -327,7 +327,7 @@
   max-width: 60ch;
   line-height: 1.35;
 }
-@media (max-width: 700px) {
+@media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
   .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
