@@ -132,6 +132,8 @@ class TestRefreshRateLimit:
         assert "next_available_at" in body
         # Cooldown should be in the (22h, 23h] window.
         assert 22 * 3600 < body["cooldown_seconds"] <= 23 * 3600
+        assert body["message"] == body["error"]
+        assert "already refreshed" in body["message"]
 
     def test_call_after_cooldown_is_allowed(self, authed_client, app, freezer):
         conn = app.state.db

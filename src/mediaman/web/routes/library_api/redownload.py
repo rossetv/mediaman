@@ -85,7 +85,13 @@ def _arr_failure(exc: Exception, service: str, title: str) -> JSONResponse:
             text = f"'{title}' already exists in {service}"
             return respond_err(text, status=200, message=text)
         exc = exc.cause
-    logger.error("Re-download via %s failed for '%s': %s", service, title, exc, exc_info=exc)
+    logger.error(
+        "Re-download via %s failed for '%s': %s",
+        service,
+        _sanitise_log_field(title, 256),
+        exc,
+        exc_info=exc,
+    )
     text = "Download request failed — check service connectivity"
     return respond_err(text, status=200, message=text)
 

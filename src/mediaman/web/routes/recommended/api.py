@@ -29,6 +29,7 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
+from mediaman.web.responses import respond_failure
 
 logger = logging.getLogger(__name__)
 
@@ -79,30 +80,23 @@ def api_share_token(
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     if not _SHARE_TOKEN_LIMITER.check(admin):
-        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+        return respond_failure("Too many requests", status=429)
 
     conn = get_db()
     config = request.app.state.config
 
     row = fetch_suggestion_header(conn, recommendation_id)
     if not row:
-        return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
+        return respond_failure("Recommendation not found", status=404)
 
     if not row.tmdb_id:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "Cannot generate share link -- no TMDB identifier for this recommendation",
-            },
-            status_code=422,
+        return respond_failure(
+            "Cannot generate share link -- no TMDB identifier for this recommendation", status=422
         )
 
     base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
     if not base_url:
-        return JSONResponse(
-            {"ok": False, "error": "Base URL not configured -- cannot generate share link"},
-            status_code=503,
-        )
+        return respond_failure("Base URL not configured -- cannot generate share link", status=503)
 
     expires_at = (datetime.now(UTC) + timedelta(days=_SHARE_TOKEN_TTL_DAYS)).isoformat()
 
@@ -155,10 +149,10 @@ def _add_rec_to_radarr(
     """
     client = build_radarr_from_db(conn, secret_key)
     if not client:
-        return JSONResponse({"ok": False, "error": "Radarr not configured"})
+        return respond_failure("Radarr not configured", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr"})
+        return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
     safe_title = _sanitise_title(row.title)
     client.add_movie(tmdb_id, safe_title)
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
@@ -190,14 +184,14 @@ def _add_rec_to_sonarr(
     """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
-        return JSONResponse({"ok": False, "error": "Sonarr not configured"})
+        return respond_failure("Sonarr not configured", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Sonarr"})
+        return respond_failure("No TMDB ID -- cannot add to Sonarr", status=200)
     safe_title = _sanitise_title(row.title)
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
-        return JSONResponse({"ok": False, "error": "Show not found in Sonarr lookup"})
+        return respond_failure("Show not found in Sonarr lookup", status=200)
     # Filter for the entry whose tmdbId matches the requested id — Sonarr may
     # return results in a different order on different instances.
     matched = next(
@@ -205,10 +199,10 @@ def _add_rec_to_sonarr(
         None,
     )
     if matched is None:
-        return JSONResponse({"ok": False, "error": "No matching TMDB entry in Sonarr lookup"})
+        return respond_failure("No matching TMDB entry in Sonarr lookup", status=200)
     raw_tvdb_id = matched.get("tvdbId")
     if not raw_tvdb_id:
-        return JSONResponse({"ok": False, "error": "No TVDB ID found for this show"})
+        return respond_failure("No TVDB ID found for this show", status=200)
     # Sonarr's lookup body is an untyped dict; ``tvdbId`` may arrive as a
     # string. Coerce before it reaches ``add_series`` (and the %d-free log
     # below) so a non-int value cannot 500 the handler. Mirror the sibling
@@ -216,9 +210,9 @@ def _add_rec_to_sonarr(
     try:
         tvdb_id = int(str(raw_tvdb_id))
     except ValueError:
-        return JSONResponse({"ok": False, "error": "Invalid TVDB ID for this show"})
+        return respond_failure("Invalid TVDB ID for this show", status=200)
     if tvdb_id <= 0:
-        return JSONResponse({"ok": False, "error": "Invalid TVDB ID for this show"})
+        return respond_failure("Invalid TVDB ID for this show", status=200)
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
@@ -241,17 +235,17 @@ def api_download_recommendation(
     recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
-        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+        return respond_failure("Too many requests", status=429)
 
     conn = get_db()
     config = request.app.state.config
 
     row = fetch_suggestion_by_id(conn, recommendation_id)
     if not row:
-        return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
+        return respond_failure("Recommendation not found", status=404)
 
     if not row.tmdb_id:
-        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr/Sonarr"})
+        return respond_failure("No TMDB ID -- cannot add to Radarr/Sonarr", status=200)
 
     # ``admin`` is a username; resolve it to the admin's notification email
     # once (``None`` when unset) and hand the resolved value to the helpers.
@@ -276,22 +270,13 @@ def api_download_recommendation(
 
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
-            return JSONResponse(
-                {"ok": False, "error": f"'{row.title}' already exists in your library"},
-                status_code=409,
-            )
+            return respond_failure(f"'{row.title}' already exists in your library", status=409)
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row.title,
             exc.status_code,
         )
-        return JSONResponse(
-            {"ok": False, "error": "Failed to add to download queue"},
-            status_code=502,
-        )
+        return respond_failure("Failed to add to download queue", status=502)
     except (ArrError, ValueError):
         logger.exception("Failed to add recommendation '%s'", row.title)
-        return JSONResponse(
-            {"ok": False, "error": "Failed to add to download queue"},
-            status_code=502,
-        )
+        return respond_failure("Failed to add to download queue", status=502)

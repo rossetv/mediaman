@@ -79,3 +79,14 @@ def respond_err(
         body["message"] = message
     body.update(extra)
     return JSONResponse(body, status_code=status)
+
+
+def respond_failure(message: str, *, status: int, **extra: object) -> JSONResponse:
+    """Return a failure envelope whose ``error`` is a sentence for people.
+
+    The sentence is sent under both ``"error"`` and ``"message"``, so
+    clients that read ``message`` and clients that read ``error`` both
+    show it.  The status is required, with no default, so a 4xx answer is never sent as
+    a 200 by leaving it out.
+    """
+    return respond_err(message, status=status, message=message, **extra)

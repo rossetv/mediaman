@@ -488,6 +488,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
         assert "required" in resp.json()["error"].lower()
+        assert resp.json()["message"] == resp.json()["error"]
 
     def test_tmdb_missing_key_returns_error(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)
@@ -528,6 +529,35 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         data = resp.json()
         assert data["ok"] is False
         assert "auth_failed" in data["error"]
+
+    def _omdb_answer(self, app_factory, authed_client, conn, payload):
+        from unittest.mock import MagicMock, patch
+
+        self._store_setting(conn, "omdb_api_key", "omdbkey1234")
+        client = _client(app_factory, authed_client, conn)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = payload
+        mock_resp.headers = {}
+        with patch("mediaman.services.infra.http.client._dispatch", return_value=mock_resp):
+            return client.post("/api/settings/test/omdb")
+
+    def test_omdb_error_sentence_is_sent_as_message_too(self, app_factory, authed_client, conn):
+        resp = self._omdb_answer(
+            app_factory,
+            authed_client,
+            conn,
+            {"Response": "False", "Error": "Invalid API key!"},
+        )
+        assert resp.json() == {
+            "ok": False,
+            "error": "Invalid API key!",
+            "message": "Invalid API key!",
+        }
+
+    def test_omdb_without_error_sentence_sends_code_only(self, app_factory, authed_client, conn):
+        resp = self._omdb_answer(app_factory, authed_client, conn, {"Response": "False"})
+        assert resp.json() == {"ok": False, "error": "auth_failed"}
 
     def test_openai_success_via_safe_http_client(self, app_factory, authed_client, conn):
         """A 200 from the SafeHTTPClient returns ok=True."""

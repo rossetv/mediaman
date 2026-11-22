@@ -23,6 +23,7 @@ from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_cli
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
+from mediaman.web.responses import respond_failure
 
 logger = logging.getLogger(__name__)
 
@@ -134,17 +135,11 @@ router = APIRouter()
 def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
     if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
         logger.warning("search.download_throttled user=%s", _sanitise_log_field(admin))
-        return JSONResponse(
-            {"ok": False, "error": "Too many download requests — slow down"},
-            status_code=429,
-        )
+        return respond_failure("Too many download requests — slow down", status=429)
     client_ip = get_client_ip(request)
     if not _DOWNLOAD_IP_LIMITER.check(client_ip):
         logger.warning("search.download_ip_throttled ip=%s", client_ip)
-        return JSONResponse(
-            {"ok": False, "error": "Too many download requests from this IP — slow down"},
-            status_code=429,
-        )
+        return respond_failure("Too many download requests from this IP — slow down", status=429)
     return None
 
 
@@ -162,10 +157,7 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
             body.media_type,
             seasons_token,
         )
-        return JSONResponse(
-            {"ok": False, "error": "Duplicate request — wait a moment before retrying"},
-            status_code=429,
-        )
+        return respond_failure("Duplicate request — wait a moment before retrying", status=429)
     return None
 
 
@@ -178,7 +170,7 @@ def _submit_movie(
 ) -> JSONResponse:
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
-        return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
+        return respond_failure("Radarr not configured", status=503)
     try:
         existing_movie = radarr.get_movie_by_tmdb(body.tmdb_id)
         if existing_movie is not None:
@@ -193,10 +185,7 @@ def _submit_movie(
             #   search button showed "Queued" and the API rejected
             #   their click with 409.
             if existing_movie.get("monitored"):
-                return JSONResponse(
-                    {"ok": False, "error": f"'{body.title}' is already in your library"},
-                    status_code=409,
-                )
+                return respond_failure(f"'{body.title}' is already in your library", status=409)
             movie_id_raw = existing_movie.get("id")
             if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
                 logger.warning(
@@ -204,10 +193,7 @@ def _submit_movie(
                     movie_id_raw,
                     body.tmdb_id,
                 )
-                return JSONResponse(
-                    {"ok": False, "error": "Radarr entry is in an unexpected state"},
-                    status_code=502,
-                )
+                return respond_failure("Radarr entry is in an unexpected state", status=502)
             radarr.remonitor_movie(movie_id_raw)
         else:
             radarr.add_movie(body.tmdb_id, body.title)
@@ -218,7 +204,7 @@ def _submit_movie(
         # configuration failures (e.g. no root folder configured). A bare
         # ``except Exception`` would silently swallow programming bugs.
         logger.exception("Failed to add movie")
-        return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
+        return respond_failure("Failed to add to Radarr", status=502)
     if notify_email is not None:
         _record_dn(
             conn,
@@ -245,16 +231,12 @@ def _resolve_tvdb_id(
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except (SafeHTTPError, _requests.RequestException, ArrError):
         logger.exception("Sonarr lookup failed")
-        return None, JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
+        return None, respond_failure("Sonarr lookup failed", status=502)
     if not lookup:
-        return None, JSONResponse(
-            {"ok": False, "error": "Series not found in Sonarr lookup"}, status_code=404
-        )
+        return None, respond_failure("Series not found in Sonarr lookup", status=404)
     tvdb_id_raw = lookup.get("tvdbId")
     if not isinstance(tvdb_id_raw, int) or tvdb_id_raw <= 0:
-        return None, JSONResponse(
-            {"ok": False, "error": "No TVDB ID for this series"}, status_code=422
-        )
+        return None, respond_failure("No TVDB ID for this series", status=422)
     return tvdb_id_raw, None
 
 
@@ -267,7 +249,7 @@ def _submit_tv(
 ) -> JSONResponse:
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
-        return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
+        return respond_failure("Sonarr not configured", status=503)
     tvdb_id, err = _resolve_tvdb_id(sonarr, body)
     if err is not None:
         return err
@@ -281,23 +263,16 @@ def _submit_tv(
             "Sonarr get_series failed during duplicate check — refusing to proceed",
             exc_info=True,
         )
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "Cannot verify series status — Sonarr unreachable, please retry",
-            },
-            status_code=503,
+        return respond_failure(
+            "Cannot verify series status — Sonarr unreachable, please retry", status=503
         )
     if already_tracked:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": f"'{body.title}' is already tracked by Sonarr — manage it from the Library page or Sonarr directly",
-            },
-            status_code=409,
+        return respond_failure(
+            f"'{body.title}' is already tracked by Sonarr — manage it from the Library page or Sonarr directly",
+            status=409,
         )
     if body.search_seasons is not None and not body.search_seasons:
-        return JSONResponse({"ok": False, "error": "Pick at least one season"}, status_code=400)
+        return respond_failure("Pick at least one season", status=400)
     try:
         if body.monitored_seasons is None:
             sonarr.add_series(tvdb_id, body.title)
@@ -310,7 +285,7 @@ def _submit_tv(
             )
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
-        return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"}, status_code=502)
+        return respond_failure("Failed to add to Sonarr", status=502)
     if notify_email is not None:
         _record_dn(
             conn,

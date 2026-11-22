@@ -153,25 +153,29 @@ def _submit_failure(
     )
 
 
-def _keep_context(
-    request: Request, token: str, row: VerifiedKeepAction, secret_key: str
-) -> dict[str, object]:
-    """Build the keep page's template context for a verified action."""
-    # Determine state.
-    now = now_utc()
+def _keep_state(row: VerifiedKeepAction, now: datetime) -> str:
+    """Name the state the keep page shows for a verified action."""
     execute_at = parse_execute_at(row.execute_at, default=now)
 
     if row.delete_status == "deleting":
         # Files may already be gone, so neither Keep nor "already kept" is true.
-        state = "deleting"
-    elif execute_at < now:
-        state = "expired"
-    elif row.token_used or row.action != "scheduled_deletion":
+        return "deleting"
+    if execute_at < now:
+        return "expired"
+    if row.token_used or row.action != "scheduled_deletion":
         # A keep made elsewhere (Library, whole-show) converts the row and clears
         # token_used, so the row's action says it is kept, not the flag.
-        state = "already_kept"
-    else:
-        state = "active"
+        return "already_kept"
+    return "active"
+
+
+def _keep_context(
+    request: Request, token: str, row: VerifiedKeepAction, secret_key: str
+) -> dict[str, object]:
+    """Build the keep page's template context for a verified action."""
+    now = now_utc()
+    execute_at = parse_execute_at(row.execute_at, default=now)
+    state = _keep_state(row, now)
 
     # Format added_at for display (e.g. "14 May 2025"). The template
     # consumes ``item.<field>`` attribute access, so the dataclass is
@@ -286,8 +290,11 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
 
     # Pre-flight: confirm the action is pending and the deadline has not
     # passed before entering the write transaction — avoids an empty write
-    # on the "obviously expired" path.
+    # on the "obviously expired" path. An item kept another way since the email went
+    # out is answered like a repeat keep, not as a dead link.
     if not is_pending_unexpired(verified, now):
+        if _keep_state(verified, now) == "already_kept":
+            return _submit_failure(request, "already_processed", 409, token)
         return _submit_failure(request, "invalid_or_expired", 400)
 
     # ``duration`` is non-"forever" by the early reject above, so the
@@ -348,6 +355,8 @@ def keep_forever(
 
     # Pre-flight expiry check before entering the write transaction.
     if not is_pending_unexpired(verified, now):
+        if _keep_state(verified, now) == "already_kept":
+            return respond_err("already_processed", status=409)
         return respond_err("invalid_or_expired", status=400)
 
     failure = _consume_keep_token_and_apply(

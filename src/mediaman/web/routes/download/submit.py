@@ -27,6 +27,7 @@ from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
+from mediaman.web.responses import respond_failure
 
 from ._tokens import _mark_token_used, _unmark_token_used
 
@@ -120,21 +121,16 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # identifier; the token is released so a corrected link (with an
         # identifier) can be issued.
         _unmark_token_used(token)
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    "Missing stable media identifier — this download link cannot "
-                    "be used.  Ask the admin to re-issue it with a TMDB ID."
-                ),
-            },
-            status_code=422,
+        return respond_failure(
+            "Missing stable media identifier — this download link cannot "
+            "be used.  Ask the admin to re-issue it with a TMDB ID.",
+            status=422,
         )
 
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
-        return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
+        return respond_failure("Radarr not configured", status=503)
 
     client.add_movie(tmdb_id, title)
     logger.info(
@@ -169,34 +165,25 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # Refuse public Sonarr submissions without a stable TMDB identifier —
         # title-only lookup_by_term can enqueue the wrong show.
         _unmark_token_used(token)
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    "Missing stable media identifier — this download link cannot "
-                    "be used.  Ask the admin to re-issue it with a TMDB ID."
-                ),
-            },
-            status_code=422,
+        return respond_failure(
+            "Missing stable media identifier — this download link cannot "
+            "be used.  Ask the admin to re-issue it with a TMDB ID.",
+            status=422,
         )
 
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
-        return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
+        return respond_failure("Sonarr not configured", status=503)
 
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
         _unmark_token_used(token)
-        return JSONResponse(
-            {"ok": False, "error": "Series not found in Sonarr lookup"}, status_code=404
-        )
+        return respond_failure("Series not found in Sonarr lookup", status=404)
     tvdb_id = results[0].get("tvdbId")
     if not tvdb_id:
         _unmark_token_used(token)
-        return JSONResponse(
-            {"ok": False, "error": "No TVDB ID found for this series"}, status_code=422
-        )
+        return respond_failure("No TVDB ID found for this series", status=422)
 
     client.add_series(tvdb_id, title)
     logger.info(
@@ -224,24 +211,18 @@ def _validate_token_request(
     success or (None, error_response).
     """
     if not _DOWNLOAD_LIMITER_POST.check(get_client_ip(request)):
-        return None, JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+        return None, respond_failure("Too many requests", status=429)
     if len(token) > 4096:
-        return None, JSONResponse(
-            {"ok": False, "error": "Token expired or invalid"}, status_code=410
-        )
+        return None, respond_failure("Token expired or invalid", status=410)
     payload = validate_download_token(token, secret_key)
     if payload is None:
-        return None, JSONResponse(
-            {"ok": False, "error": "Token expired or invalid"}, status_code=410
-        )
+        return None, respond_failure("Token expired or invalid", status=410)
     exp_value = payload.get("exp", 0)
     # ``int(float('inf'))`` raises OverflowError. Guard against a
     # signer-controlled non-finite ``exp`` so a malformed token can never
     # crash the handler — treat it as expired/invalid.
     if not isinstance(exp_value, (int, float)) or not math.isfinite(exp_value):
-        return None, JSONResponse(
-            {"ok": False, "error": "Token expired or invalid"}, status_code=410
-        )
+        return None, respond_failure("Token expired or invalid", status=410)
     return payload, None
 
 
@@ -255,15 +236,9 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
         # The token persistence layer already logs CRITICAL with a
         # traceback; here we only need to translate the failure into a
         # retryable response to the client.
-        return JSONResponse(
-            {"ok": False, "error": "Service temporarily unavailable, please retry"},
-            status_code=503,
-        )
+        return respond_failure("Service temporarily unavailable, please retry", status=503)
     if not claimed:
-        return JSONResponse(
-            {"ok": False, "error": "This download link has already been used"},
-            status_code=409,
-        )
+        return respond_failure("This download link has already been used", status=409)
     return None
 
 
@@ -340,13 +315,10 @@ def _handle_already_exists_error(
                 tmdb_id=tmdb_id,
                 secret_key=secret_key,
             )
-        response: dict[str, object] = {
-            "ok": False,
-            "error": f"'{title}' already exists in your {svc_label} library",
-        }
-        if poll_token:
-            response["poll_token"] = poll_token
-        return JSONResponse(response, status_code=409)
+        extra: dict[str, object] = {"poll_token": poll_token} if poll_token else {}
+        return respond_failure(
+            f"'{title}' already exists in your {svc_label} library", status=409, **extra
+        )
     # Phase 2 (failure): release the reservation so the user can
     # retry once the upstream recovers.
     _unmark_token_used(token)
@@ -355,10 +327,7 @@ def _handle_already_exists_error(
     # captures the user-facing failure separately, so operators
     # who need the stack can dial up the log level.
     logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-    return JSONResponse(
-        {"ok": False, "error": "Download request failed — check service connectivity"},
-        status_code=502,
-    )
+    return respond_failure("Download request failed — check service connectivity", status=502)
 
 
 @router.post("/download/{token}")
@@ -415,7 +384,4 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         # caught here, which is the intended control-flow behaviour.
         _unmark_token_used(token)
         logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-        return JSONResponse(
-            {"ok": False, "error": "Download request failed — check service connectivity"},
-            status_code=502,
-        )
+        return respond_failure("Download request failed — check service connectivity", status=502)
