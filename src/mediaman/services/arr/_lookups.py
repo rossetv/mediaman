@@ -56,6 +56,12 @@ class _LookupsMixin:
         except RequestException:
             return None
 
+    def check_reachable(self) -> None:
+        """Probe ``/api/v3/system/status``; raise ``SafeHTTPError`` or ``RequestException``
+        when it does not answer, so a caller can tell why.
+        """
+        self._get("/api/v3/system/status")  # type: ignore[attr-defined]
+
     def is_reachable(self) -> bool:
         """Return True if ``/api/v3/system/status`` responds.
 
@@ -65,7 +71,7 @@ class _LookupsMixin:
         ``SystemExit``, ``KeyboardInterrupt``, and programming errors.
         """
         try:
-            self._get("/api/v3/system/status")  # type: ignore[attr-defined]
+            self.check_reachable()
             return True
         except (SafeHTTPError, RequestException):
             return False

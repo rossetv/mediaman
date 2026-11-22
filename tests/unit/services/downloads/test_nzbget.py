@@ -141,3 +141,26 @@ class TestNzbgetMalformedReply:
     def test_empty_queue_is_not_an_error(self, client, fake_http, fake_response):
         fake_http.queue("POST", fake_response(json_data={"result": []}))
         assert client.get_queue() == []
+
+
+class TestNzbgetCheckReachable:
+    def test_returns_none_when_status_answers(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(json_data={"result": {"ServerStandBy": False}}))
+        assert client.check_reachable() is None
+
+    def test_raises_the_http_error_for_a_401(self, client, fake_http, fake_response):
+        from mediaman.services.infra import SafeHTTPError
+
+        fake_http.queue("POST", fake_response(status=401, text="no"))
+        with pytest.raises(SafeHTTPError) as info:
+            client.check_reachable()
+        assert info.value.status_code == 401
+
+    def test_raises_nzbget_error_for_a_reply_that_is_not_a_status(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue("POST", fake_response(json_data=["not", "a", "status"]))
+        with pytest.raises(NzbgetError):
+            client.check_reachable()
+        fake_http.queue("POST", fake_response(json_data=["not", "a", "status"]))
+        assert client.is_reachable() is False

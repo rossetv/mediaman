@@ -66,3 +66,21 @@ def test_failure_log_escapes_title(app_factory, authed_client, conn, caplog):
     with patch(RADARR, return_value=radarr):
         _post(app_factory, authed_client, conn, {"title": EVIL, "tmdb_id": 42}, caplog)
     _assert_no_raw_breaks(caplog)
+
+
+def test_failure_log_escapes_client_exception_text(app_factory, authed_client, conn, caplog):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = None
+    radarr.add_movie.side_effect = SafeHTTPError(
+        status_code=500, body_snippet="boom\r\nFORGED line", url="http://arr/x"
+    )
+    with patch(RADARR, return_value=radarr):
+        _post(app_factory, authed_client, conn, {"title": "Dune", "tmdb_id": 42}, caplog)
+    _assert_no_raw_breaks(caplog)
+    fmt = logging.Formatter("%(message)s")
+    rendered = "\n".join(
+        fmt.format(r) for r in caplog.records if r.getMessage().startswith("Re-download via")
+    )
+    assert "FORGED" in rendered
+    assert "\nFORGED" not in rendered
+    assert "\r" not in rendered

@@ -1163,3 +1163,158 @@ class TestSettingsTestResultCache:
         assert len(calls) == 1
         assert (second.status_code, second.json()) == (first.status_code, first.json())
         assert second.status_code == 202
+
+
+_TESTER_SETTINGS = {
+    "sonarr": ("GET", {"sonarr_url": "http://sonarr.lan:8989", "sonarr_api_key": "sonarrkey123"}),
+    "radarr": ("GET", {"radarr_url": "http://radarr.lan:7878", "radarr_api_key": "radarrkey123"}),
+    "nzbget": ("POST", {"nzbget_url": "http://nzbget.lan:6789", "nzbget_password": "pw-secret"}),
+    "mailgun": (
+        "GET",
+        {
+            "mailgun_domain": "mg.example.com",
+            "mailgun_api_key": "mgkey-secret-123",
+            "mailgun_from_address": "no-reply@example.com",
+        },
+    ),
+}
+_OK_BODY = {
+    "sonarr": {"version": "4"},
+    "radarr": {"version": "5"},
+    "nzbget": {"result": {"ServerStandBy": False}},
+    "mailgun": {"domain": {"name": "mg.example.com"}},
+}
+
+
+class TestConnectionTestsSayWhy:
+    """The Sonarr, Radarr, NZBGet and Mailgun tests name the cause of a failure."""
+
+    @staticmethod
+    def _run(app_factory, authed_client, conn, fake_http, service):
+        verb, settings = _TESTER_SETTINGS[service]
+        insert_settings(conn, **settings)
+        return verb, _client(app_factory, authed_client, conn).post(f"/api/settings/test/{service}")
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_success(self, app_factory, authed_client, conn, fake_http, fake_response, service):
+        fake_http.default(fake_response(json_data=_OK_BODY[service]))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {"ok": True}
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_rejected_credentials(
+        self, app_factory, authed_client, conn, fake_http, fake_response, service, status
+    ):
+        fake_http.default(fake_response(status=status, text="denied"))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {
+            "ok": False,
+            "error": "auth_failed",
+            "message": "The service rejected the credentials.",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_http_error(self, app_factory, authed_client, conn, fake_http, fake_response, service):
+        fake_http.default(fake_response(status=500, text="boom"))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {
+            "ok": False,
+            "error": "other: HTTP 500",
+            "message": "The service answered with an error (HTTP 500).",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_address_not_allowed(self, app_factory, authed_client, conn, fake_http, service):
+        verb, _ = _TESTER_SETTINGS[service]
+        fake_http.raise_on(
+            verb, SafeHTTPError(0, "refused by SSRF guard", "http://169.254.169.254/")
+        )
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {
+            "ok": False,
+            "error": "ssrf_refused",
+            "message": "That address isn't allowed.",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_no_answer_in_time(self, app_factory, authed_client, conn, fake_http, service):
+        verb, _ = _TESTER_SETTINGS[service]
+        fake_http.raise_on(verb, requests.Timeout("secret-host timed out"))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {
+            "ok": False,
+            "error": "timeout",
+            "message": "The service didn't answer in time.",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_could_not_reach(self, app_factory, authed_client, conn, fake_http, service):
+        verb, _ = _TESTER_SETTINGS[service]
+        fake_http.raise_on(verb, requests.ConnectionError("secret-host refused"))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        assert resp.json() == {
+            "ok": False,
+            "error": "connection_refused",
+            "message": "Couldn't reach the service.",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_a_bare_request_error_reads_as_unreachable_and_a_timeout_as_slow(
+        self, app_factory, authed_client, conn, service
+    ):
+        client_cls = {
+            "sonarr": "mediaman.services.arr.base.ArrClient",
+            "radarr": "mediaman.services.arr.base.ArrClient",
+            "nzbget": "mediaman.services.downloads.nzbget.NzbgetClient",
+            "mailgun": "mediaman.services.mail.mailgun.MailgunClient",
+        }[service]
+        insert_settings(conn, **_TESTER_SETTINGS[service][1])
+        client = _client(app_factory, authed_client, conn)
+        for exc, code in (
+            (requests.Timeout("x"), "timeout"),
+            (requests.RequestException("x"), "connection_refused"),
+        ):
+            _TEST_CACHE.clear()
+            with patch(f"{client_cls}.check_reachable", side_effect=exc):
+                resp = client.post(f"/api/settings/test/{service}")
+            assert resp.json()["error"] == code
+
+    def test_nzbget_reply_that_is_not_nzbget_gets_its_own_sentence(
+        self, app_factory, authed_client, conn, fake_http, fake_response
+    ):
+        fake_http.default(fake_response(json_data=["nope"]))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, "nzbget")
+        assert resp.json() == {
+            "ok": False,
+            "error": "bad_reply",
+            "message": "The service sent a reply that wasn't recognised.",
+        }
+
+    def test_nzbget_html_reply_is_not_recognised_rather_than_unreachable(
+        self, app_factory, authed_client, conn, fake_http, fake_response
+    ):
+        reply = fake_response(text="<html>not nzbget</html>")
+
+        def _not_json():
+            raise requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+
+        reply.json = _not_json
+        fake_http.default(reply)
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, "nzbget")
+        assert resp.json() == {
+            "ok": False,
+            "error": "bad_reply",
+            "message": "The service sent a reply that wasn't recognised.",
+        }
+
+    @pytest.mark.parametrize("service", list(_TESTER_SETTINGS))
+    def test_no_secret_or_host_reaches_the_message(
+        self, app_factory, authed_client, conn, fake_http, service
+    ):
+        verb, settings = _TESTER_SETTINGS[service]
+        fake_http.raise_on(verb, requests.ConnectionError("secret-host refused"))
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
+        body = resp.text
+        for secret in [*settings.values(), "secret-host"]:
+            assert secret not in body

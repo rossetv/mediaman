@@ -14,13 +14,14 @@ from typing import Protocol
 import requests as _requests
 from fastapi.responses import JSONResponse
 
+from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.web.models import _API_KEY_RE
 from mediaman.web.responses import respond_failure
 
 
 class _ConnectionTestable(Protocol):
-    def is_reachable(self) -> bool: ...
+    def check_reachable(self) -> None: ...
 
 
 #: OpenAI models endpoint used by the connectivity test.
@@ -91,6 +92,7 @@ def _failure(code: str, message: str) -> JSONResponse:
 _REJECTED = "The service rejected the credentials."
 _TIMED_OUT = "The service didn't answer in time."
 _UNREACHABLE = "Couldn't reach the service."
+_BAD_REPLY = "The service sent a reply that wasn't recognised."
 _BAD_KEY_CHARS = "The key contains characters that aren't allowed."
 
 
@@ -147,8 +149,17 @@ def _test_connection_service(
         resolved[arg_name] = value
     for arg_name, setting_name in (optional_keys or {}).items():
         resolved[arg_name] = str(settings.get(setting_name) or "")
-    ok = bool(make_client(resolved).is_reachable())
-    return JSONResponse({"ok": True}) if ok else respond_failure("Connection failed", status=200)
+    try:
+        make_client(resolved).check_reachable()
+    except SafeHTTPError as exc:
+        return _safe_http_error_to_response(exc)
+    except _requests.RequestException as exc:
+        if isinstance(exc, _requests.Timeout):
+            return _failure("timeout", _TIMED_OUT)
+        return _failure("connection_refused", _UNREACHABLE)
+    except NzbgetError:
+        return _failure("bad_reply", _BAD_REPLY)
+    return JSONResponse({"ok": True})
 
 
 @_register("plex")
