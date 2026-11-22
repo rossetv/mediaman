@@ -61,6 +61,7 @@
   <div class="lib-mobile-sort">
     <label for="lib-mobile-sort-select" class="lib-mobile-sort-label">Sort by</label>
     <select id="lib-mobile-sort-select" class="inp" aria-label="Sort library by">
+      <option value="added_desc"   {% if current_sort == 'added_desc'   %}selected{% endif %}>Recently added</option>
       <option value="name_asc"     {% if current_sort == 'name_asc'     %}selected{% endif %}>Title (A–Z)</option>
       <option value="name_desc"    {% if current_sort == 'name_desc'    %}selected{% endif %}>Title (Z–A)</option>
       <option value="size_desc"    {% if current_sort == 'size_desc'    %}selected{% endif %}>Size (largest)</option>
