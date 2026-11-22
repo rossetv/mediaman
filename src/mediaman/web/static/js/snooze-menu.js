@@ -103,6 +103,14 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
+      var openWrapper = document.querySelector('.keep-wrapper.is-open');
+      var openTrigger = openWrapper && openWrapper.querySelector(TRIGGER_SELECTOR);
+      closeAll(null);
+      if (openTrigger && openWrapper.contains(e.target)) openTrigger.focus();
+      return;
+    }
+    if (e.key === 'Tab' && e.target.closest && e.target.closest('.snooze-dropdown')) {
+      // Focus moves on by itself; the menu must not stay open behind it.
       closeAll(null);
       return;
     }
