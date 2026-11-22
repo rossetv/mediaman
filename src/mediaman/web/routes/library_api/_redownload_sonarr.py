@@ -11,8 +11,9 @@ if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.services.arr.base import ArrClient
+from mediaman.services.infra import SafeHTTPError
 from mediaman.web.repository.library_api import record_redownload
-from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
+from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,10 @@ def _redownload_season(
         client.remonitor_season(int(series_id), season_number)
         message = f"Re-monitored season {season_number} of '{title}' in Sonarr and started a search"
     else:
-        client.add_series_with_seasons(tvdb_id, title, [season_number], [season_number])
+        try:
+            client.add_series_with_seasons(tvdb_id, title, [season_number], [season_number])
+        except SafeHTTPError as exc:
+            raise AddRefused(exc) from exc
         message = f"Added season {season_number} of '{title}' to Sonarr"
     record_redownload(
         conn,

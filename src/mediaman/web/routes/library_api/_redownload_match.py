@@ -6,6 +6,16 @@ to avoid an import cycle with .redownload.
 
 from __future__ import annotations
 
+from mediaman.services.infra import SafeHTTPError
+
+
+class AddRefused(Exception):
+    """An Arr add call failed; wraps the HTTP error so only adds can read as duplicates."""
+
+    def __init__(self, cause: SafeHTTPError) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
 
 def _redownload_audit_id(
     *,
