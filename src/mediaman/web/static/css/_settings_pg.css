@@ -289,9 +289,12 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair-strong);
   transform: translateY(100%);
-  transition: transform .25s cubic-bezier(.2,.8,.2,1);
+  /* Off-screen is not hidden: without visibility the "Unsaved changes" text
+     and both buttons stay readable and tabbable while nothing is edited. */
+  visibility: hidden;
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s .25s;
 }
-.setg-pg .savebar.on { transform: translateY(0); }
+.setg-pg .savebar.on { transform: translateY(0); visibility: visible; transition-delay: 0s; }
 .setg-pg .savebar .sb-inner {
   max-width: 1180px; margin: 0 auto;
   display: flex; align-items: center; gap: 14px;
