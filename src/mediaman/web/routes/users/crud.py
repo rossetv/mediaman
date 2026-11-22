@@ -24,7 +24,7 @@ from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def api_create_user(
             audit_ip=get_client_ip(request),
         )
     except UserExistsError as e:
-        return respond_err(str(e), status=409)
+        return respond_failure(str(e), status=409)
     except sqlite3.Error:
         logger.exception(
             "user.create failed actor=%s username=%s",
