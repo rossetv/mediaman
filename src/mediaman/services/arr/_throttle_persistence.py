@@ -6,9 +6,9 @@ in-memory state.  All mutable in-memory state is imported from
 ``mediaman.services.arr._throttle_state`` so the two modules share
 the same dicts and lock object.
 
-All names in this module are re-exported verbatim from
-``mediaman.services.arr.search_trigger``, which production callers import
-them from.
+Most of these names are re-exported from
+``mediaman.services.arr.search_trigger``, which most callers import them
+from.
 """
 
 from __future__ import annotations

@@ -67,14 +67,12 @@ class ActionRateLimiter:
     ------------------
     The daily cap is enforced as a *sliding* 24h window (timestamps of
     every successful check within the last 24h are retained, and
-    anything older is dropped). The previous calendar-day implementation
-    let an attacker double their daily budget across the UTC midnight
-    boundary by sending the day-N quota at 23:59:59 then the day-N+1
-    quota at 00:00:01.
+    anything older is dropped). A calendar-day cap would let an actor spend
+    its budget twice across midnight.
 
-    Trade-off: memory is ``O(max_per_day)`` per actor. With ``max_per_day`` typically in the tens to low
-    hundreds, this is a modest fixed cost (a few hundred bytes per
-    actor). Acceptable for the security gain.
+    Trade-off: memory is ``O(max_per_day)`` per actor. With ``max_per_day``
+    typically in the tens to low hundreds, this is a modest fixed cost (a
+    few hundred bytes per actor). Acceptable for the security gain.
     """
 
     def __init__(self, max_in_window: int, window_seconds: float, max_per_day: int = 0):

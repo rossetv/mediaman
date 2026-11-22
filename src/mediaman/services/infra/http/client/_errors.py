@@ -1,8 +1,8 @@
 """Error type for ``SafeHTTPClient``.
 
 Holds the ``SafeHTTPError`` type and the helper that scrubs query strings
-from the URL it reports. Re-exported from the package so callers use
-``from mediaman.services.infra.http.client import SafeHTTPError``.
+from the URL it reports. Re-exported from the package and from ``mediaman.services.infra``, which
+most callers import it from.
 """
 
 from __future__ import annotations
