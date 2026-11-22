@@ -43,9 +43,11 @@ def _parse(source: str) -> _Regions:
 
 
 def test_pill_has_no_live_region():
-    html = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES)).from_string(
-        '{% from "_components.html" import conn_pill %}{{ conn_pill("plex") }}'
-    ).render()
+    html = (
+        jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES))
+        .from_string('{% from "_components.html" import conn_pill %}{{ conn_pill("plex") }}')
+        .render()
+    )
     assert "data-conn-label>Untested</span>" in html
     assert "role=" not in html
 
