@@ -344,12 +344,10 @@ def api_download(
     if dedup_err is not None:
         return dedup_err
 
-    conn = get_db()
-    secret_key = request.app.state.config.secret_key
-
-    notify_email = _resolve_admin_email(conn, admin)
-
     try:
+        conn = get_db()
+        secret_key = request.app.state.config.secret_key
+        notify_email = _resolve_admin_email(conn, admin)
         if body.media_type == "movie":
             resp = _submit_movie(conn, secret_key, body, notify_email, admin)
         else:

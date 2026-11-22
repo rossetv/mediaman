@@ -63,6 +63,19 @@ def test_raising_submit_releases_the_dedup_key(authed_client):
     assert retry.status_code == 200
 
 
+def test_failing_admin_email_lookup_releases_the_dedup_key(authed_client):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = None
+    with (
+        patch(f"{_MODULE}.build_radarr_from_db", return_value=radarr),
+        patch(f"{_MODULE}._resolve_admin_email", side_effect=[RuntimeError("db"), None]),
+    ):
+        with pytest.raises(RuntimeError):
+            authed_client.post("/api/search/download", json=_valid_body(tmdb_id=10))
+        retry = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=10))
+    assert retry.status_code == 200
+
+
 def test_arr_error_in_tvdb_lookup_is_a_plain_502(conn):
     sonarr = MagicMock()
     sonarr.lookup_series_by_tmdb.side_effect = ArrError("secret internal detail")
