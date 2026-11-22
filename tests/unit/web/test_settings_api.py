@@ -175,6 +175,7 @@ class TestDiskUsageAPI:
         resp = client.get("/api/settings/disk-usage?path=/nonexistent")
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
+        assert resp.json().get("message") == "Folder not found."
 
     def test_returns_error_for_nonexistent_allowlisted_path(
         self, app_factory, authed_client, conn, monkeypatch
@@ -191,6 +192,7 @@ class TestDiskUsageAPI:
 
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
+        assert resp.json().get("message") == "Folder not found."
 
     def test_rejects_symlink_path(self, app_factory, authed_client, conn, tmp_path, monkeypatch):
         """A path that is or contains a symlink is rejected with a generic 404."""
