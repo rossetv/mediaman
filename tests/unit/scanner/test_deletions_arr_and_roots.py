@@ -13,12 +13,24 @@ from mediaman.bootstrap.scan_jobs import _recover_stuck_deletions_at_boot
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
+from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
+
+
+def _track(conn, media_id, files):
+    """Record *files* as the item's tracked files, sized as they are on disk."""
+    tracked = [
+        {"path": str(p), "size": os.path.getsize(p) if os.path.lexists(p) else 0} for p in files
+    ]
+    conn.execute(
+        "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), media_id)
+    )
+    conn.commit()
 
 
 def _item(conn, media_id, *, file_path, files, **fields):
@@ -32,12 +44,7 @@ def _item(conn, media_id, *, file_path, files, **fields):
         file_path=str(file_path),
         **fields,
     )
-    tracked = [
-        {"path": str(p), "size": os.path.getsize(p) if os.path.lexists(p) else 0} for p in files
-    ]
-    conn.execute(
-        "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), media_id)
-    )
+    _track(conn, media_id, files)
     for column, value in ids.items():
         conn.execute(f"UPDATE media_items SET {column} = ? WHERE id = ?", (value, media_id))
     insert_scheduled_action(
@@ -269,6 +276,54 @@ class TestVerifiedUnmonitor:
         assert result["deleted"] == 1
         sonarr.unmonitor_season.assert_not_called()
         assert len(_audit(conn, "s1", "unmonitor_skipped")) == 1
+
+    @staticmethod
+    def _two_episodes(conn, season):
+        """Track a second episode beside *season* and return Sonarr listing both."""
+        e02 = season.parent / "Show - s01e02.mkv"
+        e02.write_bytes(b"yy")
+        _track(conn, "s1", [season, e02])
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e02.mkv", "size": 2},
+        ]
+        return e02, sonarr
+
+    def test_a_file_an_earlier_pass_removed_still_matches_after_a_scan_drops_it(
+        self, conn, season, monkeypatch
+    ):
+        e02, sonarr = self._two_episodes(conn, season)
+        unlink = storage._unlink_regular_file
+
+        def e02_fails(path, roots):
+            if path.name == e02.name:
+                raise PermissionError("busy")
+            return unlink(path, roots)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", e02_fails)
+        DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        _track(conn, "s1", [e02])
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_called_once_with(7, 1)
+
+    def test_a_removed_file_recorded_without_its_size_does_not_match(self, conn, season):
+        e02, sonarr = self._two_episodes(conn, season)
+        season.unlink()
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ? WHERE media_item_id = 's1'",
+            (json.dumps({"paths": [str(season)], "bytes": 1}),),
+        )
+        _track(conn, "s1", [e02])
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
 
     def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
         radarr = _radarr(_MOVIE)

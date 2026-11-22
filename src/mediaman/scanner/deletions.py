@@ -464,19 +464,27 @@ def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
     return name, size
 
 
+def _tracked_sizes(row: DeletionRow) -> dict[str, int]:
+    """Return the size the scan recorded for each of *row*'s tracked files that has one."""
+    sizes = {}
+    for entry in row.tracked_files or []:
+        path, size = entry.get("path"), entry.get("size")
+        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
+            sizes[str(Path(path))] = size
+    return sizes
+
+
 def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
     """Return ``(name, size)`` of each file *row*'s deletion removed.
 
     Only a booked row is unmonitored, and a row is booked only once every
     tracked file of it is gone by this deletion's hand, so its tracked files
-    are the files removed.
+    were removed. So were the files its record holds, which a scan between
+    passes may have dropped from the tracked files; one recorded without a
+    size matches nothing.
     """
-    keys = set()
-    for entry in row.tracked_files or []:
-        path, size = entry.get("path"), entry.get("size")
-        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
-            keys.add((os.path.basename(path), size))
-    return keys
+    sizes = {**row.removed_sizes, **_tracked_sizes(row)}
+    return {(os.path.basename(path), size) for path, size in sizes.items()}
 
 
 def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
@@ -1051,7 +1059,11 @@ class DeletionExecutor:
             freed = result.bytes_freed if done is row else 0
             if gone or freed:
                 record_removed_files(
-                    self._conn, done.id, done.removed_paths | gone, done.removed_bytes + freed
+                    self._conn,
+                    done.id,
+                    done.removed_paths | gone,
+                    done.removed_bytes + freed,
+                    {**done.removed_sizes, **_tracked_sizes(done)},
                 )
 
     def _settle(
