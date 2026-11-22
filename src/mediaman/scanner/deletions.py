@@ -285,8 +285,12 @@ def _delete_files_on_disk(
     tracked_files: list[dict[str, Any]],
     allowed_roots: list[str],
     protected_paths: set[str],
+    removed_paths: set[str],
 ) -> TrackedFilesResult | None:
     """Remove *tracked_files* with their sidecars.
+
+    A tracked file in *removed_paths*, already removed by an earlier pass,
+    still has its sidecars swept, so one that failed to go then goes now.
 
     Returns what was removed, or None on an error: the row is then left in
     the appropriate state so the caller can ``continue`` to the next row. A failed removal
@@ -298,7 +302,10 @@ def _delete_files_on_disk(
     """
     try:
         result = delete_tracked_files(
-            tracked_files, allowed_roots=allowed_roots, protected_paths=protected_paths
+            tracked_files,
+            allowed_roots=allowed_roots,
+            protected_paths=protected_paths,
+            sweep_sidecars_of=removed_paths,
         )
     except DeletionRefused as exc:
         # Safety refusal: the path or its mount is wrong, but the
@@ -965,7 +972,10 @@ class DeletionExecutor:
             [done.media_item_id for done in closing],
         )
         limits = {str(Path(file).parent): _folder_limit(done, file) for done, file in owned}
-        result = _delete_files_on_disk(self._conn, row, tracked, allowed_roots, protected)
+        already_removed = {path for done in closing for path in done.removed_paths}
+        result = _delete_files_on_disk(
+            self._conn, row, tracked, allowed_roots, protected, already_removed
+        )
         if result is None:
             for other in co_located:
                 repository.mark_delete_status(self._conn, other.id, "pending")

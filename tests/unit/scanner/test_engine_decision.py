@@ -121,6 +121,7 @@ class TestExecuteDeletions:
             [{"path": "/tmp/fake", "size": 2_000_000}],
             allowed_roots=["/tmp"],
             protected_paths=set(),
+            sweep_sidecars_of=set(),
         )
         assert result["deleted"] == 1
         assert result["reclaimed_bytes"] == 2_000_000

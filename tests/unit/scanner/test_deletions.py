@@ -15,6 +15,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
+from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import (
     insert_kept_show,
     insert_media_item,
@@ -1866,6 +1867,35 @@ class TestTrackedFiles:
         assert not folder.exists()
         assert (root / "Other" / "Other.mkv").exists()
         assert result == {"deleted": 1, "reclaimed_bytes": 55}
+
+    def test_a_sidecar_that_failed_to_go_is_removed_by_the_next_pass(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = self._root(tmp_path, monkeypatch, "movies")
+        folder = root / "Movie (2020)"
+        folder.mkdir()
+        (folder / "Movie.mkv").write_bytes(b"x" * 50)
+        sidecar = folder / "Movie.en.srt"
+        sidecar.write_bytes(b"x" * 3)
+        _insert_media(conn, file_path=str(folder / "Movie.mkv"))
+        _insert_pending_deletion(conn)
+        unlink = storage._unlink_regular_file
+
+        def sidecar_fails(path, roots):
+            if path.name == sidecar.name:
+                raise PermissionError("busy")
+            return unlink(path, roots)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", sidecar_fails)
+        DeletionExecutor(conn=conn).execute()
+        assert self._status(conn, "m1") == ("scheduled_deletion", "pending")
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert not folder.exists()
+        assert result["deleted"] == 1
+        assert self._status(conn, "m1") is None
 
     def test_a_file_another_item_tracks_is_not_taken_as_a_sidecar(
         self, conn, tmp_path, monkeypatch

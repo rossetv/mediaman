@@ -145,6 +145,25 @@ def test_a_missing_tracked_file_is_reported_and_not_counted(tmp_path):
     assert result.bytes_freed == 100
 
 
+def test_the_sidecars_of_an_already_removed_video_are_swept_when_named(tmp_path):
+    root = tmp_path / "movies"
+    video = root / "Film" / "Film.mkv"
+    sidecar = _write(root / "Film" / "Film.en.srt", size=7)
+    other = root / "Other" / "Other.mkv"
+    other_sidecar = _write(root / "Other" / "Other.en.srt")
+
+    result = delete_tracked_files(
+        [{"path": str(video), "size": 100}, {"path": str(other), "size": 100}],
+        allowed_roots=[str(root)],
+        sweep_sidecars_of={str(video)},
+    )
+
+    assert not sidecar.exists()
+    assert result.removed == [str(sidecar)]
+    assert result.bytes_freed == 7
+    assert other_sidecar.exists()
+
+
 def test_a_tracked_file_outside_the_roots_is_refused_before_anything_is_removed(tmp_path):
     root = tmp_path / "tv"
     inside = _write(root / "Show" / "e01.mkv")
