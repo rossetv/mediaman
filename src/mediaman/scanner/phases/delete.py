@@ -145,7 +145,7 @@ def remove_orphans(
 
     A suspicious item-count drop (see _suspicious_reason) — which a
     transient Plex hiccup and a genuine mass-deletion look identical on a
-    single scan — is no longer refused outright. The first suspicious scan
+    single scan — is not refused outright. The first suspicious scan
     for a library records it as *pending* and skips; a second consecutive
     suspicious scan confirms the drop is real (a transient empty would have
     recovered by then) and proceeds with removal. This lets a legitimately

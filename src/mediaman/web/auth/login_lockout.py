@@ -302,8 +302,8 @@ def _apply_lockout(
       locked at (10-failure / 15-failure escalation), promote the
       window. We compare *threshold band*, not *expiry timestamp*
       — otherwise every additional sub-threshold failure would
-      slide the window forwards by a few microseconds and re-open
-      a sustained attacker can trigger a denial-of-service against the operator.
+      slide the window forwards by a few microseconds, and a sustained
+      attacker could keep the account locked out indefinitely.
     * If the account IS currently locked AND we're still in the
       same severity band, leave ``locked_until`` alone. Otherwise
       an unauthenticated attacker can keep an admin permanently

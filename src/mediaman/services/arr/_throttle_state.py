@@ -23,8 +23,8 @@ State summary:
 * ``_state_lock`` — threading.Lock guarding all four dicts above.
 
 All names in this module are re-exported verbatim from
-``mediaman.services.arr.search_trigger`` so existing import paths
-and test monkeypatch targets continue to work.
+``mediaman.services.arr.search_trigger``, which is where callers import
+them from and where tests monkeypatch them.
 """
 
 from __future__ import annotations

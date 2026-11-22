@@ -43,8 +43,8 @@ from starlette.responses import Response
 #     fallback for poster remoteUrls when TMDB is unreachable
 #   * artworks.thetvdb.com — TheTVDB artwork CDN used by Sonarr poster
 #     URLs that are surfaced on /downloads
-#   Previous value was ``https:`` (any HTTPS image host).  The tighter
-#   allowlist reduces the pixel-tracking surface to known services.
+#   The allowlist (rather than ``https:`` for any host) limits the
+#   pixel-tracking surface to known services.
 # - ``object-src 'none'`` defangs plugin-based XSS.
 # - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
 #   clickjacking defence.

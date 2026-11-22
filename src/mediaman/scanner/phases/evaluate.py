@@ -5,10 +5,8 @@ Exports one pure eligibility function:
 * evaluate_item — decides whether a movie or TV season should be
   scheduled for deletion. Movies and seasons share identical
   age-and-inactivity rules, so a single function serves both (the shared
-  predicates live in mediaman.scanner._eligibility); the previous
-  byte-for-byte ``evaluate_movie`` / ``evaluate_season`` pair was a
-  duplication trap where a change to one path would silently diverge from
-  the other.
+  predicates live in mediaman.scanner._eligibility), so the two paths
+  cannot diverge.
 
 The scan engine calls it from the per-library scan passes in
 mediaman.scanner._scan_library.

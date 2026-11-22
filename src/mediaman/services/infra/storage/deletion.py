@@ -197,8 +197,8 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
       directory is swapped for a symlink after our initial stat, the
       walk's file-descriptor-based rmdir/unlink refuses to cross it.
 
-    Non-existent paths are a silent no-op (parity with the previous
-    implementation). A single *file* target is unlinked after the same
+    Non-existent paths are a silent no-op (there is nothing
+    to delete). A single *file* target is unlinked after the same
     symlink / containment checks.
     """
     # Re-resolve now, don't trust an earlier resolve. Any component that

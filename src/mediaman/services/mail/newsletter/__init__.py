@@ -220,7 +220,7 @@ def send_newsletter(
     # and cannot straddle midnight.
     now = now_utc()
 
-    # Cheap settings/COUNT checks first — invert the previous order so a
+    # Cheap settings/COUNT checks first so a
     # tick with no scheduled items and no suggestions does not pay for
     # the per-item ``_load_scheduled_items`` join (which fans out to
     # ``media_items`` and runs the same join every minute on busy

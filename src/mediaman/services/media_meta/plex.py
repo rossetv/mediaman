@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 class PlexResponseTooLarge(ValueError):
     """Raised when a Plex API response body exceeds the size cap.
 
-    Subclasses ValueError so existing ValueError handlers keep working. The scanner's
+    Subclasses ValueError so ValueError handlers also catch it. The scanner's
     fetch catch-all includes it so body-cap events on watch-history fetches do not
     propagate uncaught.
     """

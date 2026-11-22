@@ -20,8 +20,8 @@ The bcrypt-input preparation pipeline, the cached dummy hash, the
 rollback sentinels, and the log-field sanitiser live in
 `mediaman.web.auth._password_hash_helpers` — a sibling, not a
 package member, because ``reauth.py`` and ``routes/auth.py`` consume it
-too. This barrel re-exports the public surface unchanged so every
-``from mediaman.web.auth.password_hash import X`` keeps working.
+too. This barrel re-exports the public surface so callers import
+from the package, ``from mediaman.web.auth.password_hash import X``.
 
 Bcrypt 72-byte truncation defence
 ---------------------------------

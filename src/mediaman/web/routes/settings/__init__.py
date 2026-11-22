@@ -6,7 +6,7 @@ validation). This barrel owns the GET /settings page handler and _load_settings 
 monkeypatch target in the tests), and aggregates the .api router.
 
 Import router from this package. The "import X as X" block re-exports the submodule names so
-the flat path mediaman.web.routes.settings keeps working; the tests patch several of them on
+callers import them from mediaman.web.routes.settings; the tests patch several of them on
 this module object.
 """
 

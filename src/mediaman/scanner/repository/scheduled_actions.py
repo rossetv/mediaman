@@ -2,8 +2,7 @@
 
 # rationale: protection/snooze reads live in _protection; this module
 # owns the deletion-lifecycle mutations (DeletionRow, fetch/mark/delete helpers)
-# and re-exports the protection names so callers that import from
-# scheduled_actions continue to work unmodified.
+# and re-exports the protection names so callers can import them from here.
 
 ``DeletionRow`` and the fetch/mark/delete helpers are kept here because
 they form one tight concept: the shape of a row being deleted, how to
