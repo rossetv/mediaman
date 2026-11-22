@@ -22,7 +22,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -487,6 +487,27 @@ def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
     return {(os.path.basename(path), size) for path, size in sizes.items()}
 
 
+def _lookup_entry(
+    stored_id: int | None,
+    get_by_id: Callable[[int], Any],
+    get_by_external_id: Callable[[int], Any],
+    external_id: int,
+) -> Any:
+    """Return the arr's entry for an item, or None when it has none.
+
+    An entry deleted in the arr and added back has a new id, so a 404 on the
+    stored id falls back to the TMDB/TVDB lookup. That lookup answers no match
+    with an empty list, so its own 404 is an error, raised like any other.
+    """
+    if stored_id:
+        try:
+            return get_by_id(stored_id)
+        except _ARR_ERRORS as exc:
+            if not _is_not_found(exc):
+                raise
+    return get_by_external_id(external_id)
+
+
 def _no_entry(is_movie: bool) -> str:
     return "Radarr has no entry for this movie" if is_movie else "Sonarr has no entry for this show"
 
@@ -496,11 +517,7 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     tmdb_id = row.tmdb_id
     if not tmdb_id:
         return "Plex has no TMDB id for this movie"
-    entry = (
-        client.get_movie_by_id(row.radarr_id)
-        if row.radarr_id
-        else client.get_movie_by_tmdb(tmdb_id)
-    )
+    entry = _lookup_entry(row.radarr_id, client.get_movie_by_id, client.get_movie_by_tmdb, tmdb_id)
     if not entry or not isinstance(entry.get("id"), int):
         return _no_entry(True)
     if entry.get("tmdbId") != tmdb_id:
@@ -535,10 +552,8 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     season = row.season_number
     if season is None:
         return "mediaman does not know this season's number"
-    series = (
-        client.get_series_by_id(row.sonarr_id)
-        if row.sonarr_id
-        else client.get_series_by_tvdb(tvdb_id)
+    series = _lookup_entry(
+        row.sonarr_id, client.get_series_by_id, client.get_series_by_tvdb, tvdb_id
     )
     if not series or not isinstance(series.get("id"), int):
         return _no_entry(False)
@@ -599,12 +614,9 @@ def _unmonitor_deleted(
         return
     try:
         reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
-    except _ARR_ERRORS as exc:
-        if _is_not_found(exc):
-            reason = _no_entry(is_movie)
-        else:
-            logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
-            reason = f"{service} could not be reached or returned an error"
+    except _ARR_ERRORS:
+        logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
+        reason = f"{service} could not be reached or returned an error"
     if reason is None:
         return
     if reason == _no_entry(is_movie):

@@ -140,6 +140,12 @@ def _sonarr(series):
     return sonarr
 
 
+def _not_found():
+    error = requests.HTTPError("not found")
+    error.response = MagicMock(status_code=404)
+    return error
+
+
 class TestVerifiedUnmonitor:
     def test_a_deleted_movie_matching_radarr_is_unmonitored_without_deleting_files(
         self, conn, movie
@@ -344,16 +350,65 @@ class TestVerifiedUnmonitor:
         sonarr.unmonitor_season.assert_not_called()
         assert _audit(conn, "s1", "unmonitor_skipped") == []
 
-    def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
-        radarr = _radarr(_MOVIE)
-        error = requests.HTTPError("not found")
-        error.response = MagicMock(status_code=404)
-        radarr.get_movie_by_id.side_effect = error
+    def test_a_404_on_the_stored_radarr_id_with_no_tmdb_match_counts_as_no_entry(self, conn, movie):
+        radarr = _radarr(None)
+        radarr.get_movie_by_id.side_effect = _not_found()
 
         DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
+        radarr.get_movie_by_tmdb.assert_called_once_with(603)
         radarr.unmonitor_movie.assert_not_called()
         assert _audit(conn, "m1", "unmonitor_skipped") == []
+
+    def test_a_movie_re_added_to_radarr_under_a_new_id_is_unmonitored_there(self, conn, movie):
+        radarr = _radarr({**_MOVIE, "id": 99})
+        radarr.get_movie_by_id.side_effect = _not_found()
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        radarr.unmonitor_movie.assert_called_once_with(99)
+
+    def test_a_season_whose_show_was_re_added_to_sonarr_is_unmonitored_there(self, conn, season):
+        sonarr = _sonarr({**_SERIES, "id": 70})
+        sonarr.get_series_by_id.side_effect = _not_found()
+
+        DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        sonarr.unmonitor_season.assert_called_once_with(70, 1)
+
+    def test_a_404_from_unmonitoring_the_movie_is_audited(self, conn, movie):
+        radarr = _radarr(_MOVIE)
+        radarr.unmonitor_movie.side_effect = _not_found()
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
+
+    @pytest.mark.parametrize("failing", ["get_episode_files", "unmonitor_season"])
+    def test_a_404_after_sonarr_found_the_show_is_audited(self, conn, season, failing):
+        sonarr = _sonarr(_SERIES)
+        getattr(sonarr, failing).side_effect = _not_found()
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        assert len(_audit(conn, "s1", "unmonitor_skipped")) == 1
+
+    @pytest.mark.parametrize("radarr_id", [42, None], ids=["stored-id", "no-stored-id"])
+    def test_a_radarr_that_404s_the_tmdb_lookup_too_is_audited(self, conn, movie, radarr_id):
+        # Radarr answers a TMDB lookup that matches nothing with an empty list,
+        # so a 404 there means the URL does not reach Radarr's API at all.
+        conn.execute("UPDATE media_items SET radarr_id = ? WHERE id = 'm1'", (radarr_id,))
+        conn.commit()
+        radarr = _radarr(_MOVIE)
+        radarr.get_movie_by_id.side_effect = _not_found()
+        radarr.get_movie_by_tmdb.side_effect = _not_found()
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
 
     def test_no_radarr_configured_skips_the_unmonitor_without_an_audit_row(self, conn, movie):
         result = DeletionExecutor(conn=conn).execute()
