@@ -640,27 +640,43 @@
   function debounceSubmit() {
     clearTimeout(_searchTimer);
     _searchTimer = setTimeout(function () {
-      /* The reload drops focus; the flag lets the next load put it back. */
-      try { sessionStorage.setItem('library-search-refocus', String(Date.now())); } catch (_) { /* focus is then simply not restored */ }
+      var input = document.querySelector('#toolbar-form input[name="q"]');
+      /* The reload drops focus; the flag lets the next load put it back, but
+         only when the user is still in the box (a Tab away is honoured). */
+      try {
+        if (input && document.activeElement === input) {
+          sessionStorage.setItem('library-search-refocus', JSON.stringify({
+            at: Date.now(),
+            start: input.selectionStart,
+            end: input.selectionEnd,
+            dir: input.selectionDirection
+          }));
+        } else {
+          sessionStorage.removeItem('library-search-refocus');
+        }
+      } catch (_) { /* focus is then simply not restored */ }
       document.getElementById('toolbar-form').submit();
     }, 400);
   }
 
   function refocusSearchAfterReload(input) {
-    var flagged = false;
+    var saved = null;
     try {
       /* Only the load the submit itself led to may refocus: a flag left
          behind by a submit that landed on another page is stale. */
-      var age = Date.now() - Number(sessionStorage.getItem('library-search-refocus'));
-      flagged = age >= 0 && age < 5000;
+      saved = JSON.parse(sessionStorage.getItem('library-search-refocus'));
       sessionStorage.removeItem('library-search-refocus');
     } catch (_) { /* nothing stored, nothing to restore */ }
+    var age = saved ? Date.now() - Number(saved.at) : -1;
     /* The search form always sends q, even empty; a load without it came
        from somewhere else, such as the sign-in after an expired session. */
-    if (!flagged || !new URLSearchParams(window.location.search).has('q')) return;
+    if (!(age >= 0 && age < 5000) || !new URLSearchParams(window.location.search).has('q')) return;
     input.focus();
-    var end = input.value.length;
-    input.setSelectionRange(end, end);
+    var len = input.value.length;
+    var start = Math.min(Number(saved.start), len);
+    var end = Math.min(Number(saved.end), len);
+    if (isNaN(start) || isNaN(end)) { start = end = len; }
+    input.setSelectionRange(start, end, saved.dir || 'none');
   }
 
   function wire() {
