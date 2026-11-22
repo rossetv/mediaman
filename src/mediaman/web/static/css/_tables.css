@@ -106,9 +106,9 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 }
 .toolbar-row .search-box,
 .toolbar-row .search-wrap { flex: 1; min-width: 260px; }
-/* Narrow phones: one row of six chips needs about 374px, so below ~420px the
-   viewport shows two even rows of three instead of a lone chip on row two. */
-@media (max-width: 419.98px) {
+/* Narrow phones: one row of six chips needs about 374px, so below ~460px (about
+   40px spare) the viewport shows two even rows of three instead of a lone chip on row two. */
+@media (max-width: 459.98px) {
   .toolbar-row .pill-row { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
   .toolbar-row .pill-row .fpill { justify-content: center; }
 }
