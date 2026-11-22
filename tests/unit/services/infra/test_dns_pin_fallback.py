@@ -18,7 +18,6 @@ from mediaman.services.infra.http import (
     dns_pinning as _dns_pinning,  # rationale: submodule object needed to install the pin-aware resolver and its delegate
 )
 from mediaman.services.infra.http import pin
-from mediaman.services.infra.url_safety import PinnedIP
 
 _HOST = "multi.example.test"
 
@@ -115,7 +114,7 @@ def test_pin_offers_only_validated_addresses_in_order(resolver):
     answers, lookups = resolver
     answers[_HOST] = ["198.51.100.99"]
 
-    with pin(_HOST, PinnedIP(["::1", "203.0.113.5", "203.0.113.6"])):
+    with pin(_HOST, ("::1", "203.0.113.5", "203.0.113.6")):
         any_family = socket.getaddrinfo(_HOST, 80, socket.AF_UNSPEC, socket.SOCK_STREAM)
         v4_only = socket.getaddrinfo(_HOST, 80, socket.AF_INET, socket.SOCK_STREAM)
 

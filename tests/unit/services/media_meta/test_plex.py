@@ -422,7 +422,7 @@ class TestPlexClientUrlValidation:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "host.example", "203.0.113.1"),
+            lambda url: (True, "host.example", ("203.0.113.1",)),
         )
         client = PlexClient("http://host.example/", "token")
         assert isinstance(captured["session"], _SafePlexSession)
@@ -475,7 +475,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", ("203.0.113.1",)),
         )
         captured: dict = {}
 
@@ -499,7 +499,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", ("203.0.113.1",)),
         )
 
         def fake_super_request(self_, method, url, **kwargs):
@@ -519,7 +519,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", ("203.0.113.1",)),
         )
         chunks = [b"A" * 1024 * 1024 for _ in range(20)]  # 20 MiB total
 
@@ -540,7 +540,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", ("203.0.113.1",)),
         )
         captured: dict = {}
 
@@ -563,7 +563,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", ("203.0.113.1",)),
         )
         captured: dict = {}
 
@@ -590,7 +590,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url: (True, "pinme.example", "203.0.113.42"),
+            lambda url: (True, "pinme.example", ("203.0.113.42",)),
         )
         # Ensure the global pin hook is active.
         monkeypatch.setattr(_socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)

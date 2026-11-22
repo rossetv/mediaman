@@ -357,7 +357,7 @@ class TestResolveSafeOutboundUrl:
         safe, hostname, ip = resolve_safe_outbound_url("http://radarr.example.com/")
         assert safe is True
         assert hostname == "radarr.example.com"
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34",)
 
     def test_returns_self_pin_for_literal_ip_url(self):
         """A URL with a literal IP is pinned to itself.
@@ -371,7 +371,7 @@ class TestResolveSafeOutboundUrl:
         safe, hostname, ip = resolve_safe_outbound_url("http://192.0.2.1:7878/")
         assert safe is True
         assert hostname == "192.0.2.1"
-        assert ip == "192.0.2.1"
+        assert ip == ("192.0.2.1",)
 
     def test_unsafe_url_returns_no_pin(self, fake_dns):
         """A blocked URL must never return a pinned IP."""
@@ -380,14 +380,14 @@ class TestResolveSafeOutboundUrl:
         assert safe is False
         assert ip is None
 
-    def test_pin_is_first_safe_address(self, fake_dns):
-        """When DNS returns multiple addresses, the pin must be the first
-        one — every address has been validated, so any of them is safe,
-        but stability matters across calls."""
+    def test_pin_holds_every_safe_address_in_resolver_order(self, fake_dns):
+        """When DNS returns multiple addresses, every one is validated and
+        pinned in resolver order, so the connection can fall back from a
+        refused address to the next one."""
         fake_dns(["93.184.216.34", "93.184.216.35"])
         safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
         assert safe is True
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34", "93.184.216.35")
 
     def test_unresolvable_host_returns_no_pin(self, monkeypatch):
         def fake_getaddrinfo(host, port, *args, **kwargs):
@@ -446,7 +446,7 @@ class TestResolverTimeout:
         fake_dns(["93.184.216.34"])
         safe, _hostname, ip = resolve_safe_outbound_url("http://fast-dns.example.com/")
         assert safe is True
-        assert ip == "93.184.216.34"
+        assert ip == ("93.184.216.34",)
 
 
 @pytest.fixture

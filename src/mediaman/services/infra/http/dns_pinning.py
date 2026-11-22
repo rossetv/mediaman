@@ -61,8 +61,6 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
-from mediaman.services.infra.url_safety import PinnedIP
-
 logger = logging.getLogger(__name__)
 
 _DNS_PINNING_MODULE = "mediaman.services.infra.http.dns_pinning"
@@ -108,11 +106,10 @@ def _patched_getaddrinfo(
     returned — the same signal urllib3 uses to try the next strategy,
     avoiding a record the connection layer cannot use.
     """
-    pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
+    pins: dict[str, tuple[str, ...]] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
     if pins:
-        ip = pins.get(_pin_key(host))
-        if ip is not None:
-            addresses = ip.addresses if isinstance(ip, PinnedIP) else (ip,)
+        addresses = pins.get(_pin_key(host))
+        if addresses is not None:
             requested_family = kwargs.get("family")
             if requested_family is None and len(args) > 0:
                 requested_family = args[0]
@@ -207,11 +204,11 @@ _install_dns_pin_hook()
 
 
 @contextlib.contextmanager
-def pin(hostname: str, ip: str) -> Iterator[None]:
-    """Pin DNS for *hostname* to *ip* for the duration of the ``with`` block.
+def pin(hostname: str, ips: tuple[str, ...]) -> Iterator[None]:
+    """Pin DNS for *hostname* to *ips* for the duration of the ``with`` block.
 
-    When *ip* is a ``PinnedIP`` every one of its validated addresses is
-    pinned, so the connection can fall back from one to the next.
+    *ips* are the validated addresses, in the order the connection should
+    try them, so a refused address falls back to the next one.
 
     The pin is stored on a ``threading.local``, so other threads are
     unaffected.  On exit the pin is cleared (or restored to the previous pin
@@ -220,13 +217,16 @@ def pin(hostname: str, ip: str) -> Iterator[None]:
     This is the **only** supported way to install a pin.  Bypassing this
     context manager bypasses the SSRF defence.
     """
-    pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
+    # A bare string would be read one character at a time as addresses.
+    if isinstance(ips, str) or not ips:
+        raise TypeError("pin() needs a non-empty tuple of validated addresses")
+    pins: dict[str, tuple[str, ...]] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
     if pins is None:
         pins = {}
         _DNS_PIN_LOCAL.pins = pins
     key = _pin_key(hostname)
     previous = pins.get(key)
-    pins[key] = ip
+    pins[key] = tuple(ips)
     try:
         yield
     finally:
