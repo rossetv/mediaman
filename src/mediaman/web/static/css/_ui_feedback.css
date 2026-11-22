@@ -19,7 +19,7 @@
   max-width: min(360px, calc(100vw - 40px));
 }
 
-/* Toast — translucent card with semantic left-border accent.
+/* Toast — opaque card with semantic left-border accent.
    Defaults to opacity 0 / slight off-screen translate so the
    `.is-visible` toggle (added in requestAnimationFrame by the
    JS) animates the toast in. Honours prefers-reduced-motion via
@@ -47,19 +47,20 @@
 }
 
 /* Variant accents — coloured left-border + tinted background hint,
-   reusing the semantic palette. */
+   reusing the semantic palette. The gradient sits on a solid --s2 so page
+   text never shows through the tinted end. */
 .ui-toast--success {
   border-left-color: var(--success);
-  background: linear-gradient(90deg, rgba(48,209,88,.08), var(--s2) 40%);
+  background: linear-gradient(90deg, rgba(48,209,88,.08), var(--s2) 40%), var(--s2);
 }
 .ui-toast--error {
   border-left-color: var(--danger);
-  background: linear-gradient(90deg, rgba(255,69,58,.10), var(--s2) 40%);
+  background: linear-gradient(90deg, rgba(255,69,58,.10), var(--s2) 40%), var(--s2);
   color: var(--t1);
 }
 .ui-toast--info {
   border-left-color: var(--accent);
-  background: linear-gradient(90deg, rgba(41,151,255,.08), var(--s2) 40%);
+  background: linear-gradient(90deg, rgba(41,151,255,.08), var(--s2) 40%), var(--s2);
 }
 
 /* Confirm dialog — overlay + card. Sits above existing modals
