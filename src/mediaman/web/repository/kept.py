@@ -175,9 +175,12 @@ def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> Sh
 
 def fetch_existing_actions_for_seasons(
     conn: sqlite3.Connection, season_ids: list[str]
-) -> dict[str, int]:
-    """Return {media_item_id: scheduled_actions.id} for existing (untriggered) rows.
+) -> dict[str, list[int]]:
+    """Return {media_item_id: [scheduled_actions.id, ...]} for each season's keep rows.
 
+    Every scheduled-deletion, snooze or keep-forever row counts, whether or not its
+    email token was used. A row the deletion pass is working on comes first, then the
+    newest: the first id is the row a new keep is written onto, the rest are replaced.
     Uses a batched IN-clause to avoid N+1 queries.
     """
     if not season_ids:
@@ -186,10 +189,15 @@ def fetch_existing_actions_for_seasons(
     placeholders = ",".join("?" * len(season_ids))
     existing_rows = conn.execute(
         f"SELECT id, media_item_id FROM scheduled_actions "
-        f"WHERE media_item_id IN ({placeholders}) AND token_used = 0",
+        f"WHERE media_item_id IN ({placeholders}) "
+        f"AND action IN ('scheduled_deletion', 'snoozed', 'protected_forever') "
+        f"ORDER BY delete_status IS NOT 'deleting', id DESC",
         season_ids,
     ).fetchall()
-    return {str(er["media_item_id"]): er["id"] for er in existing_rows}
+    by_season: dict[str, list[int]] = {}
+    for er in existing_rows:
+        by_season.setdefault(str(er["media_item_id"]), []).append(er["id"])
+    return by_season
 
 
 def fetch_show_keep_row(conn: sqlite3.Connection, show_rating_key: str) -> tuple[int, str] | None:
@@ -318,8 +326,12 @@ def set_protected_state(
     *,
     to_update: Sequence[tuple[object, ...]],
     to_insert: Sequence[tuple[object, ...]],
+    to_delete: Sequence[int] = (),
 ) -> bool:
-    """Apply batched updates and inserts to scheduled_actions for season keeps.
+    """Apply batched updates, inserts and deletes to scheduled_actions for season keeps.
+
+    ``to_delete`` ids are the older rows a keep replaces; one the deletion pass is
+    working on is never deleted.
 
     ``to_update`` rows: (action, execute_at, snoozed_at, snooze_duration, id)
     ``to_insert`` rows: (media_item_id, action, scheduled_at, execute_at,
@@ -342,8 +354,13 @@ def set_protected_state(
         deletion_running = running is not None
         conn.executemany(
             "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
-            "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
+            "snoozed_at = ?, snooze_duration = ?, token_used = 0 WHERE id = ?",
             to_update,
+        )
+    if to_delete:
+        conn.executemany(
+            "DELETE FROM scheduled_actions WHERE id = ? AND delete_status IS NOT 'deleting'",
+            [(row_id,) for row_id in to_delete],
         )
     if to_insert:
         conn.executemany(

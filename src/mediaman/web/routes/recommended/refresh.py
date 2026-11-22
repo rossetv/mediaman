@@ -22,7 +22,7 @@ from mediaman.db import (
     start_refresh_run,
 )
 from mediaman.services.arr.build import build_plex_from_db
-from mediaman.services.infra import SSRFRefused
+from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.throttle import (
     RECOMMENDATION_REFRESH_COOLDOWN_HOURS,
@@ -200,7 +200,7 @@ def api_refresh_recommendations(
     config = request.app.state.config
     try:
         plex = build_plex_from_db(conn, config.secret_key)
-    except (SSRFRefused, requests.RequestException, ValueError):
+    except (SSRFRefused, ConfigDecryptError, requests.RequestException, ValueError):
         logger.exception("Could not build the Plex client for a manual refresh")
         finish_refresh_run(conn, run_id, "error", "Plex client could not be built")
         return JSONResponse({"ok": False, "error": "Could not connect to Plex"})

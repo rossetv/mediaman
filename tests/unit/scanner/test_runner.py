@@ -252,7 +252,7 @@ class TestPlexSSRFRefusalAtScan:
     net for a stored URL that has since started resolving to a metadata
     or internal endpoint."""
 
-    def test_run_scan_returns_empty_when_plex_url_refused(self, conn):
+    def test_run_scan_skips_with_reason_when_plex_url_refused(self, conn):
         """A stored Plex URL whose host has been rebound to an internal
         address must cause the scan to be skipped."""
         _seed_plex_settings(conn, ["1"])
@@ -271,7 +271,7 @@ class TestPlexSSRFRefusalAtScan:
 
         # No engine was built, no scan executed.
         MockEngine.assert_not_called()
-        assert result == {}
+        assert result == {"skipped_reason": "Plex could not be reached"}
 
     def test_run_library_sync_returns_empty_when_plex_url_refused(self, conn):
         """Same use-time guard for the lighter ``run_library_sync`` path."""
@@ -291,3 +291,18 @@ class TestPlexSSRFRefusalAtScan:
 
         MockEngine.assert_not_called()
         assert result == {}
+
+
+class TestPlexClientUnbuildable:
+    def test_configured_plex_without_client_skips_with_reason(self, conn):
+        _seed_plex_settings(conn, ["1"])
+        with (
+            patch("mediaman.scanner.runner._build_plex_client", return_value=None),
+            patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
+        ):
+            from mediaman.scanner.runner import run_scan_from_db
+
+            result = run_scan_from_db(conn, "test-secret")
+
+        MockEngine.assert_not_called()
+        assert result == {"skipped_reason": "Plex could not be reached"}
