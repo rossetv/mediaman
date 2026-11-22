@@ -5,6 +5,7 @@
   {% if state == "active" %}Keep · {{ item.title }} · Mediaman
   {% elif state == "already_kept" %}Protected · {{ item.title }} · Mediaman
   {% elif state == "deleting" %}Being deleted · {{ item.title }} · Mediaman
+  {% elif state == "error" %}Could not keep · Mediaman
   {% else %}Expired · Mediaman
   {% endif %}
 {% endblock %}
@@ -173,6 +174,26 @@
         {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
       </div>
 
+    {% elif state == "error" %}
+
+      <div class="status-pill status-expired">
+        <span class="status-dot dot-muted"></span>
+        Not changed
+      </div>
+
+      <div class="expired-msg">
+        <div class="expired-icon">
+          <i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>
+        </div>
+        <div class="expired-title">We could not keep this item</div>
+        <div class="expired-detail">{{ error_message }}</div>
+      </div>
+
+      <div class="keep-footer">
+        {% if is_admin %}<a href="/">Back to dashboard →</a>
+        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
+      </div>
+
     {% else %}
 
       <div class="status-pill status-expired">
@@ -204,7 +225,7 @@
 
       <div class="keep-footer">
         {% if is_admin %}<a href="/">Back to dashboard →</a>
-        {% else %}<a href="/login">Go to dashboard →</a>{% endif %}
+        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
       </div>
 
     {% endif %}

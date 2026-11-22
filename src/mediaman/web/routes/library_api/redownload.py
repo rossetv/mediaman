@@ -18,6 +18,7 @@ from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.routes.library_api._redownload_match import AddRefused
 from mediaman.web.routes.library_api._redownload_radarr import _redownload_movie
@@ -101,7 +102,7 @@ def api_media_redownload(
     from mediaman.web.routes.library_api import build_radarr_from_db, build_sonarr_from_db
 
     if not _REDOWNLOAD_LIMITER.check(username):
-        logger.warning("media.redownload_throttled user=%s", username)
+        logger.warning("media.redownload_throttled user=%s", _sanitise_log_field(username))
         return JSONResponse(
             {"ok": False, "error": "Too many redownload requests — slow down"},
             status_code=429,

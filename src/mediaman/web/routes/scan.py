@@ -24,6 +24,7 @@ from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
@@ -155,7 +156,7 @@ def clear_scheduled(
     a leaked session cookie cannot repeatedly wipe the queue.
     """
     if not _CLEAR_SCHEDULED_LIMITER.check(admin):
-        logger.warning("scan.clear_throttled user=%s", admin)
+        logger.warning("scan.clear_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Too many scan triggers — slow down"
         )
@@ -163,13 +164,13 @@ def clear_scheduled(
     try:
         result = clear_pending_deletions(conn, audit_actor=admin, audit_ip=get_client_ip(request))
     except sqlite3.Error:
-        logger.exception("scan.clear failed user=%s", admin)
+        logger.exception("scan.clear failed user=%s", _sanitise_log_field(admin))
         return respond_err("internal_error", status=500)
     logger.info(
         "Cleared %d scheduled deletions (%d already being deleted) by %s",
         result.cleared,
         result.already_deleting,
-        admin,
+        _sanitise_log_field(admin),
     )
     return {"ok": True, "cleared": result.cleared, "already_deleting": result.already_deleting}
 
@@ -179,7 +180,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
     from mediaman.scanner.runner import run_library_sync
 
     if not _LIBRARY_SYNC_LIMITER.check(admin):
-        logger.warning("library.sync_throttled user=%s", admin)
+        logger.warning("library.sync_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Too many sync triggers — slow down"
         )

@@ -8,11 +8,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
-from mediaman.core.deleted_media import DeletedMedia, fetch_deleted_media
+from mediaman.core.deleted_media import (
+    DeletedMedia,
+    fetch_deleted_media,
+    redownload_tokens,
+    was_redownloaded_after,
+)
 from mediaman.core.format import (
     days_ago,
     format_bytes,
     media_type_badge,
+    normalise_media_type,
     relative_day_label,
     rk_from_audit_detail,
     title_from_audit_detail,
@@ -69,7 +75,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     for row in rows:
         media_type = row.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and row.season_number:
+        if normalise_media_type(media_type) != "movie" and row.season_number:
             type_label = f"{type_label} · S{row.season_number}"
 
         items.append(
@@ -120,29 +126,6 @@ def _build_redownload_index(
     return by_title_lower
 
 
-def _was_redownloaded_after(
-    deletion_created_at: str,
-    *,
-    title: str,
-    stored: DeletedMedia | None,
-    by_title_lower: dict[str, str],
-) -> bool:
-    last_redownload = by_title_lower.get(title.lower())
-    tokens: list[str] = []
-    if stored is not None:
-        if stored.media_type == "movie" and stored.tmdb_id:
-            tokens.append(f"tmdb:{stored.tmdb_id}")
-        elif stored.media_type != "movie" and stored.tvdb_id:
-            tokens.append(f"tvdb:{stored.tvdb_id}")  # recorded before seasons were tracked
-            if stored.season_number is not None:
-                tokens.append(f"tvdb:{stored.tvdb_id}:s{stored.season_number}")
-    for token in tokens:
-        by_id = by_title_lower.get(token)
-        if by_id and (last_redownload is None or by_id > last_redownload):
-            last_redownload = by_id
-    return bool(last_redownload and last_redownload > deletion_created_at)
-
-
 def _redownload_payload(stored: DeletedMedia | None, title: str) -> dict[str, object] | None:
     """Return the re-download request body, or ``None`` when the stored row lacks the id."""
     if stored is None:
@@ -187,11 +170,10 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
             title = row.title or (stored.title if stored else None)
             if not title:
                 title = title_from_audit_detail(row.detail)
-            if _was_redownloaded_after(
+            if was_redownloaded_after(
                 row.created_at,
-                title=title,
-                stored=stored,
-                by_title_lower=by_title_lower,
+                [title.lower(), *redownload_tokens(stored)],
+                by_title_lower,
             ):
                 continue
 

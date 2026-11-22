@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import re as _re
 import threading
 import unicodedata
 
 import bcrypt
+
+from mediaman.web.models._common import _MAX_USERNAME_LEN
 
 #: Single source of truth for the bcrypt cost factor. Tied together so
 #: the dummy hash and every real hash use the same work factor — a
@@ -31,24 +32,33 @@ BCRYPT_ROUNDS = 12
 #: full input contributes to the final digest.
 _BCRYPT_MAX_INPUT_BYTES = 72
 
-# Characters allowed in sanitised log fields. Anything else is stripped
-# before interpolation so usernames cannot inject CR/LF or control
-# characters into log lines.
-_LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
+
+def _escape_log_char(char: str) -> str:
+    """Return *char* as a ``\\x``, ``\\u`` or ``\\U`` escape."""
+    code = ord(char)
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    if code < 0x10000:
+        return f"\\u{code:04x}"
+    return f"\\U{code:08x}"
 
 
-def _sanitise_log_field(value: str, limit: int = 64) -> str:
-    """Strip non-safe characters from *value* and truncate to *limit*.
+def _sanitise_log_field(value: str, limit: int = _MAX_USERNAME_LEN) -> str:
+    """Return *value* made safe to write into a log line, cut to *limit* characters.
 
-    The truncation marker is decided on the POST-sanitise length: an
-    all-symbol input that sanitises to empty must not get a misleading
-    ``"..."`` suffix, and the ``"..."`` only appears when genuine
-    characters were dropped by the length cap.
+    Backslashes, whitespace and every non-printable character (control,
+    line and paragraph separators, zero-width and other format characters)
+    become escapes; the backslash is escaped too, so two different inputs
+    never give the same text. Printable characters, accents and other
+    scripts included, stay as they are. A cut value ends in ``...``.
     """
-    cleaned = _LOG_FIELD_RE.sub("", value)
-    truncated = len(cleaned) > limit
-    sanitised = cleaned[:limit]
-    return sanitised + "..." if truncated else sanitised
+    out = "".join(
+        char
+        if char != "\\" and char.isprintable() and not char.isspace()
+        else _escape_log_char(char)
+        for char in value[:limit]
+    )
+    return out + "..." if len(value) > limit else out
 
 
 def _normalise_password(password: str) -> str:

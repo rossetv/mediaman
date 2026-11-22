@@ -25,6 +25,7 @@ from mediaman.services.openai.recommendations.repository import (
     mark_downloaded,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
@@ -121,7 +122,7 @@ def api_share_token(
 
     logger.info(
         "Share token minted by admin '%s' for recommendation_id=%d title='%s'",
-        admin,
+        _sanitise_log_field(admin),
         recommendation_id,
         row.title,
     )

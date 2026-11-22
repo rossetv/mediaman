@@ -506,3 +506,48 @@ def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
 
     assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
+
+
+class TestScannerAuditTitles:
+    def test_unquoted_scanner_details_resolve_to_the_title(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        for i, detail in enumerate(
+            [
+                "Deleted: Dune [rk:123]",
+                "Deleted (recovered): Dune [rk:123]",
+                "Not deleted: Dune \u2014 disk is read-only",
+            ]
+        ):
+            _insert_audit_full(conn, action="deleted", media_item_id=f"gone-{i}", detail=detail)
+
+        titles = {item["title"] for item in client.get("/api/history").json()["items"]}
+
+        assert titles == {"Dune"}
+
+    def test_unrelated_detail_still_reads_unknown(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_full(conn, action="scanned", media_item_id="x", detail="Scan finished")
+
+        [item] = client.get("/api/history").json()["items"]
+
+        assert item["title"] == "Unknown"
+
+
+class TestScannerTitlesWithPunctuation:
+    def test_apostrophes_and_em_dashes_stay_in_the_title(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        details = {
+            "a": "Deleted: Schindler's List: Director's Cut [rk:1]",
+            "b": "Deleted: Star Wars — A New Hope [rk:2]",
+            "c": "Deleted 'Schindler's List' by admin [rk:3]",
+        }
+        for key, detail in details.items():
+            _insert_audit_full(conn, action="deleted", media_item_id=key, detail=detail)
+
+        titles = {i["title"] for i in client.get("/api/history").json()["items"]}
+
+        assert titles == {
+            "Schindler's List: Director's Cut",
+            "Star Wars — A New Hope",
+            "Schindler's List",
+        }

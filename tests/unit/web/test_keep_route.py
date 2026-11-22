@@ -677,3 +677,120 @@ class TestKeepTokenHash:
         assert row is not None
         assert row["token_hash"] is not None
         assert len(row["token_hash"]) == 64
+
+
+class TestKeepFormFailurePage:
+    """A browser form post that fails shows a readable page, not the JSON envelope."""
+
+    _HTML = {"accept": "text/html,application/xhtml+xml"}
+
+    def _client(self, conn: sqlite3.Connection) -> TestClient:
+        app = FastAPI()
+        app.include_router(keep_router)
+        app.state.config = Config(secret_key=SECRET)
+        app.state.db = conn
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        set_connection(conn)
+        return TestClient(app, raise_server_exceptions=True)
+
+    def _used_token(self, conn: sqlite3.Connection) -> str:
+        _insert_media_item(conn)
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        assert self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}
+        ).status_code in (
+            200,
+            302,
+        )
+        return token
+
+    def _unprotect(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "UPDATE scheduled_actions SET action='scheduled_deletion', token_used=0, "
+            "snooze_duration=NULL"
+        )
+        conn.commit()
+
+    def test_reused_token_renders_a_sentence_and_no_json(self, conn):
+        token = self._used_token(conn)
+        self._unprotect(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "already been used" in resp.text
+        assert "already_processed" not in resp.text
+        assert '"ok"' not in resp.text
+        assert 'href="/login"' in resp.text
+
+    def test_bad_token_renders_a_sentence_at_400(self, conn):
+        resp = self._client(conn).post(
+            "/keep/bogustoken", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 400
+        assert "no longer valid" in resp.text
+        assert "invalid_or_expired" not in resp.text
+
+    def test_json_caller_still_gets_the_envelope(self, conn):
+        token = self._used_token(conn)
+
+        resp = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
+
+        assert resp.status_code == 409
+        assert resp.json() == {"ok": False, "error": "already_processed"}
+
+    def test_repeat_keep_of_a_protected_item_shows_the_protected_page(self, conn):
+        token = self._used_token(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert "Protected until" in resp.text
+        assert "We could not keep this item" not in resp.text
+
+    def test_used_token_on_an_unprotected_item_says_it_could_not_keep(self, conn):
+        token = self._used_token(conn)
+        self._unprotect(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert "We could not keep this item" in resp.text
+        assert "Sign in for more options" in resp.text
+
+    def test_expired_page_offers_the_same_sign_in_link_as_the_other_states(self, conn):
+        resp = self._client(conn).get("/keep/badtoken")
+
+        assert "Sign in for more options" in resp.text
+        assert "Go to dashboard" not in resp.text
+
+    def test_an_unknown_error_code_still_renders_a_page(self, conn):
+        from starlette.requests import Request
+
+        from mediaman.web.routes.keep import _submit_failure
+
+        client = self._client(conn)
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"content-type", b"application/x-www-form-urlencoded"),
+                (b"accept", b"text/html"),
+            ],
+            "app": client.app,
+            "method": "POST",
+            "path": "/keep/x",
+            "query_string": b"",
+        }
+
+        resp = _submit_failure(Request(scope), "something_new", 500)
+
+        assert resp.status_code == 500
+        assert b"nothing was changed" in resp.body

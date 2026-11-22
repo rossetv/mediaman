@@ -44,6 +44,7 @@ from typing import TypedDict, cast
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.crypto import generate_session_token
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth._session_fingerprint import (
     _client_fingerprint,
     _fingerprint_mode,
@@ -112,7 +113,7 @@ def create_session(
         fingerprint = ""
     logger.debug(
         "session.fingerprint_issued user=%s mode=%s bound=%s",
-        username,
+        _sanitise_log_field(username),
         mode,
         bool(fingerprint),
     )
@@ -140,7 +141,7 @@ def create_session(
         ),
     )
     conn.commit()
-    logger.info("session.created user=%s ip=%s", username, client_ip or "-")
+    logger.info("session.created user=%s ip=%s", _sanitise_log_field(username), client_ip or "-")
     return token
 
 
@@ -193,7 +194,7 @@ def validate_session(
         if expires_dt is None:
             logger.info(
                 "session.hard_expiry_unparseable user=%s expires_at=%r",
-                row["username"],
+                _sanitise_log_field(row["username"]),
                 row["expires_at"],
             )
         _try_delete_session(conn, token_hash, reason="corrupt_expiry")
@@ -273,7 +274,7 @@ def destroy_session(
         # lost is an audit-coverage gap for a security-relevant event.
         security_event_or_raise(conn, event="session.destroy", actor=username, ip=ip)
 
-    logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
+    logger.info("session.destroyed user=%s ip=%s", _sanitise_log_field(username or "-"), ip or "-")
 
 
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
@@ -299,7 +300,9 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
         revoke_all_reauth_for(conn, username)
     except sqlite3.Error:
         logger.warning(
-            "session.destroy_all: revoke_all_reauth_for failed user=%s", username, exc_info=True
+            "session.destroy_all: revoke_all_reauth_for failed user=%s",
+            _sanitise_log_field(username),
+            exc_info=True,
         )
     return cur.rowcount
 

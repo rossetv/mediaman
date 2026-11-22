@@ -14,13 +14,14 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from mediaman.core.audit import log_audit
-from mediaman.core.format import days_ago, media_type_badge
+from mediaman.core.format import days_ago, media_type_badge, normalise_media_type
 from mediaman.core.format import format_bytes as _format_bytes
 from mediaman.core.time import now_iso
 from mediaman.db import get_db
 from mediaman.scanner.repository import is_show_kept_pure
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER
@@ -65,8 +66,8 @@ def _fetch_protected(
     for r in rows:
         media_type = r.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and r.season_number:
-            type_label = f"{type_label} . S{r.season_number}"
+        if normalise_media_type(media_type) != "movie" and r.season_number:
+            type_label = f"{type_label} · S{r.season_number}"
 
         item = {
             "sa_id": r.sa_id,
@@ -115,7 +116,7 @@ def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
 @router.post("/api/media/{media_item_id}/unprotect")
 def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
     if not _UNPROTECT_LIMITER.check(username):
-        logger.warning("media.unprotect_throttled user=%s", username)
+        logger.warning("media.unprotect_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
             "too_many_requests", status=429, message="Too many unprotect operations -- slow down"
         )
@@ -135,7 +136,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     if not removed:
         return respond_err("not_found", status=404, message="No active protection found")
 
-    logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
+    logger.info("Unprotected media_item_id=%s by %s", media_item_id, _sanitise_log_field(username))
     return respond_ok()
 
 

@@ -171,6 +171,13 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 .keep-footer { margin-top: 28px; }
 .keep-footer a { color: var(--accent); font-size: 13px; }
 
+/* Phone: side gutter like the login card, and 40px tap areas. */
+@media (max-width: 639.98px) {
+  .keep-container { width: calc(100% - 40px); margin: 40px auto; padding: 32px 20px; }
+  .snooze-btn { min-height: 40px; padding: 8px 18px; }
+  .keep-footer a { display: inline-flex; align-items: center; min-height: 40px; }
+}
+
 .already-kept-msg { margin: 18px 0; }
 .check-icon { display: grid; place-items: center; margin-bottom: 8px; font-size: 30px; }
 .msg-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; }

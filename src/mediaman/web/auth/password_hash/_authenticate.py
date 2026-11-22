@@ -21,6 +21,7 @@ import bcrypt
 from mediaman.web.auth._password_hash_helpers import (
     _get_dummy_hash,
     _prepare_bcrypt_input,
+    _sanitise_log_field,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,9 @@ def _short_circuit_authenticate(
     if is_locked_out(conn, key) or is_locked_out(conn, login_key(username)):
         record_failure(conn, key)
         logger.warning(
-            "auth.account_locked user=%s ip=%s reason=lockout_active", username, client_ip
+            "auth.account_locked user=%s ip=%s reason=lockout_active",
+            _sanitise_log_field(username),
+            client_ip,
         )
         return False
 

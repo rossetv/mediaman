@@ -9,6 +9,7 @@ from starlette.responses import Response
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import (
@@ -62,7 +63,9 @@ def api_create_user(
     """
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
-        logger.warning("user.create_rejected actor=%s reason=reauth_required", admin)
+        logger.warning(
+            "user.create_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
         return _unauthorised_reauth()
 
     username = body.username.strip()
@@ -97,11 +100,19 @@ def api_create_user(
     except UserExistsError as e:
         return respond_err(str(e), status=409)
     except sqlite3.Error:
-        logger.exception("user.create failed actor=%s username=%s", admin, username)
+        logger.exception(
+            "user.create failed actor=%s username=%s",
+            _sanitise_log_field(admin),
+            _sanitise_log_field(username),
+        )
         return respond_err(
             "internal_error", status=500, message="Internal error during user creation"
         )
-    logger.info("user.created actor=%s new_user=%s", admin, username)
+    logger.info(
+        "user.created actor=%s new_user=%s",
+        _sanitise_log_field(admin),
+        _sanitise_log_field(username),
+    )
     return respond_ok({"username": username})
 
 
@@ -118,7 +129,9 @@ def api_delete_user(
     conn = get_db()
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
-        logger.warning("user.delete_throttled actor=%s target_id=%d", admin, user_id)
+        logger.warning(
+            "user.delete_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
         security_event(
             conn,
             event="user.delete.rate_limited",
@@ -130,7 +143,9 @@ def api_delete_user(
             "too_many_requests", status=429, message="Too many user-management operations"
         )
     if not has_recent_reauth(conn, session_token, admin):
-        logger.warning("user.delete_rejected actor=%s reason=reauth_required", admin)
+        logger.warning(
+            "user.delete_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
         return _unauthorised_reauth()
     try:
         deleted = delete_user(
@@ -141,12 +156,14 @@ def api_delete_user(
             audit_ip=client_ip,
         )
     except sqlite3.Error:
-        logger.exception("user.delete failed actor=%s target_id=%d", admin, user_id)
+        logger.exception(
+            "user.delete failed actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
         return respond_err(
             "internal_error", status=500, message="Internal error during user deletion"
         )
     if deleted:
-        logger.info("user.deleted actor=%s target_id=%d", admin, user_id)
+        logger.info("user.deleted actor=%s target_id=%d", _sanitise_log_field(admin), user_id)
         return respond_ok()
     return respond_err(
         "cannot_delete", status=400, message="Cannot delete yourself or user not found"
@@ -166,7 +183,7 @@ def api_set_my_email(
     conn = get_db()
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
-        logger.warning("user.email_update_throttled actor=%s", admin)
+        logger.warning("user.email_update_throttled actor=%s", _sanitise_log_field(admin))
         security_event(
             conn,
             event="user.email_update.rate_limited",
@@ -177,7 +194,9 @@ def api_set_my_email(
             "too_many_requests", status=429, message="Too many user-management operations"
         )
     if not has_recent_reauth(conn, session_token, admin):
-        logger.warning("user.email_update_rejected actor=%s reason=reauth_required", admin)
+        logger.warning(
+            "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
         return _unauthorised_reauth()
 
     try:
@@ -185,10 +204,12 @@ def api_set_my_email(
     except ValueError as exc:
         return respond_err("invalid_email", status=400, message=str(exc))
     except sqlite3.Error:
-        logger.exception("user.email_update failed actor=%s", admin)
+        logger.exception("user.email_update failed actor=%s", _sanitise_log_field(admin))
         return respond_err("internal_error", status=500, message="Internal error updating email")
 
-    logger.info("user.email_updated actor=%s cleared=%s", admin, not body.email.strip())
+    logger.info(
+        "user.email_updated actor=%s cleared=%s", _sanitise_log_field(admin), not body.email.strip()
+    )
     return respond_ok()
 
 
@@ -212,7 +233,9 @@ def api_unlock_user(
         )
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
-        logger.warning("user.unlock_rejected actor=%s reason=reauth_required", admin)
+        logger.warning(
+            "user.unlock_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
         return _unauthorised_reauth()
 
     # rationale: admin_users is the auth module's table; routes
@@ -232,7 +255,14 @@ def api_unlock_user(
             target_id=user_id,
         )
     except sqlite3.Error:
-        logger.exception("user.unlock failed actor=%s target_id=%d", admin, user_id)
+        logger.exception(
+            "user.unlock failed actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
         return respond_err("internal_error", status=500, message="Internal error during unlock")
-    logger.info("user.unlocked actor=%s target=%s had_lock=%s", admin, target_username, was_locked)
+    logger.info(
+        "user.unlocked actor=%s target=%s had_lock=%s",
+        _sanitise_log_field(admin),
+        _sanitise_log_field(target_username),
+        was_locked,
+    )
     return respond_ok({"had_lock": was_locked})

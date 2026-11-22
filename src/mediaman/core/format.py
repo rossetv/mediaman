@@ -17,7 +17,11 @@ from datetime import UTC, datetime
 from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as parse_iso_utc
 
-_AUDIT_TITLE_RE = re.compile(r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$")
+_AUDIT_TITLE_RE = re.compile(
+    r"^Deleted(?: \(recovered\))?[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$"
+)
+# Only this wording carries a "— reason" tail; a title may itself hold an em dash.
+_AUDIT_NOT_DELETED_RE = re.compile(r"^Not deleted(?: yet)?:\s+(.+?)\s+\u2014\s+.*$")
 _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 
 #: Hard cap on the length of a string fed to _AUDIT_TITLE_RE.
@@ -28,7 +32,7 @@ _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 _AUDIT_TITLE_MAX_INPUT = 256
 
 
-def title_from_audit_detail(detail: str | None) -> str:
+def title_from_audit_detail(detail: str | None, *, strict: bool = False) -> str:
     """Extract a media title from an ``audit_log.detail`` string.
 
     Handles both formats produced by the application:
@@ -42,6 +46,11 @@ def title_from_audit_detail(detail: str | None) -> str:
     dashboard/newsletter than a generic placeholder for a row that simply
     used an unrecognised wording.
 
+    ``"Not deleted: A \u2014 B \u2014 reason"`` yields ``"A"``: the text is ambiguous, so the
+    title ends at the first dash.
+
+    With ``strict=True`` an unrecognised wording returns ``"Unknown"`` instead of the echo.
+
     Long inputs are truncated to _AUDIT_TITLE_MAX_INPUT before
     matching to bound the regex worst case; a malformed audit row
     cannot trigger pathological backtracking.
@@ -49,8 +58,10 @@ def title_from_audit_detail(detail: str | None) -> str:
     if not detail:
         return "Unknown"
     capped = detail if len(detail) <= _AUDIT_TITLE_MAX_INPUT else detail[:_AUDIT_TITLE_MAX_INPUT]
-    m = _AUDIT_TITLE_RE.match(capped)
-    return m.group(1) if m else capped
+    m = _AUDIT_NOT_DELETED_RE.match(capped) or _AUDIT_TITLE_RE.match(capped)
+    if m:
+        return m.group(1)
+    return "Unknown" if strict else capped
 
 
 def rk_from_audit_detail(detail: str | None) -> str | None:
@@ -167,6 +178,7 @@ def format_day_month(dt: datetime, *, long_month: bool = False) -> str:
 def normalise_media_type(raw: str | None) -> str:
     """Normalise a raw media-type string to ``"movie"``, ``"tv"``, or ``"anime"``.
 
+    Season rows (``tv_season``, ``anime_season``, ``season``) map to their show's type.
     Returns ``"movie"`` for any unrecognised or empty input.
     """
     if not raw:
@@ -174,7 +186,9 @@ def normalise_media_type(raw: str | None) -> str:
     lower = raw.strip().lower()
     if lower in ("tv", "show", "series"):
         return "tv"
-    if lower == "anime":
+    if lower in ("tv_season", "season"):
+        return "tv"
+    if lower in ("anime", "anime_season"):
         return "anime"
     return "movie"
 
@@ -195,6 +209,15 @@ def media_type_badge(media_type: str | None) -> tuple[str, str]:
     return badge, mt.upper()
 
 
+def calendar_days_until(target: datetime, now: datetime) -> int:
+    """UTC calendar days from *now* to *target*; negative once *target*'s date has passed.
+
+    Calendar days, not elapsed time, so the count agrees with the date shown beside it:
+    0 means later today, 1 means tomorrow.
+    """
+    return (target.astimezone(UTC).date() - now.astimezone(UTC).date()).days
+
+
 def relative_day_label(
     target: datetime,
     *,
@@ -211,7 +234,7 @@ def relative_day_label(
     ``past`` is ``None``, past dates collapse to the ``today`` label —
     a passed-deadline still renders as "Expires today" / "Deletes today".
     """
-    delta = (target - now).days
+    delta = calendar_days_until(target, now)
     if delta == 1:
         return tomorrow
     if delta > 0:

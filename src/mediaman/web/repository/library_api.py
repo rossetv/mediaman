@@ -358,7 +358,7 @@ def record_redownload(
     audit_id: str,
     audit_detail: str,
     actor: str,
-    email: str,
+    email: str | None,
     title: str,
     media_type: str,
     service: str,
@@ -369,7 +369,8 @@ def record_redownload(
 
     Audit and notification rows are written under a single commit so the
     user-facing "added to Radarr/Sonarr" response is never returned with
-    only half of the bookkeeping landed.
+    only half of the bookkeeping landed. With no *email* there is nowhere to
+    send the notice, so only the audit row is written.
     """
     with conn:
         log_audit(
@@ -379,12 +380,13 @@ def record_redownload(
             audit_detail,
             actor=actor,
         )
-        record_download_notification(
-            conn,
-            email=email,
-            title=title,
-            media_type=media_type,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            service=service,
-        )
+        if email is not None:
+            record_download_notification(
+                conn,
+                email=email,
+                title=title,
+                media_type=media_type,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                service=service,
+            )

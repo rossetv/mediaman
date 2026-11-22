@@ -86,7 +86,7 @@
                      meta=item.file_size ~ " · Added " ~ item.added_ago,
                      poster_url="/api/poster/" ~ item.plex_rating_key if item.plex_rating_key else "",
                      media_pill_label=item.type_label,
-                     media_pill_variant='movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'),
+                     media_pill_variant=item.badge_class | replace('badge-', ''),
                      countdown_label=item.countdown if item.countdown else "") %}
         <div class="keep-wrapper tile-actions"
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"

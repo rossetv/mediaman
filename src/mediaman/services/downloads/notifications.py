@@ -165,7 +165,14 @@ def _partition_runnable(
     deferred_ids: list[int] = []
     runnable: list[ClaimedNotificationRow] = []
     for row in pending:
-        if _is_backed_off(row.id, now_dt):
+        if "@" not in row.email:
+            # Queued with a username instead of an address: it can never be delivered.
+            logger.warning(
+                "Download notification id=%s has no email address — marking as notified", row.id
+            )
+            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
+            conn.commit()
+        elif _is_backed_off(row.id, now_dt):
             deferred_ids.append(row.id)
         else:
             runnable.append(row)

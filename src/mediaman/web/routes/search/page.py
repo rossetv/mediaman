@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 from mediaman.db import get_db
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.responses import respond_err
 
@@ -65,7 +66,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
     results, with download state and OMDb ratings.
     """
     if not _QUERY_LIMITER.check(admin):
-        logger.warning("search.query_throttled user=%s", admin)
+        logger.warning("search.query_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Too many search requests — slow down"
         )
@@ -99,7 +100,7 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
     fetched in parallel and TTL-cached per shelf key to avoid redundant TMDB calls.
     """
     if not _QUERY_LIMITER.check(admin):
-        logger.warning("search.discover_throttled user=%s", admin)
+        logger.warning("search.discover_throttled user=%s", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Too many discover requests — slow down"
         )

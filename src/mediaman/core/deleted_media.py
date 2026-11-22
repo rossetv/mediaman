@@ -56,3 +56,29 @@ def fetch_deleted_media(
         ids,
     ).fetchall()
     return {r[0]: DeletedMedia(*r) for r in rows}
+
+
+def redownload_tokens(stored: DeletedMedia | None) -> list[str]:
+    """The audit ids a re-download of the deleted item is recorded under.
+
+    A movie by ``tmdb:<id>``; anything else by ``tvdb:<id>`` (the form recorded before
+    seasons were tracked) and ``tvdb:<id>:s<n>``.
+    """
+    if stored is None:
+        return []
+    if stored.media_type == "movie":
+        return [f"tmdb:{stored.tmdb_id}"] if stored.tmdb_id else []
+    if not stored.tvdb_id:
+        return []
+    tokens = [f"tvdb:{stored.tvdb_id}"]
+    if stored.season_number is not None:
+        tokens.append(f"tvdb:{stored.tvdb_id}:s{stored.season_number}")
+    return tokens
+
+
+def was_redownloaded_after(
+    deletion_created_at: str, keys: Iterable[str], redownload_times: dict[str, str]
+) -> bool:
+    """Whether any of *keys* has a re-download newer than the deletion."""
+    last = max((redownload_times[k] for k in keys if k in redownload_times), default=None)
+    return bool(last and last > deletion_created_at)

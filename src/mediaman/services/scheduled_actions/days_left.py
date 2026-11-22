@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
+
+from mediaman.core.format import calendar_days_until
 
 
 def days_left(execute_at: datetime, now: datetime) -> int:
@@ -11,4 +13,4 @@ def days_left(execute_at: datetime, now: datetime) -> int:
     Calendar days, not elapsed time, so the count always agrees with the date shown beside it:
     0 means the deadline is later today, 1 means tomorrow. A deadline that has passed counts as 0.
     """
-    return max(0, (execute_at.astimezone(UTC).date() - now.astimezone(UTC).date()).days)
+    return max(0, calendar_days_until(execute_at, now))

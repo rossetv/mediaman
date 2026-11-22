@@ -138,6 +138,23 @@ def login_ip_key(username: str, client_ip: str) -> str:
     return f"{_LOGIN_IP_PREFIX}{_ip_bucket(client_ip)}{_NAMESPACE_MARK}{username}"
 
 
+def _log_fields(key: str) -> tuple[str, str, str]:
+    """Return ``(scope, bucket, username)`` of a counter *key*, ready for a log line.
+
+    The bucket is the IP bucket of a per-IP login key, ``-`` otherwise. Both
+    it and the username are escaped: the bucket of an address that does not
+    parse is the caller's own text.
+    """
+    if key.startswith(_LOGIN_IP_PREFIX):
+        bucket, _, name = key[len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)
+        return "login-ip", _sanitise_log_field(bucket), _sanitise_log_field(name)
+    if key.startswith(REAUTH_LOCKOUT_PREFIX):
+        return "reauth", "-", _sanitise_log_field(key[len(REAUTH_LOCKOUT_PREFIX) :])
+    if key.startswith(_ESCAPED_LOGIN_PREFIX):
+        return "login", "-", _sanitise_log_field(key[len(_ESCAPED_LOGIN_PREFIX) :])
+    return "login", "-", _sanitise_log_field(key)
+
+
 def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
     """Return every stored login counter key of *username*, across all IPs.
 
@@ -241,9 +258,13 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     # must not be able to escape the lock by garbling it.
     locked_until = parse_iso_strict_utc(raw_locked_until)
     if locked_until is None:
+        scope, bucket, name = _log_fields(username)
         logger.warning(
-            "auth.lockout_corrupt_locked_until user=%s locked_until=%r reason=fail_closed",
-            _sanitise_log_field(username),
+            "auth.lockout_corrupt_locked_until scope=%s user=%s ip=%s "
+            "locked_until=%r reason=fail_closed",
+            scope,
+            name,
+            bucket,
             raw_locked_until,
         )
         return True
@@ -379,17 +400,23 @@ def _apply_lockout(
                 "UPDATE login_failures SET locked_until = ? WHERE username = ?",
                 (_iso(now + timedelta(minutes=minutes)), username),
             )
+            scope, bucket, name = _log_fields(username)
             logger.warning(
-                "auth.account_locked user=%s count=%d minutes=%d",
-                _sanitise_log_field(username),
+                "auth.account_locked scope=%s user=%s ip=%s count=%d minutes=%d",
+                scope,
+                name,
+                bucket,
                 count,
                 minutes,
             )
         else:
+            scope, bucket, name = _log_fields(username)
             logger.info(
-                "auth.lock_window_unchanged user=%s count=%d minutes=%d "
+                "auth.lock_window_unchanged scope=%s user=%s ip=%s count=%d minutes=%d "
                 "reason=already_locked_no_escalation",
-                _sanitise_log_field(username),
+                scope,
+                name,
+                bucket,
                 count,
                 minutes,
             )

@@ -41,6 +41,7 @@ from mediaman.services.infra import (
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
@@ -123,7 +124,7 @@ def _settings_write_throttled(
     """
     if _SETTINGS_WRITE_LIMITER.check(admin):
         return None
-    logger.warning("settings.write_throttled user=%s", admin)
+    logger.warning("settings.write_throttled user=%s", _sanitise_log_field(admin))
     security_event(
         conn,
         event="settings.write.throttled",
@@ -145,7 +146,9 @@ def _settings_reauth_required(
     """
     sensitive_write = _touches_sensitive_keys(body_dict)
     if sensitive_write and not has_recent_reauth(conn, session_token, admin):
-        logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
+        logger.warning(
+            "settings.write_rejected user=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
         return respond_err(
             "reauth_required",
             status=403,
@@ -185,7 +188,7 @@ def _persist_settings(
             },
         )
     except sqlite3.Error:
-        logger.exception("settings.write failed user=%s", admin)
+        logger.exception("settings.write failed user=%s", _sanitise_log_field(admin))
         return respond_err(
             "internal_error", status=500, message="Internal error during settings write"
         )
@@ -250,7 +253,7 @@ def _resolve_tester_dispatch(
         payload, status_code = cached
         return None, JSONResponse(payload, status_code=status_code)
     if not _SETTINGS_TEST_LIMITER.check(admin):
-        logger.warning("rate_limit.throttled scope=actor actor=%s", admin)
+        logger.warning("rate_limit.throttled scope=actor actor=%s", _sanitise_log_field(admin))
         return None, respond_err(
             "too_many_requests",
             status=429,

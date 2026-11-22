@@ -29,6 +29,7 @@ from mediaman.web.auth.session_store import (
     validate_session,
 )
 from mediaman.web.cookies import is_request_secure, set_session_cookie
+from mediaman.web.models._common import _MAX_USERNAME_LEN
 from mediaman.web.responses import respond_err
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=_LOGIN_RATE_WINDOW_SECONDS
 # history page UI.  Cap attacker-controlled usernames in the audit detail
 # at this many chars to bound the log-row size and prevent a megabyte-
 # username from polluting the history page.
-_AUDIT_USERNAME_LIMIT = 64
+_AUDIT_USERNAME_LIMIT = _MAX_USERNAME_LEN
 
 
 def _ua_hash(user_agent: str) -> str:
@@ -131,7 +132,7 @@ def _flag_weak_password(
         if not already_flagged:
             logger.info(
                 "auth.weak_password_detected user=%s ip=%s — flagged for rotation",
-                username,
+                _sanitise_log_field(username),
                 client_ip,
             )
             security_event(
@@ -166,7 +167,7 @@ def login_submit(
         user_agent=user_agent,
         client_ip=client_ip,
     )
-    logger.info("auth.login_success user=%s ip=%s", username, client_ip)
+    logger.info("auth.login_success user=%s ip=%s", _sanitise_log_field(username), client_ip)
     security_event(
         conn,
         event="login.success",
@@ -227,7 +228,7 @@ def logout(request: Request) -> Response:
         _clear_session_cookie(stale_response, secure=secure)
         return stale_response
     destroy_session(conn, token)
-    logger.info("logout: session terminated for user=%s", username)
+    logger.info("logout: session terminated for user=%s", _sanitise_log_field(username))
     security_event(
         conn,
         event="logout",

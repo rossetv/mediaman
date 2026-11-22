@@ -101,6 +101,103 @@ def _consume_keep_token_and_apply(
     return None
 
 
+_FORM_ERROR_MESSAGES = {
+    "already_processed": "This link has already been used, so nothing more was changed.",
+    "invalid_or_expired": "This link is no longer valid. It may have expired or the deletion date may have passed.",
+}
+
+
+_DEFAULT_FORM_ERROR = "Something went wrong, so nothing was changed."
+
+
+def _wants_html_form(request: Request) -> bool:
+    """True for a browser submitting the keep page's plain HTML form."""
+    content_type = request.headers.get("content-type", "")
+    return content_type.startswith(
+        "application/x-www-form-urlencoded"
+    ) and "text/html" in request.headers.get("accept", "")
+
+
+def _submit_failure(
+    request: Request,
+    error: str,
+    status: int,
+    token: str = "",
+) -> Response:
+    """Answer a failed keep post: a readable page for a browser form, JSON otherwise.
+
+    A reused token whose item is now protected shows the protected page, since pressing
+    Keep twice (or going back and pressing it again) leaves the item kept.
+    """
+    if not _wants_html_form(request):
+        return respond_err(error, status=status)
+    templates = cast(Jinja2Templates, request.app.state.templates)
+    if error == "already_processed":
+        secret_key = request.app.state.config.secret_key
+        # Re-read the row: the one checked before the post may predate the keep.
+        row = lookup_verified_action(get_db(), token, secret_key)
+        if row is not None:
+            context = _keep_context(request, token, row, secret_key)
+            if context["state"] == "already_kept":
+                return templates.TemplateResponse(request, "keep.html", context, status_code=status)
+    return templates.TemplateResponse(
+        request,
+        "keep.html",
+        {
+            "state": "error",
+            "item": None,
+            "error_message": _FORM_ERROR_MESSAGES.get(error, _DEFAULT_FORM_ERROR),
+            "is_admin": _is_admin(request),
+        },
+        status_code=status,
+    )
+
+
+def _keep_context(
+    request: Request, token: str, row: VerifiedKeepAction, secret_key: str
+) -> dict[str, object]:
+    """Build the keep page's template context for a verified action."""
+    # Determine state.
+    now = now_utc()
+    execute_at = parse_execute_at(row.execute_at, default=now)
+
+    if row.delete_status == "deleting":
+        # Files may already be gone, so neither Keep nor "already kept" is true.
+        state = "deleting"
+    elif execute_at < now:
+        state = "expired"
+    elif row.token_used or row.action != "scheduled_deletion":
+        # A keep made elsewhere (Library, whole-show) converts the row and clears
+        # token_used, so the row's action says it is kept, not the flag.
+        state = "already_kept"
+    else:
+        state = "active"
+
+    # Format added_at for display (e.g. "14 May 2025"). The template
+    # consumes ``item.<field>`` attribute access, so the dataclass is
+    # converted to a plain dict here and the derived display field added.
+    item_dict = asdict(row)
+    item_dict["added_display"] = format_added_display(item_dict["added_at"])
+
+    # Computed here, not in the template: ``execute_at.today()`` is tz-naive and
+    # jitters across midnight.
+    days_left = _days_left(execute_at, now)
+
+    # The page is opened logged out from an email, so the poster needs a signed URL.
+    rating_key = item_dict.get("plex_rating_key")
+    poster_url = sign_poster_url(rating_key, secret_key) if rating_key else ""
+
+    return {
+        "state": state,
+        "item": item_dict,
+        "poster_url": poster_url,
+        "token": token,
+        "is_admin": _is_admin(request),
+        "execute_at": execute_at,
+        "days_left": days_left,
+    }
+
+
 @router.get("/keep/{token}", response_class=HTMLResponse)
 def keep_page(request: Request, token: str) -> HTMLResponse:
     conn = get_db()
@@ -133,48 +230,10 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             },
         )
 
-    # Determine state.
-    now = now_utc()
-    execute_at = parse_execute_at(row.execute_at, default=now)
-
-    if row.delete_status == "deleting":
-        # Files may already be gone, so neither Keep nor "already kept" is true.
-        state = "deleting"
-    elif execute_at < now:
-        state = "expired"
-    elif row.token_used or row.action != "scheduled_deletion":
-        # A keep made elsewhere (Library, whole-show) converts the row and clears
-        # token_used, so the row's action says it is kept, not the flag.
-        state = "already_kept"
-    else:
-        state = "active"
-
-    # Format added_at for display (e.g. "14 May 2025"). The template
-    # consumes ``item.<field>`` attribute access, so the dataclass is
-    # converted to a plain dict here and the derived display field added.
-    item_dict = asdict(row)
-    item_dict["added_display"] = format_added_display(item_dict["added_at"])
-
-    # Computed here, not in the template: ``execute_at.today()`` is tz-naive and
-    # jitters across midnight.
-    days_left = _days_left(execute_at, now)
-
-    # The page is opened logged out from an email, so the poster needs a signed URL.
-    rating_key = item_dict.get("plex_rating_key")
-    poster_url = sign_poster_url(rating_key, config.secret_key) if rating_key else ""
-
     return templates.TemplateResponse(
         request,
         "keep.html",
-        {
-            "state": state,
-            "item": item_dict,
-            "poster_url": poster_url,
-            "token": token,
-            "is_admin": _is_admin(request),
-            "execute_at": execute_at,
-            "days_left": days_left,
-        },
+        _keep_context(request, token, row, config.secret_key),
     )
 
 
@@ -204,18 +263,18 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
     if len(token) > 4096:
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # Reject unknown durations early; also reject "forever" — that lives on
     # the admin-only endpoint for privileged users only.
     if duration not in VALID_KEEP_DURATIONS or duration == "forever":
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # HMAC-verify the token and confirm it maps to an existing action.
     # Any failure here (bad signature, expired payload, row absent) → 400.
     verified = lookup_verified_action(conn, token, config.secret_key)
     if verified is None:
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     now = now_utc()
 
@@ -223,13 +282,13 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     # reject immediately with 409 so a sequential replay (after the scheduled_action
     # row's action has been updated) still gets the correct status code.
     if is_keep_token_consumed(conn, token_hash(token)):
-        return respond_err("already_processed", status=409)
+        return _submit_failure(request, "already_processed", 409, token)
 
     # Pre-flight: confirm the action is pending and the deadline has not
     # passed before entering the write transaction — avoids an empty write
     # on the "obviously expired" path.
     if not is_pending_unexpired(verified, now):
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
@@ -250,7 +309,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         audit_detail=f"Kept for {duration}",
     )
     if failure is not None:
-        return failure
+        return _submit_failure(request, "already_processed", 409, token)
 
     return RedirectResponse(f"/keep/{token}", status_code=302)
 

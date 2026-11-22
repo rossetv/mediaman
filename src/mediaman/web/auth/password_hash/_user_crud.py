@@ -25,6 +25,7 @@ from mediaman.web.auth._password_hash_helpers import (
     BCRYPT_ROUNDS,
     _LastUser,
     _prepare_bcrypt_input,
+    _sanitise_log_field,
 )
 from mediaman.web.auth.login_lockout import admin_unlock
 
@@ -131,7 +132,9 @@ def create_user(
         message = (exc.args[0] if exc.args else "").lower()
         if "unique" in message and "admin_users.username" in message:
             raise UserExistsError(f"User '{username}' already exists") from exc
-        logger.error("create_user integrity_error user=%s detail=%s", username, exc)
+        logger.error(
+            "create_user integrity_error user=%s detail=%s", _sanitise_log_field(username), exc
+        )
         raise
 
 
@@ -303,5 +306,7 @@ def delete_user(
 
         revoke_all_reauth_for(conn, target_username)
     except sqlite3.Error:  # pragma: no cover — never break flow on cleanup failure
-        logger.exception("delete_user reauth cleanup failed user=%s", target_username)
+        logger.exception(
+            "delete_user reauth cleanup failed user=%s", _sanitise_log_field(target_username)
+        )
     return True

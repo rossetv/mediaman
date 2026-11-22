@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.core.format import format_bytes
+from mediaman.core.format import format_bytes, title_from_audit_detail
 from mediaman.db import get_db
 from mediaman.scanner.repository.audit import (
     AuditRow,
@@ -114,9 +114,10 @@ def _build_item(r: AuditRow) -> dict[str, object]:
     else:
         resolved_title = r.mi_title or r.ks_title
         if not resolved_title and r.detail:
-            m = re.search(r"'([^']+)'", r.detail)
-            if m:
-                resolved_title = m.group(1)
+            resolved_title = title_from_audit_detail(r.detail, strict=True)
+            if resolved_title == "Unknown":
+                m = re.search(r"'([^']+)'", r.detail)
+                resolved_title = m.group(1) if m else resolved_title
         title = resolved_title or "Unknown"
         if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
             title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]

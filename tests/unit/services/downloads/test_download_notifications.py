@@ -1053,3 +1053,40 @@ class TestRadarrIndexBuiltOncePerTick:
         assert get_movies_call_count == 1, (
             f"Expected get_movies() called once, got {get_movies_call_count}"
         )
+
+
+class TestNoticeWithoutEmailAddress:
+    def test_row_queued_with_a_username_is_closed_without_sending(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        from unittest.mock import MagicMock
+
+        from mediaman.db import init_db
+        from mediaman.services.downloads.notifications import check_download_notifications
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
+        mailgun_stub = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.mail.mailgun.MailgunClient", lambda *a, **kw: mailgun_stub
+        )
+        row_id = insert_download_notification(conn, email="alice", title="Item", tmdb_id=1)
+        good_id = insert_download_notification(conn, email="bob@example.com", title="Ok", tmdb_id=2)
+
+        with caplog.at_level("WARNING"):
+            check_download_notifications(conn, secret_key="x" * 64)
+
+        notified = lambda i: conn.execute(  # noqa: E731
+            "SELECT notified FROM download_notifications WHERE id=?", (i,)
+        ).fetchone()["notified"]
+        assert notified(row_id) == 1
+        assert notified(good_id) != 1 or mailgun_stub.send.call_count == 1
+        for call in mailgun_stub.send.call_args_list:
+            assert call.kwargs["to"] != "alice"
+        assert "alice" not in caplog.text
+        assert sum("no email address" in r.message for r in caplog.records) == 1

@@ -849,3 +849,68 @@ class TestAdminUnlockWithAudit:
 
         assert result.was_locked is True
         assert self._audit_had_lock(conn) is True
+
+
+class TestLogInjection:
+    HOSTILE = "bob\r\nWARNING forged auth.line"
+
+    def test_locked_branch_cannot_start_a_new_log_line(self, conn, caplog):
+        for _ in range(5):
+            authenticate(conn, self.HOSTILE, "x", client_ip="203.0.113.5")
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            authenticate(conn, self.HOSTILE, "x", client_ip="203.0.113.5")
+        text = caplog.text
+        assert "auth.account_locked" in text
+        assert "\r" not in caplog.records[0].getMessage()
+        assert "\n" not in caplog.records[0].getMessage()
+
+    def test_per_ip_lock_logs_bucket_and_username_separately(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                record_failure(conn, login_ip_key("nobody", "203.0.113.5"))
+        msg = next(
+            r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()
+        )
+        assert "user=nobody" in msg
+        assert "ip=203.0.113.5" in msg
+
+    def test_ipv6_buckets_stay_distinct_in_the_log(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for ip in ("2001:db8:1::1", "2001:db8:2::1"):
+                for _ in range(5):
+                    record_failure(conn, login_ip_key("nobody", ip))
+        msgs = [r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()]
+        assert any("ip=2001:db8:1::/64" in m for m in msgs)
+        assert any("ip=2001:db8:2::/64" in m for m in msgs)
+
+    def test_reauth_lock_line_shows_the_plain_username(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                record_failure(conn, reauth_key("alice"))
+        msg = next(
+            r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()
+        )
+        assert "user=alice" in msg
+        assert "scope=reauth" in msg
+
+    def test_look_alike_usernames_log_differently(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for name in ("admin", "admin\u200b", "ad min"):
+                for _ in range(5):
+                    record_failure(conn, login_ip_key(name, "203.0.113.5"))
+        users = {
+            r.getMessage().split("user=")[1].split(" ")[0]
+            for r in caplog.records
+            if "auth.account_locked" in r.getMessage()
+        }
+        assert len(users) == 3
+
+    def test_unparsable_ip_cannot_split_a_log_line(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                record_failure(conn, login_ip_key("nobody", "1.2.3.4\nWARNING forged"))
+        msg = next(
+            r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()
+        )
+        assert "\n" not in msg

@@ -87,6 +87,9 @@
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
 .dl-arr-link { color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
+@media (max-width: 639.98px) {
+  .dl-arr-link { display: inline-flex; align-items: center; min-height: 40px; }
+}
 
 .dl-bar,
 .dl-hero-bar {
