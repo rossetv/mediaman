@@ -377,7 +377,7 @@ class DeletionExecutor:
 
         Pipeline:
         1. Recover stuck rows (skipped in dry-run — preview mutates nothing).
-        2. Dry-run: write a ``dry_run_skip`` audit per pending row and stop.
+        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete file on disk, commit audit + unmonitor.
         4. Clean up expired snoozes unless dry-run.
@@ -387,6 +387,8 @@ class DeletionExecutor:
         if self._dry_run:
             # Preview: record what *would* be deleted, mutate no state.
             for row in rows:
+                if is_kept_deletion(self._conn, row.id, now.isoformat()):
+                    continue
                 log_audit(
                     self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}"
                 )

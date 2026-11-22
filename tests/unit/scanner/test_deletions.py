@@ -78,6 +78,34 @@ class TestDryRun:
         assert row is not None
         assert row["action"] == "dry_run_skip"
 
+    @pytest.mark.parametrize("keep", ["forever", "show"])
+    def test_dry_run_leaves_a_kept_item_out_of_the_preview_and_cancels_nothing(
+        self, conn, tmp_path, keep
+    ):
+        insert_media_item(conn, id="kept", title="Kept", file_path=str(tmp_path / "k.mkv"))
+        insert_media_item(conn, id="due", title="Due", file_path=str(tmp_path / "d.mkv"))
+        _insert_pending_deletion(conn, media_id="kept")
+        _insert_pending_deletion(conn, media_id="due")
+        if keep == "show":
+            conn.execute("UPDATE media_items SET show_rating_key = 'show1' WHERE id = 'kept'")
+            insert_kept_show(conn, show_rating_key="show1", action="protected_forever")
+        else:
+            insert_scheduled_action(
+                conn, media_item_id="kept", action="protected_forever", token="tok-keep"
+            )
+        conn.commit()
+
+        DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+
+        previews = conn.execute(
+            "SELECT media_item_id FROM audit_log WHERE action = 'dry_run_skip'"
+        ).fetchall()
+        assert [r["media_item_id"] for r in previews] == ["due"]
+        assert conn.execute(
+            "SELECT 1 FROM scheduled_actions WHERE media_item_id = 'kept' "
+            "AND action = 'scheduled_deletion' AND delete_status = 'pending'"
+        ).fetchone()
+
 
 class TestNoAllowedRoots:
     def test_skips_deletion_when_roots_not_configured(self, conn, tmp_path, monkeypatch):
