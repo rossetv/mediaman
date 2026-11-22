@@ -415,7 +415,7 @@ def api_disk_usage(
     roots = disk_usage_allowed_roots()
     resolved = resolve_safe_readonly_path(path, roots)
     if resolved is None:
-        return respond_err("not_found", status=404)
+        return respond_err("not_found", status=404, message="Folder not found.")
 
     try:
         usage = shutil.disk_usage(str(resolved))
@@ -431,7 +431,7 @@ def api_disk_usage(
             }
         )
     except FileNotFoundError:
-        return respond_err("not_found", status=404)
+        return respond_err("not_found", status=404, message="Folder not found.")
     except OSError:
         logger.exception("Failed to read disk usage for %s", resolved)
         return respond_err("fetch_failed", message="Failed to read disk usage")

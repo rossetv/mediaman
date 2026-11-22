@@ -175,6 +175,7 @@ class TestDiskUsageAPI:
         resp = client.get("/api/settings/disk-usage?path=/nonexistent")
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
+        assert resp.json().get("message") == "Folder not found."
 
     def test_returns_error_for_nonexistent_allowlisted_path(
         self, app_factory, authed_client, conn, monkeypatch
@@ -191,6 +192,7 @@ class TestDiskUsageAPI:
 
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
+        assert resp.json().get("message") == "Folder not found."
 
     def test_rejects_symlink_path(self, app_factory, authed_client, conn, tmp_path, monkeypatch):
         """A path that is or contains a symlink is rejected with a generic 404."""
@@ -1302,6 +1304,24 @@ class TestConnectionTestsSayWhy:
         reply.json = _not_json
         fake_http.default(reply)
         _, resp = self._run(app_factory, authed_client, conn, fake_http, "nzbget")
+        assert resp.json() == {
+            "ok": False,
+            "error": "bad_reply",
+            "message": "The service sent a reply that wasn't recognised.",
+        }
+
+    @pytest.mark.parametrize("service", ["sonarr", "radarr"])
+    def test_arr_html_reply_is_not_recognised_rather_than_unreachable(
+        self, app_factory, authed_client, conn, fake_http, fake_response, service
+    ):
+        reply = fake_response(text="<html>proxy login</html>")
+
+        def _not_json():
+            raise requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+
+        reply.json = _not_json
+        fake_http.default(reply)
+        _, resp = self._run(app_factory, authed_client, conn, fake_http, service)
         assert resp.json() == {
             "ok": False,
             "error": "bad_reply",

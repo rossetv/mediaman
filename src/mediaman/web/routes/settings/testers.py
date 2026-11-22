@@ -153,6 +153,10 @@ def _test_connection_service(
         make_client(resolved).check_reachable()
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
+    except _requests.exceptions.JSONDecodeError:
+        # A 200 whose body isn't JSON (a proxy login page, a wrong port) is
+        # a reply we can't read, not an unreachable service.
+        return _failure("bad_reply", _BAD_REPLY)
     except _requests.RequestException as exc:
         if isinstance(exc, _requests.Timeout):
             return _failure("timeout", _TIMED_OUT)
