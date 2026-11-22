@@ -40,9 +40,7 @@ def _redownload_movie(
         message = f"Added '{title}' to Radarr"
     record_redownload(
         conn,
-        audit_id=_redownload_audit_id(
-            media_type="movie", tmdb_id=tmdb_id, tvdb_id=None, imdb_id=None
-        ),
+        audit_id=_redownload_audit_id(media_type="movie", tmdb_id=tmdb_id, tvdb_id=None),
         audit_detail=f"Re-downloaded '{title}' by {username}",
         actor=username,
         email=username,
