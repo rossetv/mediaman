@@ -7,7 +7,8 @@
  *   </div>
  *
  * Any element matching `.keep-trigger` or `.btn-sm-caret` toggles the dropdown
- * on its parent `.keep-wrapper`. Escape or outside-click closes.
+ * on its parent `.keep-wrapper`. Escape or outside-click closes. The menu opens
+ * downward or upward, whichever has the room between the fixed bars.
  */
 (function () {
   'use strict';
@@ -24,6 +25,48 @@
     }
   }
 
+  /* The room the menu may use: from under the sticky top bar to above the
+     fixed bottom tab bar, whichever of them are showing. */
+  function visibleBounds() {
+    var top = 0;
+    var bottom = window.innerHeight;
+    var bars = document.querySelectorAll('.nav-glass, .nav-topbar');
+    for (var i = 0; i < bars.length; i++) {
+      if (getComputedStyle(bars[i]).display !== 'none') {
+        top = Math.max(top, bars[i].getBoundingClientRect().bottom);
+      }
+    }
+    var tabs = document.querySelector('.nav-tabs');
+    if (tabs && getComputedStyle(tabs).display !== 'none') {
+      bottom = Math.min(bottom, tabs.getBoundingClientRect().top);
+    }
+    return { top: top, bottom: bottom };
+  }
+
+  /* Open downward unless the menu does not fit below and there is more room
+     above; then cap its height to the room on the chosen side. */
+  function place(wrapper) {
+    var menu = wrapper.querySelector('.snooze-dropdown');
+    if (!menu) return;
+    var gap = 12;
+    menu.style.maxHeight = '';
+    wrapper.classList.remove('opens-up');
+    var bounds = visibleBounds();
+    var rect = wrapper.getBoundingClientRect();
+    var below = bounds.bottom - rect.bottom - gap;
+    var above = rect.top - bounds.top - gap;
+    var need = menu.offsetHeight;
+    var up = need > below && above > below;
+    wrapper.classList.toggle('opens-up', up);
+    var room = Math.max(up ? above : below, 80);
+    if (need > room) menu.style.maxHeight = room + 'px';
+  }
+
+  function placeOpen() {
+    var open = document.querySelector('.keep-wrapper.is-open');
+    if (open) place(open);
+  }
+
   function toggle(wrapper) {
     var open = !wrapper.classList.contains('is-open');
     closeAll(wrapper);
@@ -31,6 +74,7 @@
     var trigger = wrapper.querySelector(TRIGGER_SELECTOR);
     if (trigger) trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) {
+      place(wrapper);
       var first = wrapper.querySelector('.snooze-dropdown .snooze-option');
       if (first) first.focus();
     }
@@ -51,6 +95,11 @@
       closeAll(null);
     }
   });
+
+  window.addEventListener('resize', placeOpen);
+  window.addEventListener('scroll', placeOpen, { passive: true });
+
+  window.SnoozeMenu = { closeAll: closeAll };
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {

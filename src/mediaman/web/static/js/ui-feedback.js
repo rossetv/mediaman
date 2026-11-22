@@ -50,6 +50,30 @@
     });
     node.textContent = message;
     host.appendChild(node);
+    // At most three at once, and never a stack taller than the host's
+    // height budget. The oldest non-error goes first; an error only goes
+    // (with its normal fade) when nothing else is left to drop.
+    var live = function () {
+      return Array.prototype.filter.call(host.children, function (c) {
+        return !c.classList.contains('is-leaving');
+      });
+    };
+    var kids = live();
+    while (kids.length > 1 &&
+           (kids.length > 3 ||
+            (kids.length === host.children.length && host.scrollHeight > host.clientHeight))) {
+      var victim = kids.filter(function (c) {
+        return !c.classList.contains('ui-toast--error');
+      })[0] || kids[0];
+      if (victim.classList.contains('ui-toast--error')) {
+        victim.classList.add('is-leaving');
+        victim.classList.remove('is-visible');
+        setTimeout(function (v) { if (v.parentNode) v.parentNode.removeChild(v); }, 250, victim);
+      } else {
+        host.removeChild(victim);
+      }
+      kids = live();
+    }
     // Animate in on next frame
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || 4000;

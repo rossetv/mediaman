@@ -153,6 +153,7 @@
     pathInput.type = 'text';
     pathInput.placeholder = '/media/movies';
     pathInput.value = cfg.path || '';
+    pathInput.setAttribute('aria-label', 'Filesystem path, ' + lib.title);
     pathInput.dataset.field = 'path';
     pathFld.appendChild(pathLbl);
     pathFld.appendChild(pathInput);
@@ -171,6 +172,7 @@
     thrInput.min = '0';
     thrInput.max = '100';
     thrInput.value = cfg.threshold || 0;
+    thrInput.setAttribute('aria-label', 'Scan above percent used, ' + lib.title);
     thrInput.dataset.field = 'threshold';
     thrWrap.appendChild(thrInput);
     var unit = document.createElement('span');
@@ -204,7 +206,7 @@
           if (data.error) { paintState(card, 'err', threshold, data.error); return; }
           paintState(card, null, threshold, null, data.usage_pct);
         })
-        .catch(function () { paintState(card, 'err', threshold, 'Fetch error'); });
+        .catch(function (err) { paintState(card, 'err', threshold, (err && err.message) || 'Fetch error'); });
     }
     pathInput.addEventListener('blur', refresh);
     thrInput.addEventListener('change', refresh);

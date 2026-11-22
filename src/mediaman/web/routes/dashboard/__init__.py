@@ -17,6 +17,7 @@ from starlette.responses import Response
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
+from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
 from mediaman.web.routes.dashboard._data import (
@@ -42,6 +43,15 @@ def dashboard_page(request: Request) -> Response:
     recently_deleted = _fetch_recently_deleted(conn, config.secret_key)
     storage = _fetch_storage_stats(conn)
 
+    plex_configured = plex_is_configured(conn)
+    # Without Plex the card is hidden only when it has nothing to show.
+    show_storage = plex_configured or bool(
+        storage["total_bytes"]
+        or storage["movies_bytes"]
+        or storage["tv_bytes"]
+        or storage["anime_bytes"]
+    )
+
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
     scheduled_size = format_bytes(
@@ -62,6 +72,8 @@ def dashboard_page(request: Request) -> Response:
             "username": username,
             "nav_active": "dashboard",
             "storage": storage,
+            "plex_configured": plex_configured,
+            "show_storage": show_storage,
             "scheduled_items": scheduled_items,
             "scheduled_count": scheduled_count,
             "scheduled_size": scheduled_size,

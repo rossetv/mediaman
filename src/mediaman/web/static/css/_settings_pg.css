@@ -145,7 +145,7 @@
 @media (max-width: 720px) {
   .setg-pg .setg-block-hd .sub { text-align: left; width: 100%; }
 }
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   /* Tighten vertical rhythm so sections don't feel marooned on phones. */
   .setg-pg .setg-body .ph { padding: 14px 0 4px; }
   .setg-pg .setg-body .ph h1 { font-size: 30px; line-height: 1.12; }
@@ -177,6 +177,9 @@
 .setg-pg .setg-card-hd .btn { font-size: 12px; padding: 6px 14px; }
 .setg-pg .setg-card-bd { padding: 6px 24px; }
 .setg-pg .setg-card-bd--pad { padding: 22px 24px; }
+/* A card whose only content is a hidden panel shows just its header. */
+.setg-pg .setg-card-bd:has(> [hidden]:only-child) { display: none; }
+.setg-pg .setg-card-hd:has(+ .setg-card-bd > [hidden]:only-child) { border-bottom: 0; }
 
 .setg-pg .setg-row {
   display: grid;
@@ -190,7 +193,7 @@
 .setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 639.98px) {
   .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
   .setg-pg .setg-row > :last-child { width: 100%; }
 }
@@ -207,7 +210,7 @@
 }
 .setg-pg .inp:focus { border-color: var(--accent); background: var(--s3); }
 .setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
-.setg-pg .inp::placeholder { color: var(--t4); }
+.setg-pg .inp::placeholder { color: var(--t3); }
 .setg-pg select.inp {
   cursor: pointer; padding-right: 34px; appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
@@ -249,7 +252,7 @@
 .setg-pg .fld-sub a { color: var(--accent); }
 .setg-pg .fld-row { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
 .setg-pg .fld-row--full { grid-template-columns: 1fr; }
-@media (max-width: 640px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
+@media (max-width: 639.98px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
 
 .setg-pg .tog {
   position: relative; width: 44px; height: 26px;
@@ -286,9 +289,12 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair-strong);
   transform: translateY(100%);
-  transition: transform .25s cubic-bezier(.2,.8,.2,1);
+  /* Off-screen is not hidden: without visibility the "Unsaved changes" text
+     and both buttons stay readable and tabbable while nothing is edited. */
+  visibility: hidden;
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s .25s;
 }
-.setg-pg .savebar.on { transform: translateY(0); }
+.setg-pg .savebar.on { transform: translateY(0); visibility: visible; transition-delay: 0s; }
 .setg-pg .savebar .sb-inner {
   max-width: 1180px; margin: 0 auto;
   display: flex; align-items: center; gap: 14px;
@@ -321,7 +327,7 @@
   max-width: 60ch;
   line-height: 1.35;
 }
-@media (max-width: 700px) {
+@media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
   .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
@@ -384,3 +390,17 @@
 .setg-pg .disk-badge.ok   { color: var(--success); background: rgba(48,209,88,.12); }
 .setg-pg .disk-badge.warn { color: var(--warning); background: rgba(255,214,10,.12); }
 .setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
+
+/* Phone tap targets: a 40px hit area on the settings controls, with the look
+   unchanged where it is the pill or switch itself that stays small. */
+@media (max-width: 639.98px) {
+  .setg-pg .setg-rail-item { min-height: 40px; }
+  .setg-pg .btn-test { min-height: 40px; }
+  .setg-pg .tog::before,
+  .setg-pg .inp-reveal::before { content: ""; position: absolute; inset: -7px -4px; }
+  /* Helper-text links: the extra height goes below the line, not onto the input above. */
+  .setg-pg .fld-sub a,
+  .setg-pg .setg-row-sub a { position: relative; }
+  .setg-pg .fld-sub a::before,
+  .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
+}

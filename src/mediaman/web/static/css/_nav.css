@@ -192,6 +192,7 @@
 @media (max-width: 699.98px) {
   .nav-glass { display: none; }
   .nav-topbar { display: flex; }
+  .nav-topbar .brand { display: inline-flex; align-items: center; min-height: 40px; }
   .nav-tabs   { display: flex; }
   /* Reserve room for the bottom tab bar so content isn't hidden under it. */
   .container,
@@ -203,3 +204,21 @@
   .dl-expired { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 }
 
+
+/* Tablet: 40px tap height on the top bar links. */
+@media (min-width: 700px) and (max-width: 1023.98px) {
+  .nav-btn,
+  .nav-links a,
+  .nav-links button { min-height: 40px; }
+}
+
+/* Narrow tablet: tighten the rail so every link shows in full at the
+   page's own 13px, instead of Logout scrolling out of sight. The padding is
+   small enough that a 15px classic scrollbar at 700px still leaves room. */
+@media (min-width: 700px) and (max-width: 899.98px) {
+  .nav-glass { gap: 10px; padding: 0 12px; }
+  .nav-links { gap: 2px; margin-left: 0; }
+  .nav-btn,
+  .nav-links a,
+  .nav-links button { padding: 7px; }
+}

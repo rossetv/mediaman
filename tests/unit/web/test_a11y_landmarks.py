@@ -230,3 +230,26 @@ def test_keep_page_does_not_offer_forever_button():
     assert 'value="forever"' not in keep
     # And the admin-only label is gone.
     assert 'Keep <span class="duration">forever</span>' not in keep
+
+
+def test_settings_save_status_is_a_live_region():
+    """A save confirmation in the bar must be spoken, not only shown."""
+    assert 'id="save-status" role="status"' in _tpl("settings.html")
+
+
+def test_disk_threshold_inputs_name_their_library():
+    """The JS-built path and threshold inputs have no visible <label>, so each
+    needs an aria-label that says which library it belongs to."""
+    js = (REPO / "src/mediaman/web/static/js/settings/disk_thresholds.js").read_text("utf-8")
+    assert "pathInput.setAttribute('aria-label', 'Filesystem path, ' + lib.title)" in js
+    assert "thrInput.setAttribute('aria-label'" in js
+    assert "lib.title" in js.split("thrInput.setAttribute('aria-label'")[1].split("\n")[0]
+
+
+def test_savebar_ignores_the_add_subscriber_row():
+    """The subscriber email has its own Add button and is not a saved setting."""
+    js = (REPO / "src/mediaman/web/static/js/settings/savebar.js").read_text("utf-8")
+    assert ".sub-add" in js
+    # Nothing the savebar sends may live inside .sub-add.
+    sub_add = _tpl("settings/_sec_newsletter.html").split('class="sub-add"')[1].split("</div>")[0]
+    assert "data-field" not in sub_add and 'name="' not in sub_add

@@ -64,7 +64,7 @@
           .catch(function (err) {
             // MM.api rejects on ok:false too; distinguish connection errors
             // from a well-formed failure response.
-            var label = (err && err.error) || 'Connection failed';
+            var label = (err && err.message) || 'Connection failed';
             self.setConnStatus(service, 'err', label);
             if (btn) btn.textContent = 'Failed';
           })
@@ -110,13 +110,12 @@
                 self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (data.error || 'Error'));
               })
               .catch(function (err) {
-                // err is an APIError with .status, .message, .error. 429 is the
+                // err is an APIError with .status and .message. 429 is the
                 // common case here; staggering above reduces occurrences, but
                 // show it distinctly if it still fires.
                 var label;
                 if (err && err.status === 429)         label = 'Rate limited';
                 else if (err && err.message)           label = err.message;
-                else if (err && err.error)             label = err.error;
                 else                                   label = 'Connection failed';
                 self.setConnStatus(c.service, 'err', label);
               });

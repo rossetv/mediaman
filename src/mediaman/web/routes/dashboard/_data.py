@@ -306,6 +306,7 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     return {
         "used": format_bytes(used),
         "total": format_bytes(total),
+        "total_bytes": total,
         "free": format_bytes(free),
         "movies_bytes": movies_bytes,
         "tv_bytes": tv_bytes,

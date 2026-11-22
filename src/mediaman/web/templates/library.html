@@ -74,7 +74,7 @@
   {# Table #}
   {% if items %}
   <div class="card card--bordered">
-    <table class="tbl">
+    <table class="tbl tbl--lib">
       <thead>
         <tr>
           <th class="col-thumb"></th>
@@ -122,6 +122,7 @@
             <div class="sub">
               {{ item.subtitle }}
               {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}
+              <span class="lib-sub-watched"> · {% if item.last_watched %}watched {{ item.last_watched }}{% else %}<span class="text-danger">never watched</span>{% endif %}</span>
             </div>
           </td>
           <td>
@@ -132,7 +133,7 @@
             {% if item.last_watched %}{{ item.last_watched }}{% else %}<span class="text-danger">Never</span>{% endif %}
           </td>
           <td class="u-tar">
-            <div class="u-flex u-jc-end u-gap-sm">
+            <div class="u-flex u-jc-end u-gap-sm lib-row-actions">
               {% if item.protected %}
               <div class="keep-wrapper"
                 data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
@@ -198,7 +199,7 @@
   {# Pagination #}
   <div class="pagination">
     {% if page > 1 %}
-    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page - 1 }}&per_page={{ per_page }}">‹</a>
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q | urlencode }}&type={{ current_type | urlencode }}&sort={{ current_sort | urlencode }}&page={{ page - 1 }}&per_page={{ per_page }}">‹</a>
     {% else %}
     <button class="page-btn disabled" disabled>‹</button>
     {% endif %}
@@ -207,7 +208,7 @@
       {% if p == page %}
       <button class="page-btn active">{{ p }}</button>
       {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
-      <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
+      <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q | urlencode }}&type={{ current_type | urlencode }}&sort={{ current_sort | urlencode }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
       {% elif p == 4 and page > 5 %}
       <span class="page-btn page-btn--ellipsis">…</span>
       {% elif p == total_pages - 3 and page < total_pages - 4 %}
@@ -218,7 +219,7 @@
     <span class="page-info">{{ page_start }}–{{ page_end }} of {{ total }}</span>
 
     {% if page < total_pages %}
-    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page + 1 }}&per_page={{ per_page }}">›</a>
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q | urlencode }}&type={{ current_type | urlencode }}&sort={{ current_sort | urlencode }}&page={{ page + 1 }}&per_page={{ per_page }}">›</a>
     {% else %}
     <button class="page-btn disabled" disabled>›</button>
     {% endif %}
@@ -226,8 +227,16 @@
 
   {% else %}
   {# Empty state #}
-  {% set _empty_headline = "No results" if (q or current_type) else "Your library is empty" %}
-  {% set _empty_sub = "Try adjusting your search or filters." if (q or current_type) else "Run a scan to pull in media from Plex." %}
+  {% if q or current_type %}
+  {% set _empty_headline = "No results" %}
+  {% set _empty_sub = "Try adjusting your search or filters." %}
+  {% elif not plex_configured %}
+  {% set _empty_headline = "Connect Plex to get started" %}
+  {% set _empty_sub = '<a href="/settings">Open Settings</a> to add your Plex URL and token.' %}
+  {% else %}
+  {% set _empty_headline = "Your library is empty" %}
+  {% set _empty_sub = "Run a scan to pull in media from Plex." %}
+  {% endif %}
   {{ c.empty(_empty_headline, sub=_empty_sub) }}
   {% endif %}
 

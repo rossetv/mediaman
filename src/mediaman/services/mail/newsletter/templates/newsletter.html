@@ -98,14 +98,14 @@
 
   .mm-email .deleted-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
   .mm-email .deleted-strip .del { text-align:left; }
-  .mm-email .deleted-strip .poster { width:100%; aspect-ratio:2/3; }
+  .mm-email .deleted-strip .poster { width:100%; height:auto; aspect-ratio:2/3; }
   .mm-email .deleted-strip .item-title { font-size:12px; margin-top:6px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
   .mm-email .deleted-strip .item-meta { font-size:10px; margin-top:2px; }
   .mm-email .deleted-strip .btn-ghost { font-size:10px; padding:4px 8px; margin-top:6px; display:block; }
 
   .mm-email .rec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 12px; }
   .mm-email .rec-card { text-align:left; display:flex; flex-direction:column; }
-  .mm-email .rec-card .poster { width:100%; aspect-ratio:2/3; }
+  .mm-email .rec-card .poster { width:100%; height:auto; aspect-ratio:2/3; }
   .mm-email .rec-card .item-title { font-size:13px; margin-top:7px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
   .mm-email .rec-card .item-meta { font-size:11px; margin-top:2px; }
   .mm-email .rec-card .rec-reason { font-size:11px; color:rgba(255,255,255,0.4); margin-top:3px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; flex:1; }
@@ -366,7 +366,7 @@
               {% for item in deleted_items %}
               <div class="del">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="100" height="150">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
@@ -389,7 +389,7 @@
               {% for item in trending_items %}
               <div class="rec-card">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
@@ -421,7 +421,7 @@
               {% for item in personal_items %}
               <div class="rec-card">
                 {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="">
+                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
                 {% else %}
                 <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}

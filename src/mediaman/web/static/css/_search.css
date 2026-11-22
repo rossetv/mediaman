@@ -15,6 +15,8 @@
   border: 1px solid var(--hair);
   transition: border-color .15s, background .15s;
 }
+/* Error / empty state under the search box. */
+#shelves .empty { margin-top: 24px; }
 .search-box:focus-within,
 .search-wrap:focus-within { border-color: var(--accent); background: var(--s3); }
 

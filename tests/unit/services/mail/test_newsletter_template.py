@@ -184,3 +184,24 @@ def test_header_counts_down_to_the_soonest_deadline(env: Environment) -> None:
 
     countdown = re.search(r'class="hero-countdown">(.*?)</div>', html).group(1)
     assert "9 days left" in countdown
+
+
+def test_every_poster_image_declares_its_size(env: Environment) -> None:
+    """Mail clients that drop the stylesheet still need a width and height."""
+    html = env.get_template("newsletter.html").render(**_full_context())
+    imgs = re.findall(r"<img\b[^>]*>", html)
+    posters = [tag for tag in imgs if 'class="poster"' in tag]
+    assert posters
+    for tag in posters:
+        assert re.search(r'\swidth="\d+"', tag), tag
+        assert re.search(r'\sheight="\d+"', tag), tag
+
+
+def test_fluid_posters_keep_their_two_by_three_shape(env: Environment) -> None:
+    """The height attribute would otherwise beat aspect-ratio and crop posters wide."""
+    html = env.get_template("newsletter.html").render(**_full_context())
+    for parent in ("deleted-strip", "rec-card"):
+        rule = re.search(r"\.mm-email \." + parent + r" \.poster \{([^}]*)\}", html)
+        assert rule, parent
+        assert "height:auto" in rule.group(1), parent
+        assert "aspect-ratio:2/3" in rule.group(1), parent

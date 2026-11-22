@@ -32,11 +32,48 @@
   function markDirty() { if (savebar) savebar.classList.add('on'); }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
-  // The send-newsletter panel contains ephemeral recipient checkboxes that
-  // are not persisted settings, so changes inside it must not mark dirty.
-  function isSettingsInput(el) {
-    return el.closest('.setg-pg') && !el.closest('#newsletter-send-panel');
+  // The last settings control the user edited, so focus lost to the hiding
+  // bar can go back to where they were working.
+  var lastEdited = null;
+
+  // The bar hides after a save. Only a keyboard save restores focus, since a
+  // pointer user has no focus to lose and a refocus would scroll them back or
+  // raise a phone keyboard. Focus already moved elsewhere is left alone; focus
+  // lost to the body or the bar returns to the last edited control, or to the
+  // page heading when that cannot take focus.
+  function settleAfterSave(fromKeyboard) {
+    markClean();
+    if (!fromKeyboard) return;
+    var active = document.activeElement;
+    var lost = !active || active === document.body || (savebar && savebar.contains(active));
+    if (!lost) return;
+    if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
+      lastEdited.focus();
+      if (document.activeElement === lastEdited) return;
+    }
+    var heading = document.querySelector('.setg-pg h1');
+    if (!heading) return;
+    heading.setAttribute('tabindex', '-1');
+    heading.focus();
   }
+
+  // The send-newsletter panel holds ephemeral recipient checkboxes, and the
+  // account forms (add user, password, email) and the add-subscriber row have
+  // their own buttons. None of them are saved settings, so changes inside
+  // them must not mark dirty.
+  function isSettingsInput(el) {
+    return el.closest('.setg-pg') &&
+      !el.closest('#newsletter-send-panel, .inline-form, .sub-add');
+  }
+
+  // Plain wording for the codes the settings route sends without a message.
+  var SAVE_ERROR_WORDS = {
+    ssrf_blocked: 'One of the addresses points somewhere mediaman may not connect to.',
+    invalid_url: 'One of the addresses is not a valid http or https URL.',
+    url_too_long: 'One of the addresses is too long.',
+    too_many_requests: 'Too many saves — slow down for a moment.',
+    settings_decrypt_failed: 'Saved secrets could not be read — check the secret key.',
+  };
 
   // Turn FastAPI 422 bodies into a one-line human summary.
   function summariseSaveError(data, statusCode) {
@@ -49,7 +86,8 @@
       }).join(' · ');
     }
     if (data && typeof data.detail === 'string') return data.detail;
-    if (data && data.error) return data.error;
+    if (data && data.message) return data.message;
+    if (data && data.error) return SAVE_ERROR_WORDS[data.error] || 'Save failed (' + data.error + ')';
     if (statusCode === 429) return 'Too many saves — slow down for a moment.';
     return 'Save failed (HTTP ' + (statusCode || '?') + ')';
   }
@@ -67,10 +105,10 @@
     var statusEl  = document.getElementById('save-status');
 
     document.addEventListener('input', function (e) {
-      if (isSettingsInput(e.target)) markDirty();
+      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
     document.addEventListener('change', function (e) {
-      if (isSettingsInput(e.target)) markDirty();
+      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
 
     function setSaveError(msg) {
@@ -95,13 +133,21 @@
     // payload without duplicating response-bookkeeping. Routes through
     // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
     // flow are applied consistently.
-    function runSave(payload) {
+    function runSave(payload, fromKeyboard) {
       if (!saveBtn) return;
+      // Disabling the button blurs it, so note now whether focus was in the bar.
+      var hadFocus = savebar && savebar.contains(document.activeElement);
       saveBtn.disabled = true;
       clearSaveError();
       var orig = 'Save Settings';
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
+
+      // After a failure the button is the way back in, so give it focus again.
+      function reenable() {
+        saveBtn.disabled = false;
+        if (hadFocus) saveBtn.focus();
+      }
 
       MM.reauth.run(function () {
         return MM.api.put('/api/settings', payload);
@@ -119,7 +165,7 @@
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(markClean, 600);
+            setTimeout(function () { settleAfterSave(fromKeyboard); }, 600);
             refreshOverviewHero();
             setTimeout(function () {
               saveBtn.textContent = orig;
@@ -133,7 +179,7 @@
 
           // Unexpected envelope — surface as a save error.
           setSaveError(summariseSaveError(data, 200));
-          saveBtn.disabled = false;
+          reenable();
         })
         .catch(function (err) {
           // MM.reauth.run() rejects with 'reauth_cancelled' when the user
@@ -141,7 +187,7 @@
           // error. All other rejections are APIError instances from MM.api.
           if (err && err.error === 'reauth_cancelled') {
             setSaveError('Save cancelled — re-authentication required.');
-            saveBtn.disabled = false;
+            reenable();
             return;
           }
           if (err && err.status) {
@@ -149,13 +195,18 @@
             // read detail / error fields that MM.api.APIError already parsed.
             setSaveError(summariseSaveError(err.data || {}, err.status));
           } else {
-            setSaveError("Couldn't reach the server — check your connection and try again.");
+            // Status 0 is a request that never reached the server; its
+            // message is the shared network wording.
+            setSaveError((err && err.message) || 'Save failed — try again.');
           }
-          if (saveBtn) saveBtn.disabled = false;
+          reenable();
         });
     }
 
-    if (saveBtn) saveBtn.addEventListener('click', function () { runSave(getPayload()); });
+    if (saveBtn) saveBtn.addEventListener('click', function (e) {
+      // A click from Enter or Space on the button has detail 0; a pointer click has 1 or more.
+      runSave(getPayload(), e.detail === 0);
+    });
 
     // Clear error chrome whenever the user starts typing again.
     document.addEventListener('input', function () {

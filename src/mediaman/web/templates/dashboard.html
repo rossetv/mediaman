@@ -42,6 +42,7 @@
      {color, value} schema that doesn't fit, so we keep the inline markup.
      TODO: macro c.storage needs a "structured num" + class-based legend
      option for this site. #}
+  {% if show_storage %}
   <section class="section">
     {{ c.sec_hd("Storage", "Across your selected libraries") }}
     <div class="storage">
@@ -63,6 +64,7 @@
       </div>
     </div>
   </section>
+  {% endif %}
 
   {# Scheduled for deletion — tile grid using new primitives #}
   <section class="section">
@@ -106,6 +108,9 @@
       {% endcall %}
       {% endfor %}
     </div>
+    {% elif not plex_configured %}
+    {{ c.empty("Connect Plex to get started",
+               sub='<a href="/settings">Open Settings</a> to add your Plex URL and token.') }}
     {% else %}
     {{ c.empty("Nothing scheduled for deletion",
                sub="Library is healthy — next scan will look again.") }}
@@ -126,7 +131,7 @@
         <div class="ditem-thumb">
           {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy">{% endif %}
         </div>
-        <div>
+        <div class="ditem-body">
           <div class="u-fwm">{{ item.title }}</div>
           <div class="u-small">Deleted {{ item.deleted_ago }}</div>
         </div>

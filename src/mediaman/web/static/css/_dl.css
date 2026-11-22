@@ -413,3 +413,19 @@
   margin-top: 18px;
   justify-content: flex-end;
 }
+
+/* Phone: the hero poster sits above the info so long titles get the full
+   width, and a row's abandon button gets its own column beside the percentage. */
+@media (max-width: 639.98px) {
+  .dl-hero { padding: 20px; }
+  .dl-hero-content { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .dl-hero-poster { width: 110px; }
+  .dl-hero-info { width: 100%; }
+  .dl-hero-title { overflow-wrap: anywhere; }
+  .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
+  .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
+  .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
+  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -20px; }
+  .dl-hero-episodes-toggle,
+  .dl-compact-episodes-toggle { min-height: 40px; }
+}

@@ -76,11 +76,7 @@
         }
       })
       .catch(function(err) {
-        if (err instanceof MM.api.APIError) {
-          showResult(false, err.message || 'Download failed');
-        } else {
-          showResult(false, 'Network error — please try again');
-        }
+        showResult(false, (err instanceof MM.api.APIError && err.message) || 'Something went wrong. Try again.');
       });
   }
 

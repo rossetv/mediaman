@@ -104,6 +104,8 @@
 .scan-status { font-size: 12px; color: var(--t3); margin-left: 8px; }
 .scan-status a { color: var(--accent); }
 .scan-status--success { color: var(--success); }
+.scan-status--error { color: var(--danger); }
+.scan-status:empty { display: none; }
 .scan-dots { display: inline-flex; gap: 3px; }
 .scan-dots span { animation: pulse-dot 1.2s infinite; }
 .scan-dots span:nth-child(2) { animation-delay: .15s; }
@@ -111,14 +113,18 @@
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
 .pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
   border-radius: var(--r-pill);
   letter-spacing: -.01em;
+  white-space: nowrap;
+  /* A long label ends in an ellipsis instead of widening its container. */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .pill--movie  { background: var(--rgba-orange-bg);  color: var(--orange); }
 .pill--tv     { background: rgba(41,151,255,.18);   color: var(--accent); }
@@ -180,8 +186,18 @@
 .fpill--kept.on  { background: var(--success); color: #002210; }
 .fpill--stale.on { background: var(--danger); color: #2a0706; }
 
-/* Mobile touch target — a 44px minimum hit area
-   for filter pills below the phone/tablet split. */
-@media (max-width: 639px) {
+/* Mobile touch target — a 44px minimum hit area for filter pills up to the
+   width where the bottom nav gives way to the top nav. */
+@media (max-width: 699.98px) {
   .fpill { min-height: 44px; }
+}
+
+/* Phone tap targets: a 40px hit area on small buttons and the keep menu. */
+@media (max-width: 639.98px) {
+  .btn { min-height: 40px; }
+  .btn.btn--icon { width: 40px; height: 40px; flex-shrink: 0; }
+  .keep-trigger { height: 40px; }
+  /* Links inside empty-state text get a larger hit area without moving the text. */
+  .empty p a { position: relative; }
+  .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
 }

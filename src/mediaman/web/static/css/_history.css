@@ -11,7 +11,16 @@
 }
 /* Card variant for history list — no top/bottom padding so rows extend edge-to-edge */
 .card--hist { padding: 0 24px; }
-.hist-date { font-family: var(--font-text); font-size: 13px; color: var(--t3); letter-spacing: -.01em; }
+.hist-date { font-family: var(--font-text); font-size: 13px; color: var(--t3); letter-spacing: -.01em; white-space: nowrap; }
 .hist-msg { font-size: 14px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 .hist-msg b { font-weight: 500; }
 .hist-type { color: var(--t3); font-size: 13px; }
+/* The badge column never takes more than this, whatever the action name. */
+.hist > .hist-type { min-width: 0; max-width: min(240px, 100%); }
+
+/* Phone: date and badge share a row; the message takes the full width below. */
+@media (max-width: 639.98px) {
+  .hist { grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+  .hist > .hist-type { justify-self: end; }
+  .hist-msg { grid-column: 1 / -1; grid-row: 2; }
+}

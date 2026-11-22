@@ -31,6 +31,7 @@
     var el = document.getElementById('scan-status');
     if (!el) return;
     el.textContent = '';
+    el.classList.remove('scan-status--error', 'scan-status--success');
     if (!msg) return;
     el.appendChild(document.createTextNode(msg + ' '));
     var dots = document.createElement('span');
@@ -67,6 +68,7 @@
             btn.disabled = false;
             var skipEl = document.getElementById('scan-status');
             if (skipEl) {
+              skipEl.classList.remove('scan-status--error', 'scan-status--success');
               skipEl.textContent = 'Scan skipped: ' +
                 (data.reason === 'Plex not configured' ? 'Plex is not configured' : data.reason) + '. ';
               var link = document.createElement('a');
@@ -79,7 +81,11 @@
             btn.textContent = 'Scan now';
             btn.disabled = false;
             var errEl = document.getElementById('scan-status');
-            if (errEl) errEl.textContent = 'Scan failed: ' + (data.reason || 'unknown error');
+            if (errEl) {
+              errEl.classList.remove('scan-status--success');
+              errEl.classList.add('scan-status--error');
+              errEl.textContent = 'Scan failed: ' + (data.reason || 'unknown error');
+            }
           } else {
             btn.classList.remove('scan-running');
             btn.classList.add('is-success');
@@ -101,6 +107,8 @@
             btn.disabled = false;
             var lostEl = document.getElementById('scan-status');
             if (lostEl) {
+              lostEl.classList.remove('scan-status--success');
+              lostEl.classList.add('scan-status--error');
               lostEl.textContent = 'Lost track of the scan. Refresh to check its status.';
             }
             return;
@@ -152,16 +160,10 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        if (err instanceof MM.api.APIError) {
-          var msg = err.message || 'Failed';
-          btn.textContent = msg.length < 30 ? msg : 'Failed';
-          btn.classList.add('is-error');
-          btn.disabled = false;
-        } else {
-          btn.textContent = 'Error';
-          btn.classList.add('is-error');
-          btn.disabled = false;
-        }
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Failed';
+        btn.textContent = msg.length < 30 ? msg : 'Failed';
+        btn.classList.add('is-error');
+        btn.disabled = false;
       });
   }
 
@@ -189,7 +191,7 @@
         setTimeout(function () { window.location.reload(); }, data.already_deleting ? 4000 : 1000);
       })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Try again.';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't clear scheduled deletions. " + msg);
         btn.disabled = false;
         btn.textContent = label;
@@ -215,7 +217,7 @@
         window.location.reload();
       })
       .catch(function (err) {
-        var msg = (err && err.message) || 'Try again.';
+        var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't save keep. " + msg);
       });
   }

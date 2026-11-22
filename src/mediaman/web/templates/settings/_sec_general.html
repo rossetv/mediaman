@@ -5,7 +5,7 @@
 
   {% call c.setg_card(title="Application", sub="Where Mediaman is reachable from subscribers' email clients.") %}
     {% call c.setg_row("Base URL", "Used to build keep-links and dashboard links in newsletter emails. Must be reachable from outside your LAN.") %}
-      <input class="inp inp--fluid" type="text" id="base_url" size="36"
+      <input class="inp inp--fluid" type="text" id="base_url" size="36" aria-label="Base URL"
              value="{{ settings.get('base_url', '') }}"
              placeholder="https://mediaman.example.com">
     {% endcall %}
@@ -13,7 +13,7 @@
 
   {% call c.setg_card(title="Scan schedule", sub="When the weekly deletion-review scan runs.") %}
     {% call c.setg_row("Scan day") %}
-      <select class="inp inp--sm" id="scan_day">
+      <select class="inp inp--sm" id="scan_day" aria-label="Scan day">
         {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
         <option value="{{ day }}"
           {% if settings.get('scan_day', 'mon') == day %}selected{% endif %}>
@@ -23,11 +23,11 @@
       </select>
     {% endcall %}
     {% call c.setg_row("Scan time", "Local time in the timezone below.") %}
-      <input class="inp inp--sm" type="time" id="scan_time"
+      <input class="inp inp--sm" type="time" id="scan_time" aria-label="Scan time"
              value="{{ settings.get('scan_time', '09:00') }}">
     {% endcall %}
     {% call c.setg_row("Timezone", "Used for schedule display and \"days ago\" math.") %}
-      <select class="inp inp--md" id="scan_timezone">
+      <select class="inp inp--md" id="scan_timezone" aria-label="Timezone">
         {% for tz in [
           'UTC', 'Europe/London', 'Europe/Dublin', 'Europe/Paris',
           'Europe/Berlin', 'Europe/Amsterdam', 'America/New_York',
@@ -50,7 +50,7 @@
                          sub="Keeps Mediaman's copy of your Plex library up to date between weekly scans. Never deletes anything.",
                          header_actions=sync_actions) %}
     {% call c.setg_row("Sync interval", "Syncs media items and watch history. Lower = more current, but more load on Plex.") %}
-      <select class="inp inp--md" id="library_sync_interval">
+      <select class="inp inp--md" id="library_sync_interval" aria-label="Sync interval">
         {% for val, label in [
           ('1','Every minute'), ('2','Every 2 minutes'), ('5','Every 5 minutes'),
           ('10','Every 10 minutes'), ('15','Every 15 minutes'),
