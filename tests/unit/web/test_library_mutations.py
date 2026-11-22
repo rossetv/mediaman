@@ -252,6 +252,32 @@ class TestMediaDeleteRefusesKeptItems:
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
         assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
 
+    def test_keep_landing_after_the_arr_delete_started_does_not_refuse(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        def keep_lands_after_arr_delete(_snapshot, *, conn, **_kwargs):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action="protected_forever", token="tok1"
+            )
+            return 1, None
+
+        with patch(
+            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
+            side_effect=keep_lands_after_arr_delete,
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+            is None
+        )
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone()
+
 
 class TestMediaDeleteTransactional:
     """Transactional delete with Arr failure propagation."""
