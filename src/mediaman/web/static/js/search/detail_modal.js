@@ -66,6 +66,7 @@
     modalEl.desc.textContent   = "";
     if (modalEl.reason) modalEl.reason.style.display = "none";
     modalEl.trailerL.style.display = "none";
+    modalEl.trailer.style.display  = "none";
     modalEl.trailer.innerHTML  = "";
     if (modalEl.trailerF) modalEl.trailerF.innerHTML = "";
     modalEl.castL.style.display  = "none";
@@ -340,7 +341,7 @@
     } catch (err) {
       btn.textContent = label;
       btn.disabled    = false;
-      const msg = err instanceof MM.api.APIError ? (err.message || "Failed") : "Network error";
+      const msg = (err && err.message) || "Failed";
       if (window.UIFeedback) window.UIFeedback.error(msg.slice(0, 200));
     }
   }

@@ -36,6 +36,11 @@
  * ``AbortError`` (``err.name === 'AbortError'``) so callers can detect
  * cancellation without inspecting status.
  *
+ * A network failure (the request never reached the server) rejects with an
+ * APIError whose ``.error`` is ``'network_error'``, ``.status`` is 0 and
+ * ``.message`` is one plain sentence every page can show as is. Aborts are
+ * not mapped.
+ *
  * A 401 from an admin page sends the browser to /login and never settles,
  * so callers do not flash an error while the page unloads. The public keep,
  * download and login pages, reached by emailed token or without a session,
@@ -83,6 +88,8 @@
   /* Pages reached by emailed token (or without a session) handle a 401 themselves. */
   var PUBLIC_PATH = /^\/(keep|download|login)(\/|$)/;
 
+  var NETWORK_MESSAGE = 'Could not reach mediaman. Check your connection and try again.';
+
   function request(method, endpoint, body, options) {
     options = options || {};
     var isWrite = method !== 'GET' && method !== 'HEAD';
@@ -110,7 +117,14 @@
     /* Allow callers to pass through any remaining fetch options (e.g. signal). */
     if (options.signal) fetchOpts.signal = options.signal;
 
-    return fetch(endpoint, fetchOpts).then(function (resp) {
+    return fetch(endpoint, fetchOpts).catch(function (err) {
+      /* fetch rejects with a TypeError only when the request never reached
+       * the server; an abort keeps its native AbortError. */
+      if (err && err.name === 'TypeError') {
+        throw new APIError('network_error', NETWORK_MESSAGE, 0);
+      }
+      throw err;
+    }).then(function (resp) {
       var status = resp.status;
       return resp.json().catch(function () {
         /* Non-JSON body (e.g. a 204 No Content). */

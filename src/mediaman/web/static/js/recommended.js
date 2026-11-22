@@ -63,13 +63,15 @@
         btn.style.opacity = '1';
       })
       .catch(function (err) {
-        var msg = err.error && err.error.length < 30 ? err.error : 'Failed';
-        btn.textContent = msg;
+        btn.textContent = 'Failed';
         btn.classList.remove('btn--primary');
         btn.classList.add('btn--danger');
         btn.style.opacity = '1';
         btn.disabled = false;
-        btn.title = err.error || '';
+        btn.title = (err && err.message) || '';
+        if (window.UIFeedback) {
+          window.UIFeedback.error((err && err.message) || 'Download failed');
+        }
       });
   }
 
@@ -91,7 +93,7 @@
         btn.className = 'btn-download';
         btn.disabled = false;
         if (window.UIFeedback) {
-          window.UIFeedback.error((err && (err.message || err.error)) || 'Download failed');
+          window.UIFeedback.error((err && err.message) || 'Download failed');
         }
       });
   }
