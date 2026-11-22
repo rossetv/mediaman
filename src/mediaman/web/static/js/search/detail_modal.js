@@ -44,9 +44,13 @@
   let currentDetail   = null;
   let seasonTickState = new Map();
   let lockedSeasons   = new Set();
-  /* Bumped on every open and close so a delayed close can tell whether
-     the modal it was started in is still showing. */
+  /* Bumped on every open and close so a delayed close, or a detail reply
+     that arrives late, can tell whether the modal it was started in is
+     still showing. */
   let openCount       = 0;
+  /* Titles with an Add in flight, by media type and TMDB id. The request
+     outlives the modal, so a reopened title must still show it as busy. */
+  const adding        = new Set();
 
   /* Injected at init time. */
   let _refreshCurrentView = null;
@@ -57,7 +61,7 @@
      which is wired automatically. */
   const detailModal = MM.modal.setupDetail(modal, {
     /* Esc and backdrop close without going through closeModal. */
-    onClose: function() { openCount += 1; },
+    onClose: function() { openCount += 1; currentDetail = null; },
   });
   function closeModal() { detailModal.close(); }
 
@@ -84,7 +88,8 @@
   }
 
   async function openDetail(mediaType, tmdbId) {
-    openCount += 1;
+    const mine = ++openCount;
+    currentDetail = null;
     detailModal.open();
     resetModal();
     const loading = document.createElement("div");
@@ -98,6 +103,7 @@
         "/api/search/detail/" + encodeURIComponent(mediaType) + "/" + encodeURIComponent(tmdbId),
       );
     } catch (e) {
+      if (mine !== openCount) return;
       modalEl.actions.replaceChildren();
       const err = document.createElement("div");
       err.className = "modal-error";
@@ -110,9 +116,14 @@
       modalEl.actions.appendChild(err);
       return;
     }
+    /* A reply for a modal that has since been closed or reopened on
+       another title must not draw over it. */
+    if (mine !== openCount) return;
     currentDetail = data;
     renderDetail(data);
   }
+
+  function addKey(mediaType, tmdbId) { return mediaType + ":" + tmdbId; }
 
   /* SECURITY: hero, quick, ratings, and cast blocks use innerHTML
      with template literals. This is intentional — the DOM-construction path
@@ -121,18 +132,17 @@
      before interpolation. If you add a new field here, escape it — no
      exceptions. Do NOT pass d.* values bare into innerHTML. */
   function renderDetail(d) {
-    if (d.backdrop_url || d.poster_url) {
-      const img = d.backdrop_url || d.poster_url;
-      /* innerHTML is intentional here: escapeAttr/escapeHtml sanitise every
-         interpolated value. */
-      modalEl.hero.innerHTML =
-        '<img src="' + escapeAttr(img) + '" alt="">' +
-        '<div class="detail-modal-hero-gradient"></div>' +
-        '<div class="detail-modal-hero-info">' +
-        '<h2 id="detail-modal-title" class="detail-modal-hero-title">' + escapeHtml(d.title) +
-        (d.year ? ' <span class="year">' + escapeHtml(d.year) + '</span>' : '') +
-        '</h2></div>';
-    }
+    const img = d.backdrop_url || d.poster_url;
+    /* innerHTML is intentional here: escapeAttr/escapeHtml sanitise every
+       interpolated value. The title is drawn with or without artwork: the
+       dialog is named by it. */
+    modalEl.hero.innerHTML =
+      (img ? '<img src="' + escapeAttr(img) + '" alt="">' +
+             '<div class="detail-modal-hero-gradient"></div>' : '') +
+      '<div class="detail-modal-hero-info">' +
+      '<h2 id="detail-modal-title" class="detail-modal-hero-title">' + escapeHtml(d.title) +
+      (d.year ? ' <span class="year">' + escapeHtml(d.year) + '</span>' : '') +
+      '</h2></div>';
 
     const runtime = d.runtime ? d.runtime + " min" : "";
     const quickBits = [
@@ -290,7 +300,9 @@
     let disabled = false;
     let click    = null;
 
-    if (d.media_type === "movie") {
+    if (adding.has(addKey(d.media_type, d.tmdb_id))) {
+      label = "Adding…"; disabled = true;
+    } else if (d.media_type === "movie") {
       if (d.download_state === "in_library")      { label = "In Library ✓"; variant = "ready";  disabled = true; }
       else if (d.download_state === "downloading") { label = "Downloading"; variant = "queued"; disabled = true; }
       else if (d.download_state === "queued")      { label = "Queued";      variant = "queued"; disabled = true; }
@@ -331,25 +343,41 @@
   }
 
   async function submitDownload(payload) {
+    const key = addKey(payload.media_type, payload.tmdb_id);
+    if (adding.has(key)) return;
+    adding.add(key);
     const btn = document.getElementById("modal-primary-btn");
-    const label = btn.textContent;
-    const startedIn = openCount;
     btn.disabled    = true;
     btn.textContent = "Adding…";
+    /* The modal may be closed, or reopened, before the reply: act on the
+       button that is on screen now, and only if it is this title's. */
+    const showing = function() {
+      return !!currentDetail && addKey(currentDetail.media_type, currentDetail.tmdb_id) === key;
+    };
     try {
       await MM.api.post("/api/search/download", payload);
-      btn.textContent = "Added ✓";
-      btn.classList.add("is-added");
+      adding.delete(key);
+      const shown = showing();
+      const shownIn = openCount;
+      if (shown) {
+        const cur = document.getElementById("modal-primary-btn");
+        cur.textContent = "Added ✓";
+        cur.classList.add("is-added");
+      }
       setTimeout(function() {
-        if (startedIn === openCount) closeModal();
+        if (shown && shownIn === openCount) closeModal();
         if (_refreshCurrentView) _refreshCurrentView();
       }, 1200);
     } catch (err) {
-      btn.textContent = label;
-      btn.disabled    = false;
-      btn.focus();
-      const msg = (err && err.message) || "Failed";
-      if (window.UIFeedback) window.UIFeedback.error(msg.slice(0, 200));
+      adding.delete(key);
+      if (showing()) {
+        renderPrimaryButton(currentDetail);
+        document.getElementById("modal-primary-btn").focus();
+      }
+      const reason = MM.api.messageOf(err, "Something went wrong. Try again.");
+      if (window.UIFeedback) {
+        window.UIFeedback.error(("Could not add " + payload.title + ": " + reason).slice(0, 200));
+      }
     }
   }
 
