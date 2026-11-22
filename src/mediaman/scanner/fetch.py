@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import ParseError
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -127,7 +128,7 @@ class PlexFetcher:
             rating_key = season["plex_rating_key"]
             try:
                 watch_history = self._plex.get_season_watch_history(rating_key)
-            except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
+            except (PlexApiException, requests.RequestException, PlexResponseTooLarge, ParseError):
                 logger.warning(
                     "Failed to fetch watch history for season %s — "
                     "excluding from evaluation this scan but protecting "
@@ -158,7 +159,7 @@ class PlexFetcher:
             rating_key = item["plex_rating_key"]
             try:
                 watch_history = self._plex.get_watch_history(rating_key)
-            except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
+            except (PlexApiException, requests.RequestException, PlexResponseTooLarge, ParseError):
                 logger.warning(
                     "Failed to fetch watch history for item %s — "
                     "excluding from evaluation this scan but protecting "

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
+from xml.etree.ElementTree import ParseError
 
 import pytest
 import requests
@@ -213,6 +215,39 @@ class TestHistoryFetchFailureNeverPrunes:
         ).fetchone()
         assert action is not None, "history-fetch failure must not cancel the scheduled deletion"
         assert action["delete_status"] == "pending"
+
+    def test_malformed_history_reply_does_not_stop_the_scan(self, conn, mock_plex):
+        lib_id = "42"
+        movies = [
+            {**self._movie(str(i)), "added_at": datetime.now(UTC) - timedelta(days=60)}
+            for i in range(1, 4)
+        ]
+        mock_plex.get_movie_items.return_value = movies
+
+        def _history(rating_key):
+            if rating_key == "1":
+                raise ParseError("syntax error")
+            return []
+
+        mock_plex.get_watch_history.side_effect = _history
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=[lib_id],
+            library_types={lib_id: "movie"},
+            secret_key="k",
+            min_age_days=30,
+            inactivity_days=30,
+            grace_days=14,
+        )
+        result = engine.run_scan()
+
+        # The scan ran through to scheduling; only the malformed item was left out.
+        assert result["scheduled"] == 2
+        keys = {
+            r["media_item_id"] for r in conn.execute("SELECT media_item_id FROM scheduled_actions")
+        }
+        assert "1" not in keys
 
 
 class TestConcurrentScanGuard:

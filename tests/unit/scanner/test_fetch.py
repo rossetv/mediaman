@@ -8,6 +8,7 @@ protects history-fetch failures from orphan pruning.
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+from xml.etree.ElementTree import ParseError
 
 import requests
 
@@ -77,6 +78,14 @@ class TestFetchMovieLibrary:
         assert fetched.items[0].item["plex_rating_key"] == "2"
         assert fetched.skipped_keys == frozenset({"1"})
 
+    def test_malformed_history_reply_skips_only_that_key(self):
+        plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
+        plex.get_watch_history.side_effect = [ParseError("syntax error"), []]
+        fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
+        fetched = fetcher.fetch_library_items("10")
+        assert [r.item["plex_rating_key"] for r in fetched.items] == ["2"]
+        assert fetched.skipped_keys == frozenset({"1"})
+
     def test_empty_library_returns_empty_result(self):
         plex = _make_plex(movies=[])
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
@@ -142,6 +151,14 @@ class TestFetchShowLibrary:
         assert len(fetched.items) == 1
         assert fetched.items[0].item["plex_rating_key"] == "202"
         assert fetched.skipped_keys == frozenset({"201"})
+
+    def test_malformed_season_history_reply_skips_only_that_key(self):
+        plex = _make_plex(seasons=[_make_season("1"), _make_season("2")])
+        plex.get_season_watch_history.side_effect = [ParseError("syntax error"), []]
+        fetcher = PlexFetcher(plex_client=plex, library_types={"10": "show"})
+        fetched = fetcher.fetch_library_items("10")
+        assert [r.item["plex_rating_key"] for r in fetched.items] == ["2"]
+        assert fetched.skipped_keys == frozenset({"1"})
 
     def test_library_id_passed_through(self):
         plex = _make_plex(seasons=[_make_season()])
