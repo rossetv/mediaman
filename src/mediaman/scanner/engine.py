@@ -168,13 +168,15 @@ class ScanEngine:
         SQLite write transaction:
 
         1. **Fetch phase** — pull every library's items and their watch
-           history from Plex into an in-memory buffer. No DB writes.
+           history from Plex into an in-memory buffer, then load the
+           Radarr/Sonarr dates and index. No DB writes.
         2. **Write phase** — UPSERTs with one ``commit()`` per library
            so the SQLite write lock is held only for a single library's
            worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
         per_lib_fetches = self._sync_phase_fetch(summary)
+        self._arr_cache.ensure_loaded()
         self._sync_phase_write(per_lib_fetches, summary)
         logger.info(
             "Library sync complete: %d synced, %d orphans removed, %d errors",
@@ -286,6 +288,8 @@ class ScanEngine:
             "errors": 0,
             "removed": 0,
         }
+        # Radarr/Sonarr reads happen here, never inside a write transaction.
+        self._arr_cache.ensure_loaded()
         seen_by_lib = self._scan_all_libraries(summary)
         self._cleanup_orphans_per_library(seen_by_lib, summary)
         self._record_deletion_outcome(summary)

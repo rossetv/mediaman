@@ -18,6 +18,7 @@ caller can keep it atomic with the sibling ``scheduled_actions`` delete.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -37,6 +38,10 @@ def upsert_media_item(
     library_id: str,
     media_type: str,
     arr_date: str | None,
+    radarr_id: int | None = None,
+    sonarr_id: int | None = None,
+    set_radarr_id: bool = False,
+    set_sonarr_id: bool = False,
 ) -> None:
     """Insert or update a media item record.
 
@@ -54,8 +59,17 @@ def upsert_media_item(
     ``plex_library_id`` would mis-attribute the row in the orphan guard's
     universe (``count_items_in_libraries`` / ``fetch_ids_in_libraries``),
     under-counting the new library and leaving a ghost in the old one.
+
+    The exceptions are ``radarr_id`` / ``sonarr_id``: on conflict each is
+    rewritten only when *set_radarr_id* / *set_sonarr_id* is true, i.e.
+    when that arr's list was loaded this run. A run without Radarr or
+    Sonarr (a library sync, an arr that is down) keeps the stored ids.
+    ``tracked_files`` is stored as a JSON array of ``{"path", "size"}``,
+    or NULL when Plex reported no files.
     """
     now = now_iso()
+    tracked = item.get("tracked_files")
+    tracked_json = json.dumps(tracked) if isinstance(tracked, list) and tracked else None
 
     added_at: str
     if arr_date:
@@ -75,8 +89,9 @@ def upsert_media_item(
         INSERT INTO media_items (
             id, title, media_type, show_title, season_number,
             plex_library_id, plex_rating_key, show_rating_key,
-            added_at, file_path, file_size_bytes, poster_path, last_scanned_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            added_at, file_path, file_size_bytes, poster_path, last_scanned_at,
+            tmdb_id, tvdb_id, tracked_files, radarr_id, sonarr_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             media_type = excluded.media_type,
@@ -88,7 +103,12 @@ def upsert_media_item(
             file_path = excluded.file_path,
             file_size_bytes = excluded.file_size_bytes,
             poster_path = excluded.poster_path,
-            last_scanned_at = excluded.last_scanned_at
+            last_scanned_at = excluded.last_scanned_at,
+            tmdb_id = excluded.tmdb_id,
+            tvdb_id = excluded.tvdb_id,
+            tracked_files = excluded.tracked_files,
+            radarr_id = CASE WHEN ? THEN excluded.radarr_id ELSE media_items.radarr_id END,
+            sonarr_id = CASE WHEN ? THEN excluded.sonarr_id ELSE media_items.sonarr_id END
         """,
         (
             item["plex_rating_key"],
@@ -104,6 +124,13 @@ def upsert_media_item(
             item.get("file_size_bytes", 0),
             item.get("poster_path"),
             now,
+            item.get("tmdb_id"),
+            item.get("tvdb_id"),
+            tracked_json,
+            radarr_id,
+            sonarr_id,
+            set_radarr_id,
+            set_sonarr_id,
         ),
     )
 

@@ -20,9 +20,11 @@ from typing import TYPE_CHECKING
 import requests
 
 from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.match import ArrIndex, build_arr_index
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
+    from mediaman.services.arr._types import RadarrMovie, SonarrSeries
     from mediaman.services.arr.base import ArrClient
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,11 @@ class ArrDateCache:
     cache does not fire any network calls; the first call to
     get (or explicit ensure_loaded) triggers the
     Radarr/Sonarr reads.
+
+    The same reads also build :attr:`index`, the Radarr/Sonarr entries by
+    TMDB/TVDB id. :attr:`radarr_loaded` / :attr:`sonarr_loaded` say whether
+    that side's list was fetched this time; when not (client missing or
+    down) the index holds nothing for it and stored arr ids must be kept.
     """
 
     def __init__(
@@ -90,6 +97,9 @@ class ArrDateCache:
         self._sonarr = sonarr_client
         self._dates: dict[str, str] = {}
         self._loaded = False
+        self.index = ArrIndex({}, {})
+        self.radarr_loaded = False
+        self.sonarr_loaded = False
 
     def ensure_loaded(self) -> None:
         if not self._loaded:
@@ -114,10 +124,16 @@ class ArrDateCache:
         return self._dates.get(normalise_path(file_path))
 
     def _build(self) -> None:
+        movies: list[RadarrMovie] = []
+        series_list: list[SonarrSeries] = []
+        self.radarr_loaded = False
+        self.sonarr_loaded = False
         # Radarr: movieFile.dateAdded keyed by movie file path.
         if self._radarr:
             try:
-                for movie in self._radarr.get_movies():
+                movies = self._radarr.get_movies()
+                self.radarr_loaded = True
+                for movie in movies:
                     mf = movie.get("movieFile")
                     if mf and mf.get("path") and mf.get("dateAdded"):
                         key = normalise_path(mf["path"])
@@ -131,7 +147,9 @@ class ArrDateCache:
         # Sonarr: episodefile.dateAdded keyed by season directory -> latest date.
         if self._sonarr:
             try:
-                for series in self._sonarr.get_series():
+                series_list = self._sonarr.get_series()
+                self.sonarr_loaded = True
+                for series in series_list:
                     try:
                         efs = self._sonarr.get_episode_files(series["id"])
                         for ef in efs:
@@ -167,5 +185,6 @@ class ArrDateCache:
                     exc_info=True,
                 )
 
+        self.index = build_arr_index(movies, series_list)
         if self._dates:
             logger.info("Cached %d download dates from Radarr/Sonarr", len(self._dates))
