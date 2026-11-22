@@ -67,6 +67,18 @@ class TestUserCreateRateLimit:
         assert resp.json()["ok"] is False
 
 
+def test_duplicate_username_409_carries_message(app_factory, authed_client, conn):
+    _USER_CREATE_LIMITER.reset()
+    client, _ = _build(app_factory, authed_client, conn)
+    body = {"username": "dupuser", "password": "ValidPass!99"}
+    assert client.post("/api/users", json=body).status_code == 200
+    resp = client.post("/api/users", json=body)
+    assert resp.status_code == 409
+    data = resp.json()
+    assert data["error"]
+    assert data["message"] == data["error"]
+
+
 class TestRevokeOthersReissueCookie:
     """POST /api/users/sessions/revoke-others must issue a fresh session cookie."""
 

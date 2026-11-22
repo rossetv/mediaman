@@ -823,8 +823,18 @@ class TestItemKeptMeanwhile:
         conn.commit()
         return token
 
+    @staticmethod
+    def _action_row(conn: sqlite3.Connection) -> tuple:
+        return tuple(
+            conn.execute(
+                "SELECT action, execute_at, token_used, snoozed_at, snooze_duration "
+                "FROM scheduled_actions WHERE media_item_id='mi1'"
+            ).fetchone()
+        )
+
     def test_form_post_shows_the_protected_page(self, conn):
         token = self._kept_by_admin(conn)
+        before = self._action_row(conn)
 
         resp = self._client(conn).post(
             f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
@@ -833,24 +843,29 @@ class TestItemKeptMeanwhile:
         assert resp.status_code == 409
         assert "Protected until" in resp.text
         assert "no longer valid" not in resp.text
+        assert self._action_row(conn) == before
 
     def test_json_post_answers_like_a_repeat_keep(self, conn):
         token = self._kept_by_admin(conn)
+        before = self._action_row(conn)
 
         resp = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 409
         assert resp.json() == {"ok": False, "error": "already_processed"}
+        assert self._action_row(conn) == before
 
     def test_admin_forever_answers_like_a_repeat_keep(self, app_factory, authed_client, conn):
         token = self._kept_by_admin(conn)
         app = self._client(conn).app
         client = authed_client(app, conn)
+        before = self._action_row(conn)
 
         resp = client.post(f"/api/keep/{token}/forever")
 
         assert resp.status_code == 409
         assert resp.json()["error"] == "already_processed"
+        assert self._action_row(conn) == before
 
     def test_expired_token_on_an_item_not_kept_is_still_refused(self, conn):
         _insert_media_item(conn)

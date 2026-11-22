@@ -259,7 +259,10 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
         data = resp.json()
         if data.get("Response") == "True":
             return JSONResponse({"ok": True})
-        return JSONResponse({"ok": False, "error": data.get("Error", "auth_failed")})
+        omdb_error = data.get("Error")
+        if omdb_error:
+            return JSONResponse({"ok": False, "error": omdb_error, "message": omdb_error})
+        return JSONResponse({"ok": False, "error": "auth_failed"})
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
 
