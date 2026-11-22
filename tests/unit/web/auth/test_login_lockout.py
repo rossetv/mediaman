@@ -12,6 +12,7 @@ from mediaman.web.auth.login_lockout import (
     admin_unlock_with_audit,
     clear_unlocked_login_failures,
     is_locked_out,
+    login_ip_key,
     login_key,
     reauth_key,
     record_failure,
@@ -179,10 +180,10 @@ class TestAuthenticateIntegration:
 
         # Trip the threshold with wrong passwords.
         for _ in range(5):
-            assert authenticate(conn, "alice", "wrong-password") is False
+            assert authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7") is False
 
         # Now the correct password must also be rejected while locked.
-        assert authenticate(conn, "alice", "correct-password-123") is False
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is False
 
     def test_locked_account_attempt_still_bumps_counter(self, conn):
         """The locked short-circuit must bump the counter so the
@@ -191,31 +192,31 @@ class TestAuthenticateIntegration:
 
         # Lock the account at the 15-minute band (count == 5).
         for _ in range(5):
-            authenticate(conn, "alice", "wrong-password")
-        assert is_locked_out(conn, "alice") is True
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
+        assert is_locked_out(conn, login_ip_key("alice", "203.0.113.7")) is True
 
         def _count() -> int:
             return conn.execute(
                 "SELECT failure_count FROM login_failures WHERE username = ?",
-                ("alice",),
+                (login_ip_key("alice", "203.0.113.7"),),
             ).fetchone()["failure_count"]
 
         before = _count()
         # An attempt against the LOCKED account must still bump the counter.
-        assert authenticate(conn, "alice", "wrong-password") is False
+        assert authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7") is False
         assert _count() == before + 1
 
     def test_successful_login_resets_counter(self, conn):
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
 
         for _ in range(3):
-            authenticate(conn, "alice", "wrong-password")
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
 
-        assert authenticate(conn, "alice", "correct-password-123") is True
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is True
 
         # Counter wiped — one more wrong guess should not lock anyone.
-        authenticate(conn, "alice", "wrong-password")
-        assert is_locked_out(conn, "alice") is False
+        authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
+        assert is_locked_out(conn, login_ip_key("alice", "203.0.113.7")) is False
 
     def test_lockout_does_not_leak_to_caller(self, conn):
         """`authenticate` must return False for locked accounts — same
@@ -224,12 +225,12 @@ class TestAuthenticateIntegration:
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
 
         for _ in range(5):
-            authenticate(conn, "alice", "wrong-password")
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
 
         # Locked → False
-        locked_result = authenticate(conn, "alice", "correct-password-123")
+        locked_result = authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7")
         # Nonexistent → False (nothing to lock)
-        unknown_result = authenticate(conn, "does-not-exist", "anything")
+        unknown_result = authenticate(conn, "does-not-exist", "anything", client_ip="203.0.113.7")
 
         assert locked_result is False
         assert unknown_result is False
@@ -240,11 +241,11 @@ class TestAuthenticateIntegration:
         """Prevents username-enumeration via counter presence. We record
         against the claimed name, even if it doesn't exist."""
         for _ in range(3):
-            authenticate(conn, "ghost", "whatever")
+            authenticate(conn, "ghost", "whatever", client_ip="203.0.113.7")
 
         row = conn.execute(
             "SELECT failure_count FROM login_failures WHERE username = ?",
-            ("ghost",),
+            (login_ip_key("ghost", "203.0.113.7"),),
         ).fetchone()
         assert row is not None
         assert row["failure_count"] == 3
@@ -290,11 +291,11 @@ class TestAuthenticateKeepsCountingWhileLocked:
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         # Trip the 5-failure lock.
         for _ in range(5):
-            authenticate(conn, "alice", "bad-password")
+            authenticate(conn, "alice", "bad-password", client_ip="203.0.113.7")
 
         row = conn.execute(
             "SELECT failure_count FROM login_failures WHERE username = ?",
-            ("alice",),
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert row["failure_count"] == 5
 
@@ -303,17 +304,84 @@ class TestAuthenticateKeepsCountingWhileLocked:
         # locked, so the counter sat at 5 forever and the 10-failure
         # escalation never fired.
         for _ in range(5):
-            authenticate(conn, "alice", "bad-password")
+            authenticate(conn, "alice", "bad-password", client_ip="203.0.113.7")
 
         row = conn.execute(
             "SELECT failure_count, locked_until FROM login_failures WHERE username = ?",
-            ("alice",),
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert row["failure_count"] == 10
         # Lock now escalated to 1 h — clock is frozen so the delta is exact.
         locked_until = datetime.fromisoformat(row["locked_until"])
         delta = locked_until - datetime.now(UTC)
         assert delta == timedelta(hours=1)
+
+
+class TestPerClientIp:
+    """Failures count per username and client IP."""
+
+    def test_failures_from_one_ip_do_not_lock_the_user_out_from_another(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(15):
+            authenticate(conn, "alice", "wrong-password", client_ip="198.51.100.4")
+
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is True
+
+    def test_a_login_from_another_ip_does_not_lift_the_lock(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong-password", client_ip="198.51.100.4")
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is True
+
+        assert (
+            authenticate(conn, "alice", "correct-password-123", client_ip="198.51.100.4") is False
+        )
+
+    def test_ipv6_addresses_in_one_64_share_a_counter(self):
+        same = login_ip_key("alice", "2001:db8:1:2::1")
+        assert login_ip_key("alice", "2001:db8:1:2:ffff:ffff:ffff:ffff") == same
+        assert login_ip_key("alice", "2001:db8:1:3::1") != same
+
+    def test_ipv4_addresses_do_not_share_a_counter(self):
+        assert login_ip_key("alice", "192.0.2.1") != login_ip_key("alice", "192.0.2.2")
+
+    def test_admin_unlock_clears_every_ip_and_only_that_user(self, conn):
+        for _ in range(5):
+            record_failure(conn, login_ip_key("alice", "198.51.100.4"))
+            record_failure(conn, login_ip_key("alice", "2001:db8::1"))
+        record_failure(conn, "alice")
+        record_failure(conn, login_ip_key("al_ce", "198.51.100.4"))
+        record_failure(conn, login_ip_key("al%", "198.51.100.4"))
+        record_failure(conn, login_ip_key("x\x1falice", "198.51.100.4"))
+
+        assert admin_unlock(conn, "alice") is True
+        conn.commit()
+
+        left = {r["username"] for r in conn.execute("SELECT username FROM login_failures")}
+        assert left == {
+            login_ip_key("al_ce", "198.51.100.4"),
+            login_ip_key("al%", "198.51.100.4"),
+            login_ip_key("x\x1falice", "198.51.100.4"),
+        }
+
+    def test_a_lock_from_any_ip_is_audited_as_locked(self, conn):
+        for _ in range(5):
+            record_failure(conn, login_ip_key("alice", "198.51.100.4"))
+
+        result = admin_unlock_with_audit(conn, "alice", audit_actor="admin", target_id=1)
+
+        assert result.was_locked is True
+        assert not is_locked_out(conn, login_ip_key("alice", "198.51.100.4"))
+
+    def test_a_proved_password_clears_unlocked_counters_from_every_ip_and_keeps_locks(self, conn):
+        record_failure(conn, login_ip_key("alice", "203.0.113.7"))
+        for _ in range(5):
+            record_failure(conn, login_ip_key("alice", "198.51.100.4"))
+
+        clear_unlocked_login_failures(conn, "alice")
+
+        left = [r["username"] for r in conn.execute("SELECT username FROM login_failures")]
+        assert left == [login_ip_key("alice", "198.51.100.4")]
 
 
 class TestConcurrentRecordFailure:
@@ -413,8 +481,8 @@ class TestNoExtendWhileLocked:
         extended, not the lock being effective)."""
         create_user(conn, "alice", "correct-password-99", enforce_policy=False)
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
-        assert authenticate(conn, "alice", "correct-password-99") is False
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
+        assert authenticate(conn, "alice", "correct-password-99", client_ip="203.0.113.7") is False
 
     def test_escalation_still_extends_window(self, conn, freezer):
         """When the 10th and 15th failures cross to a STRICTER window,

@@ -154,7 +154,7 @@ def login_submit(
         return _render_rate_limited(request)
 
     conn = get_db()
-    if not authenticate(conn, username, password):
+    if not authenticate(conn, username, password, client_ip=client_ip):
         return _handle_failed_login(conn, username, client_ip, request)
 
     user_agent = request.headers.get("user-agent", "")

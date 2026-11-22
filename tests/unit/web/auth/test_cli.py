@@ -250,16 +250,18 @@ class TestUnlockUserCli:
     def test_locked_user_is_unlocked_and_can_log_in_again(self, monkeypatch, tmp_path, capsys):
         conn = self._db(tmp_path)
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
-        for _ in range(15):
-            assert authenticate(conn, "alice", "wrong-password") is False
-        assert authenticate(conn, "alice", "correct-password-123") is False
+        for ip in ("203.0.113.7", "198.51.100.4"):
+            for _ in range(15):
+                assert authenticate(conn, "alice", "wrong-password", client_ip=ip) is False
+            assert authenticate(conn, "alice", "correct-password-123", client_ip=ip) is False
         conn.close()
 
         self._run(monkeypatch, tmp_path, "alice")
 
         assert "alice" in capsys.readouterr().out
         conn = self._db(tmp_path)
-        assert authenticate(conn, "alice", "correct-password-123") is True
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is True
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="198.51.100.4") is True
         audit = conn.execute(
             "SELECT 1 FROM audit_log WHERE action = 'sec:user.unlocked'"
         ).fetchone()
@@ -270,7 +272,7 @@ class TestUnlockUserCli:
         conn = self._db(tmp_path)
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         for _ in range(5):
-            authenticate(conn, "alice", "wrong-password")
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
         before = conn.execute("SELECT * FROM login_failures").fetchall()
         audits = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
         conn.close()
@@ -298,7 +300,7 @@ class TestUnlockUserCli:
         conn = self._db(tmp_path)
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         for _ in range(2):
-            authenticate(conn, "alice", "wrong-password")
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
         conn.close()
 
         self._run(monkeypatch, tmp_path, "alice")
@@ -314,7 +316,7 @@ class TestUnlockUserCli:
         conn = self._db(tmp_path)
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         for _ in range(5):
-            authenticate(conn, "alice", "wrong-password")
+            authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
         conn.close()
 
         self._run(monkeypatch, tmp_path, "alice")

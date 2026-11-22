@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.web.auth.login_lockout import login_ip_key
 from mediaman.web.auth.password_hash import (
     BCRYPT_ROUNDS,
     authenticate,
@@ -79,18 +80,18 @@ class TestCreateUser:
 class TestAuthenticate:
     def test_correct_credentials_return_true(self, conn):
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
-        assert authenticate(conn, "alice", "correct-pass") is True
+        assert authenticate(conn, "alice", "correct-pass", client_ip="203.0.113.7") is True
 
     def test_wrong_password_returns_false(self, conn):
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
-        assert authenticate(conn, "alice", "wrong-pass") is False
+        assert authenticate(conn, "alice", "wrong-pass", client_ip="203.0.113.7") is False
 
     def test_nonexistent_user_returns_false(self, conn):
         # Must also not raise — constant-time dummy bcrypt check fires.
-        assert authenticate(conn, "ghost", "any-pass") is False
+        assert authenticate(conn, "ghost", "any-pass", client_ip="203.0.113.7") is False
 
     def test_empty_username_returns_false(self, conn):
-        assert authenticate(conn, "", "pass") is False
+        assert authenticate(conn, "", "pass", client_ip="203.0.113.7") is False
 
 
 class TestChangePassword:
@@ -99,15 +100,15 @@ class TestChangePassword:
         ok = change_password(conn, "alice", "old-pass-1", "new-pass-2", enforce_policy=False)
         assert ok is True
         # New password must work; old must not.
-        assert authenticate(conn, "alice", "new-pass-2") is True
-        assert authenticate(conn, "alice", "old-pass-1") is False
+        assert authenticate(conn, "alice", "new-pass-2", client_ip="203.0.113.7") is True
+        assert authenticate(conn, "alice", "old-pass-1", client_ip="203.0.113.7") is False
 
     def test_change_with_wrong_old_password_returns_false(self, conn):
         create_user(conn, "alice", "correct-old", enforce_policy=False)
         ok = change_password(conn, "alice", "incorrect-old", "new-pass", enforce_policy=False)
         assert ok is False
         # Original password still works.
-        assert authenticate(conn, "alice", "correct-old") is True
+        assert authenticate(conn, "alice", "correct-old", client_ip="203.0.113.7") is True
 
     def test_change_revokes_existing_sessions(self, conn):
         from mediaman.web.auth.session_store import create_session, validate_session
@@ -132,7 +133,7 @@ class TestChangePassword:
     def test_change_succeeds_while_login_is_locked(self, conn):
         create_user(conn, "alice", "old-pass", enforce_policy=False)
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
 
         ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
 
@@ -141,12 +142,13 @@ class TestChangePassword:
     def test_wrong_old_password_does_not_add_to_login_lock(self, conn):
         create_user(conn, "alice", "old-pass", enforce_policy=False)
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
 
         change_password(conn, "alice", "wrong-old", "new-pass", enforce_policy=False)
 
         row = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = ?", ("alice",)
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert row["failure_count"] == 5
 
@@ -229,17 +231,19 @@ class TestDeleteUser:
         create_user(conn, "alice", "p1", enforce_policy=False)
         create_user(conn, "bob", "p2", enforce_policy=False)
         for _ in range(5):
-            record_failure(conn, "bob")
+            record_failure(conn, login_ip_key("bob", "203.0.113.7"))
+            record_failure(conn, login_ip_key("bob", "198.51.100.4"))
+        record_failure(conn, "bob")
         record_failure(conn, reauth_key("bob"))
         record_failure(conn, "carol")
-        assert is_locked_out(conn, "bob") is True
+        assert is_locked_out(conn, login_ip_key("bob", "203.0.113.7")) is True
 
         assert delete_user(conn, self._uid(conn, "bob"), current_username="alice") is True
 
         left = [r["username"] for r in conn.execute("SELECT username FROM login_failures")]
         assert left == ["carol"]
         create_user(conn, "bob", "p3", enforce_policy=False)
-        assert authenticate(conn, "bob", "p3") is True
+        assert authenticate(conn, "bob", "p3", client_ip="203.0.113.7") is True
 
     def test_a_refused_delete_keeps_the_failure_record(self, conn):
         from mediaman.web.auth.login_lockout import record_failure
@@ -268,18 +272,18 @@ class TestLongPasswordEntropyPreserved:
 
         create_user(conn, "alice", password_a, enforce_policy=False)
         # The correct long password must verify.
-        assert authenticate(conn, "alice", password_a) is True
+        assert authenticate(conn, "alice", password_a, client_ip="203.0.113.7") is True
         # The other long password — same first 72 bytes — must NOT
         # verify. Without the pre-hash, bcrypt would have treated it as
         # equal and this would return True.
-        assert authenticate(conn, "alice", password_b) is False
+        assert authenticate(conn, "alice", password_b, client_ip="203.0.113.7") is False
 
     def test_short_password_round_trips(self, conn):
         """Inputs ≤ 72 bytes must continue to verify against bcrypt
         directly, so existing rows minted before the pre-hash landed
         still validate."""
         create_user(conn, "alice", "short-pass-789!", enforce_policy=False)
-        assert authenticate(conn, "alice", "short-pass-789!") is True
+        assert authenticate(conn, "alice", "short-pass-789!", client_ip="203.0.113.7") is True
 
     def test_existing_row_without_prehash_still_verifies(self, conn):
         """Belt-and-braces: a row inserted with the legacy
@@ -296,7 +300,7 @@ class TestLongPasswordEntropyPreserved:
             ("legacy", legacy_hash),
         )
         conn.commit()
-        assert authenticate(conn, "legacy", legacy) is True
+        assert authenticate(conn, "legacy", legacy, client_ip="203.0.113.7") is True
 
     def test_bcrypt_rounds_constant_used(self, conn):
         """The bcrypt cost factor MUST come from the BCRYPT_ROUNDS
@@ -315,9 +319,9 @@ class TestLongPasswordEntropyPreserved:
         assert precomposed.encode("utf-8") != decomposed.encode("utf-8")
         # But identical to a human eye after NFKC.
         create_user(conn, "alice", precomposed, enforce_policy=False)
-        assert authenticate(conn, "alice", decomposed) is True
+        assert authenticate(conn, "alice", decomposed, client_ip="203.0.113.7") is True
         # Sanity: a different password still fails.
-        assert authenticate(conn, "alice", "Cafe-different-789") is False
+        assert authenticate(conn, "alice", "Cafe-different-789", client_ip="203.0.113.7") is False
 
 
 class TestEmptyUsernameShortCircuit:
@@ -327,7 +331,7 @@ class TestEmptyUsernameShortCircuit:
 
     def test_empty_username_does_not_call_bcrypt(self, conn):
         with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
-            assert authenticate(conn, "", "any-password") is False
+            assert authenticate(conn, "", "any-password", client_ip="203.0.113.7") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
 
@@ -335,7 +339,7 @@ class TestEmptyUsernameShortCircuit:
         # Smoke test: doesn't hit bcrypt, so wall time is in the
         # micro-second range. We don't measure here (CI noise) — the
         # mock-based test above is the load-bearing assertion.
-        assert authenticate(conn, "", "any") is False
+        assert authenticate(conn, "", "any", client_ip="203.0.113.7") is False
 
 
 class TestLockedAccountSkipsBcrypt:
@@ -349,10 +353,10 @@ class TestLockedAccountSkipsBcrypt:
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
         # Force the account into a locked state.
         for _ in range(5):
-            record_failure(conn, "alice")
+            record_failure(conn, login_ip_key("alice", "203.0.113.7"))
         # Now patch bcrypt and confirm authenticate does not call it.
         with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
-            assert authenticate(conn, "alice", "anything") is False
+            assert authenticate(conn, "alice", "anything", client_ip="203.0.113.7") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
 
@@ -366,17 +370,17 @@ class TestLockedAccountSkipsBcrypt:
         # Real user, locked.
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
         for _ in range(5):
-            record_failure(conn, "alice")
+            record_failure(conn, login_ip_key("alice", "203.0.113.7"))
 
         # Phantom user, also locked. We push the counter directly so a
         # ghost username is "locked" without ever existing in
         # admin_users.
         for _ in range(5):
-            record_failure(conn, "ghost")
+            record_failure(conn, login_ip_key("ghost", "203.0.113.7"))
 
         with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
-            assert authenticate(conn, "alice", "anything") is False
-            assert authenticate(conn, "ghost", "anything") is False
+            assert authenticate(conn, "alice", "anything", client_ip="203.0.113.7") is False
+            assert authenticate(conn, "ghost", "anything", client_ip="203.0.113.7") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
 
@@ -386,13 +390,13 @@ class TestLockedAccountSkipsBcrypt:
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
         # Trip the 5-failure lock.
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
         # Then 5 more under lockout — counter must climb to 10.
         for _ in range(5):
-            authenticate(conn, "alice", "wrong")
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
         row = conn.execute(
             "SELECT failure_count FROM login_failures WHERE username = ?",
-            ("alice",),
+            (login_ip_key("alice", "203.0.113.7"),),
         ).fetchone()
         assert row["failure_count"] == 10
 
@@ -513,7 +517,7 @@ class TestChangePasswordCounterCleanupCatchNarrowed:
             ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
         # The rotation still succeeds — the counter cleanup is best-effort.
         assert ok is True
-        assert authenticate(conn, "alice", "new-pass") is True
+        assert authenticate(conn, "alice", "new-pass", client_ip="203.0.113.7") is True
         # And the swallowed failure is logged at ERROR via logger.exception.
         assert any("counter cleanup failed" in r.getMessage() for r in caplog.records), (
             "expected a logged counter-cleanup failure"
@@ -533,7 +537,7 @@ class TestChangePasswordCounterCleanupCatchNarrowed:
             change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
         # The password change itself already committed before the
         # best-effort cleanup ran — the propagating bug does not undo it.
-        assert authenticate(conn, "alice", "new-pass") is True
+        assert authenticate(conn, "alice", "new-pass", client_ip="203.0.113.7") is True
 
 
 class TestDeleteUserReauthCleanupCatchNarrowed:
