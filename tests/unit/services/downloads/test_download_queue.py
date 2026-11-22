@@ -245,6 +245,18 @@ class TestFailedNzbgetPollKeepsSnapshot:
         assert recorded == []
         assert "nzbget:1" in snapshot
 
+    def test_queue_fetch_failing_after_status_succeeds_keeps_snapshot(self):
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.nzbget import NzbgetError
+
+        client = MagicMock()
+        client.get_status.return_value = {"DownloadRate": 0}
+        client.get_queue.side_effect = NzbgetError("boom")
+        recorded, snapshot = self._run(client)
+        assert recorded == []
+        assert "nzbget:1" in snapshot
+
     def test_successful_empty_list_still_reports_completion(self):
         from unittest.mock import MagicMock
 

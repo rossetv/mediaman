@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -83,15 +82,11 @@ class NzbgetClient:
                 host,
             )
 
-    # rationale: returns resp.json().get("result") whose shape depends on
-    # the RPC method (dict for status, list for listgroups). Each public
-    # caller narrows the type with isinstance before returning a concrete
-    # typed value; annotating _call as Any avoids cascading casts while
-    # keeping get_status / get_queue fully typed.
-    def _call(self, method: str) -> Any:
-        """Invoke *method* and return the result. Raises NzbgetError when the response
-        carries a JSON-RPC error field, so an idle queue can be told from a broken
-        connection.
+    def _call[T](self, method: str, expected: type[T]) -> T:
+        """Invoke *method* and return its result. Raises NzbgetError when the response
+        carries a JSON-RPC error field, or is not an object whose result is an
+        *expected*, so an idle queue can be told from a broken connection or a reply
+        that did not come from NZBGet.
         """
         resp = self._http.post(
             "/jsonrpc",
@@ -100,17 +95,22 @@ class NzbgetClient:
             max_bytes=_NZBGET_MAX_BYTES,
         )
         data = resp.json()
+        if not isinstance(data, dict):
+            raise NzbgetError(f"NZBGet reply for method '{method}' is not a JSON object")
         if data.get("error"):
             raise NzbgetError(f"NZBGet JSON-RPC error for method '{method}': {data['error']}")
-        return data.get("result", {})
+        result = data.get("result")
+        if not isinstance(result, expected):
+            raise NzbgetError(
+                f"NZBGet reply for method '{method}' has no {expected.__name__} result"
+            )
+        return result
 
     def get_status(self) -> dict[str, object]:
-        result = self._call("status")
-        return result if isinstance(result, dict) else {}
+        return self._call("status", dict)
 
     def get_queue(self) -> list[dict[str, object]]:
-        result = self._call("listgroups")
-        return result if isinstance(result, list) else []
+        return self._call("listgroups", list)
 
     def is_reachable(self) -> bool:
         """Return True if NZBGet responds. Catches only HTTP and transport errors, not the

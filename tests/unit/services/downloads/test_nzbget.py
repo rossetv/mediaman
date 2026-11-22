@@ -112,3 +112,32 @@ class TestNzbgetJsonRpcError:
         # Should not raise — falsy error field is ignored.
         status = client.get_status()
         assert status["DownloadRate"] == 0
+
+
+class TestNzbgetMalformedReply:
+    """A reply that is not a well-formed JSON-RPC result must raise, so callers do not
+    read it as an idle server or an empty queue."""
+
+    @pytest.mark.parametrize(
+        "body",
+        [{}, {"result": None}, {"result": {"NZBName": "x"}}, [], "ok"],
+        ids=["empty-object", "null-result", "object-result", "list-body", "string-body"],
+    )
+    def test_malformed_queue_reply_raises(self, client, fake_http, fake_response, body):
+        fake_http.queue("POST", fake_response(json_data=body))
+        with pytest.raises(NzbgetError):
+            client.get_queue()
+
+    @pytest.mark.parametrize(
+        "body",
+        [{}, {"result": None}, {"result": []}, ["x"]],
+        ids=["empty-object", "null-result", "list-result", "list-body"],
+    )
+    def test_malformed_status_reply_raises(self, client, fake_http, fake_response, body):
+        fake_http.queue("POST", fake_response(json_data=body))
+        with pytest.raises(NzbgetError):
+            client.get_status()
+
+    def test_empty_queue_is_not_an_error(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(json_data={"result": []}))
+        assert client.get_queue() == []
