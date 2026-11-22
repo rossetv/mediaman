@@ -212,9 +212,10 @@
 }
 
 /* Narrow tablet: tighten the rail so every link shows in full at the
-   page's own 13px, instead of Logout scrolling out of sight. */
+   page's own 13px, instead of Logout scrolling out of sight. The padding is
+   small enough that a 15px classic scrollbar at 700px still leaves room. */
 @media (min-width: 700px) and (max-width: 899.98px) {
-  .nav-glass { gap: 12px; padding: 0 16px; }
+  .nav-glass { gap: 10px; padding: 0 12px; }
   .nav-links { gap: 2px; margin-left: 0; }
   .nav-btn,
   .nav-links a,
