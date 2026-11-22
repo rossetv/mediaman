@@ -264,16 +264,11 @@ def _delete_files_on_disk(
     tracked_files: list[dict[str, Any]],
     allowed_roots: list[str],
     protected_paths: set[str],
-    folder_limits: dict[str, str],
 ) -> TrackedFilesResult | None:
-    """Remove *tracked_files* with their sidecars and the folders left bare.
-
-    *folder_limits* maps each tracked file's folder to the highest folder the
-    removal may take when it is left bare (see ``_folder_limit``).
+    """Remove *tracked_files* with their sidecars.
 
     Returns what was removed, or None on an error: the row is then left in
-    the appropriate state so the caller can ``continue`` to the next row. A
-    failure removing bare folders does not undo the files removed. A failed removal
+    the appropriate state so the caller can ``continue`` to the next row. A failed removal
     goes back to ``pending``: the pass reads its rows once, so the next pass
     retries it. ``deleting`` means a removal running now, or a leftover whose
     files are already gone (missing at the rm, or a crash) awaiting recovery.  All
@@ -354,8 +349,6 @@ def _delete_files_on_disk(
         )
         conn.commit()
         return None
-    if result.removed:
-        _remove_bare_folders(conn, row, result.removed, allowed_roots, folder_limits)
     return result
 
 
@@ -892,12 +885,18 @@ class DeletionExecutor:
             [done.media_item_id for done in closing],
         )
         limits = {str(Path(file).parent): _folder_limit(done, file) for done, file in owned}
-        result = _delete_files_on_disk(self._conn, row, tracked, allowed_roots, protected, limits)
+        result = _delete_files_on_disk(self._conn, row, tracked, allowed_roots, protected)
         if result is None:
             for other in co_located:
                 repository.mark_delete_status(self._conn, other.id, "pending")
             self._conn.commit()
             return [], 0
+        # Recovery books a stuck row only from this record, so it is committed
+        # before anything else can fail or the process can die.
+        self._record_removal(row, closing, result)
+        self._conn.commit()
+        if result.removed:
+            _remove_bare_folders(self._conn, row, result.removed, allowed_roots, limits)
         closed = self._settle(row, closing, co_located, result)
         # Commit *before* the Radarr/Sonarr unmonitor HTTP calls: the unmonitor
         # is best-effort and a slow response must not hold the write lock.
@@ -906,6 +905,23 @@ class DeletionExecutor:
             self._unmonitor(done)
         self._conn.commit()
         return closed, result.bytes_freed
+
+    def _record_removal(
+        self, row: DeletionRow, closing: list[DeletionRow], result: TrackedFilesResult
+    ) -> None:
+        """Add what *result* removed to each closing row's record of removed files.
+
+        The bytes freed are credited to *row* alone, so the audit total matches
+        what left the disk.
+        """
+        removed = {str(Path(path)) for path in result.removed}
+        for done in closing:
+            gone = {str(Path(path)) for path in _tracked_paths(done) or []} & removed
+            freed = result.bytes_freed if done is row else 0
+            if gone or freed:
+                record_removed_files(
+                    self._conn, done.id, done.removed_paths | gone, done.removed_bytes + freed
+                )
 
     def _settle(
         self,
@@ -917,13 +933,12 @@ class DeletionExecutor:
         """Book each closing row whose files are all gone; return the rest to pending.
 
         A row with a tracked file not found, kept for another item or failed
-        (or a sidecar failed beside one) stays pending, keeping a record of the
-        files removed so far for the pass that finishes it. The bytes freed
+        (or a sidecar failed beside one) stays pending; its record of the files
+        removed so far lets the pass that finishes it close it. The bytes freed
         are credited to *row* alone, and reach its ``deleted`` audit entry
-        once it closes, so the audit total matches what left the disk.
+        once it closes.
         """
         tracked = {str(Path(path)) for done in closing for path in _tracked_paths(done) or []}
-        removed = {str(Path(path)) for path in result.removed}
         closed: list[DeletionRow] = []
         for done in closing:
             space = done.removed_bytes + (result.bytes_freed if done is row else 0)
@@ -939,10 +954,6 @@ class DeletionExecutor:
                     len(left.failed),
                 )
                 repository.mark_delete_status(self._conn, done.id, "pending")
-                own = {str(Path(path)) for path in _tracked_paths(done) or []}
-                record_removed_files(
-                    self._conn, done.id, done.removed_paths | (own & removed), space
-                )
                 _audit_files_left(self._conn, done, left)
             else:
                 _book_deleted(self._conn, done, "Deleted", space or None)

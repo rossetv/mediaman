@@ -185,3 +185,33 @@ class TestRecoveryProof:
 
         assert _status(conn) is None
         assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [4]
+
+
+class _Crash(Exception):
+    pass
+
+
+class TestCrashAfterRemoval:
+    def test_a_crash_after_every_file_is_removed_books_the_item_with_its_bytes(
+        self, conn, two_parts, monkeypatch
+    ):
+        cd1, cd2 = two_parts
+        root = cd1.parent.parent
+        (root / "other.mkv").write_bytes(b"x")
+
+        def crash(*args, **kwargs):
+            raise _Crash
+
+        monkeypatch.setattr(DeletionExecutor, "_settle", crash)
+        with pytest.raises(_Crash):
+            DeletionExecutor(conn=conn).execute()
+        # The process dies: whatever it had not committed is lost.
+        conn.rollback()
+        monkeypatch.undo()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        assert not cd1.exists() and not cd2.exists()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _status(conn) is None
+        assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [5]
