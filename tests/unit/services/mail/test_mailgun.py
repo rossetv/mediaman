@@ -240,6 +240,13 @@ class TestMailgunCheckReachable:
             client.check_reachable()
         assert info.value.status_code == 401
 
+    def test_a_rejected_key_wins_over_the_other_regions_404(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=401, text="no"))
+        fake_http.queue("GET", fake_response(status=404, text="no"))
+        with pytest.raises(SafeHTTPError) as info:
+            client.check_reachable()
+        assert info.value.status_code == 401
+
     def test_raises_the_transport_error_when_every_region_is_unreachable(self, client, fake_http):
         fake_http.raise_on("GET", requests.ConnectionError("down"))
         with pytest.raises((requests.RequestException, SafeHTTPError)):
