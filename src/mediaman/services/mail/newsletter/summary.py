@@ -48,7 +48,8 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     for rd in redownload_rows:
         # media_item_id may be a Plex numeric string — keep as-is (no .lower())
         # so it matches plex_rating_key exactly.
-        key = str(rd["media_item_id"])
+        # Lower-cased like the dashboard: a Search re-add records the title here.
+        key = str(rd["media_item_id"]).lower()
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
     return redownload_times
@@ -132,6 +133,11 @@ def _load_deleted_items(
         plex_key = row["plex_rating_key"] or str(row["media_item_id"] or "")
         keys = [plex_key] if plex_key else []
         keys += redownload_tokens(stored_by_audit.get(row["audit_id"]))
+        stored = stored_by_audit.get(row["audit_id"])
+        match_title = row["title"] or (stored.title if stored else None) or title
+        if match_title:
+            keys.append(match_title)
+        keys = [k.lower() for k in keys]
         if was_redownloaded_after(row["created_at"], keys, redownload_times):
             continue
 

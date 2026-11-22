@@ -257,3 +257,28 @@ class TestRedownloadedItemsDropOut:
         assert self._titles(conn) == ["Unknown"]
         self._redownload(conn, "tvdb:77:s2")
         assert self._titles(conn) == []
+
+    def test_search_readd_recorded_by_title_is_dropped(self, db_path):
+        conn = _make_conn(db_path)
+        self._delete_with_identity(conn, mi_id="m1", media_type="movie", tmdb_id=438631)
+        conn.execute("UPDATE deleted_media SET title='Dune'")
+        conn.commit()
+        insert_audit_log(
+            conn,
+            media_item_id="DUNE",
+            action="downloaded",
+            created_at=(_NOW - timedelta(days=1)).isoformat(),
+        )
+        # the Plex-less deleted row carries no title of its own; the stored one is used
+        assert self._titles(conn) == []
+
+    def test_redownload_before_the_deletion_keeps_the_item(self, db_path):
+        conn = _make_conn(db_path)
+        self._delete_with_identity(conn, mi_id="m1", media_type="movie", tmdb_id=438631)
+        insert_audit_log(
+            conn,
+            media_item_id="tmdb:438631",
+            action="re_downloaded",
+            created_at=(_NOW - timedelta(days=4)).isoformat(),
+        )
+        assert self._titles(conn) == ["Unknown"]
