@@ -160,7 +160,7 @@
       if (s.kept) cb.dataset.kept = '1';
       cb.checked = !!showKept || s.kept || !anyKept;
       cb.addEventListener('change', function () {
-        allCb.checked = !list.querySelector('input[data-season-id]:not(:checked)');
+        if (!cb.checked) allCb.checked = false;
       });
       var label = document.createElement('label');
       label.htmlFor = 'keep-season-' + s.id;
