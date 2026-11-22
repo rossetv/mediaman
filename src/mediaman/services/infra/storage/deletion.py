@@ -66,14 +66,14 @@ def path_within_delete_roots(path: str, allowed_roots: list[str]) -> bool:
 
 
 def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
-    """Return True iff the delete root holding *path* is a directory with content.
+    """Return True iff the closest existing folder above *path* has content.
 
-    A media mount that has dropped leaves its mount point missing or empty,
-    and every target under it then looks deleted. A caller that finds its
-    target absent asks this first, so it does not book an unmounted file as
-    removed. Roots and *path* are resolved as ``path_within_delete_roots``
-    resolves them, so a root reached through a symlink or spelled another
-    way still matches. Never raises; any doubt (no matching root, unreadable
+    The search stops at the delete root holding *path*. A media mount that
+    has dropped leaves its mount point missing or empty, and every target
+    under it then looks deleted. A caller that finds its target absent asks
+    this first, so it does not book an unmounted file as removed. Roots and
+    *path* are resolved as ``path_within_delete_roots`` resolves them, so a
+    root reached through a symlink or spelled another way still matches. Never raises; any doubt (no matching root, unreadable
     root) answers False. It does not vet the allowlist: ``delete_path`` does
     that.
     """
@@ -92,8 +92,14 @@ def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
     if not roots:
         return False
     pinned_root = max(roots, key=lambda root: len(root.parts))
+    # A separate mount below the root that has dropped leaves an empty mount
+    # point while the root itself still has content, so look at the closest
+    # folder that still exists above the target.
+    closest = next(
+        folder for folder in target.parents if folder == pinned_root or os.path.lexists(folder)
+    )
     try:
-        with os.scandir(pinned_root) as entries:
+        with os.scandir(closest) as entries:
             return next(entries, None) is not None
     except OSError:
         return False

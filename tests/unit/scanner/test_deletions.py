@@ -886,6 +886,26 @@ class TestMissingTarget:
         assert "deleted" not in _audits(conn, "m")
         radarr.unmonitor_movie.assert_not_called()
 
+    def test_dropped_mount_below_the_root_leaves_the_row_pending(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "media"
+        (root / "tv" / "local" / "Other").mkdir(parents=True)
+        (root / "tv" / "local" / "Other" / "Other.mkv").write_bytes(b"x")
+        (root / "tv" / "nas").mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(root / "tv" / "nas" / "Show")
+        )
+        _due_row(conn, "m")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+        assert "deleted" not in _audits(conn, "m")
+
     def test_file_gone_while_mount_is_up_closes_the_row(self, conn, tmp_path, monkeypatch):
         root = tmp_path / "movies"
         (root / "Other").mkdir(parents=True)
