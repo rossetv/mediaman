@@ -562,6 +562,8 @@ class TestApiTestServiceOpenAiTmdbOmdb:
     def test_omdb_without_error_sentence_sends_code_only(self, app_factory, authed_client, conn):
         resp = self._omdb_answer(app_factory, authed_client, conn, {"Response": "False"})
         data = resp.json()
+        assert data["ok"] is False
+        assert set(data) == {"ok", "error", "message"}
         assert data["error"] == "auth_failed"
         assert "rejected" in data["message"]
 
@@ -669,6 +671,7 @@ class TestTesterFailureMessages:
         client = _client(app_factory, authed_client, conn)
         with patch("mediaman.services.infra.http.client._dispatch", side_effect=raised):
             data = client.post("/api/settings/test/openai").json()
+        assert data["ok"] is False
         assert data["error"] == code
         assert words in data["message"]
 
@@ -676,6 +679,7 @@ class TestTesterFailureMessages:
         insert_settings(conn, tmdb_read_token="bad\nevil")
         client = _client(app_factory, authed_client, conn)
         data = client.post("/api/settings/test/tmdb").json()
+        assert data["ok"] is False
         assert data["error"].startswith("auth_failed")
         assert "characters" in data["message"]
 
@@ -687,6 +691,7 @@ class TestTesterFailureMessages:
             side_effect=requests.Timeout("timed out"),
         ):
             data = client.post("/api/settings/test/plex").json()
+        assert data["ok"] is False
         assert data["error"] == "timeout"
         assert "in time" in data["message"]
 
@@ -706,6 +711,7 @@ class TestTesterFailureMessages:
         client = _client(app_factory, authed_client, conn)
 
         data = client.post("/api/settings/test/plex").json()
+        assert data["ok"] is False
         assert data["error"] == "timeout"
         assert "in time" in data["message"]
 
@@ -718,6 +724,7 @@ class TestTesterFailureMessages:
         resp = client.post("/api/settings/test/plex")
         data = resp.json()
         assert resp.status_code == 200
+        assert data["ok"] is False
         assert data["error"] == "decrypt_failed: plex_token"
         assert "Save it again" in data["message"]
 
@@ -801,6 +808,7 @@ class TestSettingsTestServiceTimeout:
         first = client.post("/api/settings/test/plex")
         second = client.post("/api/settings/test/plex")
 
+        assert first.json()["ok"] is False
         assert first.json()["error"] == "timeout"
         assert second.json() == {"ok": True}
         assert len(calls) == 2
@@ -828,7 +836,10 @@ class TestSettingsTestServiceTimeout:
             release.set()
 
         assert elapsed < 1.0
-        assert json.loads(bytes(resp.body))["error"] == "timeout"
+        body = json.loads(bytes(resp.body))
+        assert body["ok"] is False
+        assert set(body) == {"ok", "error", "message"}
+        assert body["error"] == "timeout"
 
 
 class TestSettingsTestServiceScopedDecryption:
