@@ -60,6 +60,7 @@ from fastapi import Request
 
 from mediaman.services.rate_limit.ip_resolver import get_client_ip
 from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.responses import respond_err
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,7 @@ def rate_limit(
             if key == "actor":
                 actor: str = arguments["admin"]
                 check_result = limiter.check(actor)
-                log_actor = actor
+                log_actor = _sanitise_log_field(actor)
             else:
                 request_obj: Request = arguments["request"]
                 ip = get_client_ip(request_obj)

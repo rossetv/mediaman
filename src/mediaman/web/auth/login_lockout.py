@@ -141,13 +141,13 @@ def login_ip_key(username: str, client_ip: str) -> str:
 def _log_fields(key: str) -> tuple[str, str, str]:
     """Return ``(scope, bucket, username)`` of a counter *key*, ready for a log line.
 
-    The bucket is the IP bucket of a per-IP login key, ``-`` otherwise. It
-    comes from ``_ip_bucket``, a validated address, so it is logged as is;
-    the username is escaped.
+    The bucket is the IP bucket of a per-IP login key, ``-`` otherwise. Both
+    it and the username are escaped: the bucket of an address that does not
+    parse is the caller's own text.
     """
     if key.startswith(_LOGIN_IP_PREFIX):
         bucket, _, name = key[len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)
-        return "login-ip", bucket, _sanitise_log_field(name)
+        return "login-ip", _sanitise_log_field(bucket), _sanitise_log_field(name)
     if key.startswith(REAUTH_LOCKOUT_PREFIX):
         return "reauth", "-", _sanitise_log_field(key[len(REAUTH_LOCKOUT_PREFIX) :])
     if key.startswith(_ESCAPED_LOGIN_PREFIX):
