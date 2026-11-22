@@ -357,7 +357,9 @@ def _delete_season(
 
     try:
         client.delete_episode_files(sorted(verified_ids))
-        if any(ef.get("id") in verified_ids for ef in client.get_episode_files(sid)):
+        # Any file left in the season counts, not only the verified ones: an
+        # upgrade imported during the delete is still on disk.
+        if any(ef.get("seasonNumber") == season_num for ef in client.get_episode_files(sid)):
             _fail_delete_intent(
                 conn,
                 intent_id,

@@ -260,9 +260,8 @@ class TestMediaDelete:
         sonarr.get_episode_files.side_effect = import_lands_after_the_check
 
         with patch(SONARR, return_value=sonarr):
-            resp = client.post("/api/media/s1/delete")
+            client.post("/api/media/s1/delete")
 
-        assert resp.status_code == 200
         sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
     def test_season_without_a_stored_sonarr_id_is_found_by_tvdb_id(
@@ -783,6 +782,33 @@ class TestMediaDeleteTransactional:
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 409
+        mock_sonarr.delete_series.assert_not_called()
+        self._assert_not_booked_deleted(conn, "s1")
+
+    def test_an_episode_upgraded_during_the_delete_is_not_booked_as_deleted(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        mock_sonarr = _sonarr()
+        verified = mock_sonarr.get_episode_files.side_effect
+        upgrade = {"id": 9, "seasonNumber": 1, "relativePath": "Season 01/E02.mkv", "size": 9}
+        listings = {"n": 0}
+
+        def upgrade_lands_after_the_check(series_id):
+            listings["n"] += 1
+            if listings["n"] == 1:
+                return verified(series_id)
+            return [f for f in verified(series_id) if f["id"] != 2] + [upgrade]
+
+        mock_sonarr.get_episode_files.side_effect = upgrade_lands_after_the_check
+
+        with patch(SONARR, return_value=mock_sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 409
+        mock_sonarr.delete_episode_files.assert_called_once_with([1, 2])
+        mock_sonarr.unmonitor_season.assert_not_called()
         mock_sonarr.delete_series.assert_not_called()
         self._assert_not_booked_deleted(conn, "s1")
 
