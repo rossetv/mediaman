@@ -161,6 +161,7 @@
     }
 
     btn.disabled = true;
+    btn.classList.remove('is-error', 'is-success');
     btn.textContent = 'Adding…';
     MM.api.post('/api/media/redownload', payload)
       .then(function () {
@@ -173,7 +174,9 @@
           btn.textContent = msg;
         } else {
           btn.textContent = 'Failed';
-          window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
+          if (window.UIFeedback) {
+            window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
+          }
         }
         btn.classList.add('is-error');
         btn.disabled = false;
