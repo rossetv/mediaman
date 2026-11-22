@@ -423,3 +423,10 @@ class TestSchedulerAndMaintenanceActions:
         )
         item = client.get("/api/history").json()["items"][0]
         assert item["title"] == "/mnt/x"
+
+
+def test_history_delete_root_prefix_matches_the_scanner_writer():
+    from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
+    from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
+
+    assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
