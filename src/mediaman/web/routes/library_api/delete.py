@@ -49,6 +49,14 @@ _DELETE_LIMITER = ActionRateLimiter(
 )
 
 
+def _kept_response() -> JSONResponse:
+    return respond_err(
+        "kept",
+        status=409,
+        message="This item is kept, so it cannot be deleted. Remove its keep first.",
+    )
+
+
 def _is_already_gone(exc: Exception) -> bool:
     """Return True when an Arr exception carries a 404 (already deleted upstream), whether it
     is a SafeHTTPError or any exception with response.status_code.
@@ -221,6 +229,8 @@ def _finalise_delete(
         audit_detail=detail,
         space_bytes=snapshot.file_size_bytes,
         actor=username,
+        # With an Arr delete run (intent recorded) the files are gone, so the row must go too.
+        refuse_if_kept=intent_id is None,
     )
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
@@ -261,11 +271,7 @@ def api_media_delete(
     except NotFound:
         return respond_err("forbidden", status=403)
     except Kept:
-        return respond_err(
-            "kept",
-            status=409,
-            message="This item is kept, so it cannot be deleted. Remove its keep first.",
-        )
+        return _kept_response()
 
     intent_id, short_circuit = _run_arr_delete_branch(
         snapshot,
@@ -277,5 +283,10 @@ def api_media_delete(
     if short_circuit is not None:
         return short_circuit
 
-    _finalise_delete(snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username)
+    try:
+        _finalise_delete(
+            snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username
+        )
+    except Kept:
+        return _kept_response()
     return respond_ok({"id": media_id})

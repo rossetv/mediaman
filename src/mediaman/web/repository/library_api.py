@@ -180,6 +180,7 @@ def finalise_delete_in_tx(
     audit_detail: str,
     space_bytes: int | None,
     actor: str,
+    refuse_if_kept: bool = False,
 ) -> None:
     """Run the cleanup transaction: audit, prune scheduled_actions, drop row.
 
@@ -187,12 +188,26 @@ def finalise_delete_in_tx(
     detected as already-gone). Audit, scheduled_actions prune, and the
     media_items delete all land in the same commit so a SQLite failure
     rolls the lot back.
+
+    With *refuse_if_kept* the keep is checked again under the write-lock, since one
+    may have landed since the snapshot; the caller sets it only when no Arr delete ran
+    (the files are untouched, so refusing loses nothing).
+
+    Raises:
+        Kept: when *refuse_if_kept* is set and the item is now kept; nothing is written.
     """
     # Cleanup transaction: ``with conn:`` commits on normal exit and
     # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
     # semantics.
     with conn:
         conn.execute("BEGIN IMMEDIATE")
+        if refuse_if_kept:
+            row = conn.execute(
+                "SELECT show_rating_key FROM media_items WHERE id = ?", (media_id,)
+            ).fetchone()
+            show_key = row["show_rating_key"] if row else None
+            if is_protected(conn, media_id) or is_show_kept_pure(conn, show_key):
+                raise Kept(media_id)
         log_audit(
             conn,
             media_id,

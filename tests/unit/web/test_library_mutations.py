@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import router as library_api_router
@@ -225,6 +226,31 @@ class TestMediaDeleteRefusesKeptItems:
         assert resp.status_code == 409
         mock_sonarr.delete_episode_files.assert_not_called()
         assert conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
+
+    def test_keep_landing_after_the_snapshot_is_refused(self, app_factory, authed_client, conn):
+        _insert_movie(conn, radarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        def keep_lands(_snapshot, *, conn, **_kwargs):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action="protected_forever", token="tok1"
+            )
+            return None, None
+
+        with patch(
+            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
+            side_effect=keep_lands,
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "kept"
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
+        reconcile_pending_delete_intents(conn)
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
 
 
 class TestMediaDeleteTransactional:
