@@ -17,6 +17,7 @@ or pointing at a forbidden system directory.
 from __future__ import annotations
 
 import errno as _errno
+import functools
 import os
 import stat as _stat
 from pathlib import Path
@@ -93,6 +94,24 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
 )
 
 
+@functools.cache
+def _forbidden_identities() -> frozenset[tuple[int, int]]:
+    """Return ``(st_dev, st_ino)`` of every forbidden path that exists.
+
+    Computed once per process: the forbidden folders are fixed system
+    locations, and re-statting them on every deletion would add dozens of
+    syscalls and let a hung mount among them stall unrelated deletions.
+    """
+    identities: set[tuple[int, int]] = set()
+    for forbidden in _FORBIDDEN_ROOTS:
+        try:
+            st = os.stat(forbidden)
+        except OSError:
+            continue
+        identities.add((st.st_dev, st.st_ino))
+    return frozenset(identities)
+
+
 def _is_forbidden_root(real: Path) -> bool:
     """Return True if *real* is a forbidden root, by name or as the same folder.
 
@@ -106,13 +125,7 @@ def _is_forbidden_root(real: Path) -> bool:
         real_stat = os.stat(real)
     except OSError:
         return False
-    for forbidden in _FORBIDDEN_ROOTS:
-        try:
-            if os.path.samestat(real_stat, os.stat(forbidden)):
-                return True
-        except OSError:
-            continue
-    return False
+    return (real_stat.st_dev, real_stat.st_ino) in _forbidden_identities()
 
 
 def _resolve_root_candidate(raw: str) -> Path:
