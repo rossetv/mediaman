@@ -616,23 +616,22 @@
   }
 
   /* form.submit() leaves out the pill button that carries `type`, so the
-     active pill's value is added by hand; a pill click submits natively. */
+     active pill's value is added by hand; a pill click submits natively. The
+     field is dropped again at once: a page restored by Back must not send it
+     beside the next pill click's own `type`. */
   function submitToolbar() {
     var form = document.getElementById('toolbar-form');
     var on = form.querySelector('.fpill.on[name="type"]');
-    var hidden = form.querySelector('input[type="hidden"][name="type"]');
+    var hidden = null;
     if (on && on.value) {
-      if (!hidden) {
-        hidden = document.createElement('input');
-        hidden.type = 'hidden';
-        hidden.name = 'type';
-        form.appendChild(hidden);
-      }
+      hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'type';
       hidden.value = on.value;
-    } else if (hidden) {
-      hidden.remove();
+      form.appendChild(hidden);
     }
     form.submit();
+    if (hidden) hidden.remove();
   }
 
   function setSort(value) {
