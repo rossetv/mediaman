@@ -86,8 +86,33 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         "/tmp",  # nosec B108  # rationale: listed as a *forbidden* delete root; mediaman never writes here
         "/usr",
         "/var",
+        # macOS keeps home folders under /Users and external drives under /Volumes.
+        "/Users",
+        "/Volumes",
     }
 )
+
+
+def _is_forbidden_root(real: Path) -> bool:
+    """Return True if *real* is a forbidden root, by name or as the same folder.
+
+    The name check alone misses another spelling of the same folder, such as
+    ``/USR`` on a case-insensitive filesystem, so an existing *real* is also
+    compared by device and inode against every forbidden path that exists.
+    """
+    if str(real) in _FORBIDDEN_ROOTS:
+        return True
+    try:
+        real_stat = os.stat(real)
+    except OSError:
+        return False
+    for forbidden in _FORBIDDEN_ROOTS:
+        try:
+            if os.path.samestat(real_stat, os.stat(forbidden)):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _resolve_root_candidate(raw: str) -> Path:
@@ -185,7 +210,7 @@ def _validate_single_root(raw: str) -> Path:
         )
     real = _resolve_root_candidate(raw)
     normalised = str(real)
-    if normalised in _FORBIDDEN_ROOTS:
+    if _is_forbidden_root(real):
         raise DeletionRefused(
             f"Refusing to delete: allowed root '{raw}' resolves to "
             f"'{normalised}', a system / mount-root path that must not "
