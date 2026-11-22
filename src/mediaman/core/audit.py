@@ -68,8 +68,8 @@ def log_audit(
     *,
     space_bytes: int | None = None,
     actor: str | None = None,
-) -> None:
-    """Insert a row into ``audit_log`` for a media action.
+) -> int:
+    """Insert a row into ``audit_log`` for a media action and return its id.
 
     Args:
         conn: Open SQLite connection.
@@ -89,12 +89,14 @@ def log_audit(
     committing in their own transaction so the audit row and the business
     row land in the same commit.
     """
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO audit_log "
         "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (media_item_id, action, detail, space_bytes, now_iso(), actor),
     )
+    assert cursor.lastrowid is not None
+    return cursor.lastrowid
 
 
 def _format_security_body(actor: str, ip: str, detail: dict[str, object] | str | None) -> str:
