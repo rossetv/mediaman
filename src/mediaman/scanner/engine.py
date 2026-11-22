@@ -371,8 +371,7 @@ class ScanEngine:
     def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.
 
-        Delegates to DeletionExecutor. Kept on ``ScanEngine``
-        so existing callers don't need to know about the split.
+        Delegates to DeletionExecutor.
         """
         return self._deletions.execute()
 

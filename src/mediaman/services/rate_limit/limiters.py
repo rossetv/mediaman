@@ -72,8 +72,7 @@ class ActionRateLimiter:
     boundary by sending the day-N quota at 23:59:59 then the day-N+1
     quota at 00:00:01.
 
-    Trade-off: memory is now ``O(max_per_day)`` per actor instead of a
-    single integer. With ``max_per_day`` typically in the tens to low
+    Trade-off: memory is ``O(max_per_day)`` per actor. With ``max_per_day`` typically in the tens to low
     hundreds, this is a modest fixed cost (a few hundred bytes per
     actor). Acceptable for the security gain.
     """

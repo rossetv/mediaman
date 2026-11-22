@@ -104,7 +104,7 @@ class PlexClient:
         # rebinding attempts that happen between construction and use.
         # ``allowed_hosts`` is only forwarded when supplied so that test
         # monkeypatches of ``resolve_safe_outbound_url`` taking ``url``
-        # alone keep working.
+        # alone are accepted.
         if allowed_hosts is None:
             safe, _hostname, _ip = resolve_safe_outbound_url(url)
         else:

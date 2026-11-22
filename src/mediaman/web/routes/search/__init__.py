@@ -2,7 +2,7 @@
 
 A thin aggregator over .page, .detail, .download and ._enrichment (shared TMDB
 normalisation, Arr-state annotation and the parallel OMDb ratings fan-out). The names
-re-exported here are the import surface existing callers and tests use.
+re-exported here are the import surface callers and tests use.
 """
 
 from __future__ import annotations

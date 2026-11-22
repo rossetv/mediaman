@@ -1,9 +1,8 @@
 """Error type for ``SafeHTTPClient``.
 
-Kept apart from the client class (``_core``) so it can be imported
-without a circular dependency. Re-exported from the package barrel so
-callers use ``from mediaman.services.infra.http.client import
-SafeHTTPError``.
+Holds the ``SafeHTTPError`` type and the helper that scrubs query strings
+from the URL it reports. Re-exported from the package so callers use
+``from mediaman.services.infra.http.client import SafeHTTPError``.
 """
 
 from __future__ import annotations

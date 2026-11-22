@@ -23,8 +23,9 @@ State summary:
 * ``_state_lock`` — threading.Lock guarding all four dicts above.
 
 All names in this module are re-exported verbatim from
-``mediaman.services.arr.search_trigger``, which is where callers import
-them from and where tests monkeypatch them.
+``mediaman.services.arr.search_trigger``, which production callers import
+them from. The state lives here so that ``search_trigger`` and
+``_throttle_persistence`` share the same dicts and lock.
 """
 
 from __future__ import annotations
