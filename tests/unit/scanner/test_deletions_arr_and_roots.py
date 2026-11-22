@@ -211,6 +211,65 @@ class TestVerifiedUnmonitor:
         skipped = _audit(conn, "s1", "unmonitor_skipped")
         assert len(skipped) == 1 and reason in skipped[0]
 
+    def test_a_movie_whose_radarr_file_is_the_deleted_one_is_unmonitored(self, conn, movie):
+        radarr = _radarr(
+            {**_MOVIE, "hasFile": True, "movieFile": {"relativePath": "film.mkv", "size": 4}}
+        )
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        radarr.unmonitor_movie.assert_called_once_with(42)
+
+    @pytest.mark.parametrize(
+        "movie_file",
+        [
+            {"relativePath": "film.mkv", "size": 9_000},
+            {"relativePath": "Film (2020) Bluray-1080p.mkv", "size": 4},
+            None,
+        ],
+        ids=["other-size", "other-name", "file-not-described"],
+    )
+    def test_a_movie_whose_radarr_file_was_not_deleted_is_not_unmonitored(
+        self, conn, movie, movie_file
+    ):
+        # Radarr's entry for the same film and folder name holds a copy mediaman kept.
+        entry = {**_MOVIE, "hasFile": True}
+        if movie_file is not None:
+            entry["movieFile"] = movie_file
+        radarr = _radarr(entry)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        radarr.unmonitor_movie.assert_not_called()
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
+
+    def test_a_season_whose_sonarr_files_are_the_deleted_ones_is_unmonitored(self, conn, season):
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 2, "relativePath": "Season 2/Show - s02e01.mkv", "size": 5},
+        ]
+
+        DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        sonarr.unmonitor_season.assert_called_once_with(7, 1)
+
+    def test_a_season_with_a_sonarr_file_mediaman_did_not_delete_is_not_unmonitored(
+        self, conn, season
+    ):
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e02.mkv", "size": 1},
+        ]
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+        assert len(_audit(conn, "s1", "unmonitor_skipped")) == 1
+
     def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
         radarr = _radarr(_MOVIE)
         error = requests.HTTPError("not found")

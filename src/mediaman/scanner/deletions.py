@@ -22,6 +22,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -430,6 +431,33 @@ def _is_not_found(exc: Exception) -> bool:
     return getattr(getattr(exc, "response", None), "status_code", None) == 404
 
 
+def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
+    """Return ``(name, size)`` of a Radarr/Sonarr file payload, or None when it says neither."""
+    if not isinstance(arr_file, Mapping):
+        return None
+    path = arr_file.get("relativePath") or arr_file.get("path")
+    name = re.split(r"[\\/]", path)[-1] if isinstance(path, str) else ""
+    size = arr_file.get("size")
+    if not name or not isinstance(size, int) or isinstance(size, bool):
+        return None
+    return name, size
+
+
+def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
+    """Return ``(name, size)`` of each file *row*'s deletion removed.
+
+    Only a booked row is unmonitored, and a row is booked only once every
+    tracked file of it is gone by this deletion's hand, so its tracked files
+    are the files removed.
+    """
+    keys = set()
+    for entry in row.tracked_files or []:
+        path, size = entry.get("path"), entry.get("size")
+        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
+            keys.add((os.path.basename(path), size))
+    return keys
+
+
 def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
     tmdb_id = row.tmdb_id
@@ -444,14 +472,26 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         return "Radarr has no entry for this movie"
     if entry.get("tmdbId") != tmdb_id:
         return "Radarr's entry is a different movie (TMDB id differs)"
-    # The files are gone, so the id and the folder name are all left to check.
     index = build_arr_index([entry], [])
-    for path in _tracked_paths(row) or []:
-        radarr_id = index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)
-        if radarr_id is not None:
-            client.unmonitor_movie(radarr_id)
-            return None
-    return "Radarr's folder for this movie is not the one Plex used"
+    radarr_id = next(
+        (
+            found
+            for path in _tracked_paths(row) or []
+            if (found := index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)) is not None
+        ),
+        None,
+    )
+    if radarr_id is None:
+        return "Radarr's folder for this movie is not the one Plex used"
+    # A second copy (a 4K library, say) can share the id and the folder name;
+    # unmonitoring its entry would stop Radarr upgrading the copy that was kept.
+    movie_file = entry.get("movieFile")
+    if movie_file is not None or entry.get("hasFile"):
+        key = _arr_file_key(movie_file)
+        if key is None or key not in _removed_file_keys(row):
+            return "Radarr's file for this movie is not one mediaman deleted"
+    client.unmonitor_movie(radarr_id)
+    return None
 
 
 def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
@@ -475,14 +515,33 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     ref = index.series.get(tvdb_id)
     if ref is None or season not in ref.seasons:
         return "Sonarr does not have this season"
-    for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}:
-        sonarr_id = index_match_season(
-            index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
-        )
-        if sonarr_id is not None:
-            client.unmonitor_season(sonarr_id, season)
-            return None
-    return "Sonarr's folder for this show is not the one Plex used"
+    sonarr_id = next(
+        (
+            found
+            for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}
+            if (
+                found := index_match_season(
+                    index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
+                )
+            )
+            is not None
+        ),
+        None,
+    )
+    if sonarr_id is None:
+        return "Sonarr's folder for this show is not the one Plex used"
+    # Sonarr still lists the removed files until its own rescan; any other
+    # file in the season is a copy that was kept.
+    removed = _removed_file_keys(row)
+    for episode_file in client.get_episode_files(sonarr_id):
+        if (
+            isinstance(episode_file, Mapping)
+            and episode_file.get("seasonNumber") == season
+            and _arr_file_key(episode_file) not in removed
+        ):
+            return "Sonarr has a file in this season that mediaman did not delete"
+    client.unmonitor_season(sonarr_id, season)
+    return None
 
 
 def _unmonitor_deleted(
