@@ -19,6 +19,7 @@ from collections.abc import Callable
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.infra.storage.deletion import unavailable_folder
 from mediaman.web.repository.library_api import _parse_tracked_files
 
 logger = logging.getLogger(__name__)
@@ -84,8 +85,8 @@ def _fail_delete_intent(
 _INTERRUPTED_DETAIL = "Delete interrupted; not confirmed by Radarr/Sonarr — press Delete again"
 
 _FILE_LEFT_DETAIL = (
-    "{service} no longer has it, but a file is still on disk; nothing was booked "
-    "as deleted. The next library scan will update it."
+    "{service} no longer has it, but a file is still on disk or its folder may not be "
+    "mounted; nothing was booked as deleted. The next library scan will update it."
 )
 
 VerifyGone = Callable[[sqlite3.Row], bool | None]
@@ -148,8 +149,13 @@ def build_verify_gone(conn: sqlite3.Connection, secret_key: str) -> VerifyGone:
     return verify_gone
 
 
-def _tracked_file_on_disk(conn: sqlite3.Connection, media_item_id: str) -> bool:
-    """True when any file tracked for the item still exists locally.
+def _tracked_file_on_disk(
+    conn: sqlite3.Connection, media_item_id: str, delete_roots: list[str]
+) -> bool:
+    """True when any file tracked for the item still exists locally, or may.
+
+    With *delete_roots* set, a tracked path whose folder looks unmounted counts
+    too: a missing path under a down mount proves nothing.
 
     The Arr answering 404 does not prove its files are gone from mediaman's
     storage: a delete cut short while waiting for them to vanish leaves them.
@@ -158,10 +164,9 @@ def _tracked_file_on_disk(conn: sqlite3.Connection, media_item_id: str) -> bool:
         "SELECT tracked_files FROM media_items WHERE id = ?", (media_item_id,)
     ).fetchone()
     entries = _parse_tracked_files(row["tracked_files"]) if row else None
-    return any(
-        os.path.lexists(path)
-        for entry in entries or ()
-        if isinstance(path := entry.get("path"), str) and path
+    paths = [path for entry in entries or () if isinstance(path := entry.get("path"), str) and path]
+    return any(os.path.lexists(path) for path in paths) or (
+        bool(delete_roots) and any(unavailable_folder(path, delete_roots) for path in paths)
     )
 
 
@@ -169,6 +174,7 @@ def _reconcile_one_intent(
     conn: sqlite3.Connection,
     intent: sqlite3.Row,
     verify_gone: VerifyGone | None = None,
+    delete_roots: list[str] | None = None,
 ) -> bool:
     """Reconcile a single pending intent.  Returns ``True`` on resolution."""
     from mediaman.core.audit import log_audit
@@ -210,7 +216,7 @@ def _reconcile_one_intent(
     # and leave it pending so the next run retries without aborting the rest.
     try:
         arr_gone = verify_gone is not None and bool(verify_gone(intent))
-        if arr_gone and _tracked_file_on_disk(conn, media_item_id):
+        if arr_gone and _tracked_file_on_disk(conn, media_item_id, delete_roots or []):
             detail = _FILE_LEFT_DETAIL.format(service=str(intent["target_kind"]).title())
             _fail_delete_intent(conn, intent_id, media_item_id, detail, detail)
             logger.info(
@@ -271,6 +277,7 @@ def reconcile_pending_delete_intents(
     verify_gone: VerifyGone | None = None,
     *,
     started_before: str | None = None,
+    delete_roots: list[str] | None = None,
 ) -> int:
     """Find unresolved delete intents and close each one.
 
@@ -280,6 +287,9 @@ def reconcile_pending_delete_intents(
     With *started_before* (an ISO timestamp as ``now_utc().isoformat()``
     writes it) only intents started earlier are touched, so a run that
     overlaps live requests leaves their in-flight deletes alone.
+
+    With *delete_roots*, an item whose tracked files are missing under a folder
+    that looks unmounted is kept even when Radarr/Sonarr say it is gone.
 
     Takes an explicit connection so the caller can give it one owned by
     the thread it runs on.
@@ -297,6 +307,6 @@ def reconcile_pending_delete_intents(
     pending = conn.execute(sql, params).fetchall()
     resolved = 0
     for row in pending:
-        if _reconcile_one_intent(conn, row, verify_gone):
+        if _reconcile_one_intent(conn, row, verify_gone, delete_roots):
             resolved += 1
     return resolved

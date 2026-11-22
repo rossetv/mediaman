@@ -198,6 +198,40 @@ class TestReconcilePendingDeleteIntents:
         assert "press Delete again" not in intent["last_error"]
         assert _audit_actions(conn, "m2") == ["delete_failed"]
 
+    def test_verified_gone_is_not_booked_when_the_media_folder_looks_unmounted(
+        self, conn, tmp_path
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        gone = [{"path": str(root / "Test Movie" / "movie.mkv"), "size": 1}]
+        _insert_movie(conn, "m2", tracked_files=gone)
+        intent_id = _record_delete_intent(conn, "m2", "radarr", "101")
+
+        reconcile_pending_delete_intents(
+            conn, verify_gone=lambda _i: True, delete_roots=[str(root)]
+        )
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
+        intent = conn.execute(
+            "SELECT last_error FROM delete_intents WHERE id = ?", (intent_id,)
+        ).fetchone()
+        assert "may not be mounted" in intent["last_error"]
+        assert _audit_actions(conn, "m2") == ["delete_failed"]
+
+    def test_verified_gone_is_booked_when_the_media_folder_has_content(self, conn, tmp_path):
+        root = tmp_path / "movies"
+        root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
+        gone = [{"path": str(root / "Test Movie" / "movie.mkv"), "size": 1}]
+        _insert_movie(conn, "m2", tracked_files=gone)
+        _record_delete_intent(conn, "m2", "radarr", "101")
+
+        reconcile_pending_delete_intents(
+            conn, verify_gone=lambda _i: True, delete_roots=[str(root)]
+        )
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone() is None
+
     def test_verified_gone_season_is_not_booked_while_an_episode_is_still_on_disk(
         self, conn, tmp_path
     ):

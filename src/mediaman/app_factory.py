@@ -60,12 +60,15 @@ def _reconcile_delete_intents_in_background(secret_key: str, started_before: str
             reconcile_pending_delete_intents,
         )
 
+        from mediaman.scanner.repository import read_delete_allowed_roots_setting
+
         conn = get_db()
         try:
             reconciled = reconcile_pending_delete_intents(
                 conn,
                 verify_gone=build_verify_gone(conn, secret_key),
                 started_before=started_before,
+                delete_roots=read_delete_allowed_roots_setting(conn),
             )
         finally:
             close_db()
