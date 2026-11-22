@@ -32,8 +32,12 @@
      Keep disabled until its chain settles, so two chains never interleave. */
   var _keepChains = {};
 
+  function chainKeyFor(showRk, showTitle) {
+    return showRk || 'title:' + showTitle;
+  }
+
   function keepChainKey() {
-    return _keepDialogState.showRk || 'title:' + _keepDialogState.showTitle;
+    return chainKeyFor(_keepDialogState.showRk, _keepDialogState.showTitle);
   }
 
   function trackKeepChain(key, chain) {
@@ -127,6 +131,8 @@
         });
       return;
     }
+    /* A Remove keep still running on this row would race the dialog's keep. */
+    if (wrapper.dataset.keepBusy === '1') return;
     _keepDialogState.showRk = showRk;
     _keepDialogState.hasRk = hasRk;
     _keepDialogState.showTitle = showTitle;
@@ -578,6 +584,15 @@
   function removeKeep(btn, mediaId) {
     var wrapper = btn.closest('.keep-wrapper');
     if (!wrapper || wrapper.dataset.keepBusy === '1') return;
+    /* Nor while a keep from the dialog is still saving for this show. */
+    if (wrapper.dataset.tv === 'true' &&
+        _keepChains[chainKeyFor(wrapper.dataset.showRk || '', wrapper.dataset.showTitle || '')]) {
+      if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
+      window.UIFeedback.toast('Still saving the keep for this show. Try again in a moment.');
+      var busyTrigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+      if (busyTrigger) busyTrigger.focus();
+      return;
+    }
     wrapper.dataset.keepBusy = '1';
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
