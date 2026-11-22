@@ -69,6 +69,7 @@
   flex-direction: column;
   gap: 20px;
 }
+.dl-content[hidden] { display: none; }
 .dl-quick,
 .dl-ratings {
   display: flex;
@@ -222,3 +223,14 @@
 .dl-expired-back a { color: var(--accent); font-size: 14px; }
 
 .u-mt-24 { margin-top: 24px; }
+
+/* Phone: 40px tap area on the brand and dashboard links. */
+@media (max-width: 639.98px) {
+  .dl-nav .nav-brand,
+  .dl-footer a,
+  .dl-expired-back a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+}
