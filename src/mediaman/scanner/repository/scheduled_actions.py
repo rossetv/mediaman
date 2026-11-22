@@ -18,8 +18,8 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Collection
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from mediaman.scanner.repository._protection import (
@@ -106,6 +106,8 @@ class DeletionRow:
     # Tracked paths earlier passes of this deletion removed, and the bytes they freed.
     removed_paths: frozenset[str] = frozenset()
     removed_bytes: int = 0
+    # The tracked size of each removed path; a record written without one has none.
+    removed_sizes: dict[str, int] = field(default_factory=dict)
 
 
 _DELETION_COLUMNS = (
@@ -127,34 +129,58 @@ def _parse_tracked_files(raw: str | None) -> list[dict[str, Any]] | None:
     return value if isinstance(value, list) else None
 
 
-def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int]:
-    """Return the recorded removed paths and bytes, or nothing when missing or malformed."""
+def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int, dict[str, int]]:
+    """Return the recorded removed paths, bytes and sizes, or nothing when missing or malformed."""
     if raw is None:
-        return frozenset(), 0
+        return frozenset(), 0, {}
     try:
         value = json.loads(raw)
         paths = value["paths"]
         removed_bytes = value["bytes"]
     except (TypeError, ValueError, KeyError):
         logger.warning("scheduled_actions.removed_files is malformed; treating it as empty")
-        return frozenset(), 0
+        return frozenset(), 0, {}
     if not isinstance(paths, list) or not isinstance(removed_bytes, int):
-        return frozenset(), 0
-    return frozenset(p for p in paths if isinstance(p, str)), removed_bytes
+        return frozenset(), 0, {}
+    removed = frozenset(p for p in paths if isinstance(p, str))
+    sizes = value.get("sizes")
+    if not isinstance(sizes, dict):
+        sizes = {}
+    return (
+        removed,
+        removed_bytes,
+        {
+            path: size
+            for path, size in sizes.items()
+            if path in removed and isinstance(size, int) and not isinstance(size, bool)
+        },
+    )
 
 
 def record_removed_files(
-    conn: sqlite3.Connection, action_id: int, paths: Collection[str], removed_bytes: int
+    conn: sqlite3.Connection,
+    action_id: int,
+    paths: Collection[str],
+    removed_bytes: int,
+    sizes: Mapping[str, int],
 ) -> None:
-    """Store what this deletion has removed so far, so a later pass can finish it."""
+    """Store what this deletion has removed so far, so a later pass can finish it.
+
+    *sizes* gives the tracked size of each removed path that has one.
+    """
+    record = {
+        "paths": sorted(paths),
+        "bytes": removed_bytes,
+        "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+    }
     conn.execute(
         "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
-        (json.dumps({"paths": sorted(paths), "bytes": removed_bytes}), action_id),
+        (json.dumps(record), action_id),
     )
 
 
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
-    removed_paths, removed_bytes = _parse_removed_files(row["removed_files"])
+    removed_paths, removed_bytes, removed_sizes = _parse_removed_files(row["removed_files"])
     return DeletionRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -172,6 +198,7 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         tracked_files=_parse_tracked_files(row["tracked_files"]),
         removed_paths=removed_paths,
         removed_bytes=removed_bytes,
+        removed_sizes=removed_sizes,
     )
 
 

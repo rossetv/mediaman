@@ -13,12 +13,24 @@ from mediaman.bootstrap.scan_jobs import _recover_stuck_deletions_at_boot
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
+from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
+
+
+def _track(conn, media_id, files):
+    """Record *files* as the item's tracked files, sized as they are on disk."""
+    tracked = [
+        {"path": str(p), "size": os.path.getsize(p) if os.path.lexists(p) else 0} for p in files
+    ]
+    conn.execute(
+        "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), media_id)
+    )
+    conn.commit()
 
 
 def _item(conn, media_id, *, file_path, files, **fields):
@@ -32,12 +44,7 @@ def _item(conn, media_id, *, file_path, files, **fields):
         file_path=str(file_path),
         **fields,
     )
-    tracked = [
-        {"path": str(p), "size": os.path.getsize(p) if os.path.lexists(p) else 0} for p in files
-    ]
-    conn.execute(
-        "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), media_id)
-    )
+    _track(conn, media_id, files)
     for column, value in ids.items():
         conn.execute(f"UPDATE media_items SET {column} = ? WHERE id = ?", (value, media_id))
     insert_scheduled_action(
@@ -173,9 +180,8 @@ class TestVerifiedUnmonitor:
         [
             ({**_MOVIE, "tmdbId": 604}, "TMDB id"),
             ({**_MOVIE, "path": "/data/movies-4k/Film (2020) 4K"}, "folder"),
-            (None, "no entry"),
         ],
-        ids=["other-id", "other-folder", "missing"],
+        ids=["other-id", "other-folder"],
     )
     def test_a_movie_radarr_does_not_match_is_booked_deleted_and_not_unmonitored(
         self, conn, movie, entry, reason
@@ -270,6 +276,74 @@ class TestVerifiedUnmonitor:
         sonarr.unmonitor_season.assert_not_called()
         assert len(_audit(conn, "s1", "unmonitor_skipped")) == 1
 
+    @staticmethod
+    def _two_episodes(conn, season):
+        """Track a second episode beside *season* and return Sonarr listing both."""
+        e02 = season.parent / "Show - s01e02.mkv"
+        e02.write_bytes(b"yy")
+        _track(conn, "s1", [season, e02])
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e02.mkv", "size": 2},
+        ]
+        return e02, sonarr
+
+    def test_a_file_an_earlier_pass_removed_still_matches_after_a_scan_drops_it(
+        self, conn, season, monkeypatch
+    ):
+        e02, sonarr = self._two_episodes(conn, season)
+        unlink = storage._unlink_regular_file
+
+        def e02_fails(path, roots):
+            if path.name == e02.name:
+                raise PermissionError("busy")
+            return unlink(path, roots)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", e02_fails)
+        DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        _track(conn, "s1", [e02])
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_called_once_with(7, 1)
+
+    def test_a_removed_file_recorded_without_its_size_does_not_match(self, conn, season):
+        e02, sonarr = self._two_episodes(conn, season)
+        season.unlink()
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ? WHERE media_item_id = 's1'",
+            (json.dumps({"paths": [str(season)], "bytes": 1}),),
+        )
+        _track(conn, "s1", [e02])
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+
+    def test_a_movie_radarr_has_no_entry_for_is_booked_without_an_audit_row(self, conn, movie):
+        conn.execute("UPDATE media_items SET radarr_id = NULL WHERE id = 'm1'")
+        conn.commit()
+        radarr = _radarr(None)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        radarr.unmonitor_movie.assert_not_called()
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
+
+    def test_a_season_sonarr_has_no_entry_for_is_booked_without_an_audit_row(self, conn, season):
+        sonarr = _sonarr(None)
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+        assert _audit(conn, "s1", "unmonitor_skipped") == []
+
     def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
         radarr = _radarr(_MOVIE)
         error = requests.HTTPError("not found")
@@ -279,7 +353,7 @@ class TestVerifiedUnmonitor:
         DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
         radarr.unmonitor_movie.assert_not_called()
-        assert "no entry" in _audit(conn, "m1", "unmonitor_skipped")[0]
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
 
     def test_no_radarr_configured_skips_the_unmonitor_without_an_audit_row(self, conn, movie):
         result = DeletionExecutor(conn=conn).execute()
@@ -492,6 +566,24 @@ class TestRootState:
             "delete_root_unavailable",
         ]
         assert all(str(root) in r["detail"] for r in rows)
+
+    def test_a_root_left_empty_after_its_waiting_row_goes_is_not_said_to_have_content(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        path = root / "a" / "a.mkv"
+        _item(conn, "a", file_path=path, files=[path])
+        DeletionExecutor(conn=conn).execute()
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = 'a'")
+        conn.commit()
+
+        DeletionExecutor(conn=conn).execute()
+
+        [detail] = _audit(conn, f"_delete_root:{root}", "delete_root_available")
+        assert str(root) in detail
+        assert "content" not in detail
 
     def test_a_tracked_files_folder_decides_which_folder_is_unavailable(
         self, conn, tmp_path, monkeypatch

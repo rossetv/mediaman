@@ -1897,6 +1897,43 @@ class TestTrackedFiles:
         assert result["deleted"] == 1
         assert self._status(conn, "m1") is None
 
+    def test_a_sidecar_left_under_a_dropped_mount_keeps_the_row_pending(
+        self, conn, tmp_path, monkeypatch
+    ):
+        mount = self._root(tmp_path, monkeypatch, "movies") / "nas"
+        folder = mount / "Movie (2020)"
+        folder.mkdir(parents=True)
+        (folder / "Movie.mkv").write_bytes(b"x" * 50)
+        (folder / "Movie.en.srt").write_bytes(b"x" * 3)
+        _insert_media(conn, file_path=str(folder / "Movie.mkv"))
+        _insert_pending_deletion(conn)
+        unlink = storage._unlink_regular_file
+
+        def sidecar_fails(path, roots):
+            if path.suffix == ".srt":
+                raise PermissionError("busy")
+            return unlink(path, roots)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", sidecar_fails)
+        DeletionExecutor(conn=conn).execute()
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        away = tmp_path / "unmounted"
+        mount.rename(away)
+        mount.mkdir()
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 0
+        assert self._status(conn, "m1") == ("scheduled_deletion", "pending")
+        assert _audits(conn, "m1") == ["delete_incomplete", "delete_incomplete"]
+
+        mount.rmdir()
+        away.rename(mount)
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert not folder.exists()
+        assert result["deleted"] == 1
+
     def test_a_file_another_item_tracks_is_not_taken_as_a_sidecar(
         self, conn, tmp_path, monkeypatch
     ):

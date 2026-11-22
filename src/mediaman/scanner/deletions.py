@@ -464,19 +464,31 @@ def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
     return name, size
 
 
+def _tracked_sizes(row: DeletionRow) -> dict[str, int]:
+    """Return the size the scan recorded for each of *row*'s tracked files that has one."""
+    sizes = {}
+    for entry in row.tracked_files or []:
+        path, size = entry.get("path"), entry.get("size")
+        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
+            sizes[str(Path(path))] = size
+    return sizes
+
+
 def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
     """Return ``(name, size)`` of each file *row*'s deletion removed.
 
     Only a booked row is unmonitored, and a row is booked only once every
     tracked file of it is gone by this deletion's hand, so its tracked files
-    are the files removed.
+    were removed. So were the files its record holds, which a scan between
+    passes may have dropped from the tracked files; one recorded without a
+    size matches nothing.
     """
-    keys = set()
-    for entry in row.tracked_files or []:
-        path, size = entry.get("path"), entry.get("size")
-        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
-            keys.add((os.path.basename(path), size))
-    return keys
+    sizes = {**row.removed_sizes, **_tracked_sizes(row)}
+    return {(os.path.basename(path), size) for path, size in sizes.items()}
+
+
+def _no_entry(is_movie: bool) -> str:
+    return "Radarr has no entry for this movie" if is_movie else "Sonarr has no entry for this show"
 
 
 def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
@@ -490,7 +502,7 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         else client.get_movie_by_tmdb(tmdb_id)
     )
     if not entry or not isinstance(entry.get("id"), int):
-        return "Radarr has no entry for this movie"
+        return _no_entry(True)
     if entry.get("tmdbId") != tmdb_id:
         return "Radarr's entry is a different movie (TMDB id differs)"
     index = build_arr_index([entry], [])
@@ -529,7 +541,7 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
         else client.get_series_by_tvdb(tvdb_id)
     )
     if not series or not isinstance(series.get("id"), int):
-        return "Sonarr has no entry for this show"
+        return _no_entry(False)
     if series.get("tvdbId") != tvdb_id:
         return "Sonarr's entry is a different show (TVDB id differs)"
     index = build_arr_index([], [series])
@@ -576,8 +588,8 @@ def _unmonitor_deleted(
 
     Only ever unmonitors: the files are already gone, so a wrong match could
     at worst stop a download, never delete anything. With no client for the
-    item's kind there is nothing to unmonitor; any other skip is audited as
-    ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
+    item's kind, or no entry for the item in it, there is nothing to unmonitor;
+    any other skip is audited as ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
     committed, so a slow response never holds the write lock; does not commit.
     """
     is_movie = row.media_type == "movie"
@@ -589,11 +601,20 @@ def _unmonitor_deleted(
         reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS as exc:
         if _is_not_found(exc):
-            reason = f"{service} has no entry for this {'movie' if is_movie else 'show'}"
+            reason = _no_entry(is_movie)
         else:
             logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
             reason = f"{service} could not be reached or returned an error"
     if reason is None:
+        return
+    if reason == _no_entry(is_movie):
+        # Nothing to unmonitor, and nothing it could download again.
+        logger.info(
+            "engine.delete.unmonitor_none id=%s media_id=%s — %s",
+            row.id,
+            row.media_item_id,
+            reason,
+        )
         return
     logger.warning(
         "engine.delete.unmonitor_skipped id=%s media_id=%s — %s", row.id, row.media_item_id, reason
@@ -723,7 +744,8 @@ def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int
     """Store *waiting* (folder -> items held back) and audit how it differs from the last pass.
 
     A folder newly held, or holding a different count, gets a row; a folder no
-    longer held gets one saying it has content again.
+    longer held gets one saying nothing waits on it any more, which does not
+    mean it has content: its last waiting row may simply have gone.
     """
     previous = read_delete_root_state(conn)
     write_delete_root_state(conn, waiting)
@@ -743,8 +765,7 @@ def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int
             conn,
             _FOLDER_AUDIT_ID + folder,
             "delete_root_available",
-            f"Delete root or folder '{folder}' has content again; scheduled deletions no "
-            "longer wait on it",
+            f"Delete root or folder '{folder}': no scheduled deletions wait on it any more",
         )
 
 
@@ -1051,7 +1072,11 @@ class DeletionExecutor:
             freed = result.bytes_freed if done is row else 0
             if gone or freed:
                 record_removed_files(
-                    self._conn, done.id, done.removed_paths | gone, done.removed_bytes + freed
+                    self._conn,
+                    done.id,
+                    done.removed_paths | gone,
+                    done.removed_bytes + freed,
+                    {**done.removed_sizes, **_tracked_sizes(done)},
                 )
 
     def _settle(
