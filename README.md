@@ -51,10 +51,10 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 ## On a phone
 
 <p>
-  <img src="docs/images/phone-dashboard.png" width="160" alt="The Dashboard on a phone: disk use by type above the scheduled deletions, with a tab bar at the bottom.">
-  <img src="docs/images/phone-library.png" width="160" alt="The Library on a phone: counts of movies, TV shows, anime and stale items above the searchable list.">
-  <img src="docs/images/phone-downloads.png" width="160" alt="Downloads on a phone: a movie 62% downloaded, with another download below it.">
-  <img src="docs/images/phone-settings.png" width="160" alt="Settings on a phone: section tabs across the top and the storage overview.">
+  <img src="docs/images/phone-dashboard.png" width="140" alt="The Dashboard on a phone: disk use by type above the scheduled deletions, with a tab bar at the bottom.">
+  <img src="docs/images/phone-library.png" width="140" alt="The Library on a phone: counts of movies, TV shows, anime and stale items above the searchable list.">
+  <img src="docs/images/phone-downloads.png" width="140" alt="Downloads on a phone: a movie 62% downloaded, with another download below it.">
+  <img src="docs/images/phone-settings.png" width="140" alt="Settings on a phone: section tabs across the top and the storage overview.">
 </p>
 
 ## Environment
