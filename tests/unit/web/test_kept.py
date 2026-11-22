@@ -449,6 +449,31 @@ class TestKeepShowSnoozed:
         assert sa["action"] == "snoozed"
         assert sa["snooze_duration"] == "30 days"
 
+    def test_keep_show_reads_the_seasons_rows_inside_its_transaction(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        """A per-season keep written between the read and the write would survive beside it."""
+        from mediaman.web.routes import kept_show
+
+        _insert_season(conn, "m-T", "rk-show-T", "Fringe", season=1)
+        in_transaction = []
+        real_fetch = kept_show.fetch_existing_actions_for_seasons
+
+        def spy(spy_conn, season_ids):
+            in_transaction.append(spy_conn.in_transaction)
+            return real_fetch(spy_conn, season_ids)
+
+        monkeypatch.setattr(kept_show, "fetch_existing_actions_for_seasons", spy)
+        app = app_factory(kept_router, conn=conn)
+        client = authed_client(app, conn)
+
+        resp = client.post(
+            "/api/show/rk-show-T/keep", json={"duration": "30 days", "season_ids": ["m-T"]}
+        )
+
+        assert resp.status_code == 200
+        assert in_transaction == [True]
+
     def test_keep_show_invalid_duration_returns_400(self, app_factory, authed_client, conn):
         _insert_season(conn, "m-Y", "rk-show-Y", "Futurama", season=1)
 

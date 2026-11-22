@@ -183,19 +183,20 @@ def api_keep_show(
     show_title = fetch_show_title(conn, resolved_key) or "Unknown"
     now_iso_str = now.isoformat()
 
-    existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
-    to_update, to_insert, to_delete = _build_season_action_rows(
-        season_ids,
-        existing_by_season,
-        action=decision.action,
-        execute_at=decision.execute_at,
-        duration=duration,
-        now_iso_str=now_iso_str,
-    )
-
     # The show-keep upsert, seasons write, and audit row share one transaction
-    # so a DB failure in any step rolls the whole thing back atomically.
+    # so a DB failure in any step rolls the whole thing back atomically. The
+    # seasons' rows are read inside it, so a keep written meanwhile is replaced.
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
+        to_update, to_insert, to_delete = _build_season_action_rows(
+            season_ids,
+            existing_by_season,
+            action=decision.action,
+            execute_at=decision.execute_at,
+            duration=duration,
+            now_iso_str=now_iso_str,
+        )
         upsert_kept_show(
             conn,
             show_rating_key=resolved_key,
