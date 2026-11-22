@@ -74,6 +74,8 @@
   }
 
   function _modalDownload(btn, s) {
+    if (btn.disabled) return;
+    btn.disabled = true;
     btn.textContent = 'Adding to ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr') + '…';
     btn.className = 'btn-download adding';
 
@@ -85,23 +87,12 @@
         if (MM.recommended.poll) MM.recommended.poll.startModalPolling(s);
       })
       .catch(function (err) {
-        btn.textContent = err.error && err.error.length < 40 ? err.error : 'Failed';
-        btn.classList.add('is-failed');
-        // Re-wire the button after the failure flash. Remove then re-add the
-        // listener to avoid stacking multiple handlers if the request fails
-        // repeatedly. Using a named handler reference also prevents the
-        // stale-closure issue that assigning .onclick would cause.
-        setTimeout(function () {
-          btn.textContent = 'Download';
-          btn.className = 'btn-download';
-          // _paintActions will have rebuilt the button if the modal was closed
-          // and reopened; only re-wire if the button is still attached.
-          if (btn.isConnected) {
-            btn.removeEventListener('click', btn._dlHandler);
-            btn._dlHandler = function () { _modalDownload(btn, s); };
-            btn.addEventListener('click', btn._dlHandler);
-          }
-        }, 3000);
+        btn.textContent = 'Download';
+        btn.className = 'btn-download';
+        btn.disabled = false;
+        if (window.UIFeedback) {
+          window.UIFeedback.error((err && (err.message || err.error)) || 'Download failed');
+        }
       });
   }
 
@@ -312,10 +303,7 @@
       var dlBtn2 = document.createElement('button');
       dlBtn2.className = 'btn-download';
       dlBtn2.textContent = 'Download';
-      // Store the handler ref on the element so the failure-retry path in
-      // _modalDownload can removeEventListener before re-adding it.
-      dlBtn2._dlHandler = function () { _modalDownload(dlBtn2, s); };
-      dlBtn2.addEventListener('click', dlBtn2._dlHandler);
+      dlBtn2.addEventListener('click', function () { _modalDownload(dlBtn2, s); });
       actionsEl.appendChild(dlBtn2);
     }
 

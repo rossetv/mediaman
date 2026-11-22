@@ -326,6 +326,7 @@
 
   async function submitDownload(payload) {
     const btn = document.getElementById("modal-primary-btn");
+    const label = btn.textContent;
     btn.disabled    = true;
     btn.textContent = "Adding…";
     try {
@@ -337,12 +338,10 @@
         if (_refreshCurrentView) _refreshCurrentView();
       }, 1200);
     } catch (err) {
-      if (err instanceof MM.api.APIError) {
-        btn.textContent = err.message || "Failed";
-      } else {
-        btn.textContent = "Network error";
-      }
-      btn.classList.add("is-failed");
+      btn.textContent = label;
+      btn.disabled    = false;
+      const msg = err instanceof MM.api.APIError ? (err.message || "Failed") : "Network error";
+      if (window.UIFeedback) window.UIFeedback.error(msg.slice(0, 200));
     }
   }
 
