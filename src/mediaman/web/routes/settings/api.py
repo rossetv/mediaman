@@ -114,7 +114,11 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
             keys=set(_ALL_KEYS) - enc_keys,
         )
     except ConfigDecryptError:
-        return respond_err("settings_decrypt_failed", status=500)
+        return respond_err(
+            "settings_decrypt_failed",
+            status=500,
+            message="Saved secrets couldn't be read. Check the secret key.",
+        )
     settings = _mask_encrypted_keys(plain, enc_keys)
     return JSONResponse(settings)
 
