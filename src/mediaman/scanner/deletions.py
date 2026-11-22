@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,14 +78,31 @@ def _tracked_paths(row: DeletionRow) -> list[str] | None:
     return [str(path) for path in paths]
 
 
+_SEASON_FOLDER = re.compile(r"(?:season|series|s)[ ._-]*(\d+)", re.IGNORECASE)
+
+
+def _is_season_folder(folder: str, season_number: int | None) -> bool:
+    """True only when *folder*'s name is plainly the folder of season *season_number*."""
+    name = os.path.basename(folder)
+    if season_number == 0 and name.lower() == "specials":
+        return True
+    match = _SEASON_FOLDER.fullmatch(name)
+    return match is not None and int(match.group(1)) == season_number
+
+
 def _folder_limit(row: DeletionRow, path: str) -> str:
     """Return the highest folder a bare-folder walk from tracked file *path* may remove.
 
-    A film's own folder, or for a season the series folder above the season
-    folder. The storage layer refuses a limit that is a delete root or above one.
+    A film's own folder; for a season, the series folder above a season
+    folder, or the folder holding the episodes when it is not plainly a
+    season folder (a show stored without season folders), so the walk never
+    climbs above the show. The storage layer refuses a limit that is a delete
+    root or above one.
     """
     folder = os.path.dirname(path)
-    return folder if row.media_type == "movie" else os.path.dirname(folder)
+    if row.media_type != "movie" and _is_season_folder(folder, row.season_number):
+        return os.path.dirname(folder)
+    return folder
 
 
 def _tracked_size(row: DeletionRow) -> int:
