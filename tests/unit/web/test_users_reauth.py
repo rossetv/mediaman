@@ -252,6 +252,18 @@ class TestAdminUnlockEndpoint:
         assert body["had_lock"] is True
         assert is_locked_out(conn, "other") is False
 
+    def test_unlock_log_line_cannot_be_split_by_a_newline_in_the_name(
+        self, app_factory, authed_client, conn, caplog
+    ):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
+        target_id = _make_other_user(conn, "bob\r\nWARNING forged")
+        with caplog.at_level("INFO"):
+            resp = client.post(f"/api/users/{target_id}/unlock")
+        assert resp.status_code == 200
+        msg = next(r.getMessage() for r in caplog.records if "user.unlocked" in r.getMessage())
+        assert "\n" not in msg
+        assert "\r" not in msg
+
     def test_unlock_reports_no_lock_when_only_failures_were_counted(
         self, app_factory, authed_client, conn
     ):

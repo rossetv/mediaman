@@ -43,6 +43,7 @@ from datetime import datetime, timedelta
 import bcrypt
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 from mediaman.web.auth.login_lockout import REAUTH_LOCKOUT_PREFIX as REAUTH_LOCKOUT_PREFIX
 from mediaman.web.auth.login_lockout import reauth_key
@@ -186,7 +187,7 @@ def verify_reauth_password(
         record_failure(conn, namespace)
         logger.warning(
             "auth.reauth_locked user=%s reason=lockout_active",
-            admin,
+            _sanitise_log_field(admin),
         )
         return False
 
