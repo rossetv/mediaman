@@ -42,3 +42,15 @@ class TestNzbMatchesArr:
 
     def test_multiple_candidates_none_match(self):
         assert nzb_matches_arr("dune", ["batman", "inception"]) is False
+
+
+class TestNzbMatchesArrWholeWords:
+    def test_short_title_does_not_match_inside_a_longer_word(self):
+        assert nzb_matches_arr("superman 2025 1080p", ["up"]) is False
+        assert nzb_matches_arr("up", ["superman"]) is False
+
+    def test_tokens_must_be_contiguous(self):
+        assert nzb_matches_arr("the great big escape", ["great escape"]) is False
+
+    def test_whole_word_run_inside_release_name_matches(self):
+        assert nzb_matches_arr("up 2009 1080p bluray", ["up"]) is True
