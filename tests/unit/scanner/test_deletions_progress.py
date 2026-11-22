@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -93,3 +95,51 @@ class TestRemovalOverTwoPasses:
         assert (first["reclaimed_bytes"], second["reclaimed_bytes"]) == (4, 1)
         assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [5]
         assert [r["space_reclaimed_bytes"] for r in _actions(conn, "delete_incomplete")] == [None]
+
+    def test_a_crash_inside_the_removal_keeps_the_record_of_the_files_already_gone(
+        self, conn, two_parts, monkeypatch
+    ):
+        # Resolving cd2's folder fails after cd1 is unlinked.
+        cd1, cd2 = two_parts
+        real_unlink, real_resolve = storage._unlink_regular_file, Path.resolve
+        armed = []
+
+        def unlink(target, roots):
+            armed.append(target)
+            return real_unlink(target, roots)
+
+        def resolve(self, strict=False):
+            if armed and self == cd2.parent:
+                raise OSError("stale handle")
+            return real_resolve(self, strict=strict)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        monkeypatch.setattr(Path, "resolve", resolve)
+        DeletionExecutor(conn=conn).execute()
+        monkeypatch.undo()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(cd1.parent.parent))
+
+        assert not cd1.exists() and cd2.exists()
+        assert _actions(conn, "delete_failed_permanent") == []
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _status(conn) is None
+        assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [5]
+
+
+class TestFolderCleanupFailure:
+    def test_a_failure_removing_bare_folders_still_books_the_removed_files(
+        self, conn, two_parts, monkeypatch
+    ):
+        def broken(*args, **kwargs):
+            raise OSError("folder busy")
+
+        monkeypatch.setattr("mediaman.scanner.deletions.remove_empty_folders", broken)
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result == {"deleted": 1, "reclaimed_bytes": 5}
+        assert _status(conn) is None
+        assert _actions(conn, "delete_failed_permanent") == []
+        assert "folder busy" in _actions(conn, "delete_folders_failed")[0]["detail"]

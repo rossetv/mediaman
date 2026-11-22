@@ -259,7 +259,8 @@ def _delete_files_on_disk(
     removal may take when it is left bare (see ``_folder_limit``).
 
     Returns what was removed, or None on an error: the row is then left in
-    the appropriate state so the caller can ``continue`` to the next row. A failed removal
+    the appropriate state so the caller can ``continue`` to the next row. A
+    failure removing bare folders does not undo the files removed. A failed removal
     goes back to ``pending``: the pass reads its rows once, so the next pass
     retries it. ``deleting`` means a removal running now, or a leftover whose
     files are already gone (missing at the rm, or a crash) awaiting recovery.  All
@@ -270,15 +271,6 @@ def _delete_files_on_disk(
         result = delete_tracked_files(
             tracked_files, allowed_roots=allowed_roots, protected_paths=protected_paths
         )
-        if result.removed:
-            # A sidecar shares its video's folder, so it shares the limit too.
-            boundaries = {
-                path: limit
-                for path in result.removed
-                if (limit := folder_limits.get(os.path.dirname(path))) is not None
-            }
-            remove_empty_folders(result.removed, allowed_roots=allowed_roots, boundaries=boundaries)
-        return result
     except DeletionRefused as exc:
         # Safety refusal: the path or its mount is wrong, but the
         # action row is still valid — reset to pending so a later
@@ -349,6 +341,43 @@ def _delete_files_on_disk(
         )
         conn.commit()
         return None
+    if result.removed:
+        _remove_bare_folders(conn, row, result.removed, allowed_roots, folder_limits)
+    return result
+
+
+def _remove_bare_folders(
+    conn: sqlite3.Connection,
+    row: DeletionRow,
+    removed: list[str],
+    allowed_roots: list[str],
+    folder_limits: dict[str, str],
+) -> None:
+    """Remove the folders *removed* left bare; a failure is logged and audited, never raised."""
+    # A sidecar shares its video's folder, so it shares the limit too.
+    boundaries = {
+        path: limit
+        for path in removed
+        if (limit := folder_limits.get(os.path.dirname(path))) is not None
+    }
+    try:
+        remove_empty_folders(removed, allowed_roots=allowed_roots, boundaries=boundaries)
+    # rationale: the files are already gone, so whatever goes wrong here must
+    # not stop the pass booking them.
+    except Exception as exc:
+        logger.exception(
+            "engine.delete.folders_failed id=%s path=%r — files removed, but removing the "
+            "folders they left bare failed",
+            row.id,
+            row.file_path,
+        )
+        _audit_once(
+            conn,
+            row,
+            "delete_folders_failed",
+            f"Folders left: {row.title} — its files were removed, but the folders they left "
+            f"bare could not be removed ({exc.__class__.__name__}: {exc})",
+        )
 
 
 def _book_deleted(

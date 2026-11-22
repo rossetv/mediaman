@@ -452,7 +452,11 @@ def delete_tracked_files(
     freed = 0
     seen: set[Path] = set()
     for target in targets:
-        real = target.parent.resolve() / target.name
+        try:
+            real = target.parent.resolve() / target.name
+        except (OSError, RuntimeError) as exc:
+            failed.append((str(target), str(exc)))
+            continue
         if real in seen:
             continue
         seen.add(real)
