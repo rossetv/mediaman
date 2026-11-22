@@ -168,8 +168,13 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        var msg = MM.api.messageOf(err, 'Failed');
-        btn.textContent = msg.length < 30 ? msg : 'Failed';
+        var msg = MM.api.messageOf(err, '');
+        if (msg && msg.length < 30) {
+          btn.textContent = msg;
+        } else {
+          btn.textContent = 'Failed';
+          window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
+        }
         btn.classList.add('is-error');
         btn.disabled = false;
       });
