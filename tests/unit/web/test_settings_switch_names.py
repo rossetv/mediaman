@@ -50,9 +50,12 @@ class _ControlNames(HTMLParser):
             self.label_depth += 1
             if a.get("for"):
                 self.label_for.add(a["for"])
-        elif tag in ("input", "select", "textarea"):
-            if a.get("type") not in ("hidden", "submit", "button"):
-                self.controls.append((a, self.label_depth))
+        elif tag in ("input", "select", "textarea") and a.get("type") not in (
+            "hidden",
+            "submit",
+            "button",
+        ):
+            self.controls.append((a, self.label_depth))
 
     def handle_endtag(self, tag):
         if tag == "label":
