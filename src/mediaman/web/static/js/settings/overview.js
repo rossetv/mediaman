@@ -65,11 +65,11 @@
     function renderStorage(s) {
       big.replaceChildren();
       // Non-breaking spaces keep each figure with its unit, and the dot with
-      // the figure before it, when the line wraps.
+      // the figure after it, so a wrapped line can start with "·" but never end with it.
       var nb = function (v) { return String(v).replace(/ /g, '\u00a0'); };
       big.appendChild(document.createTextNode(nb(s.used) + ' '));
       var small = document.createElement('small');
-      small.textContent = 'of ' + nb(s.total) + '\u00a0used\u00a0· ' + nb(s.free) + ' free';
+      small.textContent = 'of ' + nb(s.total) + ' used ·\u00a0' + nb(s.free) + ' free';
       big.appendChild(small);
 
       bar.replaceChildren();
