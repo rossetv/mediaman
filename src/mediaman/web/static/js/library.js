@@ -155,9 +155,9 @@
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
       if (s.kept) cb.dataset.kept = '1';
-      cb.checked = s.kept || !anyKept;
+      cb.checked = !!showKept || s.kept || !anyKept;
       cb.addEventListener('change', function () {
-        if (!cb.checked) allCb.checked = false;
+        allCb.checked = !list.querySelector('input[data-season-id]:not(:checked)');
       });
       var label = document.createElement('label');
       label.htmlFor = 'keep-season-' + s.id;
@@ -296,10 +296,14 @@
       var rk = _keepDialogState.showRk;
       var allRequests = [];
       if (rk && _keepDialogState.showKept) {
-        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', name: 'the show keep' });
       }
+      var names = {};
+      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+        names[cb.dataset.seasonId] = cb.labels[0].textContent;
+      });
       _keepDialogState.keptSeasonIds.forEach(function (sid) {
-        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
+        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', name: names[sid] || 'a season' });
       });
 
       var removeChain = Promise.resolve();
@@ -307,7 +311,7 @@
       allRequests.forEach(function (req) {
         removeChain = removeChain.then(function () {
           return MM.api.post(req.url)
-            .catch(function () { failed.push(req.id); });
+            .catch(function () { failed.push(req.name); });
         });
       });
       removeChain.then(function () {
