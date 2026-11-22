@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from mediaman.core.audit import log_audit
-from mediaman.core.format import days_ago, media_type_badge
+from mediaman.core.format import days_ago, media_type_badge, normalise_media_type
 from mediaman.core.format import format_bytes as _format_bytes
 from mediaman.core.time import now_iso
 from mediaman.db import get_db
@@ -65,8 +65,8 @@ def _fetch_protected(
     for r in rows:
         media_type = r.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and r.season_number:
-            type_label = f"{type_label} . S{r.season_number}"
+        if normalise_media_type(media_type) != "movie" and r.season_number:
+            type_label = f"{type_label} · S{r.season_number}"
 
         item = {
             "sa_id": r.sa_id,

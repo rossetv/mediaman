@@ -533,3 +533,31 @@ class TestCachedDiskUsage:
         data._cached_disk_usage("/m")
         data._cached_disk_usage("/m")
         assert len(calls) == 2
+
+
+class TestScheduledSeasonRow:
+    def test_season_row_shows_show_badge_suffix_and_calendar_day_countdown(self, conn):
+        from mediaman.web.routes.dashboard._data import _fetch_scheduled
+
+        insert_media_item(
+            conn,
+            id="sea1",
+            title="Show S3",
+            media_type="anime_season",
+            plex_rating_key="rk-sea1",
+            show_title="Show",
+            season_number=3,
+            file_path="/p",
+            file_size_bytes=1,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="sea1",
+            action="scheduled_deletion",
+            execute_at=(datetime.now(UTC) + timedelta(days=5, minutes=5)).isoformat(),
+        )
+
+        [row] = _fetch_scheduled(conn)
+
+        assert row["type_label"] == "ANIME \u00b7 S3"
+        assert row["badge_class"] == "badge-anime"

@@ -13,6 +13,7 @@ from mediaman.core.format import (
     days_ago,
     format_bytes,
     media_type_badge,
+    normalise_media_type,
     relative_day_label,
     rk_from_audit_detail,
     title_from_audit_detail,
@@ -69,7 +70,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     for row in rows:
         media_type = row.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and row.season_number:
+        if normalise_media_type(media_type) != "movie" and row.season_number:
             type_label = f"{type_label} · S{row.season_number}"
 
         items.append(

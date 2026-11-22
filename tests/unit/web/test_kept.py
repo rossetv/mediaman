@@ -608,3 +608,17 @@ class TestKeepShowCoversUnlistedSeasons:
             "WHERE media_item_id = 'a2' AND action = 'scheduled_deletion'"
         ).fetchone()
         assert row is not None and row["delete_status"] == "deleting"
+
+
+class TestSeasonBadge:
+    def test_kept_season_shows_the_shows_badge_and_season_suffix(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_season(conn, "s1", "show-1", "Some Show", season=2)
+        _insert_protection(conn, "s1")
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        item = client.get("/api/kept").json()["forever"][0]
+
+        assert item["type_label"] == "TV \u00b7 S2"
+        assert item["badge_class"] == "badge-tv"

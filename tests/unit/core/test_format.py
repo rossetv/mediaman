@@ -250,3 +250,22 @@ class TestTitleFromAuditDetailNoMatch:
 
     def test_non_matching_non_empty_echoes_input(self):
         assert title_from_audit_detail("Snoozed something") == "Snoozed something"
+
+
+class TestSeasonTypesAndCalendarDays:
+    def test_season_types_map_to_their_show_type(self):
+        from mediaman.core.format import normalise_media_type
+
+        assert normalise_media_type("tv_season") == "tv"
+        assert normalise_media_type("anime_season") == "anime"
+        assert normalise_media_type("season") == "tv"
+
+    def test_label_counts_calendar_days_not_elapsed_time(self):
+        now = datetime(2026, 5, 1, 22, 0, tzinfo=UTC)
+        kwargs = {"now": now, "future": lambda d: f"in {d} days"}
+        # 23 hours away but already the next calendar day.
+        assert relative_day_label(now + timedelta(hours=23), **kwargs) == "tomorrow"
+        # Later today.
+        assert relative_day_label(now + timedelta(hours=1), **kwargs) == "today"
+        # Exactly three days on.
+        assert relative_day_label(now + timedelta(days=3), **kwargs) == "in 3 days"
