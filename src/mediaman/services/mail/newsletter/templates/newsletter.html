@@ -308,6 +308,7 @@
               {% if movies_b > 0 %}<span><span class="dot" style="background:#ff9f0a"></span>Movies {{ fmt_bytes(movies_b) }}</span>{% endif %}
               {% if tv_b > 0 %}<span><span class="dot" style="background:#2997ff"></span>TV {{ fmt_bytes(tv_b) }}</span>{% endif %}
               {% if anime_b > 0 %}<span><span class="dot" style="background:#bf5af2"></span>Anime {{ fmt_bytes(anime_b) }}</span>{% endif %}
+              {% if other_pct > 0 %}<span><span class="dot" style="background:rgba(255,255,255,0.12)"></span>Other {{ fmt_bytes(other_b) }}</span>{% endif %}
             </div>
             <div class="row3">
               <div><div class="stat">{{ fmt_bytes(reclaimed_week) }}</div><div class="stat-lbl">This week</div></div>
@@ -342,7 +343,7 @@
                       {% if item.added_days_ago is not none %} &middot; Added {{ item.added_days_ago }}d{% endif %}
                       &middot; {{ days_left_text(item.days_left) }}
                       &middot;
-                      {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;">Never watched</span>{% endif %}
+                      {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;white-space:nowrap;">Never&nbsp;watched</span>{% endif %}
                     </div>
                     <div class="item-size">{{ fmt_bytes(item.file_size_bytes) }}</div>
                     {% if item.is_reentry %}

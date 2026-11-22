@@ -206,3 +206,54 @@ class TestBuildRedownloadIndexWindowBound:
             "re-download within the 7-day window must appear in the index"
         )
         assert index["item-recent"] == recent_ts
+
+
+class TestRedownloadedItemsDropOut:
+    def _delete_with_identity(
+        self, conn, *, mi_id, media_type, tmdb_id=None, tvdb_id=None, season=None
+    ):
+        _insert_deleted_item(conn, title="Dune", media_type=media_type, mi_id=mi_id)
+        audit_id = conn.execute(
+            "SELECT id FROM audit_log WHERE media_item_id=?", (mi_id,)
+        ).fetchone()[0]
+        conn.execute("DELETE FROM media_items WHERE id=?", (mi_id,))
+        conn.execute(
+            "INSERT INTO deleted_media (audit_id, media_type, tmdb_id, tvdb_id, season_number, title) "
+            "VALUES (?, ?, ?, ?, ?, 'Dune')",
+            (audit_id, media_type, tmdb_id, tvdb_id, season),
+        )
+        conn.commit()
+
+    def _redownload(self, conn, token):
+        insert_audit_log(
+            conn,
+            media_item_id=token,
+            action="re_downloaded",
+            created_at=(_NOW - timedelta(days=1)).isoformat(),
+        )
+
+    def _titles(self, conn):
+        from mediaman.services.mail.newsletter.summary import _load_deleted_items
+
+        return [i["title"] for i in _load_deleted_items(conn, _SECRET_KEY, _BASE_URL, _NOW)]
+
+    def test_movie_redownloaded_by_tmdb_id_is_dropped(self, db_path):
+        conn = _make_conn(db_path)
+        self._delete_with_identity(conn, mi_id="m1", media_type="movie", tmdb_id=438631)
+        assert self._titles(conn) == ["Unknown"]
+        self._redownload(conn, "tmdb:438631")
+        assert self._titles(conn) == []
+
+    def test_other_movie_redownload_keeps_the_item(self, db_path):
+        conn = _make_conn(db_path)
+        self._delete_with_identity(conn, mi_id="m1", media_type="movie", tmdb_id=438631)
+        self._redownload(conn, "tmdb:1")
+        assert self._titles(conn) == ["Unknown"]
+
+    def test_season_redownload_matches_only_its_season(self, db_path):
+        conn = _make_conn(db_path)
+        self._delete_with_identity(conn, mi_id="s1", media_type="tv_season", tvdb_id=77, season=2)
+        self._redownload(conn, "tvdb:77:s1")
+        assert self._titles(conn) == ["Unknown"]
+        self._redownload(conn, "tvdb:77:s2")
+        assert self._titles(conn) == []

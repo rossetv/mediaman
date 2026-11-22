@@ -205,3 +205,28 @@ def test_fluid_posters_keep_their_two_by_three_shape(env: Environment) -> None:
         assert rule, parent
         assert "height:auto" in rule.group(1), parent
         assert "aspect-ratio:2/3" in rule.group(1), parent
+
+
+def test_legend_lists_other_when_the_grey_segment_is_drawn(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["storage"]["used_bytes"] = 20 * 1024**4  # 2 TB beyond the library types
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    chips = re.search(r'<div class="chips">(.*?)</div>', html, re.S).group(1)
+    assert "Other 2.0 TB" in chips
+    assert "background:rgba(255,255,255,0.12)" in chips
+
+
+def test_legend_omits_other_when_nothing_is_left_over(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    chips = re.search(r'<div class="chips">(.*?)</div>', html, re.S).group(1)
+    assert "Other" not in chips
+
+
+def test_never_watched_cannot_wrap(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    assert re.search(r"white-space:nowrap[^>]*>Never(&nbsp;| )watched<", html)
+    assert "Never watched" not in html

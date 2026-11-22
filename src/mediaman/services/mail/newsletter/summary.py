@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from mediaman.core.deleted_media import DeletedMedia, fetch_deleted_media
 from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import sign_poster_url
@@ -30,8 +31,8 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     re-downloaded items from the deleted cards. One query replaces a per-row lookup
     (N+1).
 
-    media_item_id is the Plex numeric id in audit_log, the same value as plex_rating_key
-    on media_items rows. *week_ago* bounds the scan to the deleted-items window; an item
+    media_item_id is the Plex numeric id or, for re-downloads, a ``tmdb:<id>`` /
+    ``tvdb:<id>[:s<n>]`` token (see _redownload_tokens). *week_ago* bounds the scan to the deleted-items window; an item
     outside it would not be listed anyway.
     """
     redownload_rows = conn.execute(
@@ -47,6 +48,24 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
     return redownload_times
+
+
+def _redownload_tokens(stored: DeletedMedia | None) -> list[str]:
+    """The audit ids a re-download of the deleted item is recorded under.
+
+    Mirrors the dashboard's matching: a movie by tmdb id, anything else by tvdb id, with the
+    season suffix, and the bare tvdb id that older rows carry.
+    """
+    if stored is None:
+        return []
+    if stored.media_type == "movie":
+        return [f"tmdb:{stored.tmdb_id}"] if stored.tmdb_id else []
+    if not stored.tvdb_id:
+        return []
+    tokens = [f"tvdb:{stored.tvdb_id}"]
+    if stored.season_number is not None:
+        tokens.append(f"tvdb:{stored.tvdb_id}:s{stored.season_number}")
+    return tokens
 
 
 def _format_deleted_card(
@@ -103,7 +122,7 @@ def _load_deleted_items(
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
-        "SELECT al.created_at, al.space_reclaimed_bytes, al.media_item_id, "
+        "SELECT al.id AS audit_id, al.created_at, al.space_reclaimed_bytes, al.media_item_id, "
         "mi.title, al.detail, mi.plex_rating_key, mi.media_type "
         "FROM audit_log al "
         "LEFT JOIN media_items mi ON al.media_item_id = mi.id "
@@ -113,6 +132,7 @@ def _load_deleted_items(
     ).fetchall()
 
     redownload_times = _build_redownload_index(conn, week_ago)
+    stored_by_audit = fetch_deleted_media(conn, [r["audit_id"] for r in deleted_rows])
 
     # Build the per-row card list (excluding re-downloaded items) and
     # collect the (title, media_type) pairs we need to look up.
@@ -124,7 +144,11 @@ def _load_deleted_items(
         # Look up by plex_rating_key (== media_item_id in audit_log),
         # which is the same key used when building the redownload index.
         plex_key = row["plex_rating_key"] or str(row["media_item_id"] or "")
-        last_redownload = redownload_times.get(plex_key) if plex_key else None
+        keys = [plex_key] if plex_key else []
+        keys += _redownload_tokens(stored_by_audit.get(row["audit_id"]))
+        last_redownload = max(
+            (redownload_times[k] for k in keys if k in redownload_times), default=None
+        )
         if last_redownload and last_redownload > row["created_at"]:
             continue
 
