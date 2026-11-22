@@ -185,6 +185,60 @@ class TestRefreshRecommendations:
         assert "Old Rec" not in titles
         assert "Dune" in titles
 
+    @pytest.mark.parametrize(
+        ("old", "new_title", "new_tmdb"),
+        [
+            ({"tmdb_id": 438631}, "Dune: Part One", 438631),
+            ({"tmdb_id": None, "title": "The Dune!"}, "the dune", None),
+        ],
+    )
+    def test_same_day_refresh_keeps_download_mark(self, conn, freezer, old, new_title, new_tmdb):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            **{
+                "title": "Dune",
+                "batch_id": "2026-05-01",
+                "downloaded_at": "2026-05-01T08:00:00",
+                **old,
+            },
+        )
+        recs = _fake_trending()
+        recs[0].update({"title": new_title, "tmdb_id": new_tmdb})
+        self._refresh(conn, recs)
+        rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        assert [(r["title"], r["downloaded_at"]) for r in rows] == [
+            (new_title, "2026-05-01T08:00:00")
+        ]
+
+    def test_same_day_refresh_keeps_downloaded_suggestion_missing_from_new_set(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Old Pick", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        insert_suggestion(conn, title="Not Downloaded", batch_id="2026-05-01")
+        self._refresh(conn, _fake_trending())
+        rows = {
+            r["title"]: r["downloaded_at"]
+            for r in conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        }
+        assert rows == {"Dune": None, "Old Pick": "2026-05-01T08:00:00"}
+
+    @staticmethod
+    def _refresh(conn, recs):
+        with (
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_trending",
+                return_value=recs,
+            ),
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_personal",
+                return_value=[],
+            ),
+            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+        ):
+            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+
     def test_second_scheduled_refresh_same_day_does_not_double_batch(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
         for _ in range(2):
