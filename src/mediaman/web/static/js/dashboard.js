@@ -145,6 +145,8 @@
           statusEl.classList.add('scan-status--error');
         }
         if (window.UIFeedback) window.UIFeedback.error(reason);
+        /* The button was disabled during the request, so focus fell to the body. */
+        if (MM.dom.focusStillIn(btn)) btn.focus();
       });
   }
 
@@ -170,16 +172,13 @@
       })
       .catch(function (err) {
         var msg = MM.api.messageOf(err, '');
-        if (msg && msg.length < 30) {
-          btn.textContent = msg;
-        } else {
-          btn.textContent = 'Failed';
-          if (window.UIFeedback) {
-            window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
-          }
+        btn.textContent = msg && msg.length < 30 ? msg : 'Failed';
+        if (window.UIFeedback) {
+          window.UIFeedback.error("Couldn't re-download. " + MM.api.messageOf(err, 'Try again.'));
         }
         btn.classList.add('is-error');
         btn.disabled = false;
+        if (MM.dom.focusStillIn(btn)) btn.focus();
       });
   }
 
@@ -210,6 +209,7 @@
         window.UIFeedback.error("Couldn't clear scheduled deletions. " + MM.api.messageOf(err, 'Try again.'));
         btn.disabled = false;
         btn.textContent = label;
+        if (MM.dom.focusStillIn(btn)) btn.focus();
       });
   }
 
