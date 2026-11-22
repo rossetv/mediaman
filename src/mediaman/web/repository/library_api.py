@@ -135,7 +135,7 @@ def apply_keep_in_tx(
         log_audit(
             conn,
             media_id,
-            "snoozed",
+            "kept" if action == "protected_forever" else "snoozed",
             audit_detail,
             actor=actor,
         )

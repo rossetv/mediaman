@@ -1043,6 +1043,18 @@ class TestMediaKeep:
         assert sa is not None
         assert sa["action"] == "protected_forever"
 
+    def test_keep_forever_is_audited_as_kept_and_a_timed_keep_as_snoozed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        client.post("/api/media/m1/keep", data={"duration": "forever"})
+        assert _audit_actions(conn, "m1") == ["kept"]
+
+        client.post("/api/media/m1/keep", data={"duration": "7 days"})
+        assert _audit_actions(conn, "m1") == ["kept", "snoozed"]
+
     def test_keep_30d_inserts_snoozed_action(self, app_factory, authed_client, conn):
         _insert_movie(conn)
         app = _app(app_factory, conn)
@@ -1181,7 +1193,7 @@ class TestMediaKeep:
             r["action"]
             for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id='m1'")
         ]
-        assert audits == ["snoozed", "deleted"]
+        assert audits == ["kept", "deleted"]
 
 
 class TestMediaRedownload:

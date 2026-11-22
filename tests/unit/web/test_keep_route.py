@@ -470,6 +470,21 @@ class TestForeverEndpointSeparation:
         assert resp.status_code == 401
 
 
+class TestAdminForeverAudit:
+    def test_admin_forever_is_audited_as_kept(self, app_factory, authed_client, conn):
+        _insert_media_item(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+        app, _ = _make_keep_app_with_test_secret(app_factory, conn)
+        client = authed_client(app, conn)
+
+        resp = client.post(f"/api/keep/{token}/forever")
+
+        assert resp.status_code == 200
+        actions = [r["action"] for r in conn.execute("SELECT action FROM audit_log")]
+        assert actions == ["kept"]
+
+
 class TestKeepDeadlineCheck:
     """Keep_submit must reject rows that have expired or are not pending."""
 
