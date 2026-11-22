@@ -79,9 +79,8 @@ def _insert_recommendations(
     """
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception
-        if manual:
-            conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
-        else:
+        conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
+        if not manual:
             cutoff_90d_str = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d_str,))
 
@@ -133,8 +132,7 @@ def refresh_recommendations(
     """Fetch watch history and generate trending and personal recommendations; returns the
     count generated.
 
-    manual=True replaces only today's batch; scheduled runs keep historical batches and
-    prune rows older than 90 days.
+    Every run replaces today's batch; scheduled runs also prune rows older than 90 days.
     """
     now = now_utc()
     today = now.strftime("%Y-%m-%d")

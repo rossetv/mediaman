@@ -185,6 +185,26 @@ class TestRefreshRecommendations:
         assert "Old Rec" not in titles
         assert "Dune" in titles
 
+    def test_second_scheduled_refresh_same_day_does_not_double_batch(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        for _ in range(2):
+            with (
+                patch(
+                    "mediaman.services.openai.recommendations.persist.generate_trending",
+                    return_value=_fake_trending(),
+                ),
+                patch(
+                    "mediaman.services.openai.recommendations.persist.generate_personal",
+                    return_value=[],
+                ),
+                patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+            ):
+                refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM suggestions WHERE batch_id = '2026-05-01'"
+        ).fetchone()[0]
+        assert count == 1
+
     def test_plex_rating_failure_does_not_crash(self, conn):
         """If Plex raises during get_user_ratings, refresh must still proceed."""
         client = MagicMock()
