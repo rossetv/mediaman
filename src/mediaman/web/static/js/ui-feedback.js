@@ -50,6 +50,12 @@
     });
     node.textContent = message;
     host.appendChild(node);
+    // At most three at once, and never a stack taller than the host's
+    // height budget: the oldest goes first.
+    while (host.children.length > 1 &&
+           (host.children.length > 3 || host.scrollHeight > host.clientHeight)) {
+      host.removeChild(host.firstChild);
+    }
     // Animate in on next frame
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || 4000;

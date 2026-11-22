@@ -9,7 +9,9 @@
    outcome of a confirm dialog opened above another modal. */
 .ui-toast-host {
   position: fixed;
-  top: calc(var(--nav-h) + 16px);
+  --toast-top: calc(var(--nav-h) + 16px);
+  --toast-reserve: 90px;       /* room kept free for a bottom savebar */
+  top: var(--toast-top);
   right: 20px;
   z-index: 210;
   display: flex;
@@ -17,6 +19,8 @@
   gap: 10px;
   pointer-events: none;        /* host is non-interactive — toasts opt back in */
   max-width: min(360px, calc(100vw - 40px));
+  /* The stack's height budget; the JS drops the oldest toast past it. */
+  max-height: calc(100dvh - var(--toast-top) - var(--toast-reserve));
 }
 
 /* Toast — opaque card with semantic left-border accent.
@@ -125,7 +129,7 @@
    so toasts don't fight the safe-area inset on phones. */
 @media (max-width: 600px) {
   .ui-toast-host {
-    top: calc(var(--nav-h) + 8px);
+    --toast-top: calc(var(--nav-h) + 8px);
     right: 12px;
     left: 12px;
     max-width: none;
@@ -135,5 +139,11 @@
 /* Settings: up to 960 px the section chips form a sticky bar under the top
    bar (it ends near 112 px); drop the toasts below it, clear of the chips. */
 @media (max-width: 960px) {
-  body:has(.setg-rail) .ui-toast-host { top: 120px; }
+  body:has(.setg-rail) .ui-toast-host { --toast-top: 120px; }
+}
+
+/* Below the bottom-tab-bar width the tab bar (64px) and a settings savebar
+   (up to two rows) sit under the stack. */
+@media (max-width: 699.98px) {
+  .ui-toast-host { --toast-reserve: 150px; }
 }
