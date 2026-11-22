@@ -271,6 +271,24 @@ class TestKeepPageRoute:
         assert payload is not None and payload["rk"] == "rk1"
         assert "item-poster-empty" in html
 
+    def test_expired_poster_is_followed_by_the_placeholder(self, conn, freezer):
+        freezer.move_to("2026-05-10T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        html = client.get(f"/keep/{token}").text
+
+        assert "status-expired" in html
+        assert re.search(
+            r"<img [^>]*data-broken-on-error>\s*<div class=\"item-poster-empty\">", html
+        )
+
     @pytest.mark.parametrize(
         ("now", "deadline", "date_text", "word"),
         [

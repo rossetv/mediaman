@@ -162,6 +162,9 @@
       {% if item and item.plex_rating_key %}
         <div class="poster-container poster-faded">
           <img src="{{ poster_url }}" alt="" data-broken-on-error>
+          <div class="item-poster-empty">
+            <i class="fa-solid fa-image" aria-hidden="true"></i>
+          </div>
         </div>
         <h1 class="item-title item-title--secondary">{{ item.title }}</h1>
         <div class="item-year">{% if item.added_at %}{{ item.added_at[:4] }}{% endif %}</div>
