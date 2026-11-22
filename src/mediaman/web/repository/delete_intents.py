@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 
 from mediaman.core.time import now_utc
 
@@ -76,12 +77,23 @@ def _fail_delete_intent(
         )
 
 
+_INTERRUPTED_DETAIL = "Delete interrupted; not confirmed by Radarr/Sonarr — press Delete again"
+
+VerifyGone = Callable[[sqlite3.Row], bool | None]
+"""Asks Radarr/Sonarr whether an intent's item is gone: True, False, or None when unknown."""
+
+
 def _reconcile_one_intent(
-    conn: sqlite3.Connection, intent_id: int, media_item_id: str, last_error: str | None
+    conn: sqlite3.Connection,
+    intent: sqlite3.Row,
+    verify_gone: VerifyGone | None = None,
 ) -> bool:
     """Reconcile a single pending intent.  Returns ``True`` on resolution."""
     from mediaman.core.audit import log_audit
 
+    intent_id = intent["id"]
+    media_item_id = intent["media_item_id"]
+    last_error = intent["last_error"]
     item_exists = conn.execute(
         "SELECT id FROM media_items WHERE id = ?", (media_item_id,)
     ).fetchone()
@@ -110,19 +122,31 @@ def _reconcile_one_intent(
             media_item_id,
         )
         return True
-    # rationale: cold-start — reconciler runs at startup and
-    # processes the whole intent backlog; every error must roll back the
-    # current intent's transaction and leave it pending (without an error,
-    # which would mark it as a failed Arr call) so the next startup retries
-    # without crashing the boot sequence.
+    # rationale: cold-start — the reconciler processes the whole intent
+    # backlog; every error must roll back the current intent's transaction
+    # and leave it pending so the next run retries without aborting the rest.
     try:
-        with conn:
-            log_audit(conn, media_item_id, "deleted", "Reconciled by startup cleanup")
-            conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,))
-            conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
-        _complete_delete_intent(conn, intent_id)
+        if verify_gone is not None and verify_gone(intent):
+            with conn:
+                log_audit(conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr")
+                conn.execute(
+                    "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
+                )
+                conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
+            _complete_delete_intent(conn, intent_id)
+            logger.info(
+                "delete_intent.reconciled intent_id=%s media_id=%s reason=verified_gone",
+                intent_id,
+                media_item_id,
+            )
+            return True
+        # Cut off before the Arr confirmed anything: the files may remain,
+        # so keep the row for the operator to delete again.
+        _fail_delete_intent(
+            conn, intent_id, media_item_id, _INTERRUPTED_DETAIL, _INTERRUPTED_DETAIL
+        )
         logger.info(
-            "delete_intent.reconciled intent_id=%s media_id=%s reason=cleanup_on_startup",
+            "delete_intent.reconciled intent_id=%s media_id=%s reason=interrupted",
             intent_id,
             media_item_id,
         )
@@ -138,20 +162,25 @@ def _reconcile_one_intent(
         return False
 
 
-def reconcile_pending_delete_intents(conn: sqlite3.Connection) -> int:
-    """Find unresolved delete intents and attempt to complete their cleanup.
+def reconcile_pending_delete_intents(
+    conn: sqlite3.Connection, verify_gone: VerifyGone | None = None
+) -> int:
+    """Find unresolved delete intents and close each one.
 
-    Accepts an explicit connection rather than acquiring one via
-    ``get_db()`` so startup wiring can pass the connection it already
-    holds and tests can use a fixture connection.
+    An interrupted intent whose item the optional *verify_gone* cannot
+    confirm gone is closed as failed; the media row stays.
+
+    Takes an explicit connection so the caller can give it one owned by
+    the thread it runs on.
 
     Returns the number of intents resolved during this call.
     """
     pending = conn.execute(
-        "SELECT id, media_item_id, last_error FROM delete_intents WHERE completed_at IS NULL"
+        "SELECT id, media_item_id, target_kind, target_id, last_error "
+        "FROM delete_intents WHERE completed_at IS NULL"
     ).fetchall()
     resolved = 0
     for row in pending:
-        if _reconcile_one_intent(conn, row["id"], row["media_item_id"], row["last_error"]):
+        if _reconcile_one_intent(conn, row, verify_gone):
             resolved += 1
     return resolved

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -42,6 +43,21 @@ _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 
 
+def _reconcile_delete_intents_in_background() -> None:
+    """Close delete intents stranded by a crash, on a connection owned by this thread."""
+    # rationale: runs on a daemon thread; an exception here must be logged,
+    # never allowed to propagate out of the thread.
+    try:
+        from mediaman.db import get_db
+        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
+
+        reconciled = reconcile_pending_delete_intents(get_db())
+        if reconciled:
+            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
+    except Exception:
+        logger.exception("delete-intent reconciliation failed at startup")
+
+
 def _run_startup_reconciliation(app: FastAPI) -> None:
     """Reconcile state stranded by a crash on a previous run.
 
@@ -49,26 +65,21 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
     started:
 
     1. In-flight manual delete operations that crashed between the
-       external Radarr/Sonarr call and the local DB cleanup.
+       external Radarr/Sonarr call and the local DB cleanup (started on
+       a background thread).
     2. ``download_notifications`` rows stranded at ``notified=2`` by a
        crashed worker.
 
     Neither failure aborts startup — the web UI must still come up so an
     operator can investigate.
     """
-    # Reconcile any in-flight manual delete operations that crashed
-    # between the external Radarr/Sonarr call and the local DB cleanup.
-    # Idempotent — safe to run on every cold start.
-    try:
-        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
-
-        reconciled = reconcile_pending_delete_intents(app.state.db)
-        if reconciled:
-            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    # rationale: startup reconciliation is
-    # best-effort; failing it must not block the rest of bootstrap.
-    except Exception:
-        logger.exception("delete-intent reconciliation failed at startup; continuing")
+    # Runs off the startup path: verifying an item against Radarr/Sonarr
+    # can be slow and must not hold up the web UI.
+    threading.Thread(
+        target=_reconcile_delete_intents_in_background,
+        name="delete-intent-reconcile",
+        daemon=True,
+    ).start()
 
     # Reconcile download_notifications rows stranded at notified=2 by a
     # crashed worker.

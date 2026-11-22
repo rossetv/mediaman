@@ -160,17 +160,42 @@ class TestReconcilePendingDeleteIntents:
         ).fetchone()
         assert row["completed_at"] is not None
 
-    def test_reconcile_removes_orphaned_media_row(self, conn):
-        """An unresolved intent for an existing media row is cleaned up."""
+    def test_interrupted_intent_is_failed_and_keeps_the_media_row(self, conn):
+        """A delete cut off before the Arr confirmed it is not booked as deleted."""
+        _insert_movie(conn, "m2", radarr_id=None)
+        intent_id = _record_delete_intent(conn, "m2", "radarr", "none")
+
+        assert reconcile_pending_delete_intents(conn) == 1
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
+        intent = conn.execute(
+            "SELECT completed_at, last_error FROM delete_intents WHERE id = ?", (intent_id,)
+        ).fetchone()
+        assert intent["completed_at"] is not None
+        assert intent["last_error"] == (
+            "Delete interrupted; not confirmed by Radarr/Sonarr \u2014 press Delete again"
+        )
+        actions = _audit_actions(conn, "m2")
+        assert "deleted" not in actions
+        assert actions == ["delete_failed"]
+
+    def test_interrupted_intent_is_failed_when_verification_cannot_tell(self, conn):
         _insert_movie(conn, "m2", radarr_id=None)
         _record_delete_intent(conn, "m2", "radarr", "none")
 
-        resolved = reconcile_pending_delete_intents(conn)
-        assert resolved >= 1
+        assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: None) == 1
 
-        # Media row must be gone.
-        row = conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
-        assert row is None
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
+        assert "deleted" not in _audit_actions(conn, "m2")
+
+    def test_interrupted_intent_is_booked_deleted_when_verified_gone(self, conn):
+        _insert_movie(conn, "m2", radarr_id=None)
+        _record_delete_intent(conn, "m2", "radarr", "none")
+
+        assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
+
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone() is None
+        assert "deleted" in _audit_actions(conn, "m2")
 
     def test_reconcile_is_idempotent(self, conn):
         """Running reconcile twice is safe; second run resolves nothing new."""
@@ -184,7 +209,7 @@ class TestReconcilePendingDeleteIntents:
         assert first >= 1
 
     def test_reconcile_retries_an_intent_whose_cleanup_failed(self, conn):
-        """A crashed intent whose startup cleanup errors stays pending for the next start."""
+        """A crashed intent whose reconcile errors stays pending for the next run."""
         _insert_movie(conn, "m4", radarr_id=None)
         _record_delete_intent(conn, "m4", "radarr", "none")
 
@@ -192,7 +217,7 @@ class TestReconcilePendingDeleteIntents:
             assert reconcile_pending_delete_intents(conn) == 0
 
         assert reconcile_pending_delete_intents(conn) == 1
-        assert conn.execute("SELECT id FROM media_items WHERE id = 'm4'").fetchone() is None
+        assert conn.execute("SELECT id FROM media_items WHERE id = 'm4'").fetchone()
 
 
 def _audit_actions(conn, media_id: str) -> list[str]:
@@ -284,3 +309,40 @@ class TestFailedArrDeleteSurvivesRestart:
 
         _assert_kept_after_restart(conn, "m1")
         assert reconcile_pending_delete_intents(conn) == 0
+
+
+class TestStartupReconciliationIsOffTheStartupPath:
+    def test_startup_returns_without_reconciling_inline(self):
+        from mediaman import app_factory
+
+        app = MagicMock()
+        with (
+            patch.object(app_factory.threading, "Thread") as thread_cls,
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents"
+            ) as reconcile,
+            patch(
+                "mediaman.services.downloads.notifications.reconcile_stranded_notifications",
+                return_value=0,
+            ),
+        ):
+            app_factory._run_startup_reconciliation(app)
+
+        reconcile.assert_not_called()
+        assert thread_cls.call_args.kwargs["daemon"] is True
+        thread_cls.return_value.start.assert_called_once()
+
+    def test_background_job_uses_its_own_connection_and_swallows_errors(self, conn):
+        from mediaman import app_factory
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn) as get_db,
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                side_effect=RuntimeError("boom"),
+            ) as reconcile,
+        ):
+            app_factory._reconcile_delete_intents_in_background()
+
+        get_db.assert_called_once()
+        reconcile.assert_called_once_with(conn)
