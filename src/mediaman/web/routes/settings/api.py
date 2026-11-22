@@ -246,7 +246,8 @@ def _resolve_tester_dispatch(
         )
     cached = _cache_get(service)
     if cached is not None:
-        return None, JSONResponse(cached)
+        payload, status_code = cached
+        return None, JSONResponse(payload, status_code=status_code)
     if not _SETTINGS_TEST_LIMITER.check(admin):
         logger.warning("rate_limit.throttled scope=actor actor=%s", admin)
         return None, respond_err(
@@ -298,9 +299,7 @@ def _run_tester_with_timeout(
                 _TESTER_TIMEOUT_SECONDS,
                 service,
             )
-            payload = {"ok": False, "error": "timeout"}
-            _cache_put(service, payload)
-            return JSONResponse(payload)
+            return JSONResponse({"ok": False, "error": "timeout"})
     except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
@@ -316,7 +315,8 @@ def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse
         payload = json.loads(bytes(response.body).decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
         return response
-    _cache_put(service, payload)
+    if isinstance(payload, dict):
+        _cache_put(service, payload, response.status_code)
     return response
 
 
