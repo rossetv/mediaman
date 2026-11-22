@@ -17,6 +17,15 @@
   'use strict';
 
   var _scanElapsed = 0;
+  var _scanStart = 0;
+
+  /* Delays after a failed status poll, then every 10s; stop after 5 in a row. */
+  var POLL_RETRY_MS = [2000, 4000, 8000, 10000];
+  var POLL_MAX_FAILS = 5;
+  var POLL_MAX_MS = 10 * 60 * 1000;
+  /* A hung status request is aborted and counts as one failed poll. Polls give
+     up after POLL_MAX_FAILS in a row or POLL_MAX_MS of unbroken failure. */
+  var POLL_TIMEOUT_MS = 10000;
 
   function updateScanStatus(msg) {
     var el = document.getElementById('scan-status');
@@ -39,10 +48,16 @@
   }
 
   function pollScanStatus(btn) {
+    var fails = 0;
+    var firstFailAt = 0;
     setTimeout(function check() {
-      _scanElapsed += 3;
-      MM.api.get('/api/scan/status')
+      _scanElapsed = Math.round((Date.now() - _scanStart) / 1000);
+      var ctrl = new AbortController();
+      var abortTimer = setTimeout(function () { ctrl.abort(); }, POLL_TIMEOUT_MS);
+      MM.api.get('/api/scan/status', { signal: ctrl.signal })
         .then(function (data) {
+          fails = 0;
+          firstFailAt = 0;
           if (data.running) {
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
@@ -77,7 +92,22 @@
             setTimeout(function () { window.location.reload(); }, 1500);
           }
         })
-        .catch(function () { /* keep silent on poll failure. */ });
+        .catch(function () {
+          fails += 1;
+          if (!firstFailAt) firstFailAt = Date.now();
+          if (fails >= POLL_MAX_FAILS || Date.now() - firstFailAt >= POLL_MAX_MS) {
+            btn.classList.remove('scan-running');
+            btn.textContent = 'Scan now';
+            btn.disabled = false;
+            var lostEl = document.getElementById('scan-status');
+            if (lostEl) {
+              lostEl.textContent = 'Lost track of the scan. Refresh to check its status.';
+            }
+            return;
+          }
+          setTimeout(check, POLL_RETRY_MS[Math.min(fails, POLL_RETRY_MS.length) - 1]);
+        })
+        .finally(function () { clearTimeout(abortTimer); });
     }, 3000);
   }
 
@@ -86,6 +116,7 @@
     btn.classList.add('scan-running');
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
+    _scanStart = Date.now();
     updateScanStatus('Starting scan…');
     MM.api.post('/api/scan/trigger')
       .then(function (data) {

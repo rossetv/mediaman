@@ -178,8 +178,8 @@
 
 {# Toggle switch — checkbox with id, optional `on` for default state.
    There is no raw-HTML `attrs` parameter (XSS). #}
-{% macro tog(id, on=false) -%}
-  <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0" aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}"></span>
+{% macro tog(id, on=false, label="") -%}
+  <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0"{% if label %} aria-label="{{ label }}"{% endif %} aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}"></span>
   <input type="hidden" id="{{ id }}" value="{{ 'true' if on else 'false' }}">
 {%- endmacro %}
 

@@ -10,6 +10,7 @@
  * Cross-module dependencies:
  *   window.UIFeedback (confirm dialog)
  *   MM.reauth         (core/reauth.js — centred reauth modal)
+ *   MM.api            (core/api.js — told when edits are unsaved)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
@@ -58,6 +59,10 @@
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
 
     savebar = document.getElementById('setg-savebar');
+    // An expired session must not redirect away from edits that are not saved.
+    MM.api.hasUnsavedChanges = function () {
+      return !!savebar && savebar.classList.contains('on');
+    };
     var saveBtn   = document.getElementById('btn-save');
     var statusEl  = document.getElementById('save-status');
 

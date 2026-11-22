@@ -36,6 +36,16 @@
  * ``AbortError`` (``err.name === 'AbortError'``) so callers can detect
  * cancellation without inspecting status.
  *
+ * A 401 from an admin page sends the browser to /login and never settles,
+ * so callers do not flash an error while the page unloads. The public keep,
+ * download and login pages, reached by emailed token or without a session,
+ * keep their own 401 handling.
+ *
+ * A page holding edits that a redirect would throw away sets
+ * ``MM.api.hasUnsavedChanges = () => boolean``. While it returns true a 401
+ * shows an error and rejects as a normal APIError instead of redirecting, so
+ * the caller's error path runs and the form keeps its values.
+ *
  * No external dependencies. Load this before any page-specific script
  * that calls MM.api.*.
  */
@@ -69,6 +79,9 @@
   }
   APIError.prototype = Object.create(Error.prototype);
   APIError.prototype.constructor = APIError;
+
+  /* Pages reached by emailed token (or without a session) handle a 401 themselves. */
+  var PUBLIC_PATH = /^\/(keep|download|login)(\/|$)/;
 
   function request(method, endpoint, body, options) {
     options = options || {};
@@ -107,6 +120,16 @@
          * when surfacing an error message to the user; fall back through
          * .error → resp.statusText → "HTTP <status>". The .issues array (if
          * present) is forwarded so the UI can render per-rule failures. */
+        if (status === 401 && !PUBLIC_PATH.test(window.location.pathname)) {
+          if (!global.MM.api.hasUnsavedChanges()) {
+            window.location.href = '/login';
+            return new Promise(function () {});
+          }
+          if (window.UIFeedback) {
+            window.UIFeedback.error(
+              'Your session has expired. Log in again in a new tab, then save.');
+          }
+        }
         if (!resp.ok) {
           var errCode = (data && data.error) || ('http_' + status);
           var errMsg = (data && data.message) || (data && data.error) ||
@@ -126,6 +149,9 @@
 
   global.MM.api = {
     APIError: APIError,
+
+    /* Replaced by a page whose unsaved edits a login redirect would lose. */
+    hasUnsavedChanges: function () { return false; },
 
     get: function (endpoint, options) {
       return request('GET', endpoint, undefined, options);

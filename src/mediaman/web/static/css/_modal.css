@@ -174,7 +174,7 @@
   flex-wrap: wrap;
 }
 /* Dynamically-created loading / error states inside modal-actions */
-.modal-loading { padding: 24px; color: var(--t4); }
+.modal-loading { padding: 24px; color: var(--t3); }
 .modal-error   { padding: 24px; color: var(--danger); }
 .modal-err-close {
   margin-left: 10px;
@@ -210,10 +210,8 @@
 .btn-download.adding { background: rgba(41,151,255,.18); color: var(--accent); }
 
 /* State modifier classes — toggled from JS instead of inline style.background/color.
-   is-added: success flash after a download request completes.
-   is-failed: error flash when the request fails (reverts after timeout). */
+   is-added: success flash after a download request completes. */
 .btn-download.is-added  { background: var(--rgba-success-bg); color: var(--success); }
-.btn-download.is-failed { background: var(--rgba-danger-bg);  color: var(--danger);  }
 
 .btn-share {
   display: inline-flex;

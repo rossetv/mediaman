@@ -21,12 +21,14 @@
   var onData = null;
 
   function scheduleNextPoll(ms) {
-    if (intervalId !== null) { clearTimeout(intervalId); }
+    if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
+    /* A hidden tab stays quiet; the visibilitychange handler restarts the poll. */
+    if (document.hidden) return;
     intervalId = setTimeout(function () { intervalId = null; runPoll(); }, ms);
   }
 
   function runPoll() {
-    if (polling) return;
+    if (polling || document.hidden) return;
     polling = true;
     MM.api.get('/api/downloads')
       .then(function (data) {
@@ -52,7 +54,7 @@
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
-      } else if (intervalId === null) {
+      } else if (intervalId === null && !polling) {
         runPoll();
       }
     });

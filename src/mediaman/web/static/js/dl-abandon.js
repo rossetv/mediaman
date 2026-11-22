@@ -25,15 +25,10 @@
 
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
-  /* This modal intentionally does NOT lock body scroll. We use
-     MM.modal.setupDetail for the display:flex/none + aria-hidden
-     lifecycle (so backdrop click, the cancel button, AND the ESC
-     keypress are handled centrally). useModalA11y=false skips the
-     ModalA11y focus-trap; setupDetail still attaches its own ESC
-     fallback listener in that branch, so we don't need to add one
-     here. */
+  /* This modal intentionally does NOT lock body scroll. setupDetail owns
+     the display/aria-hidden lifecycle and registers with ModalA11y, which
+     supplies the focus trap, ESC and focus return to the opener. */
   var _abandonModal = MM.modal.setupDetail(modal, {
-    useModalA11y: false,
     manageBodyOverflow: false,
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
@@ -91,6 +86,7 @@
     var left = document.createElement('div');
     var lbl = document.createElement('div');
     lbl.className = 'setg-row-lbl';
+    lbl.id = 'abandon-season-lbl-' + s.number;
     lbl.textContent = 'Season ' + s.number;
     var sub = document.createElement('div');
     sub.className = 'setg-row-sub';
@@ -105,13 +101,18 @@
     tog.setAttribute('role', 'switch');
     tog.setAttribute('tabindex', '0');
     tog.setAttribute('aria-checked', 'true');
-    tog.addEventListener('click', function () {
+    tog.setAttribute('aria-labelledby', lbl.id);
+    function flip() {
       tog.classList.toggle('on');
       tog.setAttribute(
         'aria-checked',
         tog.classList.contains('on') ? 'true' : 'false'
       );
       updateConfirmLabel();
+    }
+    tog.addEventListener('click', flip);
+    tog.addEventListener('keydown', function (e) {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
     });
     right.appendChild(tog);
 
