@@ -44,6 +44,9 @@
   let currentDetail   = null;
   let seasonTickState = new Map();
   let lockedSeasons   = new Set();
+  /* Bumped on every open so a delayed close can tell whether it still
+     belongs to the modal it was started in. */
+  let openCount       = 0;
 
   /* Injected at init time. */
   let _refreshCurrentView = null;
@@ -78,6 +81,7 @@
   }
 
   async function openDetail(mediaType, tmdbId) {
+    openCount += 1;
     detailModal.open();
     resetModal();
     const loading = document.createElement("div");
@@ -127,14 +131,12 @@
         '</h2></div>';
     }
 
-    // genres are joined before escaping; the separator " · " contains no HTML
-    // special chars, so escapeHtml on the joined string catches any stray < > &
-    // in individual genre values — safe as-is.
-    const genres  = (d.genres || []).join(" · ");
     const runtime = d.runtime ? d.runtime + " min" : "";
     const quickBits = [
       '<span class="type-pill' + (d.media_type === "movie" ? " type-pill--movie" : "") + '">' + (d.media_type === "movie" ? "Movie" : "TV Series") + '</span>',
-      genres  ? '<span class="meta-text">' + escapeHtml(genres) + '</span>' : "",
+      (d.genres || []).map(function(g) {
+        return '<span class="meta-text">' + escapeHtml(g) + '</span>';
+      }).join('<span class="meta-dot">·</span>'),
       runtime ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
       d.director ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",
     ].filter(Boolean).join("");
@@ -328,6 +330,7 @@
   async function submitDownload(payload) {
     const btn = document.getElementById("modal-primary-btn");
     const label = btn.textContent;
+    const startedIn = openCount;
     btn.disabled    = true;
     btn.textContent = "Adding…";
     try {
@@ -335,12 +338,13 @@
       btn.textContent = "Added ✓";
       btn.classList.add("is-added");
       setTimeout(function() {
-        closeModal();
+        if (startedIn === openCount) closeModal();
         if (_refreshCurrentView) _refreshCurrentView();
       }, 1200);
     } catch (err) {
       btn.textContent = label;
       btn.disabled    = false;
+      btn.focus();
       const msg = (err && err.message) || "Failed";
       if (window.UIFeedback) window.UIFeedback.error(msg.slice(0, 200));
     }
