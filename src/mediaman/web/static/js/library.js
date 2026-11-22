@@ -92,13 +92,6 @@
     window.location.reload();
   }
 
-  /* After a slow request, move focus only if the user has not moved it
-     somewhere else in the meantime. */
-  function focusStillIn(el) {
-    var active = document.activeElement;
-    return !active || active === document.body || el.contains(active);
-  }
-
   /* A press refused because another request is in flight: close the menu,
      say why, and put focus back on the trigger. */
   function explainBusy(wrapper, text) {
@@ -136,7 +129,7 @@
           if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
           window.UIFeedback.error("Couldn't save keep. " + msg);
           var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-          if (trigger && focusStillIn(wrapper)) trigger.focus();
+          if (trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
         });
       return;
     }
@@ -199,7 +192,7 @@
         renderSeasonPicker(data.seasons, data.show_kept);
         /* A keep still running for this show holds Keep until it settles. */
         confirmBtn.disabled = !!_keepChains[keepChainKey()];
-        if (focusAfter && focusStillIn(list)) {
+        if (focusAfter && MM.dom.focusStillIn(list)) {
           var target = focusAfter();
           if (target) target.focus();
         }
@@ -352,7 +345,7 @@
     }
     function restoreButton() {
       if (!dialogIsOpen()) return;
-      var refocus = document.activeElement === list || focusStillIn(btn);
+      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
       btn.disabled = false;
       btn.textContent = btnLabel;
       if (removeAllBtn) removeAllBtn.disabled = false;
@@ -618,7 +611,7 @@
         if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't remove keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-        if (trigger && focusStillIn(wrapper)) trigger.focus();
+        if (trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
       });
   }
 

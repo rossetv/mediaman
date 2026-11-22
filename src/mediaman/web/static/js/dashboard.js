@@ -205,13 +205,6 @@
       });
   }
 
-  /* True while focus is inside el or nowhere in particular, so a user who has
-     moved on keeps their place. */
-  function focusStillIn(el) {
-    var active = document.activeElement;
-    return !active || active === document.body || el.contains(active);
-  }
-
   /* Submit a keep request from a dashboard tile. The library.html keep-dialog
      flow is too heavy for the dashboard scheduled view, so we just submit
      directly with the chosen duration. */
@@ -241,7 +234,7 @@
         window.UIFeedback.error("Couldn't save keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
         /* Only a menu option leaves focus on a hidden item; the main button keeps it. */
-        if (trigger && btn.closest('.snooze-dropdown') && focusStillIn(wrapper)) trigger.focus();
+        if (trigger && btn.closest('.snooze-dropdown') && MM.dom.focusStillIn(wrapper)) trigger.focus();
       });
   }
 
