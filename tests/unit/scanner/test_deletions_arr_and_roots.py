@@ -221,12 +221,12 @@ class TestVerifiedUnmonitor:
         radarr.unmonitor_movie.assert_not_called()
         assert "no entry" in _audit(conn, "m1", "unmonitor_skipped")[0]
 
-    def test_no_radarr_configured_is_audited_and_the_deletion_stands(self, conn, movie):
+    def test_no_radarr_configured_skips_the_unmonitor_without_an_audit_row(self, conn, movie):
         result = DeletionExecutor(conn=conn).execute()
 
         assert result["deleted"] == 1
         assert _status(conn, "m1") is None
-        assert "not configured" in _audit(conn, "m1", "unmonitor_skipped")[0]
+        assert _audit(conn, "m1", "unmonitor_skipped") == []
 
     @pytest.mark.parametrize("failing", ["get_movie_by_id", "unmonitor_movie"])
     def test_a_radarr_error_is_audited_and_the_deletion_stands(self, conn, movie, failing):

@@ -424,10 +424,8 @@ def _is_not_found(exc: Exception) -> bool:
     return getattr(getattr(exc, "response", None), "status_code", None) == 404
 
 
-def _unmonitor_movie(row: DeletionRow, client: ArrClient | None) -> str | None:
+def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
-    if client is None:
-        return "Radarr is not configured"
     tmdb_id = row.tmdb_id
     if not tmdb_id:
         return "Plex has no TMDB id for this movie"
@@ -450,10 +448,8 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient | None) -> str | None:
     return "Radarr's folder for this movie is not the one Plex used"
 
 
-def _unmonitor_season(row: DeletionRow, client: ArrClient | None) -> str | None:
+def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     """Unmonitor the Sonarr season matching *row*; return why not when it does not match."""
-    if client is None:
-        return "Sonarr is not configured"
     tvdb_id = row.tvdb_id
     if not tvdb_id:
         return "Plex has no TVDB id for this show"
@@ -493,17 +489,18 @@ def _unmonitor_deleted(
     """Stop Radarr/Sonarr re-downloading a deleted item, after checking it is the same item.
 
     Only ever unmonitors: the files are already gone, so a wrong match could
-    at worst stop a download, never delete anything. A skip is audited as
-    ``unmonitor_skipped``; the deletion stays booked. Runs after the deletion
+    at worst stop a download, never delete anything. With no client for the
+    item's kind there is nothing to unmonitor; any other skip is audited as
+    ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
     committed, so a slow response never holds the write lock; does not commit.
     """
     is_movie = row.media_type == "movie"
     service = "Radarr" if is_movie else "Sonarr"
+    client = radarr_client if is_movie else sonarr_client
+    if client is None:
+        return
     try:
-        if is_movie:
-            reason = _unmonitor_movie(row, radarr_client)
-        else:
-            reason = _unmonitor_season(row, sonarr_client)
+        reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS as exc:
         if _is_not_found(exc):
             reason = f"{service} has no entry for this {'movie' if is_movie else 'show'}"
