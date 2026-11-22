@@ -99,6 +99,15 @@
     return !active || active === document.body || el.contains(active);
   }
 
+  /* A press refused because another request is in flight: close the menu,
+     say why, and put focus back on the trigger. */
+  function explainBusy(wrapper, text) {
+    if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
+    window.UIFeedback.toast(text);
+    var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+    if (trigger) trigger.focus();
+  }
+
   /**
    * Submit a keep/snooze request for a media item.
    * For TV seasons (showRk truthy), opens the season-picker dialog.
@@ -132,7 +141,10 @@
       return;
     }
     /* A Remove keep still running on this row would race the dialog's keep. */
-    if (wrapper.dataset.keepBusy === '1') return;
+    if (wrapper.dataset.keepBusy === '1') {
+      explainBusy(wrapper, 'Still removing the keep for this show. Try again in a moment.');
+      return;
+    }
     _keepDialogState.showRk = showRk;
     _keepDialogState.hasRk = hasRk;
     _keepDialogState.showTitle = showTitle;
@@ -594,10 +606,7 @@
     /* Nor while a keep from the dialog is still saving for this show. */
     if (wrapper.dataset.tv === 'true' &&
         _keepChains[chainKeyFor(wrapper.dataset.showRk || '', wrapper.dataset.showTitle || '')]) {
-      if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
-      window.UIFeedback.toast('Still saving the keep for this show. Try again in a moment.');
-      var busyTrigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-      if (busyTrigger) busyTrigger.focus();
+      explainBusy(wrapper, 'Still saving the keep for this show. Try again in a moment.');
       return;
     }
     wrapper.dataset.keepBusy = '1';
