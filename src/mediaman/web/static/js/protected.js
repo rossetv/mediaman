@@ -23,12 +23,7 @@
     MM.api.post('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect')
       .then(function () { window.location.reload(); })
       .catch(function (err) {
-        if (err instanceof MM.api.APIError) {
-          var msg = err.message || 'Try again.';
-          window.UIFeedback.error("Couldn't remove keep. " + msg);
-        } else {
-          window.UIFeedback.error('Network error. Try again.');
-        }
+        window.UIFeedback.error("Couldn't remove keep. " + ((err && err.message) || 'Try again.'));
       });
   }
 
@@ -44,12 +39,7 @@
     MM.api.post('/api/show/' + encodeURIComponent(showRatingKey) + '/remove')
       .then(function () { window.location.reload(); })
       .catch(function (err) {
-        if (err instanceof MM.api.APIError) {
-          var msg = err.message || 'Try again.';
-          window.UIFeedback.error("Couldn't stop keeping show. " + msg);
-        } else {
-          window.UIFeedback.error('Network error. Try again.');
-        }
+        window.UIFeedback.error("Couldn't stop keeping show. " + ((err && err.message) || 'Try again.'));
       });
   }
 

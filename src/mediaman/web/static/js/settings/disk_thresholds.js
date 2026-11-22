@@ -204,7 +204,7 @@
           if (data.error) { paintState(card, 'err', threshold, data.error); return; }
           paintState(card, null, threshold, null, data.usage_pct);
         })
-        .catch(function () { paintState(card, 'err', threshold, 'Fetch error'); });
+        .catch(function (err) { paintState(card, 'err', threshold, (err && err.message) || 'Fetch error'); });
     }
     pathInput.addEventListener('blur', refresh);
     thrInput.addEventListener('change', refresh);

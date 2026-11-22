@@ -124,9 +124,6 @@
           input.focus();
           input.select();
         }
-      }).catch(function () {
-        confirmBtn.disabled = false;
-        msg.textContent = 'Network error. Try again.';
       });
     }
     confirmBtn.addEventListener('click', submit);

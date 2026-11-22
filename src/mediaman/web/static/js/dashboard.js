@@ -160,16 +160,10 @@
         btn.classList.add('is-success');
       })
       .catch(function (err) {
-        if (err instanceof MM.api.APIError) {
-          var msg = err.message || 'Failed';
-          btn.textContent = msg.length < 30 ? msg : 'Failed';
-          btn.classList.add('is-error');
-          btn.disabled = false;
-        } else {
-          btn.textContent = 'Error';
-          btn.classList.add('is-error');
-          btn.disabled = false;
-        }
+        var msg = (err && err.message) || 'Failed';
+        btn.textContent = msg.length < 30 ? msg : 'Failed';
+        btn.classList.add('is-error');
+        btn.disabled = false;
       });
   }
 
