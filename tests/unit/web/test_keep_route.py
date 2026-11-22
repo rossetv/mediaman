@@ -574,10 +574,12 @@ class TestKeepDeadlineCheck:
         body = json.loads(resp.text)
         assert body["error"] == "invalid_or_expired"
 
-    def test_non_deletion_action_returns_400(self, app_factory, conn):
-        """A keep POST against a 'snoozed' action (not 'scheduled_deletion') must fail."""
+    def test_expired_kept_row_returns_400(self, app_factory, conn):
+        """A keep POST against a row that is not a scheduled deletion and is past its date fails."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_at_offset(conn, action="snoozed")
+        action_id = _insert_scheduled_action_at_offset(
+            conn, action="snoozed", execute_at_offset_days=-1
+        )
         token = _make_keep_token(conn, "mi1", action_id)
 
         _, client = _make_keep_app_with_test_secret(app_factory, conn)
@@ -794,3 +796,87 @@ class TestKeepFormFailurePage:
 
         assert resp.status_code == 500
         assert b"nothing was changed" in resp.body
+
+
+class TestItemKeptMeanwhile:
+    """An unused token on an item kept another way answers as a repeat keep does."""
+
+    _HTML = {"accept": "text/html,application/xhtml+xml"}
+
+    def _client(self, conn: sqlite3.Connection) -> TestClient:
+        app = FastAPI()
+        app.include_router(keep_router)
+        app.state.config = Config(secret_key=SECRET)
+        app.state.db = conn
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        set_connection(conn)
+        return TestClient(app, raise_server_exceptions=True)
+
+    def _kept_by_admin(self, conn: sqlite3.Connection) -> str:
+        _insert_media_item(conn)
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        conn.execute(
+            "UPDATE scheduled_actions SET action='snoozed', snooze_duration='30 days', "
+            "snoozed_at=? WHERE media_item_id='mi1'",
+            (datetime.now(UTC).isoformat(),),
+        )
+        conn.commit()
+        return token
+
+    def test_form_post_shows_the_protected_page(self, conn):
+        token = self._kept_by_admin(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert "Protected until" in resp.text
+        assert "no longer valid" not in resp.text
+
+    def test_json_post_answers_like_a_repeat_keep(self, conn):
+        token = self._kept_by_admin(conn)
+
+        resp = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
+
+        assert resp.status_code == 409
+        assert resp.json() == {"ok": False, "error": "already_processed"}
+
+    def test_admin_forever_answers_like_a_repeat_keep(self, app_factory, authed_client, conn):
+        token = self._kept_by_admin(conn)
+        app = self._client(conn).app
+        client = authed_client(app, conn)
+
+        resp = client.post(f"/api/keep/{token}/forever")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "already_processed"
+
+    def test_expired_token_on_an_item_not_kept_is_still_refused(self, conn):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        form = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+        api = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
+
+        assert form.status_code == 400
+        assert "no longer valid" in form.text
+        assert api.status_code == 400
+        assert api.json()["error"] == "invalid_or_expired"
+
+    def test_a_token_that_fails_verification_never_shows_the_protected_page(self, conn):
+        token = self._kept_by_admin(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}x", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 400
+        assert "Protected" not in resp.text
+        assert "no longer valid" in resp.text
