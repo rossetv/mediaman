@@ -219,6 +219,35 @@ def test_a_folder_reached_through_a_symlinked_parent_is_not_removed(tmp_path):
     assert (root / "Real").is_dir()
 
 
+def test_a_protected_tracked_file_is_kept_and_reported(tmp_path):
+    root = tmp_path / "movies"
+    film = _write(root / "Film" / "Film.mkv")
+    shared = _write(root / "Film" / "Shared.mkv")
+
+    result = delete_tracked_files(
+        _tracked(film, shared), allowed_roots=[str(root)], protected_paths={str(shared)}
+    )
+
+    assert shared.exists() and not film.exists()
+    assert result.skipped_protected == [str(shared)]
+    assert result.removed == [str(film)]
+
+
+def test_a_protected_file_reached_through_a_symlinked_folder_is_kept(tmp_path):
+    root = tmp_path / "movies"
+    shared = _write(root / "Real" / "Shared.mkv")
+    os.symlink(root / "Real", root / "Linked")
+
+    result = delete_tracked_files(
+        [{"path": str(root / "Linked" / "Shared.mkv"), "size": 10}],
+        allowed_roots=[str(root)],
+        protected_paths={str(shared)},
+    )
+
+    assert shared.exists()
+    assert result.removed == []
+
+
 def test_emptied_folders_are_not_removed_above_the_boundary(tmp_path):
     root = tmp_path / "data"
     film = _write(root / "movies" / "Film" / "Film.mkv")

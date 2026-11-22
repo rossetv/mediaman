@@ -29,7 +29,7 @@ import os
 import re
 import stat as _stat
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -390,13 +390,15 @@ class TrackedFilesResult:
     """What ``delete_tracked_files`` did.
 
     ``removed`` lists every file unlinked (tracked files and their sidecars),
-    ``bytes_freed`` sums only their sizes, and ``not_found`` lists the tracked
-    files that were not on disk.
+    ``bytes_freed`` sums only their sizes, ``not_found`` lists the tracked
+    files that were not on disk, and ``skipped_protected`` the tracked files
+    kept because another item tracks them.
     """
 
     removed: list[str]
     bytes_freed: int
     not_found: list[str]
+    skipped_protected: list[str] = field(default_factory=list)
 
 
 def delete_tracked_files(
@@ -416,16 +418,19 @@ def delete_tracked_files(
     A sidecar is a regular file beside the video named ``<stem>.<tags>.<ext>``
     with only language or flag tags and a subtitle or ``.nfo`` extension. A
     file that a longer video stem in the folder claims (``Alien.Two.srt`` when
-    ``Alien.Two.mkv`` is there) belongs to that video, and a path in
-    *protected_paths* (tracked by other items) is never removed. A tracked
-    file that is missing is reported in ``not_found`` and its sidecars are
-    left alone.
+    ``Alien.Two.mkv`` is there) belongs to that video. A path in
+    *protected_paths* (tracked by other items) is never removed, whether it
+    is spelled as given or reached through a symlinked folder: a protected
+    tracked file is kept, with its sidecars, and reported in
+    ``skipped_protected``. A tracked file that is missing is reported in
+    ``not_found`` and its sidecars are left alone.
     """
     roots = _validate_delete_roots(allowed_roots)
     targets = [_checked_tracked_path(entry, roots) for entry in tracked_files]
-    protected = {os.path.normpath(p) for p in protected_paths if isinstance(p, str)}
+    protected = _protected_by_name(protected_paths)
     removed: list[str] = []
     not_found: list[str] = []
+    skipped: list[str] = []
     freed = 0
     seen: set[Path] = set()
     for target in targets:
@@ -433,6 +438,9 @@ def delete_tracked_files(
         if real in seen:
             continue
         seen.add(real)
+        if _is_protected(target, protected):
+            skipped.append(str(target))
+            continue
         size = _unlink_regular_file(target, roots)
         if size is None:
             not_found.append(str(target))
@@ -444,7 +452,9 @@ def delete_tracked_files(
             if size is not None:
                 removed.append(str(sidecar))
                 freed += size
-    return TrackedFilesResult(removed=removed, bytes_freed=freed, not_found=not_found)
+    return TrackedFilesResult(
+        removed=removed, bytes_freed=freed, not_found=not_found, skipped_protected=skipped
+    )
 
 
 def remove_empty_folders(
@@ -567,7 +577,32 @@ def _extension(name: str) -> str:
     return name.rpartition(".")[2].lower() if "." in name else ""
 
 
-def _sidecars_of(video: Path, protected: set[str]) -> list[Path]:
+def _protected_by_name(protected_paths: Collection[str]) -> dict[str, list[str]]:
+    """Group the absolute *protected_paths* by file name, so only same-named ones are resolved."""
+    by_name: dict[str, list[str]] = {}
+    for path in protected_paths:
+        if isinstance(path, str) and os.path.isabs(path):
+            by_name.setdefault(os.path.basename(os.path.normpath(path)), []).append(path)
+    return by_name
+
+
+def _is_protected(path: Path, protected: dict[str, list[str]]) -> bool:
+    """Return True if *path* is a protected path, as spelled or once both parents are resolved."""
+    candidates = protected.get(path.name)
+    if not candidates:
+        return False
+    normal = os.path.normpath(path)
+    try:
+        real = path.parent.resolve() / path.name
+        return any(
+            os.path.normpath(p) == normal or Path(p).parent.resolve() / path.name == real
+            for p in candidates
+        )
+    except (OSError, RuntimeError):
+        return True
+
+
+def _sidecars_of(video: Path, protected: dict[str, list[str]]) -> list[Path]:
     """Return the sidecar files of *video* in its folder, skipping *protected* ones."""
     folder = video.parent
     real_folder = folder.resolve()
@@ -583,7 +618,7 @@ def _sidecars_of(video: Path, protected: set[str]) -> list[Path]:
         if not _is_sidecar(name, stem, video_stems):
             continue
         candidate = folder / name
-        if os.path.normpath(candidate) in protected or str(real_folder / name) in protected:
+        if _is_protected(candidate, protected):
             continue
         sidecars.append(candidate)
     return sidecars
