@@ -123,7 +123,9 @@ class MailgunClient:
         if last_error is not None:
             raise last_error
 
-    def is_reachable(self) -> bool:
+    def check_reachable(self) -> None:
+        """Probe both regions; raise the last failure only when every one failed."""
+        last_error: SafeHTTPError | RequestException | None = None
         for base in (self._base, self._other_base()):
             try:
                 self._http.get(
@@ -131,13 +133,21 @@ class MailgunClient:
                     auth=("api", self._api_key),
                 )
                 self._base = base
-                return True
-            except (SafeHTTPError, RequestException):
+                return
+            except (SafeHTTPError, RequestException) as exc:
                 # Log at debug level so an operator can see what failed.
                 logger.debug(
                     "mailgun.reachability_check_failed",
                     extra={"base": base},
                     exc_info=True,
                 )
-                continue
-        return False
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+
+    def is_reachable(self) -> bool:
+        try:
+            self.check_reachable()
+            return True
+        except (SafeHTTPError, RequestException):
+            return False

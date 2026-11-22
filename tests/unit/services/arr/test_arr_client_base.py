@@ -204,3 +204,22 @@ class TestPublicLookupHelpers:
         fake_http.queue("GET", fake_response(status=404, text="not found"))
         result = client.get_release(999, endpoint="/api/v3/movie")
         assert result is None
+
+
+class TestCheckReachable:
+    def test_returns_none_when_status_answers(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
+        assert client.check_reachable() is None
+
+    def test_raises_the_http_error_for_a_401(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=401, text="nope"))
+        with pytest.raises(SafeHTTPError) as info:
+            client.check_reachable()
+        assert info.value.status_code == 401
+
+    def test_raises_the_transport_error(self, client, fake_http):
+        import requests
+
+        fake_http.raise_on("GET", requests.Timeout("slow"))
+        with pytest.raises((requests.RequestException, SafeHTTPError)):
+            client.check_reachable()

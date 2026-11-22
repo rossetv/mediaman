@@ -217,3 +217,31 @@ class TestMailgunValidation:
                 to="user@example.com", subject="Hi\r\nBcc: evil@example.com", html="<p>Hi</p>"
             )
         assert len(fake_http.calls) == 0
+
+
+class TestMailgunCheckReachable:
+    def test_returns_none_when_a_region_answers(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"domain": {"name": "example.com"}}))
+        assert client.check_reachable() is None
+
+    def test_a_second_region_that_answers_clears_the_first_failure(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue("GET", fake_response(status=404, text="no"))
+        fake_http.queue("GET", fake_response(json_data={"domain": {}}))
+        assert client.check_reachable() is None
+
+    def test_raises_the_last_failure_when_every_region_failed(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue("GET", fake_response(status=404, text="no"))
+        fake_http.queue("GET", fake_response(status=401, text="no"))
+        with pytest.raises(SafeHTTPError) as info:
+            client.check_reachable()
+        assert info.value.status_code == 401
+
+    def test_raises_the_transport_error_when_every_region_is_unreachable(self, client, fake_http):
+        fake_http.raise_on("GET", requests.ConnectionError("down"))
+        with pytest.raises((requests.RequestException, SafeHTTPError)):
+            client.check_reachable()
+        assert client.is_reachable() is False

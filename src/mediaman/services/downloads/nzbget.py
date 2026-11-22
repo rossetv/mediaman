@@ -112,12 +112,18 @@ class NzbgetClient:
     def get_queue(self) -> list[dict[str, object]]:
         return self._call("listgroups", list)
 
+    def check_reachable(self) -> None:
+        """Probe NZBGet; raise ``SafeHTTPError``, ``requests.RequestException`` or
+        ``NzbgetError`` when it does not answer as NZBGet, so a caller can tell why.
+        """
+        self.get_status()
+
     def is_reachable(self) -> bool:
         """Return True if NZBGet responds. Catches only HTTP and transport errors, not the
         broad Exception.
         """
         try:
-            self.get_status()
+            self.check_reachable()
             return True
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             return False
