@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.services.openai.recommendations import persist
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from tests.helpers.factories import insert_media_item, insert_suggestion
 
@@ -184,6 +185,214 @@ class TestRefreshRecommendations:
         titles = {r["title"] for r in rows}
         assert "Old Rec" not in titles
         assert "Dune" in titles
+
+    @pytest.mark.parametrize(
+        ("old", "new_title", "new_tmdb"),
+        [
+            ({"tmdb_id": 438631}, "Dune!", 438631),
+            ({"tmdb_id": None, "title": "The Dune!"}, "the dune", None),
+        ],
+    )
+    def test_same_day_refresh_keeps_download_mark(self, conn, freezer, old, new_title, new_tmdb):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            **{
+                "title": "Dune",
+                "batch_id": "2026-05-01",
+                "downloaded_at": "2026-05-01T08:00:00",
+                **old,
+            },
+        )
+        recs = _fake_trending()
+        recs[0].update({"title": new_title, "tmdb_id": new_tmdb})
+        self._refresh(conn, recs)
+        rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        assert [(r["title"], r["downloaded_at"]) for r in rows] == [
+            (new_title, "2026-05-01T08:00:00")
+        ]
+
+    def test_same_day_refresh_keeps_downloaded_suggestion_missing_from_new_set(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Old Pick", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        insert_suggestion(conn, title="Not Downloaded", batch_id="2026-05-01")
+        self._refresh(conn, _fake_trending())
+        rows = {
+            r["title"]: r["downloaded_at"]
+            for r in conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        }
+        assert rows == {"Dune": None, "Old Pick": "2026-05-01T08:00:00"}
+
+    @staticmethod
+    def _marks(conn):
+        return {
+            (r["title"], r["year"]): r["downloaded_at"]
+            for r in conn.execute("SELECT title, year, downloaded_at FROM suggestions")
+        }
+
+    def test_downloaded_season_does_not_pass_its_mark_to_another_season_of_the_show(
+        self, conn, freezer
+    ):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Show \u2014 Season 2",
+            media_type="tv",
+            tmdb_id=77,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        rec = {**_fake_personal()[0], "title": "Show \u2014 Season 3", "tmdb_id": 77}
+        self._refresh(conn, [rec])
+        assert self._marks(conn) == {
+            ("Show \u2014 Season 3", None): None,
+            ("Show \u2014 Season 2", None): "2026-05-01T08:00:00",
+        }
+
+    def test_downloaded_remake_does_not_pass_its_mark_to_a_different_year(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            year=1984,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "year": 2021}])
+        assert self._marks(conn) == {("Dune", 2021): None, ("Dune", 1984): "2026-05-01T08:00:00"}
+
+    def test_download_mark_survives_when_only_one_side_has_a_year(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            year=None,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "year": 2021}])
+        assert self._marks(conn) == {("Dune", 2021): "2026-05-01T08:00:00"}
+
+    def test_different_tmdb_id_with_same_title_does_not_match(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn,
+            title="Dune",
+            tmdb_id=1,
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
+        )
+        self._refresh(conn, [{**_fake_trending()[0], "tmdb_id": 2}])
+        rows = conn.execute("SELECT tmdb_id, downloaded_at FROM suggestions").fetchall()
+        assert {(r["tmdb_id"], r["downloaded_at"]) for r in rows} == {
+            (1, "2026-05-01T08:00:00"),
+            (2, None),
+        }
+
+    def test_one_downloaded_row_marks_only_one_of_two_identical_new_rows(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        rec = _fake_trending()[0]
+        self._refresh(conn, [dict(rec), dict(rec)])
+        marks = [r[0] for r in conn.execute("SELECT downloaded_at FROM suggestions")]
+        assert len(marks) == 2
+        assert marks.count("2026-05-01T08:00:00") == 1
+
+    def test_marks_are_read_under_the_write_lock(self, conn, db_path, freezer):
+        """A download click committed after the marks are read would be lost, so the
+        write lock must already be held when they are matched."""
+        import sqlite3
+
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        conn.commit()
+        other = sqlite3.connect(str(db_path), timeout=0)
+        outcome: list[str] = []
+        real_match = persist._match_downloaded
+
+        def match_then_probe(downloaded, item, taken):
+            try:
+                other.execute("UPDATE suggestions SET downloaded_at = 'click'")
+                other.commit()
+                outcome.append("written")
+            except sqlite3.OperationalError:
+                outcome.append("locked")
+            return real_match(downloaded, item, taken)
+
+        with patch.object(persist, "_match_downloaded", match_then_probe):
+            self._refresh(conn, _fake_trending())
+        other.close()
+        assert outcome == ["locked"]
+
+    def test_download_mark_survives_a_failed_refresh(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        conn.commit()
+        bad = {k: v for k, v in _fake_trending()[0].items() if k != "category"}
+        with pytest.raises(KeyError):
+            self._refresh(conn, [bad])
+        rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        assert [(r["title"], r["downloaded_at"]) for r in rows] == [("Dune", "2026-05-01T08:00:00")]
+
+    def test_refresh_leaves_yesterdays_batch_and_its_download_mark_alone(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-04-30", downloaded_at="2026-04-30T08:00:00"
+        )
+        insert_suggestion(conn, title="Other", batch_id="2026-04-30")
+        conn.commit()
+        self._refresh(conn, _fake_trending())
+        rows = conn.execute(
+            "SELECT title, batch_id, downloaded_at FROM suggestions ORDER BY batch_id, title"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            ("Dune", "2026-04-30", "2026-04-30T08:00:00"),
+            ("Other", "2026-04-30", None),
+            ("Dune", "2026-05-01", None),
+        ]
+
+    @staticmethod
+    def _refresh(conn, recs):
+        with (
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_trending",
+                return_value=recs,
+            ),
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_personal",
+                return_value=[],
+            ),
+            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+        ):
+            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+
+    def test_second_scheduled_refresh_same_day_does_not_double_batch(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        for _ in range(2):
+            with (
+                patch(
+                    "mediaman.services.openai.recommendations.persist.generate_trending",
+                    return_value=_fake_trending(),
+                ),
+                patch(
+                    "mediaman.services.openai.recommendations.persist.generate_personal",
+                    return_value=[],
+                ),
+                patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+            ):
+                refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM suggestions WHERE batch_id = '2026-05-01'"
+        ).fetchone()[0]
+        assert count == 1
 
     def test_plex_rating_failure_does_not_crash(self, conn):
         """If Plex raises during get_user_ratings, refresh must still proceed."""

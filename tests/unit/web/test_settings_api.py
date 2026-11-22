@@ -650,6 +650,33 @@ class TestSettingsTestServiceTimeout:
         assert data["ok"] is False
         assert data["error"] == "timeout"
 
+    def test_timed_out_test_is_not_cached(self, app_factory, authed_client, conn, monkeypatch):
+        import threading
+
+        from fastapi.responses import JSONResponse
+
+        from mediaman.web.routes import settings as settings_module
+        from mediaman.web.routes.settings import api as settings_api
+
+        calls = []
+
+        def tester(_settings):
+            calls.append(1)
+            if len(calls) == 1:
+                threading.Event().wait(timeout=0.3)
+            return JSONResponse({"ok": True})
+
+        monkeypatch.setattr(settings_api, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", tester)
+        client = _client(app_factory, authed_client, conn)
+
+        first = client.post("/api/settings/test/plex")
+        second = client.post("/api/settings/test/plex")
+
+        assert first.json()["error"] == "timeout"
+        assert second.json() == {"ok": True}
+        assert len(calls) == 2
+
     def test_hung_tester_does_not_hold_the_response_past_the_cap(self, monkeypatch):
         import threading
         import time
@@ -956,3 +983,44 @@ class TestSettingsPageDayValues:
             "SELECT value FROM settings WHERE key=?", ("min_age_days",)
         ).fetchone()[0]
         assert stored == "0"
+
+
+class TestSettingsTestResultCache:
+    """Only a passing test is cached; a failure is re-run on the next press."""
+
+    def test_failure_is_not_cached_so_a_recovered_service_passes(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        from fastapi.responses import JSONResponse
+
+        from mediaman.web.routes import settings as settings_module
+
+        results = [JSONResponse({"ok": False, "error": "down"}), JSONResponse({"ok": True})]
+        monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", lambda _s: results.pop(0))
+        client = _client(app_factory, authed_client, conn)
+
+        assert client.post("/api/settings/test/plex").json()["ok"] is False
+        assert client.post("/api/settings/test/plex").json()["ok"] is True
+
+    def test_cached_success_replays_its_status_and_body(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        from fastapi.responses import JSONResponse
+
+        from mediaman.web.routes import settings as settings_module
+
+        calls = []
+
+        def tester(_s):
+            calls.append(1)
+            return JSONResponse({"ok": True, "note": "x"}, status_code=202)
+
+        monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", tester)
+        client = _client(app_factory, authed_client, conn)
+
+        first = client.post("/api/settings/test/plex")
+        second = client.post("/api/settings/test/plex")
+
+        assert len(calls) == 1
+        assert (second.status_code, second.json()) == (first.status_code, first.json())
+        assert second.status_code == 202

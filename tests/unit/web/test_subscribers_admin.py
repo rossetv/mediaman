@@ -203,6 +203,20 @@ class TestSendNewsletter:
         assert resp.status_code == 400
         assert resp.json()["ok"] is False
 
+    def test_rejected_requests_do_not_use_up_the_send_limiter(self, authed_client, app):
+        _insert_subscriber(app.state.db, "ok@example.com")
+        for _ in range(3):
+            resp = authed_client.post("/api/newsletter/send", json={"recipients": []})
+            assert resp.status_code == 400
+        with patch(
+            "mediaman.services.mail.newsletter.send_newsletter",
+            return_value=SendResult(configured=True, attempted=1, sent=1),
+        ):
+            resp = authed_client.post(
+                "/api/newsletter/send", json={"recipients": ["ok@example.com"]}
+            )
+        assert resp.status_code == 200
+
     def test_rejects_unknown_recipients(self, authed_client, app):
         """Recipients not in the subscribers table must be silently dropped."""
         # Nobody in DB for this address

@@ -71,8 +71,9 @@ def enrich_recommendations(
         title = s.get("title")
         if not title:
             continue
+        omdb_title = strip_season_suffix(title) or title if s["media_type"] == "tv" else title
         ratings = fetch_ratings(
-            title, s.get("year"), s["media_type"], conn=conn, secret_key=secret_key
+            omdb_title, s.get("year"), s["media_type"], conn=conn, secret_key=secret_key
         )
         if "rt" in ratings:
             s["rt_rating"] = ratings["rt"]

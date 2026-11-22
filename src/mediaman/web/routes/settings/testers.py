@@ -49,7 +49,7 @@ TEST_CACHE_TTL_SECONDS = 120.0
 #: In-memory cache of the most recent tester payload per service.
 #: Shared across admins because the underlying settings are global.
 #: Invalidated on any settings write that touches the service's keys.
-TEST_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+TEST_CACHE: dict[str, tuple[float, dict[str, object], int]] = {}
 _TEST_CACHE_LOCK = threading.Lock()
 
 #: Registry mapping service name → test callable.
@@ -263,21 +263,29 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
         return _safe_http_error_to_response(exc)
 
 
-def cache_get(service: str) -> dict[str, object] | None:
+def cache_get(service: str) -> tuple[dict[str, object], int] | None:
     with _TEST_CACHE_LOCK:
         entry = TEST_CACHE.get(service)
         if entry is None:
             return None
-        expires_at, payload = entry
+        expires_at, payload, status_code = entry
         if time.monotonic() >= expires_at:
             TEST_CACHE.pop(service, None)
             return None
-        return payload
+        return payload, status_code
 
 
-def cache_put(service: str, payload: dict[str, object]) -> None:
+def cache_put(service: str, payload: dict[str, object], status_code: int = 200) -> None:
+    """Cache a successful result with the status it was sent with. A failure is never
+    cached, so the next press of Test checks the service again."""
+    if payload.get("ok") is not True:
+        return
     with _TEST_CACHE_LOCK:
-        TEST_CACHE[service] = (time.monotonic() + TEST_CACHE_TTL_SECONDS, payload)
+        TEST_CACHE[service] = (
+            time.monotonic() + TEST_CACHE_TTL_SECONDS,
+            payload,
+            status_code,
+        )
 
 
 def invalidate_test_cache_for_keys(written_keys: set[str]) -> None:

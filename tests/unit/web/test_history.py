@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from mediaman.scanner.repository.audit import (
@@ -14,7 +17,7 @@ from mediaman.scanner.repository.audit import (
 )
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
+from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX, ACTION_BADGE_CLASS
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log, insert_kept_show, insert_media_item
 
@@ -378,3 +381,128 @@ class TestDeleteFailedAction:
         item = body["items"][0]
         assert item["action_label"] == "delete failed"
         assert item["badge_class"] == "badge-action-deleted"
+
+    def test_delete_failed_filter_includes_permanent_failures(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="delete_failed", media_item_id="m1")
+        _insert_audit_row(conn, action="delete_failed_permanent", media_item_id="m2")
+        _insert_audit_row(conn, action="deleted", media_item_id="m3")
+        body = client.get("/api/history", params={"action": "delete_failed"}).json()
+        assert body["total"] == 2
+        assert {i["action"] for i in body["items"]} == {"delete_failed", "delete_failed_permanent"}
+
+
+class TestSchedulerAndMaintenanceActions:
+    def test_scheduled_filter_returns_scheduled_deletion_rows(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="scheduled_deletion", media_item_id="m1")
+        _insert_audit_row(conn, action="deleted", media_item_id="m2")
+        body = client.get("/api/history", params={"action": "scheduled"}).json()
+        assert body["total"] == 1
+        assert body["items"][0]["action"] == "scheduled_deletion"
+
+    def test_scanned_is_not_a_filter_option(self):
+        from mediaman.web.routes.history import ACTION_TYPES
+
+        assert "scanned" not in ACTION_TYPES
+
+    @pytest.mark.parametrize(
+        ("action", "label"),
+        [
+            ("delete_failed_permanent", "delete failed"),
+            ("delete_refused", "delete refused"),
+            ("dry_run_skip", "dry run: skipped"),
+            ("media_missing", "media missing"),
+            ("unmonitor_skipped", "unmonitor skipped"),
+            ("delete_root_unavailable", "delete root unavailable"),
+            ("delete_root_available", "delete root available"),
+            ("delete_awaiting_scan", "waiting for scan"),
+            ("delete_incomplete", "delete incomplete"),
+            ("delete_folders_failed", "folder cleanup failed"),
+            ("re_downloaded", "re-downloaded"),
+        ],
+    )
+    def test_action_has_plain_label(self, app_factory, authed_client, conn, action, label):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action=action)
+        item = client.get("/api/history").json()["items"][0]
+        assert item["action_label"] == label
+
+    def test_delete_root_recovery_is_not_badged_as_an_alarm(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="delete_root_available")
+        item = client.get("/api/history").json()["items"][0]
+        assert item["badge_class"] != "badge-action-deleted"
+        assert item["badge_class"] in ACTION_BADGE_CLASS.values()
+        assert "delete_root_available" in ACTION_BADGE_CLASS
+
+    def test_delete_root_row_shows_folder_as_title(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(
+            conn, action="delete_root_unavailable", media_item_id="_delete_root:/mnt/x"
+        )
+        item = client.get("/api/history").json()["items"][0]
+        assert item["title"] == "/mnt/x"
+
+
+_TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+
+
+class TestHistoryPillColour:
+    """The pill colour follows the action's badge class, not words in its label."""
+
+    @pytest.mark.parametrize(
+        ("action", "variant"),
+        [
+            ("deleted", "stale"),
+            ("delete_failed_permanent", "stale"),
+            ("delete_root_unavailable", "stale"),
+            ("delete_folders_failed", "stale"),
+            ("delete_awaiting_scan", "neutral"),
+            ("delete_root_available", "neutral"),
+            ("kept", "kept"),
+            ("downloaded", "neutral"),
+            ("scanned", "neutral"),
+            ("sec:login.failed", "neutral"),
+            ("sec:user.deleted", "neutral"),
+            ("some_future_action", "neutral"),
+        ],
+    )
+    def test_pill_variant_comes_from_badge_class(
+        self, app_factory, authed_client, conn, action, variant
+    ):
+        _insert_audit_row(conn, action=action)
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/history")
+        assert resp.status_code == 200
+        pills = re.findall(r'<span class="pill pill--(\w+)">', resp.text)
+        assert pills == [variant]
+
+
+class TestHistoryFilterButtons:
+    def test_redownloaded_filter_button_is_hyphenated(self, app_factory, authed_client, conn):
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/history")
+        assert resp.status_code == 200
+        assert "Re-Downloaded" in resp.text
+        assert "Re Downloaded" not in resp.text
+        assert "Delete Failed" in resp.text
+
+
+def test_history_delete_root_prefix_matches_the_scanner_writer():
+    from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
+    from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
+
+    assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID

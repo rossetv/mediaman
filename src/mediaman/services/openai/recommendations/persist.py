@@ -11,6 +11,7 @@ import requests
 from plexapi.exceptions import PlexApiException
 
 from mediaman.core.time import now_utc
+from mediaman.services.downloads.download_format._parsing import normalise_for_match
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
@@ -66,6 +67,30 @@ def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]
     return [r["title"] for r in prev_rows]
 
 
+def _match_downloaded(
+    downloaded: list[sqlite3.Row], item: RecommendationItem, taken: set[int]
+) -> sqlite3.Row | None:
+    """Return the not-yet-taken downloaded row that *item* repeats, if any.
+
+    The media type and the normalised full title (season suffix included) must match;
+    tmdb_id and year must also match when both sides have one.
+    """
+    tmdb_id = item.get("tmdb_id")
+    year = item.get("year")
+    title = normalise_for_match(str(item.get("title") or ""))
+    for row in downloaded:
+        if row["id"] in taken or row["media_type"] != item["media_type"]:
+            continue
+        if normalise_for_match(row["title"]) != title:
+            continue
+        if tmdb_id and row["tmdb_id"] and tmdb_id != row["tmdb_id"]:
+            continue
+        if year and row["year"] and year != row["year"]:
+            continue
+        return row
+    return None
+
+
 def _insert_recommendations(
     conn: sqlite3.Connection,
     all_recommendations: list[RecommendationItem],
@@ -79,21 +104,41 @@ def _insert_recommendations(
     """
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception
-        if manual:
-            conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
-        else:
+        # Take the write lock before reading the marks so a download click cannot
+        # commit between that read and the DELETE and be lost.
+        conn.execute("BEGIN IMMEDIATE")
+        downloaded = conn.execute(
+            "SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM suggestions "
+            "WHERE batch_id = ? AND downloaded_at IS NOT NULL",
+            (today,),
+        ).fetchall()
+        marks: list[str | None] = []
+        matched_ids: set[int] = set()
+        for s in all_recommendations:
+            row = _match_downloaded(downloaded, s, matched_ids)
+            marks.append(row["downloaded_at"] if row else None)
+            if row:
+                matched_ids.add(row["id"])
+        # A downloaded suggestion absent from the new set stays in today's list.
+        kept_ids = [r["id"] for r in downloaded if r["id"] not in matched_ids]
+        marker = ",".join("?" * len(kept_ids))
+        conn.execute(
+            f"DELETE FROM suggestions WHERE batch_id = ? AND id NOT IN ({marker})",
+            (today, *kept_ids),
+        )
+        if not manual:
             cutoff_90d_str = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d_str,))
 
-        for s in all_recommendations:
+        for s, downloaded_at in zip(all_recommendations, marks, strict=True):
             title = str(s.get("title") or "")
             reason = str(s.get("reason") or "")
             conn.execute(
                 "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
                 "description, reason, poster_url, trailer_url, rating, rt_rating, "
                 "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore, "
-                "batch_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "batch_id, created_at, downloaded_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     title,
                     s.get("year"),
@@ -117,6 +162,7 @@ def _insert_recommendations(
                     s.get("metascore"),
                     today,
                     now_iso,
+                    downloaded_at,
                 ),
             )
             inserted += 1
@@ -133,8 +179,7 @@ def refresh_recommendations(
     """Fetch watch history and generate trending and personal recommendations; returns the
     count generated.
 
-    manual=True replaces only today's batch; scheduled runs keep historical batches and
-    prune rows older than 90 days.
+    Every run replaces today's batch; scheduled runs also prune rows older than 90 days.
     """
     now = now_utc()
     today = now.strftime("%Y-%m-%d")

@@ -155,10 +155,17 @@ def _enrich_with_tmdb_ids(
                 v["tmdb_id"] = tid
 
 
+def _is_arr_entry(dl_id: str) -> bool:
+    return dl_id.startswith(("radarr:", "sonarr:"))
+
+
 def _maybe_record_completions(
     conn: sqlite3.Connection,
     current_map: dict[str, dict[str, object]],
     secret_key: str,
+    *,
+    nzb_fetch_failed: bool = False,
+    matched_nzb_names: frozenset[str] = frozenset(),
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
 
@@ -170,6 +177,14 @@ def _maybe_record_completions(
     Arr-sourced entries get their tmdb_id before being stored, so the next call's
     detect_completed carries it through to verification instead of matching on the
     title.
+
+    When *nzb_fetch_failed*, the NZBGet side of *current_map* is unknown rather than
+    empty: only the Radarr/Sonarr entries are diffed, and the previous snapshot's
+    NZB-only entries are carried into the stored one unchanged, to be diffed on the
+    next poll that reaches NZBGet.
+
+    An NZB-only id that vanished only because this poll matched its NZB to an Arr card
+    (*matched_nzb_names*) is still downloading, so it is not reported as completed.
     """
     global _previous_queue, _previous_initialised
 
@@ -178,11 +193,21 @@ def _maybe_record_completions(
     with _state_lock:
         previous_snapshot = _previous_queue
         previously_initialised = _previous_initialised
-        _previous_queue = current_map
+        if nzb_fetch_failed:
+            carried = {k: v for k, v in previous_snapshot.items() if not _is_arr_entry(k)}
+            _previous_queue = {**carried, **current_map}
+        else:
+            _previous_queue = current_map
         _previous_initialised = True
 
     if previously_initialised:
-        completed = detect_completed(previous_snapshot, current_map)
+        if nzb_fetch_failed:
+            previous_snapshot = {k: v for k, v in previous_snapshot.items() if _is_arr_entry(k)}
+        completed = [
+            c
+            for c in detect_completed(previous_snapshot, current_map)
+            if c["dl_id"] not in matched_nzb_names
+        ]
         record_verified_completions(conn, completed, secret_key)
 
 
@@ -227,6 +252,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     nzb_client = build_nzbget_from_db(conn, secret_key)
     nzb_queue: list[dict[str, object]] = []
     nzb_status: dict[str, object] = {}
+    nzb_fetch_failed = False
 
     if nzb_client:
         try:
@@ -234,6 +260,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
             nzb_queue = nzb_client.get_queue()
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
+            nzb_fetch_failed = True
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
     download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
@@ -254,6 +281,8 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         trigger_search=maybe_trigger_search,
     )
 
+    matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])
+
     # 5. Add unmatched NZBGet items (manual additions with no Arr match).
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
 
@@ -265,7 +294,13 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
-    _maybe_record_completions(conn, current_map, secret_key)
+    _maybe_record_completions(
+        conn,
+        current_map,
+        secret_key,
+        nzb_fetch_failed=nzb_fetch_failed,
+        matched_nzb_names=matched_nzb_names,
+    )
 
     # 7. Hero selection
     hero, queue = select_hero(items_as_dicts)

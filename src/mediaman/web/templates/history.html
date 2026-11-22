@@ -15,7 +15,7 @@
   <div class="pill-row u-mb-24">
     {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
     {% for at in action_types %}
-    {{ c.fpill((at | replace('_', ' ') | title), on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
+    {{ c.fpill(('Re-Downloaded' if at == 're_downloaded' else at | replace('_', ' ') | title), on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
     {% endfor %}
     {% if total > 0 %}
     <span class="sub u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>
@@ -33,8 +33,7 @@
         {% if item.space_impact %}<span class="text-muted"> · {{ item.space_impact }}</span>{% endif %}
       </div>
       <div class="hist-type">
-        {% set _action_lc = item.action_label|lower %}
-        {% set _variant = 'stale' if 'delet' in _action_lc else ('kept' if 'keep' in _action_lc else ('tv' if 'newsletter' in _action_lc else 'neutral')) %}
+        {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
         {{ c.pill(item.action_label, variant=_variant) }}
       </div>
     </div>

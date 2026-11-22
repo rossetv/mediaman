@@ -93,6 +93,17 @@ def _is_duplicate_download(
         return False
 
 
+def _release_download(
+    username: str,
+    tmdb_id: int,
+    media_type: str,
+    seasons_token: str = "",
+) -> None:
+    """Forget a dedup entry so a request that added nothing can be retried at once."""
+    with _download_dedup_lock:
+        _download_dedup.pop((username, tmdb_id, media_type, seasons_token), None)
+
+
 class _DownloadRequest(BaseModel):
     """Body schema for POST /api/search/download. extra="forbid" turns unknown keys into a 422,
     media_type is limited to the two handled values, the title to 256 chars and the season
@@ -136,8 +147,12 @@ def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
     return None
 
 
+def _dedup_token(body: _DownloadRequest) -> str:
+    return _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
+
+
 def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
-    seasons_token = _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
+    seasons_token = _dedup_token(body)
     if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
             "search.download_duplicate_suppressed user=%s tmdb=%s type=%s seasons=%s",
@@ -227,7 +242,7 @@ def _resolve_tvdb_id(
 ) -> tuple[int | None, JSONResponse | None]:
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
-    except (SafeHTTPError, _requests.RequestException):
+    except (SafeHTTPError, _requests.RequestException, ArrError):
         logger.exception("Sonarr lookup failed")
         return None, JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
     if not lookup:
@@ -258,7 +273,7 @@ def _submit_tv(
     assert tvdb_id is not None
     try:
         already_tracked = is_series_already_tracked(sonarr, tvdb_id)
-    except (SafeHTTPError, _requests.RequestException):
+    except (SafeHTTPError, _requests.RequestException, ArrError):
         # Cannot verify duplicate status — returning 503 is safer than
         # proceeding blindly and potentially creating a duplicate in Sonarr.
         logger.warning(
@@ -329,11 +344,17 @@ def api_download(
     if dedup_err is not None:
         return dedup_err
 
-    conn = get_db()
-    secret_key = request.app.state.config.secret_key
-
-    notify_email = _resolve_admin_email(conn, admin)
-
-    if body.media_type == "movie":
-        return _submit_movie(conn, secret_key, body, notify_email, admin)
-    return _submit_tv(conn, secret_key, body, notify_email, admin)
+    try:
+        conn = get_db()
+        secret_key = request.app.state.config.secret_key
+        notify_email = _resolve_admin_email(conn, admin)
+        if body.media_type == "movie":
+            resp = _submit_movie(conn, secret_key, body, notify_email, admin)
+        else:
+            resp = _submit_tv(conn, secret_key, body, notify_email, admin)
+    except BaseException:
+        _release_download(admin, body.tmdb_id, body.media_type, _dedup_token(body))
+        raise
+    if resp.status_code >= 400:
+        _release_download(admin, body.tmdb_id, body.media_type, _dedup_token(body))
+    return resp

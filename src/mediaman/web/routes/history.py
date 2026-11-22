@@ -29,7 +29,6 @@ _PER_PAGE_DEFAULT = 25
 _PER_PAGE_MAX = 100
 
 ACTION_TYPES = [
-    "scanned",
     "scheduled",
     ACTION_SNOOZED,
     "kept",
@@ -60,6 +59,15 @@ ACTION_BADGE_CLASS = {
     "kept_show": "badge-action-protected",
     "removed_show_keep": "badge-action-unprotected",
     "dry_run_skip": "badge-action-scanned",
+    "delete_failed_permanent": "badge-action-deleted",
+    "delete_refused": "badge-action-deleted",
+    "delete_root_unavailable": "badge-action-deleted",
+    "delete_root_available": "badge-action-scanned",
+    "delete_incomplete": "badge-action-deleted",
+    "delete_folders_failed": "badge-action-deleted",
+    "delete_awaiting_scan": "badge-action-scanned",
+    "media_missing": "badge-action-scanned",
+    "unmonitor_skipped": "badge-action-scanned",
 }
 
 ACTION_LABELS = {
@@ -69,9 +77,21 @@ ACTION_LABELS = {
     ACTION_SCHEDULED_DELETION: "scheduled",
     "kept_show": "kept show",
     "removed_show_keep": "unkept show",
-    "dry_run_skip": "dry run",
+    "dry_run_skip": "dry run: skipped",
     "delete_failed": "delete failed",
+    "delete_failed_permanent": "delete failed",
+    "delete_refused": "delete refused",
+    "media_missing": "media missing",
+    "unmonitor_skipped": "unmonitor skipped",
+    "delete_root_unavailable": "delete root unavailable",
+    "delete_root_available": "delete root available",
+    "delete_awaiting_scan": "waiting for scan",
+    "delete_incomplete": "delete incomplete",
+    "delete_folders_failed": "folder cleanup failed",
+    "re_downloaded": "re-downloaded",
 }
+
+_DELETE_ROOT_PREFIX = "_delete_root:"
 
 _CONTROL_BYTES_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
@@ -98,6 +118,8 @@ def _build_item(r: AuditRow) -> dict[str, object]:
             if m:
                 resolved_title = m.group(1)
         title = resolved_title or "Unknown"
+        if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
+            title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]
         action_label = ACTION_LABELS.get(action, action)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 
