@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.services.openai.recommendations import persist
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from tests.helpers.factories import insert_media_item, insert_suggestion
 
@@ -300,6 +301,63 @@ class TestRefreshRecommendations:
         marks = [r[0] for r in conn.execute("SELECT downloaded_at FROM suggestions")]
         assert len(marks) == 2
         assert marks.count("2026-05-01T08:00:00") == 1
+
+    def test_marks_are_read_under_the_write_lock(self, conn, db_path, freezer):
+        """A download click committed after the marks are read would be lost, so the
+        write lock must already be held when they are matched."""
+        import sqlite3
+
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        conn.commit()
+        other = sqlite3.connect(str(db_path), timeout=0)
+        outcome: list[str] = []
+        real_match = persist._match_downloaded
+
+        def match_then_probe(downloaded, item, taken):
+            try:
+                other.execute("UPDATE suggestions SET downloaded_at = 'click'")
+                other.commit()
+                outcome.append("written")
+            except sqlite3.OperationalError:
+                outcome.append("locked")
+            return real_match(downloaded, item, taken)
+
+        with patch.object(persist, "_match_downloaded", match_then_probe):
+            self._refresh(conn, _fake_trending())
+        other.close()
+        assert outcome == ["locked"]
+
+    def test_download_mark_survives_a_failed_refresh(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+        )
+        conn.commit()
+        bad = {k: v for k, v in _fake_trending()[0].items() if k != "category"}
+        with pytest.raises(KeyError):
+            self._refresh(conn, [bad])
+        rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
+        assert [(r["title"], r["downloaded_at"]) for r in rows] == [("Dune", "2026-05-01T08:00:00")]
+
+    def test_refresh_leaves_yesterdays_batch_and_its_download_mark_alone(self, conn, freezer):
+        freezer.move_to("2026-05-01 12:00:00")
+        insert_suggestion(
+            conn, title="Dune", batch_id="2026-04-30", downloaded_at="2026-04-30T08:00:00"
+        )
+        insert_suggestion(conn, title="Other", batch_id="2026-04-30")
+        conn.commit()
+        self._refresh(conn, _fake_trending())
+        rows = conn.execute(
+            "SELECT title, batch_id, downloaded_at FROM suggestions ORDER BY batch_id, title"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            ("Dune", "2026-04-30", "2026-04-30T08:00:00"),
+            ("Other", "2026-04-30", None),
+            ("Dune", "2026-05-01", None),
+        ]
 
     @staticmethod
     def _refresh(conn, recs):

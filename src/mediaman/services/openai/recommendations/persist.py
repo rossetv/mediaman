@@ -104,6 +104,9 @@ def _insert_recommendations(
     """
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception
+        # Take the write lock before reading the marks so a download click cannot
+        # commit between that read and the DELETE and be lost.
+        conn.execute("BEGIN IMMEDIATE")
         downloaded = conn.execute(
             "SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM suggestions "
             "WHERE batch_id = ? AND downloaded_at IS NOT NULL",
