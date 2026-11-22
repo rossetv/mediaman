@@ -48,7 +48,7 @@
     /* The pill label changes on the page-load auto-check too, so only this
        separate region is announced, and only for a pressed Test. */
     announce: function (service, text) {
-      document.querySelectorAll('[data-conn="' + service + '"] [data-conn-announce]').forEach(function (el) {
+      document.querySelectorAll('#intg-' + service + ' > [data-conn-announce]').forEach(function (el) {
         el.textContent = text;
       });
     },
