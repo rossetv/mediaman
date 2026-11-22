@@ -24,7 +24,7 @@
   MM.settings = MM.settings || {};
 
   var PLEX_LIBRARIES = [];
-  var LOAD_FAILED = false;
+  var LOADED = false;
   var SELECTED_LIBS = [];
   var DISK_THRESHOLDS = {};
 
@@ -266,10 +266,10 @@
     }
   }
 
-  // Returns null when the library load failed: the rows were never drawn, so an
-  // empty result would otherwise read as "clear every threshold".
+  // Returns null until the library load has succeeded (still running, or failed):
+  // the rows are not drawn, so an empty result would read as "clear every threshold".
   function collect() {
-    if (LOAD_FAILED) return null;
+    if (!LOADED) return null;
     var out = {};
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
       var libId = card.dataset.libId;
@@ -284,12 +284,13 @@
     MM.api.get('/api/plex/libraries')
       .then(function (data) {
         PLEX_LIBRARIES = data.libraries || [];
+        LOADED = true;
         renderLibraryPills();
         renderDiskRows();
       })
       .catch(function () {
         PLEX_LIBRARIES = [];
-        LOAD_FAILED = true;
+        LOADED = false;
         renderLibraryPills();
         var rows = document.getElementById('disk-threshold-rows');
         if (rows) {
