@@ -1,8 +1,7 @@
 """Protection and snooze queries on ``scheduled_actions`` and ``kept_shows``.
 
-Split from scheduled_actions so the protection/snooze read path lives
-in its own module while deletion-lifecycle mutations stay in
-scheduled_actions. Both modules write to the same table group; this
+The protection/snooze read path lives here; deletion-lifecycle
+mutations live in scheduled_actions. Both modules write to the same table group; this
 module is read-heavy (or small targeted DELETEs) and never touches
 ``DeletionRow``.
 """

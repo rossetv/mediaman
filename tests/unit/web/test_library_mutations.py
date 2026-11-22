@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import router as library_api_router
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 
 def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
@@ -140,14 +142,15 @@ class TestMediaDelete:
         assert row is None
 
     def test_delete_also_removes_scheduled_actions(self, app_factory, authed_client, conn):
-        """Deleting a media item also prunes its associated scheduled_actions rows."""
+        """Deleting a media item also prunes its scheduled_actions rows, a lapsed snooze too."""
         _insert_movie(conn)
         insert_scheduled_action(
             conn,
             media_item_id="m1",
             action="snoozed",
+            execute_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
             token="tok1",
-            token_used=False,
+            token_used=True,
         )
 
         app = _app(app_factory, conn)
@@ -164,6 +167,116 @@ class TestMediaDelete:
             "SELECT id FROM scheduled_actions WHERE media_item_id='m1'"
         ).fetchone()
         assert sa_row is None
+
+
+class TestMediaDeleteRefusesKeptItems:
+    """An item the scanner keeps is never deleted from the Library."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
+        _DELETE_LIMITER.reset()
+
+    @pytest.mark.parametrize(
+        ("action", "execute_in", "token_used"),
+        [
+            ("protected_forever", None, False),
+            ("protected_forever", None, True),
+            ("snoozed", timedelta(hours=2), False),
+            ("snoozed", timedelta(days=30), True),
+        ],
+        ids=["forever", "forever-from-email", "snooze-ending-today", "snooze-from-email"],
+    )
+    def test_kept_movie_is_refused_and_left_in_place(
+        self, app_factory, authed_client, conn, action, execute_in, token_used
+    ):
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action=action,
+            execute_at=(datetime.now(UTC) + execute_in).isoformat() if execute_in else None,
+            token="tok1",
+            token_used=token_used,
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+
+        mock_radarr = MagicMock()
+        with patch(
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 409
+        assert "kept" in resp.json()["message"]
+        mock_radarr.delete_movie.assert_not_called()
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+
+    def test_season_of_a_kept_show_is_refused(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn)
+        insert_kept_show(conn, show_rating_key="show-rk", action="protected_forever")
+        client = authed_client(_app(app_factory, conn), conn)
+
+        mock_sonarr = MagicMock()
+        with patch(
+            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
+        ):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 409
+        mock_sonarr.delete_episode_files.assert_not_called()
+        assert conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
+
+    def test_keep_landing_after_the_snapshot_is_refused(self, app_factory, authed_client, conn):
+        _insert_movie(conn, radarr_id=None)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        def keep_lands(_snapshot, *, conn, **_kwargs):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action="protected_forever", token="tok1"
+            )
+            return None, None
+
+        with patch(
+            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
+            side_effect=keep_lands,
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "kept"
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
+        reconcile_pending_delete_intents(conn)
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone() is None
+
+    def test_keep_landing_after_the_arr_delete_started_does_not_refuse(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        def keep_lands_after_arr_delete(_snapshot, *, conn, **_kwargs):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action="protected_forever", token="tok1"
+            )
+            return 1, None
+
+        with patch(
+            "mediaman.web.routes.library_api.delete._run_arr_delete_branch",
+            side_effect=keep_lands_after_arr_delete,
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+            is None
+        )
+        assert conn.execute("SELECT id FROM audit_log WHERE action='deleted'").fetchone()
 
 
 class TestMediaDeleteTransactional:

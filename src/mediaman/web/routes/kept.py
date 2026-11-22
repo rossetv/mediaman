@@ -18,6 +18,7 @@ from mediaman.core.format import days_ago, media_type_badge
 from mediaman.core.format import format_bytes as _format_bytes
 from mediaman.core.time import now_iso
 from mediaman.db import get_db
+from mediaman.scanner.repository import is_show_kept_pure
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry
 from mediaman.web.auth.middleware import get_current_admin
@@ -171,7 +172,12 @@ def api_show_seasons(
             }
         )
 
-    show_kept_row = fetch_show_kept_status(conn, show_rating_key)
+    # A lapsed show snooze is not a keep until the next scan sweeps its row.
+    show_kept_row = (
+        fetch_show_kept_status(conn, show_rating_key)
+        if is_show_kept_pure(conn, show_rating_key)
+        else None
+    )
 
     return JSONResponse(
         {

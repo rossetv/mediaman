@@ -328,7 +328,7 @@ class TestDiscoverEndpoint:
 
 
 class TestFetchDiscoverShelf:
-    """``_fetch_discover_shelf`` (lifted out of the ``api_discover``
+    """``_fetch_discover_shelf`` (called by the ``api_discover``
     handler) owns the discover TTL-cache: hit/miss decision, the
     ``media_type`` stamp on cache-miss results, and the bounded-cache
     clear-on-overflow."""
@@ -415,10 +415,10 @@ class TestFetchDiscoverShelf:
 
 
 class TestEnrichRatingsHelpers:
-    """Behaviour-parity coverage for the helpers lifted out of
-    ``_stamp_omdb_ratings``: the cache hit/miss partition, the per-group OMDb
+    """Coverage for the helpers behind ``_stamp_omdb_ratings``: the cache
+    hit/miss partition, the per-group OMDb
     fetch, and the budgeted ``as_completed`` drain. These exercise the
-    subtle bits the original inline closure carried — the TTL cutoff, the
+    subtle bits — the TTL cutoff, the
     "a bad fetch must not abort the fan-out" degradation, and the
     "drop incomplete, still keep the completed misses" timeout path."""
 

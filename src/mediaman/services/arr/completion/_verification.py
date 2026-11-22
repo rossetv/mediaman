@@ -52,7 +52,7 @@ class _ArrLibraryIndex:
         from mediaman.services.arr.build import build_radarr_from_db
 
         # Build indexes before marking as fetched — if get_movies() raises,
-        # _radarr_by_id stays None so the next item retries (matching original behaviour).
+        # _radarr_by_id stays None so the next item retries.
         by_id: dict[int, RadarrMovie] = {}
         by_title: dict[str, RadarrMovie] = {}
         client = build_radarr_from_db(self._conn, self._secret_key)

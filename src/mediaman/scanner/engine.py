@@ -371,8 +371,7 @@ class ScanEngine:
     def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.
 
-        Delegates to DeletionExecutor. Kept on ``ScanEngine``
-        so existing callers don't need to know about the split.
+        Delegates to DeletionExecutor.
         """
         return self._deletions.execute()
 
@@ -397,9 +396,8 @@ class ScanEngine:
             parsed = _parse_iso_utc(arr_date_str)
             if parsed is not None:
                 return _ensure_tz(parsed)
-            # An Arr cache hit with an unparseable date used to be
-            # silently substituted with ``datetime.now(UTC)`` — that
-            # made every affected item look freshly added and gave it
+            # Substituting ``datetime.now(UTC)`` for an unparseable Arr
+            # date would make the item look freshly added and give it
             # permanent protection from deletion. Log the bad value
             # and fall through to the Plex ``added_at`` chain so the
             # item is evaluated normally.

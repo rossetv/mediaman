@@ -5,7 +5,7 @@
 and through ``test_mailgun.py`` (the full-jitter, connect-only POST path).
 These tests pin the pieces those suites do not reach directly: the
 cross-iteration carry-over state (the ``last_status`` / ``last_snippet``
-values) that the function decomposition threads through a ``_LoopState``, and
+values) that the retry loop threads through a ``_LoopState``, and
 the per-call retry options. If a future change mis-threads that state, the
 retry policy breaks silently — these tests fail loudly instead.
 """
@@ -204,3 +204,25 @@ class TestRetryTransportErrorOption:
         assert result is ok
         assert calls == 3
         assert seen == [requests.ConnectTimeout, requests.ConnectTimeout]
+
+
+class TestRetryAfterNotANumber:
+    """A ``Retry-After`` of ``nan`` must fall back to the normal backoff and
+    end in the module's error, not a bare ``ValueError`` from ``time.sleep``."""
+
+    def test_nan_retry_after_ends_in_make_error_not_value_error(self, monkeypatch):
+        slept: list[float] = []
+
+        def strict_sleep(seconds):
+            if seconds != seconds:
+                raise ValueError("Invalid value NaN (not a number)")
+            slept.append(seconds)
+
+        monkeypatch.setattr("mediaman.services.infra.http.retry.time.sleep", strict_sleep)
+        r1 = _response(status=429)
+        r1.headers = {"Retry-After": "nan"}
+        r2 = _response(status=429)
+        with pytest.raises(_Err) as excinfo:
+            _run([r1, r2], attempts=2)
+        assert excinfo.value.status_code == 429
+        assert len(slept) == 1

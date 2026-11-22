@@ -44,9 +44,8 @@ Throttle events are logged at WARNING level as::
 
     rate_limit.throttled scope=<key> actor=<actor_or_ip>
 
-This replaces the ad-hoc per-site log lines
-(e.g. ``"user.create_throttled actor=%s"``) with a single canonical
-shape that log aggregators can filter on uniformly.
+Every throttle uses this one canonical shape, so log aggregators can
+filter on it uniformly.
 """
 
 from __future__ import annotations

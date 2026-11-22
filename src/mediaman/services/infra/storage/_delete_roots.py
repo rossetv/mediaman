@@ -121,9 +121,9 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
     The earlier two-step ``is_symlink()`` then ``resolve()`` had a TOCTOU
     window in which an attacker could swap the directory for a symlink
     between syscalls; the fd-based form rejects that. Skip the check only
-    if the path does not exist *even as a symlink* — that matches previous
-    behaviour for unconfigured-yet mounts and the forbidden-root check has
-    already shielded the dangerous cases.
+    if the path does not exist *even as a symlink* — a mount not configured yet
+    is allowed, and the forbidden-root check has already shielded the
+    dangerous cases.
 
     Uses ``os.path.lexists`` (does NOT follow the final symlink) rather than
     ``Path.exists`` (which does): a *broken* symlink root reports

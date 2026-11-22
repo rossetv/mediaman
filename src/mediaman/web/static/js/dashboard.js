@@ -1,9 +1,8 @@
 /**
  * Dashboard page — client-side glue.
  *
- * Extracted from dashboard.html so the inline <script> can be removed
- * and the page-level CSP can drop 'unsafe-inline' once every template
- * has migrated. The file is self-contained (no imports).
+ * Lives in an external file so the page-level CSP needs no
+ * 'unsafe-inline'. The file is self-contained (no imports).
  *
  * Wires up:
  *   - Scan trigger button (data-action="trigger-scan")

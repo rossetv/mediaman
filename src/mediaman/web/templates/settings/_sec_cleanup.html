@@ -21,7 +21,7 @@
     {% call c.setg_row("Grace period", "Days between scheduling and actual deletion — time for users to keep items.") %}
       <div class="thresh-field">
         <input class="inp inp--num" type="number" id="grace_days"
-               value="{{ settings.get('grace_days', 7) }}" min="1" max="90">
+               value="{{ settings.get('grace_days', 14) }}" min="1" max="90">
         <span class="unit">days</span>
       </div>
     {% endcall %}

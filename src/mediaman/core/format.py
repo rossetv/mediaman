@@ -74,12 +74,10 @@ def ensure_tz(dt: datetime | None) -> datetime:
     parse_iso_utc already treats as UTC when no offset is
     present.
 
-    The previous implementation treated a naive input as **local
-    time** (via ``.astimezone(timezone.utc)``), which silently shifted
-    timestamps by the local UTC offset and disagreed with
-    parse_iso_utc's naive-as-UTC convention. Two helpers that
-    both labelled themselves "ensure UTC" but applied opposite rules
-    is a bug factory; the unified rule is "naive is UTC".
+    A naive input is *not* treated as local time: that would silently
+    shift timestamps by the local UTC offset and disagree with
+    parse_iso_utc's naive-as-UTC convention. Both helpers apply one
+    rule: "naive is UTC".
 
     A ``None`` input returns the current UTC time.
     """

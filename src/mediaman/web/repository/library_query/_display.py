@@ -43,18 +43,13 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
         execute_at = parse_iso_strict_utc(sa_execute_at)
         if execute_at is None:
             return None
-        # ``protection_label`` returns None for today/past dates rather
-        # than a string, so we pre-filter and only invoke
-        # `relative_day_label` on future deadlines.  The helper's
-        # tomorrow case is the singular "1 more day"; its future arm
-        # plural.
         now = now_utc()
-        if (execute_at - now).days <= 0:
+        if execute_at < now:
             return None
         return relative_day_label(
             execute_at,
             now=now,
-            today="",  # unreachable: filtered above
+            today="Kept for less than a day",
             tomorrow="Kept for 1 more day",
             future=lambda days: f"Kept for {days} more days",
         )
@@ -78,12 +73,12 @@ def _row_protection(
 ) -> tuple[bool, str | None]:
     """``(protected, label)`` for a row of *total* items.
 
-    The row is protected only when every item in it is, and then reads the keep
-    that lapses first.  A row with only some items kept is not protected; it
-    says how many are.
+    *seasons* and *show_keep* hold only keeps in force.  The row is protected
+    only when every item in it is, and then reads the keep that lapses first.
+    A row with only some items kept is not protected; it says how many are.
     """
-    live = [keep for keep in seasons.values() if protection_label(*keep) is not None]
-    if show_keep is not None and protection_label(*show_keep) is not None:
+    live = list(seasons.values())
+    if show_keep is not None:
         lapses = [max(keep, show_keep, key=lapse_key) for keep in live]
         if len(live) < total:
             lapses.append(show_keep)
@@ -114,7 +109,7 @@ def _shape_rows(
 
         # The scanner honours a show keep only under a real rating key.
         show_keep = ks_map.get(show_rk) if is_tv and r["has_rating_key"] else None
-        show_kept = show_keep is not None and protection_label(*show_keep) is not None
+        show_kept = show_keep is not None
         protected, prot_label = _row_protection(
             sa_map.get(str(r["id"]), {}),
             show_keep,

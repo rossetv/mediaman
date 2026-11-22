@@ -55,7 +55,7 @@ class TestRatingKeyValidation:
 class TestPosterSignature:
     """Poster URLs are signed with an expiry-bearing HMAC token.
 
-    The ``sign_poster_url`` → ``validate_poster_token`` pair now uses
+    The ``sign_poster_url`` → ``validate_poster_token`` pair uses
     the domain-separated token API in `mediaman.crypto`, so the
     signature cannot be confused with keep/download/unsubscribe
     tokens.

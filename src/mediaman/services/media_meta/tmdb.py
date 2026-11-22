@@ -2,8 +2,8 @@
 
 Callers read the bearer token through get_string_setting so token decryption stays
 consistent. The shape TypedDicts and helpers live in _tmdb_shapes and are re-exported
-here; TmdbClient re-binds the helpers as static methods so existing imports and call
-sites keep working.
+here; TmdbClient re-binds the helpers as static methods so callers can reach them
+through the client.
 """
 
 from __future__ import annotations

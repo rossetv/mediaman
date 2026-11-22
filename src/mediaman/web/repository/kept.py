@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from mediaman.core.time import now_iso
+from mediaman.scanner.repository import fetch_protected_media_ids
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -54,11 +56,11 @@ def resolve_show_rating_key(
 ) -> tuple[str | None, str | None]:
     """Return ``(resolved_key, error)`` for a keep-show request.
 
-    IDOR risk closed by this helper: the previous implementation fell back
-    to matching seasons by show_title whenever the supplied rating key was
-    missing on the stored rows.  Two distinct shows sharing a title (a
-    common case — remakes, international versions) collided in that branch
-    so user A keeping *Kingdom* would also match user B's *Kingdom* rows.
+    IDOR risk closed by this helper: it never falls back to matching seasons
+    by show_title when the supplied rating key is missing on the stored
+    rows.  Two distinct shows sharing a title (a common case — remakes,
+    international versions) would collide, so user A keeping *Kingdom*
+    would also match user B's *Kingdom* rows.
 
     Resolution rules:
       (a) supplied_key is present and at least one media_items row carries
@@ -132,8 +134,8 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ``COALESCE(show_rating_key, show_title)``, so a show Plex gave no rating
     key is found by its title.
 
-    Performs the batched IN-clause approach to fetch kept status for all
-    seasons in one extra query instead of N+1 per season.
+    A season is kept by the scanner's rule (see ``fetch_protected_media_ids``),
+    read for all seasons in one batched query.
     """
     # rationale: placeholders is purely "?" * len(ALL_SEASON_TYPES) — no user value ever enters the SQL text
     type_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -146,18 +148,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
         (show_rating_key, *ALL_SEASON_TYPES),
     ).fetchall()
 
-    ids = [r["id"] for r in rows]
-    kept_set: set[str] = set()
-    if ids:
-        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
-        placeholders = ",".join("?" * len(ids))
-        kept_rows = conn.execute(
-            f"SELECT media_item_id FROM scheduled_actions "
-            f"WHERE media_item_id IN ({placeholders}) "
-            "AND action IN ('protected_forever', 'snoozed') AND token_used = 0",
-            ids,
-        ).fetchall()
-        kept_set = {str(kr["media_item_id"]) for kr in kept_rows}
+    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now_iso())
 
     return [
         SeasonRow(
@@ -262,8 +253,7 @@ def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -
     """Return the subset of ``candidate_ids`` whose media_items row has NULL/empty show_rating_key.
 
     Used by the keep-show flow to surface a diagnostic warning when the
-    supplied seasons would have triggered the (removed) show_title
-    fallback.
+    supplied seasons carry no show key and so cannot be matched to a show.
     """
     if not candidate_ids:
         return []

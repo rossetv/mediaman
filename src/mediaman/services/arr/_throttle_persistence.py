@@ -6,9 +6,9 @@ in-memory state.  All mutable in-memory state is imported from
 ``mediaman.services.arr._throttle_state`` so the two modules share
 the same dicts and lock object.
 
-All names in this module are re-exported verbatim from
-``mediaman.services.arr.search_trigger`` so existing import paths
-and test monkeypatch targets continue to work.
+Most of these names are re-exported from
+``mediaman.services.arr.search_trigger``, which most callers import them
+from.
 """
 
 from __future__ import annotations
@@ -51,10 +51,10 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
     Exception policy: only ``sqlite3.OperationalError`` and
     ``sqlite3.DatabaseError`` are swallowed — those genuinely represent
     transient or pre-migration states where ``(0.0, 0)`` is the correct
-    fallback.  A broader ``except Exception`` previously masked
+    fallback.  A broader ``except Exception`` would mask
     schema/migration faults too, silently disabling the throttle by
     reporting "never triggered" for every dl_id.  Any other exception
-    (e.g. a coding bug in the parser) now propagates so the caller sees
+    (e.g. a coding bug in the parser) propagates so the caller sees
     the real failure.
     """
     try:

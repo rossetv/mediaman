@@ -1,9 +1,5 @@
 """FastAPI authentication dependency functions.
 
-This module lives at ``mediaman.web.auth.middleware``. The old
-``mediaman.auth.middleware`` path was removed in the Ring-2 restructure —
-there is no back-compat shim, so import the dependencies from here.
-
 Exports four FastAPI/callable dependency functions that all callers should
 prefer over raw ``validate_session`` calls — they guarantee fingerprint
 binding (User-Agent + client IP) is consistently applied:

@@ -116,8 +116,7 @@
     if (d.backdrop_url || d.poster_url) {
       const img = d.backdrop_url || d.poster_url;
       /* innerHTML is intentional here: escapeAttr/escapeHtml sanitise every
-         interpolated value; this block preserves the existing inline-original
-         pattern. Refactoring to pure DOM construction is tracked separately. */
+         interpolated value. */
       modalEl.hero.innerHTML =
         '<img src="' + escapeAttr(img) + '" alt="">' +
         '<div class="detail-modal-hero-gradient"></div>' +

@@ -3,8 +3,8 @@
  *
  * Reads server-supplied values from the #page-bootstrap JSON island
  * (token, poll_token, service, tmdb_id, poster_url, title, media_type,
- * download_state) and drives the download trigger + polling UI. Moved
- * out of the inline <script> in download.html for CSP-friendliness.
+ * download_state) and drives the download trigger + polling UI. Lives in
+ * its own file, not an inline <script>, so the CSP can forbid inline script.
  */
 (function () {
   'use strict';

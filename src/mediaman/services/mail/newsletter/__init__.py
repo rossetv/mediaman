@@ -188,7 +188,7 @@ def _has_content_to_report(
     return bool(scheduled_items) or has_recommendations
 
 
-def send_newsletter(  # rationale: extracted from send_newsletter to keep the orchestrator short; a single context dataclass (see SendContext) would allow re-merging
+def send_newsletter(
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,
@@ -220,7 +220,7 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     # and cannot straddle midnight.
     now = now_utc()
 
-    # Cheap settings/COUNT checks first — invert the previous order so a
+    # Cheap settings/COUNT checks first so a
     # tick with no scheduled items and no suggestions does not pay for
     # the per-item ``_load_scheduled_items`` join (which fans out to
     # ``media_items`` and runs the same join every minute on busy

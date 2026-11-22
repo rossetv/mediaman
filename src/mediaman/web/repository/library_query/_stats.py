@@ -58,10 +58,9 @@ def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str)
     are counted per row, but TV/anime seasons are grouped into one entry per
     show via ``COALESCE(show_rating_key, show_title)``.
 
-    The previous implementation counted raw ``media_items`` rows, so a single
-    stale show with ten seasons contributed ten — which made the stats-bar
-    "Stale" number exceed the total item count (a logically impossible
-    ``266 of 138``).  A show is stale when it has at least one stale season,
+    Counting raw ``media_items`` rows would let a single stale show with ten
+    seasons contribute ten, pushing the stats-bar "Stale" number above the
+    total item count.  A show is stale when it has at least one stale season,
     mirroring the ``stale`` filter's per-row WHERE + GROUP BY in
     `mediaman.web.repository.library_query._query._build_cte_sql`.
     """

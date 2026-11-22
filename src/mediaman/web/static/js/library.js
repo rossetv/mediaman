@@ -1,9 +1,10 @@
 /**
  * library.js — interactive behaviour for /library.
  *
- * Extracted from library.html (inline scripts moved external so
- * a strict CSP nonce can be applied). All event wiring is delegated from
- * the document so it survives DOM updates and avoids inline handlers.
+ * Drives the row Keep menus and Keep dialog, Remove keep, and the Delete
+ * confirmations (shows the server's message when a delete is refused). All
+ * event wiring is delegated from the document so it survives DOM updates and
+ * avoids inline handlers.
  *
  * Per-item data flows via data-* attributes on the markup; values that
  * could contain user-supplied strings (titles, IDs surfaced to the URL)

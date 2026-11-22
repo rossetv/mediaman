@@ -195,8 +195,8 @@ class TestPublicHostnamesAllowed:
         assert is_safe_outbound_url("http://radarr.example.com")
 
     def test_rejects_public_hostname_when_resolution_fails(self, monkeypatch):
-        """Non-resolving names are refused — we can no longer afford to
-        let a URL through on the hope it'll resolve safely later."""
+        """Non-resolving names are refused — a URL must not be let through on the
+        hope it will resolve safely later."""
 
         def fake_getaddrinfo(host, port, *args, **kwargs):
             raise socket.gaierror("Name or service not known")

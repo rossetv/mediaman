@@ -73,7 +73,7 @@ class TestKeepRequestForbidsExtra:
 
 
 class TestRejectCRLFAlsoRejectsNUL:
-    """The CR/LF guard now also rejects NUL bytes."""
+    """The CR/LF guard also rejects NUL bytes."""
 
     def test_nul_byte_rejected(self):
         with pytest.raises(ValueError, match="CR, LF, or NUL"):

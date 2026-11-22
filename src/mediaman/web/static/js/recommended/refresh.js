@@ -210,10 +210,10 @@
       });
   }
 
-  // Guard so init() is safe to call more than once — refresh.js now
+  // Guard so init() is safe to call more than once — refresh.js
   // self-initialises (so a JS error in recommended.js can't strand the
-  // button), but recommended.js still calls init() at the bottom of its
-  // own IIFE for backwards-compat. Without this guard we'd attach the
+  // button) and recommended.js also calls init() at the bottom of its
+  // own IIFE. Without this guard we'd attach the
   // click listener twice and fire two POSTs per click.
   var _initialised = false;
 

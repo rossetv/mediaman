@@ -13,8 +13,8 @@ Three private modules, one concept each:
   (``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
   ``sum_total_size_bytes``).
 
-This barrel re-exports the full public surface unchanged so every
-``from mediaman.web.repository.library_query import X`` keeps working.
+This barrel re-exports the full public surface so callers import
+from the package, ``from mediaman.web.repository.library_query import X``.
 """
 
 from __future__ import annotations

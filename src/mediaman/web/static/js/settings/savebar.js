@@ -86,11 +86,10 @@
       }
     }
 
-    // runSave is extracted so the reauth retry path can re-fire the same
+    // runSave is a named function so the reauth retry path can re-fire the same
     // payload without duplicating response-bookkeeping. Routes through
     // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
-    // flow are applied consistently (the hand-rolled fetch + openModal
-    // pattern is replaced by the shared wrapper).
+    // flow are applied consistently.
     function runSave(payload) {
       if (!saveBtn) return;
       saveBtn.disabled = true;

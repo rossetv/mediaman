@@ -1,6 +1,6 @@
 /* MODALS — the detail modal (hero + body + ratings + cast + seasons
    + progress + success), the generic delete-confirm overlay, and the
-   keep-dialog used to extend protection windows. Owns
+   keep-dialog that extends protection windows. Owns
    `.modal-backdrop`/`.modal-sheet`, the `.detail-modal-*` family,
    `.delete-modal-*`, and `.keep-dialog*`. */
 

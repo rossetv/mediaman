@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from mediaman.db import init_db, set_connection
+from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.web.routes.library import (
     fetch_library,
     fetch_stats,
@@ -495,6 +496,95 @@ class TestFetchLibrary:
         titles = {i["title"] for i in items}
         assert "foo_bar" in titles
         assert "fooXbar" not in titles
+
+
+class TestKeepsInForce:
+    """The page reads a keep exactly while the scanner would honour it."""
+
+    def test_forever_keep_made_from_an_email_reads_kept_and_is_listed(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Dune")
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="protected_forever",
+            execute_at=None,
+            token="tok-m1",
+            token_used=True,
+        )
+        items, total = fetch_library(conn, media_type="kept")
+        assert total == 1
+        assert (items[0]["protected"], items[0]["protection_label"]) == (True, "Kept forever")
+
+    def test_snooze_ending_within_a_day_reads_kept(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Dune")
+        _snooze(conn, "m1", datetime.now(UTC) + timedelta(hours=2))
+        (row,) = fetch_library(conn)[0]
+        assert (row["protected"], row["protection_label"]) == (True, "Kept for less than a day")
+
+    @pytest.mark.parametrize(
+        "lapsed_keep",
+        ["item-snooze", "item-snooze-from-email", "show-snooze"],
+    )
+    def test_kept_filter_leaves_out_a_lapsed_keep(self, db_path, lapsed_keep):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        _insert_tv_season(conn, "a1", "Show", "rk1")
+        if lapsed_keep == "show-snooze":
+            insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at=yesterday)
+        else:
+            insert_scheduled_action(
+                conn,
+                media_item_id="a1",
+                action="snoozed",
+                execute_at=yesterday,
+                token="tok-a1",
+                token_used=lapsed_keep == "item-snooze-from-email",
+            )
+        assert fetch_library(conn, media_type="kept") == ([], 0)
+
+    def test_lapsed_show_snooze_does_not_protect_its_seasons(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        _insert_tv_season(conn, "a1", "Show", "rk1")
+        insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at=yesterday)
+        (row,) = fetch_library(conn)[0]
+        assert row["protected"] is False
+        assert row["protection_label"] is None
+
+    def test_live_show_snooze_protects_its_seasons(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        tomorrow = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        _insert_tv_season(conn, "a1", "Show", "rk1")
+        insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at=tomorrow)
+        (row,) = fetch_library(conn)[0]
+        assert row["protected"] is True
+        assert row["protection_label"]
+
+    def test_kept_filter_agrees_with_the_scanner_at_the_instant_a_snooze_ends(
+        self, db_path, monkeypatch
+    ):
+        """An item snooze is still kept at its end instant; a show snooze is not."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        at = datetime.now(UTC).isoformat()
+        monkeypatch.setattr("mediaman.web.repository.library_query._query.now_iso", lambda: at)
+        _insert_movie(conn, "m1", "Item Snoozed")
+        _snooze(conn, "m1", datetime.fromisoformat(at))
+        _insert_tv_season(conn, "a1", "Show Snoozed", "rk1")
+        insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at=at)
+
+        items, total = fetch_library(conn, media_type="kept")
+        assert [i["title"] for i in items] == ["Item Snoozed"]
+        assert total == 1
+        assert fetch_protected_media_ids(conn, ["m1", "a1"], at) == {"m1"}
+        assert fetch_kept_show_keys(conn, ["rk1"], at) == set()
 
 
 class TestFetchStats:

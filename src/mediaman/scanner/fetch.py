@@ -93,12 +93,11 @@ class PlexFetcher:
         ``plex_rating_key`` values that were SKIPPED because their watch
         history could not be fetched.
 
-        **Fails closed on watch-history errors**. The previous code
-        swallowed a per-item watch-history failure and substituted an
-        empty list, which combined with ``check_inactivity([], …) ==
-        True`` to mean a transient Plex 500 reclassified the item as
-        "never watched" and made it eligible for deletion the next run.
-        The offending item is now excluded from ``items`` AND its key is
+        **Fails closed on watch-history errors**. Substituting an empty
+        list for a failed per-item history fetch would, via
+        ``check_inactivity([], …) == True``, let a transient Plex 500
+        reclassify the item as "never watched" and make it eligible for
+        deletion the next run. The offending item is excluded from ``items`` AND its key is
         recorded in ``skipped_keys`` so the engine can protect it from
         orphan pruning — a history-fetch failure means the item is still
         in Plex, just not evaluable this scan. A retry on the next scan

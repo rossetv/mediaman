@@ -1,10 +1,10 @@
-"""Per-library scan helpers — extracted from engine so the
+"""Per-library scan helpers, kept out of engine so the
 orchestrator stays small.
 
 These helpers are *module-level functions* that take the
 mediaman.scanner.engine.ScanEngine as their first argument and
 read/write its state through attributes. They are not free functions
-in the API sense — they are the engine's per-library body lifted out
+in the API sense — they are the engine's per-library body, kept out
 of the class so the orchestration shell remains scannable.
 
 The per-library transaction discipline is unchanged: the orchestrator
@@ -41,11 +41,8 @@ __all__ = ["ScanDecision", "scan_items", "scan_movie_library", "scan_tv_library"
 class ScanDecision(enum.Enum):
     """The three explicit outcomes of evaluating one scanned item.
 
-    Replaces the previous stringly-typed channel that multiplexed three
-    states onto ``str | None`` (``"schedule_deletion"``, the ``"_skip"``
-    guard sentinel, and ``None`` for an evaluator early-skip), which forced
-    the caller to comment-explain which was which and risked a future
-    evaluator string colliding with the guard sentinel.
+    Explicit members, rather than strings or ``None``, so a guard skip, an
+    evaluator skip and a schedule can never be confused.
 
     * SCHEDULE — the item is eligible; schedule a deletion.
     * SKIP_GUARD — a protection / already-scheduled guard fired
@@ -65,12 +62,10 @@ class _GuardSets:
 
     Built once per library by _build_guard_sets so the hot
     per-item loop does ZERO ``scheduled_actions`` SELECTs for the
-    protection and already-scheduled guards (the previous code
-    issued up to three of those SELECTs per item). ``already_scheduled``
+    protection and already-scheduled guards. ``already_scheduled``
     is mutable: when an item is freshly scheduled mid-loop it is added so
-    a later item sharing the same ``plex_rating_key`` observes it, exactly
-    as the per-item ``is_already_scheduled`` query did within the
-    connection's uncommitted view.
+    a later item sharing the same ``plex_rating_key`` observes it, as the
+    connection's uncommitted view would.
     """
 
     protected: frozenset[str]
@@ -80,11 +75,10 @@ class _GuardSets:
 def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
     """Batch-load the protection and already-scheduled sets for a library.
 
-    Replaces the per-item repository.is_protected and
-    repository.is_already_scheduled round trips with two
-    ``IN (...)`` queries. The active-ness rules in the two
-    repository helpers match the per-item predicates byte-for-byte, so
-    the protection decision is identical before and after batching.
+    Two ``IN (...)`` queries instead of one repository.is_protected and
+    repository.is_already_scheduled round trip per item. The active-ness
+    rules in the two repository helpers match the per-item predicates
+    byte-for-byte.
     """
     return _GuardSets(
         protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
@@ -117,8 +111,8 @@ def scan_items(
     """
     # One batched query per guard, built before the loop — the
     # protection state of an item cannot change under the per-item
-    # ``media_items`` upserts, so a single up-front read is identical to
-    # the old per-item SELECTs.
+    # ``media_items`` upserts, so a single up-front read gives the
+    # same answer as a read per item.
     media_ids = [f.item["plex_rating_key"] for f in fetched]
     guards = _build_guard_sets(engine._conn, media_ids)
     for f in fetched:
@@ -207,9 +201,8 @@ def _apply_scan_decision(
 
     When an item is freshly scheduled, its id is added to
     *guards.already_scheduled* so a later *fetched* item sharing the
-    same ``plex_rating_key`` is treated as already-scheduled — the same
-    answer the old per-item ``is_already_scheduled`` query gave from the
-    connection's uncommitted view.
+    same ``plex_rating_key`` is treated as already-scheduled, as the
+    connection's uncommitted view would.
     """
     if engine._dry_run:
         # Dry-run preview: count what *would* be scheduled but write
@@ -288,16 +281,14 @@ def scan_tv_library(
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 
-    # Batching for the show-kept guard. The previous code called
-    # repository.is_show_kept() once per season, issuing one ``kept_shows``
-    # SELECT — plus, on the not-kept path, one DELETE — for every season in the
-    # library (O(seasons) round trips against a one-row-per-show table).
-    # Instead: sweep expired snoozes once up front, then load the live keep set
-    # in batched IN-queries so the per-season check is a pure set membership
-    # test. ``kept_shows.show_rating_key`` is UNIQUE, so the set answer equals
-    # the old per-season LIMIT-1 read byte-for-byte, and the single bulk DELETE
-    # sweeps exactly the rows the per-season cleanup would have (an expired
-    # snooze is never "kept", so removing it eagerly changes no decision).
+    # Batching for the show-kept guard: a per-season repository.is_show_kept()
+    # would issue a ``kept_shows`` SELECT (and a DELETE on the not-kept path)
+    # for every season — O(seasons) round trips against a one-row-per-show
+    # table. Instead: sweep expired snoozes once up front, then load the live
+    # keep set in batched IN-queries so the per-season check is a pure set
+    # membership test. ``kept_shows.show_rating_key`` is UNIQUE, so the set
+    # answer equals a per-season LIMIT-1 read (an expired snooze is never
+    # "kept", so removing it eagerly changes no decision).
     now = now_iso()
     repository.cleanup_expired_show_snoozes(conn, now)
     show_keys = [

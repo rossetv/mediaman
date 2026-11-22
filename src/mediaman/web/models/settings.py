@@ -276,10 +276,8 @@ class SettingsUpdate(BaseModel):
 
         The dropdown in ``_sec_general.html`` writes this value in minutes
         (matching how ``bootstrap/scheduling.py`` consumes it as
-        ``sync_interval_minutes``). Earlier revisions of this validator
-        treated the value as seconds and rejected every legitimate
-        dropdown option — fix is to bound in the unit the rest of the
-        codebase actually uses.
+        ``sync_interval_minutes``), so the bound is in minutes, the unit
+        the rest of the codebase uses.
         """
         if v is None:
             return v

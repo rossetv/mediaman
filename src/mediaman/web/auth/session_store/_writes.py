@@ -61,7 +61,7 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
 
     Both the session row and the matching reauth ticket are deleted
     inside the SAME ``BEGIN IMMEDIATE`` transaction.  Splitting them
-    across two transactions used to leave a window where the session
+    across two transactions would leave a window where the session
     was gone but the ticket survived — a stolen cookie + ticket pair
     would remain replayable for the rest of the ticket's TTL even
     though the legitimate session had been killed by idle expiry or
@@ -70,8 +70,8 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
     The reauth-side delete is best-effort: if the
     ``revoke_reauth_by_hash`` helper itself raises (e.g. table
     missing), the whole transaction is rolled back and the caller
-    sees the error.  That is safer than the previous ``except: log``
-    swallow which could leave the ticket alive.
+    sees the error.  Swallowing it and logging would be unsafe: it could
+    leave the ticket alive.
     """
     # Local import to dodge the session_store -> reauth import cycle.
     from mediaman.web.auth.reauth import revoke_reauth_by_hash_in_tx

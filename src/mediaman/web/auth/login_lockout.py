@@ -295,16 +295,15 @@ def _apply_lockout(
     Window-extension policy:
 
     * If the account is NOT currently locked, slide the window
-      forward to ``now + minutes``. This is the original behaviour
-      that makes a sustained attack burn against an ever-fresh
-      timer.
+      forward to ``now + minutes``. This makes a sustained attack burn against
+      an ever-fresh timer.
     * If the account IS currently locked AND the new threshold is
       STRICTER than the previous threshold this row was last
       locked at (10-failure / 15-failure escalation), promote the
       window. We compare *threshold band*, not *expiry timestamp*
       — otherwise every additional sub-threshold failure would
-      slide the window forwards by a few microseconds and re-open
-      a sustained attacker can trigger a denial-of-service against the operator.
+      slide the window forwards by a few microseconds, and a sustained
+      attacker could keep the account locked out indefinitely.
     * If the account IS currently locked AND we're still in the
       same severity band, leave ``locked_until`` alone. Otherwise
       an unauthenticated attacker can keep an admin permanently

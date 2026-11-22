@@ -4,7 +4,7 @@ Tokens are HMAC-signed, per-purpose domain-separated, and time-limited.
 Each token type derives a per-purpose sub-key via
 ``HMAC-SHA256(secret, info)``, preventing cross-token confusion.
 
-Each public ``generate_*`` / ``validate_*`` shim wraps the private
+Each public ``generate_*`` / ``validate_*`` function wraps the private
 ``_encode_signed`` / ``_validate_signed`` primitives with a fixed
 purpose label.  Adding a new token type means adding one purpose
 constant plus one ``generate_*`` / ``validate_*`` pair.
@@ -305,8 +305,7 @@ def keep_token_expiry(scheduled_at: datetime, execute_at: datetime) -> int:
     """Return the ``exp`` of the keep token for a deletion scheduled at *scheduled_at*.
 
     At least 30 days, and always a day past the deletion so the link works until then.
-    For a grace under 30 days this equals the original 30-day rule, so those tokens are
-    unchanged.
+    For a grace under 30 days this equals the 30-day rule.
     """
     return int(
         max(
@@ -327,7 +326,7 @@ def rebuild_keep_token(
     """Re-mint the keep token of a scheduled deletion from its stored columns.
 
     Only the token's SHA-256 is stored, so the token is regenerated (keep tokens carry
-    no nonce) under the current expiry rule and then the original 30-day rule; the one
+    no nonce) under the current expiry rule and then the 30-day rule; the one
     whose hash equals *token_hash* is returned, or ``None`` when neither matches.
     """
     if not token_hash:

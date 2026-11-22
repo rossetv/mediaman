@@ -69,8 +69,8 @@ def _load_common_passwords() -> frozenset[str]:
 def __getattr__(name: str) -> object:
     """Lazy module attribute for ``_COMMON_PASSWORDS``.
 
-    Exposes ``_COMMON_PASSWORDS`` as a module-level name for backward
-    compatibility (tests import it directly) while keeping the actual file
+    Exposes ``_COMMON_PASSWORDS`` as a module-level name (tests
+    import it directly) while keeping the actual file
     read deferred until first use.
     """
     if name == "_COMMON_PASSWORDS":

@@ -165,8 +165,7 @@ def _register_routers(app: FastAPI) -> None:
     The router imports are deferred into this function body (rather than
     placed at module top) so importing mediaman.app_factory does
     not transitively import every route module and its dependencies —
-    the import-cost property the original inline block established is
-    preserved here.
+    keeps import cost low.
     """
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.dashboard import router as dashboard_router

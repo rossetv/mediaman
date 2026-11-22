@@ -9,7 +9,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import timedelta
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_iso, now_utc
+from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import Keep, _shape_rows, lapse_key
 
@@ -93,11 +94,29 @@ def _build_where_clause(
     return where_sql, params, kept_filter
 
 
+# A keep in force by the scanner's rule (fetch_protected_media_ids and
+# fetch_kept_show_keys); the Kept filter pages in SQL, so it cannot call them.
+_ITEM_KEPT_SQL = """EXISTS(
+                SELECT 1 FROM scheduled_actions sa
+                WHERE sa.media_item_id = filtered.id
+                AND (sa.action = 'protected_forever'
+                     OR (sa.action = 'snoozed' AND sa.execute_at IS NOT NULL
+                         AND sa.execute_at >= (SELECT now FROM clock)))
+            )"""
+_SHOW_KEPT_SQL = """EXISTS(
+                SELECT 1 FROM kept_shows ks
+                WHERE ks.show_rating_key = filtered.show_rating_key
+                AND (ks.action = 'protected_forever'
+                     OR (ks.execute_at IS NOT NULL AND ks.execute_at > (SELECT now FROM clock)))
+            )"""
+
+
 def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     """Build the CTE SQL block and the ORDER BY expression.
 
     Returns ``(cte_sql, order_expr)`` where ``cte_sql`` ends just before the
-    final SELECT so callers can append their own SELECT clause.
+    final SELECT so callers can append their own SELECT clause. Its first
+    bind parameter is the current time, ahead of the WHERE clause's.
     # rationale: the CTE SQL literal is inherently multi-line; further
     # splitting would produce helpers that are just string fragments.
     """
@@ -118,7 +137,8 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     # ``order`` is resolved from ``_CTE_SORT`` via .get() with a hardcoded
     # default — no user value enters the SQL text.
     cte_sql = f"""
-    WITH filtered AS (
+    WITH clock(now) AS (SELECT ?),
+    filtered AS (
         SELECT * FROM media_items {where_sql}
     ),
     display_items AS (
@@ -127,11 +147,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             plex_rating_key, added_at, file_size_bytes, last_watched_at,
             show_rating_key, show_title, NULL AS season_count,
             0 AS has_rating_key, id AS item_ids,
-            EXISTS(
-                SELECT 1 FROM scheduled_actions sa
-                WHERE sa.media_item_id = filtered.id AND sa.token_used = 0
-                AND sa.action IN ('protected_forever', 'snoozed')
-            ) AS is_kept
+            {_ITEM_KEPT_SQL} AS is_kept
         FROM filtered WHERE media_type = 'movie'
 
         UNION ALL
@@ -149,16 +165,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             COUNT(*) AS season_count,
             MAX(COALESCE(show_rating_key, '') != '') AS has_rating_key,
             GROUP_CONCAT(id, char(31)) AS item_ids,
-            (
-                EXISTS(
-                    SELECT 1 FROM kept_shows ks
-                    WHERE ks.show_rating_key = filtered.show_rating_key
-                ) OR MAX(EXISTS(
-                    SELECT 1 FROM scheduled_actions sa
-                    WHERE sa.media_item_id = filtered.id
-                    AND sa.token_used = 0 AND sa.action IN ('protected_forever', 'snoozed')
-                ))
-            ) AS is_kept
+            (MAX({_SHOW_KEPT_SQL}) OR MAX({_ITEM_KEPT_SQL})) AS is_kept
         FROM filtered
         WHERE media_type IN ('tv_season', 'anime_season', 'season', 'tv', 'anime')
         GROUP BY COALESCE(show_rating_key, show_title)
@@ -198,28 +205,30 @@ def _execute_paged_query(
 def _fetch_protection_maps(
     conn: sqlite3.Connection,
     rows: list[sqlite3.Row],
+    now: str,
 ) -> tuple[dict[str, dict[str, Keep]], dict[str, Keep]]:
-    """Load scheduled_actions and kept_shows protection data for *rows*.
+    """Load the keeps in force for *rows*, by the scanner's protection rule.
 
     Returns ``(sa_map, ks_map)``.  ``sa_map`` is keyed by the row id and holds
-    the strongest ``(action, execute_at)`` of each media item in the row (one
-    per season the row's filter let through), keyed by that item's id.
-    ``ks_map`` is keyed by show_rating_key.
+    the strongest ``(action, execute_at)`` of each kept media item in the row
+    (one per season the row's filter let through), keyed by that item's id.
+    ``ks_map`` is keyed by show_rating_key and holds only keeps in force.
     """
     row_items = {str(r["id"]): str(r["item_ids"]).split(_ITEM_ID_SEP) for r in rows}
     item_ids = sorted({i for ids in row_items.values() for i in ids})
-    show_rkeys = {r["show_rating_key"] for r in rows if r["show_rating_key"]}
+    show_rkeys = sorted({r["show_rating_key"] for r in rows if r["show_rating_key"]})
 
+    kept_ids = sorted(fetch_protected_media_ids(conn, item_ids, now))
     strongest: dict[str, Keep] = {}
-    if item_ids:
-        # rationale: ph is purely "?" * len(item_ids) — no user value ever enters the SQL text
-        ph = ",".join("?" * len(item_ids))
+    if kept_ids:
+        # rationale: ph is purely "?" * len(kept_ids) — no user value ever enters the SQL text
+        ph = ",".join("?" * len(kept_ids))
         for sa in conn.execute(
             f"SELECT media_item_id, action, execute_at "
             f"FROM scheduled_actions "
-            f"WHERE media_item_id IN ({ph}) AND token_used = 0 "
+            f"WHERE media_item_id IN ({ph}) "
             f"AND action IN ('protected_forever', 'snoozed')",
-            item_ids,
+            kept_ids,
         ).fetchall():
             keep = (sa["action"], sa["execute_at"])
             prev = strongest.get(sa["media_item_id"])
@@ -229,14 +238,15 @@ def _fetch_protection_maps(
         rid: {i: strongest[i] for i in ids if i in strongest} for rid, ids in row_items.items()
     }
 
+    kept_keys = sorted(fetch_kept_show_keys(conn, show_rkeys, now))
     ks_map: dict[str, Keep] = {}
-    if show_rkeys:
-        # rationale: ph is purely "?" * len(show_rkeys) — no user value ever enters the SQL text
-        ph = ",".join("?" * len(show_rkeys))
+    if kept_keys:
+        # rationale: ph is purely "?" * len(kept_keys) — no user value ever enters the SQL text
+        ph = ",".join("?" * len(kept_keys))
         for ks in conn.execute(
             f"SELECT show_rating_key, action, execute_at "
             f"FROM kept_shows WHERE show_rating_key IN ({ph})",
-            list(show_rkeys),
+            kept_keys,
         ).fetchall():
             ks_map[ks["show_rating_key"]] = (ks["action"], ks["execute_at"])
 
@@ -257,9 +267,12 @@ def fetch_library(
     page: int = 1,
     per_page: int = 20,
 ) -> tuple[list[dict[str, object]], int]:
+    now = now_iso()
     where_sql, params, kept_filter = _build_where_clause(conn, q, media_type)
     cte_sql, order = _build_cte_sql(where_sql, sort)
-    rows, total = _execute_paged_query(conn, cte_sql, order, params, kept_filter, page, per_page)
-    sa_map, ks_map = _fetch_protection_maps(conn, rows)
+    rows, total = _execute_paged_query(
+        conn, cte_sql, order, [now, *params], kept_filter, page, per_page
+    )
+    sa_map, ks_map = _fetch_protection_maps(conn, rows, now)
     items = _shape_rows(rows, sa_map, ks_map)
     return items, total

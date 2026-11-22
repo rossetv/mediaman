@@ -895,8 +895,8 @@ class TestListSessionsExplicitConstruction:
 
 
 class TestSharedHashTokenModule:
-    """The canonical hash helper now lives in
-    mediaman.auth._token_hashing so session_store and reauth
+    """The canonical hash helper lives in
+    mediaman.web.auth._token_hashing so session_store and reauth
     share one implementation.
     """
 

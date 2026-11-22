@@ -50,7 +50,7 @@ _stuck_deletion_failures = 0
 def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
     """Execute a scheduled scan, reading all settings fresh from the DB.
 
-    Lifted to module scope so it can be unit-tested without standing up
+    Module-level so it can be unit-tested without standing up
     an entire FastAPI app. The scheduler is in-process and the heartbeat
     thread opens its own DB connection, so the only dependencies passed
     in are the bootstrap DB path (for the heartbeat) and the AES secret

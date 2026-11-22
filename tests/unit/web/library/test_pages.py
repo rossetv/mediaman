@@ -122,9 +122,9 @@ class TestBulkKeepResponseOk:
     """
 
     def test_library_template_does_not_use_unchecked_promise_all(self):
-        """The library.html template (and its extracted JS) must not have the
-        old unchecked Promise.all pattern. The script body lives in
-        static/js/library.js since the inline-script extraction (CSP nonce)."""
+        """The library.html template (and its JS) must not have the
+        unchecked Promise.all pattern. The script body lives in
+        static/js/library.js."""
         import pathlib
 
         tmpl = pathlib.Path("src/mediaman/web/templates/library.html").read_text()

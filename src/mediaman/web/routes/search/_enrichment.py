@@ -139,12 +139,10 @@ def _annotate_states(results: list[dict[str, object]], request: Request) -> None
     annotate_download_states(results, conn, secret_key)
 
 
-# Wall-clock budget for the parallel ratings-enrichment fan-out. The previous
-# code passed ``timeout=None`` to ``as_completed`` so a single stuck future
-# blocked the whole iterator until ``fut.result(timeout=3)`` fired — but
-# ``as_completed`` doesn't yield until the future is ready, so that inner
-# timeout was effectively dead code. The right place to bound the wall-clock
-# cost is on ``as_completed`` itself.
+# Wall-clock budget for the parallel ratings-enrichment fan-out. It is
+# passed to ``as_completed`` because that call does not yield until a future
+# is ready, so a timeout on ``fut.result`` alone would never fire and one
+# stuck future would block the whole iterator.
 _ENRICH_BUDGET_SECONDS = 6.0
 
 # Type alias for the ``(key, group)`` pairs threaded through the ratings

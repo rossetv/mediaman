@@ -520,7 +520,7 @@ class TestMaybeAutoAbandon:
 
 
 class TestShouldAutoAbandon:
-    """The guard cascade lifted out of maybe_auto_abandon (Phase-4 decomposition).
+    """The guard cascade ``maybe_auto_abandon`` runs before it abandons.
 
     ``_should_auto_abandon`` returns a parsed ``_AbandonDecision`` only
     when every guard passes, or ``None`` to signal "skip". These tests

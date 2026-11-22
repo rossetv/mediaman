@@ -190,13 +190,13 @@ class TestArrClientRadarr:
         assert result["id"] == 42
 
     def test_add_movie_raises_when_no_root_folder(self, client, fake_http, fake_response):
-        """Empty rootfolder list now fails loudly instead of inventing /movies."""
+        """Empty rootfolder list fails loudly instead of inventing /movies."""
         fake_http.queue("GET", fake_response(json_data=[]))
         with pytest.raises(ArrConfigError, match="no root folders configured"):
             client.add_movie(tmdb_id=1, title="Test")
 
     def test_add_movie_raises_when_no_quality_profile(self, client, fake_http, fake_response):
-        """Empty qualityprofile list now fails loudly rather than picking id=4."""
+        """Empty qualityprofile list fails loudly rather than picking id=4."""
         fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
         fake_http.queue("GET", fake_response(json_data=[]))
         with pytest.raises(ArrConfigError, match="no quality profiles configured"):

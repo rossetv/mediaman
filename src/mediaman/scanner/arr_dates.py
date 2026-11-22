@@ -6,7 +6,7 @@ the download time). This module keeps a lazily-built lookup of
 normalised-path to ISO download-date strings, queried during scan-time
 eligibility checks.
 
-Extracted from mediaman.scanner.engine so that constructing the
+Kept apart from mediaman.scanner.engine so that constructing the
 scan engine doesn't trigger Radarr/Sonarr I/O and so the cache logic
 has a single clear home.
 """

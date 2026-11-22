@@ -173,12 +173,9 @@ def verify_reauth_password(
     # immediately path is ~0 ms, the unlocked-but-wrong-password path
     # is ~150 ms+ on cost-12 bcrypt).
     if is_locked_out(conn, namespace):
-        # The previous implementation called ``authenticate(conn, "",
-        # password, ...)`` here intending to burn a bcrypt cycle, but
-        # ``authenticate`` short-circuits on empty username before
-        # reaching bcrypt — so the cycle was NOT actually burned. Mirror
-        # the constant-time pattern used by ``change_password`` instead:
-        # call ``bcrypt.checkpw`` directly against the dummy hash.
+        # Burn a bcrypt cycle with ``bcrypt.checkpw`` against the dummy hash,
+        # as ``change_password`` does: ``authenticate`` short-circuits on an
+        # empty username before reaching bcrypt, so it would not burn one.
         from mediaman.web.auth._password_hash_helpers import (
             _get_dummy_hash,
             _prepare_bcrypt_input,

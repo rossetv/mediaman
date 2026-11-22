@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 class PlexResponseTooLarge(ValueError):
     """Raised when a Plex API response body exceeds the size cap.
 
-    Subclasses ValueError so existing ValueError handlers keep working. The scanner's
+    Subclasses ValueError so ValueError handlers also catch it. The scanner's
     fetch catch-all includes it so body-cap events on watch-history fetches do not
     propagate uncaught.
     """
@@ -104,7 +104,7 @@ class PlexClient:
         # rebinding attempts that happen between construction and use.
         # ``allowed_hosts`` is only forwarded when supplied so that test
         # monkeypatches of ``resolve_safe_outbound_url`` taking ``url``
-        # alone keep working.
+        # alone are accepted.
         if allowed_hosts is None:
             safe, _hostname, _ip = resolve_safe_outbound_url(url)
         else:
@@ -205,7 +205,7 @@ class PlexClient:
             if not viewed_at_ts:
                 continue
             # A single malformed ``viewedAt`` / ``accountID`` (non-numeric,
-            # negative, garbage) used to abort the entire history fetch
+            # negative, garbage) would abort the entire history fetch
             # because both ``int(...)`` and ``datetime.fromtimestamp``
             # raise ``ValueError``/``OSError`` on bad input.  Skip the
             # offending row instead so a single corrupt record doesn't

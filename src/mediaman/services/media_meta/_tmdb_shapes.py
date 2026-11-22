@@ -1,8 +1,7 @@
 """TMDB response-shape types and pure, network-free shaping helpers.
 
-Split out of tmdb to keep that file small. TmdbClient re-binds shape_card and
-shape_detail as static methods, so existing TmdbClient.shape_card(...) call sites keep
-working.
+TmdbClient re-binds shape_card and shape_detail as static methods, so
+TmdbClient.shape_card(...) works.
 """
 
 from __future__ import annotations

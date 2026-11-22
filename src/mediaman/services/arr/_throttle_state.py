@@ -22,9 +22,10 @@ State summary:
   item can still advance along its own per-item backoff curve.
 * ``_state_lock`` — threading.Lock guarding all four dicts above.
 
-All names in this module are re-exported verbatim from
-``mediaman.services.arr.search_trigger`` so existing import paths
-and test monkeypatch targets continue to work.
+Most of these names are re-exported from
+``mediaman.services.arr.search_trigger``, which most callers import them
+from. The state lives here so that ``search_trigger`` and
+``_throttle_persistence`` share the same dicts and lock.
 """
 
 from __future__ import annotations

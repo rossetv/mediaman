@@ -298,8 +298,7 @@ def generate_personal(
     # of previous titles) at a CHARACTER boundary BEFORE we wrap it in the
     # ``<UNTRUSTED_PREVIOUS_TITLES>`` and ``<BEGIN_PLEX_DATA>`` delimiters.
     #
-    # The previous implementation truncated the assembled string by bytes
-    # which had two failure modes:
+    # Truncating the assembled string by bytes has two failure modes:
     # 1. A byte slice could cut a multi-byte UTF-8 codepoint in half,
     #    relying on ``errors="replace"`` to paper over it with U+FFFD.
     # 2. Worse, the slice could chop the closing
@@ -307,9 +306,9 @@ def generate_personal(
     #    model relies on to know which region is untrusted data and which
     #    region is the trusted instruction frame.
     #
-    # We now budget bytes against the inner content alone and rebuild the
-    # block from the trimmed pieces, so the closing delimiters are always
-    # intact and complete codepoints survive the trim.
+    # So bytes are budgeted against the inner content alone and the
+    # block is rebuilt from the trimmed pieces, so the closing delimiters are
+    # always intact and complete codepoints survive the trim.
     inner_parts = [f"Recent watch history:\n{history_text}"]
     if ratings_lines:
         inner_parts.append("User ratings (1-5 stars — higher = liked more):\n" + ratings_lines)

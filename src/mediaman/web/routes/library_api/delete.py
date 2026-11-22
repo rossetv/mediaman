@@ -1,4 +1,4 @@
-"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel.
+"""Media delete pipeline (POST /api/media/{id}/delete).
 
 The barrel mounts this router and re-exports _DELETE_LIMITER so tests can patch
 it at the barrel.
@@ -27,6 +27,7 @@ from mediaman.web.repository.delete_intents import (
     _record_delete_intent,
 )
 from mediaman.web.repository.library_api import (
+    Kept,
     MediaDeleteSnapshot,
     NotFound,
     finalise_delete_in_tx,
@@ -46,6 +47,14 @@ _DELETE_LIMITER = ActionRateLimiter(
     window_seconds=60,
     max_per_day=300,
 )
+
+
+def _kept_response() -> JSONResponse:
+    return respond_err(
+        "kept",
+        status=409,
+        message="This item is kept, so it cannot be deleted. Remove its keep first.",
+    )
 
 
 def _is_already_gone(exc: Exception) -> bool:
@@ -220,6 +229,8 @@ def _finalise_delete(
         audit_detail=detail,
         space_bytes=snapshot.file_size_bytes,
         actor=username,
+        # With an Arr delete run (intent recorded) the files are gone, so the row must go too.
+        refuse_if_kept=intent_id is None,
     )
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
@@ -259,6 +270,8 @@ def api_media_delete(
         snapshot = snapshot_media_for_delete(conn, media_id)
     except NotFound:
         return respond_err("forbidden", status=403)
+    except Kept:
+        return _kept_response()
 
     intent_id, short_circuit = _run_arr_delete_branch(
         snapshot,
@@ -270,5 +283,10 @@ def api_media_delete(
     if short_circuit is not None:
         return short_circuit
 
-    _finalise_delete(snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username)
+    try:
+        _finalise_delete(
+            snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username
+        )
+    except Kept:
+        return _kept_response()
     return respond_ok({"id": media_id})

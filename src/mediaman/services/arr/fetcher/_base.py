@@ -2,7 +2,7 @@
 
 The ``make_arr_card`` factory is the single card constructor used by both
 the Radarr and Sonarr fetcher modules.  ``_make_radarr_card`` and
-``_make_sonarr_card`` remain as one-line shims in those modules so that
+``_make_sonarr_card`` are one-line wrappers in those modules so that
 tests can import them from there.
 """
 
@@ -186,8 +186,8 @@ def make_arr_card(
     """Build a download card for either a Radarr movie or a Sonarr series.
 
     This is the single card factory used directly by both fetcher modules.
-    ``_make_radarr_card`` and ``_make_sonarr_card`` remain as one-line shims
-    in their respective modules for test-import compatibility.
+    ``_make_radarr_card`` and ``_make_sonarr_card`` are one-line wrappers
+    in their respective modules so tests can import them there.
 
     :param kind: ``"movie"`` or ``"series"``.
     :param title: Display title of the item.
