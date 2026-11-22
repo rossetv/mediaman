@@ -13,7 +13,7 @@ def test_decrypt_failure_carries_message(app_factory, authed_client, conn):
 
     with patch(
         "mediaman.web.routes.settings.api._load_settings",
-        side_effect=ConfigDecryptError("bad key"),
+        side_effect=ConfigDecryptError("plex_token", ValueError("bad key")),
     ):
         resp = client.get("/api/settings")
 
