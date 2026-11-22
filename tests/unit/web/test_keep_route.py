@@ -316,6 +316,40 @@ class TestKeepPageRoute:
 
         assert f"{date_text} — {word}" in text
 
+    @pytest.mark.parametrize(
+        ("action", "execute_at", "duration", "text"),
+        [
+            ("snoozed", "2099-01-01T00:00:00+00:00", "30 days", "Protected until 1 January 2099"),
+            ("protected_forever", None, "forever", "Protected forever"),
+        ],
+    )
+    def test_row_kept_elsewhere_shows_the_kept_state(
+        self, conn, action, execute_at, duration, text
+    ):
+        """A Library keep resets token_used to 0, so the page must read the action."""
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action=action,
+            execute_at=execute_at,
+            token_used=0,
+        )
+        conn.execute(
+            "UPDATE scheduled_actions SET snooze_duration=? WHERE id=?", (duration, action_id)
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        html = " ".join(client.get(f"/keep/{token}").text.split())
+
+        assert text in html
+        assert "Scheduled for deletion" not in html
+        assert "snooze-btn" not in html
+
 
 class TestKeepSubmitTokenInvalidation:
     """Keep_submit must mark the token as used and reject replays."""

@@ -139,7 +139,9 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
 
     if execute_at < now:
         state = "expired"
-    elif row.token_used:
+    elif row.token_used or row.action != "scheduled_deletion":
+        # A keep made elsewhere (Library, whole-show) converts the row and clears
+        # token_used, so the row's action says it is kept, not the flag.
         state = "already_kept"
     else:
         state = "active"
