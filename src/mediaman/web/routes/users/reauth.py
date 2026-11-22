@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.reauth import (
     grant_recent_reauth,
@@ -48,7 +49,9 @@ def api_reauth(
         return respond_err("not_authenticated", status=401)
 
     if not verify_reauth_password(conn, admin, body.password):
-        logger.warning("reauth.failed actor=%s ip=%s", admin, get_client_ip(request))
+        logger.warning(
+            "reauth.failed actor=%s ip=%s", _sanitise_log_field(admin), get_client_ip(request)
+        )
         security_event(
             conn,
             event="reauth.failed",
@@ -58,7 +61,7 @@ def api_reauth(
         return respond_err("wrong_password", status=403, message="Password is incorrect")
 
     grant_recent_reauth(conn, session_token, admin)
-    logger.info("reauth.granted actor=%s ip=%s", admin, get_client_ip(request))
+    logger.info("reauth.granted actor=%s ip=%s", _sanitise_log_field(admin), get_client_ip(request))
     security_event(
         conn,
         event="reauth.granted",
