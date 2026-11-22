@@ -36,6 +36,17 @@ def page(app_factory, authed_client, conn):
     return get
 
 
+def _disk(monkeypatch, total):
+    """Pin the disk reading so the page does not depend on the host's media path."""
+
+    def fake(*_args, **_kwargs):
+        if total is None:
+            raise OSError("no disk")
+        return {"total_bytes": total, "used_bytes": total // 2, "free_bytes": total - total // 2}
+
+    monkeypatch.setattr("mediaman.web.routes.dashboard._data._cached_disk_usage", fake)
+
+
 def _plex(conn, url="http://plex:32400", token="tok"):
     insert_settings(conn, plex_url=url)
     insert_settings(conn, plex_token=token, encrypted=1)
@@ -69,12 +80,24 @@ class TestPlexIsConfigured:
 
 
 class TestDashboard:
-    def test_unset_plex_says_connect_and_hides_empty_storage(self, page):
+    def test_unset_plex_says_connect_and_hides_empty_storage(self, page, monkeypatch):
+        _disk(monkeypatch, None)
         html = page("/")
         assert _CONNECT in html
         assert 'href="/settings"' in html
         assert "Library is healthy" not in html
         assert 'class="storage"' not in html
+
+    def test_unset_plex_keeps_storage_that_has_a_disk_reading(self, page, monkeypatch):
+        _disk(monkeypatch, 10_000_000_000)
+        assert 'class="storage"' in page("/")
+
+    def test_unset_plex_keeps_storage_with_type_rows_but_no_disk_reading(
+        self, page, conn, monkeypatch
+    ):
+        _disk(monkeypatch, None)
+        insert_media_item(conn, id="m2", media_type="movie", file_size_bytes=5_000_000)
+        assert 'class="storage"' in page("/")
 
     def test_set_up_plex_is_unchanged(self, page, conn):
         _plex(conn)

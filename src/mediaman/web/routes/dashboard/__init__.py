@@ -45,7 +45,12 @@ def dashboard_page(request: Request) -> Response:
 
     plex_configured = plex_is_configured(conn)
     # Without Plex the card is hidden only when it has nothing to show.
-    show_storage = plex_configured or storage["total"] != format_bytes(0)
+    show_storage = plex_configured or bool(
+        storage["total_bytes"]
+        or storage["movies_bytes"]
+        or storage["tv_bytes"]
+        or storage["anime_bytes"]
+    )
 
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
