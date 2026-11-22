@@ -43,7 +43,7 @@ from mediaman.services.infra import (
     delete_path,
     path_within_delete_roots,
 )
-from mediaman.services.infra.storage.deletion import unavailable_folder
+from mediaman.services.infra.storage import unavailable_folder
 
 if TYPE_CHECKING:
     from datetime import datetime

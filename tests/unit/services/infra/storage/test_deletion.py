@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.infra.storage import delete_root_available
+from mediaman.services.infra.storage import unavailable_folder
 
 
 def test_a_dropped_mount_below_the_root_is_unavailable(tmp_path):
@@ -11,11 +11,13 @@ def test_a_dropped_mount_below_the_root_is_unavailable(tmp_path):
     (root / "tv" / "local" / "Show" / "e01.mkv").write_text("x")
     (root / "tv" / "nas").mkdir()
 
-    assert not delete_root_available(str(root / "tv" / "nas" / "Show" / "e01.mkv"), [str(root)])
+    folder = unavailable_folder(str(root / "tv" / "nas" / "Show" / "e01.mkv"), [str(root)])
+
+    assert folder == str(root / "tv" / "nas")
 
 
 def test_a_missing_target_beside_other_media_is_available(tmp_path):
     root = tmp_path / "media"
     (root / "tv" / "nas" / "Other").mkdir(parents=True)
 
-    assert delete_root_available(str(root / "tv" / "nas" / "Show" / "e01.mkv"), [str(root)])
+    assert unavailable_folder(str(root / "tv" / "nas" / "Show" / "e01.mkv"), [str(root)]) is None

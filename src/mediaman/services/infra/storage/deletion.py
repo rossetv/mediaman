@@ -109,11 +109,6 @@ def unavailable_folder(path: str, allowed_roots: list[str]) -> str | None:
     return str(closest)
 
 
-def delete_root_available(path: str, allowed_roots: list[str]) -> bool:
-    """Return True iff the closest existing folder above *path* has content; see ``unavailable_folder``."""
-    return unavailable_folder(path, allowed_roots) is None
-
-
 def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     """Delete a file or directory, with mandatory path validation.
 
