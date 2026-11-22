@@ -22,6 +22,7 @@ SHOW_ACTIONS: tuple[str, ...] = ("kept_show", "removed_show_keep")
 _FILTER_MAP: dict[str, tuple[str, ...]] = {
     "kept": ("protected", "protected_forever", "kept", "kept_show"),
     "unkept": ("unprotected", "removed_show_keep"),
+    "scheduled": ("scheduled_deletion",),
 }
 
 

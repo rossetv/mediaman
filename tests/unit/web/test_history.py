@@ -378,3 +378,48 @@ class TestDeleteFailedAction:
         item = body["items"][0]
         assert item["action_label"] == "delete failed"
         assert item["badge_class"] == "badge-action-deleted"
+
+
+class TestSchedulerAndMaintenanceActions:
+    def test_scheduled_filter_returns_scheduled_deletion_rows(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action="scheduled_deletion", media_item_id="m1")
+        _insert_audit_row(conn, action="deleted", media_item_id="m2")
+        body = client.get("/api/history", params={"action": "scheduled"}).json()
+        assert body["total"] == 1
+        assert body["items"][0]["action"] == "scheduled_deletion"
+
+    def test_scanned_is_not_a_filter_option(self):
+        from mediaman.web.routes.history import ACTION_TYPES
+
+        assert "scanned" not in ACTION_TYPES
+
+    @pytest.mark.parametrize(
+        ("action", "label"),
+        [
+            ("delete_failed_permanent", "delete failed"),
+            ("delete_refused", "delete refused"),
+            ("dry_run_skip", "dry run: skipped"),
+            ("media_missing", "media missing"),
+            ("unmonitor_skipped", "unmonitor skipped"),
+            ("delete_root_unavailable", "delete root unavailable"),
+            ("delete_awaiting_scan", "waiting for scan"),
+            ("delete_incomplete", "delete incomplete"),
+            ("delete_folders_failed", "folder cleanup failed"),
+        ],
+    )
+    def test_action_has_plain_label(self, app_factory, authed_client, conn, action, label):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(conn, action=action)
+        item = client.get("/api/history").json()["items"][0]
+        assert item["action_label"] == label
+
+    def test_delete_root_row_shows_folder_as_title(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        _insert_audit_row(
+            conn, action="delete_root_unavailable", media_item_id="_delete_root:/mnt/x"
+        )
+        item = client.get("/api/history").json()["items"][0]
+        assert item["title"] == "/mnt/x"
