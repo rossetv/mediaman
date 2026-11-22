@@ -742,11 +742,12 @@ class DeletionExecutor:
         if not self._dry_run:
             for row in recover_stuck_deletions(self._conn):
                 self._unmonitor(row)
-            self._conn.commit()
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
 
     def _unmonitor(self, row: DeletionRow) -> None:
         _unmonitor_deleted(self._conn, row, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        # Its audit write must not hold the write lock through the next row's calls.
+        self._conn.commit()
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
@@ -916,7 +917,6 @@ class DeletionExecutor:
         self._conn.commit()
         for done in closed:
             self._unmonitor(done)
-        self._conn.commit()
         return closed, result.bytes_freed
 
     def _record_removal(

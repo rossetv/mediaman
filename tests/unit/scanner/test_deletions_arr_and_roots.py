@@ -283,6 +283,37 @@ class TestVerifiedUnmonitor:
         )
         radarr.unmonitor_movie.assert_called_once_with(42)
 
+    def test_no_write_transaction_is_open_while_radarr_is_called(self, conn, movie):
+        second = movie.parent.parent / "Second (2021)" / "second.mkv"
+        second.parent.mkdir()
+        second.write_bytes(b"data")
+        _item(conn, "m2", file_path=second, files=[second], radarr_id=43, tmdb_id=604)
+        removed = {"m1": movie, "m2": second}
+        for media_id, video in removed.items():
+            video.unlink()
+            (video.parent / "poster.jpg").write_bytes(b"x")
+            conn.execute(
+                "UPDATE scheduled_actions SET delete_status = 'deleting', removed_files = ? "
+                "WHERE media_item_id = ?",
+                (json.dumps({"paths": [str(video)], "bytes": 4}), media_id),
+            )
+        conn.commit()
+        seen = []
+
+        def lookup(_id):
+            seen.append(conn.in_transaction)
+            # A different movie, so each row writes an unmonitor_skipped audit.
+            return {"id": 99, "tmdbId": 1}
+
+        radarr = MagicMock()
+        radarr.get_movie_by_id.side_effect = lookup
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert seen == [False, False]
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
+        assert len(_audit(conn, "m2", "unmonitor_skipped")) == 1
+
     def test_dry_run_calls_neither_radarr_nor_sonarr(self, conn, movie):
         radarr, sonarr = _radarr(_MOVIE), _sonarr(_SERIES)
 
