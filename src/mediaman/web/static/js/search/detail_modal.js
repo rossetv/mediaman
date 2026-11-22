@@ -392,7 +392,9 @@
       if (showing()) {
         /* Re-drawing the buttons drops focus from either of them. */
         const wasOnClose = document.activeElement === document.getElementById("modal-secondary-btn");
-        const refocus = MM.dom.focusStillIn(document.getElementById("modal-primary-btn"));
+        /* A click on something that cannot take focus sends it behind the dialog. */
+        const refocus = MM.dom.focusStillIn(document.getElementById("modal-primary-btn")) ||
+          !modal.contains(document.activeElement);
         renderPrimaryButton(currentDetail);
         if (refocus) document.getElementById("modal-primary-btn").focus();
         else if (wasOnClose) document.getElementById("modal-secondary-btn").focus();
