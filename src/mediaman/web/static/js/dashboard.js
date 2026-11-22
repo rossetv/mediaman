@@ -238,8 +238,9 @@
         if (window.SnoozeMenu && wrapper.classList.contains('is-open')) window.SnoozeMenu.closeAll(null);
         window.UIFeedback.error("Couldn't save keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-        /* Only a menu option leaves focus on a hidden item; the main button keeps it. */
-        if (trigger && btn.closest('.snooze-dropdown') && MM.dom.focusStillIn(wrapper)) trigger.focus();
+        /* Focus left in the closed menu would be lost; the main button keeps its own. */
+        var menu = wrapper.querySelector('.snooze-dropdown');
+        if (trigger && menu && MM.dom.focusStillIn(menu)) trigger.focus();
       });
   }
 
