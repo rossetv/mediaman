@@ -423,6 +423,7 @@
   .dl-hero-info { width: 100%; }
   .dl-hero-title { overflow-wrap: anywhere; }
   .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
+  .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
   .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -20px; }
   .dl-hero-episodes-toggle,
