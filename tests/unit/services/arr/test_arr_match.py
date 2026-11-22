@@ -154,6 +154,30 @@ class TestVerifyMovie:
         ]
         assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
 
+    def test_a_second_version_in_another_library_folder_is_refused(self):
+        tracked = [
+            {"path": FILM, "size": 8_000},
+            {"path": "/data/movies4k/Dune (2021)/Dune (2021) 2160p.mkv", "size": 60_000},
+        ]
+        result = verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked)
+        assert not result.ok
+        assert "Radarr does not manage" in result.reason
+
+    def test_the_same_file_in_two_library_roots_is_refused(self):
+        tracked = [
+            {"path": FILM, "size": 8_000},
+            {"path": "/data/movies-kids/Dune (2021)/Dune (2021) Bluray-1080p.mkv", "size": 8_000},
+        ]
+        assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
+
+    def test_a_multi_part_movie_is_refused(self):
+        # Radarr holds one file per movie, so it can manage at most one of the parts.
+        tracked = [
+            {"path": "/data/movies/Dune (2021)/Dune (2021) Bluray-1080p.mkv", "size": 8_000},
+            {"path": "/data/movies/Dune (2021)/Dune (2021) -part2.mkv", "size": 7_000},
+        ]
+        assert not verify_movie(_movie(), tmdb_id=438631, tracked_files=tracked).ok
+
 
 class TestVerifySeason:
     def _verify(self, series=None, files=S1_FILES, tracked=S1_TRACKED, season=1):
@@ -189,3 +213,23 @@ class TestVerifySeason:
 
     def test_empty_tracked_files_are_refused(self):
         assert not self._verify(tracked=[]).ok
+
+    def test_a_tracked_episode_sonarr_does_not_manage_is_refused(self):
+        tracked = [*S1_TRACKED, {"path": "/data/tv/Breaking Bad/Season 01/S01E03.mkv", "size": 5}]
+        result = self._verify(tracked=tracked)
+        assert not result.ok
+        assert "Sonarr does not manage" in result.reason
+
+    def test_a_tracked_optimized_version_is_refused(self):
+        tracked = [
+            *S1_TRACKED,
+            {"path": "/data/tv/Breaking Bad/Season 01/Plex Versions/S01E01.mp4", "size": 50},
+        ]
+        assert not self._verify(tracked=tracked).ok
+
+    def test_a_copy_of_the_season_in_another_library_root_is_refused(self):
+        copy = [
+            {"path": "/data/tv4k/Breaking Bad/Season 01/S01E01.mkv", "size": 100},
+            {"path": "/data/tv4k/Breaking Bad/Season 01/S01E02.mkv", "size": 200},
+        ]
+        assert not self._verify(tracked=[*S1_TRACKED, *copy]).ok

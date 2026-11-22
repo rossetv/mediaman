@@ -99,8 +99,9 @@ def _build_redownload_index(
     depending on the action:
 
     * ``deleted`` rows: a stable UUID matching ``media_items.id``.
-    * ``re_downloaded`` rows: a stable ``tmdb:<id>`` / ``tvdb:<id>`` /
-      ``imdb:<id>`` token (skipped here — no title match possible).
+    * ``re_downloaded`` rows: a stable ``tmdb:<id>`` / ``tvdb:<id>`` token, matched against
+      the deleted item's stored ids (``tvdb:<id>:s<season>`` for a season; an older bare
+      ``tvdb:<id>`` matches the whole series).
     * ``downloaded`` rows: the resolved title, lower-cased for matching.
 
     Title matches stay lower-cased so "Dune" matches "dune".
@@ -110,8 +111,6 @@ def _build_redownload_index(
     for rd in rows:
         raw = rd.media_item_id
         ts = rd.created_at
-        if ":" in raw:
-            continue
         key = raw.lower()
         if not key:
             continue
@@ -125,9 +124,22 @@ def _was_redownloaded_after(
     deletion_created_at: str,
     *,
     title: str,
+    stored: DeletedMedia | None,
     by_title_lower: dict[str, str],
 ) -> bool:
     last_redownload = by_title_lower.get(title.lower())
+    tokens: list[str] = []
+    if stored is not None:
+        if stored.media_type == "movie" and stored.tmdb_id:
+            tokens.append(f"tmdb:{stored.tmdb_id}")
+        elif stored.media_type != "movie" and stored.tvdb_id:
+            tokens.append(f"tvdb:{stored.tvdb_id}")  # recorded before seasons were tracked
+            if stored.season_number is not None:
+                tokens.append(f"tvdb:{stored.tvdb_id}:s{stored.season_number}")
+    for token in tokens:
+        by_id = by_title_lower.get(token)
+        if by_id and (last_redownload is None or by_id > last_redownload):
+            last_redownload = by_id
     return bool(last_redownload and last_redownload > deletion_created_at)
 
 
@@ -175,11 +187,10 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
             title = row.title or (stored.title if stored else None)
             if not title:
                 title = title_from_audit_detail(row.detail)
-            # When the deletion row carries a tmdb_id we can also consult the redownload index
-            # by tmdb_id; for now we only match on title.
             if _was_redownloaded_after(
                 row.created_at,
                 title=title,
+                stored=stored,
                 by_title_lower=by_title_lower,
             ):
                 continue

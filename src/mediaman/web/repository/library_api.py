@@ -238,19 +238,30 @@ def recheck_deletable(conn: sqlite3.Connection, media_id: str) -> None:
     _refuse_if_not_deletable(conn, media_id, row["show_rating_key"])
 
 
-def show_has_other_items(
+def tracked_files_of_same_title(
     conn: sqlite3.Connection,
     media_id: str,
     *,
-    show_rating_key: str | None,
-    tvdb_id: int | None,
-) -> bool:
-    """True when mediaman holds another row of the same show as *media_id*."""
-    row = conn.execute(
-        "SELECT 1 FROM media_items WHERE id != ? AND (show_rating_key = ? OR tvdb_id = ?)",
-        (media_id, show_rating_key, tvdb_id),
-    ).fetchone()
-    return row is not None
+    tmdb_id: int | None = None,
+    tvdb_id: int | None = None,
+    season_number: int | None = None,
+) -> list[list[dict[str, object]]]:
+    """Return the tracked files of each other row with the same TMDB id (a movie) or
+    the same TVDB id and season (a season) as *media_id*.
+    """
+    if tmdb_id is not None:
+        rows = conn.execute(
+            "SELECT tracked_files FROM media_items "
+            "WHERE id != ? AND media_type = 'movie' AND tmdb_id = ?",
+            (media_id, tmdb_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT tracked_files FROM media_items "
+            "WHERE id != ? AND tvdb_id = ? AND season_number = ?",
+            (media_id, tvdb_id, season_number),
+        ).fetchall()
+    return [_parse_tracked_files(row["tracked_files"]) or [] for row in rows]
 
 
 def other_item_uses_paths(

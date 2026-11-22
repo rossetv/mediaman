@@ -8,7 +8,7 @@ All deletion-time concerns live here:
 * Allowlist enforcement via repository.read_delete_allowed_roots_setting.
 * The two-phase delete loop that unmonitors *arr clients only after the
   SQLite write lock has been released, and only an entry that matches.
-* The record of which delete roots or folders the last live pass found
+* The record of which delete roots or folders the last pass found
   missing or empty, for the dashboard.
 
 Imports repository; MUST NOT import fetch or
@@ -22,6 +22,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -29,7 +30,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import requests
 
 from mediaman.core.audit import log_audit
-from mediaman.core.delete_root_state import write_delete_root_state
+from mediaman.core.delete_root_state import read_delete_root_state, write_delete_root_state
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
@@ -87,13 +88,13 @@ def _tracked_paths(row: DeletionRow) -> list[str] | None:
 _SEASON_FOLDER = re.compile(r"(?:season|series|s)[ ._-]*(\d+)", re.IGNORECASE)
 
 
-def _is_season_folder(folder: str, season_number: int | None) -> bool:
-    """True only when *folder*'s name is plainly the folder of season *season_number*."""
+def _season_of_folder(folder: str) -> int | None:
+    """Return the season number *folder*'s name plainly gives, else None."""
     name = os.path.basename(folder)
-    if season_number == 0 and name.lower() == "specials":
-        return True
+    if name.lower() == "specials":
+        return 0
     match = _SEASON_FOLDER.fullmatch(name)
-    return match is not None and int(match.group(1)) == season_number
+    return int(match.group(1)) if match else None
 
 
 def _folder_limit(row: DeletionRow, path: str) -> str:
@@ -102,12 +103,19 @@ def _folder_limit(row: DeletionRow, path: str) -> str:
     A film's own folder; for a season, the series folder above a season
     folder, or the folder holding the episodes when it is not plainly a
     season folder (a show stored without season folders), so the walk never
-    climbs above the show. The storage layer refuses a limit that is a delete
-    root or above one.
+    climbs above the show. A parent named like a season folder too may be a
+    show stored without season folders, so the walk stays below it. The
+    storage layer refuses a limit that is a delete root or above one.
     """
     folder = os.path.dirname(path)
-    if row.media_type != "movie" and _is_season_folder(folder, row.season_number):
-        return os.path.dirname(folder)
+    parent = os.path.dirname(folder)
+    if (
+        row.media_type != "movie"
+        and row.season_number is not None
+        and _season_of_folder(folder) == row.season_number
+        and _season_of_folder(parent) is None
+    ):
+        return parent
     return folder
 
 
@@ -151,7 +159,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       and log loudly instead.
     * Files absent **but** their delete root is missing or empty -> the
       media mount is likely down, so the absence proves nothing. Reset to
-      ``pending``.
+      ``pending``. Only files not recorded as removed are looked at.
     * Any tracked file present -> the removal never ran or did not finish.
       Reset to ``pending`` so the next normal run retries cleanly.
 
@@ -204,7 +212,14 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif (unavailable := _first_unavailable(paths, allowed_roots)) is not None:
+        elif (
+            unavailable := _first_unavailable(
+                # A file this deletion removed is expected to be gone, and the
+                # folder walk after it may have emptied the folder above.
+                [path for path in paths if str(Path(path)) not in row.removed_paths],
+                allowed_roots,
+            )
+        ) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — files absent but their delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -277,8 +292,12 @@ def _delete_files_on_disk(
     tracked_files: list[dict[str, Any]],
     allowed_roots: list[str],
     protected_paths: set[str],
+    removed_paths: set[str],
 ) -> TrackedFilesResult | None:
     """Remove *tracked_files* with their sidecars.
+
+    A tracked file in *removed_paths*, already removed by an earlier pass,
+    still has its sidecars swept, so one that failed to go then goes now.
 
     Returns what was removed, or None on an error: the row is then left in
     the appropriate state so the caller can ``continue`` to the next row. A failed removal
@@ -290,7 +309,10 @@ def _delete_files_on_disk(
     """
     try:
         result = delete_tracked_files(
-            tracked_files, allowed_roots=allowed_roots, protected_paths=protected_paths
+            tracked_files,
+            allowed_roots=allowed_roots,
+            protected_paths=protected_paths,
+            sweep_sidecars_of=removed_paths,
         )
     except DeletionRefused as exc:
         # Safety refusal: the path or its mount is wrong, but the
@@ -430,6 +452,33 @@ def _is_not_found(exc: Exception) -> bool:
     return getattr(getattr(exc, "response", None), "status_code", None) == 404
 
 
+def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
+    """Return ``(name, size)`` of a Radarr/Sonarr file payload, or None when it says neither."""
+    if not isinstance(arr_file, Mapping):
+        return None
+    path = arr_file.get("relativePath") or arr_file.get("path")
+    name = re.split(r"[\\/]", path)[-1] if isinstance(path, str) else ""
+    size = arr_file.get("size")
+    if not name or not isinstance(size, int) or isinstance(size, bool):
+        return None
+    return name, size
+
+
+def _removed_file_keys(row: DeletionRow) -> set[tuple[str, int]]:
+    """Return ``(name, size)`` of each file *row*'s deletion removed.
+
+    Only a booked row is unmonitored, and a row is booked only once every
+    tracked file of it is gone by this deletion's hand, so its tracked files
+    are the files removed.
+    """
+    keys = set()
+    for entry in row.tracked_files or []:
+        path, size = entry.get("path"), entry.get("size")
+        if isinstance(path, str) and isinstance(size, int) and not isinstance(size, bool):
+            keys.add((os.path.basename(path), size))
+    return keys
+
+
 def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
     tmdb_id = row.tmdb_id
@@ -444,14 +493,26 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         return "Radarr has no entry for this movie"
     if entry.get("tmdbId") != tmdb_id:
         return "Radarr's entry is a different movie (TMDB id differs)"
-    # The files are gone, so the id and the folder name are all left to check.
     index = build_arr_index([entry], [])
-    for path in _tracked_paths(row) or []:
-        radarr_id = index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)
-        if radarr_id is not None:
-            client.unmonitor_movie(radarr_id)
-            return None
-    return "Radarr's folder for this movie is not the one Plex used"
+    radarr_id = next(
+        (
+            found
+            for path in _tracked_paths(row) or []
+            if (found := index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)) is not None
+        ),
+        None,
+    )
+    if radarr_id is None:
+        return "Radarr's folder for this movie is not the one Plex used"
+    # A second copy (a 4K library, say) can share the id and the folder name;
+    # unmonitoring its entry would stop Radarr upgrading the copy that was kept.
+    movie_file = entry.get("movieFile")
+    if movie_file is not None or entry.get("hasFile"):
+        key = _arr_file_key(movie_file)
+        if key is None or key not in _removed_file_keys(row):
+            return "Radarr's file for this movie is not one mediaman deleted"
+    client.unmonitor_movie(radarr_id)
+    return None
 
 
 def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
@@ -475,14 +536,33 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     ref = index.series.get(tvdb_id)
     if ref is None or season not in ref.seasons:
         return "Sonarr does not have this season"
-    for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}:
-        sonarr_id = index_match_season(
-            index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
-        )
-        if sonarr_id is not None:
-            client.unmonitor_season(sonarr_id, season)
-            return None
-    return "Sonarr's folder for this show is not the one Plex used"
+    sonarr_id = next(
+        (
+            found
+            for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}
+            if (
+                found := index_match_season(
+                    index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
+                )
+            )
+            is not None
+        ),
+        None,
+    )
+    if sonarr_id is None:
+        return "Sonarr's folder for this show is not the one Plex used"
+    # Sonarr still lists the removed files until its own rescan; any other
+    # file in the season is a copy that was kept.
+    removed = _removed_file_keys(row)
+    for episode_file in client.get_episode_files(sonarr_id):
+        if (
+            isinstance(episode_file, Mapping)
+            and episode_file.get("seasonNumber") == season
+            and _arr_file_key(episode_file) not in removed
+        ):
+            return "Sonarr has a file in this season that mediaman did not delete"
+    client.unmonitor_season(sonarr_id, season)
+    return None
 
 
 def _unmonitor_deleted(
@@ -639,16 +719,33 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
 _FOLDER_AUDIT_ID = "_delete_root:"
 
 
-def _audit_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
+def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
+    """Store *waiting* (folder -> items held back) and audit how it differs from the last pass.
+
+    A folder newly held, or holding a different count, gets a row; a folder no
+    longer held gets one saying it has content again.
+    """
+    previous = read_delete_root_state(conn)
+    write_delete_root_state(conn, waiting)
     for folder, count in waiting.items():
+        if previous.get(folder) == count:
+            continue
         items = "1 scheduled deletion waits" if count == 1 else f"{count} scheduled deletions wait"
-        detail = (
+        log_audit(
+            conn,
+            _FOLDER_AUDIT_ID + folder,
+            "delete_root_unavailable",
             f"Delete root or folder '{folder}' is missing or empty, so the media mount may "
-            f"be down; {items} until it has content again"
+            f"be down; {items} until it has content again",
         )
-        sentinel = _FOLDER_AUDIT_ID + folder
-        if not is_latest_audit(conn, sentinel, "delete_root_unavailable", detail):
-            log_audit(conn, sentinel, "delete_root_unavailable", detail)
+    for folder in previous.keys() - waiting.keys():
+        log_audit(
+            conn,
+            _FOLDER_AUDIT_ID + folder,
+            "delete_root_available",
+            f"Delete root or folder '{folder}' has content again; scheduled deletions no "
+            "longer wait on it",
+        )
 
 
 def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
@@ -672,7 +769,8 @@ class DeletionExecutor:
         dry_run: When True, skip the on-disk rm (and the row deletion +
             audit-log entry that would normally follow). A
             ``dry_run_skip`` audit row is written instead so an operator
-            can see what *would* have been deleted. Snooze cleanup is
+            can see what *would* have been deleted; the record of roots or
+            folders found missing or empty is still refreshed. Snooze cleanup is
             controlled separately via ``cleanup_snoozes``.
         cleanup_snoozes: When True (default), expired snoozes are
             removed so the items re-enter the scan pipeline. Set to
@@ -710,7 +808,8 @@ class DeletionExecutor:
 
         Pipeline:
         1. Recover stuck rows (skipped in dry-run — preview mutates nothing).
-        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept, and stop.
+        2. Dry-run: write a ``dry_run_skip`` audit per pending row not kept,
+           record which roots or folders would hold rows back, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
         4. Live: record which roots or folders held rows back, for the dashboard.
@@ -719,16 +818,29 @@ class DeletionExecutor:
         now = now_utc()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
-            # Preview: record what *would* be deleted, mutate no state.
-            for row in rows:
-                if is_kept_deletion(self._conn, row.id, now.isoformat()):
-                    continue
-                log_audit(
-                    self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}"
-                )
-            self._conn.commit()
+            self._preview(rows, now)
             return {"deleted": 0, "reclaimed_bytes": 0}
         return self._execute_live(rows, now)
+
+    def _preview(self, rows: list[DeletionRow], now: datetime) -> None:
+        """Record what *would* be deleted and which folders would hold rows back.
+
+        Mutates no deletion: only ``dry_run_skip`` rows and the record of
+        unavailable folders, which the dashboard would otherwise keep showing
+        from the last live pass however long the passes stay dry runs.
+        """
+        allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
+        due = [row for row in rows if not is_kept_deletion(self._conn, row.id, now.isoformat())]
+        # Read the disk before writing anything, so a hung mount cannot hold the lock.
+        waiting = Counter(
+            folder
+            for row in due
+            if allowed_roots and (folder := _unavailable_for(row, allowed_roots)) is not None
+        )
+        for row in due:
+            log_audit(self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}")
+        _record_folders_unavailable(self._conn, dict(waiting))
+        self._conn.commit()
 
     def _recover_then_fetch_pending(self, now: datetime) -> list[DeletionRow]:
         """Recover stuck rows (live only) and return the pending-deletion set.
@@ -772,9 +884,7 @@ class DeletionExecutor:
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
-        waiting = dict(Counter(self._waiting.values()))
-        write_delete_root_state(self._conn, waiting)
-        _audit_folders_unavailable(self._conn, waiting)
+        _record_folders_unavailable(self._conn, dict(Counter(self._waiting.values())))
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
@@ -898,8 +1008,16 @@ class DeletionExecutor:
             {os.path.dirname(file) for _, file in owned},
             [done.media_item_id for done in closing],
         )
-        limits = {str(Path(file).parent): _folder_limit(done, file) for done, file in owned}
-        result = _delete_files_on_disk(self._conn, row, tracked, allowed_roots, protected)
+        limits: dict[str, str] = {}
+        for done, file in owned:
+            folder, limit = str(Path(file).parent), _folder_limit(done, file)
+            # Files sharing a folder walk only as far as the lowest limit allows.
+            if folder not in limits or len(Path(limit).parts) > len(Path(limits[folder]).parts):
+                limits[folder] = limit
+        already_removed = {path for done in closing for path in done.removed_paths}
+        result = _delete_files_on_disk(
+            self._conn, row, tracked, allowed_roots, protected, already_removed
+        )
         if result is None:
             for other in co_located:
                 repository.mark_delete_status(self._conn, other.id, "pending")

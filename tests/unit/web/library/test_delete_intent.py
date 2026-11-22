@@ -421,6 +421,21 @@ class TestStartupReconciliationIsOffTheStartupPath:
         assert reconcile.call_args.args == (conn,)
         assert reconcile.call_args.kwargs["started_before"] == "2026-01-01T00:00:00+00:00"
 
+    def test_background_job_closes_its_connection_even_when_reconcile_fails(self, conn):
+        from mediaman import app_factory
+
+        with (
+            patch("mediaman.db.get_db", return_value=conn),
+            patch("mediaman.db.close_db") as close_db,
+            patch(
+                "mediaman.web.repository.delete_intents.reconcile_pending_delete_intents",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            app_factory._reconcile_delete_intents_in_background("key", "2026-01-01T00:00:00+00:00")
+
+        close_db.assert_called_once()
+
     def test_background_job_books_an_intent_deleted_when_radarr_confirms_it_gone(self, conn):
         from mediaman import app_factory
 

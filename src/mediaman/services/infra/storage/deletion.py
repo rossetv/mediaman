@@ -418,6 +418,7 @@ def delete_tracked_files(
     *,
     allowed_roots: list[str],
     protected_paths: Collection[str] = frozenset(),
+    sweep_sidecars_of: Collection[str] = frozenset(),
 ) -> TrackedFilesResult:
     """Remove each tracked file of an item and its same-stem sidecars, nothing else.
 
@@ -440,11 +441,14 @@ def delete_tracked_files(
     is spelled as given or reached through a symlinked folder: a protected
     tracked file is kept, with its sidecars, and reported in
     ``skipped_protected``. A tracked file that is missing is reported in
-    ``not_found`` and its sidecars are left alone.
+    ``not_found`` and its sidecars are left alone, unless its path is in
+    *sweep_sidecars_of*: a video already removed whose sidecars may have
+    failed to go, so they are looked for and removed by the same rules.
     """
     roots = _validate_delete_roots(allowed_roots)
     targets = [_checked_tracked_path(entry, roots) for entry in tracked_files]
     protected = _protected_by_name(protected_paths)
+    sweep = {os.path.normpath(path) for path in sweep_sidecars_of}
     removed: list[str] = []
     not_found: list[str] = []
     skipped: list[str] = []
@@ -470,9 +474,11 @@ def delete_tracked_files(
             continue
         if size is None:
             not_found.append(str(target))
-            continue
-        removed.append(str(target))
-        freed += size
+            if os.path.normpath(target) not in sweep:
+                continue
+        else:
+            removed.append(str(target))
+            freed += size
         for sidecar in _sidecars_of(target, protected):
             try:
                 size = _unlink_regular_file(sidecar, roots)

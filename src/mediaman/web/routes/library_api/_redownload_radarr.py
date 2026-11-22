@@ -11,8 +11,9 @@ if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.services.arr.base import ArrClient
+from mediaman.services.infra import SafeHTTPError
 from mediaman.web.repository.library_api import record_redownload
-from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
+from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,10 @@ def _redownload_movie(
         client.remonitor_movie(int(movie_id))
         message = f"Re-monitored '{title}' in Radarr and started a search"
     else:
-        client.add_movie(tmdb_id, title)
+        try:
+            client.add_movie(tmdb_id, title)
+        except SafeHTTPError as exc:
+            raise AddRefused(exc) from exc
         message = f"Added '{title}' to Radarr"
     record_redownload(
         conn,

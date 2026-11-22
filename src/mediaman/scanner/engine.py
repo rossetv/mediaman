@@ -257,14 +257,18 @@ class ScanEngine:
             _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation, same narrow set as the scan loop
-            self._conn.execute("ROLLBACK TO sync_item")
-            self._conn.execute("RELEASE sync_item")
+            # A fatal SQLite error (disk full, I/O) ends the transaction and the savepoint
+            # with it; the job's own rollback still runs.
+            if self._conn.in_transaction:
+                self._conn.execute("ROLLBACK TO sync_item")
+                self._conn.execute("RELEASE sync_item")
             logger.exception(
                 "Library sync item failed (plex_rating_key=%s)",
                 f.item.get("plex_rating_key", "?"),
             )
             return False
-        self._conn.execute("RELEASE sync_item")
+        if self._conn.in_transaction:
+            self._conn.execute("RELEASE sync_item")
         return True
 
     def run_scan(self) -> dict[str, int]:

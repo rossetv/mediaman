@@ -12,7 +12,7 @@ import requests
 from mediaman.bootstrap.scan_jobs import _recover_stuck_deletions_at_boot
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.db import init_db
-from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -211,6 +211,65 @@ class TestVerifiedUnmonitor:
         skipped = _audit(conn, "s1", "unmonitor_skipped")
         assert len(skipped) == 1 and reason in skipped[0]
 
+    def test_a_movie_whose_radarr_file_is_the_deleted_one_is_unmonitored(self, conn, movie):
+        radarr = _radarr(
+            {**_MOVIE, "hasFile": True, "movieFile": {"relativePath": "film.mkv", "size": 4}}
+        )
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        radarr.unmonitor_movie.assert_called_once_with(42)
+
+    @pytest.mark.parametrize(
+        "movie_file",
+        [
+            {"relativePath": "film.mkv", "size": 9_000},
+            {"relativePath": "Film (2020) Bluray-1080p.mkv", "size": 4},
+            None,
+        ],
+        ids=["other-size", "other-name", "file-not-described"],
+    )
+    def test_a_movie_whose_radarr_file_was_not_deleted_is_not_unmonitored(
+        self, conn, movie, movie_file
+    ):
+        # Radarr's entry for the same film and folder name holds a copy mediaman kept.
+        entry = {**_MOVIE, "hasFile": True}
+        if movie_file is not None:
+            entry["movieFile"] = movie_file
+        radarr = _radarr(entry)
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result["deleted"] == 1
+        radarr.unmonitor_movie.assert_not_called()
+        assert len(_audit(conn, "m1", "unmonitor_skipped")) == 1
+
+    def test_a_season_whose_sonarr_files_are_the_deleted_ones_is_unmonitored(self, conn, season):
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 2, "relativePath": "Season 2/Show - s02e01.mkv", "size": 5},
+        ]
+
+        DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        sonarr.unmonitor_season.assert_called_once_with(7, 1)
+
+    def test_a_season_with_a_sonarr_file_mediaman_did_not_delete_is_not_unmonitored(
+        self, conn, season
+    ):
+        sonarr = _sonarr(_SERIES)
+        sonarr.get_episode_files.return_value = [
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e01.mkv", "size": 1},
+            {"seasonNumber": 1, "relativePath": "Season 1/Show - s01e02.mkv", "size": 1},
+        ]
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert result["deleted"] == 1
+        sonarr.unmonitor_season.assert_not_called()
+        assert len(_audit(conn, "s1", "unmonitor_skipped")) == 1
+
     def test_a_404_on_the_stored_radarr_id_counts_as_no_entry(self, conn, movie):
         radarr = _radarr(_MOVIE)
         error = requests.HTTPError("not found")
@@ -358,14 +417,24 @@ class TestRootState:
 
         assert read_delete_root_state(conn) == {}
 
-    def test_dry_run_does_not_write_the_state(self, conn, tmp_path, monkeypatch):
+    def test_a_dry_run_refreshes_the_state_and_touches_nothing_else(
+        self, conn, tmp_path, monkeypatch
+    ):
         root = tmp_path / "movies"
         root.mkdir()
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         path = root / "a" / "a.mkv"
         _item(conn, "a", file_path=path, files=[path])
+        dry_run = DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False)
 
-        DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+        dry_run.execute()
+
+        assert read_delete_root_state(conn) == {str(root): 1}
+        assert _status(conn, "a") == "pending"
+        assert _audit(conn, "a", "delete_root_unavailable") == []
+
+        (root / "keep.txt").write_text("mounted")
+        dry_run.execute()
 
         assert read_delete_root_state(conn) == {}
 
@@ -395,6 +464,34 @@ class TestRootState:
         tv_row = next(d for d in details if f"'{tv}'" in d)
         assert "2 scheduled deletions" in movies_row and "1 scheduled deletion " in tv_row
         assert len(_audit(conn, "a", "delete_root_unavailable")) == 1
+
+    def test_a_root_that_returns_and_drops_again_is_audited_each_time(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "movies"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        path = root / "a" / "a.mkv"
+        _item(conn, "a", file_path=path, files=[path])
+        mounted = root / "keep.txt"
+
+        DeletionExecutor(conn=conn).execute()
+        mounted.write_text("mounted")
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+        mounted.unlink()
+        DeletionExecutor(conn=conn).execute()
+
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE media_item_id = ? ORDER BY id",
+            (f"_delete_root:{root}",),
+        ).fetchall()
+        assert [r["action"] for r in rows] == [
+            "delete_root_unavailable",
+            "delete_root_available",
+            "delete_root_unavailable",
+        ]
+        assert all(str(root) in r["detail"] for r in rows)
 
     def test_a_tracked_files_folder_decides_which_folder_is_unavailable(
         self, conn, tmp_path, monkeypatch
@@ -438,6 +535,31 @@ class TestRootState:
         assert read_delete_root_state(conn) == {str(root): 1}
 
 
+class TestRecoveryAfterOwnWalk:
+    def test_a_folder_mediaman_emptied_itself_is_not_taken_for_a_dropped_mount(
+        self, conn, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "media"
+        library = root / "Films"
+        library.mkdir(parents=True)
+        (root / "Other").mkdir()
+        (root / "Other" / "o.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        video = library / "Film (2020)" / "film.mkv"
+        _item(conn, "m1", file_path=video, files=[video])
+        # The removal and its folder walk ran, leaving the library folder empty.
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status = 'deleting', removed_files = ?",
+            (json.dumps({"paths": [str(video)], "bytes": 4}),),
+        )
+        conn.commit()
+
+        booked = recover_stuck_deletions(conn)
+
+        assert [row.media_item_id for row in booked] == ["m1"]
+        assert _audit(conn, "m1", "delete_root_unavailable") == []
+
+
 class TestSeasonFolderBoundary:
     def test_a_season_stored_in_its_show_folder_never_removes_the_folder_above(
         self, conn, tmp_path, monkeypatch
@@ -470,3 +592,60 @@ class TestSeasonFolderBoundary:
 
         assert not season.parent.parent.exists()
         assert (tmp_path / "tv").is_dir()
+
+    def test_a_season_folder_inside_a_folder_named_like_a_season_never_climbs_above_it(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # "Series 2" may be the show, or a season folder holding a show stored without its own.
+        root = tmp_path / "media"
+        above = root / "Shows" / "Series 2"
+        folder = above / "Season 1"
+        folder.mkdir(parents=True)
+        (root / "movies").mkdir()
+        (root / "movies" / "film.mkv").write_bytes(b"x")
+        episode = folder / "Show - s01e01.mkv"
+        episode.write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        _item(
+            conn,
+            "s1",
+            file_path=folder,
+            files=[episode],
+            media_type="tv_season",
+            season_number=1,
+        )
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 1
+        assert not folder.exists()
+        assert above.is_dir()
+
+    def test_files_sharing_a_folder_walk_only_as_far_as_the_lower_boundary_allows(
+        self, conn, tmp_path, monkeypatch
+    ):
+        # One folder holds two seasons' episodes: it is season 1's folder, not season 2's.
+        root = tmp_path / "tv"
+        show = root / "Show"
+        folder = show / "Season 1"
+        folder.mkdir(parents=True)
+        (root / "Other").mkdir()
+        (root / "Other" / "o.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        for media_id, number in (("s2", 2), ("s1", 1)):
+            episode = folder / f"Show - s0{number}e01.mkv"
+            episode.write_bytes(b"x")
+            _item(
+                conn,
+                media_id,
+                file_path=folder,
+                files=[episode],
+                media_type="tv_season",
+                season_number=number,
+            )
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 2
+        assert not folder.exists()
+        assert show.is_dir()

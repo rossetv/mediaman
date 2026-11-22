@@ -129,15 +129,14 @@ def _sonarr(extra_files: list | None = None) -> MagicMock:
     ]
     listed = {"files": files}
 
-    def delete_season_files(_series_id: int, season: int) -> None:
-        listed["files"] = [f for f in listed["files"] if f["seasonNumber"] != season]
+    def delete_season_files(ids: list[int]) -> None:
+        listed["files"] = [f for f in listed["files"] if f["id"] not in ids]
 
     client = MagicMock()
     client.get_series_by_id.return_value = series
     client.get_series_by_tvdb.return_value = series
     client.get_episode_files.side_effect = lambda _series_id: list(listed["files"])
     client.delete_episode_files.side_effect = delete_season_files
-    client.has_remaining_files.return_value = True
     return client
 
 
@@ -237,7 +236,7 @@ class TestMediaDelete:
 
         assert resp.status_code == 200
         assert resp.json()["message"].startswith("Season 1 of The Show deleted through Sonarr")
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
         sonarr.unmonitor_season.assert_called_once_with(202, 1)
         sonarr.delete_series.assert_not_called()
         assert not _row_exists(conn, "s1")
@@ -245,6 +244,26 @@ class TestMediaDelete:
             "SELECT media_type, tvdb_id, season_number FROM deleted_media"
         ).fetchone()
         assert tuple(deleted) == ("tv_season", 81189, 1)
+
+    def test_only_the_verified_episode_files_are_deleted(self, app_factory, authed_client, conn):
+        _insert_tv_season(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+        verified = sonarr.get_episode_files.side_effect
+        imported = {"id": 9, "seasonNumber": 1, "relativePath": "Season 01/new.mkv", "size": 7}
+        calls = {"n": 0}
+
+        def import_lands_after_the_check(series_id):
+            calls["n"] += 1
+            return verified(series_id) + ([imported] if calls["n"] > 1 else [])
+
+        sonarr.get_episode_files.side_effect = import_lands_after_the_check
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
     def test_season_without_a_stored_sonarr_id_is_found_by_tvdb_id(
         self, app_factory, authed_client, conn
@@ -258,64 +277,22 @@ class TestMediaDelete:
 
         assert resp.status_code == 200
         sonarr.get_series_by_tvdb.assert_called_once_with(81189)
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.delete_episode_files.assert_called_once_with([1, 2])
 
-    def test_last_season_with_no_files_left_removes_the_show_with_exclusion(
+    def test_last_season_with_no_files_left_keeps_the_show_in_sonarr(
         self, app_factory, authed_client, conn
     ):
         _insert_tv_season(conn)
         client = authed_client(_app(app_factory, conn), conn)
         sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
 
         with patch(SONARR, return_value=sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 200
-        sonarr.delete_series.assert_called_once_with(202)
-        assert "show was removed" in resp.json()["message"]
-
-    def test_show_is_kept_in_sonarr_while_mediaman_tracks_another_of_its_seasons(
-        self, app_factory, authed_client, conn
-    ):
-        _insert_tv_season(conn)
-        _insert_tv_season(
-            conn,
-            "s2",
-            season=2,
-            tracked_files=[{"path": "/elsewhere/The Show/Season 02/e1.mkv", "size": 1}],
-        )
-        client = authed_client(_app(app_factory, conn), conn)
-        sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
-
-        with patch(SONARR, return_value=sonarr):
-            resp = client.post("/api/media/s1/delete")
-
-        assert resp.status_code == 200
-        sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        sonarr.unmonitor_season.assert_called_once_with(202, 1)
         sonarr.delete_series.assert_not_called()
-
-    def test_show_is_kept_in_sonarr_while_another_item_uses_files_in_its_folder(
-        self, app_factory, authed_client, conn
-    ):
-        _insert_tv_season(conn)
-        _insert_tv_season(
-            conn,
-            "other",
-            show_rating_key="other-show",
-            tvdb_id=None,
-            tracked_files=[{"path": "/media/tv/The Show/Specials/extra.mkv", "size": 1}],
-        )
-        client = authed_client(_app(app_factory, conn), conn)
-        sonarr = _sonarr()
-        sonarr.has_remaining_files.return_value = False
-
-        with patch(SONARR, return_value=sonarr):
-            resp = client.post("/api/media/s1/delete")
-
-        assert resp.status_code == 200
-        sonarr.delete_series.assert_not_called()
+        assert "removed" not in resp.json()["message"]
 
     def test_delete_also_removes_scheduled_actions(self, app_factory, authed_client, conn):
         """Deleting a media item also prunes its scheduled_actions rows, a lapsed snooze too."""
@@ -554,6 +531,50 @@ class TestMediaDeleteRefusals:
             resp = client.post("/api/media/s1/delete")
 
         self._assert_refused(resp, conn, "s1", sonarr, fact="Another library item")
+
+    def test_an_exact_copy_of_the_movie_in_another_library_root(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        _insert_movie(
+            conn,
+            "kids",
+            radarr_id=None,
+            tracked_files=[
+                {
+                    "path": "/media/movies-kids/Test Movie (2020)/Test Movie (2020).mkv",
+                    "size": 1_000_000,
+                }
+            ],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/kids/delete")
+
+        self._assert_refused(resp, conn, "kids", radarr, fact="More than one library item")
+
+    def test_an_exact_copy_of_the_season_in_another_library_root(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        _insert_tv_season(
+            conn,
+            "kids",
+            show_rating_key="kids-show",
+            tracked_files=[
+                {"path": f["path"].replace("/media/tv/", "/media/tv-kids/"), "size": f["size"]}
+                for f in SEASON_FILES
+            ],
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        sonarr = _sonarr()
+
+        with patch(SONARR, return_value=sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        self._assert_refused(resp, conn, "s1", sonarr, fact="More than one library item")
 
     def test_radarr_unreachable_on_the_check_deletes_nothing(
         self, app_factory, authed_client, conn

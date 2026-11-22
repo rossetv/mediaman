@@ -19,6 +19,7 @@ from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.routes.library_api._redownload_match import AddRefused
 from mediaman.web.routes.library_api._redownload_radarr import _redownload_movie
 from mediaman.web.routes.library_api._redownload_sonarr import _redownload_season
 
@@ -68,7 +69,7 @@ def _is_already_added(exc: SafeHTTPError) -> bool:
     return exc.status_code == 400 and "already" in exc.body_snippet.lower()
 
 
-_ARR_FAILURES = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
+_ARR_FAILURES = (AddRefused, SafeHTTPError, requests.RequestException, ArrError, ValueError)
 
 
 def _not_configured(service: str) -> JSONResponse:
@@ -76,8 +77,10 @@ def _not_configured(service: str) -> JSONResponse:
 
 
 def _arr_failure(exc: Exception, service: str, title: str) -> JSONResponse:
-    if isinstance(exc, SafeHTTPError) and _is_already_added(exc):
-        return JSONResponse({"ok": False, "error": f"'{title}' already exists in {service}"})
+    if isinstance(exc, AddRefused):
+        if _is_already_added(exc.cause):
+            return JSONResponse({"ok": False, "error": f"'{title}' already exists in {service}"})
+        exc = exc.cause
     logger.error("Re-download via %s failed for '%s': %s", service, title, exc, exc_info=exc)
     return JSONResponse(
         {"ok": False, "error": "Download request failed — check service connectivity"}
