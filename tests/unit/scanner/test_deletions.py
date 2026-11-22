@@ -1126,6 +1126,26 @@ class TestRefusalAudit:
         assert _audits(conn, "s1") == ["delete_refused", "delete_refused"]
 
 
+class TestSafetyRefusalAudit:
+    def test_a_refused_removal_is_audited_once_with_its_reason(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "library"
+        root.mkdir()
+        (root / "movie.mkv").write_text("keep")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        _insert_media(conn, file_path=str(root))
+        _insert_pending_deletion(conn)
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [r["action"] for r in rows] == ["delete_refused"]
+        assert "strict descendant" in rows[0]["detail"]
+        assert (root / "movie.mkv").exists()
+
+
 class TestKeepAndClearAroundARemoval:
     """A keep or clear pressed while the files are being removed must win if the removal fails."""
 

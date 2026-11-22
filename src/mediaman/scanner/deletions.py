@@ -189,15 +189,15 @@ def _delete_file_on_disk(
         delete_path(row.file_path or "", allowed_roots=allowed_roots)
         return True
     except DeletionRefused as exc:
-        # Allowlist refusal: the path is wrong, but the action
-        # row is still valid — reset to pending so a later run
-        # (e.g. once the operator fixes the path) can retry.
-        logger.error(
-            "Refusing to delete '%s' — path is outside configured delete_allowed_roots: %s",
-            row.file_path,
-            exc,
-        )
+        # Safety refusal: the path or its mount is wrong, but the
+        # action row is still valid — reset to pending so a later
+        # run (e.g. once the operator fixes the path) can retry.
+        logger.error("Refusing to delete '%s': %s", row.file_path, exc)
         repository.mark_delete_status(conn, row.id, "pending")
+        detail = f"Not deleted: {row.title} — {exc}"
+        # The refusal repeats every pass until something changes; audit it once.
+        if not is_latest_audit(conn, row.media_item_id, "delete_refused", detail):
+            log_audit(conn, row.media_item_id, "delete_refused", detail)
         conn.commit()
         return False
     except FileNotFoundError as exc:
