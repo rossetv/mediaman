@@ -176,7 +176,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   .keep-container { width: calc(100% - 40px); margin: 40px auto; padding: 32px 20px; }
   .snooze-btn { min-height: 40px; padding: 8px 18px; }
   .keep-footer a { display: inline-flex; align-items: center; min-height: 40px; }
-  .keep-nav .brand { display: inline-flex; align-items: center; min-height: 40px; }
+  .keep-nav .brand { display: inline-block; line-height: 40px; }
 }
 
 .already-kept-msg { margin: 18px 0; }
