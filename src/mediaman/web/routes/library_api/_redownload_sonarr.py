@@ -46,7 +46,9 @@ def _redownload_season(
         message = f"Added season {season_number} of '{title}' to Sonarr"
     record_redownload(
         conn,
-        audit_id=_redownload_audit_id(media_type="tv", tmdb_id=None, tvdb_id=tvdb_id),
+        audit_id=_redownload_audit_id(
+            media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
+        ),
         audit_detail=f"Re-downloaded season {season_number} of '{title}' by {username}",
         actor=username,
         email=username,

@@ -100,8 +100,8 @@ def _build_redownload_index(
 
     * ``deleted`` rows: a stable UUID matching ``media_items.id``.
     * ``re_downloaded`` rows: a stable ``tmdb:<id>`` / ``tvdb:<id>`` token, matched against
-      the deleted item's stored ids (a season re-download records no season, so it
-      matches on the series).
+      the deleted item's stored ids (``tvdb:<id>:s<season>`` for a season; an older bare
+      ``tvdb:<id>`` matches the whole series).
     * ``downloaded`` rows: the resolved title, lower-cased for matching.
 
     Title matches stay lower-cased so "Dune" matches "dune".
@@ -128,15 +128,18 @@ def _was_redownloaded_after(
     by_title_lower: dict[str, str],
 ) -> bool:
     last_redownload = by_title_lower.get(title.lower())
-    token = None
+    tokens: list[str] = []
     if stored is not None:
         if stored.media_type == "movie" and stored.tmdb_id:
-            token = f"tmdb:{stored.tmdb_id}"
+            tokens.append(f"tmdb:{stored.tmdb_id}")
         elif stored.media_type != "movie" and stored.tvdb_id:
-            token = f"tvdb:{stored.tvdb_id}"
-    by_id = by_title_lower.get(token) if token else None
-    if by_id and (last_redownload is None or by_id > last_redownload):
-        last_redownload = by_id
+            tokens.append(f"tvdb:{stored.tvdb_id}")  # recorded before seasons were tracked
+            if stored.season_number is not None:
+                tokens.append(f"tvdb:{stored.tvdb_id}:s{stored.season_number}")
+    for token in tokens:
+        by_id = by_title_lower.get(token)
+        if by_id and (last_redownload is None or by_id > last_redownload):
+            last_redownload = by_id
     return bool(last_redownload and last_redownload > deletion_created_at)
 
 

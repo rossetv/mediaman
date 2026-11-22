@@ -443,6 +443,23 @@ class TestRedownloadedItemLeavesRecentlyDeleted:
         html = _dashboard_html(app_factory, authed_client, conn)
         assert "Severance" not in html
 
+    def test_redownloading_one_season_keeps_the_other_seasons_button(
+        self, app_factory, authed_client, conn
+    ):
+        for season in (1, 2):
+            _insert_deleted_with_identity(
+                conn,
+                f"s{season}",
+                title="Severance",
+                media_type="season",
+                tvdb_id=371980,
+                season_number=season,
+            )
+        _record_redownload(conn, "tvdb:371980:s1")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        (button,) = _buttons(html, "redownload")
+        assert json.loads(button["data-redownload"] or "")["season_number"] == 2
+
     def test_movie_deleted_again_after_a_redownload_is_listed(
         self, app_factory, authed_client, conn
     ):
