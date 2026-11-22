@@ -636,6 +636,18 @@
     document.getElementById('toolbar-form').submit();
   }
 
+  /* A selector that finds the same control on the reloaded page: its id, or
+     for the toolbar's filter pills their name and value, which are unique. */
+  function focusSelector(el) {
+    if (!el) return '';
+    if (el.id) return '#' + CSS.escape(el.id);
+    var form = document.getElementById('toolbar-form');
+    if (form && form.contains(el) && el.name && el.hasAttribute('value')) {
+      return '#toolbar-form [name="' + CSS.escape(el.name) + '"][value="' + CSS.escape(el.getAttribute('value')) + '"]';
+    }
+    return '';
+  }
+
   var _searchTimer = null;
   function debounceSubmit() {
     clearTimeout(_searchTimer);
@@ -651,10 +663,10 @@
             end: input.selectionEnd,
             dir: input.selectionDirection
           }));
-        } else if (document.activeElement && document.activeElement.id) {
+        } else if (focusSelector(document.activeElement)) {
           sessionStorage.setItem('library-search-refocus', JSON.stringify({
             at: Date.now(),
-            elsewhereId: document.activeElement.id
+            elsewhere: focusSelector(document.activeElement)
           }));
         } else {
           sessionStorage.removeItem('library-search-refocus');
@@ -676,10 +688,10 @@
     /* The search form always sends q, even empty; a load without it came
        from somewhere else, such as the sign-in after an expired session. */
     if (!(age >= 0 && age < 5000) || !new URLSearchParams(window.location.search).has('q')) return;
-    if (saved.elsewhereId) {
+    if (saved.elsewhere) {
       /* The reload replaced the element the user had tabbed to; hand focus
          to its successor, but never take it from wherever it already is. */
-      var next = document.getElementById(saved.elsewhereId);
+      var next = document.querySelector(saved.elsewhere);
       var active = document.activeElement;
       if (next && (!active || active === document.body)) next.focus();
       return;
