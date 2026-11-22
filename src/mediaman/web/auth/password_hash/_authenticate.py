@@ -42,7 +42,12 @@ def _short_circuit_authenticate(
     the continued hammering is what keeps the anti-DoS band-promotion
     design working. See ``test_login_lockout.py``.
     """
-    from mediaman.web.auth.login_lockout import is_locked_out, login_ip_key, record_failure
+    from mediaman.web.auth.login_lockout import (
+        is_locked_out,
+        login_ip_key,
+        login_key,
+        record_failure,
+    )
 
     # Reject empty usernames before touching bcrypt. Otherwise an
     # unauthenticated attacker can stream empty-username requests at
@@ -56,7 +61,11 @@ def _short_circuit_authenticate(
     # CPU. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property.
     key = login_ip_key(username, client_ip)
-    if is_locked_out(conn, key):
+    # A lock stored under the bare username predates per-IP keys and still
+    # holds. It is only read: nothing writes that key any more, so it cannot
+    # be extended and ages out or is cleared by admin unlock. The refusal
+    # matches a per-IP lock, failure count included, so it reveals nothing.
+    if is_locked_out(conn, key) or is_locked_out(conn, login_key(username)):
         record_failure(conn, key)
         logger.warning(
             "auth.account_locked user=%s ip=%s reason=lockout_active", username, client_ip

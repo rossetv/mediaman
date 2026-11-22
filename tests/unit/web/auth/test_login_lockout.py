@@ -364,6 +364,45 @@ class TestPerClientIp:
             login_ip_key("x\x1falice", "198.51.100.4"),
         }
 
+    def test_a_username_only_lock_refuses_login_from_any_ip(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            record_failure(conn, "alice")
+
+        for ip in ("198.51.100.4", "203.0.113.7"):
+            assert authenticate(conn, "alice", "correct-password-123", client_ip=ip) is False
+
+    def test_a_failed_attempt_does_not_extend_a_username_only_lock(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            record_failure(conn, "alice")
+        before = tuple(
+            conn.execute(
+                "SELECT failure_count, locked_until FROM login_failures WHERE username = ?",
+                ("alice",),
+            ).fetchone()
+        )
+
+        authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
+
+        after = tuple(
+            conn.execute(
+                "SELECT failure_count, locked_until FROM login_failures WHERE username = ?",
+                ("alice",),
+            ).fetchone()
+        )
+        assert after == before
+
+    def test_admin_unlock_lifts_a_username_only_lock(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            record_failure(conn, "alice")
+
+        admin_unlock(conn, "alice")
+        conn.commit()
+
+        assert authenticate(conn, "alice", "correct-password-123", client_ip="203.0.113.7") is True
+
     def test_a_lock_from_any_ip_is_audited_as_locked(self, conn):
         for _ in range(5):
             record_failure(conn, login_ip_key("alice", "198.51.100.4"))
