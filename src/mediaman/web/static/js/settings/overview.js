@@ -64,11 +64,12 @@
 
     function renderStorage(s) {
       big.replaceChildren();
-      big.appendChild(document.createTextNode(s.used + ' '));
-      var small = document.createElement('small');
-      // Non-breaking spaces keep each figure with its unit when the line wraps.
+      // Non-breaking spaces keep each figure with its unit, and the dot with
+      // the figure before it, when the line wraps.
       var nb = function (v) { return String(v).replace(/ /g, '\u00a0'); };
-      small.textContent = 'of ' + nb(s.total) + ' used · ' + nb(s.free) + ' free';
+      big.appendChild(document.createTextNode(nb(s.used) + ' '));
+      var small = document.createElement('small');
+      small.textContent = 'of ' + nb(s.total) + '\u00a0used\u00a0· ' + nb(s.free) + ' free';
       big.appendChild(small);
 
       bar.replaceChildren();
