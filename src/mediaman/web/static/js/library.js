@@ -637,13 +637,17 @@
   }
 
   /* A selector that finds the same control on the reloaded page: its id, or
-     for the toolbar's filter pills their name and value, which are unique. */
+     for the toolbar's filter pills their name and value, which are unique, and
+     for the desktop sort headers their column. */
   function focusSelector(el) {
     if (!el) return '';
     if (el.id) return '#' + CSS.escape(el.id);
     var form = document.getElementById('toolbar-form');
     if (form && form.contains(el) && el.name && el.hasAttribute('value')) {
       return '#toolbar-form [name="' + CSS.escape(el.name) + '"][value="' + CSS.escape(el.getAttribute('value')) + '"]';
+    }
+    if (el.hasAttribute('data-sort-col')) {
+      return '.th-sort[data-sort-col="' + CSS.escape(el.getAttribute('data-sort-col')) + '"]';
     }
     return '';
   }
@@ -693,7 +697,7 @@
          to its successor, but never take it from wherever it already is. */
       var next = document.querySelector(saved.elsewhere);
       var active = document.activeElement;
-      if (next && (!active || active === document.body)) next.focus();
+      if (next && (!active || active === document.body)) next.focus({ preventScroll: true });
       return;
     }
     input.focus();
