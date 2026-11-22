@@ -39,7 +39,11 @@
       .then(function(data) {
         _service = data.service;
         _tmdbId = data.tmdb_id;
-        if (data.poll_token) _pollToken = data.poll_token;
+        if (data.poll_token) {
+          _pollToken = data.poll_token;
+          /* A fresh token means polling can authenticate again. */
+          _pollStopped = false;
+        }
 
         /* Hide cinematic metadata, show hero card wrapper */
         var cinema = document.getElementById('dl-cinema');
@@ -110,6 +114,7 @@
      timer and the visibilitychange pause so the tab doesn't hammer the
      server while hidden. */
   function _startPolling() {
+    if (!_pollToken) return;
     if (_pollInterval !== null) { clearInterval(_pollInterval); }
     _pollInterval = setInterval(pollStatus, 4000);
   }
@@ -129,10 +134,11 @@
   });
 
   function pollStatus() {
-    if (!_service || !_tmdbId) return;
+    /* Without a poll token the request can only be refused. */
+    if (!_service || !_tmdbId || !_pollToken) return;
     /* Use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
-      + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
+      + '&poll_token=' + encodeURIComponent(_pollToken);
     MM.api.get(url)
       .then(function(data) {
         /* The server hands out a replacement before the current poll token expires. */
