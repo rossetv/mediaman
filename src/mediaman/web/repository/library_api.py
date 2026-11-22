@@ -80,9 +80,11 @@ def apply_keep_in_tx(
 ) -> bool:
     """Apply a keep / snooze decision atomically with an audit row.
 
-    Looks for an existing ``scheduled_actions`` row for *media_id* with
-    ``token_used = 0`` and updates it in place if present; otherwise
-    inserts a fresh row.  The audit row is written inside the same
+    Turns the newest scheduled-deletion, snooze or keep-forever row of
+    *media_id* (whether or not its email token was used) into the chosen
+    keep and deletes the older ones, so the new keep replaces every earlier
+    one; with none, inserts a fresh row. A row the deletion pass is working
+    on is the one that carries the keep and is never deleted.  The audit row is written inside the same
     transaction so a SQLite failure rolls the keep back along with the
     audit record.
 
@@ -101,12 +103,24 @@ def apply_keep_in_tx(
         if media_row is None:
             raise NotFound(media_id)
 
-        existing = conn.execute(
-            "SELECT id, delete_status FROM scheduled_actions "
-            "WHERE media_item_id = ? AND token_used = 0",
+        rows = conn.execute(
+            "SELECT id, action, snooze_duration, delete_status FROM scheduled_actions "
+            "WHERE media_item_id = ? "
+            "AND action IN ('scheduled_deletion', 'snoozed', 'protected_forever') "
+            "ORDER BY id DESC",
             (media_id,),
         ).fetchall()
-        deletion_running = any(row["delete_status"] == "deleting" for row in existing)
+        deletion_running = any(row["delete_status"] == "deleting" for row in rows)
+        # The deletion pass tracks its claimed row by id, so that row carries the keep
+        # (it stays kept if the removal fails); the others are replaced.
+        existing = sorted(rows, key=lambda row: row["delete_status"] != "deleting")
+        replaced = [
+            row["snooze_duration"] or row["action"]
+            for row in existing
+            if row["action"] != "scheduled_deletion"
+        ]
+        if replaced:
+            audit_detail = f"{audit_detail}; replaced keep: {', '.join(replaced)}"
 
         if existing:
             conn.execute(
@@ -114,6 +128,10 @@ def apply_keep_in_tx(
                 "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "
                 "WHERE id=?",
                 (action, execute_at, now_iso, snooze_label, existing[0]["id"]),
+            )
+            conn.executemany(
+                "DELETE FROM scheduled_actions WHERE id = ? AND delete_status IS NOT 'deleting'",
+                [(row["id"],) for row in existing[1:]],
             )
         else:
             conn.execute(
