@@ -149,10 +149,10 @@ def _add_rec_to_radarr(
     """
     client = build_radarr_from_db(conn, secret_key)
     if not client:
-        return respond_failure("Radarr not configured")
+        return respond_failure("Radarr not configured", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Radarr")
+        return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
     safe_title = _sanitise_title(row.title)
     client.add_movie(tmdb_id, safe_title)
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
@@ -184,14 +184,14 @@ def _add_rec_to_sonarr(
     """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
-        return respond_failure("Sonarr not configured")
+        return respond_failure("Sonarr not configured", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Sonarr")
+        return respond_failure("No TMDB ID -- cannot add to Sonarr", status=200)
     safe_title = _sanitise_title(row.title)
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
-        return respond_failure("Show not found in Sonarr lookup")
+        return respond_failure("Show not found in Sonarr lookup", status=200)
     # Filter for the entry whose tmdbId matches the requested id — Sonarr may
     # return results in a different order on different instances.
     matched = next(
@@ -199,10 +199,10 @@ def _add_rec_to_sonarr(
         None,
     )
     if matched is None:
-        return respond_failure("No matching TMDB entry in Sonarr lookup")
+        return respond_failure("No matching TMDB entry in Sonarr lookup", status=200)
     raw_tvdb_id = matched.get("tvdbId")
     if not raw_tvdb_id:
-        return respond_failure("No TVDB ID found for this show")
+        return respond_failure("No TVDB ID found for this show", status=200)
     # Sonarr's lookup body is an untyped dict; ``tvdbId`` may arrive as a
     # string. Coerce before it reaches ``add_series`` (and the %d-free log
     # below) so a non-int value cannot 500 the handler. Mirror the sibling
@@ -210,9 +210,9 @@ def _add_rec_to_sonarr(
     try:
         tvdb_id = int(str(raw_tvdb_id))
     except ValueError:
-        return respond_failure("Invalid TVDB ID for this show")
+        return respond_failure("Invalid TVDB ID for this show", status=200)
     if tvdb_id <= 0:
-        return respond_failure("Invalid TVDB ID for this show")
+        return respond_failure("Invalid TVDB ID for this show", status=200)
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
@@ -245,7 +245,7 @@ def api_download_recommendation(
         return respond_failure("Recommendation not found", status=404)
 
     if not row.tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Radarr/Sonarr")
+        return respond_failure("No TMDB ID -- cannot add to Radarr/Sonarr", status=200)
 
     # ``admin`` is a username; resolve it to the admin's notification email
     # once (``None`` when unset) and hand the resolved value to the helpers.

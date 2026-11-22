@@ -128,12 +128,12 @@ def _test_connection_service(
     for arg_name, setting_name in required_keys.items():
         value = str(settings.get(setting_name) or "")
         if not value:
-            return respond_failure(required_msg)
+            return respond_failure(required_msg, status=200)
         resolved[arg_name] = value
     for arg_name, setting_name in (optional_keys or {}).items():
         resolved[arg_name] = str(settings.get(setting_name) or "")
     ok = bool(make_client(resolved).is_reachable())
-    return JSONResponse({"ok": True}) if ok else respond_failure("Connection failed")
+    return JSONResponse({"ok": True}) if ok else respond_failure("Connection failed", status=200)
 
 
 @_register("plex")
@@ -147,7 +147,7 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
     url = str(settings.get("plex_url") or "")
     token = str(settings.get("plex_token") or "")
     if not url or not token:
-        return respond_failure("Plex URL and token are required")
+        return respond_failure("Plex URL and token are required", status=200)
     try:
         PlexClient(url, token).get_libraries()
         return JSONResponse({"ok": True})
@@ -220,7 +220,7 @@ def test_mailgun(settings: dict[str, object]) -> JSONResponse:
 def test_openai(settings: dict[str, object]) -> JSONResponse:
     api_key = str(settings.get("openai_api_key") or "")
     if not api_key:
-        return respond_failure("OpenAI API key is required")
+        return respond_failure("OpenAI API key is required", status=200)
     if not _API_KEY_RE.match(api_key):
         return JSONResponse(
             {"ok": False, "error": "auth_failed: API key contains invalid characters"}
@@ -232,7 +232,7 @@ def test_openai(settings: dict[str, object]) -> JSONResponse:
 def test_tmdb(settings: dict[str, object]) -> JSONResponse:
     read_token = str(settings.get("tmdb_read_token") or "")
     if not read_token:
-        return respond_failure("TMDB Read Token is required")
+        return respond_failure("TMDB Read Token is required", status=200)
     if not _API_KEY_RE.match(read_token):
         return JSONResponse(
             {"ok": False, "error": "auth_failed: token contains invalid characters"}
@@ -244,7 +244,7 @@ def test_tmdb(settings: dict[str, object]) -> JSONResponse:
 def test_omdb(settings: dict[str, object]) -> JSONResponse:
     api_key = str(settings.get("omdb_api_key") or "")
     if not api_key:
-        return respond_failure("OMDB API key is required")
+        return respond_failure("OMDB API key is required", status=200)
     if not _API_KEY_RE.match(api_key):
         return JSONResponse(
             {"ok": False, "error": "auth_failed: API key contains invalid characters"}

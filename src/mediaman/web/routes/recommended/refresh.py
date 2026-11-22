@@ -201,10 +201,10 @@ def api_refresh_recommendations(
     except (SSRFRefused, ConfigDecryptError, requests.RequestException, ValueError):
         logger.exception("Could not build the Plex client for a manual refresh")
         finish_refresh_run(conn, run_id, "error", "Plex client could not be built")
-        return respond_failure("Could not connect to Plex")
+        return respond_failure("Could not connect to Plex", status=200)
     if not plex:
         finish_refresh_run(conn, run_id, "error", "Plex not configured")
-        return respond_failure("Plex not configured")
+        return respond_failure("Plex not configured", status=200)
 
     db_path = request.app.state.db_path
     secret_key = config.secret_key

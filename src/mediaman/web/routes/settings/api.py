@@ -306,7 +306,7 @@ def _run_tester_with_timeout(
             return JSONResponse({"ok": False, "error": "timeout"})
     except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
-        return respond_failure("Service connection test failed")
+        return respond_failure("Service connection test failed", status=200)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
