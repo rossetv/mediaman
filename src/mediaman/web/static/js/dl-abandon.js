@@ -86,6 +86,7 @@
     var left = document.createElement('div');
     var lbl = document.createElement('div');
     lbl.className = 'setg-row-lbl';
+    lbl.id = 'abandon-season-lbl-' + s.number;
     lbl.textContent = 'Season ' + s.number;
     var sub = document.createElement('div');
     sub.className = 'setg-row-sub';
@@ -100,6 +101,7 @@
     tog.setAttribute('role', 'switch');
     tog.setAttribute('tabindex', '0');
     tog.setAttribute('aria-checked', 'true');
+    tog.setAttribute('aria-labelledby', lbl.id);
     function flip() {
       tog.classList.toggle('on');
       tog.setAttribute(
