@@ -551,7 +551,7 @@ class TestKeepTokenHash:
     def test_lookup_verified_action_returns_none_for_wrong_secret(self, conn):
         import time as _time
 
-        from mediaman.crypto import generate_keep_token, validate_poster_token
+        from mediaman.crypto import generate_keep_token
 
         _insert_media_item(conn)
         action_id = _insert_scheduled_action_at_offset(conn)
