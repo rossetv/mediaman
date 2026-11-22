@@ -71,6 +71,10 @@ from mediaman.web.routes.settings.secrets import (
     mask_encrypted_keys as _mask_encrypted_keys,
 )
 from mediaman.web.routes.settings.testers import (
+    _TIMED_OUT,
+    _failure,
+)
+from mediaman.web.routes.settings.testers import (
     SERVICE_TESTER_KEYS as _SERVICE_TESTER_KEYS,
 )
 from mediaman.web.routes.settings.testers import (
@@ -274,9 +278,8 @@ def _load_tester_settings(
         return _load_settings(conn, secret_key, keys=needed_keys), None
     except ConfigDecryptError as exc:
         logger.warning("Service test decrypt failed for %s key=%s", service, exc.key)
-        return None, JSONResponse(
-            {"ok": False, "error": f"decrypt_failed: {exc.key}"},
-            status_code=200,
+        return None, _failure(
+            f"decrypt_failed: {exc.key}", "The saved key couldn't be read. Save it again."
         )
 
 
@@ -303,7 +306,7 @@ def _run_tester_with_timeout(
                 _TESTER_TIMEOUT_SECONDS,
                 service,
             )
-            return JSONResponse({"ok": False, "error": "timeout"})
+            return _failure("timeout", _TIMED_OUT)
     except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
         return respond_failure("Service connection test failed", status=200)

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import encrypt_value
@@ -688,6 +690,37 @@ class TestTesterFailureMessages:
         assert data["error"] == "timeout"
         assert "in time" in data["message"]
 
+    def test_a_cap_timeout_has_the_same_message_as_a_tester_timeout(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        import threading
+
+        from mediaman.web.routes.settings import api as settings_api
+
+        def slow_tester(_settings):
+            threading.Event().wait(timeout=0.3)
+            return JSONResponse({"ok": True})
+
+        monkeypatch.setattr(settings_api, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        monkeypatch.setitem(settings_api._SERVICE_TESTERS, "plex", slow_tester)
+        client = _client(app_factory, authed_client, conn)
+
+        data = client.post("/api/settings/test/plex").json()
+        assert data["error"] == "timeout"
+        assert "in time" in data["message"]
+
+    def test_an_unreadable_saved_key_says_to_save_it_again(self, app_factory, authed_client, conn):
+        ct = encrypt_value("tok", "fedcba9876543210" * 4, conn=conn, aad=b"plex_token")
+        insert_settings(conn, plex_url="http://plex:32400")
+        insert_settings(conn, plex_token=ct, encrypted=1)
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.post("/api/settings/test/plex")
+        data = resp.json()
+        assert resp.status_code == 200
+        assert data["error"] == "decrypt_failed: plex_token"
+        assert "Save it again" in data["message"]
+
 
 class TestSettingsTestServiceRateLimit:
     """Service-test endpoint must be admin-keyed rate-limited so a leaked
@@ -795,7 +828,7 @@ class TestSettingsTestServiceTimeout:
             release.set()
 
         assert elapsed < 1.0
-        assert resp.body == b'{"ok":false,"error":"timeout"}'
+        assert json.loads(bytes(resp.body))["error"] == "timeout"
 
 
 class TestSettingsTestServiceScopedDecryption:
