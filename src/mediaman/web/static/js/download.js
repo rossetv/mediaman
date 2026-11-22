@@ -3,7 +3,7 @@
  *
  * Reads server-supplied values from the #page-bootstrap JSON island
  * (token, poll_token, service, tmdb_id, poster_url, title, media_type,
- * download_state) and drives the download trigger + polling UI. Lives in
+ * download_state, notify_by_email) and drives the download trigger + polling UI. Lives in
  * its own file, not an inline <script>, so the CSP can forbid inline script.
  */
 (function () {
@@ -25,6 +25,7 @@
   var _title = boot.title || '';
   var _mediaType = boot.media_type || 'movie';
   var _downloadState = boot.download_state || '';
+  var _notifyByEmail = boot.notify_by_email === true;
   var _pollInterval = null;
   var _pollStopped = false;
 
@@ -86,12 +87,13 @@
     var hint = document.createElement('div');
     hint.className = 'dl-hint';
     hint.textContent = 'You may close this page — the download will continue in the background. ';
-    var br = document.createElement('br');
-    hint.appendChild(br);
-    var hintLine2 = document.createTextNode(
-      'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
-    );
-    hint.appendChild(hintLine2);
+    /* A link minted without an email gets no notification, so promise none. */
+    if (_notifyByEmail) {
+      hint.appendChild(document.createElement('br'));
+      hint.appendChild(document.createTextNode(
+        'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
+      ));
+    }
 
     /* Clear wrapper and append */
     wrapper.replaceChildren(hero, hint);
