@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import requests
@@ -44,7 +43,7 @@ from mediaman.services.infra import (
     delete_path,
     path_within_delete_roots,
 )
-from mediaman.services.infra.storage import delete_root_available
+from mediaman.services.infra.storage.deletion import unavailable_folder
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -123,7 +122,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
                 file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif (unavailable := _unavailable_folder(file_path, allowed_roots)) is not None:
+        elif (unavailable := unavailable_folder(file_path, allowed_roots)) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — file absent but its delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -322,25 +321,6 @@ def _unmonitor_arr(
             )
 
 
-def _unavailable_folder(path: str, allowed_roots: list[str]) -> str | None:
-    """Return the folder found missing or empty when *path* is gone and its mount may be down.
-
-    None when the target, or else content in the closest existing folder above
-    it, is on disk. Otherwise it names the folder delete_root_available looked
-    at: the closest existing one above *path*, or the delete root if that is
-    missing. Reads the disk, so call it with no transaction open.
-    """
-    if os.path.lexists(path) or delete_root_available(path, allowed_roots):
-        return None
-    roots = {Path(os.path.realpath(r)) for r in allowed_roots if r and os.path.isabs(r)}
-    target = Path(os.path.realpath(path))
-    closest = next(
-        (folder for folder in target.parents if folder in roots or os.path.lexists(folder)),
-        target.parent,
-    )
-    return str(closest)
-
-
 def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: str) -> None:
     detail = (
         f"Not deleted yet: {row.title} — {folder} is missing or empty, so the media "
@@ -485,7 +465,11 @@ class DeletionExecutor:
         path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
-        unavailable = _unavailable_folder(path, allowed_roots) if path.strip() else None
+        unavailable = (
+            unavailable_folder(path, allowed_roots)
+            if path.strip() and not os.path.lexists(path)
+            else None
+        )
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -538,7 +522,7 @@ class DeletionExecutor:
         )
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
-        unavailable = _unavailable_folder(path, allowed_roots)
+        unavailable = None if os.path.lexists(path) else unavailable_folder(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
         if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):

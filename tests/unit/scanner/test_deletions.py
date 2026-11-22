@@ -1090,18 +1090,18 @@ class TestDiskChecksOutsideWriteLock:
         from mediaman.scanner import deletions
 
         real_lexists = os.path.lexists
-        real_root_available = deletions.delete_root_available
+        real_unavailable_folder = deletions.unavailable_folder
 
         def lexists(path):
             seen.append(conn.in_transaction)
             return real_lexists(path)
 
-        def root_available(path, roots):
+        def unavailable_folder(path, roots):
             seen.append(conn.in_transaction)
-            return real_root_available(path, roots)
+            return real_unavailable_folder(path, roots)
 
         monkeypatch.setattr(os.path, "lexists", lexists)
-        monkeypatch.setattr(deletions, "delete_root_available", root_available)
+        monkeypatch.setattr(deletions, "unavailable_folder", unavailable_folder)
 
     def test_pass_checks_a_missing_target_with_no_transaction_open(
         self, conn, tmp_path, monkeypatch
