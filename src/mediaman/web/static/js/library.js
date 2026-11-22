@@ -163,8 +163,7 @@
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     var confirmBtn = document.getElementById('keep-dialog-confirm');
     confirmBtn.textContent = 'Keep';
-    /* A keep still running for the show opened before must not lock this one. */
-    confirmBtn.disabled = false;
+    confirmBtn.disabled = true;
     var request = ++_keepDialogRequest;
     holdKeepWhileSaving(request);
     MM.api.get(url)
@@ -177,6 +176,8 @@
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
+        /* A keep still running for this show holds Keep until it settles. */
+        confirmBtn.disabled = !!_keepChains[keepChainKey()];
         if (refocus === true && focusStillIn(list)) {
           var first = list.querySelector('input');
           if (first) first.focus();
