@@ -1362,6 +1362,82 @@ class TestKeepBetweenClaimAndRemoval:
         assert (show / "Show - s02e01.mkv").exists()
         assert self._row(conn, "s1") == ("scheduled_deletion", "pending")
 
+    def _season(self, conn, media_id, number, folder, show_key):
+        (folder / f"Show - s0{number}e01.mkv").write_bytes(b"x")
+        insert_media_item(
+            conn,
+            id=media_id,
+            title="Show",
+            plex_rating_key=media_id,
+            media_type="season",
+            season_number=number,
+            sonarr_id=7,
+            show_rating_key=show_key,
+            file_path=str(folder),
+        )
+        _due_row(conn, media_id)
+
+    @staticmethod
+    def _keep_whole_show(other, media_id):
+        insert_kept_show(other, show_rating_key="show1", action="protected_forever")
+        other.commit()
+
+    def test_show_keep_after_the_claim_leaves_the_media_and_the_next_pass_cancels_it(
+        self, conn, db_path, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "tv"
+        folder = root / "Show" / "Season 2"
+        folder.mkdir(parents=True)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        self._season(conn, "s2", 2, folder, "show1")
+        other = init_db(str(db_path))
+        done = self._change_once_claimed(monkeypatch, other, folder, "s2", self._keep_whole_show)
+        sonarr = MagicMock()
+
+        result = DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+        assert done == ["s2"]
+        assert (folder / "Show - s02e01.mkv").exists()
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        assert self._row(conn, "s2") == ("scheduled_deletion", "pending")
+        assert "deleted" not in _audits(conn, "s2")
+        sonarr.unmonitor_season.assert_not_called()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert (folder / "Show - s02e01.mkv").exists()
+        assert self._row(conn, "s2") is None
+        assert _audits(conn, "s2") == ["delete_refused"]
+
+    def test_show_keep_on_a_co_located_item_after_the_claim_leaves_the_shared_folder(
+        self, conn, db_path, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "tv"
+        show = root / "Show"
+        show.mkdir(parents=True)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        self._season(conn, "s1", 1, show, "other")
+        self._season(conn, "s2", 2, show, "show1")
+        other = init_db(str(db_path))
+        done = self._change_once_claimed(monkeypatch, other, show, "s2", self._keep_whole_show)
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert done == ["s2"]
+        assert (show / "Show - s01e01.mkv").exists()
+        assert (show / "Show - s02e01.mkv").exists()
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        assert self._row(conn, "s1") == ("scheduled_deletion", "pending")
+        # Put back to pending, s2's own turn later in the same pass cancels it.
+        assert self._row(conn, "s2") is None
+        assert _audits(conn, "s2") == ["delete_refused"]
+        assert "deleted" not in _audits(conn, "s1")
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert (show / "Show - s02e01.mkv").exists()
+        assert self._row(conn, "s1") == ("scheduled_deletion", "pending")
+
 
 class TestKeptItemIsNotDeleted:
     """The pass keeps what a scan keeps, even when a due deletion row is left beside the keep."""

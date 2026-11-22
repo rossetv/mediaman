@@ -62,6 +62,7 @@ __all__ = [
     "has_expired_snooze",
     "is_already_scheduled",
     "is_claimed_deletion",
+    "is_kept_deletion",
     "is_latest_audit",
     "is_protected",
     "is_show_kept",
@@ -170,12 +171,11 @@ def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -
     return cursor.rowcount == 1
 
 
-def cancel_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
-    """Delete the deletion row if a keep the scan honours covers its item; return True if it did.
+def is_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
+    """Return True if a keep the scan honours covers the item of the deletion row.
 
     The scan's own rule decides (is_protected, is_show_kept_pure), so the pass
-    never removes what a scan would keep. Run it after the claim, inside the
-    claim's transaction, so a keep committed before the claim wins.
+    never removes what a scan would keep. A pure read.
     """
     row = conn.execute(
         "SELECT sa.media_item_id, mi.show_rating_key FROM scheduled_actions sa "
@@ -184,10 +184,18 @@ def cancel_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str)
     ).fetchone()
     if row is None:
         return False
-    if not (
-        is_protected(conn, row["media_item_id"])
-        or is_show_kept_pure(conn, row["show_rating_key"], now_iso_str=now_iso)
-    ):
+    return is_protected(conn, row["media_item_id"]) or is_show_kept_pure(
+        conn, row["show_rating_key"], now_iso_str=now_iso
+    )
+
+
+def cancel_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
+    """Delete the deletion row if is_kept_deletion says its item is kept; return True if it did.
+
+    Run it after the claim, inside the claim's transaction, so a keep
+    committed before the claim wins.
+    """
+    if not is_kept_deletion(conn, action_id, now_iso):
         return False
     delete_scheduled_action(conn, action_id)
     return True

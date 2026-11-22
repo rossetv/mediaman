@@ -33,6 +33,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
     is_claimed_deletion,
+    is_kept_deletion,
     is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
@@ -519,7 +520,7 @@ class DeletionExecutor:
         mounted = os.path.lexists(path) or delete_root_available(path, allowed_roots)
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, path, now_iso, mounted=mounted):
+        if not self._still_removable(row, co_located, path, now_iso, mounted=mounted):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -557,12 +558,21 @@ class DeletionExecutor:
         )
         return True
 
-    def _still_removable(self, row: DeletionRow, path: str, now_iso: str, *, mounted: bool) -> bool:
+    def _still_removable(
+        self,
+        row: DeletionRow,
+        co_located: list[DeletionRow],
+        path: str,
+        now_iso: str,
+        *,
+        mounted: bool,
+    ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
-        The row must still be a claimed ``scheduled_deletion``, and _may_remove
-        must still pass, so an item under *path* kept since the claim blocks
-        it as it would have before.
+        The row must still be a claimed ``scheduled_deletion``, no keep the scan
+        honours may cover it or a co-located row, and _may_remove must still
+        pass, so an item under *path* kept since the claim blocks it as it
+        would have before.
         """
         if not is_claimed_deletion(self._conn, row.id):
             logger.warning(
@@ -571,6 +581,18 @@ class DeletionExecutor:
                 row.id,
                 row.media_item_id,
                 path,
+            )
+            return False
+        # A show keep leaves a claimed row's action as it is; its next claim cancels it.
+        kept = [c.id for c in (row, *co_located) if is_kept_deletion(self._conn, c.id, now_iso)]
+        if kept:
+            logger.warning(
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r kept_rows=%s — "
+                "kept since the claim; leaving the files",
+                row.id,
+                row.media_item_id,
+                path,
+                kept,
             )
             return False
         return self._may_remove(row, path, now_iso, mounted=mounted)
