@@ -116,6 +116,11 @@
     _keepDialogState.showTitle = showTitle;
     _keepDialogState.seasonId = mediaId;
     _keepDialogState.duration = duration || '30 days';
+    /* Close the menu this came from, and park focus on its trigger so
+       closing the dialog returns there rather than to a hidden menu item. */
+    if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
+    var menuTrigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
+    if (menuTrigger) menuTrigger.focus();
     openKeepDialog();
   }
 
@@ -482,6 +487,7 @@
       var row = document.createElement('div');
       row.className = 'keep-season-item';
       var name = document.createElement('span');
+      name.className = 'keep-season-name';
       name.textContent = s.season_number != null ? 'Season ' + s.season_number : s.title;
       row.appendChild(name);
 
