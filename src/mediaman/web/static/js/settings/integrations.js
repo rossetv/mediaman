@@ -21,16 +21,6 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
-  /* The server's own sentence from an answer body: `message`, else `error`
-     when it reads as a sentence rather than a machine code. */
-  function reasonOf(data, fallback) {
-    var m = data && data.message;
-    if (typeof m === 'string' && m) return m;
-    var e = data && data.error;
-    if (typeof e === 'string' && /\s/.test(e) && !/^\w+:/.test(e)) return e;
-    return fallback;
-  }
-
   MM.settings.integrations = {
 
     setConnStatus: function (service, tone, label) {
@@ -62,19 +52,13 @@
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
-          .then(function (data) {
-            if (data.ok) {
-              self.setConnStatus(service, 'ok', 'Connected');
-              if (btn) btn.textContent = 'OK ✓';
-            } else {
-              self.setConnStatus(service, 'err', reasonOf(data, 'Error'));
-              if (btn) btn.textContent = 'Failed';
-            }
+          .then(function () {
+            self.setConnStatus(service, 'ok', 'Connected');
+            if (btn) btn.textContent = 'OK ✓';
           })
           .catch(function (err) {
-            // MM.api rejects on ok:false too; distinguish connection errors
-            // from a well-formed failure response.
-            var label = MM.api.messageOf(err, reasonOf(err && err.data, 'Connection failed'));
+            // MM.api rejects on ok:false too, so a failed test lands here.
+            var label = MM.api.messageOf(err, 'Connection failed');
             self.setConnStatus(service, 'err', label);
             if (btn) btn.textContent = 'Failed';
           })
@@ -116,8 +100,8 @@
           self.setConnStatus(c.service, 'untested', 'Testing…');
           setTimeout(function () {
             MM.api.post('/api/settings/test/' + encodeURIComponent(c.service))
-              .then(function (data) {
-                self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (reasonOf(data, 'Error')));
+              .then(function () {
+                self.setConnStatus(c.service, 'ok', 'Connected');
               })
               .catch(function (err) {
                 // err is an APIError with .status and .message. 429 is the
@@ -125,7 +109,7 @@
                 // show it distinctly if it still fires.
                 var label;
                 if (err && err.status === 429)         label = 'Rate limited';
-                else                                   label = MM.api.messageOf(err, reasonOf(err && err.data, 'Connection failed'));
+                else                                   label = MM.api.messageOf(err, 'Connection failed');
                 self.setConnStatus(c.service, 'err', label);
               });
           }, idx * 200);

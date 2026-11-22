@@ -22,16 +22,6 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
-  /* The server's own sentence from an answer body: `message`, else `error`
-     when it reads as a sentence rather than a machine code. */
-  function reasonOf(data, fallback) {
-    var m = data && data.message;
-    if (typeof m === 'string' && m) return m;
-    var e = data && data.error;
-    if (typeof e === 'string' && /\s/.test(e) && !/^\w+:/.test(e)) return e;
-    return fallback;
-  }
-
   MM.settings.newsletter = {
 
     init: function () {
@@ -95,7 +85,7 @@
           .then(function () { loadSubscribers(); })
           .catch(function (err) {
             btn.disabled = false;
-            var msg = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't remove subscriber."));
+            var msg = MM.api.messageOf(err, "Couldn't remove subscriber.");
             if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(msg);
             } else { window.alert(msg); }
@@ -112,14 +102,12 @@
         // The endpoint takes form-urlencoded (FastAPI ``Form(...)``) so
         // we use postForm rather than post (which sends JSON).
         MM.api.postForm('/api/subscribers', { email: email })
-          .then(function (data) {
-            if (data.ok) { addSubInp.value = ''; loadSubscribers(); }
-            else if (window.UIFeedback && window.UIFeedback.error) {
-              window.UIFeedback.error(reasonOf(data, "Couldn't add subscriber."));
-            } else { window.alert(reasonOf(data, "Couldn't add subscriber.")); }
+          .then(function () {
+            addSubInp.value = '';
+            loadSubscribers();
           })
           .catch(function (err) {
-            var msg = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't add subscriber."));
+            var msg = MM.api.messageOf(err, "Couldn't add subscriber.");
             if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(msg);
             } else { window.alert(msg); }
@@ -225,29 +213,25 @@
         MM.api.post('/api/newsletter/send', { recipients: recipients })
           .then(function (data) {
             btnConfirmNL.disabled = false;
-            if (data.ok && data.sent_to === 0) {
+            if (data.sent_to === 0) {
               btnConfirmNL.textContent = 'Send newsletter';
               newsletterStatus.textContent = data.message || 'Nothing to send';
               newsletterStatus.className = 'inline-form-msg ok';
-            } else if (data.ok && data.failed) {
+            } else if (data.failed) {
               btnConfirmNL.textContent = 'Send newsletter';
               newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' of ' + (data.sent_to + data.failed) + ' (' + data.failed + ' failed)';
               newsletterStatus.className = 'inline-form-msg err';
-            } else if (data.ok) {
+            } else {
               btnConfirmNL.textContent = 'Sent ✓';
               newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' recipient' + (data.sent_to !== 1 ? 's' : '');
               newsletterStatus.className = 'inline-form-msg ok';
               setTimeout(function () { btnConfirmNL.textContent = 'Send newsletter'; }, 2400);
-            } else {
-              btnConfirmNL.textContent = 'Send newsletter';
-              newsletterStatus.textContent = reasonOf(data, "Couldn't send");
-              newsletterStatus.className = 'inline-form-msg err';
             }
           })
           .catch(function (err) {
             btnConfirmNL.disabled = false;
             btnConfirmNL.textContent = 'Send newsletter';
-            newsletterStatus.textContent = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't send. Try again."));
+            newsletterStatus.textContent = MM.api.messageOf(err, "Couldn't send. Try again.");
             newsletterStatus.className = 'inline-form-msg err';
           });
       });
