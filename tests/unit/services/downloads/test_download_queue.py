@@ -253,3 +253,76 @@ class TestFailedNzbgetPollKeepsSnapshot:
         client.get_queue.return_value = []
         recorded, _ = self._run(client)
         assert [c["dl_id"] for c in recorded] == ["nzbget:1"]
+
+
+class TestFailedNzbgetPollStillDiffsArrEntries:
+    """Polls share the module snapshot within a test, so each test is a sequence."""
+
+    def setup_method(self):
+        import mediaman.services.downloads.download_queue as dq
+
+        dq._reset_previous_queue()
+
+    def teardown_method(self):
+        import mediaman.services.downloads.download_queue as dq
+
+        dq._reset_previous_queue()
+
+    def _poll(self, arr_ids, nzb_names, *, nzb_up=True):
+        """Run one poll with *arr_ids* in the arr queue and *nzb_names* in NZBGet;
+        return the dl_ids recorded as completed."""
+        from unittest.mock import MagicMock, patch
+
+        import mediaman.services.downloads.download_queue as dq
+        from mediaman.services.downloads.download_format import build_item
+        from mediaman.services.downloads.nzbget import NzbgetError
+
+        arr_items = [
+            build_item(
+                dl_id=dl_id,
+                title=dl_id.split(":", 1)[1],
+                media_type="movie",
+                poster_url="",
+                state="downloading",
+                progress=10,
+                eta="",
+                size_done="",
+                size_total="",
+            )
+            for dl_id in arr_ids
+        ]
+        client = MagicMock()
+        if nzb_up:
+            client.get_status.return_value = {}
+            client.get_queue.return_value = [
+                {"NZBName": name, "Status": "DOWNLOADING", "FileSizeMB": 10} for name in nzb_names
+            ]
+        else:
+            client.get_status.side_effect = NzbgetError("down")
+        recorded: list = []
+        with (
+            patch.object(dq, "fetch_arr_queue", return_value=[]),
+            patch.object(dq, "_arr_base_urls", return_value={}),
+            patch.object(dq, "build_nzbget_from_db", return_value=client),
+            patch.object(dq, "_build_arr_items", return_value=(arr_items, [])),
+            patch.object(dq, "_enrich_with_tmdb_ids"),
+            patch.object(
+                dq,
+                "record_verified_completions",
+                side_effect=lambda c, done, k: recorded.extend(done),
+            ),
+            patch.object(dq, "fetch_and_sync_recent_downloads", return_value=[]),
+        ):
+            dq.build_downloads_response(MagicMock(), "k")
+        return sorted(c["dl_id"] for c in recorded)
+
+    def test_arr_item_seen_only_during_an_outage_is_recorded(self):
+        assert self._poll(["radarr:Dune"], [], nzb_up=False) == []
+        assert self._poll([], [], nzb_up=False) == ["radarr:Dune"]
+
+    def test_outage_reports_arr_items_now_and_nzb_items_once_nzbget_is_back(self):
+        nzb = "Manual.Movie.2024.1080p"
+        assert self._poll(["sonarr:Severance"], [nzb]) == []
+        assert self._poll([], [], nzb_up=False) == ["sonarr:Severance"]
+        assert self._poll([], [nzb]) == []
+        assert self._poll([], []) == [nzb]

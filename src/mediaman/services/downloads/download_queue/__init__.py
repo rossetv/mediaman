@@ -155,10 +155,16 @@ def _enrich_with_tmdb_ids(
                 v["tmdb_id"] = tid
 
 
+def _is_arr_entry(dl_id: str) -> bool:
+    return dl_id.startswith(("radarr:", "sonarr:"))
+
+
 def _maybe_record_completions(
     conn: sqlite3.Connection,
     current_map: dict[str, dict[str, object]],
     secret_key: str,
+    *,
+    nzb_fetch_failed: bool = False,
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
 
@@ -170,6 +176,11 @@ def _maybe_record_completions(
     Arr-sourced entries get their tmdb_id before being stored, so the next call's
     detect_completed carries it through to verification instead of matching on the
     title.
+
+    When *nzb_fetch_failed*, the NZBGet side of *current_map* is unknown rather than
+    empty: only the Radarr/Sonarr entries are diffed, and the previous snapshot's
+    NZB-only entries are carried into the stored one unchanged, to be diffed on the
+    next poll that reaches NZBGet.
     """
     global _previous_queue, _previous_initialised
 
@@ -178,10 +189,16 @@ def _maybe_record_completions(
     with _state_lock:
         previous_snapshot = _previous_queue
         previously_initialised = _previous_initialised
-        _previous_queue = current_map
+        if nzb_fetch_failed:
+            carried = {k: v for k, v in previous_snapshot.items() if not _is_arr_entry(k)}
+            _previous_queue = {**carried, **current_map}
+        else:
+            _previous_queue = current_map
         _previous_initialised = True
 
     if previously_initialised:
+        if nzb_fetch_failed:
+            previous_snapshot = {k: v for k, v in previous_snapshot.items() if _is_arr_entry(k)}
         completed = detect_completed(previous_snapshot, current_map)
         record_verified_completions(conn, completed, secret_key)
 
@@ -267,10 +284,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
-    # A failed NZBGet fetch looks like an empty queue, which would report every
-    # NZB-only item as finished; keep the previous snapshot until a poll succeeds.
-    if not nzb_fetch_failed:
-        _maybe_record_completions(conn, current_map, secret_key)
+    _maybe_record_completions(conn, current_map, secret_key, nzb_fetch_failed=nzb_fetch_failed)
 
     # 7. Hero selection
     hero, queue = select_hero(items_as_dicts)
