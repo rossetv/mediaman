@@ -350,6 +350,32 @@ class TestKeepPageRoute:
         assert "Scheduled for deletion" not in html
         assert "snooze-btn" not in html
 
+    @pytest.mark.parametrize("action", ["snoozed", "scheduled_deletion"])
+    def test_row_being_deleted_shows_that_state_and_no_buttons(self, conn, action):
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action=action,
+            execute_at="2099-01-01T00:00:00+00:00",
+            token_used=0,
+        )
+        conn.execute(
+            "UPDATE scheduled_actions SET delete_status='deleting' WHERE id=?", (action_id,)
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        html = " ".join(client.get(f"/keep/{token}").text.split())
+
+        assert "This is being deleted now." in html
+        assert "Already kept" not in html
+        assert "Scheduled for deletion" not in html
+        assert "snooze-btn" not in html
+
 
 class TestKeepSubmitTokenInvalidation:
     """Keep_submit must mark the token as used and reject replays."""
