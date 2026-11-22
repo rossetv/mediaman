@@ -265,9 +265,8 @@ def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[s
             return entry[1]
     fresh = get_disk_usage_for_paths(paths) if paths else get_aggregate_disk_usage(cache_key)
     with _disk_usage_cache_lock:
-        # setdefault: the first writer wins; a concurrent miss that also computed
-        # a fresh value does not clobber an entry that arrived just before us.
-        _disk_usage_cache.setdefault(cache_key, (now, fresh))
+        # Plain assignment so an expired entry is replaced, not kept.
+        _disk_usage_cache[cache_key] = (now, fresh)
     return fresh
 
 
