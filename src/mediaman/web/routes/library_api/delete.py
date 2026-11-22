@@ -84,17 +84,19 @@ class _Refused(Exception):
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
 
 
-def _lookup[T](service: str, what: str, fetch: Callable[[], T]) -> T:
+def _lookup[T](service: str, what: str, fetch: Callable[[], T], *, missing: str | None = None) -> T:
     """Run a Radarr/Sonarr read made before a delete, turning any failure into a refusal.
 
     A 404 here is never taken as "already gone": the item may live under
-    another id, so nothing is deleted.
+    another id, so nothing is deleted. *missing* replaces the message of that refusal.
     """
     try:
         return fetch()
     except _ARR_ERRORS as exc:
         if _is_not_found(exc):
-            raise _Refused(f"{service} has no entry for this {what}; nothing was deleted") from exc
+            raise _Refused(
+                missing or f"{service} has no entry for this {what}; nothing was deleted"
+            ) from exc
         logger.warning("%s lookup failed before a delete: %s", service, exc)
         raise _Refused(
             f"Could not check this {what} in {service}; nothing was deleted",
@@ -195,6 +197,10 @@ _LOCAL_FILES_LEFT_MESSAGE = (
     "{service} answered the delete, but a file of this {what} is still on disk, so "
     "mediaman did not book it as deleted. The next library scan will update it."
 )
+_RADARR_MOVIE_GONE_MESSAGE = (
+    "Radarr no longer has this movie and its files are not on disk, so it may already be "
+    "deleted. Nothing was deleted now; the next library scan will update it."
+)
 _SONARR_FILES_LEFT_MESSAGE = (
     "Sonarr still lists files of this season after the delete, so mediaman could not "
     "confirm they are gone. Nothing was booked as deleted; press Delete again."
@@ -221,14 +227,25 @@ def _delete_movie(
     if not tmdb_id:
         raise _Refused("Plex has no TMDB id for this movie; nothing was deleted")
     radarr_id = snapshot.radarr_id
+    # A 404 never books the item: a mount that is down also makes paths look gone.
+    tracked = _tracked_paths(snapshot)
+    missing = (
+        _RADARR_MOVIE_GONE_MESSAGE
+        if tracked and not _on_disk(tracked)
+        else "Radarr has no entry for this movie; nothing was deleted"
+    )
     entry: RadarrMovie | None
     if radarr_id:
-        entry = _lookup("Radarr", "movie", lambda: client.get_movie_by_id(radarr_id))
+        entry = _lookup(
+            "Radarr", "movie", lambda: client.get_movie_by_id(radarr_id), missing=missing
+        )
     else:
-        entry = _lookup("Radarr", "movie", lambda: client.get_movie_by_tmdb(tmdb_id))
+        entry = _lookup(
+            "Radarr", "movie", lambda: client.get_movie_by_tmdb(tmdb_id), missing=missing
+        )
     entry_id = entry.get("id") if entry else None
     if not entry or not isinstance(entry_id, int):
-        raise _Refused("Radarr has no entry for this movie; nothing was deleted")
+        raise _Refused(missing)
     match = verify_movie(entry, tmdb_id=tmdb_id, tracked_files=snapshot.tracked_files)
     if not match.ok:
         raise _Refused(match.reason)

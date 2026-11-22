@@ -88,6 +88,13 @@ def _insert_tv_season(
     _set_ids(conn, media_id, tvdb_id=tvdb_id, tracked_files=tracked)
 
 
+def _file_on_disk(tmp_path) -> dict:
+    """A tracked movie file that exists on disk."""
+    path = tmp_path / "Test Movie (2020).mkv"
+    path.write_bytes(b"x")
+    return {"path": str(path), "size": 1}
+
+
 def _radarr(**entry_overrides) -> MagicMock:
     """A Radarr client whose live entry is the movie `_insert_movie` stores."""
     entry = {
@@ -400,8 +407,8 @@ class TestMediaDeleteRefusals:
 
         self._assert_refused(resp, conn, "s1", sonarr, fact="TVDB")
 
-    def test_movie_radarr_does_not_have(self, app_factory, authed_client, conn):
-        _insert_movie(conn, radarr_id=None)
+    def test_movie_radarr_does_not_have(self, app_factory, authed_client, conn, tmp_path):
+        _insert_movie(conn, radarr_id=None, tracked_files=[_file_on_disk(tmp_path)])
         client = authed_client(_app(app_factory, conn), conn)
         radarr = _radarr()
         radarr.get_movie_by_tmdb.return_value = None
@@ -423,6 +430,19 @@ class TestMediaDeleteRefusals:
         self._assert_refused(resp, conn, "s1", sonarr, fact="no entry")
 
     def test_a_404_on_the_lookup_is_not_taken_as_already_gone(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        _insert_movie(conn, radarr_id=101, tracked_files=[_file_on_disk(tmp_path)])
+        client = authed_client(_app(app_factory, conn), conn)
+        radarr = _radarr()
+        radarr.get_movie_by_id.side_effect = SafeHTTPError(404, "Not Found", "radarr/")
+
+        with patch(RADARR, return_value=radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        self._assert_refused(resp, conn, "m1", radarr, fact="no entry")
+
+    def test_a_404_with_every_tracked_file_gone_says_the_movie_may_already_be_deleted(
         self, app_factory, authed_client, conn
     ):
         _insert_movie(conn, radarr_id=101)
@@ -433,7 +453,7 @@ class TestMediaDeleteRefusals:
         with patch(RADARR, return_value=radarr):
             resp = client.post("/api/media/m1/delete")
 
-        self._assert_refused(resp, conn, "m1", radarr, fact="no entry")
+        self._assert_refused(resp, conn, "m1", radarr, fact="may already be deleted")
 
     def test_a_second_radarr_copy_with_a_different_file_is_refused(
         self, app_factory, authed_client, conn
