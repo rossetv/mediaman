@@ -17,6 +17,7 @@ from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import delete as delete_route
 from mediaman.web.routes.library_api import router as library_api_router
+from mediaman.web.routes.library_api.redownload import _REDOWNLOAD_LIMITER
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 MOVIE_DIR = "/media/movies/Test Movie (2020)"
@@ -940,6 +941,7 @@ class TestMediaKeep:
         film.write_bytes(b"x")
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
         insert_media_item(conn, id="m1", plex_rating_key="rk1", file_path=str(film))
+        _set_ids(conn, "m1", tracked_files=[{"path": str(film), "size": 1}])
         insert_scheduled_action(
             conn,
             media_item_id="m1",
@@ -949,14 +951,14 @@ class TestMediaKeep:
             token_used=False,
         )
         client = authed_client(_app(app_factory, conn), conn)
-        real = deletions.delete_path
+        real = deletions.delete_tracked_files
         responses = []
 
-        def remove(path, *, allowed_roots):
+        def remove(tracked_files, **kwargs):
             responses.append(client.post("/api/media/m1/keep", data={"duration": "forever"}))
-            real(path, allowed_roots=allowed_roots)
+            return real(tracked_files, **kwargs)
 
-        monkeypatch.setattr(deletions, "delete_path", remove)
+        monkeypatch.setattr(deletions, "delete_tracked_files", remove)
 
         deletions.DeletionExecutor(conn=init_db(str(db_path))).execute()
 
@@ -972,150 +974,175 @@ class TestMediaKeep:
 
 
 class TestMediaRedownload:
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        _REDOWNLOAD_LIMITER.reset()
+
+    @pytest.fixture
+    def post(self, app_factory, authed_client, conn):
+        client = authed_client(_app(app_factory, conn), conn)
+
+        def send(payload, *, radarr=None, sonarr=None):
+            with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+                return client.post("/api/media/redownload", json=payload)
+
+        return send
+
+    @staticmethod
+    def _radarr_without_movie() -> MagicMock:
+        client = MagicMock()
+        client.get_movie_by_tmdb.return_value = None
+        return client
+
+    @staticmethod
+    def _sonarr_without_series() -> MagicMock:
+        client = MagicMock()
+        client.get_series_by_tvdb.return_value = None
+        return client
+
     def test_redownload_requires_auth(self, app_factory, conn):
-        """Redownload endpoint returns 401 without a session cookie."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app(app_factory, conn), raise_server_exceptions=True)
+        assert client.post("/api/media/redownload", json={"title": "Dune"}).status_code == 401
 
-        resp = client.post("/api/media/redownload", json={"title": "Dune"})
-        assert resp.status_code == 401
+    def test_the_buttons_movie_payload_is_accepted(self, post):
+        radarr = self._radarr_without_movie()
+        resp = post({"title": "Dune", "tmdb_id": 42}, radarr=radarr)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
 
-    def test_redownload_empty_title_returns_400(self, app_factory, authed_client, conn):
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+    def test_the_buttons_season_payload_is_accepted(self, post):
+        sonarr = self._sonarr_without_series()
+        resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
 
-        resp = client.post("/api/media/redownload", json={"title": "   "})
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"title": "Dune"},
+            {"title": "Dune", "season_number": 1},
+            {"title": "Severance", "tvdb_id": 999},
+            {"title": "Dune", "tmdb_id": 42, "tvdb_id": 999, "season_number": 1},
+        ],
+    )
+    def test_a_request_without_a_usable_id_is_refused_with_400(self, post, payload):
+        radarr, sonarr = MagicMock(), MagicMock()
+        resp = post(payload, radarr=radarr, sonarr=sonarr)
         assert resp.status_code == 400
+        assert resp.json()["ok"] is False
+        assert radarr.method_calls == [] and sonarr.method_calls == []
 
-    def test_redownload_submits_to_radarr(self, app_factory, authed_client, conn):
-        """Redownload with tmdb_id calls Radarr add_movie and returns ok=True."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
+    def test_empty_title_is_refused(self, post):
+        assert post({"title": "   ", "tmdb_id": 42}, radarr=MagicMock()).status_code == 400
 
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
-        mock_radarr.add_movie.return_value = None
+    def test_unknown_fields_are_still_refused(self, post):
+        assert post({"title": "Dune", "tmdb_id": 42, "year": 2021}).status_code == 422
 
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": "Dune", "tmdb_id": 42},
-            )
+    def test_a_movie_radarr_still_holds_is_remonitored_not_added(self, post, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 101, "tmdbId": 42}
+        resp = post({"title": "Dune", "tmdb_id": 42}, radarr=radarr)
+        assert resp.json()["ok"] is True
+        radarr.remonitor_movie.assert_called_once_with(101)
+        radarr.add_movie.assert_not_called()
+        assert conn.execute("SELECT 1 FROM audit_log WHERE action='re_downloaded'").fetchone()
 
+    def test_a_movie_radarr_no_longer_has_is_added(self, post):
+        radarr = self._radarr_without_movie()
+        resp = post({"title": "Dune", "tmdb_id": 42}, radarr=radarr)
+        assert resp.json()["ok"] is True
+        radarr.add_movie.assert_called_once_with(42, "Dune")
+        radarr.remonitor_movie.assert_not_called()
+
+    def test_a_season_sonarr_still_holds_is_remonitored_not_added(self, post, conn):
+        sonarr = MagicMock()
+        sonarr.get_series_by_tvdb.return_value = {"id": 202, "tvdbId": 999}
+        resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
+        assert resp.json()["ok"] is True
+        sonarr.remonitor_season.assert_called_once_with(202, 2)
+        sonarr.add_series_with_seasons.assert_not_called()
+        assert conn.execute("SELECT 1 FROM audit_log WHERE action='re_downloaded'").fetchone()
+
+    def test_a_series_sonarr_no_longer_has_is_added_with_only_that_season(self, post):
+        sonarr = self._sonarr_without_series()
+        resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
+        assert resp.json()["ok"] is True
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2], [2])
+        sonarr.remonitor_season.assert_not_called()
+
+    def test_a_movie_request_without_radarr_is_refused(self, post):
+        resp = post({"title": "Dune", "tmdb_id": 42}, radarr=None, sonarr=MagicMock())
+        assert resp.status_code == 409
+        assert resp.json()["ok"] is False
+
+    def test_overlong_title_is_truncated_not_rejected(self, post):
+        radarr = self._radarr_without_movie()
+        resp = post({"title": "A" * 300, "tmdb_id": 42}, radarr=radarr)
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["ok"] is True
-        mock_radarr.add_movie.assert_called_once_with(42, "Dune")
+        assert len(radarr.add_movie.call_args[0][1]) == 256
 
-    def test_redownload_falls_through_to_sonarr_when_radarr_finds_nothing(
-        self, app_factory, authed_client, conn
+
+class TestRedownloadAlreadyAdded:
+    """A duplicate refusal that races the lookup surfaces as 'already exists', not a failure."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        _REDOWNLOAD_LIMITER.reset()
+
+    def _post_movie(self, app_factory, authed_client, conn, error):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.add_movie.side_effect = error
+        client = authed_client(_app(app_factory, conn), conn)
+        with patch(RADARR, return_value=radarr):
+            return client.post("/api/media/redownload", json={"title": "Dune", "tmdb_id": 42})
+
+    @pytest.mark.parametrize(
+        ("status", "body"),
+        [
+            (409, "conflict"),
+            (422, "unprocessable"),
+            (400, '[{"errorMessage":"This movie has already been added"}]'),
+        ],
+    )
+    def test_movie_duplicate_says_already_exists(
+        self, app_factory, authed_client, conn, status, body
     ):
-        """When Radarr returns no lookup results, Sonarr is tried next."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = []  # Radarr finds nothing
-
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = [
-            {"tvdbId": 999, "tmdbId": None, "title": "Severance", "year": 2022}
-        ]
-        mock_sonarr.add_series.return_value = None
-
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": "Severance", "tvdb_id": 999},
-            )
-
+        err = SafeHTTPError(status_code=status, body_snippet=body, url="http://radarr/api/v3/movie")
+        resp = self._post_movie(app_factory, authed_client, conn, err)
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["ok"] is True
-        mock_sonarr.add_series.assert_called_once()
+        assert resp.json()["ok"] is False
+        assert "already exists in Radarr" in resp.json()["error"]
 
-    def test_redownload_title_only_refused(self, app_factory, authed_client, conn):
-        """Title-only submissions without year are refused."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        resp = client.post("/api/media/redownload", json={"title": "Dune"})
-        assert resp.status_code == 400
-
-    def test_redownload_title_year_accepted_when_unambiguous(
-        self, app_factory, authed_client, conn
-    ):
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = [
-            {"tmdbId": 99, "title": "Dune", "year": 2021},
-            {"tmdbId": 7, "title": "Completely Different", "year": 1999},
-        ]
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
+    def test_series_duplicate_says_already_exists(self, app_factory, authed_client, conn):
+        sonarr = MagicMock()
+        sonarr.get_series_by_tvdb.return_value = None
+        sonarr.add_series_with_seasons.side_effect = SafeHTTPError(
+            status_code=400,
+            body_snippet="This series has already been added",
+            url="http://sonarr/api/v3/series",
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        with patch(SONARR, return_value=sonarr):
             resp = client.post(
                 "/api/media/redownload",
-                json={"title": "Dune", "year": 2021},
+                json={"title": "Severance", "tvdb_id": 999, "season_number": 1},
             )
+        assert resp.json()["ok"] is False
+        assert "already exists in Sonarr" in resp.json()["error"]
+
+    def test_an_unrelated_400_is_a_failure_not_a_duplicate(self, app_factory, authed_client, conn):
+        err = SafeHTTPError(
+            status_code=400, body_snippet="Invalid root folder", url="http://radarr/api/v3/movie"
+        )
+        resp = self._post_movie(app_factory, authed_client, conn, err)
+        assert resp.json()["ok"] is False
+        assert "already exists" not in resp.json()["error"]
+
+    def test_a_connection_error_is_reported_not_a_500(self, app_factory, authed_client, conn):
+        resp = self._post_movie(app_factory, authed_client, conn, requests.ConnectionError("down"))
         assert resp.status_code == 200
-        mock_radarr.add_movie.assert_called_once_with(99, "Dune")
-
-    def test_redownload_title_year_ambiguous_refused(self, app_factory, authed_client, conn):
-        """Two equally-confident matches with the same year fall through (no add)."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        # Two identical titles, same year — ambiguous.
-        mock_radarr.lookup_by_term.return_value = [
-            {"tmdbId": 1, "title": "Inception", "year": 2010},
-            {"tmdbId": 2, "title": "Inception", "year": 2010},
-        ]
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = []
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": "Inception", "year": 2010},
-            )
-        # add_movie must not be called in an ambiguous case.
-        mock_radarr.add_movie.assert_not_called()
-        # Either a 409 (if Sonarr branch returns ambiguous) or fall-through
-        # "not found" response — both leave the user safe.
-        assert resp.status_code in (200, 400, 404, 409)
-        assert resp.json().get("ok") is False
-
-    def test_redownload_wrong_year_refused(self, app_factory, authed_client, conn):
-        """A title-only request whose year does not match any lookup entry is refused."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = [
-            {"tmdbId": 10, "title": "Inception", "year": 2010},
-        ]
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = []
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            client.post(
-                "/api/media/redownload",
-                json={"title": "Inception", "year": 2020},  # wrong year
-            )
-        mock_radarr.add_movie.assert_not_called()
+        assert "connectivity" in resp.json()["error"].lower()
 
 
 class TestMediaKeepRateLimit:
@@ -1202,208 +1229,3 @@ class TestLibrarySearchLikeEscape:
         titles = {i["title"] for i in items}
         assert "foo_bar" in titles
         assert "fooXbar" not in titles
-
-
-class TestRedownloadSafeHTTPError:
-    """SafeHTTPError 409/422 from Radarr/Sonarr must surface as 'already exists' responses."""
-
-    @pytest.fixture(autouse=True)
-    def _reset_limiters(self):
-        _DELETE_LIMITER.reset()
-        _KEEP_LIMITER.reset()
-
-    def test_radarr_409_safe_http_error_returns_already_exists(
-        self, app_factory, authed_client, conn
-    ):
-        from mediaman.services.infra import SafeHTTPError
-
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
-        mock_radarr.add_movie.side_effect = SafeHTTPError(
-            status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
-        )
-
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
-            resp = client.post("/api/media/redownload", json={"title": "Dune", "tmdb_id": 42})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["ok"] is False
-        assert "already exists in Radarr" in body["error"]
-
-    def test_radarr_422_safe_http_error_returns_already_exists(
-        self, app_factory, authed_client, conn
-    ):
-        """A 422 SafeHTTPError from Radarr is treated identically to 409."""
-        from mediaman.services.infra import SafeHTTPError
-
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
-        mock_radarr.add_movie.side_effect = SafeHTTPError(
-            status_code=422, body_snippet="unprocessable", url="http://radarr/api/v3/movie"
-        )
-
-        with patch(
-            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
-        ):
-            resp = client.post("/api/media/redownload", json={"title": "Dune", "tmdb_id": 42})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["ok"] is False
-        assert "already exists in Radarr" in body["error"]
-
-    def test_sonarr_409_safe_http_error_returns_already_exists(
-        self, app_factory, authed_client, conn
-    ):
-        from mediaman.services.infra import SafeHTTPError
-
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = []  # Radarr finds nothing — falls through
-
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = [
-            {"tvdbId": 999, "tmdbId": None, "title": "Severance", "year": 2022}
-        ]
-        mock_sonarr.add_series.side_effect = SafeHTTPError(
-            status_code=409, body_snippet="already exists", url="http://sonarr/api/v3/series"
-        )
-
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post("/api/media/redownload", json={"title": "Severance", "tvdb_id": 999})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["ok"] is False
-        assert "already exists in Sonarr" in body["error"]
-
-
-class TestRedownloadTitleCap:
-    """Redownload title must be capped at 256 chars."""
-
-    @pytest.fixture(autouse=True)
-    def _reset_limiters(self):
-        _DELETE_LIMITER.reset()
-        _KEEP_LIMITER.reset()
-
-    def test_overlong_title_is_silently_truncated(self, app_factory, authed_client, conn):
-        """A title over 256 chars is truncated, not rejected."""
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        long_title = "A" * 300
-        mock_radarr = MagicMock()
-        # Simulate lookup returning nothing (title won't match after truncation)
-        mock_radarr.lookup_by_term.return_value = []
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = []
-
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": long_title, "tmdb_id": 42},
-            )
-        # Must not raise; result doesn't matter (lookup returns nothing)
-        assert resp.status_code in (200, 400, 404)
-        # The lookup MUST have been called — if it wasn't, truncation never happened.
-        assert mock_radarr.lookup_by_term.called, (
-            "lookup_by_term was never called; the redownload handler may have "
-            "short-circuited before performing the truncated lookup"
-        )
-        term_used = mock_radarr.lookup_by_term.call_args[0][0]
-        assert len(term_used) <= 256, (
-            f"Lookup term length {len(term_used)} exceeds the 256-char cap"
-        )
-
-
-class TestRedownloadBareRequestsException:
-    """Bare requests.RequestException during redownload must not cause a 500.
-
-    A requests.ConnectionError propagating bare out of lookup_by_term (before
-    SafeHTTPClient has a chance to wrap it) must be caught:
-    - In the Radarr branch: fall through to Sonarr gracefully (return None).
-    - In the Sonarr branch: return the "check service connectivity" failure
-      response, not an unhandled exception.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _reset_limiters(self):
-        _DELETE_LIMITER.reset()
-        _KEEP_LIMITER.reset()
-
-    def test_radarr_bare_connection_error_falls_through_to_sonarr(
-        self, app_factory, authed_client, conn
-    ):
-        import requests as _requests
-
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.side_effect = _requests.ConnectionError("timed out")
-
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.return_value = [
-            {"tvdbId": 999, "tmdbId": None, "title": "Shogun", "year": 2024}
-        ]
-        mock_sonarr.add_series.return_value = None
-
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": "Shogun", "tvdb_id": 999},
-            )
-
-        # Must not be 500; Sonarr fallback succeeded
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is True
-        mock_sonarr.add_series.assert_called_once()
-
-    def test_sonarr_bare_connection_error_returns_failure_response(
-        self, app_factory, authed_client, conn
-    ):
-        import requests as _requests
-
-        app = _app(app_factory, conn)
-        client = authed_client(app, conn)
-
-        mock_radarr = MagicMock()
-        mock_radarr.lookup_by_term.return_value = []  # Radarr finds nothing
-
-        mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_term.side_effect = _requests.ConnectionError("refused")
-
-        with (
-            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
-        ):
-            resp = client.post(
-                "/api/media/redownload",
-                json={"title": "Shogun", "tvdb_id": 999},
-            )
-
-        # Must not be 500; graceful failure message expected
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["ok"] is False
-        assert "connectivity" in body["error"].lower()

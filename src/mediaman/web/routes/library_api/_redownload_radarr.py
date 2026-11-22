@@ -1,114 +1,55 @@
-"""Radarr branch of the redownload flow.
-The shared lookup matcher and audit-ID picker live in ._redownload_match.
-"""
+"""Radarr branch of the redownload flow: bring a movie back into Radarr."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-import requests
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
     import sqlite3
 
-from mediaman.services.arr.base import ArrClient, ArrError
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.arr.base import ArrClient
 from mediaman.web.repository.library_api import record_redownload
-from mediaman.web.routes.library_api._redownload_match import (
-    _pick_lookup_match,
-    _redownload_audit_id,
-)
+from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
 
 logger = logging.getLogger(__name__)
 
 
-def _radarr_add_and_record(
+def _redownload_movie(
     client: ArrClient,
-    entry: Mapping[str, object],
     *,
     conn: sqlite3.Connection,
     title: str,
-    imdb_id: str | None,
+    tmdb_id: int,
     username: str,
-) -> JSONResponse | None:
-    """Add a movie via Radarr and persist the audit row; None if the lookup entry has no usable
-    tmdbId, so the caller keeps falling through.
+) -> JSONResponse:
+    """Re-monitor and search a movie Radarr still holds, or add it when Radarr no longer has it.
+
+    A Library Delete leaves the movie in Radarr unmonitored, so the lookup comes first: adding
+    it again would only be refused as a duplicate. Radarr errors propagate to the caller.
     """
-    resolved_tmdb = entry.get("tmdbId")
-    if not resolved_tmdb:
-        return None
-    resolved_title = str(entry.get("title") or title)
-    resolved_tmdb_int = int(str(resolved_tmdb))
-    client.add_movie(resolved_tmdb_int, resolved_title)
-    audit_id = _redownload_audit_id(
-        media_type="movie",
-        tmdb_id=resolved_tmdb_int,
-        tvdb_id=None,
-        imdb_id=imdb_id,
-    )
+    existing = client.get_movie_by_tmdb(tmdb_id)
+    movie_id = existing.get("id") if existing else None
+    if movie_id is not None:
+        client.remonitor_movie(int(movie_id))
+        message = f"Re-monitored '{title}' in Radarr and started a search"
+    else:
+        client.add_movie(tmdb_id, title)
+        message = f"Added '{title}' to Radarr"
     record_redownload(
         conn,
-        audit_id=audit_id,
-        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
+        audit_id=_redownload_audit_id(
+            media_type="movie", tmdb_id=tmdb_id, tvdb_id=None, imdb_id=None
+        ),
+        audit_detail=f"Re-downloaded '{title}' by {username}",
         actor=username,
         email=username,
-        title=resolved_title,
+        title=title,
         media_type="movie",
         service="radarr",
-        tmdb_id=resolved_tmdb_int,
+        tmdb_id=tmdb_id,
     )
-    logger.info(
-        "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
-        resolved_title,
-        resolved_tmdb,
-        username,
-    )
-    return JSONResponse({"ok": True, "message": f"Added '{resolved_title}' to Radarr"})
-
-
-def _try_radarr_redownload(
-    client: ArrClient,
-    *,
-    conn: sqlite3.Connection,
-    title: str,
-    year: int | None,
-    tmdb_id: int | None,
-    imdb_id: str | None,
-    username: str,
-) -> JSONResponse | None:
-    """Attempt a Radarr redownload; None means fall through to Sonarr. A duplicate (HTTP
-    409/422) returns an "already exists" response; other failures log and return None.
-    """
-    try:
-        # lookup_by_term URL-encodes the term internally — pass the raw title.
-        lookup = client.lookup_by_term(title, endpoint="/api/v3/movie/lookup")
-        entry, _err = _pick_lookup_match(
-            lookup or [],
-            title=title,
-            year=year,
-            tmdb_id=tmdb_id,
-            tvdb_id=None,
-            imdb_id=imdb_id,
-        )
-        if entry is None:
-            return None
-        return _radarr_add_and_record(
-            client, entry, conn=conn, title=title, imdb_id=imdb_id, username=username
-        )
-    except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Radarr"})
-        # Fall through to try Sonarr
-        return None
-    except (requests.RequestException, ArrError, ValueError) as exc:
-        # Match the Sonarr branch so a Radarr misconfiguration
-        # (``ArrConfigError`` from missing root folder / quality profile,
-        # ``ArrUpstreamError`` from a bad lookup response, ``ValueError``
-        # from an invalid tmdb/tvdb id) or a bare transport error
-        # (``requests.RequestException``) doesn't abort the whole handler
-        # before the Sonarr fallback gets a chance to run.
-        logger.warning("Radarr redownload failed for '%s': %s", title, exc, exc_info=True)
-        return None
+    logger.info("Re-downloaded '%s' (tmdb=%s) via Radarr by %s", title, tmdb_id, username)
+    return JSONResponse({"ok": True, "message": message})
