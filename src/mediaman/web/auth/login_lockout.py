@@ -138,6 +138,18 @@ def login_ip_key(username: str, client_ip: str) -> str:
     return f"{_LOGIN_IP_PREFIX}{_ip_bucket(client_ip)}{_NAMESPACE_MARK}{username}"
 
 
+def _log_fields(key: str) -> tuple[str, str]:
+    """Return ``(bucket, username)`` of a counter *key*, sanitised for a log line.
+
+    A per-IP login key is split into its bucket and username; any other key
+    has no bucket and is logged whole.
+    """
+    if key.startswith(_LOGIN_IP_PREFIX):
+        bucket, _, name = key[len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)
+        return _sanitise_log_field(bucket), _sanitise_log_field(name)
+    return "-", _sanitise_log_field(key)
+
+
 def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
     """Return every stored login counter key of *username*, across all IPs.
 
@@ -241,9 +253,11 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     # must not be able to escape the lock by garbling it.
     locked_until = parse_iso_strict_utc(raw_locked_until)
     if locked_until is None:
+        bucket, name = _log_fields(username)
         logger.warning(
-            "auth.lockout_corrupt_locked_until user=%s locked_until=%r reason=fail_closed",
-            _sanitise_log_field(username),
+            "auth.lockout_corrupt_locked_until user=%s ip=%s locked_until=%r reason=fail_closed",
+            name,
+            bucket,
             raw_locked_until,
         )
         return True
@@ -379,17 +393,21 @@ def _apply_lockout(
                 "UPDATE login_failures SET locked_until = ? WHERE username = ?",
                 (_iso(now + timedelta(minutes=minutes)), username),
             )
+            bucket, name = _log_fields(username)
             logger.warning(
-                "auth.account_locked user=%s count=%d minutes=%d",
-                _sanitise_log_field(username),
+                "auth.account_locked user=%s ip=%s count=%d minutes=%d",
+                name,
+                bucket,
                 count,
                 minutes,
             )
         else:
+            bucket, name = _log_fields(username)
             logger.info(
-                "auth.lock_window_unchanged user=%s count=%d minutes=%d "
+                "auth.lock_window_unchanged user=%s ip=%s count=%d minutes=%d "
                 "reason=already_locked_no_escalation",
-                _sanitise_log_field(username),
+                name,
+                bucket,
                 count,
                 minutes,
             )

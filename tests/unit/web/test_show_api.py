@@ -103,6 +103,16 @@ class TestShowKeepAPI:
         ).fetchall()
         assert len(actions) == 2
 
+    def test_keeps_show_whose_key_contains_a_slash(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "AC/DC", 1, "AC/DC")
+        resp = authed_client.post(
+            "/api/show/AC/DC/keep", json={"duration": "forever", "season_ids": ["101"]}
+        )
+        assert resp.status_code == 200
+        row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='AC/DC'").fetchone()
+        assert row is not None
+
     def test_keeps_show_timed(self, authed_client, app):
         conn = app.state.db
         _insert_season(conn, "101", "Breaking Bad", 1, "100")

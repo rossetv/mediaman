@@ -149,7 +149,7 @@ def _build_season_action_rows(
     return to_update, to_insert, to_delete
 
 
-@router.post("/api/show/{show_rating_key}/keep")
+@router.post("/api/show/{show_rating_key:path}/keep")
 def api_keep_show(
     show_rating_key: str,
     body: _KeepShowBody,

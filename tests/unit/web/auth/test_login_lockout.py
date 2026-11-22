@@ -849,3 +849,28 @@ class TestAdminUnlockWithAudit:
 
         assert result.was_locked is True
         assert self._audit_had_lock(conn) is True
+
+
+class TestLogInjection:
+    HOSTILE = "bob\r\nWARNING forged auth.line"
+
+    def test_locked_branch_cannot_start_a_new_log_line(self, conn, caplog):
+        for _ in range(5):
+            authenticate(conn, self.HOSTILE, "x", client_ip="203.0.113.5")
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            authenticate(conn, self.HOSTILE, "x", client_ip="203.0.113.5")
+        text = caplog.text
+        assert "auth.account_locked" in text
+        assert "\r" not in caplog.records[0].getMessage()
+        assert "\n" not in caplog.records[0].getMessage()
+
+    def test_per_ip_lock_logs_bucket_and_username_separately(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                record_failure(conn, login_ip_key("nobody", "203.0.113.5"))
+        msg = next(
+            r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()
+        )
+        assert "user=nobody" in msg
+        assert "ip=203.0.113.5" in msg
