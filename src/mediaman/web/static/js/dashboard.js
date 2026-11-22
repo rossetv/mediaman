@@ -213,6 +213,10 @@
   function dashSubmitKeep(btn, duration) {
     var wrapper = btn.closest('.keep-wrapper');
     if (!wrapper) return;
+    /* A second click while the request runs sends nothing; the flag is
+       cleared only on failure, since success reloads the page. */
+    if (wrapper.dataset.keepBusy === '1') return;
+    wrapper.dataset.keepBusy = '1';
     var mediaId = wrapper.dataset.id;
     MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
       { duration: duration })
@@ -226,6 +230,7 @@
         window.location.reload();
       })
       .catch(function (err) {
+        delete wrapper.dataset.keepBusy;
         var msg = (err instanceof MM.api.APIError && err.message) || 'Try again.';
         window.UIFeedback.error("Couldn't save keep. " + msg);
       });
