@@ -90,6 +90,23 @@ def check_schema_version(db_path: str) -> None:
     _refuse_old_schema(db_path, version)
 
 
+# Columns added to existing tables after the baseline schema. CREATE TABLE IF
+# NOT EXISTS leaves an older table as it was, so each is added when missing.
+_ADDED_COLUMNS = (
+    ("media_items", "tmdb_id", "INTEGER"),
+    ("media_items", "tvdb_id", "INTEGER"),
+    ("media_items", "tracked_files", "TEXT"),
+    ("scheduled_actions", "removed_files", "TEXT"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, column, sql_type in _ADDED_COLUMNS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     """Initialise the database, creating tables if needed.
 
@@ -109,6 +126,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _configure_connection(conn)
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
+        _add_missing_columns(conn)
         conn.commit()
     except Exception:
         conn.close()

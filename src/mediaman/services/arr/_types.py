@@ -91,6 +91,7 @@ class SonarrSeries(TypedDict, total=False):
     imdbId: str
     year: int
     titleSlug: str
+    path: str
     monitored: bool
     seasons: list[ArrSeason]
     statistics: ArrSeriesStatistics
@@ -104,21 +105,31 @@ class RadarrMovieFile(TypedDict, total=False):
     Populated only when ``hasFile`` is true.  Mediaman reads ``path`` and
     ``dateAdded`` to anchor file-age computations against the *arr metadata
     rather than the filesystem mtime (which loses fidelity across
-    container restarts).
+    container restarts).  ``relativePath`` (relative to the movie folder)
+    and ``size`` (bytes) identify the exact file before a delete.
     """
 
     id: int
     path: str
+    relativePath: str
+    size: int
     dateAdded: str
 
 
 class RadarrMovie(TypedDict, total=False):
+    """Radarr movie payload (``/api/v3/movie`` and ``/api/v3/movie/{id}``).
+
+    ``path`` is the movie's folder; ``movieFile`` is absent until a file
+    has been imported.
+    """
+
     id: int
     title: str
     tmdbId: int
     imdbId: str
     year: int
     titleSlug: str
+    path: str
     monitored: bool
     hasFile: bool
     isAvailable: bool
@@ -160,10 +171,18 @@ class ArrQueueItem(TypedDict, total=False):
 
 
 class ArrEpisodeFile(TypedDict, total=False):
+    """A Sonarr episode file (``/api/v3/episodefile?seriesId=N``).
+
+    ``path`` is absolute; ``relativePath`` is relative to the series
+    folder (e.g. ``Season 01/Show - S01E01.mkv``); ``size`` is in bytes.
+    """
+
     id: int
     seriesId: int
     seasonNumber: int
     path: str
+    relativePath: str
+    size: int
     dateAdded: str
 
 

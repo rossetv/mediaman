@@ -426,3 +426,69 @@ class TestScanEngine:
         expected_utc = datetime.fromtimestamp(posix_ts, tz=UTC)
 
         assert abs((stored - expected_utc).total_seconds()) < 2
+
+
+class TestSyncWriteIsolation:
+    def test_one_bad_item_does_not_stop_the_rest_of_the_sync(self, conn, mock_plex):
+        from mediaman.scanner.fetch import FetchedLibrary, PlexItemFetch
+
+        def fetch(key, file_path):
+            return PlexItemFetch(
+                item={
+                    "plex_rating_key": key,
+                    "title": f"Movie {key}",
+                    "added_at": datetime(2024, 1, 1, tzinfo=UTC),
+                    "file_path": file_path,
+                    "file_size_bytes": 1,
+                    "poster_path": "",
+                },
+                library_id="1",
+                media_type="movie",
+                watch_history=[],
+            )
+
+        # file_path None violates NOT NULL on media_items.
+        items = [fetch("1", "/m/a"), fetch("2", None), fetch("3", "/m/c")]
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="test-key",
+        )
+        summary = {"synced": 0, "errors": 0, "removed": 0}
+        engine._sync_phase_write(
+            {"1": FetchedLibrary(items=items, skipped_keys=frozenset())}, summary
+        )
+
+        ids = {r["id"] for r in conn.execute("SELECT id FROM media_items")}
+        assert ids == {"1", "3"}
+        assert summary["synced"] == 2
+        assert summary["errors"] == 1
+        assert not conn.in_transaction
+
+    def test_item_failure_that_ends_the_transaction_counts_as_an_error(self, conn, mock_plex):
+        """A fatal SQLite error ends the transaction, so the savepoint is gone."""
+        import sqlite3
+        from unittest.mock import patch
+
+        from mediaman.scanner.fetch import PlexItemFetch
+
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="test-key",
+        )
+        f = PlexItemFetch(
+            item={"plex_rating_key": "1"}, library_id="1", media_type="movie", watch_history=[]
+        )
+
+        def fatal(*_a, **_k):
+            conn.rollback()
+            raise sqlite3.OperationalError("disk I/O error")
+
+        with patch("mediaman.scanner.engine._phase_upsert_item", side_effect=fatal):
+            assert engine._upsert_item_isolated(f) is False
+        assert not conn.in_transaction

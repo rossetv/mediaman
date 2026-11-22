@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,12 +11,26 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.services.infra import TrackedFilesResult
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
+
+
+def _track(conn, item_id, path, size, tmdb_id=None, tvdb_id=None):
+    conn.execute(
+        "UPDATE media_items SET tracked_files = ?, tmdb_id = ?, tvdb_id = ? WHERE id = ?",
+        (json.dumps([{"path": path, "size": size}]), tmdb_id, tvdb_id, item_id),
+    )
+    conn.commit()
+
+
+def _removed(size=0):
+    """What delete_tracked_files returns once every tracked file is gone."""
+    return TrackedFilesResult(removed=[], bytes_freed=size, not_found=[])
 
 
 @pytest.fixture
@@ -40,6 +55,7 @@ class TestExecuteDeletions:
             file_path=file_path,
             file_size_bytes=file_size,
         )
+        _track(conn, item_id, file_path, file_size)
 
     def _insert_scheduled_deletion(self, conn, item_id, execute_at):
         insert_scheduled_action(
@@ -89,7 +105,9 @@ class TestExecuteDeletions:
         self._insert_item(conn, "800", "Deletable Movie", file_size=2_000_000)
         self._insert_scheduled_deletion(conn, "800", past)
 
-        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
+        with patch(
+            "mediaman.scanner.deletions.delete_tracked_files", return_value=_removed(2_000_000)
+        ) as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -99,7 +117,12 @@ class TestExecuteDeletions:
             )
             result = engine.execute_deletions()
 
-        mock_delete.assert_called_once_with("/tmp/fake", allowed_roots=["/tmp"])
+        mock_delete.assert_called_once_with(
+            [{"path": "/tmp/fake", "size": 2_000_000}],
+            allowed_roots=["/tmp"],
+            protected_paths=set(),
+            sweep_sidecars_of=set(),
+        )
         assert result["deleted"] == 1
         assert result["reclaimed_bytes"] == 2_000_000
 
@@ -119,7 +142,7 @@ class TestExecuteDeletions:
         self._insert_item(conn, "900", "Future Movie")
         self._insert_scheduled_deletion(conn, "900", future)
 
-        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
+        with patch("mediaman.scanner.deletions.delete_tracked_files") as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -147,11 +170,13 @@ class TestExecuteDeletions:
             file_size_bytes=500_000,
             radarr_id=42,
         )
+        _track(conn, "910", "/tmp/fake", 500_000, tmdb_id=555)
         self._insert_scheduled_deletion(conn, "910", past)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_id.return_value = {"id": 42, "tmdbId": 555, "path": "/x/tmp"}
 
-        with patch("mediaman.scanner.deletions.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", return_value=_removed()):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -163,6 +188,39 @@ class TestExecuteDeletions:
             engine.execute_deletions()
 
         mock_radarr.unmonitor_movie.assert_called_once_with(42)
+
+    def test_radarr_entry_for_another_movie_is_not_unmonitored(
+        self, conn, mock_plex, monkeypatch, freezer
+    ):
+        past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
+        insert_media_item(
+            conn,
+            id="911",
+            title="Radarr Movie",
+            plex_rating_key="911",
+            file_path="/tmp/fake",
+            file_size_bytes=500_000,
+            radarr_id=42,
+        )
+        _track(conn, "911", "/tmp/fake", 500_000, tmdb_id=555)
+        self._insert_scheduled_deletion(conn, "911", past)
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_id.return_value = {"id": 42, "tmdbId": 999, "path": "/x/tmp"}
+
+        with patch("mediaman.scanner.deletions.delete_tracked_files", return_value=_removed()):
+            engine = ScanEngine(
+                conn=conn,
+                plex_client=mock_plex,
+                library_ids=[],
+                library_types={},
+                secret_key="test-key",
+                radarr_client=mock_radarr,
+            )
+            engine.execute_deletions()
+
+        mock_radarr.unmonitor_movie.assert_not_called()
 
     def test_sonarr_unmonitor_called(self, conn, mock_plex, monkeypatch, freezer):
         """execute_deletions calls sonarr.unmonitor_season when sonarr_id + season_number set."""
@@ -181,11 +239,18 @@ class TestExecuteDeletions:
             sonarr_id=99,
             season_number=1,
         )
+        _track(conn, "920", "/tmp/fake", 800_000, tvdb_id=777)
         self._insert_scheduled_deletion(conn, "920", past)
 
         mock_sonarr = MagicMock()
+        mock_sonarr.get_series_by_id.return_value = {
+            "id": 99,
+            "tvdbId": 777,
+            "path": "/x/tmp",
+            "seasons": [{"seasonNumber": 1}],
+        }
 
-        with patch("mediaman.scanner.deletions.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", return_value=_removed()):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -213,12 +278,13 @@ class TestExecuteDeletions:
             file_size_bytes=100_000,
             radarr_id=7,
         )
+        _track(conn, "930", "/tmp/fake", 100_000)
         self._insert_scheduled_deletion(conn, "930", past)
 
         mock_radarr = MagicMock()
         mock_radarr.unmonitor_movie.side_effect = requests.ConnectionError("radarr down")
 
-        with patch("mediaman.scanner.deletions.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", return_value=_removed()):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -248,7 +314,7 @@ class TestExecuteDeletions:
         self._insert_item(conn, "880", "No Roots Movie")
         self._insert_scheduled_deletion(conn, "880", past)
 
-        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
+        with patch("mediaman.scanner.deletions.delete_tracked_files") as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -287,11 +353,12 @@ class TestExecuteDeletions:
         self._insert_item(conn, "882", "Bad Root", file_path="/etc/passwd")
         self._insert_scheduled_deletion(conn, "882", past)
 
-        def fake_delete(path, *, allowed_roots):
-            if path == "/etc/passwd":
+        def fake_delete(tracked, **kwargs):
+            if tracked[0]["path"] == "/etc/passwd":
                 raise ValueError("outside allowed roots")
+            return _removed()
 
-        with patch("mediaman.scanner.deletions.delete_path", side_effect=fake_delete):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", side_effect=fake_delete):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,

@@ -471,3 +471,36 @@ class TestReadyzLogging:
             assert resp.json() == {"status": "ready"}
             assert len([r for r in caplog.records if "ready again" in r.getMessage()]) == 1
             assert warning_count() == 2
+
+
+class TestJobFailureReleasesWriteLock:
+    @pytest.mark.parametrize("job_name", ["_run_library_sync_job", "_run_scheduled_scan"])
+    def test_failed_job_leaves_no_open_write_transaction(self, db_path, monkeypatch, job_name):
+        import sqlite3
+
+        from mediaman.bootstrap import scan_jobs
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+
+        def failing_job(c, *args, **kwargs):
+            c.execute(
+                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('x','y',0,'t')"
+            )
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr("mediaman.db.get_db", lambda: conn)
+        monkeypatch.setattr("mediaman.scanner.runner.run_library_sync", failing_job)
+        monkeypatch.setattr("mediaman.scanner.runner.run_scan_from_db", failing_job)
+
+        if job_name == "_run_scheduled_scan":
+            getattr(scan_jobs, job_name)(None, "k")
+        else:
+            getattr(scan_jobs, job_name)("k")
+
+        other = sqlite3.connect(str(db_path), timeout=0.2)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            assert other.execute("SELECT 1 FROM settings WHERE key='x'").fetchone() is None
+        finally:
+            other.close()

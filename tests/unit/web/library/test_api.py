@@ -1,6 +1,6 @@
 """Tests for mediaman.web.routes.library.api.
 
-Covers GET /api/library and the _pick_lookup_match helper.
+Covers GET /api/library.
 The delete/keep/redownload endpoints are already covered in
 tests/unit/web/test_library_mutations.py — this file targets what is
 not already covered.
@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
     _KEEP_LIMITER,
-    _pick_lookup_match,
 )
 from mediaman.web.routes.library_api import (
     router as api_router,
@@ -32,99 +31,6 @@ def _insert_movie(conn, media_id: str, title: str = "Test Movie") -> None:
         file_path="/f",
         file_size_bytes=1_000_000,
     )
-
-
-class TestPickLookupMatch:
-    def test_empty_lookup_returns_error(self):
-        _, err = _pick_lookup_match(
-            [], title="Dune", year=2021, tmdb_id=None, tvdb_id=None, imdb_id=None
-        )
-        assert err == "No lookup results"
-
-    def test_tmdb_id_match_returns_entry(self):
-        lookup = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
-        entry, err = _pick_lookup_match(
-            lookup,
-            title="Dune",
-            year=2021,
-            tmdb_id=42,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is None
-        assert entry is not None
-        assert entry["tmdbId"] == 42
-
-    def test_ambiguous_tmdb_id_returns_error(self):
-        """Two entries sharing the same tmdbId → ambiguous."""
-        lookup = [
-            {"tmdbId": 42, "title": "Dune", "year": 2021},
-            {"tmdbId": 42, "title": "Dune Part Two", "year": 2024},
-        ]
-        _, err = _pick_lookup_match(
-            lookup,
-            title="Dune",
-            year=2021,
-            tmdb_id=42,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is not None
-        assert "Ambiguous" in err
-
-    def test_no_id_falls_back_to_title_year(self):
-        """Without any ID, a high-confidence title+year match is returned."""
-        lookup = [{"tmdbId": 10, "title": "Inception", "year": 2010}]
-        entry, err = _pick_lookup_match(
-            lookup,
-            title="Inception",
-            year=2010,
-            tmdb_id=None,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is None
-        assert entry is not None
-
-    def test_low_confidence_title_match_rejected(self):
-        """A fuzzy title score below 0.9 is rejected."""
-        lookup = [{"tmdbId": 1, "title": "Completely Different Title", "year": 2020}]
-        _, err = _pick_lookup_match(
-            lookup,
-            title="Inception",
-            year=2020,
-            tmdb_id=None,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is not None
-
-    def test_year_mismatch_rejected(self):
-        """A good title match with wrong year is rejected."""
-        lookup = [{"tmdbId": 1, "title": "Inception", "year": 2010}]
-        _, err = _pick_lookup_match(
-            lookup,
-            title="Inception",
-            year=2020,
-            tmdb_id=None,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is not None
-
-    def test_id_not_found_in_lookup_returns_error(self):
-        """A supplied tmdb_id that does not appear in the lookup results returns an error."""
-        lookup = [{"tmdbId": 99, "title": "Dune", "year": 2021}]
-        _, err = _pick_lookup_match(
-            lookup,
-            title="Dune",
-            year=2021,
-            tmdb_id=42,
-            tvdb_id=None,
-            imdb_id=None,
-        )
-        assert err is not None
-        assert "did not match" in err
 
 
 class TestApiLibraryList:

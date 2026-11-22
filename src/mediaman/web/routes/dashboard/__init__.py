@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
@@ -50,6 +51,9 @@ def dashboard_page(request: Request) -> Response:
     # SUM always returns a row; value is NULL when audit_log is empty.
     reclaimed_total = format_bytes(sum_reclaimed_bytes(conn))
 
+    # Read from the settings row only; the page never touches a mount.
+    unavailable_roots = sorted(read_delete_root_state(conn).items())
+
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -63,6 +67,7 @@ def dashboard_page(request: Request) -> Response:
             "scheduled_size": scheduled_size,
             "recently_deleted": recently_deleted,
             "reclaimed_total": reclaimed_total,
+            "unavailable_roots": unavailable_roots,
         },
     )
 

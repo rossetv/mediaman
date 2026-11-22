@@ -197,3 +197,53 @@ class TestArrDateCacheSonarr:
         result = cache.get("/tv/S1")
         # The garbage date is skipped; the parseable one remains cached.
         assert result == "2024-01-01T00:00:00Z"
+
+
+class TestArrIndex:
+    """The Radarr/Sonarr index comes from the same reads as the dates."""
+
+    def _radarr(self):
+        client = MagicMock()
+        client.get_movies.return_value = [
+            {
+                "id": 7,
+                "tmdbId": 603,
+                "path": "/movies/The Matrix (1999)",
+                "movieFile": {"path": "/movies/The Matrix (1999)/m.mkv", "dateAdded": "2024-01-01"},
+            }
+        ]
+        return client
+
+    def _sonarr(self):
+        client = MagicMock()
+        client.get_series.return_value = [
+            {"id": 3, "tvdbId": 121361, "path": "/tv/Show", "seasons": [{"seasonNumber": 1}]}
+        ]
+        client.get_episode_files.return_value = []
+        return client
+
+    def test_index_built_once_from_the_lists_the_dates_use(self):
+        radarr, sonarr = self._radarr(), self._sonarr()
+        cache = ArrDateCache(radarr_client=radarr, sonarr_client=sonarr)
+        cache.ensure_loaded()
+        cache.get("/movies/The Matrix (1999)/m.mkv")
+
+        assert cache.index.movies[603].radarr_id == 7
+        assert cache.index.series[121361].sonarr_id == 3
+        assert (cache.radarr_loaded, cache.sonarr_loaded) == (True, True)
+        assert radarr.get_movies.call_count == 1
+        assert sonarr.get_series.call_count == 1
+
+    def test_radarr_down_is_not_loaded_while_sonarr_is(self):
+        radarr = MagicMock()
+        radarr.get_movies.side_effect = requests.ConnectionError("down")
+        cache = ArrDateCache(radarr_client=radarr, sonarr_client=self._sonarr())
+        cache.ensure_loaded()
+        assert cache.radarr_loaded is False
+        assert cache.index.movies == {}
+        assert cache.sonarr_loaded is True
+
+    def test_missing_clients_are_not_loaded(self):
+        cache = ArrDateCache()
+        cache.ensure_loaded()
+        assert (cache.radarr_loaded, cache.sonarr_loaded) == (False, False)

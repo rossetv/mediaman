@@ -7,6 +7,10 @@ it at the barrel.
 from __future__ import annotations
 
 import logging
+import os
+import time
+from collections.abc import Callable
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 import requests
@@ -17,21 +21,28 @@ if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.db import get_db
+from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.match import verify_movie, verify_season
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.delete_intents import (
     _complete_delete_intent,
     _fail_delete_intent,
+    _is_not_found,
     _record_delete_intent,
 )
 from mediaman.web.repository.library_api import (
+    DeletionRunning,
     Kept,
     MediaDeleteSnapshot,
     NotFound,
     finalise_delete_in_tx,
+    other_item_uses_paths,
+    recheck_deletable,
     snapshot_media_for_delete,
+    tracked_files_of_same_title,
 )
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -57,84 +68,305 @@ def _kept_response() -> JSONResponse:
     )
 
 
-def _is_already_gone(exc: Exception) -> bool:
-    """Return True when an Arr exception carries a 404 (already deleted upstream), whether it
-    is a SafeHTTPError or any exception with response.status_code.
-    """
-    # SafeHTTPError exposes the status code directly
-    if getattr(exc, "status_code", None) == 404:
-        return True
-    # Fallback for exceptions that carry a response object (e.g. requests.HTTPError)
-    resp = getattr(exc, "response", None)
-    return getattr(resp, "status_code", None) == 404
+class _Refused(Exception):
+    """A check before the Radarr/Sonarr delete failed; nothing was deleted."""
+
+    def __init__(self, message: str, *, status: int = 409, error: str = "delete_refused") -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+        self.error = error
+
+    def response(self) -> JSONResponse:
+        return respond_err(self.error, status=self.status, message=self.message)
 
 
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
 
 
-def _try_radarr_delete(
+def _lookup[T](service: str, what: str, fetch: Callable[[], T], *, missing: str | None = None) -> T:
+    """Run a Radarr/Sonarr read made before a delete, turning any failure into a refusal.
+
+    A 404 here is never taken as "already gone": the item may live under
+    another id, so nothing is deleted. *missing* replaces the message of that refusal.
+    """
+    try:
+        return fetch()
+    except _ARR_ERRORS as exc:
+        if _is_not_found(exc):
+            raise _Refused(
+                missing or f"{service} has no entry for this {what}; nothing was deleted"
+            ) from exc
+        logger.warning("%s lookup failed before a delete: %s", service, exc)
+        raise _Refused(
+            f"Could not check this {what} in {service}; nothing was deleted",
+            status=502,
+            error="upstream_check_failed",
+        ) from exc
+
+
+def _recheck(conn: sqlite3.Connection, media_id: str) -> None:
+    try:
+        recheck_deletable(conn, media_id)
+    except (Kept, NotFound) as exc:
+        raise _Refused(
+            "This item is kept, so it cannot be deleted. Remove its keep first.", error="kept"
+        ) from exc
+    except DeletionRunning as exc:
+        raise _Refused(_DELETION_RUNNING_MESSAGE) from exc
+
+
+_SECOND_ITEM_MESSAGE = (
+    "More than one library item matches this {entry}, so mediaman cannot tell which "
+    "copy {service} would delete; nothing was deleted"
+)
+
+_DELETION_RUNNING_MESSAGE = (
+    "A scheduled deletion of this item is in progress; nothing was deleted. "
+    "Try again once it finishes."
+)
+
+
+def _tracked_paths(snapshot: MediaDeleteSnapshot) -> list[str]:
+    return [
+        path
+        for entry in snapshot.tracked_files or ()
+        if isinstance(path := entry.get("path"), str) and path
+    ]
+
+
+def _local_folders(paths: list[str], arr_folder: object, levels: int) -> set[str]:
+    """Return mediaman's own path of the Radarr/Sonarr folder *arr_folder*.
+
+    Radarr/Sonarr may mount the storage elsewhere, so the folder is found as
+    the parent (up to *levels* up) of a tracked file whose name matches.
+    """
+    if not isinstance(arr_folder, str):
+        return set()
+    name = arr_folder.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    found = set()
+    for path in paths:
+        for parent in list(PurePosixPath(path).parents)[:levels]:
+            if name and parent.name == name:
+                found.add(str(parent))
+                break
+    return found
+
+
+# Radarr removes a movie's folder in the background after it answers the
+# delete, so a file can outlive the call by a moment.
+_LOCAL_GONE_WAIT_SECONDS = 5.0
+_LOCAL_GONE_POLL_SECONDS = 0.25
+
+
+def _on_disk(paths: list[str]) -> list[str]:
+    return [path for path in paths if os.path.lexists(path)]
+
+
+def _still_on_disk(paths: list[str]) -> list[str]:
+    """Return which of *paths* are still on disk once the wait for them to go runs out."""
+    deadline = time.monotonic() + _LOCAL_GONE_WAIT_SECONDS
+    left = _on_disk(paths)
+    while left and time.monotonic() < deadline:
+        time.sleep(_LOCAL_GONE_POLL_SECONDS)
+        left = _on_disk(left)
+    return left
+
+
+def _upstream_failed(service: str) -> JSONResponse:
+    return respond_err(
+        "upstream_delete_failed",
+        status=502,
+        message=f"Upstream {service} delete failed — DB row preserved",
+    )
+
+
+def _unconfirmed(message: str) -> JSONResponse:
+    return respond_err("delete_unconfirmed", status=409, message=message)
+
+
+_RADARR_GONE_MESSAGE = (
+    "Radarr no longer has this movie, so mediaman could not confirm its files are gone. "
+    "The next library scan will update it."
+)
+_SONARR_GONE_MESSAGE = (
+    "Sonarr no longer has this show, so mediaman could not confirm the season's files "
+    "are gone. The next library scan will update it."
+)
+_LOCAL_FILES_LEFT_MESSAGE = (
+    "{service} answered the delete, but a file of this {what} is still on disk, so "
+    "mediaman did not book it as deleted. The next library scan will update it."
+)
+_RADARR_ID_UNKNOWN_MESSAGE = (
+    "Radarr does not list this movie under the id mediaman has, and its files are not on "
+    "disk, so it may already be deleted. Nothing was deleted now; the next library scan "
+    "will update it."
+)
+_RADARR_NO_ENTRY_MESSAGE = (
+    "Radarr has no entry for this movie and its files are not on disk, so it may already "
+    "be deleted. Nothing was deleted now; the next library scan will update it."
+)
+_SONARR_FILES_LEFT_MESSAGE = (
+    "Sonarr still lists files of this season after the delete, so mediaman could not "
+    "confirm they are gone. Nothing was booked as deleted; press Delete again."
+)
+
+
+def _delete_movie(
     client: ArrClient,
     snapshot: MediaDeleteSnapshot,
     *,
     conn: sqlite3.Connection,
     media_id: str,
     username: str,
-) -> tuple[int | None, JSONResponse | None]:
-    """Delete a movie via Radarr; returns (intent_id, short_circuit_resp). A non-None response
-    means the handler must return it immediately (e.g. 502 on an upstream failure).
+) -> tuple[int, str | JSONResponse]:
+    """Verify the movie against Radarr, then delete it with its files and an import exclusion.
+
+    Returns (intent_id, success message) or (intent_id, error response).
+
+    Raises:
+        _Refused: when a check failed before anything was deleted.
     """
     title = snapshot.title
+    tmdb_id = snapshot.tmdb_id
+    if not tmdb_id:
+        raise _Refused("Plex has no TMDB id for this movie; nothing was deleted")
     radarr_id = snapshot.radarr_id
-    if not radarr_id:
-        logger.info("No stored radarr_id for '%s' — skipping Radarr-level delete.", title)
-        return None, None
-    intent_id = _record_delete_intent(conn, media_id, "radarr", str(radarr_id))
+    # A 404 never books the item: a mount that is down also makes paths look gone.
+    tracked = _tracked_paths(snapshot)
+    if tracked and not _on_disk(tracked):
+        missing = _RADARR_ID_UNKNOWN_MESSAGE if radarr_id else _RADARR_NO_ENTRY_MESSAGE
+    else:
+        missing = "Radarr has no entry for this movie; nothing was deleted"
+    entry: RadarrMovie | None
+    if radarr_id:
+        entry = _lookup(
+            "Radarr", "movie", lambda: client.get_movie_by_id(radarr_id), missing=missing
+        )
+    else:
+        entry = _lookup(
+            "Radarr", "movie", lambda: client.get_movie_by_tmdb(tmdb_id), missing=missing
+        )
+    entry_id = entry.get("id") if entry else None
+    if not entry or not isinstance(entry_id, int):
+        raise _Refused(missing)
+    match = verify_movie(entry, tmdb_id=tmdb_id, tracked_files=snapshot.tracked_files)
+    if not match.ok:
+        raise _Refused(match.reason)
+    if any(
+        verify_movie(entry, tmdb_id=tmdb_id, tracked_files=other).ok
+        for other in tracked_files_of_same_title(conn, media_id, tmdb_id=tmdb_id)
+    ):
+        raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Radarr movie", service="Radarr"))
+    # Radarr's deleteFiles removes the whole movie folder.
+    folders = _local_folders(_tracked_paths(snapshot), entry.get("path"), 1)
+    if not folders:
+        raise _Refused(
+            "mediaman could not find Radarr's folder among this movie's files; nothing was deleted"
+        )
+    if other_item_uses_paths(conn, media_id, folders=folders):
+        raise _Refused("Another library item uses files in this folder; nothing was deleted")
+    _recheck(conn, media_id)
+    # A file mediaman cannot see tells nothing, so only the visible ones are watched.
+    on_disk_before = _on_disk(_tracked_paths(snapshot))
+
+    intent_id = _record_delete_intent(conn, media_id, "radarr", str(entry_id))
     failed_detail = f"Radarr did not confirm the delete of '{title}' by {username}"
     try:
-        client.delete_movie(radarr_id)
-        logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
-    except _ARR_ERRORS as exc:
-        if _is_already_gone(exc):
-            logger.info(
-                "Radarr reports id %s already gone for '%s' — idempotent delete",
-                radarr_id,
-                title,
+        client.delete_movie(entry_id)
+        logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, entry_id)
+        if _still_on_disk(on_disk_before):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail,
+                "A file of this movie is still on disk",
+                actor=username,
             )
-            return intent_id, None
+            return intent_id, _unconfirmed(
+                _LOCAL_FILES_LEFT_MESSAGE.format(service="Radarr", what="movie")
+            )
+    except _ARR_ERRORS as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
+        if _is_not_found(exc):
+            logger.info("Radarr answered 404 deleting id %s for '%s'", entry_id, title)
+            return intent_id, _unconfirmed(_RADARR_GONE_MESSAGE)
         logger.exception("Radarr delete failed for '%s'", title)
-        return intent_id, respond_err(
-            "upstream_delete_failed",
-            status=502,
-            message="Upstream Radarr delete failed — DB row preserved",
-        )
+        return intent_id, _upstream_failed("Radarr")
     # rationale: any other error is still an unconfirmed delete; close the
-    # intent so the startup reconcile cannot book the item deleted.
+    # intent so the reconcile cannot book the item deleted.
     except Exception as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
         raise
-    return intent_id, None
+    return intent_id, (
+        f"Deleted '{title}' through Radarr; files removed and added to the import exclusion list"
+    )
 
 
-def _try_sonarr_delete(
-    sonarr_client: ArrClient,
+def _delete_season(
+    client: ArrClient,
     snapshot: MediaDeleteSnapshot,
     *,
     conn: sqlite3.Connection,
     media_id: str,
     username: str,
-) -> tuple[int | None, JSONResponse | None]:
-    """Delete a TV season (and the show if empty) via Sonarr; returns (intent_id,
-    short_circuit_resp) like _try_radarr_delete.
+) -> tuple[int, str | JSONResponse]:
+    """Verify the season against Sonarr, delete its files and unmonitor it.
 
-    A failure after the season files were removed still keeps the DB row: Sonarr did not
-    confirm the whole delete, and a retry is safe because each step is idempotent.
+    The show stays in Sonarr: removing it would drop its future seasons and
+    any file Sonarr holds outside this season. A failure after the season
+    files were removed keeps the DB row: Sonarr did not confirm the whole
+    delete, and each step is safe to retry.
+
+    Raises:
+        _Refused: when a check failed before anything was deleted.
     """
     title = snapshot.title
-    sid = snapshot.sonarr_id
+    tvdb_id = snapshot.tvdb_id
     season_num = snapshot.season_number
-    if not (sid and season_num is not None):
-        return None, None
+    if not tvdb_id:
+        raise _Refused("Plex has no TVDB id for this show; nothing was deleted")
+    if season_num is None:
+        raise _Refused("mediaman does not know this season's number; nothing was deleted")
+    sonarr_id = snapshot.sonarr_id
+    series: SonarrSeries | None
+    if sonarr_id:
+        series = _lookup("Sonarr", "show", lambda: client.get_series_by_id(sonarr_id))
+    else:
+        series = _lookup("Sonarr", "show", lambda: client.get_series_by_tvdb(tvdb_id))
+    sid = series.get("id") if series else None
+    if not series or not isinstance(sid, int):
+        raise _Refused("Sonarr has no entry for this show; nothing was deleted")
+    episode_files = _lookup("Sonarr", "show", lambda: client.get_episode_files(sid))
+    match = verify_season(
+        series,
+        episode_files,
+        tvdb_id=tvdb_id,
+        season_number=season_num,
+        tracked_files=snapshot.tracked_files,
+    )
+    if not match.ok:
+        raise _Refused(match.reason)
+    others = tracked_files_of_same_title(conn, media_id, tvdb_id=tvdb_id, season_number=season_num)
+    if any(
+        verify_season(
+            series, episode_files, tvdb_id=tvdb_id, season_number=season_num, tracked_files=other
+        ).ok
+        for other in others
+    ):
+        raise _Refused(_SECOND_ITEM_MESSAGE.format(entry="Sonarr season", service="Sonarr"))
+    verified_ids = {
+        ef["id"]
+        for ef in episode_files
+        if ef.get("seasonNumber") == season_num and isinstance(ef.get("id"), int)
+    }
+    tracked_paths = _tracked_paths(snapshot)
+    if other_item_uses_paths(conn, media_id, files=tracked_paths):
+        raise _Refused("Another library item uses files of this season; nothing was deleted")
+    _recheck(conn, media_id)
+    on_disk_before = _on_disk(tracked_paths)
+
     intent_id = _record_delete_intent(conn, media_id, "sonarr", str(sid))
     files_removed = False
 
@@ -145,37 +377,47 @@ def _try_sonarr_delete(
         return detail
 
     try:
-        sonarr_client.delete_episode_files(sid, season_num)
+        client.delete_episode_files(sorted(verified_ids))
+        # Any file left in the season counts, not only the verified ones: an
+        # upgrade imported during the delete is still on disk.
+        if any(ef.get("seasonNumber") == season_num for ef in client.get_episode_files(sid)):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail(),
+                "Sonarr still lists files of this season",
+                actor=username,
+            )
+            return intent_id, _unconfirmed(_SONARR_FILES_LEFT_MESSAGE)
         files_removed = True
-        sonarr_client.unmonitor_season(sid, season_num)
+        client.unmonitor_season(sid, season_num)
         logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
-        if not sonarr_client.has_remaining_files(sid):
-            sonarr_client.delete_series(sid)
-            logger.info(
-                "No files remain for '%s' — deleted series from Sonarr with exclusion",
-                title,
+        if _still_on_disk(on_disk_before):
+            _fail_delete_intent(
+                conn,
+                intent_id,
+                media_id,
+                failed_detail(),
+                "A file of this season is still on disk",
+                actor=username,
+            )
+            return intent_id, _unconfirmed(
+                _LOCAL_FILES_LEFT_MESSAGE.format(service="Sonarr", what="season")
             )
     except _ARR_ERRORS as exc:
-        if _is_already_gone(exc):
-            logger.info(
-                "Sonarr reports id %s already gone for '%s' — idempotent delete",
-                sid,
-                title,
-            )
-            return intent_id, None
         _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
+        if _is_not_found(exc):
+            logger.info("Sonarr answered 404 deleting series %s for '%s'", sid, title)
+            return intent_id, _unconfirmed(_SONARR_GONE_MESSAGE)
         logger.exception("Sonarr delete failed for '%s'", title)
-        return intent_id, respond_err(
-            "upstream_delete_failed",
-            status=502,
-            message="Upstream Sonarr delete failed — DB row preserved",
-        )
+        return intent_id, _upstream_failed("Sonarr")
     # rationale: any other error is still an unconfirmed delete; close the
-    # intent so the startup reconcile cannot book the item deleted.
+    # intent so the reconcile cannot book the item deleted.
     except Exception as exc:
         _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
         raise
-    return intent_id, None
+    return intent_id, f"Season {season_num} of {title} deleted through Sonarr and unmonitored"
 
 
 def _run_arr_delete_branch(
@@ -185,7 +427,14 @@ def _run_arr_delete_branch(
     media_id: str,
     secret_key: str,
     username: str,
-) -> tuple[int | None, JSONResponse | None]:
+) -> tuple[int, str | JSONResponse]:
+    """Delete the item through Radarr (movie) or Sonarr (season).
+
+    Returns (intent_id, success message) or (intent_id, error response).
+
+    Raises:
+        _Refused: when a check failed before anything was deleted.
+    """
     # Late import: the barrel re-exports build_radarr_from_db /
     # build_sonarr_from_db and tests patch those names at the barrel module
     # path. A top-level ``from ...library_api import …`` here would create a
@@ -196,14 +445,12 @@ def _run_arr_delete_branch(
     if snapshot.media_type == "movie":
         client = build_radarr_from_db(conn, secret_key)
         if client is None:
-            return None, None
-        return _try_radarr_delete(client, snapshot, conn=conn, media_id=media_id, username=username)
+            raise _Refused("Radarr is not set up, so mediaman cannot delete this movie")
+        return _delete_movie(client, snapshot, conn=conn, media_id=media_id, username=username)
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     if sonarr_client is None:
-        return None, None
-    return _try_sonarr_delete(
-        sonarr_client, snapshot, conn=conn, media_id=media_id, username=username
-    )
+        raise _Refused("Sonarr is not set up, so mediaman cannot delete this season")
+    return _delete_season(sonarr_client, snapshot, conn=conn, media_id=media_id, username=username)
 
 
 def _finalise_delete(
@@ -211,29 +458,20 @@ def _finalise_delete(
     *,
     conn: sqlite3.Connection,
     media_id: str,
-    intent_id: int | None,
+    intent_id: int,
     username: str,
 ) -> None:
-    """Cleanup transaction: audit, scheduled_actions prune and row drop, wrapped in BEGIN
-    IMMEDIATE so a SQLite failure rolls everything back (no half-deleted row). The pending
-    delete-intent is marked complete after the commit.
+    """Cleanup transaction: audit, deleted-media identity, scheduled_actions prune and row
+    drop, wrapped in BEGIN IMMEDIATE so a SQLite failure rolls everything back (no
+    half-deleted row). The pending delete-intent is marked complete after the commit.
     """
     title = snapshot.title
     rk = snapshot.plex_rating_key or ""
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    finalise_delete_in_tx(
-        conn,
-        media_id=media_id,
-        audit_detail=detail,
-        space_bytes=snapshot.file_size_bytes,
-        actor=username,
-        # With an Arr delete run (intent recorded) the files are gone, so the row must go too.
-        refuse_if_kept=intent_id is None,
-    )
-    if intent_id is not None:
-        _complete_delete_intent(conn, intent_id)
+    finalise_delete_in_tx(conn, snapshot, media_id=media_id, audit_detail=detail, actor=username)
+    _complete_delete_intent(conn, intent_id)
     logger.info("Deleted %s (%s) by %s", media_id, title, username)
 
 
@@ -249,11 +487,14 @@ def api_media_delete(
 
     1. Snapshot transaction: read the media row and capture identifiers, then release the
       lock.
-    2. External Arr call with no DB transaction held, since a seconds-long round-trip would
-      block every other SQLite writer. A delete-intent row is persisted first so a crash
-      between the Arr call and the cleanup can be reconciled at startup.
-    3. Cleanup transaction: audit row, prune scheduled_actions, drop the media_items row,
-      mark the intent complete.
+    2. External Arr calls with no DB transaction held, since a seconds-long round-trip would
+      block every other SQLite writer. The live Radarr/Sonarr entry is checked strictly
+      against the files Plex reports, the keep is checked again, and only then is the
+      delete sent. Any failed check answers 409 with nothing written. A delete-intent row
+      is persisted before the delete so a crash between it and the cleanup can be
+      reconciled.
+    3. Cleanup transaction: audit row and deleted-media identity, prune scheduled_actions,
+      drop the media_items row, mark the intent complete.
     """
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
@@ -272,21 +513,22 @@ def api_media_delete(
         return respond_err("forbidden", status=403)
     except Kept:
         return _kept_response()
-
-    intent_id, short_circuit = _run_arr_delete_branch(
-        snapshot,
-        conn=conn,
-        media_id=media_id,
-        secret_key=request.app.state.config.secret_key,
-        username=username,
-    )
-    if short_circuit is not None:
-        return short_circuit
+    except DeletionRunning:
+        return respond_err("delete_refused", status=409, message=_DELETION_RUNNING_MESSAGE)
 
     try:
-        _finalise_delete(
-            snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username
+        intent_id, outcome = _run_arr_delete_branch(
+            snapshot,
+            conn=conn,
+            media_id=media_id,
+            secret_key=request.app.state.config.secret_key,
+            username=username,
         )
-    except Kept:
-        return _kept_response()
-    return respond_ok({"id": media_id})
+    except _Refused as refusal:
+        logger.info("media.delete_refused id=%s reason=%s", media_id, refusal.message)
+        return refusal.response()
+    if isinstance(outcome, JSONResponse):
+        return outcome
+
+    _finalise_delete(snapshot, conn=conn, media_id=media_id, intent_id=intent_id, username=username)
+    return respond_ok({"id": media_id, "message": outcome})

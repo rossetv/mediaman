@@ -58,7 +58,19 @@ CREATE TABLE IF NOT EXISTS media_items (
     file_size_bytes INTEGER NOT NULL,
     poster_path TEXT,
     last_watched_at TEXT,
-    last_scanned_at TEXT
+    last_scanned_at TEXT,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    tracked_files TEXT
+);
+
+CREATE TABLE IF NOT EXISTS deleted_media (
+    audit_id INTEGER PRIMARY KEY,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    season_number INTEGER,
+    title TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS scheduled_actions (
@@ -77,7 +89,9 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     notified INTEGER NOT NULL DEFAULT 0,
     is_reentry INTEGER NOT NULL DEFAULT 0,
     delete_status TEXT NOT NULL DEFAULT 'pending',
-    token_hash TEXT
+    token_hash TEXT,
+    -- JSON {"paths": [...], "bytes": n}: what earlier passes of this deletion removed.
+    removed_files TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (

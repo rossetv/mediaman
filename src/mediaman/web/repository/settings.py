@@ -51,7 +51,9 @@ SECRET_FIELDS: frozenset[str] = frozenset(
 )
 
 #: Internal crypto plumbing rows (HKDF salt, canary) — never shown in the UI.
-INTERNAL_KEYS: frozenset[str] = frozenset({"aes_kdf_salt", "aes_kdf_canary"})
+INTERNAL_KEYS: frozenset[str] = frozenset(
+    {"aes_kdf_salt", "aes_kdf_canary", "delete_root_unavailable"}
+)
 
 logger = logging.getLogger(__name__)
 

@@ -165,6 +165,56 @@ class TestUpsertMediaItem:
         assert row["show_title"] == "Corrected Show Name"
         assert row["season_number"] == 2
 
+    def test_arr_ids_kept_unless_asked_while_tmdb_and_files_always_written(self, conn):
+        item = {**self._item_dict(), "tmdb_id": 603, "tracked_files": []}
+        repository.upsert_media_item(
+            conn,
+            item=item,
+            library_id="1",
+            media_type="movie",
+            arr_date=None,
+            radarr_id=7,
+            set_radarr_id=True,
+        )
+        item["tmdb_id"] = 604
+        item["tracked_files"] = [{"path": "/media/film.mkv", "size": 5}]
+        repository.upsert_media_item(
+            conn, item=item, library_id="1", media_type="movie", arr_date=None, radarr_id=None
+        )
+        row = conn.execute(
+            "SELECT radarr_id, tmdb_id, tracked_files FROM media_items WHERE id='m1'"
+        ).fetchone()
+        assert row["radarr_id"] == 7
+        assert row["tmdb_id"] == 604
+        assert json.loads(row["tracked_files"]) == [{"path": "/media/film.mkv", "size": 5}]
+
+    def test_loaded_arr_without_a_match_clears_the_stored_id(self, conn):
+        item = self._item_dict()
+        for radarr_id in (7, None):
+            repository.upsert_media_item(
+                conn,
+                item=item,
+                library_id="1",
+                media_type="movie",
+                arr_date=None,
+                radarr_id=radarr_id,
+                set_radarr_id=True,
+            )
+        row = conn.execute("SELECT radarr_id FROM media_items WHERE id='m1'").fetchone()
+        assert row["radarr_id"] is None
+
+    def test_no_files_from_plex_is_stored_as_null(self, conn):
+        item = {**self._item_dict(), "tracked_files": [{"path": "/media/film.mkv", "size": 5}]}
+        repository.upsert_media_item(
+            conn, item=item, library_id="1", media_type="movie", arr_date=None
+        )
+        item["tracked_files"] = []
+        repository.upsert_media_item(
+            conn, item=item, library_id="1", media_type="movie", arr_date=None
+        )
+        row = conn.execute("SELECT tracked_files FROM media_items WHERE id='m1'").fetchone()
+        assert row["tracked_files"] is None
+
 
 class TestUpdateLastWatched:
     def test_stores_most_recent_watch(self, conn):

@@ -1,131 +1,67 @@
-"""Sonarr branch of the redownload flow.
-The shared lookup matcher and audit-ID picker live in ._redownload_match.
-"""
+"""Sonarr branch of the redownload flow: bring a season back into Sonarr."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-import requests
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
     import sqlite3
 
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrClient
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.repository.library_api import record_redownload
-from mediaman.web.routes.library_api._redownload_match import (
-    _pick_lookup_match,
-    _redownload_audit_id,
-)
+from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
 
 
-def _sonarr_add_and_record(
-    sonarr_client: ArrClient,
-    entry: Mapping[str, object],
+def _redownload_season(
+    client: ArrClient,
     *,
     conn: sqlite3.Connection,
     title: str,
-    imdb_id: str | None,
+    tvdb_id: int,
+    season_number: int,
     username: str,
-) -> JSONResponse | None:
-    """Add a series via Sonarr and persist the audit row; None if the lookup entry has no
-    usable tvdbId, which the caller treats as a miss.
+) -> JSONResponse:
+    """Re-monitor and search a season of a series Sonarr still holds, or add the series with
+    only that season monitored when Sonarr no longer has it.
+
+    A Library Delete leaves the series in Sonarr, so the lookup comes first. Sonarr errors
+    propagate to the caller.
     """
-    resolved_tvdb = entry.get("tvdbId")
-    if not resolved_tvdb:
-        return None
-    resolved_title = str(entry.get("title") or title)
-    resolved_tvdb_int = int(str(resolved_tvdb))
-    sonarr_client.add_series(resolved_tvdb_int, resolved_title)
-    resolved_tmdb_sonarr = entry.get("tmdbId")
-    resolved_tmdb_sonarr_int = (
-        int(str(resolved_tmdb_sonarr)) if resolved_tmdb_sonarr is not None else None
-    )
-    audit_id = _redownload_audit_id(
-        media_type="tv",
-        tmdb_id=resolved_tmdb_sonarr_int,
-        tvdb_id=resolved_tvdb_int,
-        imdb_id=imdb_id,
-    )
+    existing = client.get_series_by_tvdb(tvdb_id)
+    series_id = existing.get("id") if existing else None
+    if series_id is not None:
+        client.remonitor_season(int(series_id), season_number)
+        message = f"Re-monitored season {season_number} of '{title}' in Sonarr and started a search"
+    else:
+        try:
+            client.add_series_with_seasons(tvdb_id, title, [season_number], [season_number])
+        except SafeHTTPError as exc:
+            raise AddRefused(exc) from exc
+        message = f"Added season {season_number} of '{title}' to Sonarr"
     record_redownload(
         conn,
-        audit_id=audit_id,
-        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
+        audit_id=_redownload_audit_id(
+            media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
+        ),
+        audit_detail=f"Re-downloaded season {season_number} of '{title}' by {username}",
         actor=username,
         email=username,
-        title=resolved_title,
+        title=title,
         media_type="tv",
         service="sonarr",
-        tmdb_id=resolved_tmdb_sonarr_int,
-        tvdb_id=resolved_tvdb_int,
+        tvdb_id=tvdb_id,
     )
     logger.info(
-        "Re-downloaded '%s' (tvdb=%s) via Sonarr by %s",
-        resolved_title,
-        resolved_tvdb,
+        "Re-downloaded '%s' season %s (tvdb=%s) via Sonarr by %s",
+        title,
+        season_number,
+        tvdb_id,
         username,
     )
-    return JSONResponse({"ok": True, "message": f"Added '{resolved_title}' to Sonarr"})
-
-
-def _sonarr_fallback_fail_response() -> JSONResponse:
-    return JSONResponse(
-        {"ok": False, "error": "Download request failed — check service connectivity"}
-    )
-
-
-def _try_sonarr_redownload(
-    sonarr_client: ArrClient,
-    *,
-    conn: sqlite3.Connection,
-    title: str,
-    year: int | None,
-    tmdb_id: int | None,
-    tvdb_id: int | None,
-    imdb_id: str | None,
-    username: str,
-) -> JSONResponse | None:
-    """Attempt a Sonarr redownload; None means fall through to "not found". Unlike Radarr,
-    every Sonarr exception becomes a 200-body failure response: there is no further
-    fallback, so a transport error must be reported.
-    """
-    try:
-        # lookup_by_term URL-encodes the term internally — pass the raw title.
-        results = sonarr_client.lookup_by_term(title, endpoint="/api/v3/series/lookup")
-        entry, err = _pick_lookup_match(
-            results or [],
-            title=title,
-            year=year,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            imdb_id=imdb_id,
-        )
-        if entry is not None:
-            resp = _sonarr_add_and_record(
-                sonarr_client, entry, conn=conn, title=title, imdb_id=imdb_id, username=username
-            )
-            if resp is not None:
-                return resp
-        if err in ("Ambiguous ID match", "Ambiguous title+year match"):
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": f"Ambiguous match for '{title}' — supply tmdb_id/tvdb_id/imdb_id",
-                },
-                status_code=409,
-            )
-        return None
-    except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
-        logger.exception("Re-download via Sonarr failed for '%s': HTTP %s", title, exc.status_code)
-        return _sonarr_fallback_fail_response()
-    except (requests.RequestException, ArrError, ValueError):
-        logger.exception("Re-download via Sonarr failed for '%s'", title)
-        return _sonarr_fallback_fail_response()
+    return JSONResponse({"ok": True, "message": message})

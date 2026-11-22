@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.scanner import repository
 from mediaman.scanner.engine import ScanEngine
-from mediaman.services.infra import DeletionRefused
+from mediaman.services.infra import DeletionRefused, TrackedFilesResult
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -89,6 +90,11 @@ class TestTwoPhaseDelete:
             file_path=file_path,
             file_size_bytes=size,
         )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = ?",
+            (json.dumps([{"path": file_path, "size": size}]), item_id),
+        )
+        conn.commit()
 
     def _insert_sched(self, conn, item_id, past, *, status="pending"):
         insert_scheduled_action(
@@ -117,13 +123,14 @@ class TestTwoPhaseDelete:
 
         seen: dict[str, str | None] = {}
 
-        def fake_delete(path, *, allowed_roots):
+        def fake_delete(tracked, **kwargs):
             row = conn.execute(
                 "SELECT delete_status FROM scheduled_actions WHERE media_item_id='d1'"
             ).fetchone()
             seen["status_during_rm"] = row["delete_status"]
+            return TrackedFilesResult(removed=[], bytes_freed=0, not_found=[])
 
-        with patch("mediaman.scanner.deletions.delete_path", side_effect=fake_delete):
+        with patch("mediaman.scanner.deletions.delete_tracked_files", side_effect=fake_delete):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -139,7 +146,7 @@ class TestTwoPhaseDelete:
         assert row is None
 
     def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch, freezer):
-        """When delete_path refuses, the marker must roll back to pending
+        """When the removal refuses, the marker must roll back to pending
         so a later run can retry."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -148,7 +155,7 @@ class TestTwoPhaseDelete:
         self._insert_sched(conn, "d2", past)
 
         with patch(
-            "mediaman.scanner.deletions.delete_path",
+            "mediaman.scanner.deletions.delete_tracked_files",
             side_effect=DeletionRefused("outside allowed roots"),
         ):
             engine = ScanEngine(
@@ -210,6 +217,11 @@ class TestTwoPhaseDelete:
             "2026-01-01T00:00:00+00:00",
             status="deleting",
         )
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ? WHERE media_item_id='r2'",
+            (json.dumps({"paths": [str(root / "x.mkv")], "bytes": 0}),),
+        )
+        conn.commit()
 
         recover_stuck_deletions(conn)
 
@@ -218,3 +230,25 @@ class TestTwoPhaseDelete:
         audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='r2'").fetchone()
         assert audit is not None
         assert audit["action"] == "deleted"
+
+    def test_recover_file_absent_without_removal_record_stays_pending(
+        self, conn, mock_plex, tmp_path, monkeypatch
+    ):
+        """An absent file with no removal record proves nothing: the row goes back to pending."""
+        from mediaman.scanner.deletions import recover_stuck_deletions
+
+        root = tmp_path / "library"
+        root.mkdir()
+        (root / "other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        self._insert_item(conn, "r2b", file_path=str(root / "x.mkv"))
+        self._insert_sched(conn, "r2b", "2026-01-01T00:00:00+00:00", status="deleting")
+
+        recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='r2b'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+        audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='r2b'").fetchall()
+        assert "deleted" not in [a["action"] for a in audit]

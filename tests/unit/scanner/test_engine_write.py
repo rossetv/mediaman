@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
@@ -266,3 +268,123 @@ class TestResolveAddedAt:
         # updated_at were still wired in, resolved would equal recent_updated.
         assert abs((resolved - datetime.now(UTC)).total_seconds()) < 2
         assert abs((resolved - recent_updated).total_seconds()) > 3000
+
+
+class TestArrIdsAndTrackedFiles:
+    """The scan stores TMDB/TVDB ids, tracked files and Radarr/Sonarr ids."""
+
+    def _movie(self, tmdb_id=603):
+        return {
+            "plex_rating_key": "100",
+            "title": "The Matrix",
+            "added_at": datetime.now(UTC),
+            "file_path": "/data/movies/The Matrix (1999)/matrix.mkv",
+            "file_size_bytes": 5,
+            "poster_path": None,
+            "tmdb_id": tmdb_id,
+            "tracked_files": [{"path": "/data/movies/The Matrix (1999)/matrix.mkv", "size": 5}],
+        }
+
+    def _season(self, rk, folder):
+        return {
+            "plex_rating_key": rk,
+            "title": "Show",
+            "show_title": "Show",
+            "season_number": 1,
+            "added_at": datetime.now(UTC),
+            "file_path": folder,
+            "file_size_bytes": 5,
+            "poster_path": None,
+            "episode_count": 1,
+            "show_rating_key": "s",
+            "is_anime": False,
+            "tvdb_id": 121361,
+            "tracked_files": [{"path": f"{folder}/S01E01.mkv", "size": 5}],
+        }
+
+    def _radarr(self):
+        client = MagicMock()
+        client.get_movies.return_value = [
+            {"id": 7, "tmdbId": 603, "path": "/movies/The Matrix (1999)", "movieFile": None}
+        ]
+        return client
+
+    def _sonarr(self, conn, seen_in_transaction):
+        client = MagicMock()
+
+        def get_series():
+            seen_in_transaction.append(conn.in_transaction)
+            return [
+                {"id": 3, "tvdbId": 121361, "path": "/tv/Show", "seasons": [{"seasonNumber": 1}]}
+            ]
+
+        client.get_series.side_effect = get_series
+        client.get_episode_files.return_value = []
+        return client
+
+    def _scan(self, conn, plex, lib_type, **clients):
+        with (
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+        ):
+            ScanEngine(
+                conn=conn,
+                plex_client=plex,
+                library_ids=["1"],
+                library_types={"1": lib_type},
+                secret_key="k",
+                **clients,
+            ).run_scan()
+
+    def _row(self, conn, rk):
+        return conn.execute(
+            "SELECT radarr_id, sonarr_id, tmdb_id, tracked_files FROM media_items WHERE id=?",
+            (rk,),
+        ).fetchone()
+
+    def test_scan_stores_radarr_id_of_the_matching_movie(self, conn, mock_plex):
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        radarr = self._radarr()
+        self._scan(conn, mock_plex, "movie", radarr_client=radarr)
+        assert self._row(conn, "100")["radarr_id"] == 7
+        assert radarr.get_movies.call_count == 1
+
+    def test_radarr_down_keeps_the_stored_radarr_id(self, conn, mock_plex):
+        insert_media_item(conn, id="100", plex_rating_key="100", radarr_id=7)
+        mock_plex.get_movie_items.return_value = [self._movie(tmdb_id=999)]
+        radarr = MagicMock()
+        radarr.get_movies.side_effect = requests.ConnectionError("down")
+        self._scan(conn, mock_plex, "movie", radarr_client=radarr)
+        row = self._row(conn, "100")
+        assert row["radarr_id"] == 7
+        assert row["tmdb_id"] == 999
+
+    def test_library_sync_without_clients_keeps_arr_ids_and_updates_the_rest(self, conn, mock_plex):
+        insert_media_item(
+            conn, id="100", plex_rating_key="100", radarr_id=7, sonarr_id=3, file_path="/old"
+        )
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        ).sync_library()
+        row = self._row(conn, "100")
+        assert (row["radarr_id"], row["sonarr_id"]) == (7, 3)
+        assert row["tmdb_id"] == 603
+        assert json.loads(row["tracked_files"]) == self._movie()["tracked_files"]
+
+    def test_season_folder_mismatch_gets_no_sonarr_id(self, conn, mock_plex):
+        insert_media_item(conn, id="s2", plex_rating_key="s2", media_type="tv_season", sonarr_id=3)
+        mock_plex.get_show_seasons.return_value = [
+            self._season("s1", "/data/tv/Show/Season 01"),
+            self._season("s2", "/data/tv-4k/Show (2011)/Season 01"),
+        ]
+        in_transaction: list[bool] = []
+        self._scan(conn, mock_plex, "show", sonarr_client=self._sonarr(conn, in_transaction))
+        assert self._row(conn, "s1")["sonarr_id"] == 3
+        assert self._row(conn, "s2")["sonarr_id"] is None
+        assert in_transaction == [False], "Sonarr read inside a write transaction"

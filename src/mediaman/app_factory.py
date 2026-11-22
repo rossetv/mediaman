@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,12 +35,53 @@ from mediaman.bootstrap.db import bootstrap_db
 from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
 from mediaman.config import ConfigError, load_config
 from mediaman.core.scrub_filter import install_root_filter
+from mediaman.core.time import now_utc
 from mediaman.db.connection import SchemaTooOldError
 
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
+
+
+def _reconcile_delete_intents_in_background(secret_key: str, started_before: str) -> None:
+    """Close delete intents stranded by a crash, on a connection owned by this thread.
+
+    Only intents started before *started_before* (this process's start) are
+    touched; later ones belong to deletes still in flight. An intent is
+    booked deleted only when Radarr/Sonarr confirm the item gone.
+    """
+    # rationale: runs on a daemon thread; an exception here must be logged,
+    # never allowed to propagate out of the thread.
+    try:
+        from mediaman.db import close_db, get_db
+        from mediaman.scanner.repository import read_delete_allowed_roots_setting
+        from mediaman.web.repository.delete_intents import (
+            build_verify_gone,
+            reconcile_pending_delete_intents,
+        )
+
+        conn = get_db()
+        try:
+            try:
+                delete_roots = read_delete_allowed_roots_setting(conn)
+            except Exception:
+                # Without roots the reconcile only skips the on-disk check; it
+                # must still close the intents it can.
+                logger.exception("could not read delete roots; reconciling without them")
+                delete_roots = []
+            reconciled = reconcile_pending_delete_intents(
+                conn,
+                verify_gone=build_verify_gone(conn, secret_key),
+                started_before=started_before,
+                delete_roots=delete_roots,
+            )
+        finally:
+            close_db()
+        if reconciled:
+            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
+    except Exception:
+        logger.exception("delete-intent reconciliation failed at startup")
 
 
 def _run_startup_reconciliation(app: FastAPI) -> None:
@@ -49,26 +91,22 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
     started:
 
     1. In-flight manual delete operations that crashed between the
-       external Radarr/Sonarr call and the local DB cleanup.
+       external Radarr/Sonarr call and the local DB cleanup (started on
+       a background thread).
     2. ``download_notifications`` rows stranded at ``notified=2`` by a
        crashed worker.
 
     Neither failure aborts startup — the web UI must still come up so an
     operator can investigate.
     """
-    # Reconcile any in-flight manual delete operations that crashed
-    # between the external Radarr/Sonarr call and the local DB cleanup.
-    # Idempotent — safe to run on every cold start.
-    try:
-        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
-
-        reconciled = reconcile_pending_delete_intents(app.state.db)
-        if reconciled:
-            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    # rationale: startup reconciliation is
-    # best-effort; failing it must not block the rest of bootstrap.
-    except Exception:
-        logger.exception("delete-intent reconciliation failed at startup; continuing")
+    # Runs off the startup path: verifying an item against Radarr/Sonarr
+    # can be slow and must not hold up the web UI.
+    threading.Thread(
+        target=_reconcile_delete_intents_in_background,
+        args=(app.state.config.secret_key, now_utc().isoformat()),
+        name="delete-intent-reconcile",
+        daemon=True,
+    ).start()
 
     # Reconcile download_notifications rows stranded at notified=2 by a
     # crashed worker.

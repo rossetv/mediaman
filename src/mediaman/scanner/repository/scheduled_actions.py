@@ -14,11 +14,13 @@ deletion-state mutations.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
-from dataclasses import dataclass
-from typing import NamedTuple
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
@@ -59,6 +61,7 @@ __all__ = [
     "fetch_pending_deletions",
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
+    "fetch_tracked_paths_in_folders",
     "has_expired_snooze",
     "is_already_scheduled",
     "is_claimed_deletion",
@@ -68,6 +71,7 @@ __all__ = [
     "is_show_kept",
     "is_show_kept_pure",
     "mark_delete_status",
+    "record_removed_files",
 ]
 
 
@@ -94,9 +98,89 @@ class DeletionRow:
     radarr_id: int | None
     sonarr_id: int | None
     season_number: int | None
+    media_type: str | None = None
+    tmdb_id: int | None = None
+    tvdb_id: int | None = None
+    # ``{"path", "size"}`` entries; None until a scan records the item's files.
+    tracked_files: list[dict[str, Any]] | None = None
+    # Tracked paths earlier passes of this deletion removed, and the bytes they freed.
+    removed_paths: frozenset[str] = frozenset()
+    removed_bytes: int = 0
+    # The tracked size of each removed path; a record written without one has none.
+    removed_sizes: dict[str, int] = field(default_factory=dict)
+
+
+_DELETION_COLUMNS = (
+    "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
+    "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
+    "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files"
+)
+
+
+def _parse_tracked_files(raw: str | None) -> list[dict[str, Any]] | None:
+    """Return the stored file list, or None when it is missing or not a JSON list."""
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("media_items.tracked_files is not valid JSON; treating it as unrecorded")
+        return None
+    return value if isinstance(value, list) else None
+
+
+def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int, dict[str, int]]:
+    """Return the recorded removed paths, bytes and sizes, or nothing when missing or malformed."""
+    if raw is None:
+        return frozenset(), 0, {}
+    try:
+        value = json.loads(raw)
+        paths = value["paths"]
+        removed_bytes = value["bytes"]
+    except (TypeError, ValueError, KeyError):
+        logger.warning("scheduled_actions.removed_files is malformed; treating it as empty")
+        return frozenset(), 0, {}
+    if not isinstance(paths, list) or not isinstance(removed_bytes, int):
+        return frozenset(), 0, {}
+    removed = frozenset(p for p in paths if isinstance(p, str))
+    sizes = value.get("sizes")
+    if not isinstance(sizes, dict):
+        sizes = {}
+    return (
+        removed,
+        removed_bytes,
+        {
+            path: size
+            for path, size in sizes.items()
+            if path in removed and isinstance(size, int) and not isinstance(size, bool)
+        },
+    )
+
+
+def record_removed_files(
+    conn: sqlite3.Connection,
+    action_id: int,
+    paths: Collection[str],
+    removed_bytes: int,
+    sizes: Mapping[str, int],
+) -> None:
+    """Store what this deletion has removed so far, so a later pass can finish it.
+
+    *sizes* gives the tracked size of each removed path that has one.
+    """
+    record = {
+        "paths": sorted(paths),
+        "bytes": removed_bytes,
+        "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+    }
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
+        (json.dumps(record), action_id),
+    )
 
 
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
+    removed_paths, removed_bytes, removed_sizes = _parse_removed_files(row["removed_files"])
     return DeletionRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -108,6 +192,13 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         radarr_id=row["radarr_id"],
         sonarr_id=row["sonarr_id"],
         season_number=row["season_number"],
+        media_type=row["media_type"],
+        tmdb_id=row["tmdb_id"],
+        tvdb_id=row["tvdb_id"],
+        tracked_files=_parse_tracked_files(row["tracked_files"]),
+        removed_paths=removed_paths,
+        removed_bytes=removed_bytes,
+        removed_sizes=removed_sizes,
     )
 
 
@@ -118,10 +209,9 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
     migrated yet (older DB schemas).
     """
     try:
-        rows = conn.execute(
-            "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, "
-            "mi.file_size_bytes, mi.title, mi.plex_rating_key, "
-            "mi.radarr_id, mi.sonarr_id, mi.season_number "
+        # rationale: the interpolated column list is a fixed string
+        rows = conn.execute(  # nosec B608
+            f"SELECT {_DELETION_COLUMNS} "
             "FROM scheduled_actions sa "
             "LEFT JOIN media_items mi ON sa.media_item_id = mi.id "
             "WHERE sa.delete_status = 'deleting'"
@@ -140,9 +230,9 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
     due, holding the folder back. Rows are ordered by normalised path, so
     a spelling with "//" or ".." does not put an inner path first.
     """
-    rows = conn.execute(
-        "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
-        "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.action = 'scheduled_deletion' "
@@ -292,8 +382,7 @@ def claim_due_deletions_under(
     where, params = _at_or_under_candidates(path)
     # rationale: the interpolated condition is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
-        "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
-        "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
+        f"SELECT {_DELETION_COLUMNS} "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
@@ -306,6 +395,40 @@ def claim_due_deletions_under(
         for row in candidates
         if _at_or_under(row.file_path, path) and claim_due_deletion(conn, row.id, now_iso)
     ]
+
+
+# The path of a json_each entry, NULL for an entry that is not an object; the
+# CASE keeps json_extract from ever reading a bare string as JSON text.
+_ENTRY_PATH = "json_extract(CASE WHEN j.type = 'object' THEN j.value END, '$.path')"
+
+
+def fetch_tracked_paths_in_folders(
+    conn: sqlite3.Connection, folders: Collection[str], exclude_media_ids: Collection[str]
+) -> set[str]:
+    """Return the tracked file paths of other media items that sit directly in *folders*.
+
+    Items in *exclude_media_ids* are left out. A row whose ``tracked_files``
+    is NULL or malformed contributes nothing.
+    """
+    wanted = {folder.rstrip("/") or "/" for folder in folders if folder}
+    if not wanted:
+        return set()
+    ranges = " OR ".join(f"({_ENTRY_PATH} >= ? AND {_ENTRY_PATH} < ?)" for _ in wanted)
+    bounds = [bound for folder in sorted(wanted) for bound in (folder + "/", folder + "0")]
+    excluded = list(exclude_media_ids)
+    not_in = f"AND mi.id NOT IN ({','.join('?' * len(excluded))}) " if excluded else ""
+    # rationale: only fixed expressions and "?" placeholders are interpolated; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_ENTRY_PATH} AS path FROM media_items mi, json_each("
+        "  CASE WHEN json_valid(mi.tracked_files) THEN mi.tracked_files ELSE '[]' END) j "
+        f"WHERE mi.tracked_files IS NOT NULL {not_in}AND ({ranges})",
+        (*excluded, *bounds),
+    ).fetchall()
+    return {
+        row["path"]
+        for row in rows
+        if isinstance(row["path"], str) and os.path.dirname(row["path"]) in wanted
+    }
 
 
 def is_latest_audit(conn: sqlite3.Connection, media_item_id: str, action: str, detail: str) -> bool:

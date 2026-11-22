@@ -46,12 +46,6 @@ from mediaman.web.repository.library_query import (
 )
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.library_api._redownload_match import (
-    _REDOWNLOAD_TITLE_SIMILARITY as _REDOWNLOAD_TITLE_SIMILARITY,
-)
-from mediaman.web.routes.library_api._redownload_match import (
-    _pick_lookup_match as _pick_lookup_match,
-)
-from mediaman.web.routes.library_api._redownload_match import (
     _redownload_audit_id as _redownload_audit_id,
 )
 from mediaman.web.routes.library_api.delete import (

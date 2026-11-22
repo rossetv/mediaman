@@ -26,9 +26,10 @@ The package is split into:
 * ``_delete_roots`` — the path-safety exception hierarchy
   (``PathSafetyError``, ``DeletionRefused``), ``_FORBIDDEN_ROOTS``,
   and the allowlist *validation* helpers.
-* ``deletion`` — the destructive operation ``delete_path`` (its
-  private recursive remover ``_safe_rmtree`` is intentionally not exported;
-  ``delete_path`` is the only public way to trigger a deletion).
+* ``deletion`` — the destructive operations: ``delete_path`` (its
+  private recursive remover ``_safe_rmtree`` is intentionally not exported),
+  ``delete_tracked_files`` (an item's own files and their sidecars only) and
+  ``remove_empty_folders`` (folders those removals left bare).
 * ``disk_usage`` — the read-only queries ``get_aggregate_disk_usage``
   and ``get_directory_size``.
 
@@ -54,8 +55,11 @@ from mediaman.services.infra.storage._delete_roots import (
     _validate_single_root,
 )
 from mediaman.services.infra.storage.deletion import (
+    TrackedFilesResult,
     delete_path,
+    delete_tracked_files,
     path_within_delete_roots,
+    remove_empty_folders,
     unavailable_folder,
 )
 from mediaman.services.infra.storage.disk_usage import (
@@ -70,14 +74,17 @@ __all__ = [
     "_FORBIDDEN_ROOTS",
     "DeletionRefused",
     "PathSafetyError",
+    "TrackedFilesResult",
     "_check_symlink_via_nofollow",
     "_resolve_root_candidate",
     "_validate_delete_roots",
     "_validate_single_root",
     "delete_path",
+    "delete_tracked_files",
     "get_aggregate_disk_usage",
     "get_directory_size",
     "get_disk_usage_for_paths",
     "path_within_delete_roots",
+    "remove_empty_folders",
     "unavailable_folder",
 ]

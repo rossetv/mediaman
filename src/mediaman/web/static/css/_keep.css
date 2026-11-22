@@ -172,3 +172,22 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 .expired-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
 .expired-detail { font-size: 13px; line-height: 1.5; color: var(--t3); }
 
+
+/* Dashboard: delete root unavailable */
+.root-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 12px 16px;
+  background: var(--rgba-warning-bg);
+  border: 1px solid var(--warning);
+  border-radius: var(--r-md);
+  color: var(--warning);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.root-banner-icon { flex: none; margin-top: 3px; }
+.root-banner-list { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0; }
+.root-banner-list li + li { margin-top: 6px; }
+.root-banner-path { font-weight: 600; overflow-wrap: anywhere; }

@@ -11,6 +11,8 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+from mediaman.core.delete_root_state import write_delete_root_state
+from mediaman.core.deleted_media import record_deleted_media
 from mediaman.web.routes.dashboard import router as dashboard_router
 from tests.helpers.factories import insert_audit_log, insert_media_item, insert_scheduled_action
 
@@ -19,6 +21,31 @@ def _insert_audit_deleted(conn, media_item_id: str, space_bytes: int = 500_000_0
     insert_audit_log(
         conn, media_item_id=media_item_id, action="deleted", space_reclaimed_bytes=space_bytes
     )
+
+
+def _insert_deleted_with_identity(
+    conn,
+    media_item_id,
+    *,
+    title,
+    media_type="movie",
+    tmdb_id=None,
+    tvdb_id=None,
+    season_number=None,
+):
+    audit_id = insert_audit_log(
+        conn, media_item_id=media_item_id, action="deleted", space_reclaimed_bytes=1
+    )
+    record_deleted_media(
+        conn,
+        audit_id,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        season_number=season_number,
+        title=title,
+    )
+    conn.commit()
 
 
 class TestApiDashboardStats:
@@ -268,7 +295,7 @@ class TestJsonDataAttributesRoundTrip:
             file_size_bytes=0,
             added_at="2024-01-01",
         )
-        _insert_audit_deleted(conn, "m-quote")
+        _insert_deleted_with_identity(conn, "m-quote", title=_AWKWARD_TEXT, tmdb_id=603)
         app = app_factory(
             dashboard_router,
             conn=conn,
@@ -278,9 +305,10 @@ class TestJsonDataAttributesRoundTrip:
         assert resp.status_code == 200
 
         (button,) = _buttons(resp.text, "redownload")
-        assert json.loads(button["data-title"] or "") == _AWKWARD_TEXT
-        assert json.loads(button["data-media-item-id"] or "") == "m-quote"
-        assert json.loads(button["data-media-type"] or "") == "movie"
+        assert json.loads(button["data-redownload"] or "") == {
+            "title": _AWKWARD_TEXT,
+            "tmdb_id": 603,
+        }
 
     def test_kept_page_remove_buttons_carry_ids_with_quotes(self):
         env = Jinja2Templates(directory=str(_TEMPLATE_DIR)).env
@@ -331,3 +359,138 @@ class TestReclaimedChartIsoWeeks:
             ("2025-W02", 4),
             ("2025-W01", 3),
         ]
+
+
+def _dashboard_html(app_factory, authed_client, conn) -> str:
+    app = app_factory(
+        dashboard_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+    )
+    conn.commit()
+    resp = authed_client(app, conn).get("/")
+    assert resp.status_code == 200
+    return resp.text
+
+
+class TestRedownloadButtonByStoredId:
+    def test_movie_button_posts_title_and_tmdb_id(self, app_factory, authed_client, conn):
+        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
+        html = _dashboard_html(app_factory, authed_client, conn)
+        (button,) = _buttons(html, "redownload")
+        assert json.loads(button["data-redownload"] or "") == {"title": "Dune", "tmdb_id": 438631}
+
+    def test_season_button_posts_tvdb_id_and_season(self, app_factory, authed_client, conn):
+        _insert_deleted_with_identity(
+            conn, "gone", title="Severance", media_type="season", tvdb_id=371980, season_number=2
+        )
+        html = _dashboard_html(app_factory, authed_client, conn)
+        (button,) = _buttons(html, "redownload")
+        assert json.loads(button["data-redownload"] or "") == {
+            "title": "Severance",
+            "tvdb_id": 371980,
+            "season_number": 2,
+        }
+
+    def test_no_button_when_stored_row_lacks_the_id(self, app_factory, authed_client, conn):
+        _insert_deleted_with_identity(conn, "a", title="NoTmdb", tmdb_id=None)
+        _insert_deleted_with_identity(
+            conn, "b", title="NoSeason", media_type="season", tvdb_id=5, season_number=None
+        )
+        _insert_deleted_with_identity(
+            conn, "c", title="NoTvdb", media_type="season", tvdb_id=None, season_number=1
+        )
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert _buttons(html, "redownload") == []
+        assert "NoTmdb" in html
+
+    def test_old_audit_row_renders_without_button(self, app_factory, authed_client, conn):
+        insert_media_item(conn, id="old", title="Old Film", plex_rating_key="rk1")
+        _insert_audit_deleted(conn, "old")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Old Film" in html
+        assert _buttons(html, "redownload") == []
+
+
+def _record_redownload(conn, token: str) -> None:
+    insert_audit_log(
+        conn,
+        media_item_id=token,
+        action="re_downloaded",
+        created_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    conn.commit()
+
+
+class TestRedownloadedItemLeavesRecentlyDeleted:
+    def test_movie_redownloaded_after_deletion_is_not_listed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
+        _insert_deleted_with_identity(conn, "other", title="Arrival", tmdb_id=329865)
+        _record_redownload(conn, "tmdb:438631")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Dune" not in html
+        assert "Arrival" in html
+
+    def test_season_redownloaded_after_deletion_is_not_listed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_deleted_with_identity(
+            conn, "gone", title="Severance", media_type="season", tvdb_id=371980, season_number=2
+        )
+        _record_redownload(conn, "tvdb:371980")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Severance" not in html
+
+    def test_redownloading_one_season_keeps_the_other_seasons_button(
+        self, app_factory, authed_client, conn
+    ):
+        for season in (1, 2):
+            _insert_deleted_with_identity(
+                conn,
+                f"s{season}",
+                title="Severance",
+                media_type="season",
+                tvdb_id=371980,
+                season_number=season,
+            )
+        _record_redownload(conn, "tvdb:371980:s1")
+        html = _dashboard_html(app_factory, authed_client, conn)
+        (button,) = _buttons(html, "redownload")
+        assert json.loads(button["data-redownload"] or "")["season_number"] == 2
+
+    def test_movie_deleted_again_after_a_redownload_is_listed(
+        self, app_factory, authed_client, conn
+    ):
+        insert_audit_log(
+            conn,
+            media_item_id="tmdb:438631",
+            action="re_downloaded",
+            created_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "Dune" in html
+
+
+class TestDeleteRootBanner:
+    def test_banner_names_root_and_count(self, app_factory, authed_client, conn):
+        write_delete_root_state(conn, {"/media/movies": 3, "/media/tv": 1})
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "root-banner" in html
+        assert (
+            "/media/movies</span> is empty or not mounted: 3 scheduled deletions are waiting"
+            in html
+        )
+        assert "/media/tv</span> is empty or not mounted: 1 scheduled deletion is waiting" in html
+
+    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn):
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "root-banner" not in html
+
+    def test_banner_escapes_paths(self, app_factory, authed_client, conn):
+        write_delete_root_state(conn, {"/m/<script>alert(1)</script>": 2})
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html

@@ -29,6 +29,7 @@ from mediaman.crypto.tokens import keep_token_expiry
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
+from mediaman.services.arr.match import index_match_movie, index_match_season
 
 logger = logging.getLogger(__name__)
 
@@ -44,29 +45,54 @@ def upsert_item(
 ) -> None:
     """Upsert a single media item and advance its watch timestamp.
 
-    Loads the Arr date cache on demand (idempotent) then delegates to
-    repository.upsert_media_item and
-    repository.update_last_watched.
+    Delegates to repository.upsert_media_item and
+    repository.update_last_watched.  The Radarr/Sonarr id is matched from
+    *arr_cache*'s index, which the caller loads before opening a write
+    transaction; when that arr's list was not loaded the stored id is kept.
 
     Args:
         conn: Open SQLite connection.
         fetch: The network-layer record to persist.
-        arr_cache: Radarr/Sonarr date cache used to resolve ``added_at``.
+        arr_cache: Radarr/Sonarr date cache and index, already loaded.
         media_type: Canonical media-type string (``"movie"`` or ``"season"``).
     """
-    arr_cache.ensure_loaded()
-    file_path = fetch.item.get("file_path") or ""
+    item = fetch.item
+    file_path = item.get("file_path") or ""
     if not isinstance(file_path, str):
         file_path = ""
     arr_date = arr_cache.get(file_path)
+    radarr_id = sonarr_id = None
+    set_radarr_id = set_sonarr_id = False
+    if media_type == "movie":
+        set_radarr_id = arr_cache.radarr_loaded
+        tmdb_id = item.get("tmdb_id")
+        if set_radarr_id and isinstance(tmdb_id, int):
+            radarr_id = index_match_movie(
+                arr_cache.index, tmdb_id=tmdb_id, plex_file_path=file_path
+            )
+    else:
+        set_sonarr_id = arr_cache.sonarr_loaded
+        tvdb_id = item.get("tvdb_id")
+        season_number = item.get("season_number")
+        if set_sonarr_id and isinstance(tvdb_id, int) and isinstance(season_number, int):
+            sonarr_id = index_match_season(
+                arr_cache.index,
+                tvdb_id=tvdb_id,
+                season_number=season_number,
+                plex_file_path=file_path,
+            )
     repository.upsert_media_item(
         conn,
-        item=fetch.item,
+        item=item,
         library_id=fetch.library_id,
         media_type=media_type,
         arr_date=arr_date,
+        radarr_id=radarr_id,
+        sonarr_id=sonarr_id,
+        set_radarr_id=set_radarr_id,
+        set_sonarr_id=set_sonarr_id,
     )
-    repository.update_last_watched(conn, fetch.item["plex_rating_key"], fetch.watch_history)
+    repository.update_last_watched(conn, item["plex_rating_key"], fetch.watch_history)
 
 
 def schedule_deletion(

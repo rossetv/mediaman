@@ -47,6 +47,14 @@ _SHUTDOWN_TIMEOUT_SECONDS = 30
 _stuck_deletion_failures = 0
 
 
+def _rollback_quietly(conn: sqlite3.Connection) -> None:
+    """Drop any open write transaction so the thread's connection frees its lock."""
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        logger.warning("rollback after failed job also failed", exc_info=True)
+
+
 def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
     """Execute a scheduled scan, reading all settings fresh from the DB.
 
@@ -100,6 +108,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
         run_scan_from_db(db_conn, secret_key)
         finish_scan_run(db_conn, run_id, "done")
     except Exception as exc:  # rationale: scheduler must survive a single bad row
+        _rollback_quietly(db_conn)
         try:
             finish_scan_run(db_conn, run_id, "error", str(exc))
         except sqlite3.Error:  # pragma: no cover — finish is best-effort here
@@ -114,15 +123,21 @@ def _run_library_sync_job(secret_key: str) -> None:
     from mediaman.db import get_db
     from mediaman.scanner.runner import run_library_sync
 
+    db_conn = None
     try:
         db_conn = get_db()
         run_library_sync(db_conn, secret_key)
     except Exception:  # rationale: scheduler must survive a single bad row
         logger.exception("Library sync failed")
+        if db_conn is not None:
+            _rollback_quietly(db_conn)
 
 
 def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
     """Reconcile rows left in the 'deleting' state by a previous crash.
+
+    Books nothing: a row whose removal finished goes back to pending, so the
+    next live pass books it and unmonitors it in Radarr/Sonarr.
 
     Best-effort and safe even if no scan runs this boot. A recurring
     failure means deletions are leaking forever, so the
@@ -133,7 +148,7 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
     try:
         from mediaman.scanner.deletions import recover_stuck_deletions
 
-        recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn, book=False)
         _stuck_deletion_failures = 0
     except Exception:  # rationale: cold-start recovery
         _stuck_deletion_failures += 1
