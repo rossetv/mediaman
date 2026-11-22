@@ -44,8 +44,8 @@
   let currentDetail   = null;
   let seasonTickState = new Map();
   let lockedSeasons   = new Set();
-  /* Bumped on every open so a delayed close can tell whether it still
-     belongs to the modal it was started in. */
+  /* Bumped on every open and close so a delayed close can tell whether
+     the modal it was started in is still showing. */
   let openCount       = 0;
 
   /* Injected at init time. */
@@ -55,7 +55,10 @@
      setupDetail owns display:flex/none + aria-hidden + body overflow +
      ModalA11y registration. The close-bar button uses [data-close-modal]
      which is wired automatically. */
-  const detailModal = MM.modal.setupDetail(modal);
+  const detailModal = MM.modal.setupDetail(modal, {
+    /* Esc and backdrop close without going through closeModal. */
+    onClose: function() { openCount += 1; },
+  });
   function closeModal() { detailModal.close(); }
 
   function escapeHtml(v) { return MM.search.shelves.escapeHtml(v); }
