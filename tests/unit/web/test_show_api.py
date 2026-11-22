@@ -154,3 +154,28 @@ class TestShowRemoveAPI:
         assert resp.status_code == 200
         row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='Love/Hate'").fetchone()
         assert row is None
+
+
+class TestUntickingASeasonOnAShowKeep:
+    def test_the_dialog_sequence_leaves_only_the_ticked_season_kept(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "Breaking Bad", 1, "100")
+        _insert_season(conn, "102", "Breaking Bad", 2, "100")
+        authed_client.post(
+            "/api/show/100/keep", json={"duration": "forever", "season_ids": ["101", "102"]}
+        )
+
+        assert (
+            authed_client.post("/api/media/101/keep", data={"duration": "7 days"}).status_code
+            == 200
+        )
+        assert authed_client.post("/api/show/100/remove").status_code == 200
+        assert authed_client.post("/api/media/102/unprotect").status_code == 200
+
+        assert conn.execute("SELECT 1 FROM kept_shows").fetchone() is None
+        rows = conn.execute(
+            "SELECT media_item_id, action, snooze_duration FROM scheduled_actions"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("101", "snoozed", "7 days")]
+        seasons = authed_client.get("/api/show/100/seasons").json()
+        assert {s["id"]: s["kept"] for s in seasons["seasons"]} == {"101": True, "102": False}

@@ -149,6 +149,7 @@
       cb.type = 'checkbox';
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
+      if (s.kept) cb.dataset.kept = '1';
       cb.checked = s.kept || !anyKept;
       cb.addEventListener('change', function () {
         if (!cb.checked) allCb.checked = false;
@@ -226,9 +227,29 @@
             .catch(function () { failed.push(sid); });
         });
       });
+      /* A show keep covers every season, so unticking one ends it: the show
+         keep goes and each unticked season loses the keep it had from it. */
+      if (_keepDialogState.showKept) {
+        var unticked = [];
+        document.querySelectorAll('#keep-season-list input[data-season-id]:not(:checked)').forEach(function (cb) {
+          if (cb.dataset.kept) unticked.push(cb.dataset.seasonId);
+        });
+        keepChain = keepChain.then(function () {
+          if (failed.length) return;
+          var chain = MM.api.post('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/remove')
+            .catch(function () { failed.push('show keep'); });
+          unticked.forEach(function (sid) {
+            chain = chain.then(function () {
+              return MM.api.post('/api/media/' + encodeURIComponent(sid) + '/unprotect')
+                .catch(function () { failed.push(sid); });
+            });
+          });
+          return chain;
+        });
+      }
       keepChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
+          window.UIFeedback.error('Keep failed for ' + failed.length + ' item(s): ' + failed.join(', '));
           if (running && running.message) {
             window.UIFeedback.toast(running.message, { duration: 8000 });
           }
