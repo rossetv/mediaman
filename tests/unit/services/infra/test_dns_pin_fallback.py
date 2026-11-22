@@ -12,6 +12,7 @@ import socket
 import threading
 
 import pytest
+import urllib3.util.connection
 
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.http import (
@@ -82,6 +83,10 @@ def _closed_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.mark.skipif(
+    not urllib3.util.connection.HAS_IPV6,
+    reason="urllib3 drops IPv6 records here, so ::1 is never tried and nothing falls through",
+)
 def test_connection_falls_through_to_next_validated_address(resolver, v4_only_server):
     answers, _lookups = resolver
     answers[_HOST] = ["::1", "127.0.0.1"]

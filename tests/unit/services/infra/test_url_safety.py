@@ -380,14 +380,39 @@ class TestResolveSafeOutboundUrl:
         assert safe is False
         assert ip is None
 
-    def test_pin_holds_every_safe_address_in_resolver_order(self, fake_dns):
-        """When DNS returns multiple addresses, every one is validated and
-        pinned in resolver order, so the connection can fall back from a
-        refused address to the next one."""
+    def test_pin_holds_first_v6_and_first_v4_in_resolver_order(self, fake_dns):
+        """Every address is validated but only one per family is pinned, so
+        a host with many dead addresses cannot stall a worker, while a
+        dual-stack host still has one fallback."""
+        fake_dns(["2001:db8::1", "2001:db8::2", "93.184.216.34", "93.184.216.35"])
+        safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert safe is True
+        assert ip == ("2001:db8::1", "93.184.216.34")
+
+    def test_pin_keeps_resolver_order_when_v4_comes_first(self, fake_dns):
+        fake_dns(["93.184.216.34", "2001:db8::1", "93.184.216.35"])
+        _safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert ip == ("93.184.216.34", "2001:db8::1")
+
+    def test_single_family_host_pins_only_its_first_address(self, fake_dns):
         fake_dns(["93.184.216.34", "93.184.216.35"])
         safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
         assert safe is True
-        assert ip == ("93.184.216.34", "93.184.216.35")
+        assert ip == ("93.184.216.34",)
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ["93.184.216.34", "2001:db8::1", "169.254.169.254"],
+            ["93.184.216.34", "93.184.216.35", "93.184.216.36", "169.254.169.254"],
+            ["2001:db8::1", "fd00::1"],
+        ],
+    )
+    def test_blocked_address_beyond_the_pinned_ones_refuses_the_url(self, fake_dns, answer):
+        fake_dns(answer)
+        safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert safe is False
+        assert ip is None
 
     def test_unresolvable_host_returns_no_pin(self, monkeypatch):
         def fake_getaddrinfo(host, port, *args, **kwargs):

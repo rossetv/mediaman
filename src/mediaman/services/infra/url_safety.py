@@ -305,7 +305,8 @@ def _check_literal_or_resolved(
       resolver that could otherwise redirect the connect.
     * **Hostname** — resolved via ``socket.getaddrinfo``; rejected if it
       fails to resolve at all, or if *any* returned address is blocked.
-      Otherwise every returned address is pinned, in resolver order.
+      Otherwise the first IPv6 and the first IPv4 address are pinned, in
+      resolver order.
     """
     # Literal IP in the URL → check directly, skip DNS.
     try:
@@ -337,10 +338,15 @@ def _check_literal_or_resolved(
         if _ip_is_blocked(ip, strict=strict):
             return False, normalised, None
 
-    # Pin every address, all of them confirmed safe above, so the connect
-    # can fall through them in resolver order (``localhost`` → ``::1`` then
-    # ``127.0.0.1``) without ever resolving the name again.
-    return True, normalised, tuple(str(ip) for ip in addrs)
+    # Every address was validated above, but pin only the first of each
+    # family: urllib3 gives each pinned address the full connect timeout, so
+    # a host with many unreachable addresses would otherwise hold a worker
+    # for N x timeout x retries. One v6 and one v4 still lets a dual-stack
+    # host (``localhost`` -> ``::1`` then ``127.0.0.1``) fall back.
+    first_v6 = next((ip for ip in addrs if ip.version == 6), None)
+    first_v4 = next((ip for ip in addrs if ip.version == 4), None)
+    pinned = [ip for ip in addrs if ip in (first_v6, first_v4)]
+    return True, normalised, tuple(str(ip) for ip in pinned)
 
 
 def resolve_safe_outbound_url(
