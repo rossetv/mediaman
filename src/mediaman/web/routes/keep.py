@@ -101,6 +101,38 @@ def _consume_keep_token_and_apply(
     return None
 
 
+_FORM_ERROR_MESSAGES = {
+    "already_processed": "This link has already been used, so nothing more was changed.",
+    "invalid_or_expired": "This link is no longer valid. It may have expired or the deletion date may have passed.",
+}
+
+
+def _wants_html_form(request: Request) -> bool:
+    """True for a browser submitting the keep page's plain HTML form."""
+    content_type = request.headers.get("content-type", "")
+    return content_type.startswith(
+        "application/x-www-form-urlencoded"
+    ) and "text/html" in request.headers.get("accept", "")
+
+
+def _submit_failure(request: Request, error: str, status: int) -> Response:
+    """Answer a failed keep post: a readable page for a browser form, JSON otherwise."""
+    if not _wants_html_form(request):
+        return respond_err(error, status=status)
+    templates = cast(Jinja2Templates, request.app.state.templates)
+    return templates.TemplateResponse(
+        request,
+        "keep.html",
+        {
+            "state": "error",
+            "item": None,
+            "error_message": _FORM_ERROR_MESSAGES[error],
+            "is_admin": _is_admin(request),
+        },
+        status_code=status,
+    )
+
+
 @router.get("/keep/{token}", response_class=HTMLResponse)
 def keep_page(request: Request, token: str) -> HTMLResponse:
     conn = get_db()
@@ -204,18 +236,18 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
     if len(token) > 4096:
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # Reject unknown durations early; also reject "forever" — that lives on
     # the admin-only endpoint for privileged users only.
     if duration not in VALID_KEEP_DURATIONS or duration == "forever":
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # HMAC-verify the token and confirm it maps to an existing action.
     # Any failure here (bad signature, expired payload, row absent) → 400.
     verified = lookup_verified_action(conn, token, config.secret_key)
     if verified is None:
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     now = now_utc()
 
@@ -223,13 +255,13 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     # reject immediately with 409 so a sequential replay (after the scheduled_action
     # row's action has been updated) still gets the correct status code.
     if is_keep_token_consumed(conn, token_hash(token)):
-        return respond_err("already_processed", status=409)
+        return _submit_failure(request, "already_processed", 409)
 
     # Pre-flight: confirm the action is pending and the deadline has not
     # passed before entering the write transaction — avoids an empty write
     # on the "obviously expired" path.
     if not is_pending_unexpired(verified, now):
-        return respond_err("invalid_or_expired", status=400)
+        return _submit_failure(request, "invalid_or_expired", 400)
 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
@@ -250,7 +282,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         audit_detail=f"Kept for {duration}",
     )
     if failure is not None:
-        return failure
+        return _submit_failure(request, "already_processed", 409)
 
     return RedirectResponse(f"/keep/{token}", status_code=302)
 

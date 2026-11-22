@@ -677,3 +677,60 @@ class TestKeepTokenHash:
         assert row is not None
         assert row["token_hash"] is not None
         assert len(row["token_hash"]) == 64
+
+
+class TestKeepFormFailurePage:
+    """A browser form post that fails shows a readable page, not the JSON envelope."""
+
+    _HTML = {"accept": "text/html,application/xhtml+xml"}
+
+    def _client(self, conn: sqlite3.Connection) -> TestClient:
+        app = FastAPI()
+        app.include_router(keep_router)
+        app.state.config = Config(secret_key=SECRET)
+        app.state.db = conn
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        set_connection(conn)
+        return TestClient(app, raise_server_exceptions=True)
+
+    def _used_token(self, conn: sqlite3.Connection) -> str:
+        _insert_media_item(conn)
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        assert self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}
+        ).status_code in (
+            200,
+            302,
+        )
+        return token
+
+    def test_reused_token_renders_a_sentence_and_no_json(self, conn):
+        token = self._used_token(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "already been used" in resp.text
+        assert "already_processed" not in resp.text
+        assert '"ok"' not in resp.text
+        assert 'href="/login"' in resp.text
+
+    def test_bad_token_renders_a_sentence_at_400(self, conn):
+        resp = self._client(conn).post(
+            "/keep/bogustoken", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 400
+        assert "no longer valid" in resp.text
+        assert "invalid_or_expired" not in resp.text
+
+    def test_json_caller_still_gets_the_envelope(self, conn):
+        token = self._used_token(conn)
+
+        resp = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
+
+        assert resp.status_code == 409
+        assert resp.json() == {"ok": False, "error": "already_processed"}
