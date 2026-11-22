@@ -72,6 +72,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import sqlite3
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 from mediaman.services.infra._url_safety_blocks import (
@@ -85,6 +86,25 @@ from mediaman.services.infra._url_safety_blocks import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class PinnedIP(str):
+    """The first validated address of a host, carrying every validated address.
+
+    It is the first address as a string, so callers that unpack
+    ``(safe, hostname, pinned_ip)`` and compare or log it keep working, while
+    ``dns_pinning.pin`` reads ``addresses`` so a connection refused on one
+    validated address can fall through to the next, in resolver order.
+    """
+
+    addresses: tuple[str, ...]
+
+    def __new__(cls, addresses: Sequence[str]) -> PinnedIP:
+        if not addresses:
+            raise ValueError("PinnedIP needs at least one address")
+        obj = super().__new__(cls, addresses[0])
+        obj.addresses = tuple(addresses)
+        return obj
 
 
 class SSRFRefused(Exception):
@@ -305,9 +325,8 @@ def _check_literal_or_resolved(
       resolver that could otherwise redirect the connect.
     * **Hostname** — resolved via ``socket.getaddrinfo``; rejected if it
       fails to resolve at all, or if *any* returned address is blocked.
-      The first safe address is pinned (every returned address has already
-      been confirmed safe — the first is chosen for stability across
-      calls).
+      Otherwise every returned address is pinned, in resolver order, as a
+      ``PinnedIP`` whose string value is the first.
     """
     # Literal IP in the URL → check directly, skip DNS.
     try:
@@ -339,12 +358,10 @@ def _check_literal_or_resolved(
         if _ip_is_blocked(ip, strict=strict):
             return False, normalised, None
 
-    # Pin the first safe address we got back. Every address in ``addrs``
-    # has already been confirmed safe, so the choice is irrelevant for
-    # security; we use the first one for stability across calls. The
-    # caller installs this in a thread-local DNS pin so the eventual
-    # ``socket.getaddrinfo`` returns the same address we just verified.
-    return True, normalised, str(addrs[0])
+    # Pin every address, all of them confirmed safe above, so the connect
+    # can fall through them in resolver order (``localhost`` → ``::1`` then
+    # ``127.0.0.1``) without ever resolving the name again.
+    return True, normalised, PinnedIP([str(ip) for ip in addrs])
 
 
 def resolve_safe_outbound_url(
@@ -367,6 +384,8 @@ def resolve_safe_outbound_url(
       already contains a literal IP, or the URL was rejected). When
       present, callers must connect to this exact address rather than
       re-resolving the hostname — that's the DNS-rebinding defence.
+      For a resolved hostname it is a ``PinnedIP``: the first validated
+      address, carrying every validated address for connect fallback.
 
     When *allowed_hosts* is provided, the URL's hostname must appear in
     that set (after IDN normalisation) **or** in

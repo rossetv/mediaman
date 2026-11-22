@@ -61,6 +61,8 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
+from mediaman.services.infra.url_safety import PinnedIP
+
 logger = logging.getLogger(__name__)
 
 _DNS_PINNING_MODULE = "mediaman.services.infra.http.dns_pinning"
@@ -94,43 +96,45 @@ def _patched_getaddrinfo(
 ) -> Any:  # pragma: no cover - thin wrapper
     """``socket.getaddrinfo`` wrapper that honours per-thread DNS pins.
 
-    When a pin is set for *host* we synthesise a single ``getaddrinfo``
-    record for the pinned IP, preserving the address family (v4 vs v6).
-    If no pin is set, behaviour is identical to the upstream resolver.
+    When a pin is set for *host* we synthesise one ``getaddrinfo`` record
+    per pinned address, in pin order, preserving each address family (v4
+    vs v6). urllib3 tries the records in turn, as ``socket.create_connection``
+    does, so a refused address falls through to the next validated one and
+    never to an address that was not validated. If no pin is set,
+    behaviour is identical to the upstream resolver.
 
-    If the caller asked for a specific address family and the pin holds an
-    address from the other family, an empty list is returned — the same
-    signal urllib3 uses to try the next strategy, avoiding a record the
-    connection layer cannot use.
+    If the caller asked for a specific address family, pinned addresses
+    of the other family are left out; when none remain an empty list is
+    returned — the same signal urllib3 uses to try the next strategy,
+    avoiding a record the connection layer cannot use.
     """
     pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
     if pins:
         ip = pins.get(_pin_key(host))
         if ip is not None:
-            family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+            addresses = ip.addresses if isinstance(ip, PinnedIP) else (ip,)
             requested_family = kwargs.get("family")
             if requested_family is None and len(args) > 0:
                 requested_family = args[0]
-            # ``AF_UNSPEC`` (0) means "either family is fine" — treat as wildcard.
-            # Any explicit family that disagrees with the pin must yield [].
-            if (
-                requested_family
-                and requested_family != socket.AF_UNSPEC
-                and requested_family != family
-            ):
-                return []
             socktype = kwargs.get("type") or (args[1] if len(args) > 1 else 0)
             proto = kwargs.get("proto") or (args[2] if len(args) > 2 else 0)
-            sockaddr = (ip, port or 0, 0, 0) if family == socket.AF_INET6 else (ip, port or 0)
-            return [
-                (
-                    family,
-                    socktype or socket.SOCK_STREAM,
-                    proto,
-                    "",
-                    sockaddr,
+            records = []
+            for address in addresses:
+                family = socket.AF_INET6 if ":" in address else socket.AF_INET
+                # ``AF_UNSPEC`` (0) means "either family is fine" — a wildcard.
+                if (
+                    requested_family
+                    and requested_family != socket.AF_UNSPEC
+                    and requested_family != family
+                ):
+                    continue
+                sockaddr = (
+                    (address, port or 0, 0, 0)
+                    if family == socket.AF_INET6
+                    else (address, port or 0)
                 )
-            ]
+                records.append((family, socktype or socket.SOCK_STREAM, proto, "", sockaddr))
+            return records
     # Resolve ``_ORIG_GETADDRINFO`` through ``http_client``'s module namespace
     # at call time so ``monkeypatch.setattr(http_client, "_ORIG_GETADDRINFO",
     # fake)`` in tests correctly replaces the delegate resolver.
@@ -205,6 +209,9 @@ _install_dns_pin_hook()
 @contextlib.contextmanager
 def pin(hostname: str, ip: str) -> Iterator[None]:
     """Pin DNS for *hostname* to *ip* for the duration of the ``with`` block.
+
+    When *ip* is a ``PinnedIP`` every one of its validated addresses is
+    pinned, so the connection can fall back from one to the next.
 
     The pin is stored on a ``threading.local``, so other threads are
     unaffected.  On exit the pin is cleared (or restored to the previous pin
