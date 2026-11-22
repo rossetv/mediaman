@@ -104,6 +104,31 @@ class TestApiUnprotect:
         assert audit["action"] == "unprotected"
 
 
+class TestApiUnprotectEveryKeep:
+    def test_one_press_removes_every_keep_and_writes_one_audit_row(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+        insert_media_item(conn, id="m1", title="Dune", plex_rating_key="rk1", file_size_bytes=0)
+        for n, action in enumerate(("snoozed", "protected_forever")):
+            insert_scheduled_action(
+                conn, media_item_id="m1", action=action, execute_at=None, token=f"t{n}"
+            )
+        scheduled = insert_scheduled_action(
+            conn, media_item_id="m1", action="scheduled_deletion", token="t-sched"
+        )
+        conn.commit()
+
+        assert client.post("/api/media/m1/unprotect").status_code == 200
+
+        left = conn.execute("SELECT id, action FROM scheduled_actions").fetchall()
+        assert [(r["id"], r["action"]) for r in left] == [(scheduled, "scheduled_deletion")]
+        audits = conn.execute("SELECT detail FROM audit_log WHERE action='unprotected'").fetchall()
+        assert len(audits) == 1
+        assert "2 keeps" in audits[0]["detail"]
+        assert client.post("/api/media/m1/unprotect").status_code == 404
+
+
 class TestApiShowSeasons:
     def test_requires_auth(self, app_factory, conn):
         app = app_factory(kept_router, conn=conn)
@@ -423,6 +448,31 @@ class TestKeepShowSnoozed:
         assert sa is not None
         assert sa["action"] == "snoozed"
         assert sa["snooze_duration"] == "30 days"
+
+    def test_keep_show_reads_the_seasons_rows_inside_its_transaction(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        """A per-season keep written between the read and the write would survive beside it."""
+        from mediaman.web.routes import kept_show
+
+        _insert_season(conn, "m-T", "rk-show-T", "Fringe", season=1)
+        in_transaction = []
+        real_fetch = kept_show.fetch_existing_actions_for_seasons
+
+        def spy(spy_conn, season_ids):
+            in_transaction.append(spy_conn.in_transaction)
+            return real_fetch(spy_conn, season_ids)
+
+        monkeypatch.setattr(kept_show, "fetch_existing_actions_for_seasons", spy)
+        app = app_factory(kept_router, conn=conn)
+        client = authed_client(app, conn)
+
+        resp = client.post(
+            "/api/show/rk-show-T/keep", json={"duration": "30 days", "season_ids": ["m-T"]}
+        )
+
+        assert resp.status_code == 200
+        assert in_transaction == [True]
 
     def test_keep_show_invalid_duration_returns_400(self, app_factory, authed_client, conn):
         _insert_season(conn, "m-Y", "rk-show-Y", "Futurama", season=1)

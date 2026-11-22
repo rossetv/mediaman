@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import logging
 import sqlite3
 import threading
@@ -93,20 +92,34 @@ def trigger_scan(
     heartbeat_thread.start()
 
     def run() -> None:
-        thread_conn = open_thread_connection(db_path)
+        thread_conn: sqlite3.Connection | None = None
         try:
+            thread_conn = open_thread_connection(db_path)
             from mediaman.scanner.runner import run_scan_from_db
 
-            run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
-            finish_scan_run(thread_conn, run_id, "done")
+            summary = run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
+            reason = summary.get("skipped_reason")
+            if reason:
+                finish_scan_run(thread_conn, run_id, "skipped", reason)
+            else:
+                finish_scan_run(thread_conn, run_id, "done")
         except Exception as exc:  # rationale: background job runner; a single bad scan must not leak a stuck "running" lease.
-            with contextlib.suppress(sqlite3.Error):
-                finish_scan_run(thread_conn, run_id, "error", str(exc))
             logger.exception("Background scan failed")
+            # Fall back to a fresh connection when the worker one never opened.
+            try:
+                err_conn = thread_conn or open_thread_connection(db_path)
+                try:
+                    finish_scan_run(err_conn, run_id, "error", str(exc))
+                finally:
+                    if err_conn is not thread_conn:
+                        err_conn.close()
+            except (sqlite3.Error, OSError):
+                logger.exception("Could not mark the failed scan run as finished")
         finally:
             stop_heartbeat.set()
             heartbeat_thread.join(timeout=5)
-            thread_conn.close()
+            if thread_conn is not None:
+                thread_conn.close()
 
     thread = threading.Thread(target=run, name="manual-scan-worker", daemon=True)
     thread.start()
@@ -116,7 +129,16 @@ def trigger_scan(
 @router.get("/api/scan/status")
 def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     conn = get_db()
-    return {"running": is_scan_running(conn)}
+    running = is_scan_running(conn)
+    if running:
+        return {"running": True}
+    row = conn.execute("SELECT status, error FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
+    if row is not None and row["status"] == "skipped":
+        return {"running": False, "status": "skipped", "reason": row["error"]}
+    if row is not None and row["status"] == "error":
+        # The stored error text can be an exception message; show a fixed one.
+        return {"running": False, "status": "error", "reason": "see the server log for details"}
+    return {"running": False}
 
 
 @router.post("/api/scan/clear-scheduled", response_model=None)

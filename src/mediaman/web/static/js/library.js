@@ -28,6 +28,54 @@
   var _keepDialogRequest = 0;
   var _seasonDeleteRequest = 0;
 
+  /* Keep chains still running, by show. A dialog opened for such a show keeps
+     Keep disabled until its chain settles, so two chains never interleave. */
+  var _keepChains = {};
+
+  function keepChainKey() {
+    return _keepDialogState.showRk || 'title:' + _keepDialogState.showTitle;
+  }
+
+  function trackKeepChain(key, chain) {
+    var tracked = chain.then(function () {}, function () {});
+    _keepChains[key] = tracked;
+    tracked.then(function () { if (_keepChains[key] === tracked) delete _keepChains[key]; });
+  }
+
+  /* The note sits beside the confirm button, made on first use. */
+  function keepChainNote() {
+    var note = document.getElementById('keep-dialog-note');
+    if (!note) {
+      var confirmBtn = document.getElementById('keep-dialog-confirm');
+      note = document.createElement('span');
+      note.id = 'keep-dialog-note';
+      note.className = 'keep-season-details';
+      confirmBtn.parentNode.insertBefore(note, confirmBtn.parentNode.querySelector('.u-flex-1').nextSibling);
+    }
+    return note;
+  }
+
+  /* While a chain for this show runs, neither Keep/Update nor Remove all may
+     start another. When it settles, a dialog still showing the show reads the
+     seasons again, since the chain changed them. */
+  function holdKeepWhileSaving(request) {
+    var note = keepChainNote();
+    var chain = _keepChains[keepChainKey()];
+    var confirmBtn = document.getElementById('keep-dialog-confirm');
+    var removeBtn = document.getElementById('keep-dialog-remove');
+    note.textContent = chain ? 'Saving the previous change…' : '';
+    removeBtn.disabled = !!chain;
+    if (!chain) return;
+    confirmBtn.disabled = true;
+    chain.then(function () {
+      if (request !== _keepDialogRequest) return;
+      confirmBtn.disabled = false;
+      removeBtn.disabled = false;
+      note.textContent = '';
+      loadKeepSeasons();
+    });
+  }
+
   /* A keep pressed while the item was already being deleted is saved, but its
      files may be gone: show the server's word on it before reloading. */
   function reloadAfterKeep(data) {
@@ -77,19 +125,28 @@
     loadKeepSeasons();
   }
 
-  function loadKeepSeasons() {
-    _keepDialogState.showKept = false;
-    _keepDialogState.keptSeasonIds = [];
-    var list = document.getElementById('keep-season-list');
-    list.textContent = 'Loading…';
+  function seasonsUrl() {
     var rk = _keepDialogState.showRk || '_by_title';
     var url = '/api/show/' + encodeURIComponent(rk) + '/seasons';
     if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
       url += '?title=' + encodeURIComponent(_keepDialogState.showTitle);
     }
+    return url;
+  }
+
+  function loadKeepSeasons() {
+    _keepDialogState.showKept = false;
+    _keepDialogState.keptSeasonIds = [];
+    var list = document.getElementById('keep-season-list');
+    list.textContent = 'Loading…';
+    var url = seasonsUrl();
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
-    document.getElementById('keep-dialog-confirm').textContent = 'Keep';
+    var confirmBtn = document.getElementById('keep-dialog-confirm');
+    confirmBtn.textContent = 'Keep';
+    /* A keep still running for the show opened before must not lock this one. */
+    confirmBtn.disabled = false;
     var request = ++_keepDialogRequest;
+    holdKeepWhileSaving(request);
     MM.api.get(url)
       .then(function (data) {
         if (request !== _keepDialogRequest) return;
@@ -149,7 +206,8 @@
       cb.type = 'checkbox';
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
-      cb.checked = s.kept || !anyKept;
+      if (s.kept) cb.dataset.kept = '1';
+      cb.checked = !!showKept || s.kept || !anyKept;
       cb.addEventListener('change', function () {
         if (!cb.checked) allCb.checked = false;
       });
@@ -192,8 +250,43 @@
     }
 
     var btn = document.getElementById('keep-dialog-confirm');
+    var btnLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Keeping…';
+    var removeAllBtn = document.getElementById('keep-dialog-remove');
+    if (removeAllBtn) removeAllBtn.disabled = true;
+
+    /* The requests below outlive this click: the dialog may be closed and
+       opened for another show meanwhile, so everything they need is read
+       now, and the dialog's buttons are touched only while it is still the
+       one that was open. */
+    var rk = _keepDialogState.showRk;
+    var showKept = _keepDialogState.showKept;
+    var dur = _keepDialogState.duration || '30 days';
+    var seasonsRequestUrl = seasonsUrl();
+    var request = _keepDialogRequest;
+    var chainKey = keepChainKey();
+    var chain;
+    var showTitle = _keepDialogState.showTitle;
+    function dialogIsOpen() { return request === _keepDialogRequest; }
+    /* A toast from a dialog no longer shown must say whose keep it is. */
+    function say(msg) {
+      return dialogIsOpen() || !showTitle ? msg : showTitle + ': ' + msg;
+    }
+    function restoreButton() {
+      if (!dialogIsOpen()) return;
+      btn.disabled = false;
+      btn.textContent = btnLabel;
+      if (removeAllBtn) removeAllBtn.disabled = false;
+    }
+    /* A keep that finished for a dialog no longer shown must not reload the
+       page under the one that is. */
+    function done(data) {
+      if (dialogIsOpen()) reloadAfterKeep(data);
+      else if (data && data.deletion_running && data.message) {
+        window.UIFeedback.toast(say(data.message), { duration: 8000 });
+      }
+    }
 
     if (allChecked) {
       if (selectedIds.length === 0) {
@@ -201,20 +294,24 @@
           selectedIds.push(cb.dataset.seasonId);
         });
       }
-      MM.api.post(
-        '/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep',
-        { duration: _keepDialogState.duration, season_ids: selectedIds }
+      chain = MM.api.post(
+        '/api/show/' + encodeURIComponent(rk) + '/keep',
+        { duration: dur, season_ids: selectedIds }
       )
-        .then(reloadAfterKeep)
+        .then(done)
         .catch(function (err) {
           var msg = (err && err.message) || 'Try again.';
-          window.UIFeedback.error("Couldn't save keep. " + msg);
-          btn.disabled = false;
-          btn.textContent = 'Keep';
+          window.UIFeedback.error(say("Couldn't save keep. " + msg));
+          restoreButton();
         });
     } else {
-      /* Check each request; report failed season IDs. */
-      var dur = _keepDialogState.duration || '30 days';
+      /* Failures are reported by the season names the dialog shows. */
+      var names = {};
+      var unticked = [];
+      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+        names[cb.dataset.seasonId] = cb.labels[0].textContent;
+        if (!cb.checked) unticked.push(cb.dataset.seasonId);
+      });
       /* Sequential loop — accumulates failures, continues after each one. */
       var keepChain = Promise.resolve();
       var failed = [];
@@ -223,22 +320,60 @@
         keepChain = keepChain.then(function () {
           return MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
             .then(function (data) { if (data && data.deletion_running) running = data; })
-            .catch(function () { failed.push(sid); });
+            .catch(function () { failed.push(names[sid]); });
         });
       });
-      keepChain.then(function () {
+      /* Once every ticked season is kept, an unticked season loses its keep.
+         A show keep covers every season, so it goes first: unticking one
+         season ends it. The seasons are read again because ending the show
+         keep leaves some with no keep of their own to remove. */
+      keepChain = keepChain.then(function () {
+        if (failed.length) return;
+        var ended = Promise.resolve(true);
+        if (showKept) {
+          ended = MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove')
+            .catch(function (err) {
+              /* 404: no show keep any more (removed in another tab, or the
+                 reply to an earlier try was lost), which is what was asked. */
+              if (err && err.status === 404) return;
+              throw err;
+            })
+            .then(function () {
+              if (dialogIsOpen()) _keepDialogState.showKept = false;
+              return true;
+            })
+            .catch(function () { failed.push('the show keep'); return false; });
+        }
+        return ended.then(function (ok) {
+          if (!ok || !unticked.length) return;
+          return MM.api.get(seasonsRequestUrl).then(function (data) {
+            var keptNow = {};
+            data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
+            var chain = Promise.resolve();
+            unticked.forEach(function (sid) {
+              if (!keptNow[sid]) return;
+              chain = chain.then(function () {
+                return MM.api.post('/api/media/' + encodeURIComponent(sid) + '/unprotect')
+                  .catch(function () { failed.push(names[sid]); });
+              });
+            });
+            return chain;
+          }, function () { failed.push('the seasons to remove keeps from'); });
+        });
+      });
+      chain = keepChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
+          window.UIFeedback.error(say('Keep failed for: ' + failed.join(', ')));
           if (running && running.message) {
-            window.UIFeedback.toast(running.message, { duration: 8000 });
+            window.UIFeedback.toast(say(running.message), { duration: 8000 });
           }
-          btn.disabled = false;
-          btn.textContent = 'Keep';
+          restoreButton();
         } else {
-          reloadAfterKeep(running);
+          done(running);
         }
       });
     }
+    trackKeepChain(chainKey, chain);
   }
 
   function removeAllKeeps() {
@@ -252,13 +387,27 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) { removeBtn.disabled = false; return; }
+      /* Like a keep, the requests outlive the dialog, so what they need is
+         read now and the dialog is touched only while it is the same one. */
+      var request = _keepDialogRequest;
+      var chainKey = keepChainKey();
+      var showTitle = _keepDialogState.showTitle;
       var rk = _keepDialogState.showRk;
       var allRequests = [];
       if (rk && _keepDialogState.showKept) {
-        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+        allRequests.push({
+          url: '/api/show/' + encodeURIComponent(rk) + '/remove',
+          name: 'the show keep',
+          /* 404: no show keep any more, which is what was asked. */
+          goneIsDone: true
+        });
       }
+      var names = {};
+      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+        names[cb.dataset.seasonId] = cb.labels[0].textContent;
+      });
       _keepDialogState.keptSeasonIds.forEach(function (sid) {
-        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
+        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', name: names[sid] || 'a season' });
       });
 
       var removeChain = Promise.resolve();
@@ -266,19 +415,25 @@
       allRequests.forEach(function (req) {
         removeChain = removeChain.then(function () {
           return MM.api.post(req.url)
-            .catch(function () { failed.push(req.id); });
+            .catch(function (err) {
+              if (req.goneIsDone && err && err.status === 404) return;
+              throw err;
+            })
+            .catch(function () { failed.push(req.name); });
         });
       });
-      removeChain.then(function () {
+      var chain = removeChain.then(function () {
         if (failed.length) {
-          window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
-          /* Refetch so a retry sends only what is still kept. */
-          loadKeepSeasons();
-          removeBtn.disabled = false;
-        } else {
+          var msg = 'Remove failed for: ' + failed.join(', ');
+          window.UIFeedback.error(request === _keepDialogRequest || !showTitle ? msg : showTitle + ': ' + msg);
+        } else if (request === _keepDialogRequest) {
           window.location.reload();
         }
       });
+      trackKeepChain(chainKey, chain);
+      /* Holds Keep and Remove all, then reads the seasons again, so a retry
+         sends only what is still kept. */
+      holdKeepWhileSaving(request);
     });
   }
 

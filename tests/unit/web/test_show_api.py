@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
-from tests.helpers.factories import insert_kept_show, insert_media_item
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -118,6 +118,50 @@ class TestShowKeepAPI:
         assert row["action"] == "snoozed"
         assert row["execute_at"] is not None
 
+    def test_a_timed_show_keep_replaces_an_emailed_keep_forever(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "Breaking Bad", 1, "100")
+        insert_scheduled_action(
+            conn, media_item_id="101", action="protected_forever", token_used=True, execute_at=None
+        )
+        resp = authed_client.post(
+            "/api/show/100/keep", json={"duration": "30 days", "season_ids": ["101"]}
+        )
+        assert resp.status_code == 200
+        rows = conn.execute(
+            "SELECT action, snooze_duration, token_used FROM scheduled_actions "
+            "WHERE media_item_id='101'"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("snoozed", "30 days", 0)]
+
+    def test_a_show_keep_converts_the_row_being_deleted_in_place(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "Breaking Bad", 1, "100")
+        keep_id = insert_scheduled_action(
+            conn,
+            media_item_id="101",
+            action="protected_forever",
+            token_used=True,
+            token="emailed-keep-token",
+        )
+        deleting_id = insert_scheduled_action(
+            conn,
+            media_item_id="101",
+            action="scheduled_deletion",
+            token="deleting-row-token",
+            delete_status="deleting",
+            execute_at="2020-01-01T00:00:00+00:00",
+        )
+        assert keep_id < deleting_id
+        resp = authed_client.post(
+            "/api/show/100/keep", json={"duration": "30 days", "season_ids": ["101"]}
+        )
+        assert resp.json()["deletion_running"] is True
+        rows = conn.execute(
+            "SELECT id, action, delete_status FROM scheduled_actions WHERE media_item_id='101'"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [(deleting_id, "snoozed", "deleting")]
+
     def test_rejects_empty_season_ids(self, authed_client):
         resp = authed_client.post(
             "/api/show/100/keep",
@@ -154,3 +198,28 @@ class TestShowRemoveAPI:
         assert resp.status_code == 200
         row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='Love/Hate'").fetchone()
         assert row is None
+
+
+class TestUntickingASeasonOnAShowKeep:
+    def test_the_dialog_sequence_leaves_only_the_ticked_season_kept(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "Breaking Bad", 1, "100")
+        _insert_season(conn, "102", "Breaking Bad", 2, "100")
+        authed_client.post(
+            "/api/show/100/keep", json={"duration": "forever", "season_ids": ["101", "102"]}
+        )
+
+        assert (
+            authed_client.post("/api/media/101/keep", data={"duration": "7 days"}).status_code
+            == 200
+        )
+        assert authed_client.post("/api/show/100/remove").status_code == 200
+        assert authed_client.post("/api/media/102/unprotect").status_code == 200
+
+        assert conn.execute("SELECT 1 FROM kept_shows").fetchone() is None
+        rows = conn.execute(
+            "SELECT media_item_id, action, snooze_duration FROM scheduled_actions"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("101", "snoozed", "7 days")]
+        seasons = authed_client.get("/api/show/100/seasons").json()
+        assert {s["id"]: s["kept"] for s in seasons["seasons"]} == {"101": True, "102": False}

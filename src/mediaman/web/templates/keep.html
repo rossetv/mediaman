@@ -4,6 +4,7 @@
 {% block title %}
   {% if state == "active" %}Keep · {{ item.title }} · Mediaman
   {% elif state == "already_kept" %}Protected · {{ item.title }} · Mediaman
+  {% elif state == "deleting" %}Being deleted · {{ item.title }} · Mediaman
   {% else %}Expired · Mediaman
   {% endif %}
 {% endblock %}
@@ -145,6 +146,26 @@
           {% endif %}
           {% endif %}
         </div>
+      </div>
+
+      <div class="keep-footer">
+        {% if is_admin %}<a href="/">Back to dashboard →</a>
+        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
+      </div>
+
+    {% elif state == "deleting" %}
+
+      <div class="status-pill status-expired">
+        <span class="status-dot dot-muted"></span>
+        Being deleted
+      </div>
+
+      <h1 class="item-title">
+        {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
+      </h1>
+
+      <div class="expired-msg">
+        <div class="expired-title">This is being deleted now.</div>
       </div>
 
       <div class="keep-footer">

@@ -78,9 +78,9 @@ def test_login_page_has_h1():
 
 def test_keep_page_active_state_has_h1():
     keep = _tpl("keep.html")
-    # All three states (active, already_kept, expired) rebuild an
-    # h1.item-title; collapse the assertion onto count.
-    assert keep.count('<h1 class="item-title">') == 2  # active, already_kept
+    # The active, already_kept and deleting states each rebuild an
+    # h1.item-title; the expired state uses the secondary variant.
+    assert keep.count('<h1 class="item-title">') == 3  # active, already_kept, deleting
     assert '<h1 class="item-title item-title--secondary">' in keep  # expired
 
 

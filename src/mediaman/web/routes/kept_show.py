@@ -113,7 +113,7 @@ def _check_season_ownership(
 
 def _build_season_action_rows(
     season_ids: list[str],
-    existing_by_season: dict[str, int],
+    existing_by_season: dict[str, list[int]],
     *,
     action: str,
     execute_at: str | None,
@@ -122,15 +122,17 @@ def _build_season_action_rows(
 ) -> tuple[
     list[tuple[str, str | None, str, str, int]],
     list[tuple[str, str, str, str | None, str, str, str]],
+    list[int],
 ]:
-    """Partition season IDs into (to_update, to_insert) tuples shaped as set_protected_state
-    expects.
+    """Partition season IDs into (to_update, to_insert, to_delete) as set_protected_state
+    expects: a season's first existing row becomes the keep and its other rows go.
     """
     to_update = [
-        (action, execute_at, now_iso_str, duration, existing_by_season[sid])
+        (action, execute_at, now_iso_str, duration, existing_by_season[sid][0])
         for sid in season_ids
         if sid in existing_by_season
     ]
+    to_delete = [row_id for sid in season_ids for row_id in existing_by_season.get(sid, [])[1:]]
     to_insert = [
         (
             sid,
@@ -144,7 +146,7 @@ def _build_season_action_rows(
         for sid in season_ids
         if sid not in existing_by_season
     ]
-    return to_update, to_insert
+    return to_update, to_insert, to_delete
 
 
 @router.post("/api/show/{show_rating_key}/keep")
@@ -181,19 +183,20 @@ def api_keep_show(
     show_title = fetch_show_title(conn, resolved_key) or "Unknown"
     now_iso_str = now.isoformat()
 
-    existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
-    to_update, to_insert = _build_season_action_rows(
-        season_ids,
-        existing_by_season,
-        action=decision.action,
-        execute_at=decision.execute_at,
-        duration=duration,
-        now_iso_str=now_iso_str,
-    )
-
     # The show-keep upsert, seasons write, and audit row share one transaction
-    # so a DB failure in any step rolls the whole thing back atomically.
+    # so a DB failure in any step rolls the whole thing back atomically. The
+    # seasons' rows are read inside it, so a keep written meanwhile is replaced.
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
+        to_update, to_insert, to_delete = _build_season_action_rows(
+            season_ids,
+            existing_by_season,
+            action=decision.action,
+            execute_at=decision.execute_at,
+            duration=duration,
+            now_iso_str=now_iso_str,
+        )
         upsert_kept_show(
             conn,
             show_rating_key=resolved_key,
@@ -203,7 +206,9 @@ def api_keep_show(
             snooze_duration=duration,
             created_at=now_iso_str,
         )
-        deletion_running = set_protected_state(conn, to_update=to_update, to_insert=to_insert)
+        deletion_running = set_protected_state(
+            conn, to_update=to_update, to_insert=to_insert, to_delete=to_delete
+        )
         # The scan skips a season still scheduled, so one left here would go under the keep.
         deletion_running |= delete_show_scheduled_deletions(conn, resolved_key)
         log_audit(

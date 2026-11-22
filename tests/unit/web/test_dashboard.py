@@ -494,3 +494,42 @@ class TestDeleteRootBanner:
         html = _dashboard_html(app_factory, authed_client, conn)
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+class TestCachedDiskUsage:
+    def _setup(self, monkeypatch):
+        from mediaman.web.routes.dashboard import _data
+
+        clock = [1000.0]
+        calls: list[str] = []
+
+        def fake_usage(key):
+            calls.append(key)
+            return {"total_bytes": len(calls)}
+
+        monkeypatch.setattr(_data.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(_data, "get_aggregate_disk_usage", fake_usage)
+        monkeypatch.setattr(_data, "_disk_usage_cache", {})
+        return _data, clock, calls
+
+    def test_value_is_cached_within_the_ttl(self, monkeypatch):
+        data, clock, calls = self._setup(monkeypatch)
+        data._cached_disk_usage("/m")
+        clock[0] += 29
+        data._cached_disk_usage("/m")
+        assert len(calls) == 1
+
+    def test_value_is_recomputed_after_the_ttl(self, monkeypatch):
+        data, clock, calls = self._setup(monkeypatch)
+        data._cached_disk_usage("/m")
+        clock[0] += 31
+        assert data._cached_disk_usage("/m") == {"total_bytes": 2}
+
+    def test_expired_value_is_recomputed_once_not_on_every_render(self, monkeypatch):
+        data, clock, calls = self._setup(monkeypatch)
+        data._cached_disk_usage("/m")
+        clock[0] += 31
+        data._cached_disk_usage("/m")
+        data._cached_disk_usage("/m")
+        data._cached_disk_usage("/m")
+        assert len(calls) == 2

@@ -34,6 +34,7 @@ from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra import (
     ConfigDecryptError,
     SafeHTTPError,
+    SSRFRefused,
     disk_usage_allowed_roots,
     resolve_safe_readonly_path,
 )
@@ -375,6 +376,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         return JSONResponse({"libraries": libraries})
     except (
         SafeHTTPError,
+        SSRFRefused,
         # rationale: PlexClient uses plexapi which maintains its own requests
         # session; ``get_libraries`` calls ``server.library.sections()``
         # which does not route through SafeHTTPClient, so bare

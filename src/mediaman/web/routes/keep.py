@@ -69,6 +69,7 @@ def _consume_keep_token_and_apply(
     now: datetime,
     apply: Callable[[], int],
     audit_detail: str,
+    audit_action: str = "snoozed",
 ) -> JSONResponse | None:
     """Run the shared consume-then-apply keep sequence.
 
@@ -88,7 +89,7 @@ def _consume_keep_token_and_apply(
         if consumed:
             applied_rowcount = apply()
             if applied_rowcount > 0:
-                log_audit(conn, verified.media_item_id, "snoozed", audit_detail)
+                log_audit(conn, verified.media_item_id, audit_action, audit_detail)
 
     if not consumed:
         # Token hash was already in keep_tokens_used — concurrent replay.
@@ -136,9 +137,14 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     now = now_utc()
     execute_at = parse_execute_at(row.execute_at, default=now)
 
-    if execute_at < now:
+    if row.delete_status == "deleting":
+        # Files may already be gone, so neither Keep nor "already kept" is true.
+        state = "deleting"
+    elif execute_at < now:
         state = "expired"
-    elif row.token_used:
+    elif row.token_used or row.action != "scheduled_deletion":
+        # A keep made elsewhere (Library, whole-show) converts the row and clears
+        # token_used, so the row's action says it is kept, not the flag.
         state = "already_kept"
     else:
         state = "active"
@@ -292,6 +298,7 @@ def keep_forever(
         now=now,
         apply=lambda: apply_keep_forever(conn, action_id=verified.id, now=now),
         audit_detail="Kept forever (admin)",
+        audit_action="kept",
     )
     if failure is not None:
         return failure

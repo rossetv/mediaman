@@ -1043,6 +1043,66 @@ class TestMediaKeep:
         assert sa is not None
         assert sa["action"] == "protected_forever"
 
+    def test_keep_forever_is_audited_as_kept_and_a_timed_keep_as_snoozed(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+
+        client.post("/api/media/m1/keep", data={"duration": "forever"})
+        assert _audit_actions(conn, "m1") == ["kept"]
+
+        client.post("/api/media/m1/keep", data={"duration": "7 days"})
+        assert _audit_actions(conn, "m1") == ["kept", "snoozed"]
+
+    def test_keep_replaces_an_emailed_keep_whose_token_was_used(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn, media_item_id="m1", action="protected_forever", token="t1", token_used=True
+        )
+        conn.commit()
+        client = authed_client(_app(app_factory, conn), conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "7 days"})
+
+        assert resp.status_code == 200
+        rows = conn.execute(
+            "SELECT action, snooze_duration FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [(r["action"], r["snooze_duration"]) for r in rows] == [("snoozed", "7 days")]
+        detail = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id='m1' AND action='snoozed'"
+        ).fetchone()["detail"]
+        assert "replaced keep: protected_forever" in detail
+
+    def test_keep_during_a_removal_converts_the_claimed_row_and_replaces_the_rest(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="t1",
+            delete_status="deleting",
+        )
+        insert_scheduled_action(conn, media_item_id="m1", action="snoozed", token="t2")
+        conn.commit()
+        client = authed_client(_app(app_factory, conn), conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
+
+        assert resp.json()["deletion_running"] is True
+        rows = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m1' "
+            "ORDER BY id"
+        ).fetchall()
+        assert [(r["action"], r["delete_status"]) for r in rows] == [
+            ("protected_forever", "deleting")
+        ]
+
     def test_keep_30d_inserts_snoozed_action(self, app_factory, authed_client, conn):
         _insert_movie(conn)
         app = _app(app_factory, conn)
@@ -1181,7 +1241,7 @@ class TestMediaKeep:
             r["action"]
             for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id='m1'")
         ]
-        assert audits == ["snoozed", "deleted"]
+        assert audits == ["kept", "deleted"]
 
 
 class TestMediaRedownload:
