@@ -309,6 +309,13 @@
 
     var btn = document.getElementById('keep-dialog-confirm');
     var btnLabel = btn.textContent;
+    /* Disabling the focused button would drop focus out of the dialog; park
+       it on the season list, as Retry does, until the button is back. */
+    var list = document.getElementById('keep-season-list');
+    if (document.activeElement === btn) {
+      list.tabIndex = -1;
+      list.focus();
+    }
     btn.disabled = true;
     btn.textContent = 'Keeping…';
     var removeAllBtn = document.getElementById('keep-dialog-remove');
@@ -333,7 +340,7 @@
     }
     function restoreButton() {
       if (!dialogIsOpen()) return;
-      var refocus = focusStillIn(btn);
+      var refocus = document.activeElement === list || focusStillIn(btn);
       btn.disabled = false;
       btn.textContent = btnLabel;
       if (removeAllBtn) removeAllBtn.disabled = false;
