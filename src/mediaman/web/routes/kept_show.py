@@ -75,7 +75,7 @@ def _validate_keep_show_input(
         logger.warning(
             "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
             supplied_key,
-            admin,
+            _sanitise_log_field(admin),
             err,
         )
         return None, respond_err(err or "unknown_show", status=409)
@@ -103,7 +103,7 @@ def _check_season_ownership(
         if unkeyed_ids:
             logger.warning(
                 "keep_show.fallback_would_have_triggered user=%s show_rating_key=%s unkeyed_ids=%s",
-                admin,
+                _sanitise_log_field(admin),
                 resolved_key,
                 unkeyed_ids,
             )

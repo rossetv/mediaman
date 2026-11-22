@@ -68,7 +68,7 @@ def _parse_last_used(raw: str | None, username: str) -> datetime | None:
     if dt is None:
         logger.warning(
             "session.corrupt_last_used user=%s last_used_at=%r",
-            username,
+            _sanitise_log_field(username),
             raw,
         )
     return dt
@@ -157,7 +157,7 @@ def _fingerprint_mismatch(
     if not request_supplied:
         logger.warning(
             "session.fingerprint_unverifiable user=%s reason=no_request mode=%s",
-            row["username"],
+            _sanitise_log_field(row["username"]),
             mode,
         )
         _try_delete_session(conn, token_hash, reason="fingerprint_unverifiable")
@@ -167,7 +167,7 @@ def _fingerprint_mismatch(
     if current_fp != stored_fp:
         logger.warning(
             "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
-            row["username"],
+            _sanitise_log_field(row["username"]),
             stored_fp,
             current_fp,
             client_ip,
@@ -204,7 +204,7 @@ def _maybe_refresh_last_used(
     except sqlite3.Error:
         logger.warning(
             "session.last_used_at_refresh_failed user=%s",
-            row["username"],
+            _sanitise_log_field(row["username"]),
             exc_info=True,
         )
 

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.session_store import create_session
@@ -37,12 +38,16 @@ def api_change_password(
     """
     request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):
-        logger.warning("password.change_throttled actor=%s scope=actor", admin)
+        logger.warning("password.change_throttled actor=%s scope=actor", _sanitise_log_field(admin))
         return respond_err(
             "too_many_requests", status=429, message="Too many password-change attempts — slow down"
         )
     if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
-        logger.warning("password.change_throttled actor=%s scope=ip ip=%s", admin, request_ip)
+        logger.warning(
+            "password.change_throttled actor=%s scope=ip ip=%s",
+            _sanitise_log_field(admin),
+            request_ip,
+        )
         return respond_err(
             "too_many_requests", status=429, message="Too many password-change attempts — slow down"
         )
@@ -87,7 +92,9 @@ def api_change_password(
         response = respond_ok({"message": "Password changed. You will be re-authenticated."})
         set_session_cookie(response, new_token, secure=is_request_secure(request))
         return response
-    logger.warning("password.change_rejected user=%s reason=wrong_old_password", admin)
+    logger.warning(
+        "password.change_rejected user=%s reason=wrong_old_password", _sanitise_log_field(admin)
+    )
     security_event(
         conn,
         event="password.change_failed",

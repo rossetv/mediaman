@@ -208,7 +208,7 @@ def api_send_newsletter(
     if not recipients:
         logger.warning(
             "newsletter.send_no_valid_recipients user=%s rejected=%d",
-            admin,
+            _sanitise_log_field(admin),
             rejected,
         )
         return respond_err(
@@ -252,7 +252,7 @@ def api_send_newsletter(
         "Manual newsletter sent to %d of %d recipients by %s (rejected=%d)",
         result.sent,
         result.attempted,
-        admin,
+        _sanitise_log_field(admin),
         rejected,
     )
     security_event(
