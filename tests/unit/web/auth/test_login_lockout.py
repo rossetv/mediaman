@@ -905,3 +905,12 @@ class TestLogInjection:
             if "auth.account_locked" in r.getMessage()
         }
         assert len(users) == 3
+
+    def test_unparsable_ip_cannot_split_a_log_line(self, conn, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                record_failure(conn, login_ip_key("nobody", "1.2.3.4\nWARNING forged"))
+        msg = next(
+            r.getMessage() for r in caplog.records if "auth.account_locked" in r.getMessage()
+        )
+        assert "\n" not in msg
