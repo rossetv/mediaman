@@ -390,8 +390,12 @@
     } catch (err) {
       adding.delete(key);
       if (showing()) {
+        /* Re-drawing the buttons drops focus from either of them. */
+        const wasOnClose = document.activeElement === document.getElementById("modal-secondary-btn");
+        const refocus = MM.dom.focusStillIn(document.getElementById("modal-primary-btn"));
         renderPrimaryButton(currentDetail);
-        document.getElementById("modal-primary-btn").focus();
+        if (refocus) document.getElementById("modal-primary-btn").focus();
+        else if (wasOnClose) document.getElementById("modal-secondary-btn").focus();
       }
       const reason = MM.api.messageOf(err, "Something went wrong. Try again.");
       if (window.UIFeedback) {
