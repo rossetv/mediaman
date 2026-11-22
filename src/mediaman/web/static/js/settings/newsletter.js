@@ -22,6 +22,16 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
+  /* The server's own sentence from an answer body: `message`, else `error`
+     when it reads as a sentence rather than a machine code. */
+  function reasonOf(data, fallback) {
+    var m = data && data.message;
+    if (typeof m === 'string' && m) return m;
+    var e = data && data.error;
+    if (typeof e === 'string' && /\s/.test(e) && !/^\w+:/.test(e)) return e;
+    return fallback;
+  }
+
   MM.settings.newsletter = {
 
     init: function () {
@@ -85,7 +95,7 @@
           .then(function () { loadSubscribers(); })
           .catch(function (err) {
             btn.disabled = false;
-            var msg = (err && err.message) || "Couldn't remove subscriber.";
+            var msg = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't remove subscriber."));
             if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(msg);
             } else { window.alert(msg); }
@@ -105,11 +115,11 @@
           .then(function (data) {
             if (data.ok) { addSubInp.value = ''; loadSubscribers(); }
             else if (window.UIFeedback && window.UIFeedback.error) {
-              window.UIFeedback.error(data.error || "Couldn't add subscriber.");
-            } else { window.alert(data.error || "Couldn't add subscriber."); }
+              window.UIFeedback.error(reasonOf(data, "Couldn't add subscriber."));
+            } else { window.alert(reasonOf(data, "Couldn't add subscriber.")); }
           })
           .catch(function (err) {
-            var msg = (err && err.message) || "Couldn't add subscriber.";
+            var msg = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't add subscriber."));
             if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(msg);
             } else { window.alert(msg); }
@@ -230,14 +240,14 @@
               setTimeout(function () { btnConfirmNL.textContent = 'Send newsletter'; }, 2400);
             } else {
               btnConfirmNL.textContent = 'Send newsletter';
-              newsletterStatus.textContent = data.error || "Couldn't send";
+              newsletterStatus.textContent = reasonOf(data, "Couldn't send");
               newsletterStatus.className = 'inline-form-msg err';
             }
           })
           .catch(function (err) {
             btnConfirmNL.disabled = false;
             btnConfirmNL.textContent = 'Send newsletter';
-            newsletterStatus.textContent = (err && err.message) || "Couldn't send. Try again.";
+            newsletterStatus.textContent = MM.api.messageOf(err, reasonOf(err && err.data, "Couldn't send. Try again."));
             newsletterStatus.className = 'inline-form-msg err';
           });
       });

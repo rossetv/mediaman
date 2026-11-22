@@ -32,7 +32,7 @@
    */
   function renderApiError(target, err) {
     if (!target) return;
-    var msg = (err && err.message) || 'Failed';
+    var msg = MM.api.messageOf(err, 'Something went wrong. Try again.');
     var issues = err && err.issues;
     if (issues && issues.length) {
       target.textContent = '';
@@ -145,7 +145,7 @@
           }).catch(function (err) {
             if (err && err.error === 'reauth_cancelled') return;
             window.UIFeedback.error(
-              (err && err.message) || 'Could not delete user'
+              MM.api.messageOf(err, 'Could not delete user')
             );
           });
         });
@@ -420,7 +420,7 @@
               msg.className = 'inline-form-msg';
               return;
             }
-            msg.textContent = (err && err.message) || 'Could not save';
+            msg.textContent = MM.api.messageOf(err, 'Could not save');
             msg.className = 'inline-form-msg err';
           });
         });
