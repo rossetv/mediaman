@@ -9,7 +9,7 @@ import pytest
 from mediaman.services.infra import DeletionRefused, delete_path
 
 
-@pytest.mark.parametrize("root", ["/Users", "/Volumes"])
+@pytest.mark.parametrize("root", ["/Users", "/Volumes", "/System", "/System/Volumes/Data"])
 def test_mac_home_and_drive_folders_are_refused_as_roots(root):
     with pytest.raises(DeletionRefused, match="system / mount-root"):
         delete_path(f"{root}/somefile", allowed_roots=[root])
@@ -35,3 +35,20 @@ def test_a_folder_under_a_denied_folder_is_accepted(tmp_path):
     delete_path(str(target), allowed_roots=[str(tmp_path)])
 
     assert not target.exists()
+
+
+def test_denied_folders_are_not_restatted_on_each_validation(tmp_path, monkeypatch):
+    from mediaman.services.infra.storage import _delete_roots
+
+    _delete_roots._forbidden_identities.cache_clear()
+    _delete_roots._is_forbidden_root(tmp_path)  # warms the cache
+
+    stated: list[str] = []
+    real_stat = os.stat
+    monkeypatch.setattr(
+        os, "stat", lambda p, *a, **k: (stated.append(str(p)), real_stat(p, *a, **k))[1]
+    )
+
+    _delete_roots._is_forbidden_root(tmp_path)
+
+    assert stated == [str(tmp_path)]

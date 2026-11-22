@@ -90,6 +90,9 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         # macOS keeps home folders under /Users and external drives under /Volumes.
         "/Users",
         "/Volumes",
+        # The macOS system folder and the volume holding all user data.
+        "/System",
+        "/System/Volumes/Data",
     }
 )
 
