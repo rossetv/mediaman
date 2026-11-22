@@ -316,11 +316,11 @@ class TestPollTokenRefresh:
         _DOWNLOAD_STATUS_LIMITER.reset()
         reset_download_caches()
 
-    def _poll(self, conn, poll_token: str):
+    def _poll(self, conn, poll_token: str, state: str = "downloading"):
         from mediaman.web.routes.download import status as status_mod
 
         client = _make_status_app_without_admin(conn)
-        with patch.object(status_mod, "_radarr_status", return_value={"state": "downloading"}):
+        with patch.object(status_mod, "_radarr_status", return_value={"state": state}):
             return client.get(
                 "/api/download/status",
                 params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
@@ -347,6 +347,18 @@ class TestPollTokenRefresh:
         assert payload["tmdb"] == 42
         assert payload["exp"] > validate_poll_token(old, _STATUS_SECRET)["exp"]
         assert self._poll(conn, fresh).status_code == 200
+
+    def test_token_near_expiry_is_not_renewed_once_download_is_ready(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=60), state="ready")
+
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "ready"
+        assert "poll_token" not in resp.json()
+
+    def test_token_near_expiry_is_renewed_while_status_is_unknown(self, conn):
+        resp = self._poll(conn, self._token(ttl_seconds=60), state="unknown")
+
+        assert "poll_token" in resp.json()
 
     def test_token_with_most_of_its_life_left_is_not_replaced(self, conn):
         resp = self._poll(conn, self._token(ttl_seconds=600))

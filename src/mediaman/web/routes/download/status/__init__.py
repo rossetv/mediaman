@@ -173,7 +173,8 @@ def download_status(
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
         return respond_err("too_many_requests", status=429)
 
-    fresh_poll_token: str | None = None
+    renewal_due = False
+    poll_media_item_id = ""
     if not admin:
         # Unauthenticated polling must use a short-lived poll_token.  The
         # long-lived download token is not accepted for status polling — it
@@ -191,12 +192,8 @@ def download_status(
             ):
                 authenticated = True
                 if poll_payload["exp"] - time.time() < _POLL_TOKEN_REFRESH_SECONDS:
-                    fresh_poll_token = generate_poll_token(
-                        media_item_id=poll_payload["mid"],
-                        service=service,
-                        tmdb_id=tmdb_id,
-                        secret_key=config.secret_key,
-                    )
+                    renewal_due = True
+                    poll_media_item_id = poll_payload["mid"]
 
         if not authenticated:
             return respond_err("not_authenticated", status=401)
@@ -229,7 +226,15 @@ def download_status(
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         result = _UNKNOWN_ITEM
 
-    if fresh_poll_token is not None:
+    # Renew only while the download is unfinished, so a held token cannot be
+    # kept alive forever; an unknown state (Arr down) still renews.
+    if renewal_due and result.get("state") != "ready":
+        fresh_poll_token = generate_poll_token(
+            media_item_id=poll_media_item_id,
+            service=service,
+            tmdb_id=tmdb_id,
+            secret_key=config.secret_key,
+        )
         # A new dict, so the shared cache entry never carries one visitor's
         # token to another.
         return JSONResponse({**result, "poll_token": fresh_poll_token})
