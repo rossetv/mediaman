@@ -121,6 +121,7 @@
 
   function triggerScan(btn) {
     btn.disabled = true;
+    btn.classList.remove('is-error', 'is-success');
     btn.classList.add('scan-running');
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
@@ -131,12 +132,19 @@
         if (data.status === 'already_running') updateScanStatus('Scan already in progress');
         pollScanStatus(btn);
       })
-      .catch(function () {
+      .catch(function (err) {
+        var reason = (err instanceof MM.api.APIError && err.message) || 'Could not start the scan.';
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
         btn.classList.add('is-error');
         btn.disabled = false;
         updateScanStatus('');
+        var statusEl = document.getElementById('scan-status');
+        if (statusEl) {
+          statusEl.textContent = reason;
+          statusEl.classList.add('scan-status--error');
+        }
+        if (window.UIFeedback) window.UIFeedback.error(reason);
       });
   }
 

@@ -49,19 +49,19 @@
       role: variant === 'error' ? 'alert' : 'status'
     });
     node.textContent = message;
-    host.appendChild(node);
     // At most three at once, and never a stack taller than the host's
-    // height budget. The oldest non-error goes first; an error only goes
-    // (with its normal fade) when nothing else is left to drop.
+    // height budget. The new toast always stays; the oldest non-error goes
+    // first, an error only (with its normal fade) when all are errors.
     var live = function () {
       return Array.prototype.filter.call(host.children, function (c) {
         return !c.classList.contains('is-leaving');
       });
     };
-    var kids = live();
-    while (kids.length > 1 &&
-           (kids.length > 3 ||
-            (kids.length === host.children.length && host.scrollHeight > host.clientHeight))) {
+    host.appendChild(node);
+    var kids = live().filter(function (c) { return c !== node; });
+    while (kids.length > 0 &&
+           (kids.length >= 3 ||
+            (kids.length + 1 === host.children.length && host.scrollHeight > host.clientHeight))) {
       var victim = kids.filter(function (c) {
         return !c.classList.contains('ui-toast--error');
       })[0] || kids[0];
@@ -72,7 +72,7 @@
       } else {
         host.removeChild(victim);
       }
-      kids = live();
+      kids = live().filter(function (c) { return c !== node; });
     }
     // Animate in on next frame
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
