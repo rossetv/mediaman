@@ -240,9 +240,17 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: box-shadow var(--dur-slow) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
-.watch-card__link:hover .watch-card__poster { box-shadow: var(--shadow-card); }
+/* A shadow alone does not show on the black page, so a hovered poster also
+   lifts a little and takes a hairline ring. The row's block padding leaves
+   room for the lift. */
+@media (hover: hover) {
+  .watch-card__link:hover .watch-card__poster { transform: scale(1.03); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); }
+}
+@media (hover: hover) and (prefers-reduced-motion: reduce) {
+  .watch-card__link:hover .watch-card__poster { transform: none; }
+}
 .watch-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* Posters and the banner backdrop fade in as they arrive; watch-rows.js sets
    the classes, so without it they simply appear. */
