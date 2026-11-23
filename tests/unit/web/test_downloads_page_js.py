@@ -226,7 +226,6 @@ def test_closing_the_reauth_dialog_while_the_password_is_checked_runs_nothing() 
     assert out["value"] is None
 
 
-
 def test_a_second_reauth_cancels_the_first() -> None:
     out = _run("reauthSecond")
     assert out["first"] == "reauth_cancelled"
