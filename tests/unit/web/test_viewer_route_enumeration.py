@@ -13,6 +13,17 @@ from fastapi.routing import iter_route_contexts
 #: What a viewer may reach, written out independently of the guard.
 _VIEWER_MAY_REACH = {
     ("GET", "/watch"),
+    ("GET", "/watch/show/{show_key}"),
+    ("GET", "/watch/movie/{key}"),
+    ("GET", "/watch/play/{rating_key}"),
+    ("GET", "/api/watch/search"),
+    ("POST", "/api/watch/keep"),
+    ("GET", "/api/watch/thumb/{rating_key}"),
+    ("POST", "/api/watch/stream"),
+    ("GET", "/api/watch/stream/{stream_id}/index.m3u8"),
+    ("GET", "/api/watch/stream/{stream_id}/seg/{name}"),
+    ("POST", "/api/watch/stream/{stream_id}/stop"),
+    ("POST", "/api/watch/progress"),
     ("GET", "/search"),
     ("GET", "/api/search"),
     ("GET", "/api/search/discover"),
@@ -42,7 +53,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/unsubscribe"),
     ("POST", "/unsubscribe"),
 }
-_VIEWER_PREFIXES = ("/watch/", "/api/watch/", "/static/")
+_VIEWER_PREFIXES = ("/static/",)
 
 _ORIGIN = {"origin": "http://testserver"}
 

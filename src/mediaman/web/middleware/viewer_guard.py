@@ -31,6 +31,17 @@ from mediaman.web.auth.password_hash import get_user_role
 _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/watch"),
+        ("GET", "/watch/show/{show_key}"),
+        ("GET", "/watch/movie/{key}"),
+        ("GET", "/watch/play/{rating_key}"),
+        ("GET", "/api/watch/search"),
+        ("POST", "/api/watch/keep"),
+        ("GET", "/api/watch/thumb/{rating_key}"),
+        ("POST", "/api/watch/stream"),
+        ("GET", "/api/watch/stream/{stream_id}/index.m3u8"),
+        ("GET", "/api/watch/stream/{stream_id}/seg/{name}"),
+        ("POST", "/api/watch/stream/{stream_id}/stop"),
+        ("POST", "/api/watch/progress"),
         ("GET", "/search"),
         ("GET", "/api/search"),
         ("GET", "/api/search/discover"),
@@ -64,7 +75,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
 
 #: Template prefixes a viewer may reach with any method. Each ends in
 #: ``/`` so it covers whole path segments only.
-_VIEWER_PREFIXES: tuple[str, ...] = ("/watch/", "/api/watch/", "/static/")
+_VIEWER_PREFIXES: tuple[str, ...] = ("/static/",)
 
 
 def _matched_template(request: Request) -> str | None:

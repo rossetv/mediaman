@@ -57,6 +57,27 @@ def test_a_viewer_cannot_abandon_a_download(guarded_app, conn, viewer_client):
     assert reached == []
 
 
+def test_a_new_route_under_api_watch_is_refused_to_a_viewer(guarded_app, conn, viewer_client):
+    app, reached = guarded_app
+    app.add_api_route("/api/watch/brand-new", lambda: None, methods=["GET"])
+    client = viewer_client(app, conn)
+
+    resp = client.get("/api/watch/brand-new")
+
+    assert (resp.status_code, resp.json()) == (403, {"error": "forbidden"})
+    assert reached == []
+
+
+def test_a_viewer_cannot_use_another_method_on_a_watch_route(guarded_app, conn, viewer_client):
+    app, reached = guarded_app
+    client = viewer_client(app, conn)
+
+    resp = client.delete("/api/watch/keep", headers=_ORIGIN)
+
+    assert resp.status_code == 403
+    assert reached == []
+
+
 def test_a_role_other_than_admin_or_viewer_is_refused(guarded_app, conn, authed_client):
     app, reached = guarded_app
     client = authed_client(app, conn, username="odd")
