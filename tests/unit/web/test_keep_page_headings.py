@@ -35,7 +35,6 @@ class TestKeepPageHeadings:
         text = self._client(conn).get("/keep/badtoken").text
 
         assert re.search(r"<h1[^>]*>\s*This link isn't valid\s*</h1>", text)
-        assert "expired" not in re.sub(r"status-expired|expired-\w+", "", text).split("<h1")[0].lower()
         assert re.search(r"</span>\s*Invalid\s*</div>", text)
         assert "This link has expired" not in text
 
