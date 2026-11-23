@@ -15,6 +15,7 @@ import contextlib
 import logging
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -144,15 +145,24 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
 
 
 def _ratings(
-    conn: sqlite3.Connection, secret_key: str, kind: str, tmdb_id: int, title: str, year: int | None
+    conn: sqlite3.Connection,
+    secret_key: str,
+    kind: str,
+    tmdb_id: int,
+    title: str,
+    year: int | None,
+    allow_fetch: Callable[[], bool] | None = None,
 ) -> dict[str, str]:
-    """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh."""
+    """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
+    none when OMDb would be asked and *allow_fetch* says no."""
     media_type = "movie" if kind == "movie" else "tv"
     cutoff = (now_utc() - _RATINGS_TTL).isoformat()
     for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
         if row.fetched_at >= cutoff:
             cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
             return {k: v for k, v in cached.items() if v}
+    if allow_fetch is not None and not allow_fetch():
+        return {}
     data = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
     if data:
         try:
@@ -213,10 +223,14 @@ def _apply_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
+    allow_fetch: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
-    from Plex; returns the TMDB fields. Raises TmdbUnavailable."""
-    fields = catalog.tmdb_fields(catalog.details(client, kind, tmdb_id), kind)
+    from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
+    when TMDB would be asked and *allow_fetch* says no."""
+    fields = catalog.tmdb_fields(
+        catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch), kind
+    )
     for name in (
         "year",
         "year_end",
@@ -235,7 +249,13 @@ def _apply_tmdb(
         out[name] = out[name] or fields[name]
     out["trailer_key"] = validate_youtube_id(fields["trailer_key"])
     ratings = _ratings(
-        conn, request.app.state.config.secret_key, kind, tmdb_id, out["title"], out["year"]
+        conn,
+        request.app.state.config.secret_key,
+        kind,
+        tmdb_id,
+        out["title"],
+        out["year"],
+        allow_fetch,
     )
     out["ratings"] = {
         "imdb": ratings.get("imdb"),
@@ -404,10 +424,12 @@ def _tmdb_title(
     kind: str,
     tmdb_id: int,
     download_url: str | None,
+    allow_fetch: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable."""
+    """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable and, as
+    ``_apply_tmdb``, disk_cache.Refused."""
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id)
+    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, allow_fetch)
     arr = _arr(request, conn)
     library_ref = _library_index(conn, lib.scanned_library_ids(conn)).library_ref(
         kind, tmdb_id, out["title"], arr
@@ -471,8 +493,17 @@ def api_watch_title(
     try:
         if kind == "tmdb":
             media_type, _, tmdb_id = rest.partition("-")
+            # Any id can be asked for, so only a title TMDB or OMDb must answer counts
+            # against the limit, once per request; a cached one is free.
+            allowed: list[bool] = []
+
+            def allow_fetch() -> bool:
+                if not allowed:
+                    allowed.append(_QUERY_LIMITER.check(username))
+                return allowed[0]
+
             return respond_ok(
-                _tmdb_title(request, conn, client, ref, media_type, int(tmdb_id), None)
+                _tmdb_title(request, conn, client, ref, media_type, int(tmdb_id), None, allow_fetch)
             )
         rec = fetch_suggestion_by_id(conn, int(rest))
         if rec is None or rec.media_type not in ("movie", "tv"):
@@ -496,6 +527,8 @@ def api_watch_title(
                 poster_url=catalog.tmdb_image_url(rec.poster_url, "w500"),
             )
             out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)
+    except disk_cache.Refused:
+        return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     out["reason"] = rec.reason

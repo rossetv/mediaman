@@ -112,9 +112,11 @@ def search(
     return result
 
 
-def details(client: TmdbClient, kind: str, tmdb_id: int) -> dict[str, Any]:
+def details(
+    client: TmdbClient, kind: str, tmdb_id: int, *, allow_fetch: Callable[[], bool] | None = None
+) -> dict[str, Any]:
     """TMDB's details of a movie or show ("movie" or "tv"), with videos, credits and
-    the age rating."""
+    the age rating. *allow_fetch* is asked as in ``search``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
@@ -124,7 +126,7 @@ def details(client: TmdbClient, kind: str, tmdb_id: int) -> dict[str, Any]:
         return dict(found)
 
     result: dict[str, Any] = _cached(
-        f"tmdb:details:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch
+        f"tmdb:details:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
     return result
 
