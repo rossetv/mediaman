@@ -83,6 +83,7 @@
       node.classList.add('ui-toast--action');
       var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label });
       btn.addEventListener('click', function () {
+        if (node.classList.contains('is-leaving')) return;
         dismissToast(node);
         action.onClick();
       });
