@@ -12,11 +12,13 @@ from __future__ import annotations
 import math
 import re
 import sqlite3
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Concatenate, ParamSpec, TypeVar, cast
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
@@ -56,11 +58,26 @@ P = ParamSpec("P")
 RECENT_DAYS = 30
 # How many already-watched episodes to step over when looking for the next unwatched one.
 _NEXT_LOOKAHEAD = 20
-# The Continue watching row stops filling at this many cards, and a page load makes at most
-# this many Plex lookups for it however long the person's history is.
+# The Continue watching row stops filling at this many cards, and a page load spends at most
+# this many Plex HTTP calls on it however long the person's history is.
 _CONTINUE_LIMIT = 20
-_PLEX_LOOKUP_BUDGET = 30
+_PLEX_LOOKUP_BUDGET = 60
+# next_episode() makes up to four Plex calls (the episode, its season, the show's seasons, the
+# next season); it is charged the worst case.
+_NEXT_EPISODE_COST = 4
+# How long a next-episode answer is reused, so a finished show does not cost Plex calls on every
+# load while a newly added episode still shows up within minutes.
+_NEXT_EPISODE_TTL_S = 300.0
+_NEXT_EPISODE_CACHE_MAX = 500
+_next_episode_cache: dict[str, tuple[float, PlexEpisode | None]] = {}
+# How long a good reachability answer is reused when a page load makes no other Plex call.
+_REACHABLE_TTL_S = 30.0
+_reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
+# The only places the player's Back may return to; anything else falls back to the item's own page.
+_ORIGIN_RE = re.compile(
+    r"/watch|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
+)
 
 
 def open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
@@ -85,8 +102,16 @@ def poster_url(key: str) -> str:
     return f"/api/poster/{key}"
 
 
-def play_href(rating_key: str, *, resume: bool = False) -> str:
-    return f"/watch/play/{rating_key}" + ("?resume=1" if resume else "")
+def safe_origin(value: str | None) -> str | None:
+    """*value* when it is one of the Watch pages a person can come from, else None."""
+    return value if value and _ORIGIN_RE.fullmatch(value) else None
+
+
+def play_href(rating_key: str, *, resume: bool = False, origin: str | None = None) -> str:
+    params = ["resume=1"] if resume else []
+    if origin:
+        params.append(f"from={quote(origin, safe='')}")
+    return f"/watch/play/{rating_key}" + (f"?{'&'.join(params)}" if params else "")
 
 
 def episode_label(season: int | None, episode: int | None) -> str:
@@ -103,6 +128,13 @@ def resumable(progress: WatchProgress | None) -> bool:
     return (
         progress is not None and not progress.watched and progress.position_s > MIN_RESUME_SECONDS
     )
+
+
+def duration_text(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
 
 
 def progress_fields(progress: WatchProgress) -> tuple[int | None, int | None]:
@@ -152,6 +184,7 @@ def movie_card(
     *,
     watched: bool = False,
     leaving: dict[str, Any] | None = None,
+    progress_pct: int | None = None,
 ) -> dict[str, Any]:
     return card(
         "movie",
@@ -161,6 +194,7 @@ def movie_card(
         f"/watch/movie/{movie.key}",
         watched=watched,
         leaving=leaving,
+        progress_pct=progress_pct,
     )
 
 
@@ -193,6 +227,9 @@ def movie_cards(
             m,
             watched=bool(progress.get(m.key) and progress[m.key].watched),
             leaving=leaving.get(m.key),
+            progress_pct=(
+                progress_fields(progress[m.key])[0] if resumable(progress.get(m.key)) else None
+            ),
         )
         for m in movies
     ]
@@ -228,10 +265,6 @@ def _get_item(plex: PlexWatch, rating_key: str) -> PlexItem:
     return plex.get_item(rating_key)
 
 
-def _next_episode(plex: PlexWatch, rating_key: str) -> PlexEpisode | None:
-    return plex.next_episode(rating_key)
-
-
 class _OptionalPlex:
     """Plex for a page that can be built without it: opened on first use, and after the
     first failure (not set up, unreachable) every later call is skipped and answers None."""
@@ -240,28 +273,73 @@ class _OptionalPlex:
         self._request = request
         self._conn = conn
         self._plex: PlexWatch | None = None
-        self._lookups = 0
+        self._spent = 0
         self.error = error
 
     @property
     def exhausted(self) -> bool:
-        return self._lookups >= _PLEX_LOOKUP_BUDGET
+        return self._spent >= _PLEX_LOOKUP_BUDGET
+
+    def _open(self, cost: int) -> PlexWatch | None:
+        """Charge *cost* Plex calls and return the client; None when Plex is out of reach or
+        the budget is spent."""
+        if self.error is not None or self.exhausted:
+            return None
+        self._spent += cost
+        if self._plex is None:
+            try:
+                self._plex = open_plex(self._request, self._conn)
+            except PlexError as exc:
+                self.error = plex_error_code(exc)
+                return None
+        return self._plex
 
     def call(
         self, fn: Callable[Concatenate[PlexWatch, P], T], *args: P.args, **kwargs: P.kwargs
     ) -> T | None:
-        if self.error is not None or self.exhausted:
+        plex = self._open(1)
+        if plex is None:
             return None
-        self._lookups += 1
         try:
-            if self._plex is None:
-                self._plex = open_plex(self._request, self._conn)
-            return fn(self._plex, *args, **kwargs)
+            return fn(plex, *args, **kwargs)
         except PlexItemNotFound:
             return None
         except PlexError as exc:
             self.error = plex_error_code(exc)
             return None
+
+    def next_episode(self, rating_key: str) -> PlexEpisode | None:
+        """The episode after *rating_key*, reused for a few minutes; a cached answer costs nothing."""
+        now = time.monotonic()
+        hit = _next_episode_cache.get(rating_key)
+        if hit is not None and hit[0] > now:
+            return hit[1]
+        plex = self._open(_NEXT_EPISODE_COST)
+        if plex is None:
+            return None
+        try:
+            episode = plex.next_episode(rating_key)
+        except PlexItemNotFound:
+            episode = None
+        except PlexError as exc:
+            self.error = plex_error_code(exc)
+            return None
+        if len(_next_episode_cache) >= _NEXT_EPISODE_CACHE_MAX:
+            _next_episode_cache.clear()
+        _next_episode_cache[rating_key] = (now + _NEXT_EPISODE_TTL_S, episode)
+        return episode
+
+    def check_reachable(self) -> None:
+        """When the page made no Plex call, ping Plex so one that is down is still reported.
+        Only a good answer is reused (for 30 s), so Try again sees a Plex that came back."""
+        if self.error is not None or self._spent:
+            return
+        now = time.monotonic()
+        if _reachable_until[0] > now:
+            return
+        self.call(lambda plex: plex.ping())
+        if self.error is None:
+            _reachable_until[0] = now + _REACHABLE_TTL_S
 
 
 def _added(value: str) -> datetime:
@@ -288,20 +366,21 @@ def _continue_watching(
             if movie is None:
                 continue
             pct, left = progress_fields(progress)
-            line = f"{left} min left" if left else ""
+            left_text = f"{duration_text(left)} left" if left else ""
+            href = play_href(key, resume=True, origin="/watch")
             cards.append(
                 card(
                     "movie",
                     movie.title,
-                    line,
+                    " · ".join(p for p in ("Movie", left_text) if p),
                     poster_url(movie.key),
-                    play_href(key, resume=True),
+                    href,
                     progress_pct=pct,
                     minutes_left=left,
                 )
             )
             if banner is None:
-                banner = _banner(movie.title, line, pct, play_href(key, resume=True), movie.key)
+                banner = _banner(movie.title, left_text, pct, href, movie.key)
             continue
 
         show = shows.get(progress.show_rating_key)
@@ -309,7 +388,7 @@ def _continue_watching(
             continue
         if entry.find_next:
             watched = show_progress(conn, username, show.key)
-            episode = _next_unwatched(lambda k: plex.call(_next_episode, k), key, watched)
+            episode = _next_unwatched(plex.next_episode, key, watched)
             if episode is not None:
                 cards.append(
                     card(
@@ -317,7 +396,7 @@ def _continue_watching(
                         show.title,
                         episode_label(episode.season_index, episode.index),
                         poster_url(show.key),
-                        play_href(episode.rating_key),
+                        play_href(episode.rating_key, origin="/watch"),
                     )
                 )
             continue
@@ -326,7 +405,7 @@ def _continue_watching(
         if item is None and plex.error is None and not plex.exhausted:
             continue  # the episode is gone from Plex
         pct, left = progress_fields(progress)
-        left_text = f"{left} min left" if left else ""
+        left_text = f"{duration_text(left)} left" if left else ""
         label = episode_label(item.parent_index, item.index) if item else ""
         cards.append(
             card(
@@ -334,7 +413,7 @@ def _continue_watching(
                 show.title,
                 " · ".join(p for p in (label, left_text) if p),
                 poster_url(show.key),
-                play_href(key, resume=True),
+                play_href(key, resume=True, origin="/watch"),
                 progress_pct=pct,
                 minutes_left=left,
             )
@@ -348,7 +427,9 @@ def _continue_watching(
                 episodes_href = f"/watch/show/{show.key}?season={item.parent_index}"
             else:
                 line, episodes_href = left_text, f"/watch/show/{show.key}"
-            banner = _banner(show.title, line, pct, play_href(key, resume=True), show.key)
+            banner = _banner(
+                show.title, line, pct, play_href(key, resume=True, origin="/watch"), show.key
+            )
             banner["episodes_href"] = episodes_href
     return cards, banner
 
@@ -390,7 +471,8 @@ def watch_page(request: Request) -> Response:
     username, conn = resolved
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
-    plex = _OptionalPlex(request, conn, None if plex_is_configured(conn) else "not_set_up")
+    set_up = plex_is_configured(conn)
+    plex = _OptionalPlex(request, conn, None if set_up else "not_set_up")
 
     movies = lib.library_movies(conn, libraries)
     shows = lib.library_shows(conn, libraries)
@@ -401,11 +483,15 @@ def watch_page(request: Request) -> Response:
     continue_row, banner = _continue_watching(
         conn, username, plex, {m.key: m for m in movies}, {s.key: s for s in shows}
     )
+    plex.check_reachable()
     leaving_row = [_leaving_card(p, now) for p in pending]
 
     # (added, card, where the banner's Play goes): a movie plays, a show opens its page.
     newest = sorted(
-        [(_added(m.added_at), c, play_href(m.key)) for m, c in zip(movies, movie_row, strict=True)]
+        [
+            (_added(m.added_at), c, play_href(m.key, origin="/watch"))
+            for m, c in zip(movies, movie_row, strict=True)
+        ]
         + [(_added(s.added_at), c, c["href"]) for s, c in zip(shows, show_row, strict=True)],
         key=lambda entry: entry[0],
         reverse=True,
@@ -438,7 +524,10 @@ def watch_page(request: Request) -> Response:
             "username": username,
             "banner": banner,
             "rows": [{"title": title, "items": items} for title, items in rows if items],
-            "watch_error": plex.error,
+            # Not set up blanks the page (nothing can play); a failure part way only drops
+            # what came from Plex and shows a notice above the rows.
+            "watch_error": None if set_up else "not_set_up",
+            "plex_unreachable": set_up and plex.error is not None,
             "is_admin": _is_admin(conn, username),
         },
     )
@@ -463,6 +552,7 @@ def _primary_episode(
     show: PlexShow,
     progress: dict[str, WatchProgress],
     episodes_of: Callable[[str], list[PlexEpisode]],
+    origin: str,
 ) -> tuple[dict[str, str], int | None]:
     """The show page's main button, and the season of the episode it plays."""
     last = max(progress.values(), key=lambda p: p.updated_at, default=None)
@@ -472,30 +562,35 @@ def _primary_episode(
                 item = plex.get_item(last.rating_key)
                 label = episode_label(item.parent_index, item.index)
                 if resumable(last):
-                    href = play_href(last.rating_key, resume=True)
+                    href = play_href(last.rating_key, resume=True, origin=origin)
                     return {"label": f"Resume {label}", "href": href}, item.parent_index
-                return {"label": f"Play {label}", "href": play_href(last.rating_key)}, (
-                    item.parent_index
-                )
+                return {
+                    "label": f"Play {label}",
+                    "href": play_href(last.rating_key, origin=origin),
+                }, (item.parent_index)
             episode = _next_unwatched(plex.next_episode, last.rating_key, progress)
             if episode is not None:
                 label = episode_label(episode.season_index, episode.index)
-                return {"label": f"Play {label}", "href": play_href(episode.rating_key)}, (
-                    episode.season_index
-                )
+                return {
+                    "label": f"Play {label}",
+                    "href": play_href(episode.rating_key, origin=origin),
+                }, (episode.season_index)
         except PlexItemNotFound:
             pass  # the last-played episode is gone; start from the beginning
     for season in show.seasons:
         episodes = episodes_of(season.rating_key)
         if episodes:
             label = episode_label(season.index, episodes[0].index)
-            return {"label": f"Play {label}", "href": play_href(episodes[0].rating_key)}, (
-                season.index
-            )
+            return {
+                "label": f"Play {label}",
+                "href": play_href(episodes[0].rating_key, origin=origin),
+            }, (season.index)
     return {"label": "Play", "href": f"/watch/show/{show.rating_key}"}, None
 
 
-def _episode_row(episode: PlexEpisode, progress: WatchProgress | None) -> dict[str, Any]:
+def _episode_row(
+    episode: PlexEpisode, progress: WatchProgress | None, origin: str
+) -> dict[str, Any]:
     if progress is not None and progress.watched:
         state = "watched"
     elif resumable(progress):
@@ -511,7 +606,7 @@ def _episode_row(episode: PlexEpisode, progress: WatchProgress | None) -> dict[s
         "state": state,
         "progress_pct": pct,
         "minutes_left": left,
-        "href": play_href(episode.rating_key, resume=state == "in_progress"),
+        "href": play_href(episode.rating_key, resume=state == "in_progress", origin=origin),
     }
 
 
@@ -550,7 +645,9 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         if not is_in_libraries(show, libraries):
             raise HTTPException(status_code=404)
         progress = show_progress(conn, username, show_key)
-        primary, primary_season = _primary_episode(plex, show, progress, episodes_of)
+        primary, primary_season = _primary_episode(
+            plex, show, progress, episodes_of, f"/watch/show/{show_key}"
+        )
         wanted = season if season is not None else primary_season
         selected = next((s for s in show.seasons if s.index == wanted), None)
         if selected is None and show.seasons:
@@ -569,6 +666,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         if season_id is not None:
             now = now_utc()
             leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id, now), now)
+    season_origin = f"/watch/show/{show_key}" + (f"?season={selected.index}" if selected else "")
     ctx.update(
         {
             "show": {
@@ -587,7 +685,9 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
                 for s in show.seasons
             ],
             "leaving": leaving,
-            "episodes": [_episode_row(e, progress.get(e.rating_key)) for e in episodes],
+            "episodes": [
+                _episode_row(e, progress.get(e.rating_key), season_origin) for e in episodes
+            ],
         }
     )
     return _render(request, "watch_show.html", ctx)
@@ -651,7 +751,12 @@ def movie_page(request: Request, key: str) -> Response:
 
 
 @router.get("/watch/play/{rating_key}", response_class=HTMLResponse)
-def play_page(request: Request, rating_key: str, resume: str = "") -> Response:
+def play_page(
+    request: Request,
+    rating_key: str,
+    resume: str = "",
+    origin: str | None = Query(None, alias="from"),
+) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -674,6 +779,7 @@ def play_page(request: Request, rating_key: str, resume: str = "") -> Response:
     if item.type not in ("movie", "episode") or not is_in_libraries(item, libraries):
         raise HTTPException(status_code=404)
 
+    origin = safe_origin(origin)
     now = now_utc()
     next_episode: dict[str, str] | None = None
     show_href: str | None = None
@@ -707,10 +813,11 @@ def play_page(request: Request, rating_key: str, resume: str = "") -> Response:
         if following is not None:
             label = episode_label(following.season_index, following.index)
             next_episode = {
-                "href": play_href(following.rating_key),
+                "href": play_href(following.rating_key, origin=origin),
                 "label": f"{label} — {following.title}" if following.title else label,
             }
 
+    back_href = origin or back_href
     progress = get_progress(conn, username, [rating_key]).get(rating_key)
     start_s = (
         progress.position_s

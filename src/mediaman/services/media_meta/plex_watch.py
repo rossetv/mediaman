@@ -194,6 +194,10 @@ class PlexWatch:
         finally:
             resp.close()
 
+    def ping(self) -> None:
+        """Raise PlexUnavailable unless the server answers its identity request."""
+        self._get("/identity", max_bytes=_XML_MAX_BYTES).close()
+
     def _metadata(self, rating_key: str) -> tuple[Element, Element]:
         """Return (container, item node) for one rating key."""
         container = self._xml(f"/library/metadata/{_check_key(rating_key)}")

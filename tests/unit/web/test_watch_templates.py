@@ -228,6 +228,13 @@ def test_unreachable_offers_try_again_and_no_browse_content() -> None:
     assert "watch-card" not in html
 
 
+def test_plex_notice_sits_above_the_rows_and_keeps_them() -> None:
+    html = _watch(plex_unreachable=True, rows=[{"title": "Movies", "items": [_card()]}])
+    assert html.index("Can't reach Plex right now.") < html.index("Movies")
+    assert "data-watch-retry" in html and "watch-card" in html and "watch-search" in html
+    assert "Can't reach Plex" not in _watch(rows=[{"title": "Movies", "items": [_card()]}])
+
+
 def test_titles_from_plex_are_escaped() -> None:
     html = _watch(rows=[{"title": "Movies", "items": [_card(title="<script>alert(1)</script>")]}])
     assert "<script>alert(1)" not in html

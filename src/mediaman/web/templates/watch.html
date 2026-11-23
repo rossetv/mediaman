@@ -34,6 +34,13 @@
     </section>
     {% endif %}
 
+    {% if plex_unreachable %}
+    <p class="watch-notice" role="status">
+      <span>Can't reach Plex right now.</span>
+      <button type="button" class="watch-notice__retry" data-watch-retry>Try again</button>
+    </p>
+    {% endif %}
+
     <div class="watch-rows">
       {% for row in rows %}
       {% if row['items'] %}

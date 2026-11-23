@@ -194,7 +194,7 @@
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { padding: 8px; }
-  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; white-space: normal; border-radius: 10px; }
+  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: 10px; }
   .watch-badge--leaving { left: 6px; }
   .watch-badge--watched { right: 6px; }
 }
@@ -377,3 +377,7 @@
 @media (prefers-reduced-motion: reduce) {
   .watch-card__poster, .watch-keep__chev { transition: none; }
 }
+
+/* Inline notice above the rows when Plex cannot be reached. */
+.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: rgba(255,69,58,.12); color: var(--t1); font-size: 14px; }
+.watch-notice__retry { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }

@@ -21,8 +21,7 @@ WATCHED_FRACTION = 0.9
 CREDIT_SECONDS = 300.0
 # A movie needs more than this many seconds in to show in Continue watching.
 MIN_RESUME_SECONDS = 30.0
-# Most recent rows read for Continue watching. A show shows once however many
-# of its episodes were played, so this is well above the cards a row can hold.
+# Most recent shows and movies read for Continue watching, well above the cards a row can hold.
 _CONTINUE_CANDIDATES = 200
 
 # Keys per IN (...) so a large library stays under SQLite's bound-parameter limit.
@@ -168,22 +167,25 @@ def continue_watching(conn: sqlite3.Connection, username: str) -> list[ContinueC
     recently played episode: unwatched, it is the episode to resume;
     watched, the card has ``find_next`` set (see ContinueCard).
     """
+    # The latest row per show (or per movie) is picked in SQL, so one long binge of a show
+    # cannot push every other show and movie out of the rows read.
     rows = conn.execute(
-        f"SELECT {_COLUMNS} FROM watch_progress WHERE username = ?"  # nosec B608
+        f"SELECT {_COLUMNS} FROM ("  # nosec B608
+        f"SELECT {_COLUMNS}, ROW_NUMBER() OVER ("
+        "PARTITION BY COALESCE(show_rating_key, rating_key)"
+        " ORDER BY updated_at DESC, rating_key) AS rn"
+        " FROM watch_progress WHERE username = ?)"
+        " WHERE rn = 1 AND (show_rating_key IS NOT NULL OR (watched = 0 AND position_s > ?))"
         " ORDER BY updated_at DESC, rating_key LIMIT ?",
-        (username, _CONTINUE_CANDIDATES),
+        (username, MIN_RESUME_SECONDS, _CONTINUE_CANDIDATES),
     ).fetchall()
     cards: list[ContinueCard] = []
-    seen_shows: set[str] = set()
     for row in rows:
         progress = _row_to_progress(row)
-        show_key = progress.show_rating_key
-        if show_key is None:
-            if not progress.watched and progress.position_s > MIN_RESUME_SECONDS:
-                cards.append(ContinueCard(progress=progress, find_next=False))
-            continue
-        if show_key in seen_shows:
-            continue
-        seen_shows.add(show_key)
-        cards.append(ContinueCard(progress=progress, find_next=progress.watched))
+        cards.append(
+            ContinueCard(
+                progress=progress,
+                find_next=progress.show_rating_key is not None and progress.watched,
+            )
+        )
     return cards

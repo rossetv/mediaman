@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.staticfiles import StaticFiles
@@ -109,6 +110,9 @@ class FakePlex:
                     grandparent_title=title,
                 )
 
+    def ping(self) -> None:
+        self._check()
+
     def get_item(self, key: str) -> PlexItem:
         self._check()
         if key not in self.items:
@@ -144,6 +148,8 @@ def plex(monkeypatch):
     fake.add_show("600", "Spirit Lanes", {1: ("601", ["611"])})
     fake.add_show("700", "Hidden Show", {1: ("701", ["711"])}, section="9")
     monkeypatch.setattr(pages, "PlexWatch", lambda *_a, **_k: fake)
+    monkeypatch.setattr(pages, "_next_episode_cache", {})
+    monkeypatch.setattr(pages, "_reachable_until", [0.0])
     return fake
 
 
@@ -263,7 +269,7 @@ class TestWatchRows:
         rows = _rows(ctx)
         assert _titles(rows["Movies"]) == ["Brightwater", "Glasshouse"]
         assert _titles(rows["Recently added"]) == ["Glasshouse"]
-        assert rows["Continue watching"][0]["href"] == "/watch/play/100?resume=1"
+        assert rows["Continue watching"][0]["href"] == "/watch/play/100?resume=1&from=%2Fwatch"
         assert rows["Continue watching"][0]["minutes_left"] == 80
         assert ctx["watch_error"] is None
 
@@ -319,7 +325,7 @@ class TestWatchRows:
                 "title": "The Long Coast",
                 "subtitle": "S2 · E1",
                 "poster_url": "/api/poster/500",
-                "href": "/watch/play/521",
+                "href": "/watch/play/521?from=%2Fwatch",
                 "progress_pct": None,
                 "minutes_left": None,
                 "watched": False,
@@ -376,7 +382,10 @@ class TestWatchRows:
 
         assert banner["title"] == "The Long Coast"
         assert banner["line"] == 'Season 2 · Episode 2 — "Episode 522" · 30 min left'
-        assert banner["primary"] == {"label": "Resume", "href": "/watch/play/522?resume=1"}
+        assert banner["primary"] == {
+            "label": "Resume",
+            "href": "/watch/play/522?resume=1&from=%2Fwatch",
+        }
         assert banner["episodes_href"] == "/watch/show/500?season=2"
         assert banner["progress_pct"] == 40
 
@@ -395,8 +404,80 @@ class TestWatchRows:
 
         ctx = get("/watch").json()
 
-        assert ctx["watch_error"] == "unreachable"
-        assert _rows(ctx)["Continue watching"][0]["href"] == "/watch/play/522?resume=1"
+        assert ctx["watch_error"] is None
+        assert ctx["plex_unreachable"] is True
+        assert _rows(ctx)["Continue watching"][0]["href"].startswith("/watch/play/522?resume=1")
+        assert "Movies" in _rows(ctx)
+
+    def test_plex_down_is_reported_even_when_no_episode_needs_it(self, get, conn, plex):
+        plex.error = PlexUnavailable("Plex could not be reached")
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        ctx = get("/watch").json()
+
+        assert ctx["plex_unreachable"] is True
+        assert "Continue watching" in _rows(ctx)
+
+    def test_a_good_reachability_check_is_reused_for_a_while(self, get, plex, monkeypatch):
+        pings = []
+        monkeypatch.setattr(plex, "ping", lambda: pings.append(1), raising=False)
+
+        first, second = get("/watch").json(), get("/watch").json()
+
+        assert first["plex_unreachable"] is False and second["plex_unreachable"] is False
+        assert len(pings) == 1
+
+    def test_a_finished_show_is_not_looked_up_again_on_the_next_load(self, get, conn, plex):
+        _play(conn, "aoife", "611", position=2900, duration=3000, item="601", show="600")
+        lookups = []
+        real = plex.next_episode
+        plex.next_episode = lambda key: lookups.append(key) or real(key)
+
+        get("/watch")
+        ctx = get("/watch").json()
+
+        assert len(lookups) == 1
+        assert "Continue watching" not in _rows(ctx)
+
+    def test_in_progress_movie_shows_its_bar_in_the_movies_row(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        movies = _rows(get("/watch").json())["Movies"]
+
+        assert movies[0]["progress_pct"] == 20
+        assert movies[1]["progress_pct"] is None
+
+    def test_movie_captions_say_movie_and_use_hours(self, get, conn):
+        _play(conn, "aoife", "100", position=6000 - 3120, duration=6000, item="100")
+        _play(conn, "aoife", "101", position=1200, duration=6000, item="101", minutes_ago=20)
+
+        cards = _rows(get("/watch").json())["Continue watching"]
+
+        assert [c["subtitle"] for c in cards] == ["Movie · 52 min left", "Movie · 1 h 20 min left"]
+        assert pages.duration_text(100) == "1 h 40 min"
+        assert pages.duration_text(120) == "2 h"
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "//evil.example/x",
+            "https://evil.example/",
+            "/watch/../admin",
+            "/watch?x=1",
+            "/watch/show/5/x",
+        ],
+    )
+    def test_back_origin_outside_the_allow_list_is_ignored(self, origin):
+        assert pages.safe_origin(origin) is None
+
+    def test_back_returns_to_where_the_person_came_from(self, get):
+        origin = "/watch/show/500?season=2"
+        ctx = get(f"/watch/play/511?from={quote(origin, safe='')}").json()
+
+        assert ctx["back_href"] == origin
+        assert get("/watch/play/511?from=https%3A%2F%2Fevil.example").json()["back_href"] == (
+            "/watch/show/500?season=1"
+        )
 
 
 class TestShowPage:
@@ -415,7 +496,10 @@ class TestShowPage:
 
         ctx = get("/watch/show/500").json()
 
-        assert ctx["primary"] == {"label": "Resume S1 · E2", "href": "/watch/play/512?resume=1"}
+        assert ctx["primary"] == {
+            "label": "Resume S1 · E2",
+            "href": "/watch/play/512?resume=1&from=%2Fwatch%2Fshow%2F500",
+        }
         assert [s["selected"] for s in ctx["seasons"]] == [True, False]
         assert [e["state"] for e in ctx["episodes"]] == ["watched", "in_progress"]
         assert ctx["episodes"][1]["minutes_left"] == 30
@@ -427,16 +511,24 @@ class TestShowPage:
 
         ctx = get("/watch/show/500").json()
 
-        assert ctx["primary"] == {"label": "Play S2 · E1", "href": "/watch/play/521"}
+        assert ctx["primary"] == {
+            "label": "Play S2 · E1",
+            "href": "/watch/play/521?from=%2Fwatch%2Fshow%2F500",
+        }
         assert [s["selected"] for s in ctx["seasons"]] == [False, True]
         assert [e["state"] for e in ctx["episodes"]] == ["none", "none"]
 
     def test_nothing_played_starts_at_the_first_episode(self, get):
         ctx = get("/watch/show/500?season=2").json()
 
-        assert ctx["primary"] == {"label": "Play S1 · E1", "href": "/watch/play/511"}
+        assert ctx["primary"] == {
+            "label": "Play S1 · E1",
+            "href": "/watch/play/511?from=%2Fwatch%2Fshow%2F500",
+        }
         assert [e["number"] for e in ctx["episodes"]] == [1, 2]
-        assert ctx["episodes"][0]["href"] == "/watch/play/521"
+        assert (
+            ctx["episodes"][0]["href"] == "/watch/play/521?from=%2Fwatch%2Fshow%2F500%3Fseason%3D2"
+        )
 
     def test_scheduled_season_shows_leaving(self, get, conn):
         _schedule(conn, "502", 3)
