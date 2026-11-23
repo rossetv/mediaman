@@ -1,4 +1,4 @@
-"""player.js in a fake DOM: quality switches.
+"""player.js in a fake DOM: quality switches and the next-episode card.
 
 Each test renders the real player markup, runs player.js on it through
 ``player_harness.js`` under node, and checks what the person would see.
@@ -85,3 +85,20 @@ def test_a_refused_quality_goes_back_to_the_one_that_played_and_keeps_the_frame(
     assert out["saved"] == "best"
     assert [t["kind"] for t in out["toasts"]] == ["error"]
     assert "Best" in out["toasts"][0]["text"]
+
+
+def test_cancel_waits_for_the_card_to_leave_then_returns_focus(markup):
+    out = run(markup, "upnext_cancel")
+    assert out["shown"]["hidden"] is False
+    assert out["afterClick"] == {"hidden": False, "leaving": True}
+    assert out["afterExit"] == {"hidden": True, "leaving": False, "focus": True}
+    assert out["href"] == "/watch/play/1"
+
+
+def test_the_countdown_fill_lasts_the_countdown(markup):
+    assert run(markup, "upnext_cancel")["shown"]["fill"] == "10s"
+
+
+def test_cancel_under_reduced_motion_hides_the_card_at_once(markup):
+    out = run(markup, "upnext_cancel", reduced=True)
+    assert out["afterClick"]["hidden"] is True

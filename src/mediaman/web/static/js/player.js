@@ -77,6 +77,7 @@
     fullscreen: q('[data-fullscreen]'),
     fullscreenLabel: q('[data-fullscreen-label]'),
     upnext: q('[data-upnext]'),
+    upnextFill: q('[data-upnext-fill]'),
     countdown: q('[data-countdown]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
@@ -840,16 +841,26 @@
   /* ---- next episode --------------------------------------------------- */
 
   var countdownTimer = null;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
+  /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     clearInterval(countdownTimer);
     countdownTimer = null;
-    if (els.upnext) els.upnext.hidden = true;
+    var card = els.upnext;
+    if (!card || card.hidden || card.classList.contains('is-leaving')) return;
+    card.classList.remove('is-counting');
+    if (card.contains(document.activeElement)) els.play.focus();
+    if (reducedMotion && reducedMotion.matches) card.hidden = true;
+    else card.classList.add('is-leaving');
   }
 
   function startCountdown() {
     var left = COUNTDOWN_S;
     els.countdown.textContent = String(left);
+    els.upnext.classList.remove('is-leaving');
+    els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
+    els.upnext.classList.add('is-counting');
     els.upnext.hidden = false;
     showControls();
     clearInterval(countdownTimer);
@@ -866,6 +877,12 @@
   if (els.upnext) {
     q('[data-upnext-play]').addEventListener('click', function () { window.location.href = next.href; });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
+    els.upnext.addEventListener('animationend', function (e) {
+      if (e.target !== els.upnext || e.animationName !== 'player-drop') return;
+      if (!els.upnext.classList.contains('is-leaving')) return;
+      els.upnext.classList.remove('is-leaving');
+      els.upnext.hidden = true;
+    });
   }
 
   /* ---- leaving the page ----------------------------------------------- */
