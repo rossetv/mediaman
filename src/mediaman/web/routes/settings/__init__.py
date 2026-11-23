@@ -28,7 +28,7 @@ from mediaman.services.infra import ConfigDecryptError
 from mediaman.services.infra import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
-from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.auth.middleware import resolve_admin_page_session
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.repository.settings import (
     fetch_encrypted_key_set as _encrypted_keys,
@@ -128,7 +128,7 @@ router = APIRouter()
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> Response:
-    resolved = resolve_page_session(request)
+    resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved

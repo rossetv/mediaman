@@ -52,6 +52,17 @@ class TestSecurityHeadersMiddleware:
         # posters from shifting CDNs we can't enumerate).
         assert "img-src 'self' data: blob: https:" in csp
 
+    def test_csp_allows_media_from_self_and_blob_only(self):
+        csp = TestClient(_build_app()).get("/ping").headers["Content-Security-Policy"]
+        directives = {d.split(" ", 1)[0]: d for d in csp.split("; ")}
+        assert directives["media-src"] == "media-src 'self' blob:"
+        # The player runs hls.js without a worker, and nothing else is loosened.
+        assert "worker-src" not in directives
+        assert directives["connect-src"] == "connect-src 'self'"
+        assert directives["default-src"] == "default-src 'self'"
+        assert directives["object-src"] == "object-src 'none'"
+        assert directives["frame-src"] == "frame-src https://www.youtube.com"
+
     def test_hsts_off_by_default(self, monkeypatch):
         """HSTS is opt-in.  Without ``MEDIAMAN_HSTS_ENABLED=true`` the
         header MUST NOT be emitted, even on a plain HTTP request — a

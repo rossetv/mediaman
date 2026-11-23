@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "_watch_card.html" as w %}
+
+{% block title %}{{ show.title if show else "Watch" }} · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="watch-page watch-detail" id="watch-page">
+  <div class="watch-detail__top">
+    <a class="watch-back" href="{{ back_href or '/watch' }}">‹ Back to Watch</a>
+  </div>
+
+  {% if not_available %}
+  {{ w.gone_state("This show is not in the library any more.") }}
+  {% elif watch_error %}
+  {{ w.error_state(watch_error, is_admin) }}
+  {% else %}
+  <section class="watch-hero">
+    <div class="watch-hero__poster">
+      {% if show.poster_url %}<img src="{{ show.poster_url }}" alt="" data-broken-on-error>{% endif %}
+    </div>
+    <div class="watch-hero__info">
+      <h1 class="watch-hero__title">{{ show.title }}</h1>
+      {% if show.meta_line %}<p class="watch-hero__meta">{{ show.meta_line }}</p>{% endif %}
+      {% if show.summary %}<p class="watch-hero__summary">{{ show.summary }}</p>{% endif %}
+      {% if leaving %}{{ w.leaving_line(leaving, show.title) }}{% endif %}
+      <div class="watch-actions">
+        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ primary.label }}</a>
+      </div>
+      {% if seasons %}
+      <nav class="watch-seasons" aria-label="Seasons">
+        {% for s in seasons %}
+        <a class="watch-pill{% if s.selected %} on{% endif %}" href="{{ s.href }}"{% if s.selected %} aria-current="page"{% endif %}>Season {{ s.number }}</a>
+        {% endfor %}
+      </nav>
+      {% endif %}
+    </div>
+  </section>
+
+  <ol class="watch-episodes" aria-label="Episodes">
+    {% for e in episodes %}
+    <li>
+      <a class="watch-ep{% if e.state == 'in_progress' %} watch-ep--in-progress{% endif %}" href="{{ e.href }}">
+        <span class="watch-ep__num">{{ e.number }}</span>
+        <span class="watch-ep__thumb">
+          {% if e.thumb_url %}<img src="{{ e.thumb_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
+          {% if e.state == 'in_progress' and e.progress_pct %}<progress class="watch-bar" max="100" value="{{ e.progress_pct }}" aria-hidden="true"></progress>{% endif %}
+        </span>
+        <span class="watch-ep__text">
+          <span class="watch-ep__title">{{ e.title }}</span>
+          <span class="watch-ep__meta">{% if e.minutes %}{{ w.dur(e.minutes) }}{% endif %}{% if e.state == 'in_progress' and e.minutes_left %}{% if e.minutes %} · {% endif %}{{ w.dur(e.minutes_left) }} left{% endif %}</span>
+        </span>
+        {% if e.state == 'watched' %}<span class="watch-ep__state">Watched</span>
+        {% elif e.state == 'in_progress' %}<span class="watch-ep__state watch-ep__state--active">In progress</span>{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+
+  {{ w.keep_menu() }}
+  {% endif %}
+  <div class="page-bottom-spacer"></div>
+</div>
+
+<script src="/static/js/watch.js" defer></script>
+{% endblock %}

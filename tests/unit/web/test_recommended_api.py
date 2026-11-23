@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import validate_download_token
 from mediaman.db import set_connection
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.routes.recommended.api import (
     reset_download_action_limiter,
@@ -36,6 +36,7 @@ def _make_rec_app(conn) -> TestClient:
     app.state.db = conn
     set_connection(conn)
     app.dependency_overrides[get_current_admin] = lambda: "admin"
+    app.dependency_overrides[get_current_user] = lambda: "admin"
     return TestClient(app, raise_server_exceptions=True)
 
 

@@ -16,6 +16,7 @@ from mediaman.services.arr.state import LazyArrClients, attach_download_states
 from mediaman.services.infra import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.recommended import fetch_recommendations
 
 router = APIRouter()
@@ -153,6 +154,7 @@ def recommended_page(request: Request) -> Response:
         .replace("&", "\\u0026")
     )
 
+    is_admin = get_user_role(conn, username) == "admin"
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is None:
         manual_refresh_available = True
@@ -170,6 +172,7 @@ def recommended_page(request: Request) -> Response:
             "nav_active": "recommended",
             "batches": formatted_batches,
             "enabled": enabled,
+            "is_admin": is_admin,
             "all_recommendations_json": all_recommendations_json,
             "manual_refresh_available": manual_refresh_available,
             "next_manual_refresh_at": next_manual_refresh_at,

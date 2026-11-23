@@ -5,7 +5,7 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container" id="rec-page" data-can-share="{{ 'true' if is_admin else 'false' }}">
 
   <div class="ph">
     <div class="ph-row">
@@ -13,7 +13,7 @@
         <h1>Recommended for you</h1>
         <p>Personalised picks based on your watch history and recent ratings.</p>
       </div>
-      {% if enabled %}
+      {% if enabled and is_admin %}
         {% if manual_refresh_available %}
         {{ c.btn("Fetch new suggestions", variant="ghost", id="refresh-btn",
                  data_attrs={"action": "refresh-recommendations"},
@@ -28,7 +28,7 @@
     {% if not enabled %}
     <div class="rec-disabled-card">
       <div class="rec-disabled-title">Recommendations are disabled</div>
-      <div class="rec-disabled-sub">Enable AI recommendations in <a href="/settings">Settings → Scanning</a>.</div>
+      <div class="rec-disabled-sub">{% if is_admin %}Enable AI recommendations in <a href="/settings">Settings → Scanning</a>.{% else %}Recommendations are off.{% endif %}</div>
     </div>
     {% endif %}
   </div>
@@ -36,7 +36,11 @@
   <div id="refresh-error" class="inline-error"></div>
 
   {% if not batches %}
+  {% if is_admin %}
   {% set _rec_sub %}{% if manual_refresh_available %}Hit "Fetch new suggestions" above to generate AI-powered recommendations, or wait for the next scheduled scan.{% else %}A refresh has already run today — the next batch will arrive on the next scheduled scan.{% endif %} Requires an OpenAI API key configured in <a href="/settings">Settings → Integrations</a>.{% endset %}
+  {% else %}
+  {% set _rec_sub %}Recommendations will appear here when the next batch is ready.{% endset %}
+  {% endif %}
   {{ c.empty("No recommendations yet", sub=_rec_sub, extra_class="empty-state--lg") }}
   {% else %}
 
@@ -89,7 +93,7 @@
 <script id="rec-data" type="application/json">{{ all_recommendations_json | safe }}</script>
 {# Helper modules must register on MM.recommended before recommended.js
    wires them into the page. #}
-<script src="/static/js/recommended/refresh.js" defer></script>
+{% if is_admin %}<script src="/static/js/recommended/refresh.js" defer></script>{% endif %}
 <script src="/static/js/recommended/poll.js" defer></script>
 <script src="/static/js/recommended.js" defer></script>
 {% endblock %}

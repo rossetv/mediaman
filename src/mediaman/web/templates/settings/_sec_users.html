@@ -72,7 +72,7 @@
     {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",
              icon='<i class="fa-solid fa-plus" aria-hidden="true"></i> ') }}
   {% endset %}
-  {% call c.setg_card(title="Team", sub="Every account below has full admin access.",
+  {% call c.setg_card(title="Team", sub="Admins manage Mediaman. Viewers can watch and request, nothing more.",
                          header_actions=team_actions, pad=True) %}
     <div class="inline-form inline-form--two" id="add-user-form" hidden>
       <div class="inline-form-grid">
@@ -86,6 +86,14 @@
           <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
           <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
         </label>
+      </div>
+      <div class="fld">
+        <span class="fld-lbl" id="new-user-role-lbl">Role</span>
+        <div class="pill-row" role="group" aria-labelledby="new-user-role-lbl" id="new-user-role">
+          <button type="button" class="fpill on" data-role="viewer" aria-pressed="true">Viewer</button>
+          <button type="button" class="fpill" data-role="admin" aria-pressed="false">Admin</button>
+        </div>
+        <span class="fld-sub">Viewers can watch, search and request films and series, see downloads and recommendations, and keep items that are leaving. They can't change settings.</span>
       </div>
       <div class="inline-form-actions">
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}

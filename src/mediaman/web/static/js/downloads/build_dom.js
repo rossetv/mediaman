@@ -231,8 +231,12 @@
 
   /* Build upcoming row element. */
   function buildUpcomingRow(item) {
+    /* The server marks the page root; viewers get no stop-tracking button. */
+    var root = document.getElementById('dl-root');
+    var canAbandon = !root || root.getAttribute('data-can-abandon') !== 'false';
     var row = document.createElement('div');
-    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-row--has-abandon dl-card-enter';
+    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-card-enter' +
+      (canAbandon ? ' dl-row--has-abandon' : '');
     row.setAttribute('data-dl-id', item.id);
 
     var poster = document.createElement('div');
@@ -268,6 +272,8 @@
     scheduled.className = 'pill pill--neutral';
     scheduled.textContent = 'Scheduled';
     row.appendChild(scheduled);
+
+    if (!canAbandon) return row;
 
     var abandonWrap = document.createElement('div');
     abandonWrap.className = 'dl-row-abandon';

@@ -12,7 +12,7 @@ from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.db.connection import SchemaTooOldError
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
-from mediaman.web.auth.password_hash import UserExistsError, create_user
+from mediaman.web.auth.password_hash import ROLES, UserExistsError, create_user
 from mediaman.web.auth.password_policy import password_issues
 
 
@@ -142,7 +142,7 @@ def _open_db() -> sqlite3.Connection:
 
 
 def create_user_cli() -> None:
-    """CLI entry point for creating admin users.
+    """CLI entry point for creating users (admins unless ``--role viewer``).
 
     ``--username`` and ``--password`` are both optional and prompted
     interactively when omitted. ``--password`` on the command line is
@@ -150,7 +150,7 @@ def create_user_cli() -> None:
     audit logs); ``--password-stdin`` is the preferred non-interactive
     path.
     """
-    parser = argparse.ArgumentParser(description="Create a mediaman admin user")
+    parser = argparse.ArgumentParser(description="Create a mediaman user")
     parser.add_argument(
         "--username",
         help="Admin username (prompted interactively if omitted)",
@@ -168,6 +168,12 @@ def create_user_cli() -> None:
         action="store_true",
         help="Read the password from stdin (one line). Mutually exclusive with --password.",
     )
+    parser.add_argument(
+        "--role",
+        choices=ROLES,
+        default="admin",
+        help="Role for the new user: admin (default) or viewer (watch, search and request only).",
+    )
     args = parser.parse_args()
 
     username, password = _resolve_credentials(args)
@@ -175,8 +181,8 @@ def create_user_cli() -> None:
     conn = _open_db()
 
     try:
-        create_user(conn, username, password)
-        print(f"Admin user '{username}' created successfully.")
+        create_user(conn, username, password, role=args.role)
+        print(f"{args.role.capitalize()} user '{username}' created successfully.")
     except (ValueError, UserExistsError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

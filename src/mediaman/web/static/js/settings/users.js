@@ -3,7 +3,8 @@
  *
  * Responsibilities:
  *   - User list rendering (GET /api/users)
- *   - Add user form (#add-user-form, #btn-add-user)
+ *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
+ *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
  *   - Self password-change form (#self-password-form)
  *   - Revoke other sessions (#btn-revoke-others)
@@ -113,7 +114,22 @@
           meta.appendChild(sub);
           row.appendChild(meta);
 
+          var isAdmin = user.role !== 'viewer';
+          var roleLabel = document.createElement('span');
+          roleLabel.className = 'pill ' + (isAdmin ? 'pill--tv' : 'pill--neutral');
+          roleLabel.textContent = isAdmin ? 'Admin' : 'Viewer';
+          row.appendChild(roleLabel);
+
           if (user.username !== data.current) {
+            var roleBtn = document.createElement('button');
+            roleBtn.type = 'button';
+            roleBtn.className = 'btn btn--ghost btn--sm';
+            roleBtn.textContent = isAdmin ? 'Make viewer' : 'Make admin';
+            roleBtn.addEventListener('click', function () {
+              changeRoleFlow(user, isAdmin ? 'viewer' : 'admin');
+            });
+            row.appendChild(roleBtn);
+
             var del = document.createElement('button');
             del.type = 'button';
             del.className = 'link-danger';
@@ -122,6 +138,17 @@
             row.appendChild(del);
           }
           list.appendChild(row);
+        });
+      }
+
+      function changeRoleFlow(user, role) {
+        MM.reauth.run(function () {
+          return MM.api.patch('/api/users/' + user.id + '/role', { role: role });
+        }).then(function () {
+          loadUsers();
+        }).catch(function (err) {
+          if (err && err.error === 'reauth_cancelled') return;
+          window.UIFeedback.error(MM.api.messageOf(err, 'Could not change role'));
         });
       }
 
@@ -157,6 +184,24 @@
       var btnSubmitAddUser = document.getElementById('btn-submit-add-user');
       var createResult     = document.getElementById('create-user-result');
 
+      var roleSwitch = document.getElementById('new-user-role');
+      function selectedRole() {
+        var on = roleSwitch && roleSwitch.querySelector('.fpill.on');
+        return on ? on.dataset.role : 'viewer';
+      }
+      function selectRole(role) {
+        if (!roleSwitch) return;
+        roleSwitch.querySelectorAll('.fpill').forEach(function (b) {
+          var active = b.dataset.role === role;
+          b.classList.toggle('on', active);
+          b.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      }
+      if (roleSwitch) roleSwitch.addEventListener('click', function (e) {
+        var b = e.target.closest('.fpill');
+        if (b) selectRole(b.dataset.role);
+      });
+
       function toggleAddUser(open) {
         if (!addUserForm) return;
         var wantOpen = (typeof open === 'boolean') ? open : addUserForm.hidden;
@@ -167,6 +212,7 @@
             var el = document.getElementById(id);
             if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
           });
+          selectRole('viewer');
           if (createResult) { createResult.textContent = ''; createResult.className = 'inline-form-msg'; }
         }
       }
@@ -188,7 +234,7 @@
         }
         btnSubmitAddUser.disabled = true;
         MM.reauth.run(function () {
-          return MM.api.post('/api/users', { username: username, password: password });
+          return MM.api.post('/api/users', { username: username, password: password, role: selectedRole() });
         }).then(function () {
           btnSubmitAddUser.disabled = false;
           createResult.className = 'inline-form-msg ok';

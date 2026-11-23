@@ -18,6 +18,7 @@ from mediaman.web.middleware.csrf import CSRFOriginMiddleware
 from mediaman.web.middleware.force_password_change import ForcePasswordChangeMiddleware
 from mediaman.web.middleware.obscure_405 import Obscure405Middleware
 from mediaman.web.middleware.security_headers import SecurityHeadersMiddleware
+from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -72,6 +73,9 @@ def register_security_middleware(app: FastAPI) -> None:
     #   Obscure405: rewrites /api/* 405 → 401 before CSRF sees the response.
     #   CSRFOrigin: rejects cross-origin mutations before handlers run.
     #   ForcePasswordChange: funnels flagged admins to the change page.
+    #   ViewerGuard: keeps non-admins to the viewer allowlist; inside
+    #     ForcePasswordChange so a flagged viewer is funnelled first.
+    app.add_middleware(ViewerGuardMiddleware)
     app.add_middleware(ForcePasswordChangeMiddleware)
     app.add_middleware(CSRFOriginMiddleware)
     app.add_middleware(Obscure405Middleware)
@@ -80,6 +84,7 @@ def register_security_middleware(app: FastAPI) -> None:
     # Starlette's add_middleware is LIFO — last added is outermost.
     # With this ordering the execution chain is:
     #   TrustedHost → SecurityHeaders → BodySizeLimit → Obscure405 → CSRF → ForcePasswordChange
+    #     → ViewerGuard
     # SecurityHeaders wraps BodySizeLimit via call_next, so 413 responses
     # (emitted directly by BodySizeLimit's raw ASGI send) are captured by
     # BaseHTTPMiddleware and have the security headers added before egress.

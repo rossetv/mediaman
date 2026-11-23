@@ -382,6 +382,7 @@ class TestSonarrTmdbIdFiltering:
             resp = _add_rec_to_sonarr(
                 conn,
                 notify_email=None,
+                actor="admin",
                 row=row,
                 recommendation_id=1,
                 secret_key=_SECRET,
@@ -427,6 +428,7 @@ class TestSonarrTmdbIdFiltering:
             resp = _add_rec_to_sonarr(
                 conn,
                 notify_email=None,
+                actor="admin",
                 row=row,
                 recommendation_id=1,
                 secret_key=_SECRET,
@@ -472,6 +474,7 @@ class TestSonarrTmdbIdFiltering:
             resp = _add_rec_to_sonarr(
                 conn,
                 notify_email=None,
+                actor="admin",
                 row=self._tv_suggestion(99999),
                 recommendation_id=1,
                 secret_key=_SECRET,
@@ -495,6 +498,7 @@ class TestSonarrTmdbIdFiltering:
             resp = _add_rec_to_sonarr(
                 conn,
                 notify_email=None,
+                actor="admin",
                 row=self._tv_suggestion(99999),
                 recommendation_id=1,
                 secret_key=_SECRET,

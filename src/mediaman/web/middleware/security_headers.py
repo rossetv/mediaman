@@ -45,6 +45,8 @@ from starlette.responses import Response
 #     URLs that are surfaced on /downloads
 #   The allowlist (rather than ``https:`` for any host) limits the
 #   pixel-tracking surface to known services.
+# - ``media-src 'self' blob:`` lets the in-page player load same-origin
+#   video and the MediaSource blob URLs hls.js attaches to ``<video>``.
 # - ``object-src 'none'`` defangs plugin-based XSS.
 # - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
 #   clickjacking defence.
@@ -58,6 +60,7 @@ _CSP_STATIC_DIRECTIVES = (
     "https://mediacover.sonarr.video "
     "https://artworks.thetvdb.com; "
     "connect-src 'self'; "
+    "media-src 'self' blob:; "
     "frame-src https://www.youtube.com; "
     "frame-ancestors 'none'; "
     "object-src 'none'; "

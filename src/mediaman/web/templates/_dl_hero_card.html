@@ -9,7 +9,7 @@
      avoiding direct CSS string injection. #}
   <div class="dl-hero-scrim"></div>
 
-  {% if item.abandon_visible %}
+  {% if can_abandon and item.abandon_visible %}
   <div class="dl-hero-abandon">
     {{ c.abandon_btn(item.id,
                      kind=('series' if item.media_type != 'movie' else 'movie'),

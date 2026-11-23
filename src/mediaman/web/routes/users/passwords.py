@@ -9,7 +9,7 @@ from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.cookies import is_request_secure, set_session_cookie
@@ -29,7 +29,7 @@ router = APIRouter()
 def api_change_password(
     request: Request,
     body: ChangePasswordBody,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
 ) -> JSONResponse:
     """Change the current user's password. Per-actor (_PASSWORD_CHANGE_LIMITER) and per-IP
     (_PASSWORD_CHANGE_IP_LIMITER) throttles stop a stolen cookie being replayed unbounded

@@ -1,0 +1,396 @@
+/* WATCH — the browse pages (Watch, show, movie).
+   Poster cards are 150px wide on a laptop, 128px on a tablet, 112px on a phone.
+   Only the poster rows scroll sideways; everything else wraps. */
+
+.watch-page {
+  --watch-card-w: 150px;
+  --watch-gap: 14px;
+  overflow-x: clip;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.watch-page [hidden] { display: none !important; }
+@media (max-width: 1279.98px) { .watch-page { --watch-card-w: 128px; } }
+@media (max-width: 599.98px)  { .watch-page { --watch-card-w: 112px; --watch-gap: 10px; } }
+
+/* Buttons: the mock's white play pill and grey secondary pill. */
+.watch-btn--play { background: #fff; color: #000; font-weight: 600; min-height: 44px; padding-inline: 26px; font-size: 16px; }
+.watch-btn--play:hover { background: rgba(255,255,255,.85); }
+.watch-btn--grey { background: rgba(255,255,255,.14); color: var(--t1); min-height: 44px; padding-inline: 22px; font-size: 16px; }
+.watch-btn--grey:hover { background: rgba(255,255,255,.22); }
+.watch-btn--play:focus-visible,
+.watch-btn--grey:focus-visible,
+.watch-pill:focus-visible,
+.watch-back:focus-visible,
+.watch-card__link:focus-visible,
+.watch-ep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-btn--play .fa-play { font-size: 13px; }
+
+.watch-actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+
+/* Progress: a native <progress>, so the value needs no inline style. */
+.watch-bar {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  background: rgba(0,0,0,.5);
+  color: var(--accent);
+  overflow: hidden;
+}
+.watch-bar::-webkit-progress-bar { background: rgba(0,0,0,.5); }
+.watch-bar::-webkit-progress-value { background: var(--accent); }
+.watch-bar::-moz-progress-bar { background: var(--accent); }
+.watch-bar--banner {
+  width: min(320px, 100%);
+  border-radius: 2px;
+  background: rgba(255,255,255,.15);
+  color: #fff;
+}
+.watch-bar--banner::-webkit-progress-bar { background: rgba(255,255,255,.15); }
+.watch-bar--banner::-webkit-progress-value { background: #fff; }
+.watch-bar--banner::-moz-progress-bar { background: #fff; }
+.watch-card__poster > .watch-bar,
+.watch-ep__thumb > .watch-bar { position: absolute; left: 0; right: 0; bottom: 0; }
+
+/* Search box, top of the content. */
+.watch-top { padding: 20px var(--pad) 4px; }
+.watch-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 460px;
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--s3);
+  border-radius: var(--r-pill);
+  color: var(--t3);
+}
+.watch-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--t1);
+  font: inherit;
+  font-size: 16px; /* 16px keeps iOS from zooming the page on focus */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.watch-search__input::placeholder { color: var(--t3); }
+.watch-search__input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* Banner */
+.watch-banner {
+  position: relative;
+  height: 420px;
+  margin-top: 16px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--pad) 44px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 75% 40%, #3a4a63 0%, #1a2233 45%, #000 80%);
+}
+.watch-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #000 18%, rgba(0,0,0,.2) 60%, rgba(0,0,0,0));
+  pointer-events: none;
+}
+.watch-banner__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 75% 30%;
+}
+.watch-banner__body {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
+.watch-banner__title { font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; }
+.watch-banner__line { font-size: 15px; color: var(--t2); }
+.watch-banner__line--short { display: none; }
+@media (max-width: 599.98px) {
+  .watch-banner__line--long { display: none; }
+  .watch-banner__line--short { display: block; }
+}
+
+/* Rows */
+.watch-rows { display: flex; flex-direction: column; gap: 30px; padding-top: 28px; }
+.watch-row { min-width: 0; }
+.watch-row__title { font-size: 19px; font-weight: 600; padding: 0 var(--pad); margin-bottom: 12px; }
+.watch-row__scroll {
+  display: flex;
+  gap: var(--watch-gap);
+  overflow-x: auto;
+  padding: 4px var(--pad) 6px;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--pad);
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.watch-row__scroll > .watch-card { flex: 0 0 var(--watch-card-w); scroll-snap-align: start; }
+
+/* Card */
+.watch-card { display: flex; flex-direction: column; gap: 6px; width: var(--watch-card-w); min-width: 0; }
+.watch-card__link { display: flex; flex-direction: column; gap: 6px; min-width: 0; border-radius: var(--r-md); }
+.watch-card__poster {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  padding: 10px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: linear-gradient(160deg, var(--s4), var(--s1));
+  transition: box-shadow .25s;
+}
+.watch-card__link:hover .watch-card__poster { box-shadow: var(--shadow-card); }
+.watch-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.watch-card__poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,.35) 0%, transparent 25%, transparent 50%, rgba(0,0,0,.85) 100%);
+  pointer-events: none;
+}
+.watch-card__title {
+  position: relative;
+  z-index: 1;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-shadow: 0 1px 6px rgba(0,0,0,.6);
+  overflow-wrap: anywhere;
+}
+.watch-card__poster > .watch-bar { z-index: 2; height: 4px; }
+.watch-card__sub {
+  font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+
+.watch-badge {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  color: #fff;
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.watch-badge__short { display: none; }
+.watch-badge--leaving { left: 8px; background: rgba(255,69,58,.85); font-weight: 600; }
+.watch-badge--watched { right: 8px; background: rgba(0,0,0,.65); color: rgba(255,255,255,.85); }
+.watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
+@media (max-width: 1279.98px) {
+  .watch-badge__long { display: none; }
+  .watch-badge__short { display: inline; }
+}
+@media (max-width: 599.98px) {
+  .watch-card__title { font-size: 12px; }
+  .watch-card__poster { padding: 8px; }
+  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: 10px; }
+  .watch-badge--leaving { left: 6px; }
+  .watch-badge--watched { right: 6px; }
+}
+
+/* Keep trigger. The hit area is 44px high without making the pill bulky. */
+.watch-keep {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: var(--rgba-success-bg);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+}
+.watch-keep::after { content: ""; position: absolute; inset: -6px -4px; }
+.watch-keep:hover { background: rgba(48,209,88,.22); }
+.watch-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-keep__chev { font-size: 9px; transition: transform .15s; }
+.watch-keep[aria-expanded="true"] .watch-keep__chev { transform: rotate(180deg); }
+.watch-keep[disabled] { opacity: .55; cursor: progress; }
+
+/* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it. */
+.watch-keep-menu {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+.watch-keep-menu__item {
+  min-height: 44px;
+  padding: 0 14px;
+  text-align: left;
+  border-radius: var(--r-xs);
+  font-size: 14px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.watch-keep-menu__item:hover,
+.watch-keep-menu__item:focus-visible { background: var(--s3); color: var(--t1); outline: none; }
+
+/* Search results replace the rows. */
+.watch-results { padding: 24px var(--pad) 0; }
+.watch-results__msg { color: var(--t2); margin-bottom: 16px; }
+.watch-results__msg:empty { display: none; }
+.watch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--watch-card-w), 1fr));
+  gap: 22px var(--watch-gap);
+}
+.watch-grid .watch-card { width: auto; }
+
+/* Plex-not-usable and not-found panels */
+.watch-state { max-width: 520px; margin: 0 auto; padding: 96px var(--pad) 0; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.watch-state__title { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
+.watch-state__text { color: var(--t2); }
+
+/* Show and movie pages */
+.watch-detail {
+  background: radial-gradient(ellipse at 80% 0%, #24324a 0%, #000 60%) no-repeat;
+  background-size: 100% 620px;
+}
+.watch-detail__top { padding: 20px var(--pad) 0; }
+.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; }
+.watch-back:hover { color: var(--accent-hi); }
+.watch-hero {
+  display: flex;
+  gap: 40px;
+  padding: 8px var(--pad) 24px;
+}
+.watch-hero__poster {
+  position: relative;
+  flex: 0 0 220px;
+  height: 330px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: linear-gradient(160deg, var(--s4), var(--s1));
+}
+.watch-hero__poster > img { width: 100%; height: 100%; object-fit: cover; }
+.watch-hero__info { display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
+.watch-hero__title { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.08; overflow-wrap: anywhere; }
+.watch-hero__meta { font-size: 14px; color: var(--t3); }
+.watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
+.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--danger); }
+
+.watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.watch-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  background: var(--s4);
+  color: var(--t1);
+  font-size: 14px;
+}
+.watch-pill:hover { background: rgba(255,255,255,.2); }
+.watch-pill.on { background: #fff; color: #000; font-weight: 600; }
+
+.watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
+@media (min-width: 900px) { .watch-episodes { margin-left: 260px; } }
+.watch-ep {
+  display: grid;
+  grid-template-columns: 24px 176px minmax(0, 1fr) auto;
+  grid-template-areas: "num thumb text state";
+  align-items: center;
+  gap: 20px;
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+}
+.watch-ep:hover { background: var(--s1); }
+.watch-ep--in-progress { background: var(--s1); }
+.watch-ep__num { grid-area: num; font-size: 18px; color: var(--t3); text-align: right; }
+.watch-ep__thumb {
+  grid-area: thumb;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: linear-gradient(160deg, var(--s4), var(--s1));
+}
+.watch-ep__thumb > img { width: 100%; height: 100%; object-fit: cover; }
+.watch-ep__text { grid-area: text; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.watch-ep__title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.watch-ep__meta { font-size: 13px; color: var(--t3); }
+.watch-ep__meta:empty { display: none; }
+.watch-ep__state { grid-area: state; font-size: 12px; padding: 4px 10px; border-radius: var(--r-pill); color: var(--t2); background: var(--rgba-overlay-sm); }
+.watch-ep__state--active { color: var(--accent); background: var(--rgba-accent-bg); }
+
+/* Tablet */
+@media (max-width: 899.98px) {
+  .watch-hero { gap: 28px; }
+  .watch-hero__poster { flex-basis: 170px; height: 255px; }
+  .watch-hero__title { font-size: 36px; }
+}
+
+/* Phone */
+@media (max-width: 599.98px) {
+  .watch-top { padding-top: 12px; }
+  .watch-search { max-width: none; }
+  .watch-banner { height: 260px; margin-top: 12px; padding-bottom: 20px; }
+  .watch-banner::after { background: linear-gradient(0deg, #000 8%, rgba(0,0,0,0) 60%); }
+  .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
+  .watch-banner__kicker { font-size: 11px; }
+  .watch-banner__title { font-size: 30px; }
+  .watch-banner__line { font-size: 13px; }
+  .watch-actions { flex-direction: column; }
+  .watch-actions .btn { width: 100%; }
+  .watch-rows { gap: 22px; padding-top: 18px; }
+  .watch-row__title { font-size: 17px; margin-bottom: 10px; }
+
+  .watch-hero { flex-direction: column; gap: 18px; }
+  .watch-hero__poster { flex-basis: auto; width: 140px; height: 210px; }
+  .watch-hero__title { font-size: 30px; }
+  .watch-state { padding-top: 56px; }
+  .watch-state__title { font-size: 24px; }
+
+  .watch-ep {
+    grid-template-columns: 20px 112px minmax(0, 1fr);
+    grid-template-areas: "num thumb text" ". thumb state";
+    align-items: start;
+    gap: 6px 12px;
+    padding: 10px 8px;
+  }
+  .watch-ep__num { font-size: 14px; padding-top: 2px; }
+  .watch-ep__state { justify-self: start; align-self: end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-card__poster, .watch-keep__chev { transition: none; }
+}
+
+/* Inline notice above the rows when Plex cannot be reached. */
+.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 var(--pad) 16px; padding: 10px 14px; border-radius: 10px; background: rgba(255,69,58,.12); color: var(--t1); font-size: 14px; }
+.watch-notice__retry { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }

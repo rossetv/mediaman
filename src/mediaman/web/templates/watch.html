@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% import "_watch_card.html" as w %}
+
+{% block title %}Watch · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="watch-page" id="watch-page">
+  {% if watch_error %}
+  {{ w.error_state(watch_error, is_admin) }}
+  {% else %}
+  <div class="watch-top">
+    <div class="watch-search" role="search">
+      <i class="fa-solid fa-magnifying-glass watch-search__icon" aria-hidden="true"></i>
+      <input id="watch-search" class="watch-search__input" type="search" placeholder="Search films and shows" aria-label="Search films and shows" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <div id="watch-browse">
+    {% if banner %}
+    <section class="watch-banner" aria-label="Featured">
+      {% if banner.backdrop_url %}<img class="watch-banner__bg" src="{{ banner.backdrop_url }}" alt="" data-broken-on-error>{% endif %}
+      <div class="watch-banner__body">
+        <span class="watch-banner__kicker">{{ "Continue watching" if banner.progress_pct else "Recently added" }}</span>
+        <h1 class="watch-banner__title">{{ banner.title }}</h1>
+        {% if banner.line %}
+        <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>
+        <p class="watch-banner__line watch-banner__line--short">{{ banner.line_short or banner.line }}</p>
+        {% endif %}
+        {% if banner.progress_pct %}<progress class="watch-bar watch-bar--banner" max="100" value="{{ banner.progress_pct }}" aria-hidden="true"></progress>{% endif %}
+        <div class="watch-actions">
+          <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ banner.primary.label }}</a>
+          {% if banner.episodes_href %}<a class="btn btn--lg watch-btn--grey" href="{{ banner.episodes_href }}">Episodes</a>{% endif %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if plex_unreachable %}
+    <p class="watch-notice" role="status">
+      <span>Can't reach Plex right now.</span>
+      <button type="button" class="watch-notice__retry" data-watch-retry>Try again</button>
+    </p>
+    {% endif %}
+
+    <div class="watch-rows">
+      {% for row in rows %}
+      {% if row['items'] %}
+      <section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
+        <h2 class="watch-row__title">{{ row.title }}</h2>
+        <div class="watch-row__scroll">
+          {% for item in row['items'] %}{{ w.card(item) }}{% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <section class="watch-results" id="watch-results" aria-label="Search results" hidden>
+    <p class="watch-results__msg" id="watch-results-msg" role="status"></p>
+    <div class="watch-grid" id="watch-grid"></div>
+  </section>
+
+  {{ w.keep_menu() }}
+  {% endif %}
+  <div class="page-bottom-spacer"></div>
+</div>
+
+<script src="/static/js/watch.js" defer></script>
+{% endblock %}

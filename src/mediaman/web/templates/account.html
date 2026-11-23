@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_components.html" as c %}
+
+{% block title %}Account · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block head %}
+<script src="/static/js/core/reauth.js" defer></script>
+<script src="/static/js/account.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="setg-pg">
+  <div class="container">
+    <div class="ph">
+      <h1>Account</h1>
+    </div>
+
+    {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
+      <div class="usr-self-head">
+        <div class="av">{{ (username or "?")[:1] | upper }}</div>
+        <div class="usr-meta">
+          <div class="usr-name">{{ username }}</div>
+          <div class="usr-sub">{{ "Admin" if role == "admin" else "Viewer" }} · signed in</div>
+        </div>
+      </div>
+    {% endcall %}
+
+    {% call c.setg_card(title="Change password", pad=True) %}
+      <form class="inline-form" id="account-password-form" novalidate>
+        <div class="inline-form-grid">
+          <label class="fld">
+            <span class="fld-lbl">Current password</span>
+            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required>
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">New password</span>
+            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required>
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">Confirm new password</span>
+            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required>
+          </label>
+        </div>
+        <div class="inline-form-actions">
+          <button class="btn btn--primary btn--sm" type="submit" id="account-submit-password">Update password</button>
+          <span class="inline-form-msg" id="account-password-result" role="status"></span>
+        </div>
+      </form>
+    {% endcall %}
+  </div>
+</div>
+{% endblock %}

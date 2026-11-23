@@ -4,7 +4,7 @@ strength policy.
 login_submit flips admin_users.must_change_password to 1 and issues a normal session;
 ForcePasswordChangeMiddleware then redirects every request with that cookie here. This
 module validates the old and new password, rotates the credential, clears the flag and
-redirects to the dashboard.
+redirects to the dashboard (Watch for a viewer).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.auth.middleware import landing_path, resolve_page_session
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
 from mediaman.web.cookies import is_request_secure, set_session_cookie
@@ -209,7 +209,7 @@ def force_change_submit(
     if new_token is None:
         return _render(error="Current password is incorrect.")
 
-    response = RedirectResponse("/", status_code=302)
+    response = RedirectResponse(landing_path(conn, username), status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))
     logger.info("force_password_change.ok user=%s ip=%s", _sanitise_log_field(username), client_ip)
     return response

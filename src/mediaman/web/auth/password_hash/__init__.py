@@ -7,7 +7,8 @@ and compared" concern; session persistence lives in
 The package holds three concepts, one private module each:
 
 * `._user_crud` — admin-user CRUD (``create_user``, ``list_users``,
-  ``delete_user``, ``get_user_email``, ``set_user_email``,
+  ``delete_user``, ``get_user_email``, ``set_user_email``, the role
+  helpers ``get_user_role`` / ``set_user_role`` / ``is_last_admin``,
   ``user_must_change_password``, ``set_must_change_password``) plus the
   `UserExistsError` / `UserRecord` vocabulary.
 * `._authenticate` — the credential-verification path
@@ -55,19 +56,26 @@ from mediaman.web.auth._password_hash_helpers import BCRYPT_ROUNDS
 from mediaman.web.auth.password_hash._authenticate import authenticate, verify_password
 from mediaman.web.auth.password_hash._change_password import change_password
 from mediaman.web.auth.password_hash._user_crud import (
+    ROLES,
+    LastAdminError,
     UserExistsError,
     UserRecord,
     create_user,
     delete_user,
     get_user_email,
+    get_user_role,
+    is_last_admin,
     list_users,
     set_must_change_password,
     set_user_email,
+    set_user_role,
     user_must_change_password,
 )
 
 __all__ = [
     "BCRYPT_ROUNDS",
+    "ROLES",
+    "LastAdminError",
     "UserExistsError",
     "UserRecord",
     "authenticate",
@@ -75,9 +83,12 @@ __all__ = [
     "create_user",
     "delete_user",
     "get_user_email",
+    "get_user_role",
+    "is_last_admin",
     "list_users",
     "set_must_change_password",
     "set_user_email",
+    "set_user_role",
     "user_must_change_password",
     "verify_password",
 ]

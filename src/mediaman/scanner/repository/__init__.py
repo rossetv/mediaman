@@ -18,6 +18,8 @@ when it changes.
   ``kept_shows``.
 * mediaman.scanner.repository.settings — table-group 4:
   ``read_delete_allowed_roots_setting``, ``read_setting``.
+* mediaman.scanner.repository.watch_credit — table-group 5:
+  ``last_credited_by_media_item``, the plays made in mediaman.
 
 **Repository purity contract:** this package is pure SQL — it must not
 import crypto primitives at module level.  Token generation lives in
@@ -63,6 +65,7 @@ from mediaman.scanner.repository.settings import (
     read_delete_allowed_roots_setting,
     read_setting,
 )
+from mediaman.scanner.repository.watch_credit import last_credited_by_media_item
 
 __all__ = [
     "DELETION_ACTION",
@@ -86,6 +89,7 @@ __all__ = [
     "is_protected",
     "is_show_kept",
     "is_show_kept_pure",
+    "last_credited_by_media_item",
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
     "read_setting",

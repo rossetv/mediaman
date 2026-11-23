@@ -90,11 +90,28 @@ class TestIsAdmin:
     def test_returns_true_when_middleware_returns_user(self):
         """is_admin returns True when get_optional_admin_from_token returns a username."""
         req = _real_request(session_token="valid-token")
-        with patch(
-            "mediaman.web.auth.middleware.get_optional_admin_from_token",
-            return_value="admin",
+        with (
+            patch(
+                "mediaman.web.auth.middleware.get_optional_admin_from_token",
+                return_value="admin",
+            ),
+            patch("mediaman.web.auth.middleware.get_db"),
+            patch("mediaman.web.auth.middleware.get_user_role", return_value="admin"),
         ):
             assert is_admin(req) is True
+
+    def test_returns_false_for_a_signed_in_viewer(self):
+        """A valid session of a viewer is not an admin."""
+        req = _real_request(session_token="valid-token")
+        with (
+            patch(
+                "mediaman.web.auth.middleware.get_optional_admin_from_token",
+                return_value="niamh",
+            ),
+            patch("mediaman.web.auth.middleware.get_db"),
+            patch("mediaman.web.auth.middleware.get_user_role", return_value="viewer"),
+        ):
+            assert is_admin(req) is False
 
     def test_returns_false_when_middleware_returns_none(self):
         """is_admin returns False when no valid session exists."""

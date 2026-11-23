@@ -1,12 +1,16 @@
 """FastAPI authentication dependency functions.
 
-Exports four FastAPI/callable dependency functions that all callers should
+Exports FastAPI/callable dependency functions that all callers should
 prefer over raw ``validate_session`` calls — they guarantee fingerprint
 binding (User-Agent + client IP) is consistently applied:
 
 `get_current_admin`
-    Strict dependency: returns the username string or raises ``401``.
-    Use in endpoints that must be authenticated.
+    Strict dependency: returns the username of an admin, raises ``401``
+    without a session and ``403`` for any other role.
+
+`get_current_user`
+    Like the above for any valid session, viewers included. Use in the
+    endpoints a viewer may reach.
 
 `get_optional_admin`
     Soft dependency: returns username or ``None``, never raises.
@@ -25,11 +29,18 @@ binding (User-Agent + client IP) is consistently applied:
     Centralises the cookie → ``validate_session`` → redirect dance every
     page handler needs.
 
+`resolve_admin_page_session`
+    `resolve_page_session` for admin-only pages: a signed-in non-admin is
+    redirected to ``/watch`` instead of being served the page.
+
 `is_admin`
     Convenience predicate over `get_optional_admin_from_token` that
     pulls the ``session_token`` cookie off the request itself.  Used by
     page-rendering routes that toggle admin-only UI affordances on or off
     without rejecting anonymous callers (keep and kept).
+
+`landing_path`
+    Where a user lands after signing in, by role.
 """
 
 from __future__ import annotations
@@ -41,6 +52,7 @@ from starlette.responses import RedirectResponse
 
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.auth.session_store import validate_session
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
@@ -97,11 +109,11 @@ def resolve_cached_session(
     return username
 
 
-def get_current_admin(
+def get_current_user(
     request: Request,
     session_token: str | None = Cookie(default=None),
 ) -> str:
-    """FastAPI dependency — returns username or raises 401.
+    """FastAPI dependency — returns the username of any valid session (admin or viewer) or raises 401.
 
     Reuses the request-scoped session cache (populated by the
     force-password-change middleware) so a cookie-bearing request is
@@ -115,6 +127,22 @@ def get_current_admin(
     username = resolve_cached_session(request, conn, session_token)
     if username is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return username
+
+
+def get_current_admin(
+    request: Request,
+    session_token: str | None = Cookie(default=None),
+) -> str:
+    """FastAPI dependency — returns the username of an admin session, 401 without a session
+    and 403 for any other role (a viewer, or an account whose role is unknown).
+
+    Backs up ``ViewerGuardMiddleware`` so an admin API stays closed to viewers even if the
+    guard's allowlist is widened or the middleware is not installed.
+    """
+    username = get_current_user(request, session_token)
+    if get_user_role(get_db(), username) != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
     return username
 
 
@@ -170,13 +198,36 @@ def resolve_page_session(
     return username, conn
 
 
+def resolve_admin_page_session(request: Request) -> PageSession:
+    """Like `resolve_page_session`, but a non-admin is redirected to ``/watch`` (303).
+
+    Admin pages use this so they refuse a viewer on their own, as the admin
+    APIs do, rather than relying on the viewer guard alone.
+    """
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
+    if get_user_role(conn, username) != "admin":
+        return RedirectResponse("/watch", status_code=303)
+    return resolved
+
+
 def is_admin(request: Request) -> bool:
-    """Return True when *request* carries a valid admin session cookie.
+    """Return True when *request* carries a valid session cookie of an admin user.
 
     Used by page routes that gate admin-only UI affordances without
     rejecting anonymous visitors (keep, kept).
     """
-    return (
-        get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
-        is not None
-    )
+    username = get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
+    if username is None:
+        return False
+    return get_user_role(get_db(), username) == "admin"
+
+
+def landing_path(conn: sqlite3.Connection, username: str) -> str:
+    """Return where *username* lands after signing in: ``/watch`` for a viewer, ``/`` otherwise.
+
+    Only a convenience: the viewer guard, not this, keeps a non-admin off ``/``.
+    """
+    return "/watch" if get_user_role(conn, username) == "viewer" else "/"

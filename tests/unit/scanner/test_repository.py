@@ -270,14 +270,26 @@ class TestDeleteMediaItems:
             is None
         )
 
-    def test_delete_media_items_touches_only_media_items(self, conn):
-        """``delete_media_items`` issues only the ``media_items`` DELETE —
-        the ``scheduled_actions`` table belongs to its own repository.
-        """
+    def test_delete_media_items_leaves_scheduled_actions_to_their_repository(self, conn):
         _insert_item(conn)
         # No scheduled_actions row, so the media_items DELETE has no FK to trip.
         repository.delete_media_items(conn, ["m1"])
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+
+    def test_delete_media_items_drops_the_watch_progress_saved_against_them(self, conn):
+        _insert_item(conn)
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at, role)"
+            " VALUES ('aoife', '', '2026-11-23T12:00:00+00:00', 'viewer')"
+        )
+        conn.executemany(
+            "INSERT INTO watch_progress (username, rating_key, media_item_id, updated_at)"
+            " VALUES ('aoife', ?, ?, '2026-11-23T12:00:00+00:00')",
+            [("ep1", "m1"), ("other", "kept-item")],
+        )
+        repository.delete_media_items(conn, ["m1"])
+        left = [r["rating_key"] for r in conn.execute("SELECT rating_key FROM watch_progress")]
+        assert left == ["other"]
 
     def test_delete_actions_for_media_items_leaves_media_item(self, conn):
         """``delete_actions_for_media_items`` removes only the action rows;

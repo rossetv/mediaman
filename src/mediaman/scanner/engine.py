@@ -44,7 +44,12 @@ if TYPE_CHECKING:
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
-from mediaman.scanner._scan_library import scan_movie_library, scan_tv_library
+from mediaman.scanner import repository
+from mediaman.scanner._scan_library import (
+    scan_movie_library,
+    scan_tv_library,
+    with_mediaman_play,
+)
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
@@ -220,6 +225,16 @@ class ScanEngine:
         corrupted server) skips orphan removal for that library rather
         than crashing the whole sync.
         """
+        # Read once per run: the sync's fetch phase is over and plays made
+        # while it writes are picked up by the next sync.
+        credited = repository.last_credited_by_media_item(
+            self._conn,
+            [
+                f.item["plex_rating_key"]
+                for fetched in per_lib_fetches.values()
+                for f in fetched.items
+            ],
+        )
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they
@@ -227,7 +242,7 @@ class ScanEngine:
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
             seen_lib_keys.update(fetched.skipped_keys)
             for f in fetched.items:
-                if not self._upsert_item_isolated(f):
+                if not self._upsert_item_isolated(with_mediaman_play(f, credited)):
                     summary["errors"] += 1
                     continue
                 summary["synced"] += 1

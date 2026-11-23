@@ -18,7 +18,7 @@ from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.services.infra.settings_reader import plex_is_configured
-from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
 from mediaman.web.routes.dashboard._data import (
     _fetch_recently_deleted,
@@ -33,7 +33,7 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard_page(request: Request) -> Response:
-    resolved = resolve_page_session(request)
+    resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved

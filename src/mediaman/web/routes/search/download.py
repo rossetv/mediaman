@@ -21,7 +21,7 @@ from mediaman.services.downloads.notifications import record_download_notificati
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.responses import respond_failure
 
@@ -219,7 +219,9 @@ def _submit_movie(
             "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
             body.tmdb_id,
         )
-    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Radarr", actor=actor)
+    log_audit(
+        conn, body.title, "downloaded", f"Added '{body.title}' to Radarr by {actor}", actor=actor
+    )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
@@ -301,14 +303,16 @@ def _submit_tv(
             "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
             body.tmdb_id,
         )
-    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr", actor=actor)
+    log_audit(
+        conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr by {actor}", actor=actor
+    )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
 
 @router.post("/api/search/download")
 def api_download(
-    body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)
+    body: _DownloadRequest, request: Request, admin: str = Depends(get_current_user)
 ) -> JSONResponse:
     rate_err = _check_rate_limits(admin, request)
     if rate_err is not None:

@@ -20,7 +20,7 @@ from mediaman.core.format import format_bytes
 from mediaman.core.time import now_utc
 from mediaman.scanner.runner import get_day_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
-from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.auth.middleware import resolve_admin_page_session
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES as ALL_SEASON_TYPES,
 )
@@ -107,7 +107,7 @@ def library_page(
     page: int = Query(default=1, ge=1, le=100_000),
     per_page: int = Query(default=20, ge=1, le=100),
 ) -> Response:
-    resolved = resolve_page_session(request)
+    resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved

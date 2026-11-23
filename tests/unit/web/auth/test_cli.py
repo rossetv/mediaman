@@ -37,7 +37,7 @@ class TestCreateUserCli:
         # the test is about argparse + prompt wiring, not the auth path.
         recorded = {}
 
-        def fake_create_user(conn, username, password):
+        def fake_create_user(conn, username, password, **_):
             recorded["username"] = username
             recorded["password"] = password
 
@@ -145,7 +145,7 @@ class TestCreateUserCli:
 
         recorded = {}
 
-        def fake_create_user(conn, username, password):
+        def fake_create_user(conn, username, password, **_):
             recorded["username"] = username
             recorded["password"] = password
 
@@ -201,7 +201,7 @@ class TestCreateUserCli:
             ],
         )
 
-        def fake_create_user(conn, username, password):
+        def fake_create_user(conn, username, password, **_):
             raise UserExistsError(f"User '{username}' already exists")
 
         monkeypatch.setattr(cli_mod, "create_user", fake_create_user)

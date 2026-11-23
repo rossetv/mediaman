@@ -9,7 +9,7 @@ from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.reauth import (
     grant_recent_reauth,
     reauth_window_seconds,
@@ -30,7 +30,7 @@ router = APIRouter()
 def api_reauth(
     request: Request,
     body: ReauthBody,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
     """Establish a "recent reauth" ticket for the current session, the prelude to any
@@ -43,7 +43,7 @@ def api_reauth(
     """
     conn = get_db()
     if not session_token:
-        # Belt-and-braces: get_current_admin would already have raised if
+        # Belt-and-braces: get_current_user would already have raised if
         # the token was missing, but guard anyway so we never persist a
         # ticket against an empty key.
         return respond_err("not_authenticated", status=401)
