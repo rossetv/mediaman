@@ -39,7 +39,7 @@ dependencies = [
     "python-multipart~=0.0.34",
     "defusedxml~=0.7",
     "pydantic~=2.14",
-    "urllib3>=1.26,<3",
+    "urllib3>=2.8.0,<3",
 ]
 
 [project.optional-dependencies]
