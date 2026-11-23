@@ -5,7 +5,8 @@
  *   - Connection-status pills (shared updater for intg-card + ov-status)
  *   - Manual test buttons (<button data-test-service="…">)
  *   - Auto-test configured services on page load
- *   - Plex library sync button (#btn-sync-library)
+ *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
+ *   - Rail badge counting the services whose check failed
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
@@ -14,6 +15,7 @@
  * Exposes:
  *   MM.settings.integrations.init()
  *   MM.settings.integrations.setConnStatus(service, tone, label)
+ *   MM.settings.integrations.paintRailCount()
  */
 (function () {
   'use strict';
@@ -43,6 +45,26 @@
         var stEl = el.querySelector('[data-ov-status]');
         if (stEl) stEl.textContent = label;
       });
+      MM.settings.integrations.paintRailCount();
+    },
+
+    paintRailCount: function () {
+      var item = document.querySelector('.setg-rail-item[href="#setg-integrations"]');
+      if (!item) return;
+      var failed = document.querySelectorAll('[data-conn].err').length;
+      var badge = item.querySelector('.rail-count');
+      if (!failed) {
+        if (badge) badge.remove();
+        item.removeAttribute('aria-label');
+        return;
+      }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'rail-count err';
+        item.appendChild(badge);
+      }
+      badge.textContent = String(failed);
+      item.setAttribute('aria-label', 'Integrations, ' + failed + ' not connected');
     },
 
     /* The pill label changes on the page-load auto-check too, so only this
@@ -148,10 +170,11 @@
         syncBtn.appendChild(document.createTextNode('Syncing…'));
         syncBtn.disabled = true;
         MM.api.post('/api/library/sync')
-          .then(function (data) {
-            syncBtn.textContent = data.ok ? 'Synced ✓' : 'Failed';
+          .then(function () { syncBtn.textContent = 'Synced ✓'; })
+          .catch(function (err) {
+            syncBtn.textContent = 'Failed';
+            window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'));
           })
-          .catch(function () { syncBtn.textContent = 'Failed'; })
           .then(function () {
             setTimeout(function () {
               var keepFocus = MM.dom.focusStillIn(syncBtn);

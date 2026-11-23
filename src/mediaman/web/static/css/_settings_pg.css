@@ -131,6 +131,10 @@
   scroll-margin-top: calc(var(--nav-h) + 16px);
 }
 .setg-pg .setg-block:first-child { padding-top: 24px; }
+/* Below 960px the rail is a sticky strip under the top bar: land headings below it too. */
+@media (max-width: 960px) {
+  .setg-pg .setg-block { scroll-margin-top: calc(var(--nav-h) + 76px); }
+}
 .setg-pg .setg-block-hd {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
@@ -235,6 +239,16 @@
   transition: background .15s, color .15s;
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+/* Show/hide on account password fields (show-password.js wraps the input). */
+.setg-pg .pw-wrap { position: relative; }
+.setg-pg .pw-wrap .inp { width: 100%; padding-right: 66px; }
+.setg-pg .pw-toggle {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  padding: 5px 10px; font-size: 11px; color: var(--t3);
+  border-radius: var(--r-pill); background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.setg-pg .pw-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 
 .setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .setg-pg .fld-lbl {
@@ -306,6 +320,8 @@
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
 .setg-pg .savebar #save-status:empty { display: none; }
+/* Wide enough for "Save Settings", so "Saving…", "Saved ✓" and "Try again" do not shift the bar. */
+.setg-pg .savebar #btn-save { min-width: 8.5em; }
 
 /* Error state — danger red on a tinted chip,
    never as a saturated background. The dot turns red, the sub-text takes
@@ -397,7 +413,8 @@
   .setg-pg .setg-rail-item { min-height: 40px; }
   .setg-pg .btn-test { min-height: 40px; }
   .setg-pg .tog::before,
-  .setg-pg .inp-reveal::before { content: ""; position: absolute; inset: -7px -4px; }
+  .setg-pg .inp-reveal::before,
+  .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -7px -4px; }
   /* Helper-text links: the extra height goes below the line, not onto the input above. */
   .setg-pg .fld-sub a,
   .setg-pg .setg-row-sub a { position: relative; }

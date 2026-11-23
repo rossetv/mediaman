@@ -13,6 +13,7 @@
  *
  * Exposes:
  *   MM.settings.toggles.init()
+ *   MM.settings.toggles.sync()   — redraws switches from their inputs
  */
 (function () {
   'use strict';
@@ -47,6 +48,17 @@
       n.addEventListener('keydown', function (e) {
         if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(n); }
       });
+    });
+  }
+
+  // Redraw each switch from its hidden input, after Discard puts the values back.
+  function sync() {
+    document.querySelectorAll('.setg-pg [data-toggle]').forEach(function (node) {
+      var input = document.getElementById(node.getAttribute('data-target'));
+      if (!input) return;
+      var on = input.value === (node.getAttribute('data-on-value') || 'true');
+      node.classList.toggle('on', on);
+      node.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
 
@@ -100,9 +112,11 @@
     var lastActiveHref = null;
     function syncRail() {
       if (!blocks.length) return;
-      var pos = window.scrollY + 140;
+      // A section is current once its top passes a line a third of the way
+      // down the view, so a short section in plain view is not skipped.
+      var line = Math.max(140, window.innerHeight * 0.35);
       var current = blocks[0];
-      blocks.forEach(function (b) { if (b.offsetTop <= pos) current = b; });
+      blocks.forEach(function (b) { if (b.getBoundingClientRect().top <= line) current = b; });
       var atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 4);
       if (atBottom) current = blocks[blocks.length - 1];
       var id = current ? '#' + current.id : '';
@@ -131,5 +145,6 @@
 
   MM.settings.toggles = {
     init: init,
+    sync: sync,
   };
 })();
