@@ -34,6 +34,7 @@
     }
   }
   var _recData = _recDataEl ? JSON.parse(_recDataEl.textContent) : {};
+  var _canShare = !!_recDataEl && _recDataEl.getAttribute('data-can-share') === 'true';
   var _modalRecId = null;
 
   function _clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
@@ -309,40 +310,43 @@
       actionsEl.appendChild(dlBtn2);
     }
 
-    // Share button — token is minted on demand (not pre-embedded) so page
-    // viewers don't walk away with a warehouse of pre-authorised download links.
-    var shareBtn = document.createElement('button');
-    shareBtn.className = 'btn-share';
-    shareBtn.textContent = 'Share';
-    shareBtn.addEventListener('click', function () {
-      shareBtn.disabled = true;
-      shareBtn.textContent = 'Generating…';
-      MM.api.post('/api/recommended/' + s.id + '/share-token')
-        .then(function (data) {
-          if (data.share_url) {
-            navigator.clipboard.writeText(data.share_url).then(function () {
-              shareBtn.textContent = 'Copied!';
+    // Viewers cannot mint share links, so the button is not offered to them.
+    if (_canShare) {
+      // Share button — token is minted on demand (not pre-embedded) so page
+      // viewers don't walk away with a warehouse of pre-authorised download links.
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn-share';
+      shareBtn.textContent = 'Share';
+      shareBtn.addEventListener('click', function () {
+        shareBtn.disabled = true;
+        shareBtn.textContent = 'Generating…';
+        MM.api.post('/api/recommended/' + s.id + '/share-token')
+          .then(function (data) {
+            if (data.share_url) {
+              navigator.clipboard.writeText(data.share_url).then(function () {
+                shareBtn.textContent = 'Copied!';
+                shareBtn.disabled = false;
+                setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
+              }).catch(function () {
+                // Clipboard denied — fall back to prompt
+                window.prompt('Copy the share link:', data.share_url);
+                shareBtn.textContent = 'Share';
+                shareBtn.disabled = false;
+              });
+            } else {
+              shareBtn.textContent = 'Failed';
               shareBtn.disabled = false;
-              setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
-            }).catch(function () {
-              // Clipboard denied — fall back to prompt
-              window.prompt('Copy the share link:', data.share_url);
-              shareBtn.textContent = 'Share';
-              shareBtn.disabled = false;
-            });
-          } else {
-            shareBtn.textContent = 'Failed';
+              setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
+            }
+          })
+          .catch(function () {
+            shareBtn.textContent = 'Error';
             shareBtn.disabled = false;
             setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
-          }
-        })
-        .catch(function () {
-          shareBtn.textContent = 'Error';
-          shareBtn.disabled = false;
-          setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
-        });
-    });
-    actionsEl.appendChild(shareBtn);
+          });
+      });
+      actionsEl.appendChild(shareBtn);
+    }
   }
 
   /* Replaces inline onclick attributes on .tile and [data-download-rec]. */

@@ -12,7 +12,7 @@
 {%- set dl_empty_icon %}
 <i class="fa-solid fa-download" aria-hidden="true"></i>
 {%- endset %}
-<div class="container" id="dl-root">
+<div class="container" id="dl-root" data-can-abandon="{{ 'true' if can_abandon else 'false' }}">
 
   <div class="ph">
     <h1>Downloads</h1>
@@ -67,7 +67,7 @@
   <div class="page-bottom-spacer"></div>
 </div>
 
-{% include "_dl_abandon_modal.html" %}
+{% if can_abandon %}{% include "_dl_abandon_modal.html" %}{% endif %}
 <script src="{{ url_for('static', path='js/core/api.js') }}" defer></script>
 <script src="{{ url_for('static', path='js/core/dom.js') }}" defer></script>
 {# Renderer + helper modules must register on MM.downloads before downloads.js

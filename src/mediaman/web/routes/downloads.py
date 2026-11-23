@@ -18,6 +18,7 @@ from mediaman.db import get_db
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.password_hash import get_user_role
 
 router = APIRouter()
 
@@ -43,15 +44,30 @@ def _lookup_dl_item(
     return None
 
 
+def _hide_abandon(payload: dict[str, object]) -> None:
+    """Clear abandon_visible on every item so a viewer's page never offers Abandon."""
+    items: list[object] = [payload.get("hero")]
+    for key in ("queue", "upcoming"):
+        bucket = payload.get(key)
+        if isinstance(bucket, list):
+            items.extend(bucket)
+    for item in items:
+        if isinstance(item, dict):
+            item["abandon_visible"] = False
+
+
 @router.get("/downloads", response_class=HTMLResponse)
 def downloads_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    _username, conn = resolved
+    username, conn = resolved
 
     config = request.app.state.config
     data = build_downloads_response(conn, config.secret_key)
+    can_abandon = get_user_role(conn, username) == "admin"
+    if not can_abandon:
+        _hide_abandon(data)
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -63,6 +79,7 @@ def downloads_page(request: Request) -> Response:
             "upcoming": data["upcoming"],
             "recent": data["recent"],
             "subtitle": data["subtitle"],
+            "can_abandon": can_abandon,
         },
     )
 
@@ -71,7 +88,10 @@ def downloads_page(request: Request) -> Response:
 def downloads_api(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     conn = get_db()
     config = request.app.state.config
-    return JSONResponse(build_downloads_response(conn, config.secret_key))
+    data = build_downloads_response(conn, config.secret_key)
+    if get_user_role(conn, admin) != "admin":
+        _hide_abandon(data)
+    return JSONResponse(data)
 
 
 @router.post("/api/downloads/{dl_id:path}/abandon")
