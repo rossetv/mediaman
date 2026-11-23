@@ -42,6 +42,13 @@
       document.getElementById(fieldId).focus();
     }
 
+    // A message about what was typed goes once the person types again; a send keeps its message.
+    form.addEventListener('input', function () {
+      if (submit.disabled || !result.textContent) return;
+      result.className = 'inline-form-msg';
+      result.textContent = '';
+    });
+
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var oldPw = document.getElementById('account-old-password').value;
