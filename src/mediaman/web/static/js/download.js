@@ -176,8 +176,7 @@
         var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
         if (sizeTotal) sizeTotal.textContent = data.size_total || '';
 
-        var eta = wrapper.querySelector('[data-v="eta"]');
-        if (eta) eta.textContent = data.eta || '';
+        updateEta(wrapper, data.eta);
 
         /* Episode rows for series */
         if (data.episodes && data.episodes.length) {
@@ -195,6 +194,19 @@
           showReloadNotice();
         }
       });
+  }
+
+  /* The ETA stat exists only while there is an ETA, so it is added and removed here. */
+  function updateEta(wrapper, text) {
+    var eta = wrapper.querySelector('[data-v="eta"]');
+    if (eta && text) {
+      eta.textContent = text;
+    } else if (eta) {
+      eta.parentNode.parentNode.removeChild(eta.parentNode);
+    } else if (text) {
+      var stats = wrapper.querySelector('.dl-hero-details');
+      if (stats) stats.appendChild(MM.downloads.buildDom.buildEtaStat(text));
+    }
   }
 
   /* Polling can no longer authenticate: keep the last progress on screen and

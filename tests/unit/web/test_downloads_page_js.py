@@ -97,3 +97,18 @@ def test_season_switches_are_locked_while_abandoning_and_failure_shows_the_curre
     assert out["oneLeft"] == "Abandon 1 season"
     assert out["during"] == {"label": "Abandoning…", "on": [False, True]}
     assert out["after"] == {"label": "Abandon 1 season", "disabled": "false"}
+
+
+def test_single_download_page_shows_an_eta_that_arrives_on_a_later_poll() -> None:
+    result = subprocess.run(
+        ["node", str(HARNESS.with_name("download_page_harness.js"))],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["noEtaYet"] == ["30% complete", "1 GB of 3 GB"]
+    assert out["arrives"] == ["30% complete", "1 GB of 3 GB", "ETA 5 min"]
+    assert out["changes"] == ["30% complete", "1 GB of 3 GB", "ETA 4 min"]
+    assert out["clears"] == ["30% complete", "1 GB of 3 GB"]
