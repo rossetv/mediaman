@@ -151,7 +151,7 @@
     var pathInput = document.createElement('input');
     pathInput.className = 'inp inp--mono';
     pathInput.type = 'text';
-    pathInput.placeholder = '/media/movies';
+    pathInput.placeholder = lib.type === 'show' ? '/media/tv' : '/media/movies';
     pathInput.value = cfg.path || '';
     pathInput.setAttribute('aria-label', 'Filesystem path, ' + lib.title);
     pathInput.dataset.field = 'path';
