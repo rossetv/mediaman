@@ -134,6 +134,25 @@ class TestBootstrapScheduling:
         assert captured.get("hour") == 14
         assert captured.get("minute") == 30
 
+    def test_disabled_library_sync_still_starts_the_scheduler(self, db_path, monkeypatch):
+        app = self._make_app(db_path)
+        app.state.db.execute(
+            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('library_sync_interval', '0', 0, '2026-01-01')"
+        )
+        app.state.db.commit()
+
+        captured = {}
+        import mediaman.scanner.scheduler as _sched
+
+        monkeypatch.setattr(_sched, "start_scheduler", lambda **kw: captured.update(kw))
+
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
+
+        assert bootstrap_scheduling(app, self._make_config()) is True
+        assert app.state.scheduler_healthy is True
+        assert captured["sync_interval_minutes"] == 0
+
     def test_returns_false_when_canary_fails(self, db_path, monkeypatch):
         app = self._make_app(db_path)
         app.state.canary_ok = False

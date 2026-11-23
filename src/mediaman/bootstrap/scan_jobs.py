@@ -187,9 +187,10 @@ def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
     scan_time = _get_setting(conn, "scan_time", default="09:00")
     scan_tz = validate_scan_timezone(_get_setting(conn, "scan_timezone", default="UTC"))
     hour, minute = validate_scan_time(scan_time)
-    sync_interval = validate_sync_interval(
-        _get_setting(conn, "library_sync_interval", default="30")
-    )
+    raw_interval = _get_setting(conn, "library_sync_interval", default="30")
+    # 0 means "disabled" in the settings UI; the validator refuses it so only
+    # the scheduler config lets it through (the sync job is then not registered).
+    sync_interval = 0 if raw_interval.strip() == "0" else validate_sync_interval(raw_interval)
     return _SchedulerConfig(
         scan_day=scan_day,
         hour=hour,
@@ -266,12 +267,12 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         )
         app.state.scheduler_healthy = True
         logger.info(
-            "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
+            "Scheduler started: scan every %s at %02d:%02d %s, library sync %s",
             sched_config.scan_day,
             sched_config.hour,
             sched_config.minute,
             sched_config.scan_tz,
-            sched_config.sync_interval,
+            f"every {sched_config.sync_interval} min" if sched_config.sync_interval else "disabled",
         )
         return True
     # rationale: cold-start recovery; app stays up so the operator can investigate.
