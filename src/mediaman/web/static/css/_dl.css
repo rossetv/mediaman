@@ -89,7 +89,7 @@
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
 .dl-arr-link { color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
-@media (max-width: 639.98px) {
+@media (max-width: 699.98px) {
   .dl-arr-link { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
@@ -451,13 +451,13 @@
   .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
   .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -22px; }
-  .dl-hero-abandon .btn.btn--icon,
-  .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
 }
 
 /* Phones: match the confirm dialog, with full-width 44px buttons stacked,
    Cancel first, and the same title size. */
 @media (max-width: 699.98px) {
+  .dl-hero-abandon .btn.btn--icon,
+  .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
   .dl-hero-episodes-toggle,
   .dl-compact-episodes-toggle { min-height: 44px; }
   .abandon-modal-body h2 { font-size: 18px; }

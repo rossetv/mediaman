@@ -429,6 +429,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
    unchanged where it is the pill or switch itself that stays small. */
 @media (max-width: 699.98px) {
   .setg-pg .setg-rail-item { min-height: 44px; }
+  .setg-pg .inp { min-height: 44px; }
   .setg-pg .inp-reveal::before,
   .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -9px -4px; }
   /* Helper-text links: the extra height goes below the line, not onto the input above. */

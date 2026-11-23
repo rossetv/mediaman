@@ -33,7 +33,7 @@
   /* Semantic (chips only) */
   --success: #30d158;
   --warning: #ffd60a;
-  --danger:  #ff453a;
+  --danger:  #ff7a72;   /* text on the red tints keeps 4.5:1 over the dark surfaces */
   --danger-soft: #ffb4ae;   /* danger-toned text on a dark scrim */
   /* Solid red darkened so white text on it keeps 4.5:1 or better. */
   --danger-solid:        #d70015;

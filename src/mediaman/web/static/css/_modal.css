@@ -1,7 +1,6 @@
-/* MODALS — the generic delete-confirm overlay and the keep-dialog that
-   extends protection windows, on the shared modal backdrop and sheet. Owns
-   `.modal-backdrop`/`.modal-sheet`, `.detail-modal-cast`, `.delete-modal-*`
-   and `.keep-dialog*`. */
+/* MODALS — the keep-dialog that extends protection windows, on the shared
+   modal backdrop and sheet. Owns `.modal-backdrop`/`.modal-sheet`,
+   `.detail-modal-cast` and `.keep-dialog*`. */
 
 .modal-backdrop {
   position: fixed;
@@ -45,7 +44,7 @@
 @keyframes modal-out { to { opacity: 0; } }
 @keyframes modal-sheet-in { from { transform: translateY(8px) scale(.98); } }
 @keyframes modal-sheet-out { to { transform: translateY(8px) scale(.98); } }
-/* Under reduced motion the sheet does not move; the dim still fades. */
+/* Under reduced motion the sheet does not move. */
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop > .modal-sheet,
   .keep-dialog-overlay > .keep-dialog { animation: none; }
@@ -105,8 +104,7 @@
   margin-top: 8px;
   flex-wrap: wrap;
 }
-/* Generic delete-confirm + keep dialog */
-.delete-modal-overlay,
+/* Keep dialog */
 .keep-dialog-overlay {
   position: fixed;
   inset: 0;
@@ -119,9 +117,7 @@
   justify-content: center;
   padding: 20px;
 }
-.delete-modal-overlay.is-visible,
 .keep-dialog-overlay.active { display: flex; }
-.delete-modal-card,
 .keep-dialog {
   background: var(--s2);
   border: 1px solid var(--hair-strong);
@@ -132,9 +128,6 @@
   box-shadow: var(--shadow-card);
 }
 .keep-dialog { max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto; display: flex; flex-direction: column; }
-.delete-modal-title { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 8px; }
-.delete-modal-body { color: var(--t2); font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
-.delete-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .keep-dialog { max-width: 540px; }
 .keep-dialog h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
@@ -158,12 +151,16 @@
 .keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
+.keep-season-item input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; margin: 0; accent-color: var(--accent-cta); }
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
 .keep-all-row { background: var(--s3); font-weight: 500; }
 .keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-shrink: 0; }
 @media (max-width: 699.98px) {
   .keep-dur-btn,
   .snooze-option { min-height: 44px; }
+  /* The label is the tap target for its checkbox: the whole row height, out to the details. */
+  .keep-season-item { padding-top: 0; padding-bottom: 0; }
+  .keep-season-item label { display: flex; align-items: center; flex: 1; min-height: 44px; }
 }
 @media (max-width: 639.98px) {
   /* A long details line wraps inside its row instead of pushing Delete out. */
