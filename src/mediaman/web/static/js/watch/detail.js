@@ -1032,7 +1032,7 @@
     var frame = el('iframe', 'ttl__frame');
     frame.setAttribute('src', 'https://www.youtube-nocookie.com/embed/' + key + '?autoplay=1&rel=0&playsinline=1');
     frame.setAttribute('title', 'Trailer: ' + (cur.data.title || cur.title));
-    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox');
     frame.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
     frame.setAttribute('referrerpolicy', 'strict-origin');
     frame.setAttribute('allowfullscreen', '');

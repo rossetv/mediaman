@@ -70,7 +70,13 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
     assert playing["src"] == (
         "https://www.youtube-nocookie.com/embed/abcdefghijk?autoplay=1&rel=0&playsinline=1"
     )
-    assert playing["sandbox"] == "allow-scripts allow-same-origin allow-presentation"
+    assert playing["sandbox"].split() == [
+        "allow-scripts",
+        "allow-same-origin",
+        "allow-presentation",
+        "allow-popups",
+        "allow-popups-to-escape-sandbox",
+    ]
     assert playing["allow"] == "autoplay; encrypted-media; fullscreen"
     assert playing["referrer"] == "strict-origin"
     assert out["afterFirst"] == {
