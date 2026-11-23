@@ -8,9 +8,12 @@ commits: the caller owns the transaction.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 
 from mediaman.core.time import now_iso
+
+logger = logging.getLogger(__name__)
 
 STATE_KEY = "delete_root_unavailable"
 
@@ -60,26 +63,37 @@ def read_delete_root_waiting(conn: sqlite3.Connection) -> dict[str, int]:
         recorded = json.loads(
             conn.execute("SELECT value FROM settings WHERE key = ?", (STATE_KEY,)).fetchone()[0]
         ).get("items", {})
-        ids = {str(k): [int(i) for i in v] for k, v in recorded.items()}
+        ids = {str(k): v for k, v in recorded.items() if _is_id_list(v)}
     except (ValueError, TypeError, AttributeError):
         ids = {}
-    wanted = {i for folder in roots for i in ids.get(folder, [])}
+    wanted = sorted({i for folder in roots for i in ids.get(folder, [])})
     live: set[int] = set()
     if wanted:
-        marks = ",".join("?" * len(wanted))
-        # rationale: only "?" placeholders are interpolated; every value is bound
-        live = {
-            r[0]
-            for r in conn.execute(  # nosec B608
-                f"SELECT id FROM scheduled_actions WHERE id IN ({marks}) "
-                "AND action = 'scheduled_deletion' "
-                "AND (delete_status IS NULL OR delete_status = 'pending')",
-                list(wanted),
+        try:
+            # One bound JSON value, so the number of ids never meets a bind-variable cap.
+            live = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM scheduled_actions "
+                    "WHERE id IN (SELECT value FROM json_each(?)) "
+                    "AND action = 'scheduled_deletion' "
+                    "AND (delete_status IS NULL OR delete_status = 'pending')",
+                    (json.dumps(wanted),),
+                )
+            }
+        except sqlite3.Error:
+            logger.warning(
+                "could not count waiting deletions; showing stored counts", exc_info=True
             )
-        }
+            return roots
     result = {}
     for folder, count in roots.items():
         count = len([i for i in ids[folder] if i in live]) if folder in ids else count
         if count:
             result[folder] = count
     return result
+
+
+def _is_id_list(value: object) -> bool:
+    """True for a list of real ints (not bool) that fit SQLite's 64-bit integer."""
+    return isinstance(value, list) and all(type(i) is int and -(2**63) <= i < 2**63 for i in value)
