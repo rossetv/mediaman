@@ -42,13 +42,36 @@
   box-shadow: var(--shadow-card);
   opacity: 0;
   transform: translateX(12px);
-  transition: opacity .2s ease, transform .2s ease;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
   overflow-wrap: anywhere;
 }
 .ui-toast.is-visible {
   opacity: 1;
   transform: translateX(0);
 }
+
+/* A leaving toast is going: it takes no clicks while it fades. */
+.ui-toast.is-leaving { pointer-events: none; }
+
+/* Toast with an action (Undo): message left, button right. */
+.ui-toast--action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ui-toast__msg { flex: 1; min-width: 0; }
+.ui-toast__action {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin: -4px -8px -4px 0;
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.ui-toast__action:hover { background: var(--hair-strong); }
 
 /* Variant accents — coloured left-border + tinted background hint,
    reusing the semantic palette. The gradient sits on a solid --s2 so page
@@ -82,9 +105,11 @@
   justify-content: center;
   padding: 20px;
   opacity: 0;
-  transition: opacity .2s ease;
+  transition: opacity var(--dur) var(--ease-out);
 }
 .ui-confirm-overlay.is-visible { opacity: 1; }
+/* The answer is already given while it fades: let clicks through. */
+.ui-confirm-overlay.is-leaving { pointer-events: none; }
 
 .ui-confirm-card {
   background: var(--s2);
@@ -95,7 +120,7 @@
   width: 100%;
   box-shadow: var(--shadow-card);
   transform: translateY(8px) scale(.98);
-  transition: transform .2s ease;
+  transition: transform var(--dur) var(--ease-out);
 }
 .ui-confirm-overlay.is-visible .ui-confirm-card {
   transform: translateY(0) scale(1);

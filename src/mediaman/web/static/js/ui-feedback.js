@@ -12,6 +12,14 @@
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
  *                          auto-dismisses after 4s.
  *
+ *   window.UIFeedback.toast('Removed', {
+ *     action: { label: 'Undo', onClick: function () { ... } }
+ *   })
+ *                          adds a button to the toast; clicking it runs onClick
+ *                          and dismisses the toast. A toast with an action stays
+ *                          8s unless `duration` says otherwise, and is not
+ *                          dismissed while the button has keyboard focus.
+ *
  *   window.UIFeedback.error(message)  — shorthand for toast(msg, { variant: 'error' })
  */
 (function (global) {
@@ -28,6 +36,28 @@
     }
     (children || []).forEach(function (c) { if (c) n.appendChild(c); });
     return n;
+  }
+
+  // Remove `node` once its exit transition ends; the timeout covers a
+  // transition that never runs (hidden tab, no change in computed style).
+  function removeAfterExit(node) {
+    var done = false;
+    function remove() {
+      if (done) return;
+      done = true;
+      node.removeEventListener('transitionend', onEnd);
+      if (node.parentNode) node.parentNode.removeChild(node);
+    }
+    function onEnd(e) { if (e.target === node && e.propertyName === 'opacity') remove(); }
+    node.addEventListener('transitionend', onEnd);
+    setTimeout(remove, 400);
+  }
+
+  function dismissToast(node) {
+    if (node.classList.contains('is-leaving')) return;
+    node.classList.add('is-leaving');
+    node.classList.remove('is-visible');
+    removeAfterExit(node);
   }
 
   function ensureToastHost() {
@@ -48,7 +78,20 @@
       class: 'ui-toast ui-toast--' + variant,
       role: variant === 'error' ? 'alert' : 'status'
     });
-    node.textContent = message;
+    var action = opts.action;
+    if (action && action.label && typeof action.onClick === 'function') {
+      node.classList.add('ui-toast--action');
+      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label });
+      btn.addEventListener('click', function () {
+        dismissToast(node);
+        action.onClick();
+      });
+      node.appendChild(el('span', { class: 'ui-toast__msg', text: message }));
+      node.appendChild(btn);
+    } else {
+      action = null;
+      node.textContent = message;
+    }
     // At most three at once, and never a stack taller than the host's
     // height budget. The new toast always stays; the oldest non-error goes
     // first, an error only (with its normal fade) when all are errors.
@@ -74,9 +117,7 @@
         return !c.classList.contains('ui-toast--error');
       })[0] || kids[0];
       if (victim.classList.contains('ui-toast--error')) {
-        victim.classList.add('is-leaving');
-        victim.classList.remove('is-visible');
-        setTimeout(function (v) { if (v.parentNode) v.parentNode.removeChild(v); }, 250, victim);
+        dismissToast(victim);
       } else {
         host.removeChild(victim);
       }
@@ -84,12 +125,16 @@
     }
     // Animate in on next frame
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
-    var duration = opts.duration || 4000;
-    setTimeout(function () {
-      node.classList.add('is-leaving');
-      node.classList.remove('is-visible');
-      setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 250);
-    }, duration);
+    var duration = opts.duration || (action ? 8000 : 4000);
+    function expire() {
+      // Never take the button away from someone about to press it.
+      if (action && node.contains(document.activeElement)) {
+        setTimeout(expire, 2000);
+        return;
+      }
+      dismissToast(node);
+    }
+    setTimeout(expire, duration);
     return node;
   }
 
@@ -121,10 +166,16 @@
       overlay.appendChild(card);
       document.body.appendChild(overlay);
 
+      var closed = false;
       function cleanup(result) {
+        if (closed) return;
+        closed = true;
         if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
-        overlay.parentNode.removeChild(overlay);
+        // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
+        overlay.classList.add('is-leaving');
+        overlay.classList.remove('is-visible');
+        removeAfterExit(overlay);
       }
       overlay.id = titleId;
       cancelBtn.addEventListener('click', function () { cleanup(false); });
