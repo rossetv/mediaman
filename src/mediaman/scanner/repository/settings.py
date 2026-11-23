@@ -90,7 +90,7 @@ def read_delete_allowed_roots_setting(
                 )
     if not roots and log_empty:
         logger.error(
-            "No delete folders are configured, so all deletions will be refused. "
+            "MEDIAMAN_DELETE_ROOTS is not configured, so all deletions will be refused. "
             "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated paths) "
             "or the delete_allowed_roots setting (JSON list) to re-enable deletions."
         )
