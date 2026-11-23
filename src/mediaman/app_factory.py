@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -39,6 +39,9 @@ from mediaman.core.time import now_utc
 from mediaman.db.connection import SchemaTooOldError
 
 logger = logging.getLogger(__name__)
+
+# How often idle Watch streams are looked for; a stream is stopped after three idle minutes.
+_STREAM_REAP_INTERVAL_SECONDS = 30.0
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
@@ -124,6 +127,73 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
         logger.exception("download-notification reconciliation failed at startup; continuing")
 
 
+def _start_watch_streams(secret_key: str) -> Callable[[], None]:
+    """Create the Watch stream manager, tidy Plex sessions left by an earlier run, start the reaper.
+
+    The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
+    the function that stops the reaper.
+    """
+    from mediaman.db import get_db
+    from mediaman.services.infra import allowed_outbound_hosts
+    from mediaman.services.media_meta.plex_stream import init_stream_manager
+    from mediaman.web.routes.watch.stream_api import read_plex_credentials
+
+    manager = init_stream_manager(
+        lambda: read_plex_credentials(get_db(), secret_key),
+        allowed_hosts=lambda: allowed_outbound_hosts(get_db()),
+    )
+    threading.Thread(
+        target=_tidy_stream_orphans,
+        args=(manager.tidy_orphans,),
+        name="watch-stream-tidy",
+        daemon=True,
+    ).start()
+    return _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
+
+
+def _tidy_stream_orphans(tidy: Callable[[], int]) -> None:
+    from mediaman.db import close_db
+
+    # rationale: runs on a daemon thread; an exception here must be logged,
+    # never allowed to propagate out of the thread.
+    try:
+        stopped = tidy()
+        if stopped:
+            logger.info("Stopped %d Plex stream(s) left by an earlier run", stopped)
+    except Exception:
+        logger.exception("could not tidy Plex streams at startup")
+    finally:
+        close_db()
+
+
+def _start_stream_reaper(reap: Callable[[], int], interval: float) -> Callable[[], None]:
+    """Call *reap* every *interval* seconds on a daemon thread; return the function that stops it."""
+    from mediaman.db import close_db
+
+    stop = threading.Event()
+
+    def run() -> None:
+        try:
+            while not stop.wait(interval):
+                # rationale: one failed round must not end the reaper.
+                try:
+                    reap()
+                except Exception:
+                    logger.exception("watch stream reaper failed; trying again next round")
+        finally:
+            close_db()
+
+    thread = threading.Thread(target=run, name="watch-stream-reaper", daemon=True)
+    thread.start()
+
+    def shutdown() -> None:
+        stop.set()
+        # A round may be waiting on Plex; the thread is a daemon, so do not wait long.
+        thread.join(timeout=5)
+
+    return shutdown
+
+
 def _shutdown(app: FastAPI, scheduler_started: bool) -> None:
     """Tear down in reverse dependency order: scheduler, then DB.
 
@@ -151,6 +221,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
        the web UI down.
     4. Startup reconciliation — best-effort sweeps of crash-stranded
        state, after the scheduler is up.
+    5. Watch streams — the stream manager and its reaper; the reaper is
+       stopped first at shutdown.
 
     Fatal startup errors are converted into a single clean log line
     followed by ``sys.exit(1)`` rather than allowed to surface as an
@@ -191,9 +263,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _run_startup_reconciliation(app)
 
+    stop_stream_reaper = _start_watch_streams(config.secret_key)
+
     logger.info("Mediaman started on port %s", config.port)
     yield
 
+    stop_stream_reaper()
     _shutdown(app, scheduler_started)
 
 
@@ -205,6 +280,7 @@ def _register_routers(app: FastAPI) -> None:
     not transitively import every route module and its dependencies —
     keeps import cost low.
     """
+    from mediaman.web.routes.account import router as account_router
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
@@ -222,6 +298,9 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.users import router as users_router
+    from mediaman.web.routes.watch.browse_api import router as watch_browse_api_router
+    from mediaman.web.routes.watch.pages import router as watch_pages_router
+    from mediaman.web.routes.watch.stream_api import router as watch_stream_api_router
 
     app.include_router(auth_router)
     app.include_router(force_pw_router)
@@ -240,6 +319,10 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(search_router)
     app.include_router(recommended_router)
     app.include_router(users_router)
+    app.include_router(account_router)
+    app.include_router(watch_pages_router)
+    app.include_router(watch_browse_api_router)
+    app.include_router(watch_stream_api_router)
 
 
 def _register_probes(app: FastAPI) -> None:
