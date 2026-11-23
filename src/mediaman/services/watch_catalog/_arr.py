@@ -38,17 +38,24 @@ TTL_S = 30.0
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error, ValueError)
 
 _lock = threading.Lock()
-_memo: dict[str, tuple[float, ArrCaches]] = {}
+_memo: dict[str, tuple[float, ArrView]] = {}
 # Bumped by invalidate(), so a build that started before it is not kept.
 _generation = [0]
 # The build in progress for each generation; a caller of the same generation waits for
 # it rather than pulling both libraries again.
-_building: dict[int, Future[ArrCaches]] = {}
+_building: dict[int, Future[ArrView]] = {}
 
 
 @dataclass(frozen=True, slots=True)
 class ArrView:
     caches: ArrCaches
+    #: The services ("radarr", "sonarr") set up and answering, so a title missing from
+    #: one is truly not tracked there.
+    answering: frozenset[str] = frozenset()
+
+    def answers_for(self, kind: str) -> bool:
+        """Whether the service that would fetch a title of *kind* answered."""
+        return ("radarr" if kind == "movie" else "sonarr") in self.answering
 
     def state(self, kind: str, tmdb_id: int) -> tuple[str | None, int | None]:
         """(download state, percent done) of a TMDB title; the percent only while queued or
@@ -86,20 +93,24 @@ class ArrView:
         }
 
 
-def _radarr(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
+def _radarr(conn: sqlite3.Connection, secret_key: str) -> tuple[RadarrCaches, bool]:
+    """Radarr's caches, and whether it is set up and answered."""
     try:
-        return build_radarr_cache(arr_build.build_radarr_from_db(conn, secret_key))
+        client = arr_build.build_radarr_from_db(conn, secret_key)
+        return build_radarr_cache(client), client is not None
     except _ARR_ERRORS:
         logger.warning("watch: Radarr unavailable; titles show no Radarr state", exc_info=True)
-        return build_radarr_cache(None)
+        return build_radarr_cache(None), False
 
 
-def _sonarr(conn: sqlite3.Connection, secret_key: str) -> SonarrCaches:
+def _sonarr(conn: sqlite3.Connection, secret_key: str) -> tuple[SonarrCaches, bool]:
+    """Sonarr's caches, and whether it is set up and answered."""
     try:
-        return build_sonarr_cache(arr_build.build_sonarr_from_db(conn, secret_key))
+        client = arr_build.build_sonarr_from_db(conn, secret_key)
+        return build_sonarr_cache(client), client is not None
     except _ARR_ERRORS:
         logger.warning("watch: Sonarr unavailable; titles show no Sonarr state", exc_info=True)
-        return build_sonarr_cache(None)
+        return build_sonarr_cache(None), False
 
 
 def arr_view(
@@ -109,27 +120,32 @@ def arr_view(
     with _lock:
         held = _memo.get("arr")
         if held is not None and held[0] > now:
-            return ArrView(held[1])
+            return held[1]
         generation = _generation[0]
         future = _building.get(generation)
         owner = future is None
         if future is None:
             future = _building[generation] = Future()
     if not owner:
-        return ArrView(future.result())
+        return future.result()
     try:
-        caches: ArrCaches = {**_radarr(conn, secret_key), **_sonarr(conn, secret_key)}
+        radarr, radarr_answered = _radarr(conn, secret_key)
+        sonarr, sonarr_answered = _sonarr(conn, secret_key)
     except BaseException as exc:
         with _lock:
             _building.pop(generation, None)
         future.set_exception(exc)
         raise
+    answering = frozenset(
+        name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr_answered)) if ok
+    )
+    view = ArrView({**radarr, **sonarr}, answering)
     with _lock:
         if _generation[0] == generation:
-            _memo["arr"] = (now + TTL_S, caches)
+            _memo["arr"] = (now + TTL_S, view)
         _building.pop(generation, None)
-    future.set_result(caches)
-    return ArrView(caches)
+    future.set_result(view)
+    return view
 
 
 def invalidate() -> None:

@@ -13,12 +13,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.time import now_utc
 from mediaman.db import get_db, is_refresh_running
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.arr.state import (
-    ACTION_DOWNLOADING,
-    ACTION_QUEUED,
-    LazyArrClients,
-    attach_download_states,
-)
+from mediaman.services.arr.state import ACTION_QUEUED
 from mediaman.services.infra import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import get_current_user
@@ -31,6 +26,35 @@ from mediaman.web.routes.recommended.refresh import _refresh_thread_alive
 router = APIRouter()
 
 
+def _attach_states(
+    conn: sqlite3.Connection, rows: list[dict[str, object]], arr: catalog.ArrView
+) -> None:
+    """Mark each pick with its download state and percent done. A pick marked as sent
+    for download that the service, set up and answering, no longer tracks loses the
+    mark here and in the database, so it stops showing as queued."""
+    stale: list[object] = []
+    for row in rows:
+        tmdb_id = row.get("tmdb_id")
+        media_type = row.get("media_type")
+        if not isinstance(tmdb_id, int) or tmdb_id <= 0 or media_type not in ("movie", "tv"):
+            continue
+        state, pct = arr.state(media_type, tmdb_id)
+        if state is not None:
+            row["download_state"] = state
+            row["download_pct"] = pct
+        elif row.get("downloaded_at") and arr.answers_for(media_type):
+            row["downloaded_at"] = None
+            stale.append(row["id"])
+    if stale:
+        placeholders = ",".join("?" * len(stale))
+        with conn:
+            # rationale: only "?" placeholders are interpolated; every id is bound
+            conn.execute(  # nosec B608
+                f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
+                stale,
+            )
+
+
 def _card(
     row: dict[str, object], index: catalog.LibraryIndex, arr: catalog.ArrView
 ) -> dict[str, object]:
@@ -39,12 +63,10 @@ def _card(
     tmdb_id = row.get("tmdb_id")
     title = str(row.get("title") or "")
     library_ref = None
-    pct = None
+    pct = row.get("download_pct")
     state = row.get("download_state")
     if isinstance(tmdb_id, int) and tmdb_id > 0:
         library_ref = index.library_ref(kind, tmdb_id, title, arr)
-        if state in (ACTION_QUEUED, ACTION_DOWNLOADING):
-            pct = arr.state(kind, tmdb_id)[1]
     if state is None and row.get("downloaded_at"):
         state = ACTION_QUEUED
     year = row.get("year")
@@ -58,7 +80,7 @@ def _card(
         rating=round(float(rating), 1) if isinstance(rating, int | float) and rating else None,
         library_ref=library_ref,
         download_state=state if isinstance(state, str) else None,
-        download_pct=pct,
+        download_pct=pct if isinstance(pct, int) else None,
     )
     return {**card, "rec_id": rec_id, "reason": row.get("reason") or None}
 
@@ -99,17 +121,13 @@ def api_watch_recommended(
         return respond_ok(payload)
 
     rows: list[dict[str, object]] = chosen["items"]  # type: ignore[assignment]
-    attach_download_states(
-        [{"trending": [], "personal": rows}],
-        LazyArrClients(conn, request.app.state.config.secret_key),
-        conn,
-    )
+    arr = catalog.arr_view(conn, request.app.state.config.secret_key)
+    _attach_states(conn, rows, arr)
     libraries = lib.scanned_library_ids(conn)
     index = catalog.LibraryIndex.build(
         ((m.key, m.title, m.tmdb_id) for m in lib.library_movies(conn, libraries)),
         ((s.key, s.title, s.tvdb_id) for s in lib.library_shows(conn, libraries)),
     )
-    arr = catalog.arr_view(conn, request.app.state.config.secret_key)
     payload["batch"] = chosen["id"]
     payload["items"] = [_card(row, index, arr) for row in rows]
     return respond_ok(payload)

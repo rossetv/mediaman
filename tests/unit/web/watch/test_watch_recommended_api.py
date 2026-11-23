@@ -190,6 +190,53 @@ class TestCards:
         assert item["title"] == "Pick"
         assert item["download_state"] is None
 
+    def test_radarr_and_sonarr_are_read_once_for_every_pick_of_a_request(
+        self, viewer, conn, arr, monkeypatch
+    ):
+        reads = []
+        monkeypatch.setattr(
+            _arr.arr_build, "build_radarr_from_db", lambda *_a: reads.append("radarr") or arr
+        )
+        monkeypatch.setattr(
+            _arr.arr_build, "build_sonarr_from_db", lambda *_a: reads.append("sonarr") or arr
+        )
+        arr.add_movie(100, "Arrival")
+        insert_suggestion(conn, title="Arrival", tmdb_id=100, batch_id="2099-01-01")
+        insert_suggestion(conn, title="Show", media_type="tv", tmdb_id=200, batch_id="2099-01-01")
+        conn.commit()
+
+        items = _get(viewer)["items"]
+
+        assert sorted(reads) == ["radarr", "sonarr"]
+        assert [i["download_state"] for i in items] == ["queued", None]
+
+    def test_a_pick_sent_for_download_that_radarr_no_longer_tracks_loses_the_mark(
+        self, viewer, conn, arr
+    ):
+        rec_id = insert_suggestion(
+            conn, title="Gone", tmdb_id=300, downloaded_at="2099-01-01", batch_id="2099-01-01"
+        )
+        conn.commit()
+
+        (item,) = _get(viewer)["items"]
+
+        assert item["download_state"] is None
+        row = conn.execute("SELECT downloaded_at FROM suggestions WHERE id = ?", (rec_id,))
+        assert row.fetchone()[0] is None
+
+    def test_with_radarr_down_a_pick_sent_for_download_still_shows_queued(self, viewer, conn, arr):
+        arr.down = True
+        rec_id = insert_suggestion(
+            conn, title="Sent", tmdb_id=300, downloaded_at="2099-01-01", batch_id="2099-01-01"
+        )
+        conn.commit()
+
+        (item,) = _get(viewer)["items"]
+
+        assert item["download_state"] == "queued"
+        row = conn.execute("SELECT downloaded_at FROM suggestions WHERE id = ?", (rec_id,))
+        assert row.fetchone()[0] == "2099-01-01"
+
 
 class TestRefresh:
     def test_a_viewer_gets_no_refresh_block(self, viewer, conn):
