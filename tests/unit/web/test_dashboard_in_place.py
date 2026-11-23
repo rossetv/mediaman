@@ -136,6 +136,17 @@ class TestRefreshInPlace:
         assert [s["behavior"] for s in out["scrolls"]] == ["smooth"]
         assert out["scrolls"][0]["top"] < 0
 
+    def test_keep_with_reduced_motion_brings_the_next_button_into_view_at_once(self):
+        out = _run("revealReduced")
+        assert out["focused"]["id"] == "b"
+        assert out["scrolls"] == [{"top": 148, "behavior": "instant"}]
+        assert out["underTabs"] == [{"top": 12, "behavior": "instant"}]
+
+    def test_refresh_landing_mid_slide_still_brings_the_focused_button_into_view(self):
+        out = _run("revealAfterRefresh")
+        assert out["focused"]["id"] == "b"
+        assert out["scrolls"] == [{"top": 148, "behavior": "smooth"}]
+
     def test_scan_button_keeps_its_icon_through_every_state(self):
         seen = _run("scanLabel")["seen"]
         assert [s["label"] for s in seen] == ["Scanning", "Scan complete", "Scan now", "Retry scan"]

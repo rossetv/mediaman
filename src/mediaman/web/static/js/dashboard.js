@@ -484,17 +484,24 @@
     });
   }
 
-  /* After the tiles have slid, bring a button into view only if it sits under
-     the sticky bar or below the fold. Never with reduced motion. */
-  function revealAfterSlide(el, delay) {
+  /* Bring a button into view only if it sits under the sticky top bar, under
+     the phone's bottom tab bar or below the fold: smoothly once the tiles have
+     slid, at once with reduced motion. */
+  function reveal(el) {
+    var smooth = !reduceMotion();
     setTimeout(function () {
-      if (!el.isConnected) return;
+      /* A refresh that landed meanwhile has put focus on the same button in
+         its fresh copy. */
+      if (!el.isConnected) el = document.activeElement;
+      if (!el || el === document.body) return;
       var bar = document.querySelector('.nav-topbar');
+      var tabs = document.querySelector('.nav-tabs');
       var top = (bar ? bar.offsetHeight : 0) + 8;
+      var bottom = (tabs && tabs.offsetHeight ? tabs.getBoundingClientRect().top : window.innerHeight) - 8;
       var r = el.getBoundingClientRect();
-      var by = r.top < top ? r.top - top : (r.bottom > window.innerHeight - 8 ? r.bottom - window.innerHeight + 8 : 0);
-      if (by) window.scrollBy({ top: by, behavior: 'smooth' });
-    }, delay + 20);
+      var by = r.top < top ? r.top - top : (r.bottom > bottom ? r.bottom - bottom : 0);
+      if (by) window.scrollBy({ top: by, behavior: smooth ? 'smooth' : 'instant' });
+    }, smooth ? motion().duration + 20 : 0);
   }
 
   /* Submit a keep straight from a tile with the chosen duration; the
@@ -540,7 +547,7 @@
               /* The tiles are still sliding: a plain focus() would scroll to
                  where the button is now, not where it ends up. */
               go.focus({ preventScroll: true });
-              if (!reduceMotion()) revealAfterSlide(go, motion().duration);
+              reveal(go);
             }
           }
           return refreshFragments();

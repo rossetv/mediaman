@@ -289,6 +289,49 @@ const scenarios = {
     };
   },
 
+  // with reduced motion, the next tile's button below the fold is scrolled into view at once
+  async revealReduced() {
+    const h = build(['a', 'b', 'c']);
+    h.keepBtn('b').getBoundingClientRect = () => ({ top: 900, bottom: 940, left: 0, right: 10, height: 40 });
+    h.keepBtn('a').focus();
+    h.click(h.keepBtn('a'));
+    h.keeps[0].resolve({});
+    await flush();
+    h.runTimers();
+    // on a phone the bottom tab bar hides the last 64px of the window
+    const p = build(['a', 'b']);
+    const tabs = p.doc.body.appendChild(el(p.doc, 'nav', { class: 'nav-tabs' }));
+    tabs.offsetHeight = 64;
+    tabs.getBoundingClientRect = () => ({ top: 736, bottom: 800 });
+    p.keepBtn('b').getBoundingClientRect = () => ({ top: 700, bottom: 740, left: 0, right: 10, height: 40 });
+    p.keepBtn('a').focus();
+    p.click(p.keepBtn('a'));
+    p.keeps[0].resolve({});
+    await flush();
+    p.runTimers();
+    return { focused: h.focused(), scrolls: h.scrolls, underTabs: p.scrolls };
+  },
+
+  // a refresh that swaps the tiles before the slide ends still gets the button revealed
+  async revealAfterRefresh() {
+    const h = build(['a', 'b', 'c'], { motion: true });
+    h.doc.querySelectorAll('.tile').forEach((t) => {
+      t.animate = () => { const a = {}; Promise.resolve().then(() => a.onfinish && a.onfinish()); return a; };
+      t.getBoundingClientRect = () => ({ top: 0, bottom: 10, left: 0, right: 10, height: 10 });
+    });
+    h.keepBtn('a').focus();
+    h.click(h.keepBtn('a'));
+    h.keeps[0].resolve({});
+    await flush();
+    const before = h.keepBtn('b');
+    h.fetches[0].resolve(h.page({ tiles: ['b', 'c', 'd'] }));
+    await flush();
+    if (h.keepBtn('b') === before) throw new Error('the tiles were not swapped');
+    h.doc.activeElement.getBoundingClientRect = () => ({ top: 900, bottom: 940, left: 0, right: 10, height: 40 });
+    h.runTimers();
+    return { focused: h.focused(), scrolls: h.scrolls };
+  },
+
   // keyboard Clear all: focus must not drop to the body
   async clearAll() {
     const h = build(['a', 'b']);
