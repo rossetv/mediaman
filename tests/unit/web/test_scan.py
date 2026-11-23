@@ -374,6 +374,7 @@ class TestLibrarySync:
             resp = client.post("/api/library/sync")
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
+        assert resp.json()["message"].startswith("Couldn't reach Plex")
 
     def test_library_sync_unauthorized_plex_returns_error(
         self, app_factory, authed_client, conn, db_path
@@ -389,6 +390,9 @@ class TestLibrarySync:
             resp = client.post("/api/library/sync")
         assert resp.status_code == 502
         assert resp.json()["error"] == "sync_failed"
+        message = resp.json()["message"]
+        assert message.startswith("Plex refused the token")
+        assert "bad token" not in message
 
     def test_library_sync_without_plex_is_not_reported_as_success(
         self, app_factory, authed_client, conn, db_path
