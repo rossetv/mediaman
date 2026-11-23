@@ -131,16 +131,35 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert any("queued" in t for t in out["toasts"])
 
 
-def test_a_queued_download_the_server_no_longer_reports_gives_the_download_button_back() -> None:
-    out = _run("queuedThenGoneOnReopen")
+def test_a_queued_download_the_arr_no_longer_holds_gives_the_download_button_back() -> None:
+    out = _run("queuedThenGoneOnReopen")["answered"]
     assert (out["before"], out["after"]) == ("Queued", "Download")
-    assert out["events"] == [{"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}]
+    assert out["events"][-1] == {
+        "ref": "tmdb-movie-77",
+        "download_state": None,
+        "download_pct": None,
+    }
 
 
-def test_a_poll_answering_unknown_gives_the_download_button_back_and_stops_polling() -> None:
+def test_a_reply_without_the_arr_s_answer_leaves_a_queued_download_queued() -> None:
+    out = _run("queuedThenGoneOnReopen")["unanswered"]
+    assert (out["before"], out["after"]) == ("Queued", "Queued")
+    assert all(e["download_state"] == "queued" for e in out["events"])
+
+
+def test_a_poll_answering_unknown_keeps_queued_and_polls_again_later() -> None:
     out = _run("queuedThenUnknownOnPoll")
-    assert (out["before"], out["after"]) == ("Queued", "Download")
-    assert out["events"] == [{"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}]
+    assert (out["before"], out["after"]) == ("Queued", "Queued")
+    assert all(e["download_state"] == "queued" for e in out["events"])
+    assert out["pollsLeft"] == [30000]
+
+
+def test_a_poll_answering_searching_asks_the_title_again_and_its_answer_clears_it() -> None:
+    out = _run("searchingRechecks")
+    assert out["firstPoll"] == {"gets": 1, "primary": "Queued"}
+    assert out["soonAfter"] == {"gets": 1, "primary": "Queued"}
+    assert out["afterMinute"] == {"gets": 2, "primary": "Download"}
+    assert out["events"][-1]["download_state"] is None
     assert out["pollsLeft"] == 0
 
 
@@ -148,6 +167,40 @@ def test_just_after_a_download_an_arr_that_does_not_know_it_yet_leaves_it_queued
     out = _run("justDownloadedGrace")
     assert (out["afterPoll"], out["afterReopen"]) == ("Queued", "Queued")
     assert out["afterGrace"] == "Download"
+
+
+def test_a_title_arriving_mid_download_shows_its_real_percent_at_once() -> None:
+    assert _run("arrivesDownloading") == {"primary": "Downloading 63%", "bar": 63}
+
+
+def test_a_queued_download_that_does_not_move_is_polled_less_often_and_not_after_close() -> None:
+    out = _run("pollBacksOff")
+    assert out["early"] == [5000]
+    assert out["late"] == [30000]
+    assert out["pollsAfterClose"] == 0
+
+
+def test_a_title_the_arr_already_holds_says_in_library_without_added_just_now() -> None:
+    out = _run("heldInLibrary")
+    assert out["primary"] == "In library"
+    assert not any("Added just now" in n for n in out["notes"])
+
+
+def test_the_loading_view_names_the_kind_of_title() -> None:
+    assert _run("loadingKind") == {"movie": "Movie", "show": "TV series"}
+
+
+def test_a_series_shows_no_director() -> None:
+    assert _run("showDirector") == {"credit": None}
+
+
+def test_a_poll_mid_share_keeps_sharing_and_copied_and_sends_one_request() -> None:
+    out = _run("shareDuringPoll")
+    assert out["during"] == {"label": "Sharing…", "busy": "true", "primary": "Downloading 20%"}
+    assert out["shares"] == 1
+    assert out["copied"] == "Copied"
+    assert out["copiedAfterPoll"] == "Copied"
+    assert out["primary"] == "Downloading 30%"
 
 
 def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again() -> None:

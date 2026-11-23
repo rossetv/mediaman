@@ -195,6 +195,7 @@ function load(opts = {}) {
         posts.push({ url, body });
         const r = posted[url];
         if (r instanceof Error) return Promise.reject(r);
+        if (typeof r === 'function') return r();
         return Promise.resolve(r || { ok: true });
       },
       messageOf: (e, f) => (e && e.data && e.data.message) || f,
@@ -362,27 +363,31 @@ const scenarios = {
       events: p.events, toasts: p.toasts.map((t) => t.message), reloads: p.gets.filter((g) => g === '/api/watch/title/tmdb-movie-77').length };
   },
 
-  // A download the server once reported as queued is gone by the next reply.
+  // A download the server once reported as queued is gone by the next reply,
+  // which the Arr answered (answered: true) or did not (answered: false).
   async queuedThenGoneOnReopen() {
-    let state = 'queued';
-    const p = load({ routes: {
-      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(
-        Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state }) })))),
-      '/api/download/status?service=radarr&tmdb_id=77': { state: 'queued' },
-    } });
-    p.run();
-    await openCard(p, 'tmdb-movie-77');
-    const before = primary(p).text;
-    p.ctx.MMWatch.detail.close();
-    state = null;
-    await openCard(p, 'tmdb-movie-77');
-    return { before, after: primary(p).text, events: p.events };
+    async function run(answered) {
+      let state = 'queued';
+      const p = load({ routes: {
+        '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(
+          Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state, answered: state ? true : answered }) })))),
+        '/api/download/status?service=radarr&tmdb_id=77': { state: 'queued' },
+      } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      const before = primary(p).text;
+      p.ctx.MMWatch.detail.close();
+      state = null;
+      await openCard(p, 'tmdb-movie-77');
+      return { before, after: primary(p).text, events: p.events };
+    }
+    return { answered: await run(true), unanswered: await run(false) };
   },
 
-  // The status poll answers unknown for a download the server had reported.
+  // The status poll answers unknown (the Arr did not answer) for a queued download.
   async queuedThenUnknownOnPoll() {
     const p = load({ routes: {
-      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued' }) }),
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued', answered: true }) }),
       '/api/download/status?service=radarr&tmdb_id=77': { state: 'unknown' },
     } });
     p.run();
@@ -390,15 +395,47 @@ const scenarios = {
     const before = primary(p).text;
     p.tick();
     await settle();
-    return { before, after: primary(p).text, events: p.events, pollsLeft: p.timers.filter((t) => t.fn).length };
+    return { before, after: primary(p).text, events: p.events, pollsLeft: p.timers.filter((t) => t.fn).map((t) => t.ms) };
+  },
+
+  // The status poll answers searching (gone from the Arr's queue) for a title held as queued:
+  // the title is asked again, at most once a minute, and its reply decides.
+  async searchingRechecks() {
+    let state = 'queued';
+    const p = load({ clock: true, routes: {
+      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(
+        Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state, answered: true }) })))),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'searching' },
+    } });
+    const titleGets = () => p.gets.filter((g) => g === '/api/watch/title/tmdb-movie-77').length;
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const opened = titleGets();
+    p.tick();
+    await settle();
+    const firstPoll = { gets: titleGets() - opened, primary: primary(p).text };
+    p.clock.now += 5000;
+    p.tick();
+    await settle();
+    const soonAfter = { gets: titleGets() - opened, primary: primary(p).text };
+    state = null;
+    p.clock.now += 60000;
+    p.tick();
+    await settle();
+    const afterMinute = { gets: titleGets() - opened, primary: primary(p).text };
+    const statusGets = () => p.gets.filter((g) => g.startsWith('/api/download/status')).length;
+    const polled = statusGets();
+    p.tick();
+    await settle();
+    return { firstPoll, soonAfter, afterMinute, events: p.events, pollsLeft: statusGets() - polled };
   },
 
   // Just after this page's own Download, the Arr not knowing of it yet is not taken as gone.
   async justDownloadedGrace() {
-    let title = MOVIE_DL;
+    let title = Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { answered: true }) });
     const p = load({ clock: true, routes: {
       '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(title))),
-      '/api/download/status?service=radarr&tmdb_id=77': { state: 'unknown' },
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'searching' },
     } });
     p.run();
     await openCard(p, 'tmdb-movie-77');
@@ -415,6 +452,104 @@ const scenarios = {
     p.tick();
     await settle();
     return { afterPoll, afterReopen, afterGrace: primary(p).text };
+  },
+
+  // A title that arrives downloading shows its percent before any poll.
+  async arrivesDownloading() {
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 63, answered: true }) }),
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const bar = p.q('.dl-progress progress');
+    return { primary: primary(p).text, bar: bar && bar.value };
+  },
+
+  // A queued download that never moves is polled every 5 s for two minutes, then every 30 s;
+  // closing stops it.
+  async pollBacksOff() {
+    const p = load({ clock: true, routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued', answered: true }) }),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'queued' },
+    } });
+    const next = () => p.timers.filter((t) => t.fn).map((t) => t.ms);
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    p.tick();
+    await settle();
+    const early = next();
+    p.clock.now += 121000;
+    p.tick();
+    await settle();
+    const late = next();
+    p.ctx.MMWatch.detail.close();
+    p.tick();
+    const statusGets = p.gets.filter((g) => g.startsWith('/api/download/status')).length;
+    p.tick();
+    await settle();
+    return { early, late, primary: primary(p) && primary(p).text,
+      pollsAfterClose: p.gets.filter((g) => g.startsWith('/api/download/status')).length - statusGets };
+  },
+
+  // Radarr holding the film with its file is not a download this page just finished.
+  async heldInLibrary() {
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'in_library', answered: true }) }),
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    return { primary: primary(p).text, notes: p.ttl().querySelectorAll('.ttl__note').map((n) => n.textContent) };
+  },
+
+  // While the title loads, the kicker already says what kind it is.
+  async loadingKind() {
+    const pending = () => new Promise(() => {});
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': pending, '/api/watch/title/show-300': pending } });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-movie-77', { title: 'Meridian' });
+    const movie = p.text('[data-ttl-part="kind"]');
+    p.ctx.MMWatch.detail.open('show-300', { title: 'Brightwater' });
+    return { movie, show: p.text('[data-ttl-part="kind"]') };
+  },
+
+  async showDirector() {
+    const p = load({ routes: { '/api/watch/title/tmdb-tv-90': Object.assign({}, TV_DL, { director: 'Ada Rimmington' }) } });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    return { credit: p.text('.ttl__credit') };
+  },
+
+  // A poll that redraws the actions mid-share keeps Sharing… and lets no second request go.
+  async shareDuringPoll() {
+    let release = null;
+    let pct = 10;
+    const p = load({ admin: true,
+      routes: {
+        '/api/watch/title/rec-5': Object.assign({}, REC_DL, { download: Object.assign({}, REC_DL.download, { state: 'downloading', pct: 10, answered: true }) }),
+        '/api/download/status?service=radarr&tmdb_id=78': () => Promise.resolve({ state: 'downloading', progress: pct }),
+      },
+      posted: { '/api/recommended/5/share-token': () => new Promise((resolve) => { release = resolve; }) } });
+    p.run();
+    p.ctx.MMWatch.detail.open('rec-5', {});
+    await settle();
+    click(p.doc, p.q('[data-ttl-act="share"]'));
+    pct = 20;
+    p.tick();
+    await settle();
+    const during = { label: p.text('[data-ttl-act="share"]'), busy: p.q('[data-ttl-act="share"]').getAttribute('aria-disabled'),
+      primary: primary(p).text };
+    click(p.doc, p.q('[data-ttl-act="share"]'));
+    const shares = p.posts.filter((x) => x.url === '/api/recommended/5/share-token').length;
+    release({ ok: true, share_url: 'https://example.test/download/tok' });
+    await settle();
+    await settle();
+    const copied = p.text('[data-ttl-act="share"]');
+    pct = 30;
+    p.timers.forEach((t) => { if (t.ms === 2000) t.fn = null; });
+    p.tick();
+    await settle();
+    return { during, shares, copied, copiedAfterPoll: p.text('[data-ttl-act="share"]'), primary: primary(p).text };
   },
 
   async downloadFails() {

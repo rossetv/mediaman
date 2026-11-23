@@ -17,6 +17,12 @@
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$/;
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var POLL_MS = 5000;
+  /* A download that has not moved for this long is polled at POLL_SLOW_MS. */
+  var POLL_BACKOFF_AFTER_MS = 120000;
+  var POLL_SLOW_MS = 30000;
+  /* How often an open title asks again whether a download the Arr no longer
+     queues was removed or has not reached the Arr yet. */
+  var RECHECK_MS = 60000;
   /* How long after this page's own Download a reply that knows nothing of it
      is the Arr catching up rather than the download being gone. */
   var DOWNLOAD_GRACE_MS = 30000;
@@ -187,7 +193,11 @@
       season: null,
       shareUrl: null,
       shareMsg: null,
+      shareState: null,  // null, 'busy' or 'copied'
       justAdded: false,
+      addedNow: false,
+      movedAt: 0,
+      checkedAt: 0,
       ctrl: null,
       seq: ++seq
     };
@@ -293,22 +303,31 @@
     c.data = data;
     c.title = data.title || c.title;
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
-    if (data.download) {
-      var k = stateOf(c.ref);
-      var st = data.download.state || null;
-      if (st) {
-        k.state = st;
-        if (st !== 'downloading') k.pct = null;
-      } else if (inFlight(k) && !inGrace(k)) {
-        // The download was removed in the Arr, or never registered.
-        k.state = null;
-        k.pct = null;
-        fire(c.ref, null, null);
-      }
-    }
+    takeDownload(c.ref, data.download);
     renderContent(true);
     if (isAdmin && /^(movie|show)-/.test(c.ref)) loadFacts(c);
     if (pollable()) schedulePoll(0);
+  }
+
+  /* What a title reply says of its download, into what this page knows. A
+     null state counts only when the Arr answered, and not just after this
+     page's own Download, which the Arr may not list yet. Says whether it changed. */
+  function takeDownload(ref, dl) {
+    if (!dl) return false;
+    var k = stateOf(ref);
+    var was = k.state + ':' + k.pct;
+    var st = dl.state || null;
+    if (st) {
+      k.state = st;
+      k.pct = st === 'downloading' && typeof dl.pct === 'number' ? Math.max(0, Math.min(100, Math.round(dl.pct)))
+        : st === 'downloading' ? k.pct : null;
+    } else if (inFlight(k) && dl.answered === true && !inGrace(k)) {
+      k.state = null;
+      k.pct = null;
+    }
+    if (k.state + ':' + k.pct === was) return false;
+    fire(ref, k.state, k.pct);
+    return true;
   }
 
   /* Load the title again without the skeleton (after a Keep or a finished
@@ -357,7 +376,8 @@
     hide(art, true);
     art.removeAttribute('src');
     art.classList.remove('is-loaded');
-    kindEl.textContent = '';
+    var kind = /^(movie|tmdb-movie)-/.test(cur.ref) ? 'movie' : /^(show|tmdb-tv)-/.test(cur.ref) ? 'show' : '';
+    kindEl.textContent = kind ? kindLabel({ kind: kind }) : '';
     titleEl.textContent = cur.title;
     if (!cur.title) titleEl.appendChild(skel('skel--line ttl__title-skel'));
     hide(taglineEl, true);
@@ -488,7 +508,7 @@
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     if (d.overview) main.appendChild(el('p', 'ttl__overview', d.overview));
-    if (d.director) {
+    if (d.director && d.kind === 'movie') {
       var credit = el('p', 'ttl__credit');
       credit.appendChild(el('span', 'ttl__credit-label', 'Director'));
       credit.appendChild(document.createTextNode(d.director));
@@ -700,7 +720,7 @@
     var rec = /^rec-/.test(cur.ref) || !!cur.recId;
     if (k.state === 'in_library' || cur.justAdded) {
       actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'In library', 'fa-circle-check'));
-      under.appendChild(note('In your library. Added just now.', 'fa-circle-check ttl__note-ok'));
+      if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'fa-circle-check ttl__note-ok'));
       return;
     }
     if (k.state === 'queued') {
@@ -903,7 +923,10 @@
       fire(ref, 'queued', null);
       core.toast(title + ' is queued.', { variant: 'success' });
       redrawActions(ref);
-      if (cur && cur.ref === ref && isOpen) schedulePoll(POLL_MS);
+      if (cur && cur.ref === ref && isOpen) {
+        cur.movedAt = Date.now();
+        schedulePoll(POLL_MS);
+      }
     }).catch(function (err) {
       k.busy = false;
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
@@ -945,19 +968,42 @@
   function schedulePoll(delay) {
     stopPolling();
     if (!pollable() || document.hidden) return;
+    if (!cur.movedAt) cur.movedAt = Date.now();
     pollTimer = setTimeout(poll, delay);
+  }
+
+  /* Every 5 s while the download moves, every 30 s once it has sat still
+     for two minutes. */
+  function nextPoll() {
+    return Date.now() - cur.movedAt < POLL_BACKOFF_AFTER_MS ? POLL_MS : POLL_SLOW_MS;
+  }
+
+  /* The Arr no longer queues the download: ask the title again, whose reply
+     says whether the Arr still holds it. */
+  function recheck(c) {
+    var k = stateOf(c.ref);
+    if (k.state !== 'queued' || inGrace(k)) return;
+    if (c.checkedAt && Date.now() - c.checkedAt < RECHECK_MS) return;
+    c.checkedAt = Date.now();
+    var ref = c.ref;
+    get(apiUrl(ref)).then(function (data) {
+      if (c !== cur || !isOpen || c.ref !== ref) return;
+      if (takeDownload(ref, data.download)) redrawActions(ref);
+    }).catch(function () {});
   }
 
   function poll() {
     pollTimer = null;
     if (!pollable()) return;
-    var ref = cur.ref;
-    var dl = cur.data.download;
+    var c = cur;
+    var ref = c.ref;
+    var dl = c.data.download;
     var url = '/api/download/status?service=' + encodeURIComponent(dl.service) +
       '&tmdb_id=' + encodeURIComponent(dl.tmdb_id);
     MM.api.get(url).then(function (r) {
       var k = stateOf(ref);
       var was = k.state + ':' + k.pct;
+      // 'unknown' is an Arr that did not answer: no news, so nothing changes.
       if (r.state === 'ready') {
         k.state = 'in_library';
         k.pct = null;
@@ -970,24 +1016,25 @@
       } else if (r.state === 'queued' || r.state === 'searching') {
         k.state = 'queued';
         k.pct = null;
-      } else if (r.state === 'unknown' && !inGrace(k)) {
-        k.state = null;
-        k.pct = null;
       }
       if (k.state + ':' + k.pct !== was) {
+        if (c === cur) c.movedAt = Date.now();
         fire(ref, k.state, k.pct);
-        if (k.state === 'in_library' && cur && cur.ref === ref) {
-          cur.justAdded = true;
+        if (k.state === 'in_library' && c === cur) {
+          c.justAdded = true;
+          c.addedNow = !!k.sentAt;
           redrawActions(ref);
           refresh();
         } else {
           redrawActions(ref);
         }
       }
-      if (cur && cur.ref === ref) schedulePoll(POLL_MS);
+      if (c !== cur || c.ref !== ref) return;
+      if (r.state === 'searching') recheck(c);
+      schedulePoll(r.state === 'unknown' ? POLL_SLOW_MS : nextPoll());
     }).catch(function (err) {
       if (err && (err.status === 401 || err.status === 403)) return;
-      if (cur && cur.ref === ref) schedulePoll(POLL_MS * 2);
+      if (c === cur && c.ref === ref) schedulePoll(POLL_SLOW_MS);
     });
   }
 
@@ -1056,57 +1103,60 @@
 
   /* ── Share (admins, Recommended picks) ── */
 
+  /* The button is drawn from cur.shareState, so a redraw mid-share (a poll)
+     keeps it as it was. */
   function shareButton() {
     if (!isAdmin || !cur.recId) return null;
-    var b = button('btn btn--lg watch-btn--grey ttl__share', '', 'fa-share-nodes');
+    var st = cur.shareState;
+    var b = button('btn btn--lg watch-btn--grey ttl__share', '', st === 'copied' ? 'fa-check' : 'fa-share-nodes');
     b.setAttribute('data-ttl-act', 'share');
-    b.appendChild(el('span', 'ttl__share-label', 'Share'));
+    b.appendChild(el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share'));
+    if (st === 'busy') b.setAttribute('aria-disabled', 'true');
     b.addEventListener('click', share);
     return b;
   }
 
-  function setShare(text, iconName, busy) {
+  function setShare(c, st) {
+    c.shareState = st;
+    if (c !== cur || !isOpen) return;
     var b = root.querySelector('[data-ttl-act="share"]');
-    if (!b) return;
-    b.textContent = '';
-    b.appendChild(icon(iconName));
-    b.appendChild(el('span', 'ttl__share-label', text));
-    if (busy) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
+    var fresh = shareButton();
+    if (b && fresh) {
+      var focused = document.activeElement === b;
+      b.replaceWith(fresh);
+      if (focused) fresh.focus({ preventScroll: true });
+    }
   }
 
   function share() {
     var c = cur;
-    var b = root.querySelector('[data-ttl-act="share"]');
-    if (!b || b.getAttribute('aria-disabled') === 'true') return;
+    if (!c || c.shareState === 'busy') return;
     clearTimeout(shareTimer);
     c.shareMsg = null;
     c.shareUrl = null;
-    setShare('Sharing…', 'fa-share-nodes', true);
+    setShare(c, 'busy');
     MM.api.post('/api/recommended/' + encodeURIComponent(c.recId) + '/share-token').then(function (data) {
-      if (c !== cur) return;
       var url = data && data.share_url;
       if (!url) throw new Error('no link');
       var copy = navigator.clipboard && navigator.clipboard.writeText
         ? navigator.clipboard.writeText(url) : Promise.reject(new Error('no clipboard'));
       return copy.then(function () {
-        if (c !== cur) return;
-        setShare('Copied', 'fa-check', false);
-        shareTimer = setTimeout(function () { setShare('Share', 'fa-share-nodes', false); }, COPIED_MS);
+        setShare(c, 'copied');
+        shareTimer = setTimeout(function () { setShare(c, null); }, COPIED_MS);
       }, function () {
-        if (c !== cur) return;
         c.shareUrl = url;
-        setShare('Share', 'fa-share-nodes', false);
+        setShare(c, null);
         redrawActions(c.ref);
+        if (c !== cur) return;
         var field = root.querySelector('.ttl-share__input');
         if (field) { field.focus({ preventScroll: true }); field.select(); }
       });
     }).catch(function (err) {
-      if (c !== cur) return;
       var status = err && err.status;
       c.shareMsg = status === 422 ? "This pick can't be shared: it has no TMDB id."
         : status === 503 ? 'Set the public address in Settings before sharing links.'
         : "Couldn't make a share link. Try again.";
-      setShare('Share', 'fa-share-nodes', false);
+      setShare(c, null);
       redrawActions(c.ref);
     });
   }
