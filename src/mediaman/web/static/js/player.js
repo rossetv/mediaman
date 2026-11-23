@@ -98,7 +98,7 @@
   var lastTime = null;
   var dragging = false;
   var quality = readQuality();
-  var goodQuality = null;    // the quality of the last stream that played
+  var goodQuality = quality; // the last quality that played, or the one the page started with
   var streamQuality = null;  // the quality of the stream now loading or playing
   var revertNotice = null;   // toast to show once the reverted stream plays
 
@@ -149,6 +149,7 @@
 
   function chooseQuality(value) {
     if (!QUALITIES[value] || value === quality) return;
+    revertNotice = null;
     setQuality(value);
     restartStream(true);
   }
