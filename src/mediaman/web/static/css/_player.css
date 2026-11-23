@@ -54,7 +54,7 @@
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   font-size: 18px;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .player-back:hover { background: var(--player-glass-hover); }
 .player-titles {
@@ -162,6 +162,7 @@
   display: grid;
   place-items: center;
   font-size: 20px;
+  transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 .player-btn--text { font-size: 14px; padding: 0 6px; }
 
@@ -189,6 +190,7 @@
   padding: 0 14px;
   font-size: 13px;
   white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .player-pill::before {
   content: '';
@@ -261,6 +263,7 @@
   font-size: 14px;
   border-radius: var(--r-sm);
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
@@ -269,6 +272,19 @@
   float: right;
   margin-left: 12px;
   color: var(--accent);
+}
+
+/* Pressed: a quick shrink and a tint, since the tap highlight is off. */
+.player-back:active { transform: scale(.94); background: var(--player-glass-hover); }
+.player-btn:active { transform: scale(.9); opacity: .7; }
+.player-pill:active { transform: scale(.96); }
+.player-pill:active::before { background: var(--player-glass-hover); }
+.player-pill--primary:active::before { background: color-mix(in srgb, var(--t1) 80%, transparent); }
+.player-menu-item:active { background: var(--hair-strong); }
+@media (prefers-reduced-motion: reduce) {
+  .player-back:active,
+  .player-btn:active,
+  .player-pill:active { transform: none; }
 }
 
 /* Menus and cards rise in when they open; they are usable at once. Menus

@@ -101,7 +101,7 @@
   border-radius: 50%;
   color: var(--t3);
   font-size: 15px;
-  transition: color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .watch-search__clear:hover { color: var(--t1); }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
@@ -240,7 +240,7 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out);
 }
 /* A shadow alone does not show on the black page, so a hovered poster also
    lifts a little and takes a hairline ring. The row's block padding leaves
@@ -329,6 +329,7 @@
   color: var(--success);
   font-size: 12px;
   font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .watch-keep::before {
   content: "";
@@ -376,6 +377,7 @@
   font-size: 14px;
   color: var(--t2);
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .watch-keep-menu__item:hover,
 .watch-keep-menu__item:focus-visible { background: var(--s3); color: var(--t1); outline: none; }
@@ -436,7 +438,7 @@
   background-size: 100% 620px;
 }
 .watch-detail__top { padding: 20px var(--pad) 0; }
-.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; }
+.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .watch-back:hover { color: var(--accent-hi); }
 .watch-hero {
   display: flex;
@@ -473,6 +475,7 @@
   background: var(--s4);
   color: var(--t1);
   font-size: 14px;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .watch-pill:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
@@ -487,6 +490,7 @@
   gap: 20px;
   padding: 12px 16px;
   border-radius: var(--r-md);
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .watch-ep:hover { background: var(--s1); }
 .watch-ep--in-progress { background: var(--s1); }
@@ -558,4 +562,30 @@
   .watch-leaving { min-height: 44px; }
   .watch-keep::before { inset: 6px 0; }
   .watch-keep::after { content: none; }
+}
+
+/* Pressed: a quick shrink and a tint, so a tap answers on a touch screen where
+   the tap highlight is off. Not inside (hover: hover), and after the hover rules
+   so a pressed card settles back from its lift. */
+.watch-card__link:active .watch-card__poster { transform: scale(.97); filter: brightness(.88); }
+.watch-pill:active { transform: scale(.97); background: color-mix(in srgb, var(--t1) 30%, transparent); }
+.watch-pill.on:active { background: color-mix(in srgb, var(--t1) 82%, transparent); }
+.watch-ep:active { background: var(--s2); transform: scale(.985); }
+.watch-search__clear:active { color: var(--t1); transform: scale(.9); }
+.watch-keep:active { transform: scale(.97); }
+.watch-keep:active::before { background: color-mix(in srgb, var(--success) 30%, transparent); }
+.watch-keep-menu__item:active { background: var(--s4); color: var(--t1); }
+.watch-back:active { opacity: .6; }
+.watch-btn--play:active { background: color-mix(in srgb, var(--t1) 70%, transparent); }
+.watch-btn--grey:active { background: color-mix(in srgb, var(--t1) 30%, transparent); }
+.watch-notice__retry:active,
+.watch-results__retry:active { opacity: .6; }
+@media (prefers-reduced-motion: reduce) {
+  .watch-card__link:active .watch-card__poster,
+  .watch-pill:active,
+  .watch-ep:active,
+  .watch-search__clear:active,
+  .watch-keep:active,
+  .watch-btn--play:active,
+  .watch-btn--grey:active { transform: none; }
 }
