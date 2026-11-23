@@ -128,6 +128,20 @@
     return wrap;
   }
 
+  /* The ETA stat exists only while there is an ETA, so it is added, updated
+   * and removed here. */
+  function updateEtaStat(card, text) {
+    var eta = card.querySelector('[data-v="eta"]');
+    if (eta && text) {
+      eta.textContent = text;
+    } else if (eta) {
+      eta.parentNode.parentNode.removeChild(eta.parentNode);
+    } else if (text) {
+      var stats = card.querySelector('.dl-hero-details');
+      if (stats) stats.appendChild(buildEtaStat(text));
+    }
+  }
+
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
@@ -487,6 +501,7 @@
     findByEp:             findByEp,
     buildHero:            buildHero,
     buildEtaStat:         buildEtaStat,
+    updateEtaStat:        updateEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
