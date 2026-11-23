@@ -504,7 +504,7 @@ class TestReadDeleteAllowedRoots:
     def test_quiet_read_logs_nothing_and_still_fails_closed(self, conn, monkeypatch, caplog):
         import logging
 
-        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "  ")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", ",:")
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
             "VALUES ('delete_allowed_roots', '{bad json', 0, '2026-01-01')"

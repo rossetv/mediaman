@@ -85,7 +85,7 @@ def read_delete_allowed_roots_setting(
             # separator handling.
             from mediaman.services.infra import parse_delete_roots_env
 
-            roots = parse_delete_roots_env(env_val)
+            roots = parse_delete_roots_env(env_val, quiet=quiet)
             if not roots and not quiet:
                 logger.error(
                     "MEDIAMAN_DELETE_ROOTS is set but no valid roots "

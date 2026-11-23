@@ -42,6 +42,10 @@ ACTION_TYPES = [
     "security",
 ]
 
+# Filters kept working for old links but no longer shown as pills: the "kept"
+# and "unkept" pills already cover them.
+_PILL_HIDDEN = {ACTION_SNOOZED, "removed_show_keep"}
+
 ACTION_BADGE_CLASS = {
     "scanned": "badge-action-scanned",
     "scheduled": "badge-action-scheduled",
@@ -244,6 +248,7 @@ def history_page(request: Request) -> Response:
             "action_types": [
                 (at, ACTION_LABELS.get(at, at.replace("_", " ")).capitalize())
                 for at in ACTION_TYPES
+                if at not in _PILL_HIDDEN
             ],
             "action_filter": action_filter or "",
             "page": page,
