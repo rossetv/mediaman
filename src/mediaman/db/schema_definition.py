@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
     must_change_password INTEGER NOT NULL DEFAULT 0,
-    email TEXT
+    email TEXT,
+    role TEXT NOT NULL DEFAULT 'admin'
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
@@ -40,6 +41,23 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     fingerprint TEXT,
     issued_ip TEXT
 );
+
+-- Per-person playback position for the Watch player. rating_key is the movie
+-- or episode; media_item_id is the movie, or the season the episode belongs to.
+CREATE TABLE IF NOT EXISTS watch_progress (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    rating_key TEXT NOT NULL,
+    media_item_id TEXT,
+    show_rating_key TEXT,
+    position_s REAL NOT NULL DEFAULT 0,
+    duration_s REAL NOT NULL DEFAULT 0,
+    watched INTEGER NOT NULL DEFAULT 0,
+    credited_at TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (username, rating_key)
+);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_media_item ON watch_progress(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_user_updated ON watch_progress(username, updated_at);
 
 -- === Scanner (media items, scheduled actions, kept shows, audit log) ===
 CREATE TABLE IF NOT EXISTS media_items (

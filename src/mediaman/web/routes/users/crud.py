@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import Literal
 
 from fastapi import APIRouter, Cookie, Depends, Request
+from pydantic import BaseModel, ConfigDict
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -13,11 +15,14 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import (
+    LastAdminError,
     UserExistsError,
     create_user,
     delete_user,
+    is_last_admin,
     list_users,
     set_user_email,
+    set_user_role,
 )
 from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
@@ -30,6 +35,19 @@ from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MG
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_LAST_ADMIN_MESSAGE = "There must be at least one admin. Make someone else an admin first."
+
+
+class _CreateUserBody(CreateUserBody):
+    # The API default stays admin so existing callers keep minting admins; the
+    # Settings form always sends the role it shows (Viewer preselected).
+    role: Literal["admin", "viewer"] = "admin"
+
+
+class _UpdateRoleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["admin", "viewer"]
 
 
 def _unauthorised_reauth() -> Response:
@@ -54,12 +72,13 @@ def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]
 @rate_limit(_USER_CREATE_LIMITER, key="actor")
 def api_create_user(
     request: Request,
-    body: CreateUserBody,
+    body: _CreateUserBody,
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Create a new admin user. Requires a recent reauth ticket, so a stolen session cookie
-    cannot mint a permanent admin account that survives session rotation.
+    """Create a new user with the given role. Requires a recent reauth ticket, so a stolen
+    session cookie cannot mint a permanent account that survives session rotation. The new
+    user must choose their own password at first sign-in, since the admin knows this one.
     """
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
@@ -94,6 +113,8 @@ def api_create_user(
             conn,
             username,
             password,
+            role=body.role,
+            must_change_password=True,
             audit_actor=admin,
             audit_ip=get_client_ip(request),
         )
@@ -109,9 +130,10 @@ def api_create_user(
             "internal_error", status=500, message="Internal error during user creation"
         )
     logger.info(
-        "user.created actor=%s new_user=%s",
+        "user.created actor=%s new_user=%s role=%s",
         _sanitise_log_field(admin),
         _sanitise_log_field(username),
+        body.role,
     )
     return respond_ok({"username": username})
 
@@ -147,6 +169,9 @@ def api_delete_user(
             "user.delete_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
         )
         return _unauthorised_reauth()
+    target_username = find_username_by_user_id(conn, user_id)
+    if target_username is not None and is_last_admin(conn, target_username):
+        return respond_err("last_admin", status=400, message=_LAST_ADMIN_MESSAGE)
     try:
         deleted = delete_user(
             conn,
@@ -168,6 +193,55 @@ def api_delete_user(
     return respond_err(
         "cannot_delete", status=400, message="Cannot delete yourself or user not found"
     )
+
+
+@router.patch("/api/users/{user_id}/role")
+def api_set_user_role(
+    user_id: int,
+    body: _UpdateRoleBody,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+    session_token: str | None = Cookie(default=None),
+) -> Response:
+    """Change another user's role. Requires a recent reauth ticket, like delete: a stolen
+    session cookie alone must not promote an account to admin. Refuses to change your own
+    role and to demote the last admin.
+    """
+    conn = get_db()
+    client_ip = get_client_ip(request)
+    if not _USER_MGMT_LIMITER.check(admin):
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
+        )
+    if not has_recent_reauth(conn, session_token, admin):
+        logger.warning(
+            "user.role_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
+        return _unauthorised_reauth()
+
+    target_username = find_username_by_user_id(conn, user_id)
+    if target_username is None:
+        return respond_err("not_found", status=404, message="User not found")
+    if target_username == admin:
+        return respond_err(
+            "cannot_change_own_role", status=400, message="You cannot change your own role"
+        )
+    try:
+        set_user_role(conn, target_username, body.role, audit_actor=admin, audit_ip=client_ip)
+    except LastAdminError:
+        return respond_err("last_admin", status=400, message=_LAST_ADMIN_MESSAGE)
+    except sqlite3.Error:
+        logger.exception(
+            "user.role failed actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
+        return respond_err("internal_error", status=500, message="Internal error changing role")
+    logger.info(
+        "user.role_changed actor=%s target=%s role=%s",
+        _sanitise_log_field(admin),
+        _sanitise_log_field(target_username),
+        body.role,
+    )
+    return respond_ok({"role": body.role})
 
 
 @router.patch("/api/users/me/email")

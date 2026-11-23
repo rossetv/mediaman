@@ -41,11 +41,24 @@ class UserExistsError(Exception):
     """
 
 
+class LastAdminError(Exception):
+    """Raised by `set_user_role` when it would leave the instance with no admin."""
+
+
+ROLES = ("admin", "viewer")
+
+
+def _check_role(role: str) -> None:
+    if role not in ROLES:
+        raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
+
+
 class UserRecord(TypedDict):
     id: int
     username: str
     created_at: str
     email: str | None
+    role: str
 
 
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
@@ -72,10 +85,15 @@ def create_user(
     password: str,
     *,
     enforce_policy: bool = True,
+    role: str = "admin",
+    must_change_password: bool = False,
     audit_actor: str | None = None,
     audit_ip: str = "",
 ) -> None:
-    """Insert an admin user with a bcrypt-hashed password.
+    """Insert a user (an admin unless *role* says ``viewer``) with a bcrypt-hashed password.
+
+    *must_change_password* flags the account so the first sign-in is sent to the
+    password-change page; it is written in the same insert as the row.
 
     The bcrypt cost is `BCRYPT_ROUNDS`. Passwords are routed
     through ``_prepare_bcrypt_input`` first so inputs over 72 bytes
@@ -91,12 +109,13 @@ def create_user(
         UserExistsError: *username* is already taken (mapped from the
             ``UNIQUE`` constraint on ``admin_users.username``).
         ValueError: *password* fails the strength policy — only when
-            *enforce_policy* is true.
+            *enforce_policy* is true — or *role* is not ``admin`` / ``viewer``.
         sqlite3.IntegrityError: any other integrity-constraint failure
             that is not the username-uniqueness collision; it is
             re-raised unchanged after being logged so the caller sees
             the original error rather than a swallowed one.
     """
+    _check_role(role)
     if enforce_policy:
         from mediaman.web.auth.password_policy import password_issues
 
@@ -114,9 +133,10 @@ def create_user(
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
-                "INSERT INTO admin_users (username, password_hash, created_at, must_change_password) "
-                "VALUES (?, ?, ?, 0)",
-                (username, password_hash, now),
+                "INSERT INTO admin_users "
+                "(username, password_hash, created_at, must_change_password, role) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (username, password_hash, now, 1 if must_change_password else 0, role),
             )
             if audit_actor is not None:
                 from mediaman.core.audit import security_event_or_raise
@@ -126,7 +146,7 @@ def create_user(
                     event="user.created",
                     actor=audit_actor,
                     ip=audit_ip,
-                    detail={"new_username": username},
+                    detail={"new_username": username, "role": role},
                 )
     except sqlite3.IntegrityError as exc:
         message = (exc.args[0] if exc.args else "").lower()
@@ -140,7 +160,7 @@ def create_user(
 
 def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
     rows = conn.execute(
-        "SELECT id, username, created_at, email FROM admin_users ORDER BY id"
+        "SELECT id, username, created_at, email, role FROM admin_users ORDER BY id"
     ).fetchall()
     return [
         {
@@ -148,9 +168,76 @@ def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
             "username": row["username"],
             "created_at": row["created_at"],
             "email": row["email"],
+            "role": row["role"],
         }
         for row in rows
     ]
+
+
+def get_user_role(conn: sqlite3.Connection, username: str) -> str | None:
+    """Return ``"admin"`` or ``"viewer"`` for *username*, or ``None`` for an unknown user."""
+    row = conn.execute("SELECT role FROM admin_users WHERE username = ?", (username,)).fetchone()
+    if row is None:
+        return None
+    role: str = row["role"]
+    return role
+
+
+def is_last_admin(conn: sqlite3.Connection, username: str) -> bool:
+    """True when *username* is an admin and no other admin exists."""
+    row = conn.execute(
+        "SELECT role = 'admin' AND (SELECT COUNT(*) FROM admin_users WHERE role = 'admin') = 1 "
+        "FROM admin_users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def set_user_role(
+    conn: sqlite3.Connection,
+    username: str,
+    role: str,
+    *,
+    audit_actor: str | None = None,
+    audit_ip: str = "",
+) -> bool:
+    """Change *username*'s role; return ``False`` when there is no such user.
+
+    Audit-in-transaction like the other mutations here: a failed ``sec:user.role_changed``
+    insert rolls the change back.
+
+    Raises:
+        ValueError: *role* is not ``admin`` / ``viewer``.
+        LastAdminError: the change would demote the only remaining admin.
+    """
+    _check_role(role)
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        # The count and the UPDATE share one statement under the write lock, so two
+        # admins demoting each other at once cannot both pass.
+        cursor = conn.execute(
+            "UPDATE admin_users SET role = ? WHERE username = ? AND (? = 'admin' OR role != 'admin' "
+            "OR (SELECT COUNT(*) FROM admin_users WHERE role = 'admin') > 1)",
+            (role, username, role),
+        )
+        if cursor.rowcount == 0:
+            exists = conn.execute(
+                "SELECT 1 FROM admin_users WHERE username = ?", (username,)
+            ).fetchone()
+            if exists is None:
+                return False
+            raise LastAdminError(username)  # rolls the with-block back
+        if audit_actor is not None:
+            from mediaman.core.audit import security_event_or_raise
+
+            security_event_or_raise(
+                conn,
+                event="user.role_changed",
+                actor=audit_actor,
+                ip=audit_ip,
+                detail={"target_username": username, "role": role},
+            )
+    return True
 
 
 def get_user_email(conn: sqlite3.Connection, username: str) -> str | None:
@@ -275,7 +362,8 @@ def delete_user(
             # one's failure count or lock.
             admin_unlock(conn, target_username)
             cursor = conn.execute(
-                "DELETE FROM admin_users WHERE id = ? AND (SELECT COUNT(*) FROM admin_users) > 1",
+                "DELETE FROM admin_users WHERE id = ? AND (role != 'admin' "
+                "OR (SELECT COUNT(*) FROM admin_users WHERE role = 'admin') > 1)",
                 (user_id,),
             )
             if cursor.rowcount == 0:
