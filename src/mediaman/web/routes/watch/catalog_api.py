@@ -443,7 +443,7 @@ def _tmdb_title(
         if library_ref is None:
             out["sonarr_tracked"] = arr.sonarr_tracked(tmdb_id)
     if library_ref is None:
-        state, _pct = arr.state(kind, tmdb_id)
+        state, pct = arr.state(kind, tmdb_id)
         request_body: dict[str, Any] = (
             {"url": download_url}
             if download_url
@@ -454,6 +454,8 @@ def _tmdb_title(
         )
         out["download"] = {
             "state": state,
+            "pct": pct,
+            "answered": arr.answers_for(kind),
             "service": "radarr" if kind == "movie" else "sonarr",
             "tmdb_id": tmdb_id,
             "request": request_body,

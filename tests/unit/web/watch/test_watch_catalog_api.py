@@ -114,6 +114,7 @@ class FakeArr:
     def __init__(self) -> None:
         self.movies: list[dict] = []
         self.series: list[dict] = []
+        self.queue: list[dict] = []
         self.down = False
 
     def _check(self):
@@ -130,7 +131,7 @@ class FakeArr:
 
     def get_queue(self):
         self._check()
-        return []
+        return list(self.queue)
 
     def get_movie_by_tmdb(self, tmdb_id):
         return None
@@ -502,6 +503,34 @@ class TestTmdbTitle:
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
 
         assert len(asked) == 1
+
+
+class TestTitleDownload:
+    def test_a_download_in_progress_carries_its_percent(self, viewer, tmdb, arr):
+        arr.movies = [{"tmdbId": 12, "hasFile": False, "monitored": True}]
+        arr.queue = [{"movie": {"tmdbId": 12}, "size": 100, "sizeleft": 58}]
+
+        download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+
+        assert (download["state"], download["pct"], download["answered"]) == (
+            "downloading",
+            42,
+            True,
+        )
+
+    def test_a_title_radarr_does_not_hold_is_answered_with_no_state(self, viewer, tmdb, arr):
+        download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+
+        assert (download["state"], download["pct"], download["answered"]) == (None, None, True)
+
+    def test_an_unreachable_arr_is_not_answered(self, viewer, tmdb, arr):
+        arr.down = True
+
+        resp = viewer.get("/api/watch/title/tmdb-tv-77")
+
+        assert resp.status_code == 200
+        download = resp.json()["download"]
+        assert (download["state"], download["pct"], download["answered"]) == (None, None, False)
 
 
 class TestDownloadForgetsHeldArrState:
