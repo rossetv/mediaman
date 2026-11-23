@@ -139,10 +139,16 @@ class Store[T]:
     def _fetch_once(self, key: str, path: Path, fetch: Callable[[], T]) -> T:
         flight = (self.name, key)
         future, owner = _claim(flight)
-        if not owner:
+        if owner:
+            return self._fill(flight, future, path, fetch)
+        try:
             result: T = future.result()
+        except Exception as exc:
+            error = exc
+        else:
             return result
-        return self._fill(flight, future, path, fetch)
+        # Raised outside the except block so the copy carries no context either.
+        raise _bare(error)
 
     def _fill(
         self, flight: tuple[str, str], future: Future[Any], path: Path, fetch: Callable[[], T]

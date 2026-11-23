@@ -351,3 +351,47 @@ def test_the_sweep_removes_old_temp_files_and_keeps_fresh_ones(cache, monkeypatc
 
     assert not old.exists()
     assert live.exists()
+
+
+def test_each_waiter_on_a_failed_fetch_gets_its_own_copy_of_the_error(monkeypatch):
+    claim = disk_cache._claim
+    joined = threading.Semaphore(0)
+
+    def noting_claim(flight):
+        future, owner = claim(flight)
+        if not owner:
+            joined.release()
+        return future, owner
+
+    monkeypatch.setattr(disk_cache, "_claim", noting_claim)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow():
+        started.set()
+        release.wait(5)
+        raise LookupError("down")
+
+    store = disk_cache.meta()
+    errors: list[BaseException] = []
+
+    def ask():
+        try:
+            store.get_or_fetch("k", DAY, DAY, slow)
+        except LookupError as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=ask, daemon=True)
+    first.start()
+    started.wait(5)
+    waiters = [threading.Thread(target=ask, daemon=True) for _ in range(2)]
+    for waiter in waiters:
+        waiter.start()
+    assert joined.acquire(timeout=5) and joined.acquire(timeout=5)
+    release.set()
+    for thread in (first, *waiters):
+        thread.join(5)
+
+    assert len(errors) == 3
+    assert len({id(e) for e in errors}) == 3
+    assert {str(e) for e in errors} == {"down"}
