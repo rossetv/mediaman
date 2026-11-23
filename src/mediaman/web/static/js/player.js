@@ -34,6 +34,16 @@
   var MAX_GONE_RESTARTS = 2;
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
+  /* Start failures by the server's error code; `retry` is whether Try again can help. */
+  var START_ERRORS = {
+    unreachable: { text: "Can't reach Plex right now.", retry: true },
+    not_found: { text: 'No longer available.', retry: false },
+    not_set_up: { text: "Plex isn't set up yet.", retry: false },
+    too_many_streams: { text: 'You have too many videos playing. Close one and try again.', retry: true },
+    rate_limited: { text: 'Too many tries. Wait a moment and try again.', retry: true },
+  };
+  /* Only a network failure or a server fault is worth one more try. */
+  var RETRY_STATUS = { 0: 1, 500: 1, 502: 1, 504: 1 };
 
   function readJSON(name) {
     try { return JSON.parse(root.getAttribute(name) || 'null'); } catch (e) { return null; }
@@ -185,11 +195,13 @@
           streamId = data.stream_id;
           attach(data.playlist, pendingStart);
         })
-        .catch(function () {
+        .catch(function (err) {
           if (gen !== generation) return;
-          if (tries < 1) return attempt(tries + 1);
+          var status = err && typeof err.status === 'number' ? err.status : 0;
+          if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
           starting = false;
-          showMessage(MSG_FAILED, true);
+          var known = err && START_ERRORS[err.error];
+          showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
         });
     }
     return attempt(0);
@@ -297,6 +309,19 @@
     navigator.sendBeacon('/api/watch/progress', blob);
   }
 
+  /* On leave one beacon both saves the last position and stops the stream,
+     so the stop cannot arrive first and leave the save with a 410. */
+  function beaconStop() {
+    if (!streamId || !navigator.sendBeacon) return;
+    var body = null;
+    if (hasPlayed) {
+      var p = progressBody();
+      body = new Blob([JSON.stringify({ position_s: p.position_s, played_s: p.played_s })],
+                      { type: 'application/json' });
+    }
+    navigator.sendBeacon('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop', body);
+  }
+
   var seekSaveTimer = null;
   function saveAfterSeek() {
     clearTimeout(seekSaveTimer);
@@ -370,6 +395,11 @@
     if (paused) showControls();
     else scheduleIdle();
   }
+
+  /* Playing again, or moving within the episode, cancels the next-episode countdown. */
+  ['play', 'playing', 'seeking'].forEach(function (name) {
+    video.addEventListener(name, hideUpnext);
+  });
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
@@ -702,11 +732,9 @@
   });
 
   window.addEventListener('pagehide', function () {
-    beaconProgress();
-    pendingStart = position();
-    if (streamId && navigator.sendBeacon) {
-      navigator.sendBeacon('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop');
-    }
+    var resumeAt = position();
+    beaconStop();
+    pendingStart = resumeAt;
     streamId = null;
     generation++;
     destroyHls();

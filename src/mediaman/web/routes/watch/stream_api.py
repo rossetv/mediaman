@@ -26,6 +26,7 @@ from mediaman.services.infra import allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
+    StreamInfo,
     TooManyStreams,
     get_stream_manager,
 )
@@ -37,7 +38,7 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository.watch_progress import save_progress
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -85,6 +86,15 @@ class _ProgressRequest(BaseModel):
     played_s: float = Field(ge=0)
 
 
+class _StopRequest(BaseModel):
+    """The player's final position, sent with the stop so one beacon on leave saves it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    position_s: float = Field(ge=0)
+    played_s: float = Field(ge=0)
+
+
 def read_plex_credentials(conn: sqlite3.Connection, secret_key: str) -> tuple[str, str] | None:
     """Return the stored ``(plex_url, plex_token)``, or None when either is missing."""
     url = get_string_setting(conn, "plex_url")
@@ -117,7 +127,7 @@ def _plex_failure(exc: PlexError) -> Response:
 def start_stream(
     request: Request,
     body: _StartRequest,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_user),
 ) -> Response:
     """Start a stream of a movie or episode from offset 0 for the signed-in person."""
     if not _START_LIMITER.check(username):
@@ -158,7 +168,7 @@ def start_stream(
 
 
 @router.get("/api/watch/stream/{stream_id}/index.m3u8")
-def stream_playlist(stream_id: str, username: str = Depends(get_current_admin)) -> Response:
+def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -> Response:
     try:
         text = get_stream_manager().playlist(stream_id, username)
     except StreamGone:
@@ -170,7 +180,7 @@ def stream_playlist(stream_id: str, username: str = Depends(get_current_admin)) 
 
 @router.get("/api/watch/stream/{stream_id}/seg/{name}")
 def stream_segment(
-    stream_id: str, name: str, username: str = Depends(get_current_admin)
+    stream_id: str, name: str, username: str = Depends(get_current_user)
 ) -> Response:
     try:
         body, content_type = get_stream_manager().segment(stream_id, username, name)
@@ -184,11 +194,41 @@ def stream_segment(
 
 
 @router.post("/api/watch/stream/{stream_id}/stop", status_code=204)
-def stop_stream(stream_id: str, username: str = Depends(get_current_admin)) -> Response:
-    """Stop the stream; one that is already gone is not an error."""
+async def stop_stream(
+    stream_id: str, request: Request, username: str = Depends(get_current_user)
+) -> Response:
+    """Stop the stream; one that is already gone is not an error.
+
+    A body with the final position and played time is saved first, as progress would be.
+    A missing or malformed body never keeps the stream from stopping.
+    """
+    raw = await request.body()
+    final: _StopRequest | None = None
+    if raw:
+        with contextlib.suppress(ValidationError):
+            final = _StopRequest.model_validate_json(raw)
     with contextlib.suppress(StreamGone):
-        get_stream_manager().stop(stream_id, username)
+        manager = get_stream_manager()
+        if final is not None:
+            _save(manager.get(stream_id, username), username, final.position_s, final.played_s)
+        manager.stop(stream_id, username)
     return Response(status_code=204)
+
+
+def _save(stream: StreamInfo, username: str, position_s: float, played_s: float) -> bool:
+    info = stream.info
+    return save_progress(
+        get_db(),
+        username=username,
+        rating_key=stream.rating_key,
+        media_item_id=info.get("media_item_id"),
+        show_rating_key=info.get("show_rating_key"),
+        position_s=position_s,
+        duration_s=info.get("duration_s") or 0,
+        # played_s is the client's own count, so it cannot exceed the time the viewing has run.
+        played_s=min(played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
+        now=now_utc(),
+    )
 
 
 async def _progress_body(request: Request) -> _ProgressRequest:
@@ -201,7 +241,7 @@ async def _progress_body(request: Request) -> _ProgressRequest:
 
 @router.post("/api/watch/progress")
 def save_watch_progress(
-    username: Annotated[str, Depends(get_current_admin)],
+    username: Annotated[str, Depends(get_current_user)],
     body: Annotated[_ProgressRequest, Depends(_progress_body)],
 ) -> Response:
     """Save the person's position; the item and its duration come from their stream."""
@@ -209,17 +249,4 @@ def save_watch_progress(
         stream = get_stream_manager().get(body.stream_id, username)
     except StreamGone:
         return _gone()
-    info = stream.info
-    watched = save_progress(
-        get_db(),
-        username=username,
-        rating_key=stream.rating_key,
-        media_item_id=info.get("media_item_id"),
-        show_rating_key=info.get("show_rating_key"),
-        position_s=body.position_s,
-        duration_s=info.get("duration_s") or 0,
-        # played_s is the client's own count, so it cannot exceed the time the viewing has run.
-        played_s=min(body.played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
-        now=now_utc(),
-    )
-    return respond_ok({"watched": watched})
+    return respond_ok({"watched": _save(stream, username, body.position_s, body.played_s)})

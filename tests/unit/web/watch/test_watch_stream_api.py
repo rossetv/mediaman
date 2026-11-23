@@ -356,6 +356,47 @@ def test_progress_on_another_users_stream_saves_nothing(alice, bob, conn):
     assert _progress_rows(conn) == []
 
 
+def test_stop_with_a_final_position_saves_it_then_stops(alice, conn, clock):
+    stream_id = _stream(alice, "201")
+    clock.now += 400
+    body = json.dumps({"position_s": 1400, "played_s": 400})
+    resp = alice.post(
+        f"/api/watch/stream/{stream_id}/stop",
+        content=body,
+        headers={"Content-Type": "text/plain;charset=UTF-8"},
+    )
+    assert resp.status_code == 204
+    [row] = _progress_rows(conn)
+    assert (row["rating_key"], row["position_s"], row["duration_s"]) == ("201", 1400, 1500)
+    assert row["credited_at"] is not None
+    assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 410
+
+
+def test_stop_clamps_the_played_time_like_progress(alice, conn):
+    stream_id = _stream(alice)
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 500, "played_s": 1e9})
+    [row] = _progress_rows(conn)
+    assert row["credited_at"] is None
+
+
+def test_stop_by_another_user_saves_nothing_and_leaves_the_stream(alice, bob, conn):
+    stream_id = _stream(alice)
+    resp = bob.post(
+        f"/api/watch/stream/{stream_id}/stop", json={"position_s": 5000, "played_s": 5000}
+    )
+    assert resp.status_code == 204
+    assert _progress_rows(conn) == []
+    assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 200
+
+
+def test_stop_with_a_bad_body_still_stops(alice, conn):
+    stream_id = _stream(alice)
+    resp = alice.post(f"/api/watch/stream/{stream_id}/stop", content="not json")
+    assert resp.status_code == 204
+    assert _progress_rows(conn) == []
+    assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 410
+
+
 def test_no_response_or_log_line_reveals_plex_address_session_or_token(alice, bob, plex, caplog):
     caplog.set_level(logging.DEBUG)
     stream_id = _stream(alice)
