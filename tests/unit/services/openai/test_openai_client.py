@@ -61,8 +61,12 @@ class TestGetOpenAiModel:
         assert get_openai_model(conn) == _DEFAULT_MODEL
 
     def test_custom_model_returned_when_setting_stored(self, conn):
-        _put(conn, "openai_model", "gpt-4o")
-        assert get_openai_model(conn) == "gpt-4o"
+        _put(conn, "openai_model", "gpt-6-luna")
+        assert get_openai_model(conn) == "gpt-6-luna"
+
+    def test_retired_model_falls_back_to_default(self, conn):
+        _put(conn, "openai_model", "gpt-5.5")
+        assert get_openai_model(conn) == _DEFAULT_MODEL
 
 
 class TestIsWebSearchEnabled:

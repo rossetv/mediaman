@@ -39,11 +39,12 @@ _OPENAI_CLIENT = SafeHTTPClient(
 
 logger = logging.getLogger(__name__)
 
-# Default OpenAI model for the /v1/responses API. Falls back here when
-# the ``openai_model`` setting is unset (fresh install or pre-selector
-# upgrade). Must be one of the allowlisted values in
-# ``web/models/settings.py:validate_openai_model``.
-_DEFAULT_MODEL = "gpt-5.5"
+#: Models the settings page offers and the settings API accepts.
+OPENAI_MODELS: tuple[str, ...] = ("gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6-luna")
+
+# Also used when a stored choice is no longer offered, so an install that saved a
+# retired model keeps working instead of sending OpenAI a model it has dropped.
+_DEFAULT_MODEL = "gpt-6.2-sol"
 
 # Regex for validating web-search-derived recommendation titles.
 _SAFE_TITLE_RE = re.compile(r"^[\x20-\x7E]+$")
@@ -76,7 +77,8 @@ def get_openai_model(conn: sqlite3.Connection | None) -> str:
         return _DEFAULT_MODEL
     from mediaman.services.infra import get_string_setting
 
-    return get_string_setting(conn, "openai_model", default=_DEFAULT_MODEL) or _DEFAULT_MODEL
+    model = get_string_setting(conn, "openai_model", default=_DEFAULT_MODEL)
+    return model if model in OPENAI_MODELS else _DEFAULT_MODEL
 
 
 def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:

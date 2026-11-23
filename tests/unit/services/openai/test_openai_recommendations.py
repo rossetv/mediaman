@@ -53,8 +53,8 @@ class TestOpenAIModelSelection:
         )
 
     def test_model_honours_setting(self, conn):
-        insert_settings(conn, openai_model="gpt-4o", updated_at="2026-04-18T00:00:00+00:00")
-        assert openai_recommendations._get_openai_model(conn) == "gpt-4o"
+        insert_settings(conn, openai_model="gpt-6.2-astra", updated_at="2026-04-18T00:00:00+00:00")
+        assert openai_recommendations._get_openai_model(conn) == "gpt-6.2-astra"
 
     def test_strip_season_suffix(self):
         """TV titles with a trailing ``Season N`` marker are cleaned for TMDB
@@ -75,13 +75,13 @@ class TestOpenAIModelSelection:
     def test_call_openai_sends_configured_model(self, conn, monkeypatch, fake_http, fake_response):
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
-        insert_settings(conn, openai_model="gpt-4.1-mini", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_model="gpt-6.1-terra", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=False)
 
         post_call = next(c for c in fake_http.calls if c[0] == "POST")
-        assert post_call[2]["json"]["model"] == "gpt-4.1-mini"
+        assert post_call[2]["json"]["model"] == "gpt-6.1-terra"
 
 
 class TestPlexStringSanitisation:

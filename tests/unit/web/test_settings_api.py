@@ -292,7 +292,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "grace_days": 7,
         "dry_run": True,
         "suggestions_enabled": False,
-        "openai_model": "gpt-5.4-mini",
+        "openai_model": "gpt-6-luna",
     }
 
     # URL fields validated for http(s) scheme.
@@ -449,7 +449,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         # Change ONLY the model; the API-key field still posts the sentinel.
         change = client.put(
             "/api/settings",
-            json={"openai_model": "gpt-5.4-mini", "openai_api_key": "****"},
+            json={"openai_model": "gpt-6-luna", "openai_api_key": "****"},
         )
         assert change.status_code == 200, change.json()
 
@@ -464,7 +464,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         # And the model must have been persisted.
         get_resp = client.get("/api/settings")
         assert get_resp.status_code == 200
-        assert get_resp.json().get("openai_model") == "gpt-5.4-mini"
+        assert get_resp.json().get("openai_model") == "gpt-6-luna"
 
     def test_put_rejects_library_sync_interval_out_of_range(self, app_factory, authed_client, conn):
         """library_sync_interval outside 0–1440 minutes must be rejected (HTTP 422)."""

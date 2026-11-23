@@ -236,7 +236,7 @@ class SettingsUpdate(BaseModel):
         """Restrict ``openai_model`` to the allowlisted identifiers.
 
         Defence-in-depth: the settings page renders a fixed ``<select>``
-        with these two options, but the API must reject anything else so
+        with these options, but the API must reject anything else so
         a hand-crafted POST cannot smuggle an arbitrary model string into
         the OpenAI client.
         """
@@ -245,9 +245,10 @@ class SettingsUpdate(BaseModel):
         if not isinstance(v, str):
             raise ValueError("openai_model must be a string")
         _reject_crlf(v)
-        allowed = {"gpt-5.5", "gpt-5.4-mini"}
-        if v not in allowed:
-            raise ValueError(f"openai_model must be one of {sorted(allowed)}")
+        from mediaman.services.openai.client import OPENAI_MODELS
+
+        if v not in OPENAI_MODELS:
+            raise ValueError(f"openai_model must be one of {list(OPENAI_MODELS)}")
         return v
 
     @field_validator("scan_timezone", mode="before")
