@@ -64,3 +64,22 @@ def test_a_failed_search_is_laid_out_like_an_empty_one_and_still_read_out() -> N
     assert out["line"] == "Search failed."
     assert out["status"] == "Search failed."
     assert (out["retried"], out["focus"]) == (True, True)
+
+
+def test_a_swap_stacks_both_nodes_while_they_cross_fade_then_leaves_only_the_new_one() -> None:
+    out = _run("swap")
+    assert out["stacked"] is True
+    assert out["cell"] == ["1 / 1", "1 / 1"]
+    assert sorted(out["faded"]) == [["new", 0, 1], ["old", 1, 0]]
+    assert out["after"] == ["new"]
+    assert out["oldGone"] is True
+
+
+def test_a_swap_with_reduced_motion_is_immediate() -> None:
+    out = _run("swapReduced")
+    assert out == {"after": ["new"], "animated": False}
+
+
+def test_flip_slides_only_the_nodes_that_moved_from_where_they_were() -> None:
+    out = _run("flip")
+    assert out["moved"] == [["a", "translate(-30px, -10px)", "none"]]
