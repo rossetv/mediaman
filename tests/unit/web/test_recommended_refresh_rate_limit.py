@@ -10,6 +10,8 @@ just hides the button to match.
 from __future__ import annotations
 
 import contextlib
+import json
+import re
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -27,7 +29,7 @@ from tests.helpers.factories import insert_settings, insert_suggestion
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
 # in tests/unit/web/conftest.py. The recommended page test
-# (test_page_does_not_embed_share_urls) renders the live ``/recommended``
+# (test_page_does_not_embed_share_urls) renders the live ``/watch``
 # template, and the rate-limit tests have to pass through the CSRF
 # middleware on unsafe POSTs — both need the full ``create_app()`` stack.
 
@@ -427,40 +429,44 @@ class TestOnDemandShareToken:
         assert r.status_code == 429
 
     def test_page_does_not_embed_share_urls(self, authed_client, app):
-        """The recommended page JSON must not contain pre-minted share_url values."""
+        """Neither the Watch page nor its recommendations JSON carries a pre-minted share
+        link; one exists only once an admin asks for it through the share-token route."""
         conn = app.state.db
         self._insert_suggestion(conn)
 
-        mock_radarr = MagicMock()
-        mock_radarr.get_movies.return_value = []
-
         with (
-            patch(
-                "mediaman.web.routes.recommended.api.build_radarr_from_db", return_value=mock_radarr
-            ),
-            patch(
-                "mediaman.web.routes.recommended.api.build_sonarr_from_db", return_value=MagicMock()
-            ),
+            patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+            patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=None),
         ):
-            resp = authed_client.get("/recommended", follow_redirects=True)
+            page = authed_client.get("/watch")
+            recs = authed_client.get("/api/watch/recommended")
 
-        assert resp.status_code == 200
-        # The server-side data block must not contain any share_url keys
-        body_text = resp.text
-        # Parse the JSON block embedded in the HTML
-        import re
-
-        match = re.search(
-            r'<script id="rec-data" type="application/json">(.*?)</script>',
-            body_text,
+        assert page.status_code == 200
+        island = re.search(
+            r'<script type="application/json" id="watch-page-data">(.*?)</script>',
+            page.text,
             re.DOTALL,
         )
-        assert match is not None, "rec-data script block not found"
-        rec_data = __import__("json").loads(match.group(1))
-        for item in rec_data.values():
-            assert "share_url" not in item or item["share_url"] == "", (
-                f"share_url must not be pre-embedded in page for item {item.get('title')}"
-            )
+        assert island is not None, "watch-page-data island not found"
+        data = json.loads(island.group(1))
+        assert data["is_admin"] is True
+        assert not [k for k in _keys(data) if "share" in k or "token" in k]
+        assert "example.com/download/" not in page.text
+
+        assert recs.status_code == 200
+        body = recs.json()
+        assert [item["title"] for item in body["items"]] == ["Interstellar"]
+        assert not [k for k in _keys(body) if "share" in k or "token" in k]
+        assert "/download/" not in recs.text
+
+
+def _keys(value: object) -> list[str]:
+    """Every key in a parsed JSON value, at any depth."""
+    if isinstance(value, dict):
+        return [*value, *(key for inner in value.values() for key in _keys(inner))]
+    if isinstance(value, list):
+        return [key for inner in value for key in _keys(inner)]
+    return []
 
 
 class TestDownloadRecommendationSuccess:
