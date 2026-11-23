@@ -313,13 +313,37 @@ class TestPosterEndpointAuth:
 
         assert client.get("/api/poster/12345").status_code == 404
 
-    def test_admin_may_fetch_poster_outside_scanned_libraries(self, tmp_path):
+    def test_admin_refused_for_item_outside_scanned_libraries(self, tmp_path):
         client, conn = self._build_test_app(tmp_path, self._KEY)
         self._session(conn, client, "admin")
         insert_media_item(conn, id="12345", plex_library_id=9)
         _scan(conn)
 
+        assert client.get("/api/poster/12345").status_code == 404
+
+    def test_deleted_item_poster_is_served_by_audit_media_id(self, tmp_path):
+        from mediaman.core.audit import log_audit
+
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client, "viewer")
+        _scan(conn)
+        log_audit(conn, "12345", "deleted", "Deleted: Gone")
+        conn.commit()
+
         assert client.get("/api/poster/12345").status_code == 200
+
+    def test_deleted_item_poster_is_served_by_rating_key_in_detail(self, tmp_path):
+        from mediaman.core.audit import log_audit
+
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client, "viewer")
+        _scan(conn)
+        log_audit(conn, "sonarr:7", "deleted", "Deleted: Gone [rk:12345]")
+        log_audit(conn, "other", "snoozed", "Snoozed [rk:54321]")
+        conn.commit()
+
+        assert client.get("/api/poster/12345").status_code == 200
+        assert client.get("/api/poster/54321").status_code == 404
 
     def test_session_refused_for_key_not_in_the_library(self, tmp_path):
         client, conn = self._build_test_app(tmp_path, self._KEY)

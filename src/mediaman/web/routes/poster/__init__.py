@@ -4,8 +4,8 @@ Package layout: cache.py holds the filesystem cache, fetch.py the outbound fetch
 guards and URL/mime helpers, and this module the route handler, rate limiters, auth gate and
 re-exports of the names tests patch at mediaman.web.routes.poster.<name>.
 
-Access control: anyone logged in can fetch the poster of an item in the scanned libraries (or
-of its show, or of an item recorded as deleted); any other key is a 404. Email clients have no
+Access control: anyone logged in, admin or viewer, can fetch the poster of an item in the
+scanned libraries (or of its show, or of an item recorded as deleted); any other key is a 404. Email clients have no
 session cookie, so email-embedded posters use a signed URL from sign_poster_url, whose
 signature carries an expiry (default 180 days) and is domain-separated via a dedicated HMAC
 sub-key. Unauthenticated callers get a uniform 401 whether or not the rating_key exists, so
@@ -31,7 +31,6 @@ from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
 from mediaman.web.auth.middleware import get_optional_admin
-from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.watch_library import is_poster_key_allowed, scanned_library_ids
 from mediaman.web.routes.poster.cache import (
     CACHE_MAX_AGE_SECONDS as _CACHE_MAX_AGE_SECONDS,
@@ -125,13 +124,11 @@ def proxy_poster(
     if auth_err is not None:
         return auth_err
 
-    # A signed URL was issued by mediaman for that key, and an admin may see any poster;
-    # a viewer may only reach posters of items in the scanned libraries.
+    # A signed URL was issued by mediaman for that key; a session, admin or viewer, may only
+    # reach posters of items in the scanned libraries (or recorded as deleted).
     if admin is not None:
         db = get_db()
-        if get_user_role(db, admin) != "admin" and not is_poster_key_allowed(
-            db, scanned_library_ids(db), rating_key
-        ):
+        if not is_poster_key_allowed(db, scanned_library_ids(db), rating_key):
             return Response(status_code=404)
 
     cache_dir = _get_cache_dir(config.data_dir)

@@ -46,6 +46,10 @@ class PendingDeletion:
     show_key: str | None
 
 
+# Matches the Dashboard's recently-deleted window (5 batches of 50).
+_DELETED_POSTER_WINDOW = 250
+
+
 def scanned_library_ids(conn: sqlite3.Connection) -> list[str]:
     """The Plex library ids ticked in Settings; [] when unset or unreadable."""
     value = get_setting(conn, "plex_libraries", default=[])
@@ -231,10 +235,11 @@ def pending_deletion(
 
 
 def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: str) -> bool:
-    """Whether a poster may be served to a viewer for *key*.
+    """Whether a poster may be served for *key*, to an admin or a viewer alike.
 
     True for the key of a movie or season in the scanned libraries, or of
-    the show such a season belongs to.
+    the show such a season belongs to, and for an item the audit log records
+    as deleted (the Dashboard still shows those, from the poster cache).
     """
     lib_sql, params = _in_libraries(libraries)
     # rationale: only the fixed library filter and "?" placeholders are interpolated
@@ -242,6 +247,21 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
         f"SELECT 1 FROM media_items WHERE {lib_sql}"
         " AND (id = ? OR plex_rating_key = ? OR show_rating_key = ?) LIMIT 1",
         (*params, key, key, key),
+    ).fetchone()
+    if row is not None:
+        return True
+    # The audit row keeps the rating key only inside its detail text, so look at the newest
+    # deleted rows (the window the Dashboard shows) rather than every audit row.
+    row = conn.execute(
+        "SELECT 1 FROM audit_log WHERE action = 'deleted' AND media_item_id = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    if row is not None:
+        return True
+    row = conn.execute(
+        "SELECT 1 FROM (SELECT detail FROM audit_log WHERE action = 'deleted'"
+        " ORDER BY created_at DESC LIMIT ?) WHERE instr(detail, ?) > 0 LIMIT 1",
+        (_DELETED_POSTER_WINDOW, f"[rk:{key}]"),
     ).fetchone()
     return row is not None
 
