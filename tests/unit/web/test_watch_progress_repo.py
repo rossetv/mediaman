@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mediaman.web.repository.watch_progress import (
+    _CONTINUE_CANDIDATES,
     continue_watching,
     get_progress,
     save_progress,
@@ -128,6 +129,22 @@ class TestContinueWatching:
 
         assert (card.progress.rating_key, card.progress.show_rating_key) == ("e2", "sh")
         assert card.find_next is True
+
+    def test_only_the_most_recent_rows_are_read(self, users):
+        _save(users, rating_key="old-movie", position=600.0, now=NOON)
+        users.executemany(
+            "INSERT INTO watch_progress (username, rating_key, media_item_id, show_rating_key,"
+            " position_s, duration_s, watched, updated_at) VALUES ('aoife', ?, ?, 'sh', 600, 6000, 0, ?)",
+            [
+                (f"e{i}", f"e{i}", (NOON + timedelta(minutes=1 + i)).isoformat())
+                for i in range(_CONTINUE_CANDIDATES)
+            ],
+        )
+        users.commit()
+
+        cards = continue_watching(users, "aoife")
+
+        assert [c.progress.rating_key for c in cards] == [f"e{_CONTINUE_CANDIDATES - 1}"]
 
     def test_watched_and_barely_started_movies_are_left_out(self, users):
         _save(users, rating_key="done", position=5800.0)

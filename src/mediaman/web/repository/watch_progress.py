@@ -21,6 +21,9 @@ WATCHED_FRACTION = 0.9
 CREDIT_SECONDS = 300.0
 # A movie needs more than this many seconds in to show in Continue watching.
 MIN_RESUME_SECONDS = 30.0
+# Most recent rows read for Continue watching. A show shows once however many
+# of its episodes were played, so this is well above the cards a row can hold.
+_CONTINUE_CANDIDATES = 200
 
 _COLUMNS = "rating_key, media_item_id, show_rating_key, position_s, duration_s, watched, updated_at"
 
@@ -162,8 +165,8 @@ def continue_watching(conn: sqlite3.Connection, username: str) -> list[ContinueC
     """
     rows = conn.execute(
         f"SELECT {_COLUMNS} FROM watch_progress WHERE username = ?"  # nosec B608
-        " ORDER BY updated_at DESC, rating_key",
-        (username,),
+        " ORDER BY updated_at DESC, rating_key LIMIT ?",
+        (username, _CONTINUE_CANDIDATES),
     ).fetchall()
     cards: list[ContinueCard] = []
     seen_shows: set[str] = set()
