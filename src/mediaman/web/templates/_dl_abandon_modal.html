@@ -1,7 +1,7 @@
 {# _dl_abandon_modal.html — confirm sheet for the abandon-search action.
    Hidden by default; opened by static/js/dl-abandon.js. #}
 {% import "_components.html" as c %}
-<div class="modal-backdrop" id="abandon-modal" style="display:none;"
+<div class="modal-backdrop" id="abandon-modal" hidden
      role="dialog" aria-modal="true" aria-labelledby="abandon-modal-title" aria-hidden="true">
   <div class="modal-sheet" style="max-width:560px">
     <div class="abandon-modal-body">
@@ -10,7 +10,7 @@
         <!-- Filled in per item kind by JS. -->
       </p>
 
-      <div class="dl-abandon-list" id="abandon-season-list" style="display:none;"></div>
+      <div class="dl-abandon-list" id="abandon-season-list" hidden></div>
 
       <div class="modal-actions abandon-modal-actions">
         {{ c.btn("Cancel", variant="ghost",

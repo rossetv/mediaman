@@ -63,12 +63,12 @@
         : 'Mediaman will stop poking Radarr/Sonarr and the item will be ' +
           'unmonitored. It stays in your library so you can re-monitor any ' +
           'time — nothing is deleted from disk.';
-      listEl.style.display = 'none';
+      listEl.hidden = true;
     } else {
       copyEl.textContent =
         'Pick which seasons to stop chasing. Already-downloaded seasons ' +
         'stay put — only the seasons you tick will be unmonitored in Sonarr.';
-      listEl.style.display = '';
+      listEl.hidden = false;
       stuck.forEach(function (s) { listEl.appendChild(buildSeasonRow(s)); });
     }
     showConfirmState();

@@ -48,8 +48,8 @@
         /* Hide cinematic metadata, show hero card wrapper */
         var cinema = document.getElementById('dl-cinema');
         var content = document.getElementById('dl-content');
-        if (cinema) cinema.style.display = 'none';
-        if (content) content.style.display = 'none';
+        if (cinema) cinema.hidden = true;
+        if (content) content.hidden = true;
 
         var wrapper = document.getElementById('dl-hero-wrapper');
         buildHeroCard(wrapper, {
@@ -65,9 +65,9 @@
           episodes: null,
           episode_summary: ''
         });
-        wrapper.style.display = '';
+        wrapper.hidden = false;
 
-        document.getElementById('download-action').style.display = 'none';
+        document.getElementById('download-action').hidden = true;
 
         /* A 401 already stopped polling and told the visitor to reload. */
         if (!_pollStopped) {
@@ -158,7 +158,7 @@
 
         var progressWrap = wrapper.querySelector('[data-v="progress-wrap"]');
         if (progressWrap) {
-          progressWrap.style.display = (data.state === 'searching') ? 'none' : '';
+          progressWrap.hidden = (data.state === 'searching');
         }
 
         var fill = wrapper.querySelector('[data-v="fill"]');
@@ -234,14 +234,14 @@
       var list = document.createElement('div');
       list.className = 'dl-hero-episodes';
       list.setAttribute('data-v', 'ep-list');
-      list.style.display = 'none';
+      list.hidden = true;
       for (var i = 0; i < episodes.length; i++) {
         list.appendChild(buildEpisodeRow(episodes[i]));
       }
       hero.appendChild(list);
 
       toggle.addEventListener('click', function() {
-        list.style.display = list.style.display === 'none' ? '' : 'none';
+        list.hidden = !list.hidden;
       });
     } else {
       /* Update existing episode rows */
@@ -319,9 +319,9 @@
 
   function showResult(success, message) {
     var actionEl = document.getElementById('download-action');
-    if (actionEl) actionEl.style.display = 'none';
+    if (actionEl) actionEl.hidden = true;
     var heroWrapper = document.getElementById('dl-hero-wrapper');
-    if (heroWrapper) heroWrapper.style.display = 'none';
+    if (heroWrapper) heroWrapper.hidden = true;
 
     var resultEl = document.getElementById('download-result');
     resultEl.replaceChildren();
@@ -344,7 +344,7 @@
     detail.textContent = success ? 'It will appear in your Plex library shortly.' : message;
     resultEl.appendChild(detail);
 
-    resultEl.style.display = '';
+    resultEl.hidden = false;
     resultEl.style.borderColor = success ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)';
     resultEl.style.background = success ? 'rgba(48,209,88,0.04)' : 'rgba(255,69,58,0.04)';
   }
@@ -360,8 +360,8 @@
       toggle.addEventListener('click', function() {
         var list = document.querySelector('#dl-hero-wrapper [data-v="ep-list"]');
         if (!list) return;
-        var opening = list.style.display === 'none';
-        list.style.display = opening ? '' : 'none';
+        var opening = list.hidden;
+        list.hidden = !opening;
         toggle.classList.toggle('open', opening);
         toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
       });

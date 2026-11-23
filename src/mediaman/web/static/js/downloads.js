@@ -169,10 +169,10 @@
     if (!list || list.getAttribute('data-v') !== 'ep-list') return;
     var dom = buildDom();
     if (isOpen) {
-      list.style.display = '';
+      list.hidden = false;
       dom.reveal(list);
     } else {
-      dom.collapse(list, function () { list.style.display = 'none'; });
+      dom.collapse(list, function () { list.hidden = true; });
     }
   });
 

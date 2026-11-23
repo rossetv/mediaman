@@ -9,7 +9,7 @@
  *
  * A modal is considered open when either:
  *   - the element has the class .is-visible or .active, OR
- *   - its inline style.display is not "none"
+ *   - its [hidden] attribute is absent
  *
  * Integration:
  *   ModalA11y.register('delete-modal', closeDeleteModal);

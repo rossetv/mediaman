@@ -33,10 +33,10 @@
     var hint = d.q('[data-v="search-hint"]', card);
     if (!hint) return;
     if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
-      hint.style.display = 'none';
+      hint.hidden = true;
       return;
     }
-    hint.style.display = '';
+    hint.hidden = false;
     while (hint.firstChild) hint.removeChild(hint.firstChild);
     if (item.search_hint) {
       var text = document.createElement('span');
@@ -171,7 +171,7 @@
       existingList = document.createElement('div');
       existingList.className = 'dl-hero-episodes';
       existingList.setAttribute('data-v', 'ep-list');
-      existingList.style.display = 'none';
+      existingList.hidden = true;
       info.appendChild(existingList);
     }
 
@@ -271,7 +271,7 @@
 
     /* Progress wrap (hide entirely while searching) */
     var progressWrap = d.q('[data-v="progress-wrap"]', card);
-    if (progressWrap) progressWrap.style.display = (item.state === 'searching') ? 'none' : '';
+    if (progressWrap) progressWrap.hidden = (item.state === 'searching');
 
     /* Progress bar */
     var fill = d.q('[data-v="fill"]', card);
