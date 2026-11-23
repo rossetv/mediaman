@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from collections.abc import Callable, Set
+from collections.abc import Callable
 
 from fastapi import FastAPI
 
@@ -216,26 +216,19 @@ SCHEDULE_SETTING_KEYS = frozenset(
 )
 
 
-def reschedule_scan_jobs(
-    conn: sqlite3.Connection, db_path: str | None, secret_key: str, changed_keys: Set[str]
-) -> bool:
+def reschedule_scan_jobs(conn: sqlite3.Connection, db_path: str | None, secret_key: str) -> bool:
     """Apply the saved scan schedule to the running scheduler.
 
-    *changed_keys* names the schedule settings whose stored value changed;
-    only the jobs they drive are re-added, so an unchanged save leaves the
-    library-sync countdown alone. Returns False when no scheduler is running;
-    raises ``ValueError`` when a stored value is malformed, leaving the current
-    schedule in place.
+    Only a job whose saved schedule differs from the live one is re-added, so a
+    save that changes nothing leaves the library-sync countdown alone. Returns
+    False when no scheduler is running; raises ``ValueError`` when a stored
+    value is malformed, leaving the current schedule in place.
     """
     from mediaman.scanner import scheduler as sched
 
     scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
     return sched.reschedule_scan_jobs(
-        lambda: _read_scheduler_config(conn),
-        scan_fn=scan_callback,
-        sync_fn=sync_callback,
-        scan_changed=bool(changed_keys & {"scan_day", "scan_time", "scan_timezone"}),
-        sync_changed="library_sync_interval" in changed_keys,
+        lambda: _read_scheduler_config(conn), scan_fn=scan_callback, sync_fn=sync_callback
     )
 
 

@@ -110,8 +110,6 @@ def test_reschedule_reads_the_schedule_while_holding_the_scheduler_lock():
         read_schedule,
         scan_fn=lambda: None,
         sync_fn=lambda: None,
-        scan_changed=True,
-        sync_changed=True,
     )
 
     assert applied is True

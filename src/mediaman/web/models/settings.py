@@ -230,6 +230,14 @@ class SettingsUpdate(BaseModel):
                     _reject_crlf(item)
         return v
 
+    @field_validator("scan_day", "scan_time", mode="before")
+    @classmethod
+    def blank_schedule_field_is_not_sent(cls, v: object) -> object:
+        """The page sends a cleared input as "", which must keep the stored value, not fail the save."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("scan_day", mode="after")
     @classmethod
     def validate_scan_day_field(cls, v: str | None) -> str | None:

@@ -183,9 +183,7 @@ def _persist_settings(
     written = sorted(k for k in body_dict if k in _ALL_KEYS)
     ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
     sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
-    schedule_written = {k for k in written if k in SCHEDULE_SETTING_KEYS}
     try:
-        schedule_before = _load_settings(conn, secret_key, keys=schedule_written)
         write_settings(
             conn,
             body_dict=body_dict,
@@ -205,16 +203,9 @@ def _persist_settings(
             "internal_error", status=500, message="Internal error during settings write"
         )
     _invalidate_test_cache_for_keys(set(written))
-    if schedule_written:
+    if SCHEDULE_SETTING_KEYS.intersection(written):
         try:
-            schedule_after = _load_settings(conn, secret_key, keys=schedule_written)
-            changed = {
-                k for k in schedule_written if schedule_before.get(k) != schedule_after.get(k)
-            }
-            if changed:
-                reschedule_scan_jobs(
-                    conn, getattr(request.app.state, "db_path", None), secret_key, changed
-                )
+            reschedule_scan_jobs(conn, getattr(request.app.state, "db_path", None), secret_key)
         # rationale: the save is already committed and the scheduler reads it at the next restart.
         except Exception:
             logger.warning("settings.reschedule_failed", exc_info=True)

@@ -13,10 +13,12 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -95,25 +97,18 @@ class ScanSchedule:
     sync_interval: int
 
 
-def _add_weekly_scan_job(
-    scheduler: BackgroundScheduler,
-    scan_fn: Callable[[], None],
-    *,
-    day_of_week: str,
-    hour: int,
-    minute: int,
-    timezone: str,
-) -> None:
+def _weekly_scan_trigger(day_of_week: str, hour: int, minute: int, timezone: str) -> CronTrigger:
     from apscheduler.triggers.cron import CronTrigger
 
+    return CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute, timezone=timezone)
+
+
+def _add_weekly_scan_job(
+    scheduler: BackgroundScheduler, scan_fn: Callable[[], None], trigger: CronTrigger
+) -> None:
     scheduler.add_job(
         scan_fn,
-        trigger=CronTrigger(
-            day_of_week=day_of_week,
-            hour=hour,
-            minute=minute,
-            timezone=timezone,
-        ),
+        trigger=trigger,
         id="weekly_scan",
         replace_existing=True,
         max_instances=1,
@@ -156,7 +151,7 @@ def _register_scan_jobs(
     all-jobs-or-no-jobs registration window is preserved.
     """
     _add_weekly_scan_job(
-        scheduler, scan_fn, day_of_week=day_of_week, hour=hour, minute=minute, timezone=timezone
+        scheduler, scan_fn, _weekly_scan_trigger(day_of_week, hour, minute, timezone)
     )
     if sync_fn and sync_interval_minutes > 0:
         _add_library_sync_job(scheduler, sync_fn, sync_interval_minutes)
@@ -167,38 +162,37 @@ def reschedule_scan_jobs(
     *,
     scan_fn: Callable[[], None],
     sync_fn: Callable[[], None],
-    scan_changed: bool,
-    sync_changed: bool,
 ) -> bool:
-    """Apply a changed scan schedule to the running scheduler.
+    """Bring the running scan jobs in line with the saved schedule.
 
-    Re-adds the weekly scan only when *scan_changed* and the library sync only
-    when *sync_changed*, since re-adding an interval job restarts its countdown;
-    the sync job is removed when its interval is 0. *read_schedule* is called
-    under the lock so overlapping saves cannot apply a stale reading last.
-    Returns False and changes nothing when no scheduler is running; whatever
-    *read_schedule* raises (``ValueError`` for a malformed value) propagates
-    and leaves the current schedule in place.
+    A job is re-added only when the live one differs from *read_schedule*'s,
+    since re-adding an interval job restarts its countdown; the sync job is
+    removed when its interval is 0. Comparing with the live jobs under the lock,
+    rather than with what one save changed, means overlapping saves converge on
+    the last committed schedule. Returns False and changes nothing when no
+    scheduler is running; whatever *read_schedule* raises (``ValueError`` for a
+    malformed value) propagates and leaves the current schedule in place.
     """
     with _scheduler_lock:
         running = _scheduler
         if running is None:
             return False
         schedule = read_schedule()
-        if scan_changed:
-            _add_weekly_scan_job(
-                running,
-                scan_fn,
-                day_of_week=schedule.scan_day,
-                hour=schedule.hour,
-                minute=schedule.minute,
-                timezone=schedule.scan_tz,
-            )
-        if sync_changed:
-            if schedule.sync_interval > 0:
-                _add_library_sync_job(running, sync_fn, schedule.sync_interval)
-            elif running.get_job("library_sync") is not None:
+        trigger = _weekly_scan_trigger(
+            schedule.scan_day, schedule.hour, schedule.minute, schedule.scan_tz
+        )
+        scan_job = running.get_job("weekly_scan")
+        # CronTrigger has no __eq__; its repr names every field and the timezone.
+        if scan_job is None or repr(scan_job.trigger) != repr(trigger):
+            _add_weekly_scan_job(running, scan_fn, trigger)
+        sync_job = running.get_job("library_sync")
+        if schedule.sync_interval == 0:
+            if sync_job is not None:
                 running.remove_job("library_sync")
+        elif sync_job is None or sync_job.trigger.interval != timedelta(
+            minutes=schedule.sync_interval
+        ):
+            _add_library_sync_job(running, sync_fn, schedule.sync_interval)
     return True
 
 

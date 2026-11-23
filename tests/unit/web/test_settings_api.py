@@ -488,6 +488,23 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         resp = client.put("/api/settings", json={"library_sync_interval": 1441})
         assert resp.status_code == 422
 
+    def test_a_cleared_schedule_input_keeps_the_stored_value_and_saves_the_rest(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        assert client.put("/api/settings", json={"scan_time": "07:15"}).status_code == 200
+
+        resp = client.put(
+            "/api/settings",
+            json={"scan_day": "", "scan_time": "", "nzbget_username": "nzbuser", "grace_days": 14},
+        )
+
+        assert resp.status_code == 200
+        data = client.get("/api/settings").json()
+        assert data["scan_time"] == "07:15"
+        assert data["nzbget_username"] == "nzbuser"
+        assert data["grace_days"] == 14
+
     @pytest.mark.parametrize(("key", "value"), [("scan_time", "25:99"), ("scan_day", "monday")])
     def test_put_refuses_a_schedule_value_the_scheduler_cannot_parse(
         self, app_factory, authed_client, conn, key, value
@@ -600,6 +617,21 @@ class TestSettingsPutReschedulesRunningScheduler:
         assert resp.status_code == 200
         row = conn.execute("SELECT value FROM settings WHERE key = 'scan_time'").fetchone()
         assert row["value"] == "14:30"
+
+    def test_a_save_that_changes_nothing_still_applies_a_schedule_the_live_jobs_missed(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        """An overlapping save can commit a time without applying it; the next save must."""
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('scan_time', '14:30', 0, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+        client = _client(app_factory, authed_client, conn)
+
+        client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert self._cron_field(scheduler.get_job("weekly_scan"), "hour") == "14"
 
     def test_saving_a_schedule_with_no_scheduler_running_still_succeeds(
         self, app_factory, authed_client, conn
