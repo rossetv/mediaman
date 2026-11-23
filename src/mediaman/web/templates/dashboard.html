@@ -11,11 +11,13 @@
     <div class="ph-row">
       <div>
         <h1>Hello, {{ username }}</h1>
+        <div data-fragment="summary">
         {% if scheduled_count %}
         <p>
-          {% if scheduled_count %}{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} scheduled for deletion{% if scheduled_size %} · {{ scheduled_size }} to reclaim{% endif %}{% endif %}
+          {{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} scheduled for deletion{% if scheduled_size %} · {{ scheduled_size }} to reclaim{% endif %}
         </p>
         {% endif %}
+        </div>
       </div>
       <div class="u-flex">
         {{ c.btn("Scan now", variant="ghost", id="scan-btn",
@@ -50,7 +52,7 @@
      TODO: macro c.storage needs a "structured num" + class-based legend
      option for this site. #}
   {% if show_storage %}
-  <section class="section">
+  <section class="section" data-fragment="storage">
     {{ c.sec_hd("Storage", "Across your selected libraries") }}
     <div class="storage">
       <div class="storage-hd">
@@ -74,7 +76,7 @@
   {% endif %}
 
   {# Scheduled for deletion — tile grid using new primitives #}
-  <section class="section">
+  <section class="section" data-fragment="scheduled">
     <div class="sec-hd">
       <h2>Scheduled for deletion</h2>
       <div class="u-flex u-gap-md">
@@ -98,16 +100,15 @@
         <div class="keep-wrapper tile-actions"
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
              data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
-          {{ c.btn("Keep", variant="accent-soft", size="sm",
+          {{ c.btn("Keep 30 days", variant="accent-soft", size="sm",
                    data_attrs={"action": "keep-tile", "duration": "30 days"}) }}
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
                   aria-haspopup="menu" aria-expanded="false"
-                  aria-label="More keep options">
+                  aria-label="Keep for a different length of time" title="Keep for a different length of time">
             <i class="fa-solid fa-ellipsis svg-icon-xs" aria-hidden="true"></i>
           </button>
           <div class="snooze-dropdown" role="menu">
             <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7 days">7 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="30 days">30 days</button>
             <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="90 days">90 days</button>
             <button class="snooze-option forever" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="forever">Forever</button>
           </div>
@@ -127,7 +128,7 @@
   <hr class="hr">
 
   {# Recently deleted — flat list #}
-  <section class="section">
+  <section class="section" data-fragment="deleted">
     {{ c.sec_hd("Recently deleted",
                 sub=reclaimed_total ~ " reclaimed total" if reclaimed_total != '0 B' else "") }}
 
