@@ -25,6 +25,7 @@
   object-fit: contain;
   background: var(--bg);
 }
+.player-hold { pointer-events: none; }
 
 /* Controls fade out while playing and nobody touches anything. */
 .player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
@@ -164,6 +165,16 @@
 }
 .player-btn--text { font-size: 14px; padding: 0 6px; }
 
+/* The play button while a stream loads to play. */
+.player-btn-ring {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--t1) 25%, transparent);
+  border-top-color: var(--t1);
+  border-radius: 50%;
+  animation: player-spin .9s linear infinite;
+}
+
 /* A 44 px tall hit area with a 36 px pill drawn inside it. */
 .player-pill {
   position: relative;
@@ -246,6 +257,7 @@
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
   .player-card { animation: none; }
+  .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
 
 /* Spinner while a stream starts or the buffer runs dry. */

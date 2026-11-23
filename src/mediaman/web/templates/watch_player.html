@@ -22,6 +22,8 @@
      data-leaving='{{ leaving|tojson }}'>
 
   <video class="player-video" playsinline webkit-playsinline preload="auto"></video>
+  {# The last frame, held over the video while a new stream takes its place. #}
+  <canvas class="player-video player-hold" data-hold aria-hidden="true" hidden></canvas>
 
   <div class="player-spinner" data-spinner aria-hidden="true"></div>
 

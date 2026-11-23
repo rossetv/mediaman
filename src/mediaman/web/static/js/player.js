@@ -17,6 +17,7 @@
  * long pause, a restart): a new one is started at the current position,
  * which is also how a quality change works. If the server refuses the
  * stream of a new quality, the quality that was playing comes back.
+ * While a new stream replaces the old one, the last frame stays on screen.
  */
 (function () {
   'use strict';
@@ -57,7 +58,8 @@
   var showHref = root.getAttribute('data-show-href') || '';
   var startS = parseFloat(root.getAttribute('data-start-s')) || 0;
 
-  var video = root.querySelector('.player-video');
+  var video = root.querySelector('video.player-video');
+  var hold = root.querySelector('[data-hold]');
   var q = function (sel) { return root.querySelector(sel); };
   var els = {
     play: q('[data-play]'),
@@ -165,11 +167,27 @@
 
   /* ---- messages and loading ------------------------------------------- */
 
-  function setLoading(on) { root.classList.toggle('is-loading', on); }
+  function setLoading(on) {
+    root.classList.toggle('is-loading', on);
+    showPlayState();
+  }
+
+  /* Draw the frame on screen over the video, so tearing the stream down
+     does not leave the picture black. */
+  function holdFrame() {
+    if (video.readyState < 2 || !video.videoWidth) return;
+    hold.width = video.videoWidth;
+    hold.height = video.videoHeight;
+    try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
+    hold.hidden = false;
+  }
+
+  function releaseFrame() { hold.hidden = true; }
 
   function showMessage(text, canRetry) {
-    setLoading(false);
     swapping = false;
+    releaseFrame();
+    setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !canRetry;
     els.message.hidden = false;
@@ -260,6 +278,7 @@
     streamId = null;
     swapping = true;
     hideUpnext();
+    holdFrame();
     if (old) stopOnServer(old);
     destroyHls();
     startStream(pos);
@@ -382,6 +401,12 @@
 
   function togglePlay() {
     if (!els.message.hidden) return;
+    if (swapping) {
+      /* No video to pause yet: the new stream starts the way this leaves it. */
+      wantPlaying = !wantPlaying;
+      showPlayState();
+      return;
+    }
     if (video.paused || video.ended) {
       if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
       play();
@@ -417,11 +442,16 @@
 
   function skip(delta) { seekTo(position() + delta); }
 
+  /* While a stream loads to play, the button shows it working, not a Pause
+     that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
-    var paused = video.paused || video.ended;
+    var busy = wantPlaying && root.classList.contains('is-loading');
+    var paused = (video.paused || video.ended) && !busy;
     els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    if (busy) els.play.setAttribute('aria-busy', 'true');
+    else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('i');
-    icon.className = 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
+    icon.className = busy ? 'player-btn-ring' : 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
     root.classList.toggle('is-paused', paused);
     if (paused) showControls();
     else scheduleIdle();
@@ -441,8 +471,8 @@
     }
     swapping = false;
     pendingStart = null;
+    releaseFrame();
     setLoading(false);
-    showPlayState();
   });
   video.addEventListener('play', function () {
     wantPlaying = true;
@@ -456,7 +486,11 @@
     saveProgress();
   });
   video.addEventListener('waiting', function () { setLoading(true); });
-  video.addEventListener('canplay', function () { if (video.paused) setLoading(false); });
+  video.addEventListener('canplay', function () {
+    if (!video.paused) return;
+    if (!wantPlaying && !swapping) releaseFrame();
+    setLoading(false);
+  });
   video.addEventListener('seeking', function () { lastTime = null; });
   video.addEventListener('seeked', function () {
     settleStart();
