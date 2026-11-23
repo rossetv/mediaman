@@ -109,7 +109,7 @@
       onClose: function () {
         input.value = '';
         if (closeOpen === modal.close) closeOpen = null;
-        /* The fade is 200ms; the node is not needed once it has gone. */
+        /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
         setTimeout(function () { backdrop.remove(); }, 400);
         if (!done) {
           done = true;
