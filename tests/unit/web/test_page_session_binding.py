@@ -3,7 +3,7 @@
 Previously each page route called ``validate_session(conn, token)`` with
 no UA/IP, which silently bypassed the fingerprint check. These tests
 exercise the new `mediaman.web.auth.middleware.resolve_page_session`
-helper via a real page route (``/library``) to confirm a stolen cookie
+helper via a real page route (``/library``, which redirects to Watch once the session holds) to confirm a stolen cookie
 replayed from a different User-Agent is redirected to ``/login`` rather
 than granted access.
 """
@@ -37,8 +37,9 @@ class TestPageSessionBinding:
             headers={"User-Agent": "Mozilla/5.0 Firefox"},
             follow_redirects=False,
         )
-        # 200 from the stubbed template response.
-        assert resp.status_code == 200
+        # Past the session check the old page is a redirect to Watch, not to /login.
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/watch?view=list"
 
     def test_library_redirects_on_different_ua(self, app_factory, conn, templates_stub):
         """Stolen cookie replayed with a different UA → redirect to /login."""
