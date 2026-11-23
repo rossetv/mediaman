@@ -293,7 +293,7 @@ const scenarios = {
     const btnPw = $('button', 'btn-change-password');
     const submitPw = $('button', 'btn-submit-password', pwForm);
     $('span', 'password-result', pwForm);
-    $('button', 'btn-cancel-password', pwForm);
+    const cancelPw = $('button', 'btn-cancel-password', pwForm);
     const emailForm = $('form', 'self-email-form', null, { hidden: true });
     const emailInput = $('input', 'self-email-input', emailForm, { value: 'me@x', defaultValue: 'me@x' });
     $('span', 'email-result', emailForm);
@@ -309,6 +309,11 @@ const scenarios = {
     pwForm.fire('submit');
     btnEmail.fire('click');
     const whileBusy = { pwHidden: pwForm.hidden, emailHidden: emailForm.hidden };
+    // its own toggle and Cancel do not close or reset it mid-request
+    h.doc.getElementById('self-old-password').value = 'typed';
+    btnPw.fire('click');
+    cancelPw.fire('click');
+    const ownButtons = { hidden: pwForm.hidden, value: h.doc.getElementById('self-old-password').value };
     finish({});
     await h.flush();
     // a form that is idle closes, and closing puts the typed values back to their start
@@ -316,7 +321,7 @@ const scenarios = {
     h.timers.forEach((t) => t.fn());
     btnPw.fire('click');
     const afterIdle = { emailHidden: emailForm.hidden, emailValue: emailInput.value, submitDisabled: submitPw.disabled };
-    return { whileBusy, afterIdle };
+    return { whileBusy, ownButtons, afterIdle };
   },
 
   // A throttled service is not counted as not connected.

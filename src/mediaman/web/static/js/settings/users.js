@@ -298,8 +298,13 @@
       }
       function closeAddUser() { if (addUserForm && !addUserForm.hidden) toggleAddUser(false); }
       closers.push(function () { if (!(btnSubmitAddUser && btnSubmitAddUser.disabled)) closeAddUser(); });
-      if (btnAddUser)       btnAddUser.addEventListener('click', function () { toggleAddUser(); });
+      // A form that is sending cannot be closed or reset from its own buttons.
+      if (btnAddUser)       btnAddUser.addEventListener('click', function () {
+        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        toggleAddUser();
+      });
       if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {
+        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
         toggleAddUser(false);
         if (btnAddUser) btnAddUser.focus();
       });
@@ -372,8 +377,12 @@
       }
       function closePwForm() { if (pwForm && !pwForm.hidden) togglePwForm(false); }
       closers.push(function () { if (!(btnSubmitPw && btnSubmitPw.disabled)) closePwForm(); });
-      if (btnChangePw) btnChangePw.addEventListener('click', function () { togglePwForm(); });
+      if (btnChangePw) btnChangePw.addEventListener('click', function () {
+        if (btnSubmitPw && btnSubmitPw.disabled) return;
+        togglePwForm();
+      });
       if (btnCancelPw) btnCancelPw.addEventListener('click', function () {
+        if (btnSubmitPw && btnSubmitPw.disabled) return;
         togglePwForm(false);
         if (btnChangePw) btnChangePw.focus();
       });
@@ -542,9 +551,14 @@
         closers.push(function () { if (!submit.disabled) hide(); });
 
         btn.addEventListener('click', function () {
+          if (submit.disabled) return;
           if (form.hidden) show(); else hide();
         });
-        cancel.addEventListener('click', function () { hide(); btn.focus(); });
+        cancel.addEventListener('click', function () {
+          if (submit.disabled) return;
+          hide();
+          btn.focus();
+        });
 
         form.addEventListener('submit', function (e) {
           e.preventDefault();

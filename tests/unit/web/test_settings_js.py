@@ -66,6 +66,8 @@ def test_new_rows_land_where_the_server_lists_them() -> None:
 def test_form_that_is_sending_stays_open_when_another_opens() -> None:
     out = _run("busyForm")
     assert out["whileBusy"] == {"pwHidden": False, "emailHidden": False}
+    # its own toggle and Cancel leave it open with what was typed
+    assert out["ownButtons"] == {"hidden": False, "value": "typed"}
     # once idle, opening another closes it and puts typed values back to their start
     assert out["afterIdle"] == {"emailHidden": True, "emailValue": "me@x", "submitDisabled": False}
 
