@@ -167,6 +167,29 @@ class TestCards:
         )
         assert item["href"] == "/watch/movie/100"
 
+    def test_a_tv_pick_the_library_holds_but_sonarr_does_not_track_is_in_library(
+        self, viewer, conn
+    ):
+        insert_media_item(
+            conn,
+            id="55",
+            plex_rating_key="55",
+            title="Severance S1",
+            show_title="Severance",
+            media_type="season",
+            season_number=1,
+            show_rating_key="9",
+        )
+        conn.execute("UPDATE media_items SET tmdb_id = 95396 WHERE id = '55'")
+        insert_suggestion(
+            conn, title="Severance", media_type="tv", tmdb_id=95396, batch_id="2099-01-01"
+        )
+        conn.commit()
+
+        (item,) = _get(viewer)["items"]  # no TMDB token is set: still a 200
+
+        assert (item["in_library"], item["library_ref"]) == (True, "show-9")
+
     def test_a_pick_without_a_tmdb_id_still_gets_a_card(self, viewer, conn):
         insert_suggestion(conn, title="No Id", tmdb_id=None, batch_id="2099-01-01")
         conn.commit()
