@@ -27,7 +27,7 @@ from mediaman.services.media_meta.plex_watch import (
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import apply_keep_snooze
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_err, respond_ok
@@ -65,7 +65,7 @@ class _KeepBody(BaseModel):
 
 
 @router.get("/api/watch/search")
-def api_watch_search(q: str = "", username: str = Depends(get_current_admin)) -> JSONResponse:
+def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> JSONResponse:
     term = q.strip()
     if not term:
         return JSONResponse({"items": []})
@@ -88,7 +88,7 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_admin)) ->
 @router.post("/api/watch/keep")
 def api_watch_keep(
     body: _KeepBody,
-    username: str = Depends(get_current_admin),
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
     """Keep a scheduled movie or season for 7, 30 or 90 days, as the newsletter keep does."""
     if not _KEEP_LIMITER.check(username):
@@ -138,7 +138,7 @@ def api_watch_keep(
 
 @router.get("/api/watch/thumb/{rating_key}")
 def api_watch_thumb(
-    request: Request, rating_key: str, username: str = Depends(get_current_admin)
+    request: Request, rating_key: str, username: str = Depends(get_current_user)
 ) -> Response:
     if not is_valid_key(rating_key):
         return Response(status_code=404)

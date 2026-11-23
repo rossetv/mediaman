@@ -96,18 +96,14 @@ def test_you_cannot_change_your_own_role(client, conn):
     assert get_user_role(conn, "admin") == "admin"
 
 
-def test_demoting_the_last_admin_is_refused_with_a_clear_message(client, conn):
-    # A session whose own row is already a viewer (demoted since it signed in) tries to
-    # demote the only real admin.
+def test_a_session_demoted_since_it_signed_in_is_refused(client, conn):
     insert_admin_user(conn, username="other")
     conn.execute("UPDATE admin_users SET role='viewer' WHERE username='admin'")
     conn.commit()
 
     resp = client.patch(f"/api/users/{_id(conn, 'other')}/role", json={"role": "viewer"})
 
-    assert resp.status_code == 400
-    assert resp.json()["error"] == "last_admin"
-    assert "at least one admin" in resp.json()["message"]
+    assert resp.status_code == 403
     assert get_user_role(conn, "other") == "admin"
 
 

@@ -18,7 +18,7 @@ from starlette.responses import Response
 from mediaman.db import get_db
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.middleware import get_current_user, resolve_page_session
 from mediaman.web.responses import respond_err
 
 from ._enrichment import (
@@ -61,7 +61,7 @@ def search_page(request: Request) -> Response:
 
 
 @router.get("/api/search")
-def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+def api_search(q: str, request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     """Search TMDB for movies and TV shows matching q: pages 1 and 2 in parallel, up to 40
     results, with download state and OMDb ratings.
     """
@@ -95,7 +95,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 
 
 @router.get("/api/search/discover")
-def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+def api_discover(request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     """Return trending and popular shelves from TMDB, each capped at 21 items. Shelves are
     fetched in parallel and TTL-cached per shelf key to avoid redundant TMDB calls.
     """

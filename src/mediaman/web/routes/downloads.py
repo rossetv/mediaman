@@ -18,7 +18,7 @@ from mediaman.db import get_db
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
-from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
 
 router = APIRouter()
@@ -84,7 +84,7 @@ def downloads_page(request: Request) -> Response:
 
 
 @router.get("/api/downloads")
-def downloads_api(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+def downloads_api(request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     conn = get_db()
     config = request.app.state.config
     data = build_downloads_response(conn, config.secret_key)

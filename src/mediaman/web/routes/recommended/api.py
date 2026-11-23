@@ -27,7 +27,7 @@ from mediaman.services.openai.recommendations.repository import (
 )
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
 from mediaman.web.responses import respond_failure
@@ -58,7 +58,7 @@ _RECOMMENDED_LIMIT_MAX = 200
 
 @router.get("/api/recommended")
 def api_recommended(
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     limit: int = Query(default=_RECOMMENDED_LIMIT_DEFAULT, ge=1, le=_RECOMMENDED_LIMIT_MAX),
     offset: int = Query(default=0, ge=0, le=10_000),
 ) -> JSONResponse:
@@ -249,7 +249,7 @@ def _add_rec_to_sonarr(
 
 @router.post("/api/recommended/{recommendation_id}/download")
 def api_download_recommendation(
-    recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)
+    recommendation_id: int, request: Request, admin: str = Depends(get_current_user)
 ) -> JSONResponse:
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return respond_failure("Too many requests", status=429)

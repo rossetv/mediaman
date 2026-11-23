@@ -1,12 +1,16 @@
 """FastAPI authentication dependency functions.
 
-Exports four FastAPI/callable dependency functions that all callers should
+Exports FastAPI/callable dependency functions that all callers should
 prefer over raw ``validate_session`` calls — they guarantee fingerprint
 binding (User-Agent + client IP) is consistently applied:
 
 `get_current_admin`
-    Strict dependency: returns the username string or raises ``401``.
-    Use in endpoints that must be authenticated.
+    Strict dependency: returns the username of an admin, raises ``401``
+    without a session and ``403`` for any other role.
+
+`get_current_user`
+    Like the above for any valid session, viewers included. Use in the
+    endpoints a viewer may reach.
 
 `get_optional_admin`
     Soft dependency: returns username or ``None``, never raises.
@@ -101,11 +105,11 @@ def resolve_cached_session(
     return username
 
 
-def get_current_admin(
+def get_current_user(
     request: Request,
     session_token: str | None = Cookie(default=None),
 ) -> str:
-    """FastAPI dependency — returns username or raises 401.
+    """FastAPI dependency — returns the username of any valid session (admin or viewer) or raises 401.
 
     Reuses the request-scoped session cache (populated by the
     force-password-change middleware) so a cookie-bearing request is
@@ -119,6 +123,22 @@ def get_current_admin(
     username = resolve_cached_session(request, conn, session_token)
     if username is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return username
+
+
+def get_current_admin(
+    request: Request,
+    session_token: str | None = Cookie(default=None),
+) -> str:
+    """FastAPI dependency — returns the username of an admin session, 401 without a session
+    and 403 for any other role (a viewer, or an account whose role is unknown).
+
+    Backs up ``ViewerGuardMiddleware`` so an admin API stays closed to viewers even if the
+    guard's allowlist is widened or the middleware is not installed.
+    """
+    username = get_current_user(request, session_token)
+    if get_user_role(get_db(), username) != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
     return username
 
 

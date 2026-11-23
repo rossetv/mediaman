@@ -25,7 +25,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
 from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
@@ -209,7 +209,7 @@ def api_detail(
     media_type: str,
     tmdb_id: int,
     request: Request,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
 ) -> JSONResponse:
     """Return the expanded detail card for one TMDB movie or TV series; 400 for any media_type
     other than "movie" or "tv".
