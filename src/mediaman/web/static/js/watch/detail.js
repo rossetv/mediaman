@@ -944,6 +944,16 @@
       }
     }).catch(function (err) {
       k.busy = false;
+      // 409: the Arr already has it, so trying again can only fail again.
+      if (err && err.status === 409) {
+        k.state = 'in_library';
+        k.pct = null;
+        fire(ref, 'in_library', null);
+        core.toast(MM.api.messageOf(err, title + ' is already in your library.'));
+        redrawActions(ref);
+        if (cur && cur.ref === ref) refresh();
+        return;
+      }
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
       redrawActions(ref);
     });

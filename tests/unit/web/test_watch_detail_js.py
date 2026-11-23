@@ -216,11 +216,27 @@ def test_a_poll_mid_share_keeps_sharing_and_copied_and_sends_one_request() -> No
 
 def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again() -> None:
     out = _run("downloadFails")
-    assert "Already being added" in out["err"]["text"]
+    assert "Radarr did not answer" in out["err"]["text"]
     assert out["err"]["role"] == "alert"
     assert out["err"]["primary"]["text"] == "Download"
     assert out["posts"] == 2
     assert out["events"] == []
+
+
+def test_a_download_the_arr_already_has_shows_the_title_in_the_library_without_try_again() -> None:
+    out = _run("downloadAlreadyThere")
+    assert out["at409"]["primary"]["text"] == "In library"
+    assert (out["at409"]["error"], out["at409"]["retry"]) == (False, False)
+    assert out["events"][0] == {
+        "ref": "tmdb-movie-77",
+        "download_state": "in_library",
+        "download_pct": None,
+    }
+    assert any("already in your library" in t for t in out["toasts"])
+    # The title is asked for again and opens as the library title it now is.
+    assert out["gets"][-1] == "/api/watch/title/movie-120"
+    assert out["refetched"]["primary"]["text"] == "Play"
+    assert out["refetched"]["retry"] is False
 
 
 def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None:

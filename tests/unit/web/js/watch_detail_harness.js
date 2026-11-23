@@ -587,7 +587,7 @@ const scenarios = {
   async downloadFails() {
     const p = load({
       routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL },
-      posted: { '/api/search/download': new APIError(409, 'conflict', 'Already being added') },
+      posted: { '/api/search/download': new APIError(502, 'arr_failed', 'Radarr did not answer') },
     });
     p.run();
     await openCard(p, 'tmdb-movie-77');
@@ -597,6 +597,27 @@ const scenarios = {
     click(p.doc, p.q('[data-ttl-act="retry"]'));
     await settle();
     return { err, posts: p.posts.length, events: p.events };
+  },
+
+  // The Arr says the title is already there: no Try again, the title shows as in the library.
+  async downloadAlreadyThere() {
+    let gets = 0;
+    const p = load({
+      routes: { '/api/watch/title/tmdb-movie-77': () => {
+        gets += 1;
+        return Promise.resolve(gets === 1 ? MOVIE_DL : Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' }));
+      }, '/api/watch/title/movie-120': LIB_MOVIE },
+      posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in your library") },
+    });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('[data-ttl-act="primary"]'));
+    const shown = () => ({ primary: primary(p), error: !!p.q('.ttl__error'), retry: !!p.q('[data-ttl-act="retry"]') });
+    await Promise.resolve();
+    await Promise.resolve();
+    const at409 = shown();
+    await settle();
+    return { at409, refetched: shown(), gets: p.gets.slice(), events: p.events, toasts: p.toasts.map((t) => t.message) };
   },
 
   async recDownload() {
