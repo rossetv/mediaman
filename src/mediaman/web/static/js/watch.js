@@ -710,7 +710,7 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error', 'watch-results__msg--empty');
+      msg.classList.remove('watch-results__msg--failed', 'watch-results__msg--empty');
     }
 
     function showResults() {
@@ -724,7 +724,7 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error', 'watch-results__msg--empty');
+      msg.classList.remove('watch-results__msg--failed', 'watch-results__msg--empty');
     }
 
     function showFound(q, items) {
@@ -744,11 +744,15 @@
       status.textContent = line;
     }
 
+    /* Laid out like the empty state: an icon, the line, and a way on. */
     function showFailed(text) {
       showResults();
-      msg.classList.add('watch-results__msg--error');
-      msg.appendChild(el('span', '', text));
-      var retry = el('button', 'watch-results__retry', 'Try again');
+      var icon = el('i', 'fa-solid fa-triangle-exclamation watch-results__icon');
+      icon.setAttribute('aria-hidden', 'true');
+      msg.classList.add('watch-results__msg--failed');
+      msg.appendChild(icon);
+      msg.appendChild(el('span', 'watch-results__line', text));
+      var retry = el('button', 'btn watch-btn--grey watch-results__again', 'Try again');
       retry.type = 'button';
       retry.addEventListener('click', function () {
         input.focus();

@@ -56,3 +56,11 @@ def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_conten
     assert out["duration"] <= 350
     assert out["lastOpen"] < out["faded"]
     assert all(width == "20px" for width in out["pinned"])
+
+
+def test_a_failed_search_is_laid_out_like_an_empty_one_and_still_read_out() -> None:
+    out = _run("searchError")
+    assert (out["centred"], out["icon"]) == (True, True)
+    assert out["line"] == "Search failed."
+    assert out["status"] == "Search failed."
+    assert (out["retried"], out["focus"]) == (True, True)

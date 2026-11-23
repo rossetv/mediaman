@@ -335,6 +335,32 @@ const scenarios = {
     };
   },
 
+  // A search that fails, then its Try again.
+  async searchError() {
+    const page = load();
+    let calls = 0;
+    page.ctx.MM.api.get = () => { calls += 1; return Promise.reject(new Error('down')); };
+    page.doc.body.appendChild(searchPage(page.doc));
+    page.run();
+    const input = page.doc.getElementById('watch-search');
+    input.value = 'zzqx';
+    input.listeners.input.forEach((fn) => fn({}));
+    page.timers.pop()();
+    await settle();
+    const msg = page.doc.getElementById('watch-results-msg');
+    const out = {
+      centred: msg.classList.contains('watch-results__msg--failed'),
+      icon: msg.children[0].tagName === 'I' && msg.children[0].getAttribute('aria-hidden') === 'true',
+      line: msg.querySelector('.watch-results__line') && msg.querySelector('.watch-results__line').textContent,
+      status: page.doc.getElementById('watch-search-status').textContent,
+    };
+    click(page.doc, msg.querySelector('button'));
+    await settle();
+    out.retried = calls === 2;
+    out.focus = page.doc.activeElement === input;
+    return out;
+  },
+
   // Season 1 is leaving, Season 2 is not: the line's slot stays through the swap and back.
   async season() {
     const page = load();
