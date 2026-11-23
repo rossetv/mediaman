@@ -118,7 +118,7 @@
   background: var(--s2);
 }
 .setg-pg .setg-rail-item .rail-count.warn { background: rgba(255,214,10,.15); color: var(--warning); }
-.setg-pg .setg-rail-item .rail-count.err  { background: var(--rgba-danger-bg);  color: var(--danger);  }
+.setg-pg .setg-rail-item .rail-count.err  { background: var(--rgba-danger-bg);  color: var(--danger-text);  }
 
 .setg-pg .setg-body { min-width: 0; }
 .setg-pg .setg-body .ph { padding: 28px 0 8px; }
@@ -343,9 +343,9 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   background: var(--danger);
   box-shadow: var(--glow-danger);
 }
-.setg-pg .savebar.is-error .sb-msg { color: var(--danger); }
+.setg-pg .savebar.is-error .sb-msg { color: var(--danger-text); }
 .setg-pg .savebar.is-error .sb-sub {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--rgba-danger-bg);
   padding: 4px 10px;
   border-radius: var(--r-pill);
@@ -396,7 +396,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   margin-top: 20px;
 }
 .reauth-sheet .reauth-msg {
-  font-size: 12px; line-height: 1.4; color: var(--danger);
+  font-size: 12px; line-height: 1.4; color: var(--danger-text);
   margin-right: auto; align-self: center;
   min-height: 1.4em;
   opacity: 0;
@@ -423,7 +423,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 }
 .setg-pg .disk-badge.ok   { color: var(--success); background: var(--rgba-success-bg); }
 .setg-pg .disk-badge.warn { color: var(--warning); background: var(--rgba-warning-bg); }
-.setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
+.setg-pg .disk-badge.crit { color: var(--danger-text);  background: var(--rgba-danger-bg); }
 
 /* Phone tap targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */

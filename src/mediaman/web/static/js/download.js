@@ -335,7 +335,7 @@
 
     var titleDiv = document.createElement('div');
     titleDiv.className = 'dl-result-title';
-    titleDiv.style.color = success ? '#30d158' : '#ff453a';
+    titleDiv.style.color = success ? 'var(--success)' : 'var(--danger-text)';
     titleDiv.textContent = success ? message : 'Download failed';
     resultEl.appendChild(titleDiv);
 
@@ -345,8 +345,8 @@
     resultEl.appendChild(detail);
 
     resultEl.hidden = false;
-    resultEl.style.borderColor = success ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)';
-    resultEl.style.background = success ? 'rgba(48,209,88,0.04)' : 'rgba(255,69,58,0.04)';
+    resultEl.style.borderColor = success ? 'color-mix(in srgb, var(--success) 10%, transparent)' : 'color-mix(in srgb, var(--danger) 10%, transparent)';
+    resultEl.style.background = success ? 'color-mix(in srgb, var(--success) 4%, transparent)' : 'color-mix(in srgb, var(--danger) 4%, transparent)';
   }
 
   var dlBtn = document.getElementById('btn-download');

@@ -140,9 +140,9 @@
 .snooze-option:focus-visible { background: var(--s3); color: var(--t1); }
 .snooze-option--forever,
 .snooze-option.forever { color: var(--success); }
-.snooze-option--remove { color: var(--danger); border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 10px; }
+.snooze-option--remove { color: var(--danger-text); border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 10px; }
 .snooze-option--remove:hover,
-.snooze-option--remove:focus-visible { background: var(--rgba-danger-bg-soft); color: var(--danger); }
+.snooze-option--remove:focus-visible { background: var(--rgba-danger-bg-soft); color: var(--danger-text); }
 
 /* Pagination */
 .pagination {

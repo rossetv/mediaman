@@ -36,7 +36,7 @@
   margin-bottom: 16px;
 }
 .unsub-icon--success { color: var(--success); }
-.unsub-icon--error { color: var(--danger); }
+.unsub-icon--error { color: var(--danger-text); }
 
 .unsub-msg {
   font-size: 15px;

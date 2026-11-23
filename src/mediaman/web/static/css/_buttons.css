@@ -38,7 +38,7 @@
 .btn--success { background: var(--rgba-success-bg); color: var(--success); }
 .btn--success:hover { background: var(--rgba-success-bg-hover); }
 
-.btn--danger { background: var(--rgba-danger-bg); color: var(--danger); }
+.btn--danger { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn--danger:hover { background: var(--rgba-danger-bg-hover); }
 
 .btn--accent-soft { background: var(--rgba-accent-bg); color: var(--accent); }
@@ -49,7 +49,7 @@
 .btn--lg.btn--icon { width: 44px; height: 44px; }
 .btn > .fa-solid, .btn > .fa-regular, .btn > .fa-brands { font-size: 13px; }
 
-.btn.is-error { background: var(--rgba-danger-bg); color: var(--danger); }
+.btn.is-error { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn.is-success { background: var(--rgba-success-bg); color: var(--success); }
 
 /* Library keep/kept trigger — single pill. The whole button opens the
@@ -131,7 +131,7 @@
 }
 .scan-status a { color: var(--accent); }
 .scan-status--success { color: var(--success); }
-.scan-status--error { color: var(--danger); }
+.scan-status--error { color: var(--danger-text); }
 /* Never display:none: the status keeps its place so it can fade in, and on
    wide screens it takes no room beside the button (see below). */
 .scan-status:empty { opacity: 0; transition: none; }
@@ -174,7 +174,7 @@
 .pill--tv     { background: var(--rgba-accent-chip); color: var(--accent); }
 .pill--anime  { background: var(--rgba-purple-bg); color: var(--purple); }
 .pill--kept   { background: var(--rgba-success-chip); color: var(--success); }
-.pill--stale  { background: var(--rgba-danger-chip); color: var(--danger); }
+.pill--stale  { background: var(--rgba-danger-chip); color: var(--danger-text); }
 .pill--queued { background: var(--rgba-warning-bg); color: var(--warning); }
 .pill--neutral{ background: var(--rgba-overlay-md); color: var(--t2); }
 

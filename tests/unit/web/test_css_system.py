@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 CSS_DIR = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web" / "static" / "css"
 SHARED = sorted(p for p in CSS_DIR.glob("_*.css") if not p.name.startswith("_watch"))
 PHONE = "(max-width: 699.98px)"
@@ -214,7 +216,7 @@ def _hex(value: str) -> tuple[int, ...]:
 
 
 def test_danger_text_keeps_aa_contrast_on_every_red_tint_over_the_dark_surfaces() -> None:
-    fg = _hex(_token("danger"))
+    fg = _hex(_token("danger-text"))
     for tint in (
         "rgba-danger-bg",
         "rgba-danger-bg-hover",
@@ -226,7 +228,7 @@ def test_danger_text_keeps_aa_contrast_on_every_red_tint_over_the_dark_surfaces(
             under = _hex(_token(surface))
             bg = tuple(c * alpha + u * (1 - alpha) for c, u in zip(rgb, under, strict=True))
             hi, lo = sorted((_luminance(fg), _luminance(bg)), reverse=True)
-            assert (hi + 0.05) / (lo + 0.05) >= 4.5, f"--danger on {tint} over --{surface}"
+            assert (hi + 0.05) / (lo + 0.05) >= 4.5, f"--danger-text on {tint} over --{surface}"
 
 
 def test_a_leaving_confirm_dialog_keeps_catching_clicks() -> None:
@@ -235,3 +237,56 @@ def test_a_leaving_confirm_dialog_keeps_catching_clicks() -> None:
     for selectors, body in _rules(css):
         if any(".ui-confirm-overlay" in s and "is-leaving" in s for s in selectors):
             assert "pointer-events" not in body
+
+
+WEB_DIR = CSS_DIR.parents[1]
+ALL_CSS = sorted(CSS_DIR.glob("_*.css"))
+# every file that could carry a colour: stylesheets, scripts and templates (not the token file)
+COLOUR_FILES = [
+    p
+    for p in [
+        *ALL_CSS,
+        *(WEB_DIR / "static" / "js").rglob("*.js"),
+        *(WEB_DIR / "static" / "js").rglob("*.html"),
+        *(WEB_DIR / "templates").rglob("*.html"),
+    ]
+    if p.name != "_tokens.css"
+]
+# stylesheets that still set red text from --danger
+STILL_ON_DANGER = {"_watch.css", "_watch_detail.css", "_watch_list.css"}
+
+
+def test_the_red_tints_are_built_from_the_danger_token() -> None:
+    red = _hex(_token("danger"))
+    for tint in (
+        "rgba-danger-bg",
+        "rgba-danger-bg-hover",
+        "rgba-danger-bg-soft",
+        "rgba-danger-chip",
+    ):
+        rgb = tuple(int(x) for x in re.findall(r"\d+", _token(tint))[:3])
+        assert rgb == red, f"--{tint} is not the --danger red"
+
+
+def test_no_danger_red_is_written_out_beside_the_tokens() -> None:
+    literal = re.compile(r"#ff453a|#ff7a72|rgba?\(\s*255\s*,\s*69\s*,\s*58", re.I)
+    offenders = [p.name for p in COLOUR_FILES if literal.search(p.read_text(encoding="utf-8"))]
+    assert not offenders, f"literal danger red outside the tokens: {offenders}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(p, marks=pytest.mark.xfail(strict=True, reason="still on --danger"))
+        if p.name in STILL_ON_DANGER
+        else p
+        for p in COLOUR_FILES
+    ],
+    ids=lambda p: p.name,
+)
+def test_red_text_uses_the_text_token_not_the_fill_token(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".css":
+        text = _text(path)
+    # `color:` in CSS or inline, `style.color =` in a script; a fill (background, border) is not text
+    assert not re.search(r"(?<![\w-])color\s*[:=]\s*['\"]?var\(--danger\)", text)

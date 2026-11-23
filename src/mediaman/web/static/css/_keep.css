@@ -71,7 +71,7 @@
   margin-bottom: 18px;
 }
 .status-pill .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger); }
+.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .status-protected { background: var(--rgba-success-bg); color: var(--success); }
 .status-expired   { background: var(--rgba-overlay-sm); color: var(--t3); }
 .dot-danger  { background: var(--danger) !important; }
@@ -118,7 +118,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   gap: 6px;
   margin-bottom: 12px;
 }
-.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger); }
+.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .meta-pill.size { background: var(--s3); color: var(--t2); }
 
 .info-box {
@@ -130,7 +130,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 }
 .info-box .label { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; font-weight: 600; }
 .info-box .value { font-size: 16px; font-weight: 500; }
-.info-box .value.danger  { color: var(--danger); }
+.info-box .value.danger  { color: var(--danger-text); }
 .info-box .value.success { color: var(--success); }
 
 .snooze-section { margin-top: 18px; }

@@ -73,7 +73,7 @@
 }
 .rating-pill.r-tmdb { background: rgba(255,159,10,.15); color: var(--orange); }
 .rating-pill.r-imdb { background: var(--rgba-warning-bg); color: var(--warning); }
-.rating-pill.r-rt   { background: var(--rgba-danger-bg); color: var(--danger); }
+.rating-pill.r-rt   { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .rating-pill.r-meta { background: rgba(48,209,88,.15); color: var(--success); }
 
 .detail-modal-cast {
