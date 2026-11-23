@@ -273,11 +273,11 @@ def _fetch_protection_maps(
 
 
 # rationale: a repository may return ``list[dict]`` at a documented
-# template-feeding boundary. ``mediaman.web.routes.library.library_page`` passes
-# these display-ready dicts straight onto the ``library.html`` Jinja template as
-# ``items``; the keys are shaped for that template (``type_css``, ``type_label``,
-# ``protection_label``, ...) and a dataclass would add ceremony without removing
-# the template's column coupling.
+# template-feeding boundary. ``mediaman.web.routes.watch.list_page`` passes
+# these display-ready dicts onto the Watch list view's ``_watch_list.html``
+# template as ``items``, and ``/api/library`` answers them as JSON; the keys are
+# display-shaped (``type_label``, ``protection_label``, ...) and a dataclass would
+# add ceremony without removing the template's column coupling.
 def fetch_library(
     conn: sqlite3.Connection,
     q: str = "",

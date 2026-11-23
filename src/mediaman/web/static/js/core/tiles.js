@@ -5,9 +5,8 @@
  *
  *   MM.tiles.render(container, items, options?)
  *
- *   Empties container, then appends one `.poster-card` element per item.
- *   This matches the DOM shape produced by search.js `renderCard()` and
- *   the `_rec_card.html` server template (search page variant).
+ *   Empties container, then appends one `.poster-card` element per item,
+ *   styled by the shared `.poster-card` rules.
  *
  *   items — array of objects; recognised fields:
  *     tmdb_id        (string|number) — drives data-id on the card

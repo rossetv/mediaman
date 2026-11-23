@@ -11,18 +11,17 @@ _SUGGESTIONS_COLS = (
 )
 
 
-# rationale: a repository may return ``list[dict]`` at a
-# documented template-feeding boundary. ``mediaman.web.routes.recommended.pages``
-# groups these rows by ``batch_id`` and renders the dict keys straight onto the
-# ``recommended.html`` Jinja template; a dataclass would add ceremony without
-# removing the template's column coupling.
+# rationale: a repository may return ``list[dict]`` at a documented
+# boundary. ``mediaman.web.routes.watch.recommended_api`` groups these rows by
+# ``batch_id``, adds each pick's download state to the row and shapes the
+# Watch page's cards from it with ``.get(...)``; a dataclass would add ceremony
+# without removing that column coupling.
 def fetch_recommendations(conn: sqlite3.Connection) -> list[dict[str, object]]:
-    """Return **all** cached recommendations from the DB for template rendering.
+    """Return **all** cached recommendations from the DB, newest batch first.
 
-    Returns ``dict[str, object]`` rather than a dataclass: the template
-    enumerates rows with ``.get(...)`` and the keys land on the Jinja
-    surface unchanged. Callers that need pagination should use
-    `fetch_recommendations_page` instead.
+    Returns ``dict[str, object]`` rather than a dataclass: the caller reads
+    rows with ``.get(...)`` and annotates them in place. Callers that need
+    pagination should use `fetch_recommendations_page` instead.
     """
     rows = conn.execute(
         f"SELECT {_SUGGESTIONS_COLS} FROM suggestions ORDER BY batch_id DESC, category DESC, id ASC"
