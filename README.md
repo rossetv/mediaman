@@ -57,6 +57,31 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
   <img src="docs/images/phone-settings.png" width="140" alt="Settings on a phone: section tabs across the top and the storage overview.">
 </p>
 
+## Watch
+
+Watch is a Netflix-style player for the Plex libraries mediaman scans. Plex converts the video and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
+
+An admin can do everything. A viewer can watch, search and request films and series, see Downloads and Recommended, keep a "leaving soon" item for 7, 30 or 90 days, and change their own password. A viewer has no settings, library tools, history or way to cancel downloads.
+
+Add a viewer under Settings › Users › Add a user and pick Viewer; they choose their own password at first sign-in. Or from the command line:
+
+```bash
+docker exec -it mediaman mediaman-create-user --role viewer   # --role viewer|admin, default admin
+```
+
+A reverse proxy or CDN in front of mediaman must not buffer or cache the video. mediaman sends `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` on stream responses; with nginx, also turn buffering off and allow long timeouts:
+
+```nginx
+location /api/watch/stream/ {
+    proxy_pass http://mediaman:8282;
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+}
+```
+
+Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Best (1080p), Medium (720p) or Low (480p).
+
 ## Environment
 
 | Variable | Default | What it does |
