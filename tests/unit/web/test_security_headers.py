@@ -47,7 +47,7 @@ class TestSecurityHeadersMiddleware:
         assert "object-src 'none'" in csp
         assert "base-uri 'self'" in csp
         assert "form-action 'self'" in csp
-        assert "frame-src https://www.youtube.com" in csp
+        assert "frame-src https://www.youtube.com https://www.youtube-nocookie.com" in csp
         # img-src allows any HTTPS source (Radarr/Sonarr/Plex return
         # posters from shifting CDNs we can't enumerate).
         assert "img-src 'self' data: blob: https:" in csp
@@ -61,7 +61,35 @@ class TestSecurityHeadersMiddleware:
         assert directives["connect-src"] == "connect-src 'self'"
         assert directives["default-src"] == "default-src 'self'"
         assert directives["object-src"] == "object-src 'none'"
-        assert directives["frame-src"] == "frame-src https://www.youtube.com"
+        assert directives["frame-src"] == (
+            "frame-src https://www.youtube.com https://www.youtube-nocookie.com"
+        )
+
+    def test_only_frame_src_changed_in_policy(self):
+        """Every directive other than frame-src keeps its exact value."""
+        import re
+
+        csp = TestClient(_build_app()).get("/ping").headers["Content-Security-Policy"]
+        nonce_token = re.compile(r" 'nonce-[^']+'")
+        directives = {d.split(" ", 1)[0]: nonce_token.sub("", d) for d in csp.split("; ")}
+        assert directives == {
+            "default-src": "default-src 'self'",
+            "script-src": "script-src 'self'",
+            "style-src": "style-src 'self'",
+            "style-src-attr": "style-src-attr 'unsafe-inline'",
+            "img-src": (
+                "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
+                "https://www.gravatar.com https://mediacover.radarr.video "
+                "https://mediacover.sonarr.video https://artworks.thetvdb.com"
+            ),
+            "connect-src": "connect-src 'self'",
+            "media-src": "media-src 'self' blob:",
+            "frame-src": ("frame-src https://www.youtube.com https://www.youtube-nocookie.com"),
+            "frame-ancestors": "frame-ancestors 'none'",
+            "object-src": "object-src 'none'",
+            "base-uri": "base-uri 'self'",
+            "form-action": "form-action 'self'",
+        }
 
     def test_hsts_off_by_default(self, monkeypatch):
         """HSTS is opt-in.  Without ``MEDIAMAN_HSTS_ENABLED=true`` the
