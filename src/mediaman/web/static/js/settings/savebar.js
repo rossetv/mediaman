@@ -108,15 +108,48 @@
     settings_decrypt_failed: 'Saved secrets could not be read — check the secret key.',
   };
 
+  // Plain endings for what the server says about one field, matched on its
+  // message; the field's label from the page goes in front.
+  var FIELD_ERROR_WORDS = [
+    [/scheme must be http or https/i, 'must start with http:// or https://.'],
+    [/must include a host/i, 'needs a server name after http:// or https://.'],
+    [/invalid URL/i, 'is not a valid address.'],
+    [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
+    [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
+    [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
+    [/integer/i, 'must be a whole number.'],
+    [/timezone/i, 'is not a time zone mediaman knows.'],
+    [/must be one of/i, 'is not one of the choices offered.'],
+  ];
+
+  // The label a person sees for a setting, or its key in words when the page has none.
+  function fieldLabel(key) {
+    var el = document.getElementById(key);
+    var label = el && el.getAttribute('aria-label');
+    if (label) return label;
+    var words = key.replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  function fieldError(key, msg) {
+    for (var i = 0; i < FIELD_ERROR_WORDS.length; i++) {
+      var m = msg.match(FIELD_ERROR_WORDS[i][0]);
+      if (m) {
+        var words = FIELD_ERROR_WORDS[i][1].replace(/\$(\d)/g, function (_, n) { return m[n] || ''; });
+        return fieldLabel(key) + ' ' + words;
+      }
+    }
+    return fieldLabel(key) + ' is not valid.';
+  }
+
   // Turn FastAPI 422 bodies into a one-line human summary.
   function summariseSaveError(data, statusCode) {
     if (data && Array.isArray(data.detail) && data.detail.length) {
       return data.detail.map(function (d) {
         var loc = Array.isArray(d.loc) ? d.loc.filter(function (p) { return p !== 'body'; }) : [];
-        var field = loc.length ? loc.join('.') : 'request';
-        var msg = (d.msg || 'invalid').replace(/^Value error,\s*/, '');
-        return field + ' — ' + msg;
-      }).join(' · ');
+        if (!loc.length || typeof loc[0] !== 'string') return 'Save failed — try again.';
+        return fieldError(loc[0], String(d.msg || ''));
+      }).filter(function (line, i, all) { return all.indexOf(line) === i; }).join(' ');
     }
     if (data && typeof data.detail === 'string') return data.detail;
     if (data && data.message) return data.message;

@@ -324,6 +324,31 @@ const scenarios = {
     return { whileBusy, ownButtons, afterIdle };
   },
 
+  // A field the server refuses is named by its label, in a plain sentence.
+  async fieldError() {
+    const h = build();
+    h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const url = h.add('input', { id: 'base_url', type: 'text' });
+    url.setAttribute('aria-label', 'Base URL');
+    h.ctx.MM.api = {
+      put: () => Promise.reject({ status: 422, data: { detail: [
+        { loc: ['body', 'base_url'], msg: "Value error, URL scheme must be http or https, got ''" },
+        { loc: ['body', 'grace_days'], msg: 'Value error, Grace period must be between 1 and 365 days' },
+        { loc: ['body', 'mystery_key'], msg: 'Extra inputs are not permitted' },
+      ] } }),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    save.fire('click');
+    await h.flush();
+    return { text: status.textContent };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

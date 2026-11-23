@@ -84,3 +84,13 @@ def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
     assert "err" not in out["pill"].split()
     assert out["label"].strip().endswith("Rate limited")
     assert out["badge"] is None
+
+
+
+def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
+    text = _run("fieldError")["text"]
+    assert "Base URL must start with http:// or https://." in text
+    assert "must be between 1 and 365 days." in text
+    # a field the page does not show falls back to its key in words
+    assert "Mystery key is not valid." in text
+    assert "base_url" not in text and "got" not in text
