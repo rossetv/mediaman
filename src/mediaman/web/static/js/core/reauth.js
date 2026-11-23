@@ -82,6 +82,7 @@
     actions.className = 'reauth-actions';
     var msg = document.createElement('span');
     msg.className = 'reauth-msg';
+    msg.setAttribute('aria-live', 'polite');
     actions.appendChild(msg);
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
@@ -120,18 +121,32 @@
     closeOpen = modal.close;
     cancelBtn.addEventListener('click', modal.close);
 
+    /* The line is always laid out; showing it only fades it, so nothing moves.
+       The old words stay until the fade has gone, so it never empties mid-fade. */
+    var clearTimer = null;
+    function say(text) {
+      clearTimeout(clearTimer);
+      if (text) {
+        msg.textContent = text;
+        msg.classList.add('is-shown');
+      } else {
+        msg.classList.remove('is-shown');
+        clearTimer = setTimeout(function () { msg.textContent = ''; }, 200);
+      }
+    }
+
     function submit() {
       var pw = input.value;
-      if (!pw) { msg.textContent = 'Password required.'; return; }
+      if (!pw) { say('Password required.'); return; }
       confirmBtn.disabled = true;
-      msg.textContent = '';
+      say('');
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
         confirmBtn.disabled = false;
         if (res && res.ok) {
           done = true;
           modal.close();
         } else {
-          msg.textContent = (res && res.error) || 'Failed';
+          say((res && res.error) || 'Failed');
           input.focus();
           input.select();
         }

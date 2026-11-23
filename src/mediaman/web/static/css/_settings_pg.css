@@ -391,9 +391,21 @@
   margin-top: 20px;
 }
 .reauth-sheet .reauth-msg {
-  font-size: 12px; color: var(--danger);
+  font-size: 12px; line-height: 1.4; color: var(--danger);
   margin-right: auto; align-self: center;
-  min-height: 1em;
+  min-height: 1.4em;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.reauth-sheet .reauth-msg.is-shown { opacity: 1; }
+/* On a phone the message gets its own full-width line above the buttons,
+   so a long one never squeezes them. The line is always there: no jump. */
+@media (max-width: 639.98px) {
+  .reauth-sheet .reauth-actions { flex-wrap: wrap; }
+  .reauth-sheet .reauth-msg { order: -1; flex: 0 0 100%; margin-right: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reauth-sheet .reauth-msg { transition: none; }
 }
 
 .setg-pg .btn-test {
