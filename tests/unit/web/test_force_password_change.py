@@ -130,4 +130,5 @@ def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
     html = template.render(request=request, username="new", policy="", error=None, issues=[])
 
     assert "Choose a new password to continue." in html
+    assert "Choose a stronger password" not in html
     assert "no longer meets" not in html

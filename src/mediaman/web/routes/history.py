@@ -18,7 +18,7 @@ from mediaman.scanner.repository.audit import (
     fetch_media_audit_rows,
     fetch_security_audit_rows,
 )
-from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
 
 logger = logging.getLogger(__name__)
@@ -159,7 +159,7 @@ def _fetch_history(
 
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> Response:
-    resolved = resolve_page_session(request)
+    resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved

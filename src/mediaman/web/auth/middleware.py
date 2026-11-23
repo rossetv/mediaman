@@ -29,6 +29,10 @@ binding (User-Agent + client IP) is consistently applied:
     Centralises the cookie → ``validate_session`` → redirect dance every
     page handler needs.
 
+`resolve_admin_page_session`
+    `resolve_page_session` for admin-only pages: a signed-in non-admin is
+    redirected to ``/watch`` instead of being served the page.
+
 `is_admin`
     Convenience predicate over `get_optional_admin_from_token` that
     pulls the ``session_token`` cookie off the request itself.  Used by
@@ -192,6 +196,21 @@ def resolve_page_session(
     if username is None:
         return RedirectResponse("/login", status_code=302)
     return username, conn
+
+
+def resolve_admin_page_session(request: Request) -> PageSession:
+    """Like `resolve_page_session`, but a non-admin is redirected to ``/watch`` (303).
+
+    Admin pages use this so they refuse a viewer on their own, as the admin
+    APIs do, rather than relying on the viewer guard alone.
+    """
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
+    if get_user_role(conn, username) != "admin":
+        return RedirectResponse("/watch", status_code=303)
+    return resolved
 
 
 def is_admin(request: Request) -> bool:

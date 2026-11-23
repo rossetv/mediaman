@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.web.auth.password_hash import get_user_role, user_must_change_password
+from mediaman.web.auth.password_hash import (
+    LastAdminError,
+    get_user_role,
+    user_must_change_password,
+)
 from mediaman.web.routes.users import (
     _REAUTH_LIMITER,
     _USER_CREATE_LIMITER,
@@ -115,3 +119,20 @@ def test_the_only_admin_deleting_themselves_is_told_they_are_the_last_admin(clie
     assert resp.status_code == 400
     assert resp.json()["error"] == "last_admin"
     assert get_user_role(conn, "admin") == "admin"
+
+
+def test_a_role_change_that_would_drop_the_last_admin_is_refused_with_400(
+    client, conn, monkeypatch
+):
+    insert_admin_user(conn, username="vic")
+
+    def _refuse(*_a, **_k):
+        raise LastAdminError("vic")
+
+    monkeypatch.setattr("mediaman.web.routes.users.crud.set_user_role", _refuse)
+
+    resp = client.patch(f"/api/users/{_id(conn, 'vic')}/role", json={"role": "viewer"})
+
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "last_admin"
+    assert "at least one admin" in resp.json()["message"]
