@@ -494,3 +494,19 @@ def _reset_disk_cache(monkeypatch):
     monkeypatch.setattr(disk_cache, "_root", None)
     monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(disk_cache, "_inflight", {})
+
+
+@pytest.fixture(autouse=True)
+def _reset_watch_arr_state():
+    """Forget the Arr view held by the Watch catalog, and any build in flight."""
+    from mediaman.services.watch_catalog import _arr
+
+    def reset() -> None:
+        with _arr._lock:
+            _arr._memo.clear()
+            _arr._building.clear()
+            _arr._generation[0] = 0
+
+    reset()
+    yield
+    reset()
