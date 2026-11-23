@@ -12,7 +12,6 @@ from fastapi import APIRouter
 # Private helpers exposed for the test-suite (see tests/unit/web/test_search_*).
 from ._enrichment import (
     _QUERY_LIMITER,
-    _discover_cache,
     _stamp_omdb_ratings,
 )
 from .detail import _fetch_sonarr_series_detail
@@ -35,7 +34,6 @@ __all__ = [
     "_DOWNLOAD_ADMIN_LIMITER",
     "_DOWNLOAD_IP_LIMITER",
     "_QUERY_LIMITER",
-    "_discover_cache",
     "_download_dedup",
     "_fetch_sonarr_series_detail",
     "_stamp_omdb_ratings",

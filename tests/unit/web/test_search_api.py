@@ -49,6 +49,19 @@ def authed_client(app):
     return client
 
 
+@pytest.fixture
+def discover_disk_cache(tmp_path, monkeypatch):
+    """A disk cache in a fresh data dir, as a running app has; refreshes run inline."""
+    from mediaman.services.infra import disk_cache
+
+    monkeypatch.setattr(disk_cache, "_root", None)
+    monkeypatch.setattr(disk_cache, "_failed", {})
+    monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "sync", True)
+    disk_cache.init(tmp_path)
+    return tmp_path
+
+
 @pytest.fixture(autouse=True)
 def _reset_search_limiter():
     """Drop the shared search-query limiter state between tests.
@@ -167,12 +180,8 @@ class TestSearchEndpoint:
 
 class TestDiscoverEndpoint:
     @pytest.fixture(autouse=True)
-    def _clear_discover_cache(self):
-        from mediaman.web.routes.search import _discover_cache
-
-        _discover_cache.clear()
-        yield
-        _discover_cache.clear()
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
 
     def test_returns_three_shelves(self, authed_client, fake_http, fake_response):
         trending_payload = {
@@ -328,24 +337,17 @@ class TestDiscoverEndpoint:
 
 
 class TestFetchDiscoverShelf:
-    """``_fetch_discover_shelf`` (called by the ``api_discover``
-    handler) owns the discover TTL-cache: hit/miss decision, the
-    ``media_type`` stamp on cache-miss results, and the bounded-cache
-    clear-on-overflow."""
+    """``_fetch_discover_shelf`` (called by the ``api_discover`` handler) keeps each shelf
+    page in the disk cache: hit/miss, the ``media_type`` stamp on a fetched page, stale
+    pages served then refreshed, failures left uncached and a restart keeping the cache."""
 
     @pytest.fixture(autouse=True)
-    def _clear_discover_cache(self):
-        from mediaman.web.routes.search._enrichment import _discover_cache
-
-        _discover_cache.clear()
-        yield
-        _discover_cache.clear()
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
 
     def test_cache_miss_fetches_and_caches(self):
-        from mediaman.web.routes.search._enrichment import (
-            _discover_cache,
-            _fetch_discover_shelf,
-        )
+        from mediaman.services.infra import disk_cache
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
         calls = []
 
@@ -356,8 +358,9 @@ class TestFetchDiscoverShelf:
         result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
         assert result == [{"id": 1, "title": "X"}]
         assert calls == [1]
-        # The page is now cached under the shelf+page key.
-        assert "trending?page=1" in _discover_cache
+        # The page is now cached under the shelf+page key Watch's discover rows also use.
+        never = MagicMock(side_effect=AssertionError("fetched"))
+        assert disk_cache.meta().get_or_fetch("tmdb:discover:trending:1", 60, 60, never) == result
 
     def test_cache_hit_within_ttl_skips_fetch(self):
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
@@ -370,9 +373,22 @@ class TestFetchDiscoverShelf:
 
         first = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
         second = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
-        # Second call served from cache — fetch_fn invoked exactly once.
+        # Second call served from cache - fetch_fn invoked exactly once.
         assert calls == [2]
-        assert first is second
+        assert first == second
+
+    def test_pages_of_one_shelf_are_cached_apart(self):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        calls = []
+
+        def fetch_fn(page):
+            calls.append(page)
+            return [{"id": page}]
+
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == [{"id": 1}]
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 2) == [{"id": 2}]
+        assert calls == [1, 2]
 
     def test_injects_media_type_on_miss(self):
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
@@ -391,27 +407,52 @@ class TestFetchDiscoverShelf:
         def fetch_fn(page):
             return [{"id": 1}]
 
-        # trending results already carry media_type — None means "leave alone".
+        # trending results already carry media_type - None means "leave alone".
         result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
         assert "media_type" not in result[0]
 
-    def test_overflow_clears_cache(self):
-        from mediaman.web.routes.search._enrichment import (
-            _DISCOVER_CACHE_MAX_ENTRIES,
-            _discover_cache,
-            _fetch_discover_shelf,
-        )
+    def test_stale_page_is_served_then_refreshed(self, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
-        # Pre-fill the cache to the cap with stale dummy entries.
-        for i in range(_DISCOVER_CACHE_MAX_ENTRIES):
-            _discover_cache[f"stale?page={i}"] = (0.0, [])
-        assert len(_discover_cache) == _DISCOVER_CACHE_MAX_ENTRIES
+        answers = iter([[{"id": 1}], [{"id": 2}]])
+        fetch_fn = MagicMock(side_effect=lambda page: next(answers))
+        _fetch_discover_shelf("trending", fetch_fn, None, 1)
 
-        # The next miss-write trips the overflow guard: the whole cache is
-        # cleared, then the fresh entry is written.
-        _fetch_discover_shelf("trending", lambda page: [{"id": 1}], None, 1)
-        assert "trending?page=1" in _discover_cache
-        assert len(_discover_cache) == 1
+        monkeypatch.setattr(_enrichment, "_DISCOVER_FRESH_S", 0)
+        served = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+        monkeypatch.setattr(_enrichment, "_DISCOVER_FRESH_S", 3600)
+        after = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+
+        assert served == [{"id": 1}]
+        assert after == [{"id": 2}]
+        assert fetch_fn.call_count == 2
+
+    def test_empty_answer_is_not_cached_and_backs_off(self, discover_disk_cache):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        fetch_fn = MagicMock(return_value=[])
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == []
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == []
+
+        # Nothing was written, and the second call did not ask TMDB again (60 s back-off).
+        assert fetch_fn.call_count == 1
+        assert not list((discover_disk_cache / "watch_cache" / "meta").iterdir())
+
+    def test_page_survives_a_restart(self, discover_disk_cache, monkeypatch):
+        from mediaman.services.infra import disk_cache
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        _fetch_discover_shelf("trending", lambda page: [{"id": 7}], None, 1)
+
+        # A new process: no root, no in-flight or failure memory, same data dir.
+        monkeypatch.setattr(disk_cache, "_root", None)
+        monkeypatch.setattr(disk_cache, "_failed", {})
+        monkeypatch.setattr(disk_cache, "_inflight", {})
+        disk_cache.init(discover_disk_cache)
+
+        never = MagicMock(side_effect=AssertionError("fetched"))
+        assert _fetch_discover_shelf("trending", never, None, 1) == [{"id": 7}]
 
 
 class TestEnrichRatingsHelpers:
