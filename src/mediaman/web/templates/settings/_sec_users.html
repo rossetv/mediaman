@@ -26,44 +26,48 @@
       </div>
     </div>
 
-    <form class="inline-form" id="self-password-form" novalidate hidden>
-      <div class="inline-form-grid">
-        <label class="fld">
-          <span class="fld-lbl">Current password</span>
-          <input class="inp" type="password" id="self-old-password" autocomplete="current-password" data-show-password>
-        </label>
-        <label class="fld">
-          <span class="fld-lbl">New password</span>
-          <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength" data-show-password>
-          <div class="fpc-meter"><span class="fpc-meter-fill" id="self-new-strength-meter"></span></div>
-          <span class="fpc-caption" id="self-new-strength-label">&nbsp;</span>
-        </label>
-        <label class="fld">
-          <span class="fld-lbl">Confirm new password</span>
-          <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password" data-show-password>
-          <span class="fpc-caption" id="self-match-label">&nbsp;</span>
-        </label>
-      </div>
-      <div class="inline-form-actions">
-        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
-        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
-        <span class="inline-form-msg" id="password-result" role="status"></span>
+    <form class="inline-form setg-fold" id="self-password-form" novalidate hidden>
+      <div class="setg-fold-inner">
+        <div class="inline-form-grid">
+          <label class="fld">
+            <span class="fld-lbl">Current password</span>
+            <input class="inp" type="password" id="self-old-password" autocomplete="current-password" data-show-password>
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">New password</span>
+            <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength" data-show-password>
+            <div class="fpc-meter"><span class="fpc-meter-fill" id="self-new-strength-meter"></span></div>
+            <span class="fpc-caption" id="self-new-strength-label">&nbsp;</span>
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">Confirm new password</span>
+            <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password" data-show-password>
+            <span class="fpc-caption" id="self-match-label">&nbsp;</span>
+          </label>
+        </div>
+        <div class="inline-form-actions">
+          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
+          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
+          <span class="inline-form-msg" id="password-result" role="status"></span>
+        </div>
       </div>
     </form>
 
-    <form class="inline-form" id="self-email-form" novalidate hidden>
-      <label class="fld">
-        <span class="fld-lbl">Notification email</span>
-        <input class="inp" type="email" id="self-email-input"
-               autocomplete="email" inputmode="email"
-               placeholder="you@example.com"
-               value="{{ email or '' }}">
-        <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
-      </label>
-      <div class="inline-form-actions">
-        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
-        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-email">Save email</button>
-        <span class="inline-form-msg" id="email-result" role="status"></span>
+    <form class="inline-form setg-fold" id="self-email-form" novalidate hidden>
+      <div class="setg-fold-inner">
+        <label class="fld">
+          <span class="fld-lbl">Notification email</span>
+          <input class="inp" type="email" id="self-email-input"
+                 autocomplete="email" inputmode="email"
+                 placeholder="you@example.com"
+                 value="{{ email or '' }}">
+          <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
+        </label>
+        <div class="inline-form-actions">
+          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
+          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-email">Save email</button>
+          <span class="inline-form-msg" id="email-result" role="status"></span>
+        </div>
       </div>
     </form>
   {% endcall %}
@@ -74,31 +78,33 @@
   {% endset %}
   {% call c.setg_card(title="Team", sub="Admins manage Mediaman. Viewers can watch and request, nothing more.",
                          header_actions=team_actions, pad=True) %}
-    <form class="inline-form inline-form--two" id="add-user-form" novalidate hidden>
-      <div class="inline-form-grid">
-        <label class="fld">
-          <span class="fld-lbl">Username</span>
-          <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="fld">
-          <span class="fld-lbl">Password</span>
-          <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength" data-show-password>
-          <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
-          <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
-        </label>
-      </div>
-      <div class="fld">
-        <span class="fld-lbl" id="new-user-role-lbl">Role</span>
-        <div class="pill-row" role="group" aria-labelledby="new-user-role-lbl" id="new-user-role">
-          <button type="button" class="fpill on" data-role="viewer" aria-pressed="true">Viewer</button>
-          <button type="button" class="fpill" data-role="admin" aria-pressed="false">Admin</button>
+    <form class="inline-form inline-form--two setg-fold" id="add-user-form" novalidate hidden>
+      <div class="setg-fold-inner">
+        <div class="inline-form-grid">
+          <label class="fld">
+            <span class="fld-lbl">Username</span>
+            <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">Password</span>
+            <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength" data-show-password>
+            <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
+            <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
+          </label>
         </div>
-        <span class="fld-sub">Viewers can watch, search and request films and series, see downloads and recommendations, and keep items that are leaving. They can't change settings.</span>
-      </div>
-      <div class="inline-form-actions">
-        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}
-        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
-        <span class="inline-form-msg" id="create-user-result" role="status"></span>
+        <div class="fld">
+          <span class="fld-lbl" id="new-user-role-lbl">Role</span>
+          <div class="pill-row" role="group" aria-labelledby="new-user-role-lbl" id="new-user-role">
+            <button type="button" class="fpill on" data-role="viewer" aria-pressed="true">Viewer</button>
+            <button type="button" class="fpill" data-role="admin" aria-pressed="false">Admin</button>
+          </div>
+          <span class="fld-sub">Viewers can watch, search and request films and series, see downloads and recommendations, and keep items that are leaving. They can't change settings.</span>
+        </div>
+        <div class="inline-form-actions">
+          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}
+          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
+          <span class="inline-form-msg" id="create-user-result" role="status"></span>
+        </div>
       </div>
     </form>
 

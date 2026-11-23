@@ -86,6 +86,13 @@ def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
     assert out["badge"] is None
 
 
+def test_new_user_row_enters_only_after_the_add_form_has_closed() -> None:
+    out = _run("addUserOrder")
+    assert out["afterCreate"] == {"rows": 1, "open": True}
+    assert out["whileClosing"] == {"rows": 1, "shut": True, "hidden": False}
+    assert out["afterClose"] == {"rows": 2, "hidden": True, "submitDisabled": False}
+
+
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]

@@ -180,21 +180,28 @@
       var btnConfirmNL      = document.getElementById('btn-confirm-newsletter');
       var newsletterStatus  = document.getElementById('newsletter-send-status');
 
+      var rows = MM.settings.rows;
+
+      function clearStatus() {
+        if (!newsletterStatus) return;
+        newsletterStatus.textContent = '';
+        newsletterStatus.className = 'inline-form-msg';
+      }
+
       function openNewsletter() {
         if (!newsletterPanel) return;
-        newsletterPanel.hidden = false;
+        rows.open(newsletterPanel);
         if (btnSendNL) btnSendNL.textContent = 'Close';
         renderRecipientCheckboxes();
       }
       function closeNewsletter() {
         if (!newsletterPanel) return;
-        newsletterPanel.hidden = true;
         if (btnSendNL) btnSendNL.textContent = 'Select recipients';
-        if (newsletterStatus) newsletterStatus.textContent = '';
+        rows.close(newsletterPanel, clearStatus);
       }
 
       if (btnSendNL) btnSendNL.addEventListener('click', function () {
-        newsletterPanel.hidden ? openNewsletter() : closeNewsletter();
+        rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
       if (btnCancelNL) btnCancelNL.addEventListener('click', closeNewsletter);
 
@@ -211,7 +218,7 @@
           .then(function (data) {
             // Bail if the user has closed the panel or re-opened it (new fetch).
             if (token !== _recipientFetchToken) return;
-            if (!newsletterPanel || newsletterPanel.hidden) return;
+            if (!newsletterPanel || !rows.isOpen(newsletterPanel)) return;
             var subs = (data.subscribers || []).filter(function (s) { return s.active; });
             if (!subs.length) {
               list.appendChild(makeMsg('No active subscribers.'));

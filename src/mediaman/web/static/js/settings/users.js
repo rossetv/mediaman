@@ -92,20 +92,18 @@
       }
 
       // A new user is added to the list as it stands, so focus and scroll stay put.
-      function appendNewUsers() {
-        return loadUsers().then(function (users) {
-          if (!userList) return;
-          // Each new row goes right after the row the server lists before it.
-          var prev = null;
-          users.forEach(function (user) {
-            var existing = userList.querySelector('.usr-row[data-user-id="' + user.id + '"]');
-            if (existing) { prev = existing; return; }
-            Array.prototype.forEach.call(userList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
-            var row = buildRow(user);
-            userList.insertBefore(row, prev ? prev.nextSibling : userList.firstChild);
-            prev = row;
-            MM.settings.rows.enter(row);
-          });
+      function appendNewUsers(users) {
+        if (!userList) return;
+        // Each new row goes right after the row the server lists before it.
+        var prev = null;
+        users.forEach(function (user) {
+          var existing = userList.querySelector('.usr-row[data-user-id="' + user.id + '"]');
+          if (existing) { prev = existing; return; }
+          Array.prototype.forEach.call(userList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
+          var row = buildRow(user);
+          userList.insertBefore(row, prev ? prev.nextSibling : userList.firstChild);
+          prev = row;
+          MM.settings.rows.enter(row);
         });
       }
 
@@ -249,6 +247,14 @@
         closers.forEach(function (close) { if (close !== keep) close(); });
       }
 
+      var rows = MM.settings.rows;
+
+      function clearMsg(target) {
+        if (!target) return;
+        target.textContent = '';
+        target.className = 'inline-form-msg';
+      }
+
       // A check that fails before sending puts the cursor in the field to fix.
       function failOn(target, text, field) {
         target.className = 'inline-form-msg err';
@@ -280,23 +286,28 @@
         if (b) selectRole(b.dataset.role);
       });
 
-      function toggleAddUser(open) {
+      // Closing folds the form away first and resets it once it is out of sight.
+      function toggleAddUser(open, closed) {
         if (!addUserForm) return;
-        var wantOpen = (typeof open === 'boolean') ? open : addUserForm.hidden;
-        if (wantOpen) closeOthers(closeAddUser);
-        addUserForm.hidden = !wantOpen;
-        if (wantOpen) { document.getElementById('new-username').focus(); }
-        else {
+        var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
+        if (wantOpen) {
+          closeOthers(closeAddUser);
+          rows.open(addUserForm);
+          document.getElementById('new-username').focus();
+          return;
+        }
+        rows.close(addUserForm, function () {
           addUserForm.reset();
           ['new-username', 'new-user-password'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.dispatchEvent(new Event('input'));
           });
           selectRole('viewer');
-          if (createResult) { createResult.textContent = ''; createResult.className = 'inline-form-msg'; }
-        }
+          clearMsg(createResult);
+          if (closed) closed();
+        });
       }
-      function closeAddUser() { if (addUserForm && !addUserForm.hidden) toggleAddUser(false); }
+      function closeAddUser() { if (addUserForm && rows.isOpen(addUserForm)) toggleAddUser(false); }
       closers.push(function () { if (!(btnSubmitAddUser && btnSubmitAddUser.disabled)) closeAddUser(); });
       // A form that is sending cannot be closed or reset from its own buttons.
       if (btnAddUser)       btnAddUser.addEventListener('click', function () {
@@ -332,14 +343,20 @@
         }).then(function () {
           createResult.className = 'inline-form-msg ok';
           createResult.textContent = 'User "' + username + '" created.';
-          // Submit stays disabled until the form closes, so a second Enter cannot create twice.
-          setTimeout(function () {
-            var hadFocus = MM.dom.focusStillIn(addUserForm);
+          var listed = loadUsers().catch(function () { return null; });
+          // Submit stays disabled until the form has closed, so a second Enter cannot create twice.
+          // The new row comes in only then, so the list does not jump under it.
+          var closed = new Promise(function (resolve) {
+            setTimeout(function () {
+              var hadFocus = MM.dom.focusStillIn(addUserForm);
+              toggleAddUser(false, resolve);
+              if (hadFocus && btnAddUser) btnAddUser.focus();
+            }, 700);
+          });
+          Promise.all([listed, closed]).then(function (done) {
             btnSubmitAddUser.disabled = false;
-            toggleAddUser(false);
-            if (hadFocus && btnAddUser) btnAddUser.focus();
-          }, 700);
-          appendNewUsers().catch(showUsers);
+            if (done[0]) appendNewUsers(done[0]); else showUsers();
+          });
         }).catch(function (err) {
           btnSubmitAddUser.disabled = false;
           if (err && err.error === 'reauth_cancelled') {
@@ -360,22 +377,26 @@
       var btnSubmitPw  = document.getElementById('btn-submit-password');
       var pwResult     = document.getElementById('password-result');
 
-      function togglePwForm(open) {
+      function togglePwForm(open, closed) {
         if (!pwForm) return;
-        var wantOpen = (typeof open === 'boolean') ? open : pwForm.hidden;
-        if (wantOpen) closeOthers(closePwForm);
-        pwForm.hidden = !wantOpen;
-        if (wantOpen) { document.getElementById('self-old-password').focus(); }
-        else {
+        var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(pwForm);
+        if (wantOpen) {
+          closeOthers(closePwForm);
+          rows.open(pwForm);
+          document.getElementById('self-old-password').focus();
+          return;
+        }
+        rows.close(pwForm, function () {
           pwForm.reset();
           ['self-old-password', 'self-new-password', 'self-confirm-password'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.dispatchEvent(new Event('input'));
           });
-          if (pwResult) { pwResult.textContent = ''; pwResult.className = 'inline-form-msg'; }
-        }
+          clearMsg(pwResult);
+          if (closed) closed();
+        });
       }
-      function closePwForm() { if (pwForm && !pwForm.hidden) togglePwForm(false); }
+      function closePwForm() { if (pwForm && rows.isOpen(pwForm)) togglePwForm(false); }
       closers.push(function () { if (!(btnSubmitPw && btnSubmitPw.disabled)) closePwForm(); });
       if (btnChangePw) btnChangePw.addEventListener('click', function () {
         if (btnSubmitPw && btnSubmitPw.disabled) return;
@@ -412,8 +433,7 @@
           pwResult.textContent = 'Password updated.';
           setTimeout(function () {
             var hadFocus = MM.dom.focusStillIn(pwForm);
-            btnSubmitPw.disabled = false;
-            togglePwForm(false);
+            togglePwForm(false, function () { btnSubmitPw.disabled = false; });
             if (hadFocus && btnChangePw) btnChangePw.focus();
           }, 900);
         }).catch(function (err) {
@@ -536,23 +556,22 @@
 
         function show() {
           closeOthers(hide);
-          form.hidden = false;
-          msg.textContent = '';
-          msg.className = 'inline-form-msg';
+          rows.open(form);
+          clearMsg(msg);
           emailInp.focus();
         }
-        function hide() {
-          if (form.hidden) return;
-          form.hidden = true;
-          form.reset();
-          msg.textContent = '';
-          msg.className = 'inline-form-msg';
+        function hide(closed) {
+          rows.close(form, function () {
+            form.reset();
+            clearMsg(msg);
+            if (closed) closed();
+          });
         }
         closers.push(function () { if (!submit.disabled) hide(); });
 
         btn.addEventListener('click', function () {
           if (submit.disabled) return;
-          if (form.hidden) show(); else hide();
+          if (rows.isOpen(form)) hide(); else show();
         });
         cancel.addEventListener('click', function () {
           if (submit.disabled) return;
@@ -583,8 +602,7 @@
             btn.textContent = newVal ? 'Edit email' : 'Add email';
             setTimeout(function () {
               var hadFocus = MM.dom.focusStillIn(form);
-              hide();
-              submit.disabled = false;
+              hide(function () { submit.disabled = false; });
               if (hadFocus) btn.focus();
             }, 800);
           }).catch(function (err) {

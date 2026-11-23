@@ -21,12 +21,14 @@
   {% call c.setg_card(title="Send newsletter",
                          sub="Send the current newsletter to selected subscribers without affecting the automated schedule.",
                          header_actions=send_actions, pad=True) %}
-    <div id="newsletter-send-panel" hidden>
-      <div id="newsletter-recipient-list" class="recipient-list"></div>
-      <div class="inline-form-actions">
-        {{ c.btn("Send newsletter", variant="primary", size="sm", id="btn-confirm-newsletter") }}
-        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-newsletter") }}
-        <span class="inline-form-msg" id="newsletter-send-status"></span>
+    <div id="newsletter-send-panel" class="setg-fold" hidden>
+      <div class="setg-fold-inner">
+        <div id="newsletter-recipient-list" class="recipient-list"></div>
+        <div class="inline-form-actions">
+          {{ c.btn("Send newsletter", variant="primary", size="sm", id="btn-confirm-newsletter") }}
+          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-newsletter") }}
+          <span class="inline-form-msg" id="newsletter-send-status"></span>
+        </div>
       </div>
     </div>
   {% endcall %}

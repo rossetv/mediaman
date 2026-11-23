@@ -58,7 +58,7 @@ class El {
     const list = () => el.className.split(/\s+/).filter(Boolean);
     return {
       contains: (c) => list().includes(c),
-      add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
+      add: (...cs) => cs.forEach((c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); }),
       remove: (...cs) => { el.className = list().filter((x) => !cs.includes(x)).join(' '); },
       toggle: (c, on) => (on ? el.classList.add(c) : el.classList.remove(c)),
     };
@@ -97,6 +97,7 @@ class El {
   contains(o) { for (let n = o; n; n = n.parentNode) if (n === this) return true; return false; }
   closest(sel) { for (let n = this; n; n = n.parentNode) if (n.tagName && matches(n, sel)) return n; return null; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   dispatchEvent(e) {
     for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f(e));
     (this.doc.listeners[e.type] || []).forEach((f) => f(e));
@@ -141,7 +142,9 @@ function build() {
     return e;
   };
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-  return { ctx, doc, body, load, add, timers, flush, docListeners };
+  // Runs every timer due so far, and those they set in turn.
+  const drain = () => { while (timers.length) timers.shift().fn(); };
+  return { ctx, doc, body, load, add, timers, flush, drain, docListeners };
 }
 
 const names = (list, cls) => list.children.filter((c) => c.classList.contains(cls));
@@ -275,6 +278,9 @@ const scenarios = {
     users = [[1, 'ann'], [2, 'bob'], [3, 'cat'], [4, 'dan'], [5, 'eve']];
     addForm.fire('submit');
     await h.flush();
+    // the new rows come in once the form has closed
+    h.drain();
+    await h.flush();
     const roleBtn = userList.querySelector('[data-user-action="role"]');
     const roleName = { text: roleBtn.textContent, aria: roleBtn.getAttribute('aria-label') };
     return { roleName, subs: names(subList, 'sub-row').map((r) => r.dataset.id), userRows: names(userList, 'usr-row').map((r) => String(r.dataset.userId)) };
@@ -318,10 +324,47 @@ const scenarios = {
     await h.flush();
     // a form that is idle closes, and closing puts the typed values back to their start
     emailInput.value = 'typed@x';
-    h.timers.forEach((t) => t.fn());
+    h.drain();
     btnPw.fire('click');
+    h.drain();
     const afterIdle = { emailHidden: emailForm.hidden, emailValue: emailInput.value, submitDisabled: submitPw.disabled };
     return { whileBusy, ownButtons, afterIdle };
+  },
+
+  // A new user's row comes in only once the add form has folded away.
+  async addUserOrder() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const btnAdd = h.add('button', { id: 'btn-add-user' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username' }, form);
+    h.add('input', { id: 'new-user-password' }, form);
+    const submit = h.add('button', { id: 'btn-submit-add-user' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
+    let users = [[1, 'ann']];
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: users.map(([id, username]) => ({ id, username, role: 'viewer' })) }),
+      post: () => Promise.resolve({}),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    btnAdd.fire('click');
+    h.doc.getElementById('new-username').value = 'bob';
+    h.doc.getElementById('new-user-password').value = 'a-long-password-1';
+    users = [[1, 'ann'], [2, 'bob']];
+    form.fire('submit');
+    await h.flush();
+    const rowsNow = () => names(userList, 'usr-row').length;
+    const afterCreate = { rows: rowsNow(), open: !form.hidden };
+    h.timers.splice(0).filter((t) => t.ms === 700).forEach((t) => t.fn());
+    await h.flush();
+    const whileClosing = { rows: rowsNow(), shut: form.classList.contains('is-shut'), hidden: form.hidden };
+    form.fire('transitionend', { propertyName: 'grid-template-rows' });
+    await h.flush();
+    return { afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled } };
   },
 
   // A field the server refuses is named by its label, in a plain sentence.
