@@ -106,20 +106,8 @@ main:focus { outline: none; }
 /* Add to a node render code has just inserted so it eases in. */
 .fade-in { animation: fade-in var(--dur) var(--ease-out) backwards; }
 
-/* Page-to-page cross-fade: same-origin navigations only, where the browser
-   supports it; elsewhere pages simply swap. The nav bars keep their own
-   layer so they stay put while the content fades. */
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition { navigation: auto; }
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-duration: var(--dur);
-    animation-timing-function: var(--ease-out);
-  }
-  .nav-glass   { view-transition-name: nav-glass; }
-  .nav-topbar  { view-transition-name: nav-topbar; }
-  .nav-tabs    { view-transition-name: nav-tabs; }
-}
+/* Pages swap with a clean cut, not `@view-transition { navigation: auto }`:
+   Chrome intermittently shows the cross-fade's first frame as pure white. */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
