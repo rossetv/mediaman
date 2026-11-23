@@ -53,6 +53,10 @@ _KEEP_LABELS: dict[int, str] = {
 # Per-person cap on keeps; cheap DB writes, so the same burst the Library keep allows.
 _KEEP_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=500)
 
+# Per-person cap on thumbnails, each of which costs two Plex calls; sized for a page that
+# shows a season of them at once.
+_THUMB_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
+
 
 class _KeepBody(BaseModel):
     # Loosely typed on purpose: the handler checks both and answers a bad value with 400.
@@ -138,6 +142,8 @@ def api_watch_thumb(
 ) -> Response:
     if not is_valid_key(rating_key):
         return Response(status_code=404)
+    if not _THUMB_LIMITER.check(username):
+        return Response(status_code=429)
     conn = get_db()
     try:
         plex = open_plex(request, conn)

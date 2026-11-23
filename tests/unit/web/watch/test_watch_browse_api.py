@@ -13,6 +13,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexItemNotFound,
     PlexUnavailable,
 )
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import save_progress
 from mediaman.web.routes.watch import browse_api, pages
@@ -147,6 +148,14 @@ class TestThumb:
 
         assert resp.status_code == 503
         assert "plex.invalid" not in resp.text
+
+    def test_a_person_past_the_cap_gets_429_and_no_plex_call(self, client, monkeypatch):
+        _fake_plex(monkeypatch)
+        monkeypatch.setattr(browse_api, "_THUMB_LIMITER", ActionRateLimiter(2, 60))
+
+        codes = [client.get("/api/watch/thumb/511").status_code for _ in range(3)]
+
+        assert codes == [200, 200, 429]
 
     def test_needs_a_session(self, client):
         client.cookies.clear()
