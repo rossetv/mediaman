@@ -549,6 +549,16 @@ class TestSettingsPutReschedulesRunningScheduler:
         assert self._cron_field(job, "hour") == "14"
         assert self._cron_field(job, "minute") == "30"
 
+    def test_new_timezone_alone_moves_the_weekly_scan(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.put("/api/settings", json={"scan_timezone": "Asia/Tokyo"})
+
+        assert resp.status_code == 200
+        assert str(scheduler.get_job("weekly_scan").trigger.timezone) == "Asia/Tokyo"
+
     def test_disabling_library_sync_removes_the_job_and_enabling_adds_it_back(
         self, app_factory, authed_client, conn, scheduler
     ):
