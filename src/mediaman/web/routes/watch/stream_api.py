@@ -193,20 +193,28 @@ def stream_segment(
     return Response(body, media_type=content_type)
 
 
+async def _stop_body(request: Request) -> _StopRequest | None:
+    """The optional final position; a missing or malformed body is ignored."""
+    raw = await request.body()
+    if not raw:
+        return None
+    try:
+        return _StopRequest.model_validate_json(raw)
+    except ValidationError:
+        return None
+
+
 @router.post("/api/watch/stream/{stream_id}/stop", status_code=204)
-async def stop_stream(
-    stream_id: str, request: Request, username: str = Depends(get_current_user)
+def stop_stream(
+    stream_id: str,
+    username: Annotated[str, Depends(get_current_user)],
+    final: Annotated[_StopRequest | None, Depends(_stop_body)],
 ) -> Response:
     """Stop the stream; one that is already gone is not an error.
 
     A body with the final position and played time is saved first, as progress would be.
     A missing or malformed body never keeps the stream from stopping.
     """
-    raw = await request.body()
-    final: _StopRequest | None = None
-    if raw:
-        with contextlib.suppress(ValidationError):
-            final = _StopRequest.model_validate_json(raw)
     with contextlib.suppress(StreamGone):
         manager = get_stream_manager()
         if final is not None:

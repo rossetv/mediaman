@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import threading
@@ -456,6 +457,11 @@ def test_the_real_app_serves_watch_stream_and_account_routes():
         ("POST", "/api/watch/stream/{stream_id}/stop"),
         ("POST", "/api/watch/progress"),
     } <= routes
+
+
+def test_stop_runs_off_the_event_loop():
+    """Stop does blocking Plex and SQLite work, so it must be a threadpool (plain def) handler."""
+    assert not inspect.iscoroutinefunction(stream_api.stop_stream)
 
 
 def test_a_viewers_beacon_reaches_progress_through_the_real_app(
