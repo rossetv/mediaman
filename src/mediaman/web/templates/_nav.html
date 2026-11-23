@@ -5,30 +5,49 @@
    - .nav-more-sheet — overflow drawer opened by the More tab
 
    Set `nav_active` in template context to one of:
-     dashboard | library | search | recommended | downloads | history | settings
+     dashboard | library | watch | search | recommended | downloads | history | settings | account
+   /watch pages need not set it: the path decides.
+
+   The menu follows the role on the request (`request.state.user_role`). A viewer
+   sees only what the viewer role may open; a missing role gets the admin menu.
 #}
+
+{% set is_viewer = (request.state.user_role if request is defined else none) | default('admin', true) != 'admin' %}
+{% set path = request.url.path if request is defined else '' %}
+{% set active = nav_active or ('watch' if (path == '/watch' or path.startswith('/watch/')) else '') %}
 
 {% set titles = {
   'dashboard':   'Dashboard',
   'library':     'Library',
+  'watch':       'Watch',
   'search':      'Search',
   'recommended': 'Recommended',
   'downloads':   'Downloads',
   'history':     'History',
   'settings':    'Settings',
+  'account':     'Account',
 } %}
 
 {# Desktop top nav — hidden below 700 px #}
 <header class="nav-glass">
   <a class="brand" href="/">media<b>man</b></a>
   <nav class="nav-links" aria-label="Primary">
-    <a href="/"            class="nav-btn{% if nav_active == 'dashboard' %} on{% endif %}">Dashboard</a>
-    <a href="/library"     class="nav-btn{% if nav_active == 'library' %} on{% endif %}">Library</a>
-    <a href="/search"      class="nav-btn{% if nav_active == 'search' %} on{% endif %}">Search</a>
-    <a href="/recommended" class="nav-btn{% if nav_active == 'recommended' %} on{% endif %}">Recommended</a>
-    <a href="/downloads"   class="nav-btn{% if nav_active == 'downloads' %} on{% endif %}">Downloads</a>
-    <a href="/history"     class="nav-btn{% if nav_active == 'history' %} on{% endif %}">History</a>
-    <a href="/settings"    class="nav-btn{% if nav_active == 'settings' %} on{% endif %}">Settings</a>
+    {% if is_viewer %}
+    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
+    <a href="/search"      class="nav-btn{% if active == 'search' %} on{% endif %}">Search</a>
+    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
+    <a href="/recommended" class="nav-btn{% if active == 'recommended' %} on{% endif %}">Recommended</a>
+    <a href="/account"     class="nav-btn{% if active == 'account' %} on{% endif %}">Account</a>
+    {% else %}
+    <a href="/"            class="nav-btn{% if active == 'dashboard' %} on{% endif %}">Dashboard</a>
+    <a href="/library"     class="nav-btn{% if active == 'library' %} on{% endif %}">Library</a>
+    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
+    <a href="/search"      class="nav-btn{% if active == 'search' %} on{% endif %}">Search</a>
+    <a href="/recommended" class="nav-btn{% if active == 'recommended' %} on{% endif %}">Recommended</a>
+    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
+    <a href="/history"     class="nav-btn{% if active == 'history' %} on{% endif %}">History</a>
+    <a href="/settings"    class="nav-btn{% if active == 'settings' %} on{% endif %}">Settings</a>
+    {% endif %}
     <form method="post" action="/api/auth/logout" class="nav-logout-form">
       <button type="submit" class="nav-btn nav-btn--logout">Logout</button>
     </form>
@@ -38,24 +57,26 @@
 {# Mobile top bar — brand + current page title #}
 <div class="nav-topbar">
   <a class="brand" href="/">media<b>man</b></a>
-  <span class="nav-topbar-title">{{ titles.get(nav_active, '') }}</span>
+  <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
 </div>
 
-{# Mobile bottom tab bar #}
+{# Mobile bottom tab bar — four tabs plus More, for either role #}
 <nav class="nav-tabs" aria-label="Primary">
-  <a class="nav-tab{% if nav_active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard">
-    <i class="fa-solid fa-house" aria-hidden="true"></i>
-    <span>Home</span>
+  <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch">
+    <i class="fa-solid fa-play" aria-hidden="true"></i>
+    <span>Watch</span>
   </a>
-  <a class="nav-tab{% if nav_active == 'library' %} on{% endif %}" href="/library" aria-label="Library">
+  {% if not is_viewer %}
+  <a class="nav-tab{% if active == 'library' %} on{% endif %}" href="/library" aria-label="Library">
     <i class="fa-solid fa-book-open" aria-hidden="true"></i>
     <span>Library</span>
   </a>
-  <a class="nav-tab{% if nav_active == 'search' %} on{% endif %}" href="/search" aria-label="Search">
+  {% endif %}
+  <a class="nav-tab{% if active == 'search' %} on{% endif %}" href="/search" aria-label="Search">
     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
     <span>Search</span>
   </a>
-  <a class="nav-tab{% if nav_active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads">
+  <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads">
     <i class="fa-solid fa-download" aria-hidden="true"></i>
     <span>Downloads</span>
   </a>
@@ -69,21 +90,36 @@
 <div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-label="More navigation">
   <div class="nav-more-panel">
     <div class="nav-more-handle" aria-hidden="true"></div>
-    <a class="nav-more-item{% if nav_active == 'recommended' %} on{% endif %}" href="/recommended">
+    {% if not is_viewer %}
+    <a class="nav-more-item{% if active == 'dashboard' %} on{% endif %}" href="/">
+      <i class="fa-solid fa-house" aria-hidden="true"></i>
+      Dashboard
+      <span class="chev">›</span>
+    </a>
+    {% endif %}
+    <a class="nav-more-item{% if active == 'recommended' %} on{% endif %}" href="/recommended">
       <i class="fa-solid fa-star" aria-hidden="true"></i>
       Recommended
       <span class="chev">›</span>
     </a>
-    <a class="nav-more-item{% if nav_active == 'history' %} on{% endif %}" href="/history">
+    {% if is_viewer %}
+    <a class="nav-more-item{% if active == 'account' %} on{% endif %}" href="/account">
+      <i class="fa-solid fa-user" aria-hidden="true"></i>
+      Account
+      <span class="chev">›</span>
+    </a>
+    {% else %}
+    <a class="nav-more-item{% if active == 'history' %} on{% endif %}" href="/history">
       <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
       History
       <span class="chev">›</span>
     </a>
-    <a class="nav-more-item{% if nav_active == 'settings' %} on{% endif %}" href="/settings">
+    <a class="nav-more-item{% if active == 'settings' %} on{% endif %}" href="/settings">
       <i class="fa-solid fa-gear" aria-hidden="true"></i>
       Settings
       <span class="chev">›</span>
     </a>
+    {% endif %}
     <div class="nav-more-divider"></div>
     <form method="post" action="/api/auth/logout" class="u-m-0">
       <button type="submit" class="nav-more-item nav-more-item--danger">
