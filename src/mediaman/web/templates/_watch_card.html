@@ -1,0 +1,72 @@
+{# Shared pieces of the Watch pages. Import with:
+       {% import "_watch_card.html" as w %}
+   watch.js builds the same card markup for search results; keep the two in step. #}
+
+{% macro dur(minutes) -%}
+  {%- if minutes >= 60 -%}{{ minutes // 60 }} h{% if minutes % 60 %} {{ minutes % 60 }} min{% endif %}{%- else -%}{{ minutes }} min{%- endif -%}
+{%- endmacro %}
+
+{% macro leaving_text(days) -%}
+  {%- if days <= 0 -%}Leaving today{%- elif days == 1 -%}Leaving in 1 day{%- else -%}Leaving in {{ days }} days{%- endif -%}
+{%- endmacro %}
+
+{# The Keep trigger. One shared menu (keep_menu) opens under whichever trigger is pressed. #}
+{% macro keep_button(keep_id, title="") -%}
+<button type="button" class="watch-keep" data-watch-keep="{{ keep_id }}" aria-haspopup="menu" aria-expanded="false"{% if title %} aria-label="Keep {{ title }}"{% endif %}>
+  <span>Keep</span><i class="fa-solid fa-chevron-down watch-keep__chev" aria-hidden="true"></i>
+</button>
+{%- endmacro %}
+
+{% macro keep_menu() -%}
+<div class="watch-keep-menu" id="watch-keep-menu" role="menu" aria-label="Keep for" hidden>
+  <button type="button" class="watch-keep-menu__item" role="menuitem" tabindex="-1" data-days="7">Keep 7 days</button>
+  <button type="button" class="watch-keep-menu__item" role="menuitem" tabindex="-1" data-days="30">Keep 30 days</button>
+  <button type="button" class="watch-keep-menu__item" role="menuitem" tabindex="-1" data-days="90">Keep 90 days</button>
+</div>
+{%- endmacro %}
+
+{# One poster card. A successful Keep removes the card from the Leaving soon row
+   and strips the badge and button from any other card with the same keep id. #}
+{% macro card(item) -%}
+<article class="watch-card" data-keep-id="{{ item.keep_id or '' }}">
+  <a class="watch-card__link" href="{{ item.href }}">
+    <span class="watch-card__poster">
+      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
+      <span class="watch-card__title">{{ item.title }}</span>
+      {% if item.leaving_days is not none %}<span class="watch-badge watch-badge--leaving">{{ leaving_text(item.leaving_days) }}</span>{% endif %}
+      {% if item.watched %}<span class="watch-badge watch-badge--watched">Watched</span>{% endif %}
+      {% if item.progress_pct %}<progress class="watch-bar" max="100" value="{{ item.progress_pct }}" aria-hidden="true"></progress>{% endif %}
+    </span>
+    <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and 'min left' not in (item.subtitle or '') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
+  </a>
+  {% if item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
+</article>
+{%- endmacro %}
+
+{# The panel shown in place of a page when Plex is not usable. #}
+{% macro error_state(error, is_admin=false) -%}
+<section class="watch-state" role="status">
+  {% if error == "not_set_up" %}
+  <h1 class="watch-state__title">Plex isn't set up yet.</h1>
+  {% if is_admin %}
+  <p class="watch-state__text">Connect it in Settings to start watching.</p>
+  <a class="btn btn--lg watch-btn--play" href="/settings">Open Settings</a>
+  {% else %}
+  <p class="watch-state__text">Ask whoever runs mediaman to set it up.</p>
+  {% endif %}
+  {% else %}
+  <h1 class="watch-state__title">Can't reach Plex right now.</h1>
+  <p class="watch-state__text">Check back in a moment.</p>
+  <button type="button" class="btn btn--lg watch-btn--play" data-watch-retry>Try again</button>
+  {% endif %}
+</section>
+{%- endmacro %}
+
+{# "Leaving in N days · Keep" line for a show page or a movie page. #}
+{% macro leaving_line(leaving, title="") -%}
+<p class="watch-leaving" data-watch-leaving>
+  <span class="watch-leaving__text">{{ leaving_text(leaving.days) }}</span>
+  <span aria-hidden="true">·</span>
+  {{ keep_button(leaving.keep_id, title) }}
+</p>
+{%- endmacro %}

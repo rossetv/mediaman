@@ -1,0 +1,303 @@
+"""The Watch browse pages render what their context says, and stay CSP-safe."""
+
+from __future__ import annotations
+
+from html.parser import HTMLParser
+from pathlib import Path
+
+import jinja2
+import pytest
+
+TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+
+# The nav belongs to another page's concerns; an empty one keeps these tests
+# about the Watch templates only.
+_ENV = jinja2.Environment(
+    loader=jinja2.ChoiceLoader(
+        [jinja2.DictLoader({"_nav.html": ""}), jinja2.FileSystemLoader(TEMPLATES)]
+    ),
+    autoescape=True,
+)
+
+
+def _render(name: str, **ctx: object) -> str:
+    return _ENV.get_template(name).render(**ctx)
+
+
+def _card(**over: object) -> dict:
+    card = {
+        "kind": "movie",
+        "title": "Brightwater",
+        "subtitle": "Movie · 2019",
+        "poster_url": "/api/poster/1",
+        "href": "/watch/movie/1",
+        "progress_pct": None,
+        "minutes_left": None,
+        "watched": False,
+        "leaving_days": None,
+        "keep_id": None,
+    }
+    card.update(over)
+    return card
+
+
+def _watch(**over: object) -> str:
+    ctx: dict = {"banner": None, "rows": [], "watch_error": None, "is_admin": False}
+    ctx.update(over)
+    return _render("watch.html", **ctx)
+
+
+def _show_ctx(**over: object) -> dict:
+    ctx: dict = {
+        "show": {
+            "title": "The Long Coast",
+            "meta_line": "TV · 2021",
+            "summary": "A town.",
+            "poster_url": "",
+        },
+        "primary": {"label": "Resume S2 · E4", "href": "/watch/play/9?resume=1"},
+        "seasons": [
+            {"number": 1, "href": "/watch/show/s?season=1", "selected": False},
+            {"number": 2, "href": "/watch/show/s?season=2", "selected": True},
+        ],
+        "leaving": None,
+        "episodes": [
+            {
+                "number": 1,
+                "title": "Spring Tide",
+                "minutes": 52,
+                "thumb_url": "/api/watch/thumb/1",
+                "state": "watched",
+                "progress_pct": None,
+                "minutes_left": None,
+                "href": "/watch/play/1",
+            },
+            {
+                "number": 2,
+                "title": "Low Water",
+                "minutes": 50,
+                "thumb_url": None,
+                "state": "in_progress",
+                "progress_pct": 38,
+                "minutes_left": 31,
+                "href": "/watch/play/2",
+            },
+            {
+                "number": 3,
+                "title": "Maydays",
+                "minutes": 47,
+                "thumb_url": None,
+                "state": "none",
+                "progress_pct": None,
+                "minutes_left": None,
+                "href": "/watch/play/3",
+            },
+        ],
+        "back_href": "/watch",
+        "watch_error": None,
+    }
+    ctx.update(over)
+    return ctx
+
+
+def _movie_ctx(**over: object) -> dict:
+    ctx: dict = {
+        "movie": {
+            "title": "Fieldwork",
+            "year": 2021,
+            "minutes": 89,
+            "summary": "A film.",
+            "poster_url": "",
+        },
+        "primary": {"label": "Resume (31 min left)", "href": "/watch/play/5?resume=1"},
+        "leaving": None,
+        "back_href": "/watch",
+        "watch_error": None,
+    }
+    ctx.update(over)
+    return ctx
+
+
+class _Inspect(HTMLParser):
+    """Collect the markup facts the CSP cares about."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.inline_scripts = 0
+        self.style_attrs = 0
+        self.style_tags = 0
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "script" and "src" not in a and a.get("type") != "application/json":
+            self.inline_scripts += 1
+        if tag == "style":
+            self.style_tags += 1
+        if "style" in a:
+            self.style_attrs += 1
+
+
+def test_rows_render_and_an_empty_row_is_left_out() -> None:
+    html = _watch(
+        rows=[
+            {"title": "Recently added", "items": [_card(), _card(title="Fieldwork")]},
+            {"title": "Anime", "items": []},
+        ]
+    )
+    assert "Recently added" in html
+    assert html.count('class="watch-card"') == 2
+    assert "Anime" not in html
+
+
+@pytest.mark.parametrize(
+    ("days", "text"),
+    [(0, "Leaving today"), (1, "Leaving in 1 day"), (5, "Leaving in 5 days")],
+)
+def test_leaving_badge_wording(days: int, text: str) -> None:
+    html = _watch(
+        rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days, keep_id="m1")]}]
+    )
+    assert f">{text}<" in html
+
+
+def test_keep_button_only_for_cards_with_a_keep_id() -> None:
+    plain = _watch(rows=[{"title": "Movies", "items": [_card()]}])
+    scheduled = _watch(
+        rows=[{"title": "Leaving soon", "items": [_card(leaving_days=2, keep_id="m1")]}]
+    )
+    assert "data-watch-keep" not in plain
+    assert 'data-watch-keep="m1"' in scheduled
+    for days in ("7", "30", "90"):
+        assert f'data-days="{days}"' in scheduled
+
+
+def test_progress_and_watched_marks_follow_the_card() -> None:
+    html = _watch(
+        rows=[
+            {"title": "Continue watching", "items": [_card(progress_pct=38, minutes_left=31)]},
+            {"title": "Movies", "items": [_card(watched=True)]},
+        ]
+    )
+    assert 'value="38"' in html
+    assert "31 min left" in html
+    assert ">Watched<" in html
+
+
+def test_banner_shows_episodes_button_only_when_given() -> None:
+    banner = {
+        "title": "The Long Coast",
+        "line": "Season 2 · Episode 4",
+        "progress_pct": 38,
+        "primary": {"label": "Resume", "href": "/watch/play/9?resume=1"},
+        "episodes_href": None,
+        "backdrop_url": None,
+    }
+    without = _watch(banner=banner)
+    with_eps = _watch(banner={**banner, "episodes_href": "/watch/show/s"})
+    assert "Resume" in without and "Continue watching" in without
+    assert ">Episodes<" not in without
+    assert ">Episodes<" in with_eps
+
+
+def test_banner_without_progress_is_a_recently_added_pick() -> None:
+    html = _watch(
+        banner={
+            "title": "Salt & Iron",
+            "line": "Movie",
+            "progress_pct": None,
+            "primary": {"label": "Play", "href": "/watch/play/1"},
+            "episodes_href": None,
+            "backdrop_url": None,
+        }
+    )
+    assert "Recently added" in html
+    assert "Continue watching" not in html
+
+
+def test_not_set_up_links_to_settings_for_admins_only() -> None:
+    admin = _watch(watch_error="not_set_up", is_admin=True)
+    viewer = _watch(watch_error="not_set_up", is_admin=False)
+    assert "Plex isn't set up yet." in admin and 'href="/settings"' in admin
+    assert "Plex isn't set up yet." in viewer and "/settings" not in viewer
+
+
+def test_unreachable_offers_try_again_and_no_browse_content() -> None:
+    html = _watch(watch_error="unreachable", rows=[{"title": "Movies", "items": [_card()]}])
+    assert "Can't reach Plex right now." in html
+    assert "data-watch-retry" in html and "Try again" in html
+    assert "watch-card" not in html
+
+
+def test_titles_from_plex_are_escaped() -> None:
+    html = _watch(rows=[{"title": "Movies", "items": [_card(title="<script>alert(1)</script>")]}])
+    assert "<script>alert(1)" not in html
+    assert "&lt;script&gt;alert(1)" in html
+
+
+def test_show_page_marks_each_episode_state_and_the_selected_season() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    assert "‹ Back to Watch" in html
+    assert html.count('class="watch-pill') == 2
+    assert html.count('aria-current="page"') == 1
+    assert 'href="/watch/show/s?season=2" aria-current="page"' in html
+    assert ">Watched<" in html and ">In progress<" in html
+    assert "50 min · 31 min left" in html
+    assert 'value="38"' in html
+    assert 'href="/watch/play/3"' in html
+
+
+def test_show_page_leaving_line_has_keep() -> None:
+    plain = _render("watch_show.html", **_show_ctx())
+    scheduled = _render("watch_show.html", **_show_ctx(leaving={"days": 2, "keep_id": "s2"}))
+    assert "Leaving in" not in plain
+    assert "Leaving in 2 days" in scheduled and 'data-watch-keep="s2"' in scheduled
+
+
+def test_movie_page_shows_facts_primary_and_leaving_line() -> None:
+    html = _render("watch_movie.html", **_movie_ctx(leaving={"days": 1, "keep_id": "m9"}))
+    assert "2021 · 1 h 29 min" in html
+    assert "Resume (31 min left)" in html
+    assert "Leaving in 1 day" in html and 'data-watch-keep="m9"' in html
+
+
+def test_movie_page_not_available() -> None:
+    html = _render("watch_movie.html", not_available=True, back_href="/watch")
+    assert "No longer available" in html
+    assert "‹ Back to Watch" in html
+
+
+def test_pages_have_no_inline_script_or_style() -> None:
+    banner = {
+        "title": "T",
+        "line": "L",
+        "progress_pct": 50,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": "/watch/show/s",
+        "backdrop_url": "/api/watch/thumb/1",
+    }
+    pages = [
+        _watch(
+            banner=banner,
+            rows=[
+                {
+                    "title": "Leaving soon",
+                    "items": [_card(leaving_days=2, keep_id="m1", progress_pct=40, watched=True)],
+                }
+            ],
+        ),
+        _watch(watch_error="unreachable"),
+        _render("watch_show.html", **_show_ctx(leaving={"days": 2, "keep_id": "s2"})),
+        _render("watch_movie.html", **_movie_ctx(leaving={"days": 2, "keep_id": "m1"})),
+        _render("watch_movie.html", not_available=True),
+    ]
+    for html in pages:
+        found = _Inspect()
+        found.feed(html)
+        assert (found.inline_scripts, found.style_attrs, found.style_tags) == (0, 0, 0)
+        assert 'src="/static/js/watch.js"' in html
+
+
+def test_base_links_the_watch_and_player_styles() -> None:
+    html = _watch()
+    assert "/static/css/_watch.css" in html
+    assert "/static/css/_player.css" in html

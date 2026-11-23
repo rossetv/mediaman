@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% import "_watch_card.html" as w %}
+
+{% block title %}{{ movie.title if movie else "Watch" }} · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="watch-page watch-detail" id="watch-page">
+  <div class="watch-detail__top">
+    <a class="watch-back" href="{{ back_href or '/watch' }}">‹ Back to Watch</a>
+  </div>
+
+  {% if not_available %}
+  <section class="watch-state" role="status">
+    <h1 class="watch-state__title">No longer available</h1>
+    <p class="watch-state__text">This film is not in the library any more.</p>
+  </section>
+  {% elif watch_error %}
+  {{ w.error_state(watch_error, is_admin) }}
+  {% else %}
+  <section class="watch-hero">
+    <div class="watch-hero__poster">
+      {% if movie.poster_url %}<img src="{{ movie.poster_url }}" alt="" data-broken-on-error>{% endif %}
+    </div>
+    <div class="watch-hero__info">
+      <h1 class="watch-hero__title">{{ movie.title }}</h1>
+      {% set facts = [] %}
+      {% if movie.year %}{% set _ = facts.append(movie.year | string) %}{% endif %}
+      {% if movie.minutes %}{% set _ = facts.append(w.dur(movie.minutes) | trim) %}{% endif %}
+      {% if facts %}<p class="watch-hero__meta">{{ facts | join(" · ") }}</p>{% endif %}
+      {% if movie.summary %}<p class="watch-hero__summary">{{ movie.summary }}</p>{% endif %}
+      {% if leaving %}{{ w.leaving_line(leaving, movie.title) }}{% endif %}
+      <div class="watch-actions">
+        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ primary.label }}</a>
+      </div>
+    </div>
+  </section>
+
+  {{ w.keep_menu() }}
+  {% endif %}
+  <div class="page-bottom-spacer"></div>
+</div>
+
+<script src="/static/js/watch.js" defer></script>
+{% endblock %}
