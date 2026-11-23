@@ -485,9 +485,10 @@ class TestDeleteRootBanner:
         )
         assert "/media/tv</span> is empty or not mounted: 1 scheduled deletion is waiting" in html
 
-    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn):
+    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/media/movies")
         html = _dashboard_html(app_factory, authed_client, conn)
-        assert "is empty or not mounted" not in html
+        assert "root-banner" not in html
 
     def test_banner_escapes_paths(self, app_factory, authed_client, conn):
         write_delete_root_state(conn, {"/m/<script>alert(1)</script>": 2})

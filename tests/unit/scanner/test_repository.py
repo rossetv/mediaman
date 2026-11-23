@@ -501,6 +501,20 @@ class TestReadDeleteAllowedRoots:
         roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == []
 
+    def test_quiet_read_logs_nothing_and_still_fails_closed(self, conn, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "  ")
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', '{bad json', 0, '2026-01-01')"
+        )
+        conn.commit()
+        with caplog.at_level(logging.DEBUG, logger="mediaman.scanner.repository.settings"):
+            roots = repository.read_delete_allowed_roots_setting(conn, quiet=True)
+        assert roots == []
+        assert caplog.records == []
+
     def test_corrupt_json_logs_warning_and_returns_empty(self, conn, monkeypatch, caplog):
         """Corrupt JSON in the DB row must emit a WARNING and
         still return [] so the caller's fail-closed behaviour is unchanged.

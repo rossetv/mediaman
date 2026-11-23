@@ -496,9 +496,9 @@ class TestHistoryFilterButtons:
         )
         resp = authed_client(app, conn).get("/history")
         assert resp.status_code == 200
-        assert "Re-Downloaded" in resp.text
+        assert "Re-downloaded" in resp.text
         assert "Re Downloaded" not in resp.text
-        assert "Delete Failed" in resp.text
+        assert "Delete failed" in resp.text
 
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():
@@ -594,3 +594,19 @@ class TestHistoryBadgesAndSecurityRows:
         assert "ua_hash" not in html
         assert "login.success" not in html
         assert "admin from 10.0.0.1" in html
+
+    def test_security_row_with_spaced_actor_and_unlabelled_event(
+        self, app_factory, authed_client, conn
+    ):
+        from mediaman.core.audit import security_event
+
+        security_event(conn, event="aes.canary_failed", actor="Jane Doe", ip="10.0.0.2")
+        html = self._page(app_factory, authed_client, conn)
+        assert "Jane Doe from 10.0.0.2" in html
+        assert "Aes canary" not in html
+
+    def test_filter_pills_use_row_labels(self, app_factory, authed_client, conn):
+        html = self._page(app_factory, authed_client, conn)
+        assert ">Keep removed<" in html
+        assert "Unprotected" not in html
+        assert "Removed Show Keep" not in html

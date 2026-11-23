@@ -119,9 +119,16 @@ SECURITY_EVENT_LABELS = {
     "subscriber.added": "Subscriber added",
     "subscriber.removed": "Subscriber removed",
     "subscriber.opted_out": "Subscriber opted out",
+    "aes.canary_failed": "Encryption check failed",
+    "auto_abandon.fired": "Download abandoned automatically",
+    "password.change_failed": "Password change failed",
+    "password.force_change_failed": "Password change failed",
+    "password.weak_detected": "Weak password detected",
+    "user.delete.rate_limited": "User deletion throttled",
+    "user.email_update.rate_limited": "User email change throttled",
 }
 
-_SECURITY_WHO_RE = re.compile(r"^actor=(\S+) ip=(\S+)")
+_SECURITY_WHO_RE = re.compile(r"^actor=(.+?) ip=(\S+)")
 
 _DELETE_ROOT_PREFIX = "_delete_root:"
 
@@ -234,7 +241,10 @@ def history_page(request: Request) -> Response:
             "username": username,
             "nav_active": "history",
             "items": items,
-            "action_types": ACTION_TYPES,
+            "action_types": [
+                (at, ACTION_LABELS.get(at, at.replace("_", " ")).capitalize())
+                for at in ACTION_TYPES
+            ],
             "action_filter": action_filter or "",
             "page": page,
             "per_page": per_page,

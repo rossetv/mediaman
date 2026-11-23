@@ -400,6 +400,7 @@ class TestLibrarySync:
         body = resp.json()
         assert body["ok"] is False
         assert body["error"] == "plex_not_configured"
+        assert "URL was refused" in body["message"]
 
 
 class TestScanTriggerRateLimit:
