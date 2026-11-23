@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -136,6 +137,19 @@ class TestRefreshInPlace:
         assert [s["behavior"] for s in out["scrolls"]] == ["smooth"]
         assert out["scrolls"][0]["top"] < 0
 
+    def test_keep_that_empties_a_row_eases_the_grid_and_slides_the_rest_from_the_fade_start(self):
+        out = _run("keepEmptiesRow")
+        start = out["atFadeStart"]
+        # one height animation, from three tiles' worth to two, before the fade ends
+        assert start["grid"] == [["300px", "200px", 250]]
+        # the tiles after the kept one (positions 1 and 2) already slide
+        assert start["slid"] == [1, 2]
+        assert start["pinned"] == "absolute"
+        # the refresh that follows animates nothing more and leaves the grid clean
+        assert out["heightAnims"] == 1
+        assert out["tiles"] == ["b", "c"]
+        assert out["overflow"] == ""
+
     def test_keep_with_reduced_motion_brings_the_next_button_into_view_at_once(self):
         out = _run("revealReduced")
         assert out["focused"]["id"] == "b"
@@ -242,3 +256,40 @@ class TestBannerCountFollowsKeepAndClear:
         )
         client = authed_client(app, conn)
         assert "3 scheduled deletions are waiting" in self._banner(client)
+
+
+_CSS = _WEB / "static/css"
+
+
+def _blocks(name: str, selector: str) -> list[str]:
+    """Every declaration block whose selector list contains `selector`."""
+    css = re.sub(r"/\*.*?\*/", "", (_CSS / name).read_text(encoding="utf-8"), flags=re.S)
+    return [
+        m.group(2)
+        for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)
+        if selector in [part.strip() for part in m.group(1).split(",")]
+    ]
+
+
+class TestScanStatusAndToastPlacement:
+    def test_scan_status_takes_no_room_beside_the_button_so_it_cannot_move_it(self):
+        pinned = _blocks("_buttons.css", ".u-flex:has(> .scan-btn) > .scan-status")
+        assert any("position: absolute" in b for b in pinned)
+        # emptying it must not take it out of layout, or it could not fade
+        assert not any("display: none" in b for b in _blocks("_buttons.css", ".scan-status:empty"))
+
+    def test_scan_status_fades_with_the_fast_duration(self):
+        base = " ".join(_blocks("_buttons.css", ".scan-status"))
+        assert "opacity var(--dur-fast)" in base
+
+    def test_desktop_toasts_sit_at_the_bottom_clear_of_page_header_controls(self):
+        css = (_CSS / "_ui_feedback.css").read_text(encoding="utf-8")
+        desktop = css[css.index("@media (min-width: 700px)") :]
+        desktop = desktop[: desktop.index("/* Mobile")]
+        assert "top: auto" in desktop
+        assert "bottom: var(--toast-bottom)" in desktop
+
+    def test_tile_lift_only_where_a_pointer_can_hover(self):
+        css = (_CSS / "_tiles.css").read_text(encoding="utf-8")
+        assert re.search(r"@media \(hover: hover\) \{\s*\.tile:hover \{ transform", css)
+        assert not re.search(r"^\.tile:hover \{", css, flags=re.M)

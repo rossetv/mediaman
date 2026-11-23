@@ -38,8 +38,8 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
 
-  function motion() {
-    var dur = motionToken('--dur-slow', '.25s');
+  function motion(token) {
+    var dur = motionToken(token || '--dur-slow', '.25s');
     return {
       duration: /ms$/.test(dur) ? parseFloat(dur) : parseFloat(dur) * 1000,
       easing: motionToken('--ease-out', 'cubic-bezier(.2,.8,.2,1)')
@@ -245,7 +245,7 @@
         el.classList.remove('scan-status--success');
       };
       if (reduceMotion() || !el.animate) { clear(); return; }
-      var m = motion();
+      var m = motion('--dur-fast');
       statusFade.anim = el.animate([{ opacity: 1 }, { opacity: 0 }], m);
       statusFade.anim.onfinish = clear;
     }, STATUS_LINGER_MS);
@@ -466,19 +466,48 @@
       });
   }
 
-  /* Shrink a tile away, take it off the page and slide the rest into place. */
+  /* Fade a tile away while the rest slide into its place and the grid's height
+     follows, so what is below never jumps. The tile is pinned where it is, out
+     of the flow, so the others can start moving as it starts to fade. */
   function removeTile(tile) {
     return new Promise(function (resolve) {
       if (reduceMotion() || !tile.animate) { tile.remove(); resolve(); return; }
       var m = motion();
-      tile.style.overflow = 'hidden';
+      var grid = tile.parentNode;
+      var from = grid.getBoundingClientRect().height;
+      var before = tileRects(grid);
+      var at = tile.getBoundingClientRect();
+      var box = grid.getBoundingClientRect();
+      if (grid.dashGrow) { grid.dashGrow.cancel(); grid.dashGrow = null; }
+      grid.dashPins = (grid.dashPins || 0) + 1;
+      grid.style.position = 'relative';
+      Object.assign(tile.style, {
+        overflow: 'hidden', position: 'absolute', margin: '0', pointerEvents: 'none',
+        top: (at.top - box.top) + 'px', left: (at.left - box.left) + 'px',
+        width: at.width + 'px', height: at.height + 'px'
+      });
       var anim = tile.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.96)' }],
         { duration: m.duration, easing: m.easing, fill: 'forwards' });
+      slideTiles(grid, before, m);
+      var to = grid.getBoundingClientRect().height;
+      /* The grid's own style is put back once no tile is pinned in it and no
+         height animation is running. */
+      function release() {
+        if (grid.dashPins > 0 || grid.dashGrow) return;
+        grid.style.overflow = '';
+        grid.style.position = '';
+      }
+      if (Math.abs(from - to) >= 1 && grid.animate) {
+        grid.style.overflow = 'hidden';
+        var grow = grid.dashGrow = grid.animate([{ height: from + 'px' }, { height: to + 'px' }], m);
+        grow.onfinish = grow.oncancel = function () {
+          if (grid.dashGrow === grow) { grid.dashGrow = null; release(); }
+        };
+      }
       anim.onfinish = function () {
-        var grid = tile.parentNode;
-        var before = grid ? tileRects(grid) : {};
         tile.remove();
-        if (grid) slideTiles(grid, before, m);
+        grid.dashPins -= 1;
+        release();
         resolve();
       };
     });

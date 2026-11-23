@@ -83,6 +83,15 @@ class El {
     const a = Object.keys(this.attrs).sort().map((k) => k + '=' + this.attrs[k]).join(' ');
     return '<' + this.tagName + ' ' + a + '>' + this._text + this.children.map((c) => c.serialize()).join('') + '</>';
   }
+  /* A tiny layout: tiles are 100 tall and stack in one column, and a pinned
+     tile (position:absolute) takes no room. Containers add up their children. */
+  getBoundingClientRect() {
+    const flow = (e) => e.style.position !== 'absolute';
+    const height = (e) => (!flow(e) ? 0 : e.classList.contains('tile') ? 100 : e.children.reduce((n, c) => n + height(c), 0));
+    const top = this.classList.contains('tile') && this.parentNode
+      ? 100 * this.parentNode.children.slice(0, this.parentNode.children.indexOf(this)).filter(flow).length : 0;
+    return { top, bottom: top + height(this), left: 0, right: 0, width: 0, height: height(this) };
+  }
   /* A control inside a closed menu is hidden, so it cannot take focus. */
   focus(opts) {
     if (this.disabled) return;
@@ -153,6 +162,14 @@ function build(tiles, opts) {
   const timers = [];
   const scrolls = [];
   const toasts = [];
+  const animations = [];
+  if (opts.recordAnimations) {
+    El.prototype.animate = function (keyframes, timing) {
+      const a = { el: this, keyframes, timing };
+      animations.push(a);
+      return a;
+    };
+  }
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Date, parseFloat, AbortController,
     setTimeout: (fn) => { timers.push(fn); return timers.length; },
@@ -214,7 +231,7 @@ function build(tiles, opts) {
     return { label: b.querySelector('.scan-btn-label') && b.querySelector('.scan-btn-label').textContent, icon: i && i.className };
   };
   const text = (id) => doc.getElementById(id).textContent;
-  return { doc, ctx, toasts, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
+  return { doc, ctx, animations, toasts, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
 }
 
 const scenarios = {
@@ -330,6 +347,28 @@ const scenarios = {
     h.doc.activeElement.getBoundingClientRect = () => ({ top: 900, bottom: 940, left: 0, right: 10, height: 40 });
     h.runTimers();
     return { focused: h.focused(), scrolls: h.scrolls };
+  },
+
+  // a keep that empties a row: the others slide and the grid's height eases as the
+  // kept tile starts to fade, and the refresh that follows animates nothing more
+  async keepEmptiesRow() {
+    const h = build(['a', 'b', 'c'], { motion: true, recordAnimations: true });
+    h.click(h.keepBtn('a'));
+    h.keeps[0].resolve({});
+    await flush();
+    const grid = h.doc.querySelector('.grid');
+    const heightAnims = () => h.animations.filter((a) => a.keyframes[0].height !== undefined);
+    const slides = () => h.animations.filter((a) => /translate/.test(a.keyframes[0].transform || ''));
+    const atFadeStart = {
+      grid: heightAnims().map((a) => [a.keyframes[0].height, a.keyframes[1].height, a.timing.duration]),
+      slid: slides().map((a) => h.doc.querySelectorAll('.tile').indexOf(a.el)),
+      pinned: h.doc.querySelector('.tile').style.position,
+    };
+    h.animations.filter((a) => a.onfinish).forEach((a) => a.onfinish());
+    await flush();
+    h.fetches[0].resolve(h.page({ tiles: ['b', 'c'] }));
+    await flush();
+    return { atFadeStart, heightAnims: heightAnims().length, tiles: h.tilesNow(), overflow: grid.style.overflow };
   },
 
   // keyboard Clear all: focus must not drop to the body

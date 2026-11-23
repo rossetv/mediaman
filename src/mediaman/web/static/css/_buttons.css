@@ -103,12 +103,36 @@
 .btn.scan-running { background: var(--rgba-accent-bg); color: var(--accent); }
 /* Wide enough for its longest label, "Scan complete", so it never resizes. */
 .scan-btn { min-width: 11em; }
+/* The ghost hover is too faint on its own; lift it to the secondary button's
+   hover surface. */
+.scan-btn:hover:not(:disabled):not(.is-error) { background: var(--s4); border-color: rgba(255,255,255,.3); }
 .scan-btn.scan-running > i { animation: spin 1s linear infinite; }
-.scan-status { font-size: 12px; color: var(--t3); margin-left: 8px; }
+.scan-status {
+  font-size: 12px; color: var(--t3); margin-left: 8px;
+  opacity: 1;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
 .scan-status a { color: var(--accent); }
 .scan-status--success { color: var(--success); }
 .scan-status--error { color: var(--danger); }
-.scan-status:empty { display: none; }
+/* Never display:none: the status keeps its place so it can fade in, and on
+   wide screens it takes no room beside the button (see below). */
+.scan-status:empty { opacity: 0; transition: none; }
+/* Beside the page title the button sits at the right edge: the status hangs
+   under it, out of the row, so the button never moves as the text comes and
+   goes. */
+@media (min-width: 640px) {
+  .u-flex:has(> .scan-btn) { position: relative; }
+  .u-flex:has(> .scan-btn) > .scan-status {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    margin: 0;
+    width: max-content;
+    max-width: min(360px, 60vw);
+    text-align: right;
+  }
+}
 .scan-dots { display: inline-flex; gap: 3px; }
 .scan-dots span { animation: pulse-dot 1.2s infinite; }
 .scan-dots span:nth-child(2) { animation-delay: .15s; }

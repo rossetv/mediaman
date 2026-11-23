@@ -3,7 +3,8 @@
    The JS controls structure and timing; this stylesheet supplies
    the visual contract for `.ui-toast*` and `.ui-confirm-*`. */
 
-/* Toast host — fixed top-right column, anchored above the nav
+/* Toast host — fixed right-hand column (top on phones, bottom on desktop),
+   above the nav
    bar (z-index 50/60) and above any modal dialogs (100, 110, 200)
    so toasts always remain visible — including when reporting the
    outcome of a confirm dialog opened above another modal. */
@@ -159,6 +160,20 @@
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Desktop: the stack sits bottom-right, where it never covers a page header's
+   controls (Clear all, Scan). The newest toast is the lowest. A settings page
+   lifts it clear of its savebar. */
+@media (min-width: 700px) {
+  .ui-toast-host {
+    --toast-bottom: 20px;
+    top: auto;
+    bottom: var(--toast-bottom);
+    justify-content: flex-end;
+    max-height: calc(100dvh - var(--nav-h) - var(--toast-bottom) - 16px);
+  }
+  body:has(.setg-rail) .ui-toast-host { --toast-bottom: 90px; }
 }
 
 /* Mobile — collapse host to a single column hugging the top edge
