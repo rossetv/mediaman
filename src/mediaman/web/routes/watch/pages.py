@@ -461,6 +461,7 @@ def _banner(
 ) -> dict[str, Any]:
     """The banner for a library title; its ref opens the title's detail overlay."""
     return {
+        "kicker": "Continue watching",
         "title": title,
         "ref": f"{kind}-{key}",
         "line": line,
@@ -533,8 +534,10 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     cutoff = now - timedelta(days=RECENT_DAYS)
     recent_row = [c for added, c, _, _ in newest if added >= cutoff]
     if banner is None and newest:
-        _, latest, play, ref = newest[0]
+        added, latest, play, ref = newest[0]
         banner = {
+            # Only as true as the Recently added row: an older newest title gets a neutral label.
+            "kicker": "Recently added" if added >= cutoff else "From your library",
             "title": latest["title"],
             "ref": ref,
             "line": latest["subtitle"],

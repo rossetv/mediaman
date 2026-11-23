@@ -70,7 +70,7 @@
     <section class="watch-banner" aria-label="Featured">
       {% if banner.backdrop_url %}<img class="watch-banner__bg" src="{{ banner.backdrop_url }}" alt="" data-broken-on-error>{% endif %}
       <div class="watch-banner__body">
-        <span class="watch-banner__kicker">{{ "Continue watching" if banner.progress_pct else "Recently added" }}</span>
+        {% if banner.kicker %}<span class="watch-banner__kicker">{{ banner.kicker }}</span>{% endif %}
         <h1 class="watch-banner__title">{{ banner.title }}</h1>
         {% if banner.line %}
         <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>

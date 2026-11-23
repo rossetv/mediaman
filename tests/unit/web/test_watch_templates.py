@@ -231,6 +231,7 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
 
 def test_banner_shows_episodes_button_only_when_given() -> None:
     banner = {
+        "kicker": "Continue watching",
         "title": "The Long Coast",
         "line": "Season 2 · Episode 4",
         "progress_pct": 38,
@@ -245,19 +246,20 @@ def test_banner_shows_episodes_button_only_when_given() -> None:
     assert ">Episodes<" in with_eps
 
 
-def test_banner_without_progress_is_a_recently_added_pick() -> None:
-    html = _watch(
-        banner={
-            "title": "Salt & Iron",
-            "line": "Movie",
-            "progress_pct": None,
-            "primary": {"label": "Play", "href": "/watch/play/1"},
-            "episodes_href": None,
-            "backdrop_url": None,
-        }
-    )
-    assert "Recently added" in html
-    assert "Continue watching" not in html
+def test_banner_shows_the_label_it_is_given_and_none_when_it_has_none() -> None:
+    banner = {
+        "kicker": "From your library",
+        "title": "Salt & Iron",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+        "backdrop_url": None,
+    }
+    html = _watch(banner=banner)
+    assert '<span class="watch-banner__kicker">From your library</span>' in html
+    assert "Recently added" not in html and "Continue watching" not in html
+    assert "watch-banner__kicker" not in _watch(banner={**banner, "kicker": None})
 
 
 def test_not_set_up_links_to_settings_for_admins_only() -> None:

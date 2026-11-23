@@ -393,6 +393,23 @@ class TestWatchRows:
         assert banner["progress_pct"] == 40
         assert banner["ref"] == "show-500"
 
+    def test_the_banner_says_continue_watching_for_a_title_in_progress(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        assert get("/watch").json()["banner"]["kicker"] == "Continue watching"
+
+    def test_the_newest_title_is_recently_added_only_within_the_rows_window(self, get, conn):
+        assert get("/watch").json()["banner"]["kicker"] == "Recently added"
+
+        added = (NOW - timedelta(days=pages.RECENT_DAYS + 10)).isoformat()
+        conn.execute("UPDATE media_items SET added_at = ? WHERE id = '101'", (added,))
+        conn.commit()
+        ctx = get("/watch").json()
+
+        assert "Recently added" not in _rows(ctx)
+        assert ctx["banner"]["title"] == "Glasshouse"
+        assert ctx["banner"]["kicker"] == "From your library"
+
     def test_plex_not_set_up_still_lists_the_library(self, get, conn):
         conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")
         conn.commit()
