@@ -231,12 +231,12 @@ function load() {
     DOMParser: class { parseFromString(html) { return seasonDoc(Number(html)); } },
     fetch: (href) => Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve(href.slice(-1)) }),
     UIFeedback: { toast: (message, opts) => toasts.push({ message, opts }) },
-    MM: { api: { post: () => Promise.resolve({}), messageOf: (_e, f) => f } },
+    MM: { api: { post: () => Promise.resolve({}), get: () => Promise.resolve({ items: [] }), messageOf: (_e, f) => f } },
     addEventListener() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, run: () => vm.runInContext(fs.readFileSync(path.join(JS, 'watch.js'), 'utf8'), ctx) };
+  return { ctx, doc, toasts, timers, run: () => vm.runInContext(fs.readFileSync(path.join(JS, 'watch.js'), 'utf8'), ctx) };
 }
 
 function lineState(doc) {
@@ -257,7 +257,38 @@ async function keepFromLine(page) {
   await settle();
 }
 
+/* The Watch page's search box and the results it swaps in for the rows. */
+function searchPage(doc) {
+  return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
+    ['div', { class: 'watch-search' },
+      ['input', { class: 'watch-search__input', id: 'watch-search' }],
+      ['button', { id: 'watch-search-clear', hidden: '' }],
+      ['span', { id: 'watch-search-status' }]],
+    ['div', { id: 'watch-browse' }],
+    ['section', { class: 'watch-results', id: 'watch-results', hidden: '' },
+      ['p', { class: 'watch-results__msg', id: 'watch-results-msg' }],
+      ['div', { class: 'watch-grid', id: 'watch-grid' }]]]);
+}
+
 const scenarios = {
+  // A search that finds nothing.
+  async searchEmpty() {
+    const page = load();
+    page.doc.body.appendChild(searchPage(page.doc));
+    page.run();
+    const input = page.doc.getElementById('watch-search');
+    input.value = 'zzqx';
+    input.listeners.input.forEach((fn) => fn({}));
+    page.timers.pop()();
+    await settle();
+    const msg = page.doc.getElementById('watch-results-msg');
+    return {
+      empty: msg.classList.contains('watch-results__msg--empty'),
+      parts: msg.children.map((c) => c.textContent),
+      status: page.doc.getElementById('watch-search-status').textContent,
+    };
+  },
+
   // Season 1 is leaving, Season 2 is not: the line's slot stays through the swap and back.
   async season() {
     const page = load();

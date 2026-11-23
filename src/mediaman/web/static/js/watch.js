@@ -689,7 +689,7 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error');
+      msg.classList.remove('watch-results__msg--error', 'watch-results__msg--empty');
     }
 
     function showResults() {
@@ -703,16 +703,24 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error');
+      msg.classList.remove('watch-results__msg--error', 'watch-results__msg--empty');
     }
 
     function showFound(q, items) {
       showResults();
       items.forEach(function (item) { grid.appendChild(buildCard(item)); });
-      if (!items.length) msg.textContent = 'Nothing found for “' + q + '”.';
-      status.textContent = items.length
-        ? (items.length === 1 ? '1 result' : items.length + ' results') + ' for “' + q + '”'
-        : msg.textContent;
+      if (items.length) {
+        status.textContent = (items.length === 1 ? '1 result' : items.length + ' results') + ' for “' + q + '”';
+        return;
+      }
+      var line = 'Nothing found for “' + q + '”.';
+      var icon = el('i', 'fa-solid fa-magnifying-glass watch-results__icon');
+      icon.setAttribute('aria-hidden', 'true');
+      msg.classList.add('watch-results__msg--empty');
+      msg.appendChild(icon);
+      msg.appendChild(el('span', 'watch-results__line', line));
+      msg.appendChild(el('span', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
+      status.textContent = line;
     }
 
     function showFailed(text) {

@@ -1,4 +1,4 @@
-"""The show page's leaving line through season swaps and Keep, run under node against a fake DOM."""
+"""The Watch pages' leaving line, Keep and search, run under node against a fake DOM."""
 
 from __future__ import annotations
 
@@ -33,3 +33,11 @@ def test_the_kept_line_is_marked_kept_until_undo() -> None:
     assert (out["kept"]["text"], out["kept"]["kept"]) == ("Kept for 7 days", True)
     assert out["undone"]["kept"] is False
     assert out["undone"]["text"].startswith("Leaving in 3 days")
+
+
+def test_an_empty_search_shows_a_hint_and_reads_out_only_the_line() -> None:
+    out = _run("searchEmpty")
+    assert out["empty"] is True
+    assert out["parts"][1] == "Nothing found for “zzqx”."
+    assert out["parts"][2] != ""
+    assert out["status"] == "Nothing found for “zzqx”."

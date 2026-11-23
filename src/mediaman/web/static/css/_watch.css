@@ -383,8 +383,22 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
+/* Nothing found: a small centred block, not a bare sentence. */
+.watch-results__msg--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 0 24px;
+  text-align: center;
+}
+.watch-results__icon { font-size: 28px; color: var(--t3); margin-bottom: 8px; }
+.watch-results__line { font-size: 16px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
+.watch-results__hint { font-size: 14px; color: var(--t3); }
 .watch-results__msg--error {
   display: flex;
+  width: fit-content;
+  max-width: min(640px, 100%);
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
@@ -396,7 +410,7 @@
 }
 /* The season load error sits outside .watch-results, so it brings the page gutter itself
    and lines up with the episode list below it. */
-.watch-results__msg--season { margin-inline: var(--pad); max-width: 1100px; }
+.watch-results__msg--season { margin-inline: var(--pad); max-width: min(640px, calc(100% - 2 * var(--pad))); }
 @media (min-width: 900px) { .watch-results__msg--season { margin-left: calc(260px + var(--pad)); } }
 .watch-grid {
   display: grid;
