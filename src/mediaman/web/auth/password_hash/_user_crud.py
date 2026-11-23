@@ -21,6 +21,7 @@ from typing import TypedDict
 import bcrypt
 
 from mediaman.core.time import now_iso
+from mediaman.scanner.repository.watch_credit import keep_credited_plays
 from mediaman.web.auth._password_hash_helpers import (
     BCRYPT_ROUNDS,
     _LastUser,
@@ -358,6 +359,7 @@ def delete_user(
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
+            keep_credited_plays(conn, target_username)
             # A user created later under this name must not inherit this
             # one's failure count or lock.
             admin_unlock(conn, target_username)
