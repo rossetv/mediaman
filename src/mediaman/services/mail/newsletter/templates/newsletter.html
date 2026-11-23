@@ -1,259 +1,34 @@
 <!DOCTYPE html>
-<!-- Email template — inline colours are intentional.
-     Email clients strip <link> and external CSS, so all colours must be
-     inline or in this <style> block. They deliberately do NOT use the CSS
-     custom-property tokens from static/css/_tokens.css (which email clients
-     also strip). If the design-system palette changes, update this file
-     manually to keep values in sync. -->
+<!-- Email template. Every colour, background, button and layout rule that the
+     message depends on is inline (and the layout is tables) because many mail
+     clients drop or only half honour <style>; the <style> block below is a
+     progressive enhancement for narrow screens only. Colours are solid hex
+     because Outlook desktop ignores rgba(). They deliberately do NOT use the
+     CSS custom-property tokens from static/css/_tokens.css (email clients strip
+     those); if the design-system palette changes, update this file by hand. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
 <title>Mediaman Weekly Report</title>
 <style>
-  /* Styles scoped to the email body. All selectors prefixed with .mm-email to
-     avoid clashing with any client-injected styles. @container queries run
-     against the outer frame; @media mirrors them for clients without
-     container-query support. @container comes AFTER @media in source order so
-     when both match, @container wins — correct for narrow-pane-in-wide-browser
-     scenarios (e.g. Gmail web). */
-
-  .mm-email { background:#000; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif; -webkit-font-smoothing:antialiased; }
-  .mm-frame { container-type:inline-size; width:100%; margin:0 auto; }
-
-  .mm-email a { text-decoration:none; color:inherit; }
-
-  .mm-email .eh { padding:22px 24px 18px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.06); }
-  .mm-email .brand { font-size:24px; font-weight:600; letter-spacing:-0.28px; color:#fff; }
-  .mm-email .brand span { color:#2997ff; }
-  .mm-email .dateline { font-size:13px; color:rgba(255,255,255,0.56); margin-top:4px; letter-spacing:-0.224px; }
-
-  .mm-email .sect { padding:22px 28px; border-bottom:1px solid rgba(255,255,255,0.06); text-align:left; }
-  .mm-email .lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:rgba(255,255,255,0.56); margin-bottom:14px; }
-
-  .mm-email .sz { font-size:26px; font-weight:600; line-height:1.1; color:#fff; }
-  .mm-email .sz small { font-size:13px; font-weight:400; color:rgba(255,255,255,0.56); }
-  .mm-email .bar { height:16px; background:#2a2a2d; border-radius:4px; display:flex; overflow:hidden; margin:12px 0; }
-  .mm-email .bar .mv { background:#ff9f0a; }
-  .mm-email .bar .tv { background:#2997ff; }
-  .mm-email .bar .an { background:#bf5af2; }
-  .mm-email .chips { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:rgba(255,255,255,0.56); }
-  .mm-email .chips .dot { display:inline-block; width:8px; height:8px; border-radius:4px; margin-right:6px; vertical-align:middle; }
-  .mm-email .row3 { display:flex; gap:12px; text-align:left; margin-top:14px; }
-  .mm-email .row3 > div { flex:1; }
-  .mm-email .stat { font-size:20px; font-weight:600; color:#30d158; line-height:1.15; }
-  .mm-email .stat-lbl { font-size:11px; color:rgba(255,255,255,0.4); letter-spacing:0.3px; margin-top:2px; }
-
-  .mm-email .poster { background:#1d1d1f; border-radius:4px; display:block; }
-  .mm-email img.poster { object-fit:cover; }
-  .mm-email .item-title { font-weight:600; color:#fff; }
-  .mm-email .item-meta { color:rgba(255,255,255,0.56); }
-  .mm-email .item-size { color:rgba(255,255,255,0.4); font-weight:600; }
-  .mm-email .btn { display:inline-block; padding:7px 14px; background:#2997ff; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-align:center; white-space:nowrap; }
-  .mm-email .btn-ghost { display:inline-block; padding:6px 12px; border:1px solid rgba(41,151,255,0.3); color:#2997ff; border-radius:980px; font-size:11px; font-weight:600; text-align:center; white-space:nowrap; }
-  .mm-email .pill { display:inline-block; padding:7px 12px; border-radius:6px; font-size:12px; font-weight:600; text-align:center; white-space:nowrap; }
-  .mm-email .pill-green { background:rgba(48,209,88,0.12); color:#30d158; }
-  .mm-email .pill-blue  { background:rgba(41,151,255,0.12); color:#2997ff; }
-  .mm-email .pill-yellow{ background:rgba(255,214,10,0.12); color:#ffd60a; }
-
-  .mm-email .hero {
-    background:linear-gradient(180deg, rgba(255,69,58,0.08) 0%, rgba(255,69,58,0.02) 100%);
-    border:1px solid rgba(255,69,58,0.18);
-    border-radius:12px;
-    padding:16px 16px 14px;
-  }
-  .mm-email .hero-h { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:14px; }
-  .mm-email .hero-h .main { min-width:0; flex:1; }
-  .mm-email .hero-n { font-size:22px; font-weight:600; color:#ff453a; line-height:1.15; letter-spacing:-0.3px; }
-  .mm-email .hero-sub { font-size:12px; color:rgba(255,255,255,0.56); margin-top:3px; letter-spacing:-0.12px; }
-  .mm-email .hero-countdown {
-    flex:0 0 auto;
-    display:inline-flex; align-items:center; gap:6px;
-    padding:6px 12px;
-    background:rgba(255,69,58,0.12);
-    border:1px solid rgba(255,69,58,0.25);
-    border-radius:980px;
-    font-size:11px; font-weight:700; color:#ff453a;
-    letter-spacing:0.2px; white-space:nowrap;
-  }
-  .mm-email .hero-countdown .dot-pulse { width:6px; height:6px; border-radius:50%; background:#ff453a; }
-  .mm-email .sched-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
-  .mm-email .sched-card { display:flex; gap:10px; padding:10px; background:rgba(0,0,0,0.35); border-radius:8px; border:1px solid rgba(255,255,255,0.05); }
-  .mm-email .sched-card .poster { width:46px; height:69px; flex:0 0 auto; }
-  .mm-email .sched-card .body { flex:1; min-width:0; font-size:12px; line-height:1.4; }
-  .mm-email .sched-card .item-title { font-size:13px; margin-bottom:2px; }
-  .mm-email .sched-card .item-meta { font-size:11px; }
-  .mm-email .sched-card .item-size { font-size:12px; margin-top:3px; }
-  .mm-email .sched-card .btn { margin-top:6px; padding:5px 12px; font-size:11px; }
-  .mm-email .sched-card .reentry {
-    margin-top:6px;
-    background:rgba(255,214,10,0.06);
-    border:1px solid rgba(255,214,10,0.12);
-    border-radius:6px;
-    padding:6px 8px;
-    font-size:11px;
-    color:#ffd60a;
-    letter-spacing:-0.12px;
-  }
-
-  .mm-email .deleted-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
-  .mm-email .deleted-strip .del { text-align:left; }
-  .mm-email .deleted-strip .poster { width:100%; height:auto; aspect-ratio:2/3; }
-  .mm-email .deleted-strip .item-title { font-size:12px; margin-top:6px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .mm-email .deleted-strip .item-meta { font-size:10px; margin-top:2px; }
-  .mm-email .deleted-strip .btn-ghost { font-size:10px; padding:4px 8px; margin-top:6px; display:block; }
-
-  .mm-email .rec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 12px; }
-  .mm-email .rec-card { text-align:left; display:flex; flex-direction:column; }
-  .mm-email .rec-card .poster { width:100%; height:auto; aspect-ratio:2/3; }
-  .mm-email .rec-card .item-title { font-size:13px; margin-top:7px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .mm-email .rec-card .item-meta { font-size:11px; margin-top:2px; }
-  .mm-email .rec-card .rec-reason { font-size:11px; color:rgba(255,255,255,0.4); margin-top:3px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; flex:1; }
-  .mm-email .rec-card .btn,
-  .mm-email .rec-card .btn-ghost,
-  .mm-email .rec-card .pill { margin-top:7px; display:block; font-size:11px; padding:6px 8px; }
-
-  @media (min-width: 1400px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(6,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(6,1fr); }
-    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
-  }
-  @media (min-width: 1100px) and (max-width: 1399.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(5,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); }
-    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
-  }
-  @media (max-width: 699.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
-  }
-  @media (max-width: 559.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); }
-    .mm-email .sched-grid { grid-template-columns:1fr; }
-  }
-  @media (max-width: 459.98px) {
-    .mm-email .sect { padding:18px 16px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:18px 10px; }
-    .mm-email .rec-card .item-title { font-size:14px; -webkit-line-clamp:unset; }
-    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
-    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:13px; padding:8px 10px; }
-    .mm-email .sched-card .poster { width:52px; height:78px; }
-    .mm-email .sched-card .item-title { font-size:14px; }
-    .mm-email .sched-card .item-meta { font-size:12px; }
-    .mm-email .sched-card .btn { padding:8px 16px; font-size:12px; }
-    .mm-email .deleted-strip .item-title { font-size:12px; }
-    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:6px 10px; }
-    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
-  }
-  @media (max-width: 379.98px) {
-    .mm-email .sect { padding:14px 12px; }
-    .mm-email .sz { font-size:20px; }
-    .mm-email .stat { font-size:15px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(2,1fr); }
-    .mm-email .hero-h { flex-wrap:wrap; gap:8px; }
-  }
-
-  @container (min-width: 1400px) {
-    .mm-email .sect { padding:30px 40px; }
-    .mm-email .eh { padding:32px 40px 24px; }
-    .mm-email .brand { font-size:28px; }
-    .mm-email .sz { font-size:30px; }
-    .mm-email .sz small { font-size:15px; }
-    .mm-email .stat { font-size:24px; }
-    .mm-email .stat-lbl { font-size:12px; }
-    .mm-email .chips { font-size:13px; gap:18px; }
-    .mm-email .lbl { font-size:12px; margin-bottom:16px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(6,1fr); gap:20px 14px; }
-    .mm-email .rec-card .item-title { font-size:14px; }
-    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
-    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:12px; padding:8px 10px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(6,1fr); gap:14px; }
-    .mm-email .deleted-strip .item-title { font-size:13px; }
-    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:5px 10px; }
-    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); gap:12px; }
-    .mm-email .sched-card { padding:12px; }
-    .mm-email .sched-card .poster { width:56px; height:84px; }
-    .mm-email .sched-card .item-title { font-size:15px; }
-    .mm-email .sched-card .item-meta { font-size:12px; }
-    .mm-email .sched-card .btn { padding:7px 16px; font-size:12px; }
-    .mm-email .hero { padding:20px; }
-    .mm-email .hero-n { font-size:26px; }
-    .mm-email .hero-sub { font-size:13px; }
-  }
-  @container (min-width: 1100px) and (max-width: 1399.98px) {
-    .mm-email .sect { padding:26px 34px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(5,1fr); gap:18px 12px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); gap:12px; }
-    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
-    .mm-email .sched-card .poster { width:50px; height:75px; }
-    .mm-email .hero-n { font-size:24px; }
-  }
-  @container (min-width: 900px) and (max-width: 1099.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(4,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); }
-    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
-  }
-  @container (min-width: 700px) and (max-width: 899.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(4,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
-    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
-  }
-  @container (min-width: 560px) and (max-width: 699.98px) {
-    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
-    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
-    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
-  }
-  @container (min-width: 460px) and (max-width: 559.98px) {
-    .mm-email .sect { padding:18px 18px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); gap:14px 10px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); }
-    .mm-email .sched-grid { grid-template-columns:1fr; }
-    .mm-email .sched-card .poster { width:50px; height:75px; }
-    .mm-email .sched-card .item-title { font-size:14px; }
-  }
-  @container (min-width: 380px) and (max-width: 459.98px) {
-    .mm-email .sect { padding:16px 14px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:18px 10px; }
-    .mm-email .rec-card .item-title { font-size:14px; -webkit-line-clamp:unset; }
-    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
-    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:13px; padding:8px 10px; }
-    .mm-email .sched-grid { grid-template-columns:1fr; }
-    .mm-email .sched-card .poster { width:52px; height:78px; }
-    .mm-email .sched-card .item-title { font-size:14px; }
-    .mm-email .sched-card .item-meta { font-size:12px; }
-    .mm-email .sched-card .btn { padding:8px 16px; font-size:12px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); gap:10px; }
-    .mm-email .deleted-strip .item-title { font-size:12px; }
-    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:6px 10px; }
-    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
-    .mm-email .row3 { gap:8px; }
-    .mm-email .stat { font-size:17px; }
-    .mm-email .chips { font-size:11px; gap:10px; }
-  }
-  @container (max-width: 379.98px) {
-    .mm-email .sect { padding:14px 12px; }
-    .mm-email .eh { padding:18px 14px 14px; }
-    .mm-email .brand { font-size:22px; }
-    .mm-email .sz { font-size:20px; }
-    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:14px 8px; }
-    .mm-email .rec-card .item-title { font-size:13px; -webkit-line-clamp:unset; }
-    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:11px; }
-    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:12px; padding:7px 8px; }
-    .mm-email .sched-grid { grid-template-columns:1fr; }
-    .mm-email .sched-card .poster { width:46px; height:69px; }
-    .mm-email .sched-card .item-title { font-size:13px; }
-    .mm-email .deleted-strip { grid-template-columns:repeat(2,1fr); }
-    .mm-email .row3 { gap:4px; }
-    .mm-email .stat { font-size:15px; }
-    .mm-email .stat-lbl { font-size:10px; }
-    .mm-email .chips { font-size:10px; gap:8px; }
-    .mm-email .hero-h { flex-wrap:wrap; gap:8px; }
-    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
+  body { -webkit-font-smoothing:antialiased; }
+  .mm-email a { text-decoration:none; }
+  .mm-email .clamp2 { overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  @media (max-width: 520px) {
+    .mm-email .sect { padding:18px 16px !important; }
+    .mm-email .grid, .mm-email .grid tbody, .mm-email .grid tr { display:block; width:100% !important; }
+    .mm-email .grid td.cell { display:inline-block; box-sizing:border-box; padding:0 6px 16px !important; }
+    .mm-email .grid td.m100 { width:100% !important; padding:0 0 10px !important; }
+    .mm-email .grid td.m50 { width:49.9% !important; }
+    .mm-email .grid td.m33 { width:33.2% !important; }
+    .mm-email .clamp2 { -webkit-line-clamp:unset; display:block; }
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:#000000;">
+<body style="margin:0;padding:0;background:#000000;color:#ffffff;">
 
 {#- Byte formatting macro -#}
 {%- macro fmt_bytes(b) -%}
@@ -263,6 +38,69 @@
   {%- elif b >= 1048576 -%}{{ "%.0f"|format(b / 1048576) }} MB
   {%- else -%}{{ b }} B
   {%- endif -%}
+{%- endmacro -%}
+
+{#- Font stack, written without quotes so it can sit inside a style attribute -#}
+{%- set ff = "font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,Helvetica Neue,Arial,sans-serif;" -%}
+
+{#- A button: the background sits on the cell and the padding on the link, so it
+    reads as a button in clients that honour either. -#}
+{%- macro btn(url, label, block=false, small=false) -%}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if block %} width="100%"{% endif %}><tr><td bgcolor="#2997ff" align="center" style="background:#2997ff;border-radius:6px;"><a href="{{ url }}" class="btn" style="display:block;padding:{{ '6px 10px' if small else '8px 16px' }};color:#ffffff;font-size:12px;font-weight:600;line-height:16px;text-align:center;text-decoration:none;white-space:nowrap;">{{ label }}</a></td></tr></table>
+{%- endmacro -%}
+
+{%- macro ghost(url, label, block=false, pad='6px 12px', size='11px') -%}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if block %} width="100%"{% endif %}><tr><td align="center" style="border:1px solid #0c2d4d;border-radius:980px;"><a href="{{ url }}" class="btn-ghost" style="display:block;padding:{{ pad }};color:#2997ff;font-size:{{ size }};font-weight:600;line-height:16px;text-align:center;text-decoration:none;white-space:nowrap;">{{ label }}</a></td></tr></table>
+{%- endmacro -%}
+
+{%- macro pill(label, bg, fg) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="{{ bg }}" style="background:{{ bg }};border-radius:6px;padding:6px 8px;color:{{ fg }};font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;">{{ label }}</td></tr></table>
+{%- endmacro -%}
+
+{#- A poster, or a plain block of the same shape when there is none. With *fluid* the
+    image fills its cell (a 2:3 box when empty); otherwise it is w x h. -#}
+{%- macro poster(item, w, h, fluid=false) -%}
+{%- if item.poster_url -%}
+<img class="poster" src="{{ item.poster_url }}" alt="{{ item.title }}" width="{{ w }}" height="{{ h }}" style="display:block;border:0;border-radius:4px;background:#1d1d1f;{% if fluid %}width:100%;height:auto;{% else %}width:{{ w }}px;height:{{ h }}px;{% endif %}">
+{%- elif fluid -%}
+<div class="poster" style="background:#1d1d1f;border-radius:4px;height:0;padding-top:150%;font-size:0;line-height:0;">&nbsp;</div>
+{%- else -%}
+<div class="poster" style="background:#1d1d1f;border-radius:4px;width:{{ w }}px;height:{{ h }}px;font-size:0;line-height:0;">&nbsp;</div>
+{%- endif -%}
+{%- endmacro -%}
+
+{#- A table grid of *cols* columns; the call block draws one item. *m* is the
+    cell class that lets narrow screens re-flow the columns. -#}
+{%- macro grid(items, cols, m) -%}
+<table role="presentation" class="grid" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+{%- for row in items | batch(cols, '') %}
+<tr>
+{%- for item in row -%}
+<td class="cell {{ m }}" width="{{ (100 / cols) | round(2) }}%" valign="top" style="padding:0 {{ 0 if loop.last else 6 }}px 16px {{ 0 if loop.first else 6 }}px;">{% if item %}{{ caller(item) }}{% endif %}</td>
+{%- endfor %}
+</tr>
+{%- endfor %}
+</table>
+{%- endmacro -%}
+
+{%- macro days_left_text(n) -%}{% if n <= 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{%- endmacro -%}
+
+{%- macro rec_section(label, items) -%}
+<tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
+  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }}</div>
+  {% call(item) grid(items, 4, 'm50') %}
+    {{ poster(item, 130, 195, true) }}
+    <div class="clamp2" style="font-size:13px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:7px;">{{ item.title }}</div>
+    <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">{% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</div>
+    <div class="clamp2" style="font-size:11px;line-height:1.35;color:#8e8e8e;margin-top:3px;">{{ item.reason }}</div>
+    <div style="margin-top:7px;">
+    {%- if item.download_state == 'in_library' %}{{ pill('In Library', '#06190b', '#30d158') }}
+    {%- elif item.download_state == 'downloading' %}{{ pill('Downloading', '#05121f', '#2997ff') }}
+    {%- elif item.download_state == 'queued' %}{{ pill('Queued', '#1f1a01', '#ffd60a') }}
+    {%- elif item.download_url %}{{ btn(item.download_url, 'Download', block=true, small=true) }}
+    {%- endif %}</div>
+  {% endcall %}
+</td></tr>
 {%- endmacro -%}
 
 {#- Compute storage bar segment widths -#}
@@ -276,186 +114,114 @@
 {%- set tv_pct = [(tv_b / total_b * 100), 100] | min | round(1) -%}
 {%- set anime_pct = [(anime_b / total_b * 100), 100] | min | round(1) -%}
 {%- set other_pct = [(other_b / total_b * 100), 100] | min | round(1) -%}
+{%- set segments = [(movies_pct, '#ff9f0a'), (tv_pct, '#2997ff'), (anime_pct, '#bf5af2'), (other_pct, '#48484a')] -%}
 
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000000;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="background:#000000;">
   <tr>
     <td align="center" style="padding:24px 12px;">
 
-      <div class="mm-frame" style="max-width:1280px;">
-        <div class="mm-email">
+      <table role="presentation" class="mm-email" width="680" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:100%;max-width:680px;background:#000000;color:#ffffff;{{ ff }}">
 
           {% if dry_run %}
-          <div style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
+          <tr><td align="center" bgcolor="#2a1a00" style="background:#2a1a00;border:1px solid #4d3000;border-radius:8px 8px 0 0;padding:10px 20px;font-size:13px;color:#ff9f0a;font-weight:600;{{ ff }}">
             &#9888; DRY RUN MODE — No items will actually be deleted
-          </div>
+          </td></tr>
           {% endif %}
 
-          <div class="eh"{% if dry_run %} style="border-top:none;"{% endif %}>
-            <div class="brand">media<span>man</span></div>
-            <div class="dateline">Weekly Report &middot; {{ report_date }}</div>
-          </div>
+          <tr><td class="eh" align="center" style="padding:22px 24px 18px;text-align:center;border-bottom:1px solid #0f0f0f;{{ ff }}">
+            <div style="font-size:24px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div>
+            <div style="font-size:13px;color:#8e8e8e;margin-top:4px;">Weekly Report &middot; {{ report_date }}</div>
+          </td></tr>
 
-          <div class="sect">
-            <div class="lbl">Storage &amp; Reclaimed</div>
-            <div class="sz">{{ fmt_bytes(storage.used_bytes) }} <small>of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</small></div>
-            <div class="bar">
-              {% if movies_pct > 0 %}<div class="mv" style="width:{{ movies_pct }}%"></div>{% endif %}
-              {% if tv_pct > 0 %}<div class="tv" style="width:{{ tv_pct }}%"></div>{% endif %}
-              {% if anime_pct > 0 %}<div class="an" style="width:{{ anime_pct }}%"></div>{% endif %}
-              {% if other_pct > 0 %}<div style="width:{{ other_pct }}%;background:rgba(255,255,255,0.12);"></div>{% endif %}
+          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">Storage &amp; Reclaimed</div>
+            <div style="font-size:26px;font-weight:600;line-height:1.1;color:#ffffff;">{{ fmt_bytes(storage.used_bytes) }} <span style="font-size:13px;font-weight:400;color:#8e8e8e;">of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</span></div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#2a2a2d" style="background:#2a2a2d;border-radius:4px;margin:12px 0;"><tr>
+              {%- for pct, colour in segments if pct > 0 %}
+              <td width="{{ pct }}%" height="16" bgcolor="{{ colour }}" style="width:{{ pct }}%;height:16px;background:{{ colour }};font-size:0;line-height:0;">&nbsp;</td>
+              {%- endfor %}
+              <td height="16" style="height:16px;font-size:0;line-height:0;">&nbsp;</td>
+            </tr></table>
+            <div style="font-size:12px;line-height:1.8;color:#8e8e8e;" class="chips">
+              {% if movies_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#ff9f0a;">&#9679;</span> Movies {{ fmt_bytes(movies_b) }}</span> {% endif %}
+              {% if tv_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#2997ff;">&#9679;</span> TV {{ fmt_bytes(tv_b) }}</span> {% endif %}
+              {% if anime_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#bf5af2;">&#9679;</span> Anime {{ fmt_bytes(anime_b) }}</span> {% endif %}
+              {% if other_pct > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#48484a;">&#9679;</span> Other {{ fmt_bytes(other_b) }}</span>{% endif %}
             </div>
-            <div class="chips">
-              {% if movies_b > 0 %}<span><span class="dot" style="background:#ff9f0a"></span>Movies {{ fmt_bytes(movies_b) }}</span>{% endif %}
-              {% if tv_b > 0 %}<span><span class="dot" style="background:#2997ff"></span>TV {{ fmt_bytes(tv_b) }}</span>{% endif %}
-              {% if anime_b > 0 %}<span><span class="dot" style="background:#bf5af2"></span>Anime {{ fmt_bytes(anime_b) }}</span>{% endif %}
-              {% if other_pct > 0 %}<span><span class="dot" style="background:rgba(255,255,255,0.12)"></span>Other {{ fmt_bytes(other_b) }}</span>{% endif %}
-            </div>
-            <div class="row3">
-              <div><div class="stat">{{ fmt_bytes(reclaimed_week) }}</div><div class="stat-lbl">This week</div></div>
-              <div><div class="stat">{{ fmt_bytes(reclaimed_month) }}</div><div class="stat-lbl">This month</div></div>
-              <div><div class="stat">{{ fmt_bytes(reclaimed_total) }}</div><div class="stat-lbl">All time</div></div>
-            </div>
-          </div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;"><tr>
+              {%- for value, caption in [(reclaimed_week, 'This week'), (reclaimed_month, 'This month'), (reclaimed_total, 'All time')] %}
+              <td width="33%" valign="top" style="text-align:left;{{ ff }}"><div style="font-size:20px;font-weight:600;line-height:1.15;color:#30d158;">{{ fmt_bytes(value) }}</div><div style="font-size:11px;color:#8e8e8e;letter-spacing:0.3px;margin-top:2px;">{{ caption }}</div></td>
+              {%- endfor %}
+            </tr></table>
+          </td></tr>
 
-          {% macro days_left_text(n) %}{% if n <= 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{% endmacro %}
           {% if scheduled_items %}
-          <div class="sect">
-            <div class="hero">
-              <div class="hero-h">
-                <div class="main">
-                  <div class="hero-n">{{ scheduled_items|length }} scheduled for deletion</div>
-                  <div class="hero-sub">{{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }} &middot; click Keep on anything you want to hang onto</div>
-                </div>
-                <div class="hero-countdown"><span class="dot-pulse"></span>{{ days_left_text(scheduled_items | map(attribute='days_left') | min) }}</div>
-              </div>
-              <div class="sched-grid">
-                {% for item in scheduled_items %}
-                <div class="sched-card">
-                  {% if item.poster_url %}
-                  <img class="poster" src="{{ item.poster_url }}" alt="" width="46" height="69">
-                  {% else %}
-                  <div class="poster"></div>
-                  {% endif %}
-                  <div class="body">
-                    <div class="item-title">{{ item.title }}</div>
-                    <div class="item-meta">
-                      {{ item.type_label }}
-                      {% if item.added_days_ago is not none %} &middot; Added {{ item.added_days_ago }}d{% endif %}
-                      &middot; {{ days_left_text(item.days_left) }}
-                      &middot;
-                      {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;white-space:nowrap;">Never&nbsp;watched</span>{% endif %}
-                    </div>
-                    <div class="item-size">{{ fmt_bytes(item.file_size_bytes) }}</div>
-                    {% if item.is_reentry %}
-                    <div class="reentry">&#9888; Previously kept — grace period expired. Scheduled again.</div>
-                    {% endif %}
-                    {% if item.keep_url %}
-                    <a href="{{ item.keep_url }}" class="btn">Keep</a>
-                    {% endif %}
+          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#120707" style="background:#120707;border:1px solid #2e0f0d;border-radius:12px;"><tr><td style="padding:16px 16px 4px;{{ ff }}">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:14px;"><tr>
+                <td valign="top" style="{{ ff }}">
+                  <div style="font-size:22px;font-weight:600;line-height:1.15;letter-spacing:-0.3px;color:#ff453a;">{{ scheduled_items|length }} scheduled for deletion</div>
+                  <div style="font-size:12px;color:#8e8e8e;margin-top:3px;">{{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }} &middot; click Keep on anything you want to hang onto</div>
+                </td>
+                <td valign="top" align="right" style="padding-left:14px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="hero-countdown" bgcolor="#2a0f0e" style="background:#2a0f0e;border:1px solid #5a1f1b;border-radius:980px;padding:6px 12px;font-size:11px;font-weight:700;letter-spacing:0.2px;color:#ff453a;white-space:nowrap;{{ ff }}">&#9679; {{ days_left_text(scheduled_items | map(attribute='days_left') | min) }}</td></tr></table>
+                </td>
+              </tr></table>
+              {% call(item) grid(scheduled_items, 2, 'm100') %}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0505" style="background:#0a0505;border:1px solid #1e1414;border-radius:8px;" class="sched-card"><tr>
+                <td valign="top" width="46" style="padding:10px 0 10px 10px;">{{ poster(item, 46, 69) }}</td>
+                <td valign="top" style="padding:10px;font-size:12px;line-height:1.4;color:#ffffff;{{ ff }}">
+                  <div style="font-size:13px;font-weight:600;color:#ffffff;margin-bottom:2px;" class="item-title">{{ item.title }}</div>
+                  <div style="font-size:11px;color:#8e8e8e;">
+                    {{ item.type_label }}
+                    {% if item.added_days_ago is not none %} &middot; Added {{ item.added_days_ago }}d{% endif %}
+                    &middot; {{ days_left_text(item.days_left) }}
+                    &middot;
+                    {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;white-space:nowrap;">Never&nbsp;watched</span>{% endif %}
                   </div>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
-          </div>
+                  <div style="font-size:12px;font-weight:600;color:#8e8e8e;margin-top:3px;">{{ fmt_bytes(item.file_size_bytes) }}</div>
+                  {% if item.is_reentry %}
+                  <div style="margin-top:6px;background:#0f0d00;border:1px solid #1f1b02;border-radius:6px;padding:6px 8px;font-size:11px;color:#ffd60a;">&#9888; Previously kept — grace period expired. Scheduled again.</div>
+                  {% endif %}
+                  {% if item.keep_url %}
+                  <div style="margin-top:6px;">{{ btn(item.keep_url, 'Keep', small=true) }}</div>
+                  {% endif %}
+                </td>
+              </tr></table>
+              {% endcall %}
+            </td></tr></table>
+          </td></tr>
           {% endif %}
 
           {% if deleted_items %}
-          <div class="sect">
-            <div class="lbl">Deleted Since Last Report</div>
-            <div class="deleted-strip">
-              {% for item in deleted_items %}
-              <div class="del">
-                {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="" width="100" height="150">
-                {% else %}
-                <div class="poster" style="aspect-ratio:2/3;"></div>
-                {% endif %}
-                <div class="item-title">{{ item.title }}</div>
-                <div class="item-meta">Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}</div>
-                {% if item.redownload_url %}
-                <a href="{{ item.redownload_url }}" class="btn-ghost">Re-Download</a>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-          </div>
+          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">Deleted Since Last Report</div>
+            {% call(item) grid(deleted_items, 5, 'm33') %}
+              {{ poster(item, 100, 150, true) }}
+              <div class="clamp2" style="font-size:12px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:6px;">{{ item.title }}</div>
+              <div style="font-size:10px;color:#8e8e8e;margin-top:2px;">Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}</div>
+              {% if item.redownload_url %}
+              <div style="margin-top:6px;">{{ ghost(item.redownload_url, 'Re-Download', block=true, pad='4px 8px', size='10px') }}</div>
+              {% endif %}
+            {% endcall %}
+          </td></tr>
           {% endif %}
 
           {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
-          {% if trending_items %}
-          <div class="sect">
-            <div class="lbl">Trending This Week</div>
-            <div class="rec-grid">
-              {% for item in trending_items %}
-              <div class="rec-card">
-                {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
-                {% else %}
-                <div class="poster" style="aspect-ratio:2/3;"></div>
-                {% endif %}
-                <div class="item-title">{{ item.title }}</div>
-                <div class="item-meta">
-                  {% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-                </div>
-                <div class="rec-reason">{{ item.reason }}</div>
-                {% if item.download_state == 'in_library' %}
-                <span class="pill pill-green">In Library</span>
-                {% elif item.download_state == 'downloading' %}
-                <span class="pill pill-blue">Downloading</span>
-                {% elif item.download_state == 'queued' %}
-                <span class="pill pill-yellow">Queued</span>
-                {% elif item.download_url %}
-                <a href="{{ item.download_url }}" class="btn">Download</a>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
+          {% if trending_items %}{{ rec_section('Trending This Week', trending_items) }}{% endif %}
 
           {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
-          {% if personal_items %}
-          <div class="sect">
-            <div class="lbl">Based on Your Watch History</div>
-            <div class="rec-grid">
-              {% for item in personal_items %}
-              <div class="rec-card">
-                {% if item.poster_url %}
-                <img class="poster" src="{{ item.poster_url }}" alt="" width="130" height="195">
-                {% else %}
-                <div class="poster" style="aspect-ratio:2/3;"></div>
-                {% endif %}
-                <div class="item-title">{{ item.title }}</div>
-                <div class="item-meta">
-                  {% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-                </div>
-                <div class="rec-reason">{{ item.reason }}</div>
-                {% if item.download_state == 'in_library' %}
-                <span class="pill pill-green">In Library</span>
-                {% elif item.download_state == 'downloading' %}
-                <span class="pill pill-blue">Downloading</span>
-                {% elif item.download_state == 'queued' %}
-                <span class="pill pill-yellow">Queued</span>
-                {% elif item.download_url %}
-                <a href="{{ item.download_url }}" class="btn">Download</a>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
+          {% if personal_items %}{{ rec_section('Based on Your Watch History', personal_items) }}{% endif %}
 
-          <div style="padding:24px 24px 28px; text-align:center;">
-            <a href="{{ dashboard_url }}" class="btn-ghost" style="padding:10px 22px; font-size:13px;">Open Mediaman Dashboard &rarr;</a>
-            <div style="font-size:11px; color:rgba(255,255,255,0.4); margin-top:16px; line-height:1.6; letter-spacing:-0.12px;">
+          <tr><td align="center" style="padding:24px 24px 28px;text-align:center;{{ ff }}">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ ghost(dashboard_url, 'Open Mediaman Dashboard →', pad='10px 22px', size='13px') }}</td></tr></table>
+            <div style="font-size:12px;color:#a1a1a6;margin-top:16px;line-height:1.6;">
               You&#39;re receiving this because you&#39;re subscribed to mediaman notifications.
-              {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:rgba(255,255,255,0.4);text-decoration:underline;">Unsubscribe</a>{% endif %}
+              {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:#d1d1d6;text-decoration:underline;">Unsubscribe</a>{% endif %}
             </div>
-          </div>
+          </td></tr>
 
-        </div>
-      </div>
+      </table>
 
     </td>
   </tr>
