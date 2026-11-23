@@ -131,7 +131,7 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     """Create the Watch stream manager, tidy Plex sessions left by an earlier run, start the reaper.
 
     The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
-    the function that stops the reaper.
+    the function that stops the reaper and then every live stream.
     """
     from mediaman.db import get_db
     from mediaman.services.infra import allowed_outbound_hosts
@@ -148,7 +148,13 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
         name="watch-stream-tidy",
         daemon=True,
     ).start()
-    return _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
+    stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
+
+    def shutdown() -> None:
+        stop_reaper()
+        manager.stop_all()
+
+    return shutdown
 
 
 def _tidy_stream_orphans(tidy: Callable[[], int]) -> None:

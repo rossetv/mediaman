@@ -60,12 +60,20 @@ _CLIENT_IDENTIFIER = "mediaman-watch"
 _USER_AGENT = f"mediaman/{__version__}"
 _TRANSCODE = "/video/:/transcode/universal"
 _TIMEOUT: tuple[float, float] = (5.0, 30.0)
+# Stop and ping only nudge Plex, so a hung Plex must not hold them for the full read timeout.
+_QUIET_TIMEOUT: tuple[float, float] = (5.0, 5.0)
+# A start is several Plex calls in a row; the whole of it must end before a proxy in front of
+# mediaman (Cloudflare's origin limit is 100 s) gives up on the request.
+START_DEADLINE_SECONDS = 45.0
+# One reaper round stops pinging once it has run this long, so idle streams are stopped on time.
+REAP_PING_BUDGET_SECONDS = 60.0
+SHUTDOWN_BUDGET_SECONDS = 5.0
 _SEGMENT_MAX_BYTES = 32 * 1024 * 1024
 _PLAYLIST_MAX_BYTES = 4 * 1024 * 1024
 
 # How long after a user last touched an item a new stream of it still counts as the same viewing,
-# so the time the player has already played carries over a restart.
-VIEWING_KEEP_SECONDS = 3600.0
+# so the time the player has already played carries over a restart, even after a long pause.
+VIEWING_KEEP_SECONDS = 24 * 3600.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
@@ -193,20 +201,25 @@ class StreamManager:
             self._call_quietly("stop", session_id)
         with self._lock:
             self._check_room(user)
+        deadline = self._clock() + START_DEADLINE_SECONDS
         for attempt in range(2):
             session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
             with self._lock:
                 self._issued.add(session_id)
             try:
                 child_path = self._open_session(
-                    base, token, session_id, rating_key, quality, burn_subtitles
+                    base, token, session_id, rating_key, quality, burn_subtitles, deadline
                 )
                 break
             except PlexUnavailable:
                 self._call_quietly("stop", session_id)
-                if attempt == 1:
+                if attempt == 1 or self._clock() >= deadline:
                     raise
                 logger.info("plex_stream: start failed, retrying once")
+            except BaseException:
+                # Whatever failed, the Plex session may already be open: give it back.
+                self._call_quietly("stop", session_id)
+                raise
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
             # A concurrent start of the same item may have stored its stream meanwhile.
@@ -321,9 +334,27 @@ class StreamManager:
             live = [s.session_id for s in self._streams.values()]
         for stream in stopped:
             self._call_quietly("stop", stream.session_id)
+        began = self._clock()
         for session_id in live:
+            if self._clock() - began > REAP_PING_BUDGET_SECONDS:
+                break
             self._call_quietly("ping", session_id)
         return len(stopped)
+
+    def stop_all(self, budget: float = SHUTDOWN_BUDGET_SECONDS) -> None:
+        """Stop every live stream on Plex, waiting at most *budget* seconds in all."""
+        with self._lock:
+            sessions = [s.session_id for s in self._streams.values()]
+            self._streams.clear()
+        threads = [
+            threading.Thread(target=self._call_quietly, args=("stop", sid), daemon=True)
+            for sid in sessions
+        ]
+        for thread in threads:
+            thread.start()
+        end = time.monotonic() + budget
+        for thread in threads:
+            thread.join(max(0.0, end - time.monotonic()))
 
     def tidy_orphans(self) -> int:
         """Stop Plex transcode sessions mediaman started but no longer tracks; return how many.
@@ -390,6 +421,7 @@ class StreamManager:
         rating_key: str,
         quality: str,
         burn_subtitles: bool,
+        deadline: float,
     ) -> str:
         resolution, bitrate = QUALITY_PRESETS[quality]
         params = {
@@ -417,6 +449,7 @@ class StreamManager:
                 params=params,
                 extra_headers=session_header,
                 max_bytes=_PLAYLIST_MAX_BYTES,
+                deadline=deadline,
             )
         variant = next(
             (
@@ -430,7 +463,9 @@ class StreamManager:
             raise PlexUnavailable("Plex sent a start playlist without a usable variant")
         child_path = f"{_TRANSCODE}/{variant}"
         # Plex answers 404 for every segment until the child playlist has been read once.
-        self._get(base, token, child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES)
+        self._get(
+            base, token, child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES, deadline=deadline
+        )
         return child_path
 
     def _call_quietly(self, action: str, session_id: str) -> None:
@@ -446,9 +481,13 @@ class StreamManager:
                 op=action,
                 params={"session": session_id},
                 max_bytes=_PLAYLIST_MAX_BYTES,
+                timeout=_QUIET_TIMEOUT,
             )
         except PlexError as exc:
             logger.warning("plex_stream: %s failed (%s)", action, exc)
+        except Exception as exc:
+            # Best effort: a failing cleanup must not replace the error that led to it.
+            logger.warning("plex_stream: %s failed (%s)", action, type(exc).__name__)
 
     def _get(
         self,
@@ -460,8 +499,19 @@ class StreamManager:
         max_bytes: int,
         params: Mapping[str, str] | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        timeout: tuple[float, float] = _TIMEOUT,
+        deadline: float | None = None,
     ) -> bytes:
-        """GET *path* on Plex with the token in a header only, inside a DNS pin, body capped."""
+        """GET *path* on Plex with the token in a header only, inside a DNS pin, body capped.
+
+        With a *deadline* (on the manager's clock) the call is refused once it has passed, and
+        its timeouts never run beyond it.
+        """
+        if deadline is not None:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                raise PlexUnavailable("Plex took too long to start the stream")
+            timeout = (min(timeout[0], remaining), min(timeout[1], remaining))
         url = base + path
         allowed = self._allowed_hosts() if callable(self._allowed_hosts) else self._allowed_hosts
         safe, hostname, pinned_ips = resolve_safe_outbound_url(url, allowed_hosts=allowed)
@@ -490,7 +540,7 @@ class StreamManager:
                     headers=headers,
                     stream=True,
                     allow_redirects=False,
-                    timeout=_TIMEOUT,
+                    timeout=timeout,
                 )
                 try:
                     if response.status_code != 200:

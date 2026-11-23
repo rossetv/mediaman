@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from urllib.parse import urlsplit
 
 import pytest
@@ -67,11 +69,20 @@ class FakePlex:
         self.unreachable = False
         self.prefix = ""
         self.on_start = None
+        self.on_call = None
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append(
-            {"method": method, "url": url, "params": dict(params or {}), "headers": dict(headers)}
+            {
+                "method": method,
+                "url": url,
+                "params": dict(params or {}),
+                "headers": dict(headers),
+                "timeout": kwargs.get("timeout"),
+            }
         )
+        if self.on_call:
+            self.on_call(urlsplit(url).path)
         if self.unreachable:
             raise requests.ConnectionError(f"cannot connect to {url}?X-Plex-Token={TOKEN}")
         path = urlsplit(url).path
@@ -625,3 +636,117 @@ def test_the_default_session_has_a_wide_connection_pool():
     adapter = manager._session.get_adapter("https://plex.test/")
 
     assert adapter._pool_maxsize == 32
+
+
+def test_a_failure_that_is_not_a_plex_error_still_gives_the_session_back(manager, plex):
+    def explode(session):
+        raise RuntimeError("boom")
+
+    plex.on_start = explode
+
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    session = plex.calls_to("decision")[0]["params"]["session"]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [session]
+    assert plex.calls_to("decision")[1:] == []
+
+
+def test_a_failing_cleanup_does_not_hide_the_original_error(manager, plex, monkeypatch):
+    def explode(session):
+        raise RuntimeError("boom")
+
+    plex.on_start = explode
+    monkeypatch.setattr(plex_stream, "resolve_safe_outbound_url", _refuse_after_the_first_calls())
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _start(manager)
+
+
+def _refuse_after_the_first_calls():
+    calls = []
+
+    def resolve(url, **kwargs):
+        calls.append(url)
+        if url.endswith("/stop"):
+            raise ValueError("bad host")
+        return True, "plex.test", ("203.0.113.5",)
+
+    return resolve
+
+
+def test_a_start_that_runs_past_its_deadline_fails_before_the_next_plex_call(manager, plex, clock):
+    plex.on_call = lambda path: setattr(clock, "now", clock.now + 25)
+
+    with pytest.raises(PlexUnavailable):
+        _start(manager)
+
+    # decision at 0 s, start at 25 s, then the child playlist would begin at 50 s, past 45 s
+    assert len(plex.calls_to("decision")) == 1
+    assert len(plex.calls_to("stop")) == 1
+    assert not any(p.endswith("index.m3u8") for p in plex.paths())
+
+
+def test_a_slow_plex_is_not_retried_once_the_deadline_has_passed(manager, plex, clock):
+    plex.fail_decisions = 2
+    plex.on_call = lambda path: setattr(clock, "now", clock.now + 50)
+
+    with pytest.raises(PlexUnavailable):
+        _start(manager)
+
+    assert len(plex.calls_to("decision")) == 1
+
+
+def test_pings_use_a_short_timeout(manager, plex, clock):
+    _start(manager)
+
+    manager.reap(clock.now)
+
+    assert plex.calls_to("ping")[0]["timeout"][1] <= 5
+
+
+def test_a_reaper_round_stops_pinging_when_plex_is_slow(manager, plex, clock):
+    for key in ("1", "2", "3"):
+        _start(manager, rating_key=key)
+    plex.on_call = lambda path: (
+        setattr(clock, "now", clock.now + 40) if path.endswith("/ping") else None
+    )
+
+    manager.reap(clock.now)
+
+    assert len(plex.calls_to("ping")) == 2
+
+
+def test_stop_all_stops_every_live_stream_on_plex(manager, plex):
+    _start(manager, rating_key="1")
+    _start(manager, user="bob", rating_key="2")
+
+    manager.stop_all()
+
+    assert len(plex.calls_to("stop")) == 2
+    assert manager.reap() == 0
+    assert plex.calls_to("ping") == []
+
+
+def test_stop_all_gives_up_waiting_on_a_hung_plex(manager, plex):
+    release = threading.Event()
+    _start(manager)
+    plex.on_call = lambda path: release.wait(10) if path.endswith("/stop") else None
+
+    began = time.monotonic()
+    manager.stop_all(budget=0.2)
+    waited = time.monotonic() - began
+    release.set()
+
+    assert waited < 3
+
+
+def test_a_two_hour_pause_still_credits_the_whole_viewing(manager, clock):
+    first = _start(manager)
+    clock.now += 240
+    manager.get(first, "alice")
+    clock.now += 7200  # paused for two hours; the player then starts a new stream
+    second = _start(manager)
+    clock.now += 120
+
+    assert manager.get(second, "alice").elapsed_s >= 5 * 60
