@@ -200,7 +200,7 @@ class TestDetails:
         client.details("tv", 12345)
         assert fake_http.calls[0][1].endswith("/tv/12345")
         params = fake_http.calls[0][2]["params"]
-        assert params["append_to_response"] == "videos,credits,content_ratings"
+        assert params["append_to_response"] == "videos,credits,content_ratings,external_ids"
 
     def test_returns_none_on_http_error(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(status=500))

@@ -56,8 +56,8 @@ def _runtime(details: Mapping[str, Any], kind: str) -> int | None:
 
 def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
     """Title, dates, people, pictures and seasons of a TMDB details payload ("movie" or
-    "tv"). ``trailer_key`` is unchecked and ``tmdb_seasons`` is TMDB's season list,
-    specials left out."""
+    "tv"). ``trailer_key`` is unchecked, ``tmdb_seasons`` is TMDB's season list,
+    specials left out, and ``tvdb_id`` is a show's TVDB id when TMDB knows it."""
     credits = details.get("credits")
     cast = _dicts(credits.get("cast")) if isinstance(credits, Mapping) else []
     year = year_of(details.get("release_date") or details.get("first_air_date"))
@@ -74,6 +74,8 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
         if isinstance(s.get("season_number"), int) and s["season_number"] > 0
     ]
     count = details.get("number_of_seasons")
+    external = details.get("external_ids")
+    tvdb_id = external.get("tvdb_id") if isinstance(external, Mapping) else None
     return {
         "title": str(details.get("title") or details.get("name") or ""),
         "year": year,
@@ -102,4 +104,7 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
         ],
         "trailer_key": pick_trailer(details),
         "tmdb_seasons": seasons,
+        "tvdb_id": tvdb_id
+        if isinstance(tvdb_id, int) and not isinstance(tvdb_id, bool) and tvdb_id > 0
+        else None,
     }

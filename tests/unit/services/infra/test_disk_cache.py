@@ -420,3 +420,21 @@ def test_each_waiter_on_a_failed_fetch_gets_its_own_copy_of_the_error(monkeypatc
     assert len(errors) == 3
     assert len({id(e) for e in errors}) == 3
     assert {str(e) for e in errors} == {"down"}
+
+
+def test_a_peek_at_a_miss_answers_none_and_fills_the_entry_for_the_next_one():
+    store = disk_cache.meta()
+    fetch = Fetcher("v")
+
+    assert store.peek("k", DAY, DAY, fetch) is None
+    assert store.peek("k", DAY, DAY, fetch) == "v"
+    assert fetch.calls == 1
+
+
+def test_a_peek_does_not_ask_again_for_a_key_that_just_failed():
+    store = disk_cache.meta()
+    fetch = Fetcher(LookupError("down"), "v")
+
+    assert store.peek("k", DAY, DAY, fetch) is None
+    assert store.peek("k", DAY, DAY, fetch) is None
+    assert fetch.calls == 1

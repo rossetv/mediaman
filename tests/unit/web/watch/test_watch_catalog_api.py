@@ -3,6 +3,7 @@ title's detail and a season's episodes, for viewers and admins alike."""
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 
 import pytest
@@ -41,6 +42,14 @@ class DictCache:
             raise disk_cache.Refused(key)
         self.store[key] = fetch()
         return self.store[key]
+
+    def peek(self, key, fresh_s, stale_s, fetch):
+        """A miss answers None and fills the entry, as the background fetch would."""
+        if key in self.store:
+            return self.store[key]
+        with contextlib.suppress(Exception):
+            self.store[key] = fetch()
+        return None
 
 
 class FakeTmdb:
@@ -83,6 +92,7 @@ class FakeTmdb:
             },
         }
         self.failing = False
+        self.tvdb_to_tmdb: dict[int, int] = {}
 
     def _list(self, name):
         return [] if self.failing else list(self.lists[name])
@@ -105,7 +115,7 @@ class FakeTmdb:
         return None if self.failing else self.detail.get(tmdb_id)
 
     def find_by_tvdb(self, tvdb_id):
-        return None
+        return self.tvdb_to_tmdb.get(tvdb_id)
 
 
 class FakeArr:
@@ -503,6 +513,67 @@ class TestTmdbTitle:
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
 
         assert len(asked) == 1
+
+
+class TestShowsSonarrDoesNotTrack:
+    """The library show "Glass Coast" (TVDB 5500) with Sonarr holding nothing."""
+
+    def test_search_leaves_out_a_show_by_the_tmdb_id_its_rows_carry(
+        self, viewer, library, tmdb, arr
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        tmdb.search_results = [{"id": 77, "media_type": "tv", "name": "Renamed"}]
+
+        assert viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"] == []
+
+    def test_discover_marks_a_show_once_tmdb_has_mapped_its_tvdb_id(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        tmdb.tvdb_to_tmdb = {5500: 77}
+
+        viewer.get("/api/watch/discover")
+        rows = {r["id"]: r for r in viewer.get("/api/watch/discover").json()["rows"]}
+
+        assert rows["popular_tv"]["items"][0]["library_ref"] == "show-500"
+
+    def test_title_detail_matches_a_show_by_the_tvdb_id_tmdb_gives_it(self, viewer, tmdb, arr):
+        tmdb.detail[77]["external_ids"] = {"tvdb_id": 5500}
+
+        body = viewer.get("/api/watch/title/tmdb-tv-77").json()
+
+        assert (body["in_library"], body["library_ref"], body["download"]) == (
+            True,
+            "show-500",
+            None,
+        )
+
+    def test_the_library_title_of_a_show_takes_tmdb_details_by_its_own_tmdb_id(
+        self, viewer, library, tmdb, arr, plex
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '502'")
+        library.commit()
+
+        assert viewer.get("/api/watch/title/show-500").json()["director"] == "A. Creator"
+
+    def test_search_matches_a_show_on_title_and_folder_year_and_not_one_of_another_year(
+        self, viewer, library, tmdb, arr
+    ):
+        library.execute(
+            "UPDATE media_items SET file_path = '/tv/Glass Coast (2020)/Season 01'"
+            " WHERE show_rating_key = '500'"
+        )
+        library.commit()
+        tmdb.search_results = [
+            {"id": 78, "media_type": "tv", "name": "Glass Coast", "first_air_date": "2020-05-01"},
+            {"id": 79, "media_type": "tv", "name": "Glass Coast", "first_air_date": "1990-05-01"},
+        ]
+
+        items = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"]
+
+        assert [i["ref"] for i in items] == ["tmdb-tv-79"]
 
 
 class TestTitleDownload:

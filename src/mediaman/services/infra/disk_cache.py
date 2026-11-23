@@ -101,16 +101,10 @@ class Store[T]:
         directory = self._dir()
         if directory is None:
             return fetch()
-        path = directory / hashlib.sha256(key.encode()).hexdigest()
-        cached = self._read(path)
-        if cached is not None:
-            age, value = cached
-            if age < stale_s:
-                with contextlib.suppress(OSError):
-                    os.utime(path)
-                if age >= fresh_s and _backoff((self.name, key)) is None:
-                    self._refresh(key, path, fetch)
-                return value
+        path = self._path(directory, key)
+        hit = self._hit(key, path, fresh_s, stale_s, fetch)
+        if hit is not None:
+            return hit[0]
         error = _backoff((self.name, key))
         if error is not None:
             raise _bare(error)
@@ -118,8 +112,42 @@ class Store[T]:
             raise Refused(key)
         return self._fetch_once(key, path, fetch)
 
+    def peek(self, key: str, fresh_s: float, stale_s: float, fetch: Callable[[], T]) -> T | None:
+        """The value for *key* when cached, as ``get_or_fetch`` answers it; on a miss None
+        at once, with *fetch* run in the background to fill the entry unless it failed
+        within the backoff."""
+        directory = self._dir()
+        if directory is None:
+            return None
+        path = self._path(directory, key)
+        hit = self._hit(key, path, fresh_s, stale_s, fetch)
+        if hit is not None:
+            return hit[0]
+        if _backoff((self.name, key)) is None:
+            self._refresh(key, path, fetch)
+        return None
+
     def _dir(self) -> Path | None:
         return None if _root is None else _root / self.name
+
+    @staticmethod
+    def _path(directory: Path, key: str) -> Path:
+        return directory / hashlib.sha256(key.encode()).hexdigest()
+
+    def _hit(
+        self, key: str, path: Path, fresh_s: float, stale_s: float, fetch: Callable[[], T]
+    ) -> tuple[T] | None:
+        """(value,) of an entry younger than *stale_s*, refreshed in the background once
+        older than *fresh_s*; None when there is none."""
+        cached = self._read(path)
+        if cached is None or cached[0] >= stale_s:
+            return None
+        age, value = cached
+        with contextlib.suppress(OSError):
+            os.utime(path)
+        if age >= fresh_s and _backoff((self.name, key)) is None:
+            self._refresh(key, path, fetch)
+        return (value,)
 
     def _read(self, path: Path) -> tuple[float, T] | None:
         try:

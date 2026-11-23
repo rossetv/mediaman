@@ -260,7 +260,8 @@ class TmdbClient:
 
     def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
         """Return the raw details payload with videos, credits and the age-rating data
-        (release_dates for movies, content_ratings for TV) appended, or None on error.
+        (release_dates for movies, content_ratings and external_ids for TV) appended, or
+        None on error.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
@@ -268,7 +269,7 @@ class TmdbClient:
                 f"/{endpoint}/{tmdb_id}",
                 {
                     "append_to_response": "videos,credits,"
-                    + ("release_dates" if endpoint == "movie" else "content_ratings")
+                    + ("release_dates" if endpoint == "movie" else "content_ratings,external_ids")
                 },
             )
             return result if isinstance(result, dict) else None  # type: ignore[return-value]

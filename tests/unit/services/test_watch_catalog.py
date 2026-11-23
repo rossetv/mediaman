@@ -3,6 +3,7 @@ fetches through the cache, and the card and image shapes."""
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from types import SimpleNamespace
 
@@ -26,6 +27,14 @@ class DictCache:
             raise disk_cache.Refused(key)
         self.store[key] = fetch()
         return self.store[key]
+
+    def peek(self, key, fresh_s, stale_s, fetch):
+        """A miss answers None and fills the entry, as the background fetch would."""
+        if key in self.store:
+            return self.store[key]
+        with contextlib.suppress(Exception):
+            self.store[key] = fetch()
+        return None
 
 
 @pytest.fixture(autouse=True)
@@ -205,6 +214,46 @@ class TestLibraryRef:
         assert self.index.library_ref("movie", 12, "the glasshouse!", held) == "movie-100"
         # A remake TMDB knows under the same title, which Radarr does not hold.
         assert self.index.library_ref("movie", 13, "The Glasshouse", _view()) is None
+
+
+class TestLibraryRefWithoutSonarr:
+    def test_a_show_matches_on_the_tmdb_id_its_library_rows_carry(self):
+        index = catalog.LibraryIndex.build(
+            [], [("500", "Glass Coast", None)], ids={"show-500": (77, None)}
+        )
+
+        assert index.library_ref("tv", 77, "Renamed", _view()) == "show-500"
+
+    def test_a_show_matches_through_the_tmdb_id_tmdb_maps_its_tvdb_id_to(self):
+        index = catalog.LibraryIndex.build(
+            [], [("500", "Glass Coast", 5500)], tmdb_for_tvdb={5500: 77}
+        )
+
+        assert index.library_ref("tv", 77, "Renamed", _view()) == "show-500"
+
+    def test_a_show_matches_on_the_tvdb_id_tmdb_gives_it(self):
+        index = catalog.LibraryIndex.build([], [("500", "Glass Coast", 5500)])
+
+        assert index.library_ref("tv", 77, "Renamed", _view(), tvdb_id=5500) == "show-500"
+
+    @pytest.mark.parametrize(
+        ("title", "ids"),
+        [("Glass Coast", {"show-500": (None, 2020)}), ("Glass Coast (2020)", {})],
+    )
+    def test_a_show_matches_on_title_and_year_but_not_one_of_another_year(self, title, ids):
+        index = catalog.LibraryIndex.build([], [("500", title, None)], ids=ids)
+
+        assert index.library_ref("tv", 77, "Glass Coast", _view(), year=2020) == "show-500"
+        assert index.library_ref("tv", 78, "Glass Coast", _view(), year=1990) is None
+        assert index.library_ref("tv", 79, "Glass Coast", _view()) is None
+
+    def test_a_movie_matches_on_title_and_year_but_not_one_of_another_year(self):
+        index = catalog.LibraryIndex.build(
+            [("100", "The Glasshouse", None)], [], ids={"movie-100": (None, 2019)}
+        )
+
+        assert index.library_ref("movie", 11, "The Glasshouse", _view(), year=2019) == "movie-100"
+        assert index.library_ref("movie", 12, "The Glasshouse", _view(), year=1971) is None
 
 
 class TestDetails:

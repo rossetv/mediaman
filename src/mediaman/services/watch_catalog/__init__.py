@@ -5,13 +5,14 @@ Sonarr download state."""
 from __future__ import annotations
 
 from ._arr import ArrView, arr_view, invalidate
-from ._dedupe import LibraryIndex, normalise_title
+from ._dedupe import LibraryIndex, library_ids, normalise_title
 from ._discover import (
     MAX_QUERY_LEN,
     MIN_QUERY_LEN,
     TmdbUnavailable,
     details,
     discover_shelves,
+    known_tmdb_ids_for_tvdb,
     search,
     tmdb_card,
     tmdb_id_for_tvdb,
@@ -30,7 +31,9 @@ __all__ = [
     "discover_card",
     "discover_shelves",
     "invalidate",
+    "known_tmdb_ids_for_tvdb",
     "library_href",
+    "library_ids",
     "normalise_title",
     "search",
     "tmdb_card",

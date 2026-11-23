@@ -8,7 +8,7 @@ run them on a worker thread.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import requests
@@ -134,20 +134,38 @@ def details(
     return result
 
 
-def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
-    """The TMDB id of the show with this TVDB id; None when TMDB has none or fails."""
-
+def _find_tvdb(client: TmdbClient, tvdb_id: int) -> Callable[[], int]:
     def fetch() -> int:
         found = client.find_by_tvdb(tvdb_id)
         if found is None:
             raise TmdbUnavailable("find")
         return found
 
+    return fetch
+
+
+def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
+    """The TMDB id of the show with this TVDB id; None when TMDB has none or fails."""
     try:
-        result: int = _cached(f"tmdb:find:tvdb:{tvdb_id}", 30 * _DAY, 180 * _DAY, fetch)
+        result: int = _cached(
+            f"tmdb:find:tvdb:{tvdb_id}", 30 * _DAY, 180 * _DAY, _find_tvdb(client, tvdb_id)
+        )
     except TmdbUnavailable:
         return None
     return result
+
+
+def known_tmdb_ids_for_tvdb(client: TmdbClient, tvdb_ids: Iterable[int]) -> dict[int, int]:
+    """The TMDB ids already cached for these TVDB ids, without waiting on TMDB; the ones
+    not cached are looked up in the background, for the next caller."""
+    found: dict[int, int] = {}
+    for tvdb_id in tvdb_ids:
+        tmdb_id = _cache().peek(
+            f"tmdb:find:tvdb:{tvdb_id}", 30 * _DAY, 180 * _DAY, _find_tvdb(client, tvdb_id)
+        )
+        if isinstance(tmdb_id, int):
+            found[tvdb_id] = tmdb_id
+    return found
 
 
 def tmdb_card(
@@ -159,15 +177,16 @@ def tmdb_card(
     if kind is None or tmdb_id is None:
         return None
     title = str(item.get("title") or item.get("name") or "")
+    year = year_of(item.get("release_date") or item.get("first_air_date"))
     state, pct = arr.state(kind, tmdb_id)
     return discover_card(
         ref=f"tmdb-{kind}-{tmdb_id}",
         kind="movie" if kind == "movie" else "show",
         title=title,
-        year=year_of(item.get("release_date") or item.get("first_air_date")),
+        year=year,
         poster_url=tmdb_image_url(item.get("poster_path"), "w342"),
         rating=tmdb_rating(item.get("vote_average")),
-        library_ref=index.library_ref(kind, tmdb_id, title, arr),
+        library_ref=index.library_ref(kind, tmdb_id, title, arr, year=year),
         download_state=state,
         download_pct=pct,
     )
