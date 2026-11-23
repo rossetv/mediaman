@@ -19,7 +19,7 @@ import enum
 import logging
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
@@ -29,6 +29,7 @@ from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.web.repository.watch_progress import last_credited_by_media_item
 
 if TYPE_CHECKING:
     from mediaman.scanner.engine import ScanEngine
@@ -58,11 +59,12 @@ class ScanDecision(enum.Enum):
 
 @dataclass(slots=True)
 class _GuardSets:
-    """Per-library protection / already-scheduled lookup sets.
+    """Per-library protection / already-scheduled / mediaman-play lookups.
 
     Built once per library by _build_guard_sets so the hot
-    per-item loop does ZERO ``scheduled_actions`` SELECTs for the
-    protection and already-scheduled guards. ``already_scheduled``
+    per-item loop does ZERO ``scheduled_actions`` or ``watch_progress``
+    SELECTs. ``credited`` maps a media item id to the last time anyone
+    played it in mediaman long enough to count as a watch. ``already_scheduled``
     is mutable: when an item is freshly scheduled mid-loop it is added so
     a later item sharing the same ``plex_rating_key`` observes it, as the
     connection's uncommitted view would.
@@ -70,10 +72,11 @@ class _GuardSets:
 
     protected: frozenset[str]
     already_scheduled: set[str]
+    credited: Mapping[str, datetime]
 
 
 def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
-    """Batch-load the protection and already-scheduled sets for a library.
+    """Batch-load the guard sets and mediaman play credits for a library.
 
     Two ``IN (...)`` queries instead of one repository.is_protected and
     repository.is_already_scheduled round trip per item. The active-ness
@@ -83,6 +86,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     return _GuardSets(
         protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
+        credited=last_credited_by_media_item(conn),
     )
 
 
@@ -167,12 +171,18 @@ def _evaluate_scan_item(
     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
     The ``media_items`` upsert below cannot change either guard's answer
     because neither guard reads ``media_items``.
+
+    A mediaman play credited to the item joins its Plex watch history, so
+    both ``last_watched_at`` and the inactivity check count it.
     """
     conn = engine._conn
     item = f.item
     media_id = item["plex_rating_key"]
     if seen_keys is not None:
         seen_keys.add(media_id)
+    credited_at = guards.credited.get(media_id)
+    if credited_at is not None:
+        f = replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
     _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
 
     if media_id in guards.protected:
