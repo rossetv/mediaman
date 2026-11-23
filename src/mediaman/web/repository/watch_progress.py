@@ -25,6 +25,9 @@ MIN_RESUME_SECONDS = 30.0
 # of its episodes were played, so this is well above the cards a row can hold.
 _CONTINUE_CANDIDATES = 200
 
+# Keys per IN (...) so a large library stays under SQLite's bound-parameter limit.
+_IN_CHUNK = 500
+
 _COLUMNS = "rating_key, media_item_id, show_rating_key, position_s, duration_s, watched, updated_at"
 
 
@@ -132,16 +135,18 @@ def get_progress(
     conn: sqlite3.Connection, username: str, rating_keys: Sequence[str]
 ) -> dict[str, WatchProgress]:
     """Return *username*'s progress for each of *rating_keys* that has any, by rating key."""
-    if not rating_keys:
-        return {}
-    placeholders = ",".join("?" * len(rating_keys))
-    # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
-    rows = conn.execute(  # nosec B608
-        f"SELECT {_COLUMNS} FROM watch_progress"
-        f" WHERE username = ? AND rating_key IN ({placeholders})",
-        (username, *rating_keys),
-    ).fetchall()
-    return {row["rating_key"]: _row_to_progress(row) for row in rows}
+    found: dict[str, WatchProgress] = {}
+    for start in range(0, len(rating_keys), _IN_CHUNK):
+        chunk = rating_keys[start : start + _IN_CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
+        rows = conn.execute(  # nosec B608
+            f"SELECT {_COLUMNS} FROM watch_progress"
+            f" WHERE username = ? AND rating_key IN ({placeholders})",
+            (username, *chunk),
+        ).fetchall()
+        found.update({row["rating_key"]: _row_to_progress(row) for row in rows})
+    return found
 
 
 def show_progress(

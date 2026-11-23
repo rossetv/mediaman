@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -94,6 +95,18 @@ class TestCredit:
         _save(users, position=410.0, played=5.0, now=NOON + timedelta(hours=1))
         assert first is not None
         assert _credited(users, "m1") == first
+
+
+class TestManyKeys:
+    def test_progress_is_found_for_more_keys_than_one_query_can_bind(self, users):
+        _save(users, rating_key="m1", position=60.0)
+        _save(users, rating_key="m1100", position=60.0)
+        # A connection that binds at most 600 values per statement.
+        users.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 600)
+
+        found = get_progress(users, "aoife", [f"m{i}" for i in range(1, 1201)])
+
+        assert set(found) == {"m1", "m1100"}
 
 
 class TestPerPerson:
