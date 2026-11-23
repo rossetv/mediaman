@@ -30,6 +30,10 @@
   gap: 4px;
   margin-left: 4px;
   flex: 1;
+  /* overflow-x also clips vertically: fill the bar's height so a link's
+     focus ring has room above and below. */
+  align-self: stretch;
+  align-items: center;
   overflow-x: auto;
   scrollbar-width: none;
   list-style: none;
@@ -51,6 +55,9 @@
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   font-family: var(--font-text);
 }
+/* A 44px link leaves 3.5px of the bar above and below it: keep the ring within. */
+.nav-links a:focus-visible,
+.nav-links button:focus-visible { outline-offset: 1px; }
 .nav-btn:hover,
 .nav-links a:hover,
 .nav-links button:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
