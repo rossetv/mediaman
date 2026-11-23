@@ -7,6 +7,7 @@
 
 {% block head %}
 <script src="/static/js/core/reauth.js" defer></script>
+<script src="/static/js/show-password.js" defer></script>
 <script src="/static/js/account.js" defer></script>
 {% endblock %}
 
@@ -32,15 +33,15 @@
         <div class="inline-form-grid">
           <label class="fld">
             <span class="fld-lbl">Current password</span>
-            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required>
+            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required data-show-password>
           </label>
           <label class="fld">
             <span class="fld-lbl">New password</span>
-            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required>
+            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-show-password>
           </label>
           <label class="fld">
             <span class="fld-lbl">Confirm new password</span>
-            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required>
+            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-show-password>
           </label>
         </div>
         <div class="inline-form-actions">

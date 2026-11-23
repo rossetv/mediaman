@@ -336,6 +336,8 @@
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
+.setg-pg .usr-row .usr-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.setg-pg .usr-row .pill { flex-shrink: 0; }
 .setg-pg .usr-row .you-pill {
   font-size: 10px; font-weight: 600;
   padding: 2px 8px; border-radius: var(--r-pill);
@@ -388,7 +390,26 @@
 }
 .setg-pg .link-danger:hover { background: rgba(255,69,58,.10); }
 
+/* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
+.setg-pg .sub-row.is-entering,
+.setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
+@keyframes setg-row-in { from { opacity: 0; transform: translateY(-4px); } }
+.setg-pg .sub-row.is-leaving,
+.setg-pg .usr-row.is-leaving {
+  overflow: hidden; opacity: 0;
+  padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
+  transition: height var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out),
+              padding var(--dur) var(--ease-out), margin var(--dur) var(--ease-out);
+}
+/* The list's 6px gap folds away with the row. */
+.setg-pg .sub-row.is-leaving { margin-top: -6px; }
+
 @media (max-width: 520px) {
+  /* Name and email take the first line; the role and actions wrap under them. */
+  .setg-pg .usr-row { flex-wrap: wrap; gap: 8px 12px; }
+  .setg-pg .usr-row .usr-meta { flex-basis: calc(100% - 50px); }
+  .setg-pg .usr-row .pill { margin-left: 50px; }
+  .setg-pg .usr-row .usr-actions { margin-left: auto; }
   .setg-pg .sub-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px 10px; }
   .setg-pg .sub-row .em { flex-basis: calc(100% - 40px); }
   .setg-pg .sub-row .sub-stat { margin-left: 40px; }

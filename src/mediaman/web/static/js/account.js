@@ -37,9 +37,11 @@
 
     var fields = ['account-old-password', 'account-new-password', 'account-confirm-password'];
 
-    function fail(text) {
+    // The message is announced by the status region; the cursor goes where the fix is.
+    function fail(text, fieldId) {
       result.className = 'inline-form-msg err';
       result.textContent = text;
+      document.getElementById(fieldId).focus();
     }
 
     form.addEventListener('submit', function (e) {
@@ -47,9 +49,9 @@
       var oldPw = document.getElementById('account-old-password').value;
       var newPw = document.getElementById('account-new-password').value;
       var conf = document.getElementById('account-confirm-password').value;
-      if (!oldPw) { fail('Enter your current password.'); return; }
-      if (newPw.length < 12) { fail('New password must be at least 12 characters.'); return; }
-      if (newPw !== conf) { fail("Passwords don't match."); return; }
+      if (!oldPw) { fail('Enter your current password.', 'account-old-password'); return; }
+      if (newPw.length < 12) { fail('New password must be at least 12 characters.', 'account-new-password'); return; }
+      if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
 
       submit.disabled = true;
       MM.reauth.run(function () {
@@ -71,6 +73,9 @@
         }
         result.className = 'inline-form-msg err';
         renderApiError(result, err);
+        document.getElementById(
+          err && err.error === 'wrong_password' ? 'account-old-password' : 'account-new-password'
+        ).focus();
       });
     });
   }

@@ -26,32 +26,32 @@
       </div>
     </div>
 
-    <div class="inline-form" id="self-password-form" hidden>
+    <form class="inline-form" id="self-password-form" novalidate hidden>
       <div class="inline-form-grid">
         <label class="fld">
           <span class="fld-lbl">Current password</span>
-          <input class="inp" type="password" id="self-old-password" autocomplete="current-password">
+          <input class="inp" type="password" id="self-old-password" autocomplete="current-password" data-show-password>
         </label>
         <label class="fld">
           <span class="fld-lbl">New password</span>
-          <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength">
+          <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength" data-show-password>
           <div class="fpc-meter"><span class="fpc-meter-fill" id="self-new-strength-meter"></span></div>
           <span class="fpc-caption" id="self-new-strength-label">&nbsp;</span>
         </label>
         <label class="fld">
           <span class="fld-lbl">Confirm new password</span>
-          <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password">
+          <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password" data-show-password>
           <span class="fpc-caption" id="self-match-label">&nbsp;</span>
         </label>
       </div>
       <div class="inline-form-actions">
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
-        {{ c.btn("Update password", variant="primary", size="sm", id="btn-submit-password") }}
-        <span class="inline-form-msg" id="password-result"></span>
+        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
+        <span class="inline-form-msg" id="password-result" role="status"></span>
       </div>
-    </div>
+    </form>
 
-    <div class="inline-form" id="self-email-form" hidden>
+    <form class="inline-form" id="self-email-form" novalidate hidden>
       <label class="fld">
         <span class="fld-lbl">Notification email</span>
         <input class="inp" type="email" id="self-email-input"
@@ -62,10 +62,10 @@
       </label>
       <div class="inline-form-actions">
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
-        {{ c.btn("Save email", variant="primary", size="sm", id="btn-submit-email") }}
-        <span class="inline-form-msg" id="email-result"></span>
+        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-email">Save email</button>
+        <span class="inline-form-msg" id="email-result" role="status"></span>
       </div>
-    </div>
+    </form>
   {% endcall %}
 
   {% set team_actions %}
@@ -74,7 +74,7 @@
   {% endset %}
   {% call c.setg_card(title="Team", sub="Admins manage Mediaman. Viewers can watch and request, nothing more.",
                          header_actions=team_actions, pad=True) %}
-    <div class="inline-form inline-form--two" id="add-user-form" hidden>
+    <form class="inline-form inline-form--two" id="add-user-form" novalidate hidden>
       <div class="inline-form-grid">
         <label class="fld">
           <span class="fld-lbl">Username</span>
@@ -82,7 +82,7 @@
         </label>
         <label class="fld">
           <span class="fld-lbl">Password</span>
-          <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength">
+          <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength" data-show-password>
           <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
           <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
         </label>
@@ -97,10 +97,10 @@
       </div>
       <div class="inline-form-actions">
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}
-        {{ c.btn("Create user", variant="primary", size="sm", id="btn-submit-add-user") }}
-        <span class="inline-form-msg" id="create-user-result"></span>
+        <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
+        <span class="inline-form-msg" id="create-user-result" role="status"></span>
       </div>
-    </div>
+    </form>
 
     <div id="user-list">
       <div class="fld-sub">Loading users…</div>
