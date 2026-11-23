@@ -182,9 +182,9 @@ const scenarios = {
     await settle();
     const msg = page.doc.getElementById('watch-results-msg');
     const out = {
-      centred: msg.classList.contains('watch-results__msg--failed'),
-      icon: msg.children[0].tagName === 'I' && msg.children[0].getAttribute('aria-hidden') === 'true',
-      line: msg.querySelector('.watch-results__line') && msg.querySelector('.watch-results__line').textContent,
+      error: msg.classList.contains('watch-results__msg--error'),
+      alert: msg.getAttribute('role'),
+      line: msg.children[0] && msg.children[0].textContent,
       status: page.doc.getElementById('watch-search-status').textContent,
     };
     click(page.doc, msg.querySelector('button'));
