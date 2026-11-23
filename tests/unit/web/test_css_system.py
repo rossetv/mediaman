@@ -2,7 +2,8 @@
 that open and close with motion.
 
 These read the stylesheet rules, since no layout engine runs here. The Watch page's own
-stylesheets (`_watch*.css`) are held to their own tests.
+stylesheets (`_watch*.css`) are held to their own tests, except for the red tokens, which every
+stylesheet, script and template shares.
 """
 
 from __future__ import annotations
@@ -252,8 +253,6 @@ COLOUR_FILES = [
     ]
     if p.name != "_tokens.css"
 ]
-# stylesheets that still set red text from --danger
-STILL_ON_DANGER = {"_watch.css", "_watch_detail.css", "_watch_list.css"}
 
 
 def test_the_red_tints_are_built_from_the_danger_token() -> None:
@@ -274,16 +273,7 @@ def test_no_danger_red_is_written_out_beside_the_tokens() -> None:
     assert not offenders, f"literal danger red outside the tokens: {offenders}"
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        pytest.param(p, marks=pytest.mark.xfail(strict=True, reason="still on --danger"))
-        if p.name in STILL_ON_DANGER
-        else p
-        for p in COLOUR_FILES
-    ],
-    ids=lambda p: p.name,
-)
+@pytest.mark.parametrize("path", COLOUR_FILES, ids=lambda p: p.name)
 def test_red_text_uses_the_text_token_not_the_fill_token(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".css":

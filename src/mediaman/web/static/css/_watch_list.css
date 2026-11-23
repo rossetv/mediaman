@@ -34,7 +34,7 @@
   line-height: 1;
   margin-bottom: 4px;
 }
-.wl-stat__value--stale { color: var(--danger); }
+.wl-stat__value--stale { color: var(--danger-text); }
 .wl-stat__label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
 .wl-stat__size { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
 
@@ -59,7 +59,7 @@
 .wl-row--kept { background: rgba(48,209,88,.04); }
 
 .wl-del { display: block; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
-.wl-del--soon { color: var(--danger); }
+.wl-del--soon { color: var(--danger-text); }
 .wl-del--kept { color: var(--success); }
 .wl-del--none { color: var(--t3); }
 .wl-del__sub { display: block; font-size: 12px; color: var(--t3); }

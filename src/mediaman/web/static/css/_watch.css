@@ -570,7 +570,7 @@
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
 /* The line keeps the Keep button's height when it is kept or empty (a season
    that is not leaving), so Resume and the season tabs never move under a tap. */
-.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger); }
+.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger-text); }
 .watch-leaving--kept { color: var(--success); }
 /* Another season is leaving, not this one: said quietly, with no Keep. */
 .watch-leaving--other { color: var(--t2); }
