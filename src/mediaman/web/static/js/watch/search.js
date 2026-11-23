@@ -19,6 +19,7 @@
   var SEARCH_DELAY_MS = 350;
   // TMDB answers nothing for less; do not ask.
   var TMDB_MIN_CHARS = 2;
+  var SEARCH_FAILED = 'Couldn’t search just now.';
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
   // Keep is an admin control; the search answers a viewer with the same fields.
   var canKeep = false;
@@ -48,9 +49,10 @@
   function buildCard(item) {
     var card = el('article', 'watch-card');
     card.setAttribute('data-keep-id', item.keep_id || '');
-    if (item.ref) card.setAttribute('data-title-ref', item.ref);
 
+    // The link carries the ref: it is what takes focus back when the detail closes.
     var link = el('a', 'watch-card__link');
+    if (item.ref) link.setAttribute('data-title-ref', item.ref);
     link.href = safePath(item.href) || '/watch';
     var poster = el('span', 'watch-card__poster');
     var posterUrl = safePath(item.poster_url);
@@ -109,9 +111,9 @@
   /* A title from TMDB that is not in the library. */
   function buildTmdbCard(item) {
     var card = el('article', 'watch-card');
-    card.setAttribute('data-title-ref', item.ref || '');
 
     var link = el('a', 'watch-card__link');
+    link.setAttribute('data-title-ref', item.ref || '');
     link.href = safePath(item.href) || '#title=' + encodeURIComponent(item.ref || '');
     var poster = el('span', 'watch-card__poster');
     var posterUrl = safePath(item.poster_url);
@@ -160,7 +162,10 @@
 
   function groupHead(title, count) {
     var head = el('div', 'results-group__head');
-    head.appendChild(el('h2', 'results-group__title', title));
+    var h = el('h2', 'results-group__title', title);
+    // Takes focus after a retry has replaced the button that had it.
+    h.tabIndex = -1;
+    head.appendChild(h);
     if (typeof count === 'number') {
       head.appendChild(el('span', 'results-group__count', count + (count === 1 ? ' title' : ' titles')));
     }
@@ -255,6 +260,8 @@
     // The search being shown; a reply for any other is dropped.
     var current = null;
     var shown = null;
+    // The view change in progress: { to, anim }.
+    var fade = null;
 
     function setPending(on) {
       box.classList.toggle('is-pending', on);
@@ -262,7 +269,8 @@
 
     function clearMsg() {
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--failed', 'watch-results__msg--empty');
+      msg.classList.remove('watch-results__msg--error', 'watch-results__msg--empty');
+      msg.removeAttribute('role');
     }
 
     function dropGroups() {
@@ -278,24 +286,55 @@
       results.setAttribute('aria-busy', 'false');
     }
 
+    /* Show the results or the rows: the one on view fades out over --dur-fast,
+       then the other is shown and eases in over --dur. Asking for the view that
+       is on its way is a no-op; asking for the one still on view stops the fade
+       and leaves it as it was. */
+    function showView(toResults) {
+      var to = toResults ? results : browse;
+      var from = toResults ? browse : results;
+      if (fade) {
+        var busy = fade;
+        if (busy.to === to) return;
+        fade = null;
+        busy.anim.cancel();
+        return;
+      }
+      if (!to.hidden) return;
+      if (core.reduceMotion() || !from.animate || from.hidden) {
+        from.hidden = true;
+        to.hidden = false;
+        fadeIn(to);
+        return;
+      }
+      var anim = from.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration: core.tokenMs('--dur-fast', 150),
+        easing: core.token('--ease-out', 'ease-out'),
+        fill: 'forwards'
+      });
+      fade = { to: to, anim: anim };
+      anim.onfinish = function () {
+        if (!fade || fade.anim !== anim) return;
+        fade = null;
+        from.hidden = true;
+        anim.cancel();
+        to.hidden = false;
+        fadeIn(to);
+      };
+    }
+
     function showBrowse() {
       status.textContent = '';
-      if (!results.hidden) {
-        results.hidden = true;
-        browse.hidden = false;
-        fadeIn(browse);
-      }
+      showView(false);
       dropGroups();
       clearMsg();
     }
 
-    /* Reveal the results in place of the rows. */
+    /* Reveal the results in place of the rows. Says whether they were not yet on view. */
     function reveal() {
-      if (!results.hidden) return false;
-      browse.hidden = true;
-      results.hidden = false;
-      fadeIn(results);
-      return true;
+      var was = results.hidden;
+      showView(true);
+      return was;
     }
 
     function mount(node) {
@@ -316,40 +355,62 @@
       dropGroups();
       clearMsg();
       if (current) current.view = current.libDrawn = current.tmdbDrawn = null;
-      var icon = el('i', 'fa-solid ' + iconName + ' watch-results__icon');
-      icon.setAttribute('aria-hidden', 'true');
       msg.classList.add('watch-results__msg--' + kind);
-      msg.appendChild(icon);
+      if (iconName) {
+        var icon = el('i', 'fa-solid ' + iconName + ' watch-results__icon');
+        icon.setAttribute('aria-hidden', 'true');
+        msg.appendChild(icon);
+      }
       fadeIn(msg);
     }
 
-    function showNothing(q) {
+    /* Nothing found. With TMDB not set up, the line below says why nothing
+       outside the library was searched. */
+    function showNothing(q, notSetUp) {
       showLine('empty', 'fa-magnifying-glass');
       var line = 'No matches for “' + q + '”';
       msg.appendChild(el('span', 'watch-results__line', line));
       msg.appendChild(el('span', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
       status.textContent = line;
+      if (notSetUp) {
+        shown = hint(data);
+        results.appendChild(shown);
+      }
     }
 
-    /* The whole search failed: laid out like the empty state, with a way on. */
-    function showFailed(text) {
-      showLine('failed', 'fa-triangle-exclamation');
-      msg.appendChild(el('span', 'watch-results__line', text));
-      var retry = el('button', 'btn watch-btn--grey watch-results__again', 'Try again');
+    /* The whole search failed: one line, one way on that runs both searches again. */
+    function showFailed() {
+      showLine('error');
+      msg.setAttribute('role', 'alert');
+      msg.appendChild(el('span', '', SEARCH_FAILED));
+      var retry = el('button', 'watch-results__retry', 'Try again');
       retry.type = 'button';
       retry.addEventListener('click', function () {
         input.focus();
         run();
       });
       msg.appendChild(retry);
-      status.textContent = text;
+      status.textContent = SEARCH_FAILED;
     }
 
     function readOut(c) {
       var parts = [];
       if (c.lib.state === 'ok' && c.lib.items.length) parts.push(c.lib.items.length + ' in your library');
       if (c.tmdb.state === 'ok' && c.tmdb.items.length) parts.push(c.tmdb.items.length + ' available to download');
-      status.textContent = parts.join(', ') + ' for “' + c.q + '”';
+      status.textContent = parts.length
+        ? parts.join(', ') + ' for “' + c.q + '”'
+        : 'No matches in your library for “' + c.q + '”';
+    }
+
+    /* After a retry the group it was in is rebuilt: put focus back in the
+       new one, on its Try again if it failed again. */
+    function refocus(c, which, node) {
+      if (c.refocus !== which || !node) return;
+      var a = document.activeElement;
+      c.refocus = null;
+      if (a && a !== document.body && document.body.contains(a)) return;
+      var target = node.querySelector('.watch-results__retry') || node.querySelector('.results-group__title');
+      if (target) target.focus();
     }
 
     /* Put what is known about search *c* on the page. The library group goes
@@ -363,8 +424,11 @@
       results.setAttribute('aria-busy', 'false');
       setPending(!settled);
 
-      if (c.lib.state === 'ok' && !c.lib.items.length && tmdbQuiet) { showNothing(c.q); return; }
-      if (c.lib.state === 'failed' && tmdbQuiet) { showFailed(c.lib.text); return; }
+      if (c.lib.state === 'ok' && !c.lib.items.length && tmdbQuiet) {
+        showNothing(c.q, tmdb.state === 'unconfigured');
+        return;
+      }
+      if (c.lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) { showFailed(); return; }
 
       if (!c.view) {
         c.view = el('div', 'results-groups');
@@ -374,11 +438,13 @@
         c.view.appendChild(c.tmdbSlot);
         mount(c.view);
       }
-      if (c.libDrawn !== c.lib) {
+      // An empty library says so above a TMDB error, so it is drawn again then.
+      var tmdbNew = c.tmdbDrawn !== tmdb;
+      if (c.libDrawn !== c.lib || (tmdbNew && c.lib.state === 'ok' && !c.lib.items.length)) {
         c.libDrawn = c.lib;
         fillLibrary(c);
       }
-      if (c.tmdbDrawn !== tmdb) {
+      if (tmdbNew) {
         c.tmdbDrawn = tmdb;
         fillTmdb(c);
       }
@@ -397,12 +463,16 @@
       var lib = c.lib;
       var node = null;
       if (lib.state === 'loading') node = loadingGroup('In your library');
-      else if (lib.state === 'failed') node = failedGroup('In your library', lib.text, function () { fetchLibrary(c); paint(c); });
-      else if (lib.items.length) {
+      else if (lib.state === 'failed') {
+        node = failedGroup('In your library', lib.text, function () { c.refocus = 'lib'; fetchLibrary(c); paint(c); });
+      } else if (lib.items.length) {
         node = group('In your library', lib.items.length);
         node.appendChild(cardGrid(lib.items, buildCard));
+      } else if (c.tmdb.state === 'failed') {
+        node = el('p', 'results-none', 'Nothing in your library matches');
       }
       fillSlot(c.libSlot, node);
+      if (lib.state !== 'loading') refocus(c, 'lib', node);
     }
 
     function fillTmdb(c) {
@@ -410,7 +480,7 @@
       var node = null;
       if (tmdb.state === 'loading') node = loadingGroup('Available to download');
       else if (tmdb.state === 'failed') {
-        node = failedGroup('Available to download', TMDB_FAILED, function () { fetchTmdb(c); paint(c); });
+        node = failedGroup('Available to download', TMDB_FAILED, function () { c.refocus = 'tmdb'; fetchTmdb(c); paint(c); });
       } else if (tmdb.state === 'unconfigured') {
         // Said once there is a library result to put it under.
         if (c.lib.state === 'ok' && c.lib.items.length) node = hint(data);
@@ -419,6 +489,7 @@
         node.appendChild(cardGrid(tmdb.items, buildTmdbCard));
       }
       fillSlot(c.tmdbSlot, node);
+      if (tmdb.state !== 'loading') refocus(c, 'tmdb', node);
     }
 
     function fetchLibrary(c) {
@@ -510,6 +581,7 @@
       var view = e && e.detail && e.detail.view;
       listView = data.is_admin === true && view === 'list';
       stop();
+      if (fade) { fade.anim.cancel(); fade = null; }
       results.hidden = true;
       dropGroups();
       clearMsg();

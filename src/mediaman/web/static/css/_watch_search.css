@@ -18,6 +18,9 @@
 /* The group heading is not part of the grid, so the retry line sits under it. */
 .results-group .watch-results__msg--error { margin-bottom: 0; }
 
+/* Said above a TMDB error when the library has nothing. */
+.results-none { margin-bottom: 14px; color: var(--t2); font-size: 15px; }
+
 /* A quiet line, under the library results, when only the library is searched. */
 .results-hint {
   display: flex;
@@ -31,6 +34,7 @@
   line-height: 1.5;
   color: var(--t3);
 }
+.watch-results__msg--empty + .results-hint { margin-top: 12px; margin-inline: auto; }
 .results-hint > .fa-solid { flex: none; font-size: 13px; }
 .results-hint a { position: relative; color: var(--accent); font-weight: 500; white-space: nowrap; }
 /* 44px to tap without making the line taller. */

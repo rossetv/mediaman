@@ -72,7 +72,12 @@ def test_without_tmdb_the_hint_links_for_admins_and_never_says_tmdb_to_viewers()
     assert out["viewer"]["calls"] == 1
     assert out["viewer"]["href"] is None
     assert "tmdb" not in out["viewer"]["text"].lower()
-    assert out["empty"] is True
+    assert out["empty"]["admin"]["line"] == "No matches for “zzqx”"
+    assert out["empty"]["admin"]["href"] == "/settings#setg-integrations"
+    assert "Connect TMDB" in out["empty"]["admin"]["text"]
+    assert out["empty"]["viewer"]["href"] is None
+    assert "tmdb" not in out["empty"]["viewer"]["text"].lower()
+    assert "library" in out["empty"]["viewer"]["text"]
     assert out["fromReply"] is True
 
 
@@ -98,3 +103,52 @@ def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> 
     assert out["cleared"] == {"type": "mm:watch-list-search", "q": ""}
     assert out["afterSwitch"]["calls"] == 2
     assert out["afterSwitch"]["placeholder"] == "Search films and shows"
+
+
+def test_search_cards_put_the_title_ref_on_the_link_so_focus_can_return_to_it() -> None:
+    out = _run("cardLink")
+    assert out["refs"] == ["movie-1", "tmdb-movie-9"]
+    assert out["tags"] == ["A", "A"]
+    assert out["onArticle"] == 0
+
+
+def test_after_a_retry_focus_goes_to_the_rebuilt_group() -> None:
+    out = _run("retryFocus")
+    assert out["whileLoading"] is True  # nothing to focus yet: the skeleton has no heading
+    assert out["tmdbOk"] == "results-group__title|Available to download"
+    assert out["tmdbOkInGroup"] is True
+    assert out["headingFocusable"] == -1
+    assert out["failedAgain"] is True
+    assert out["library"] == "results-group__title|In your library"
+
+
+def test_both_searches_failing_is_one_line_with_one_try_again_that_runs_both() -> None:
+    out = _run("bothFailed")
+    assert out["text"] == "Couldn’t search just now.Try again"
+    assert (out["alerts"], out["groups"], out["buttons"]) == (1, 0, 1)
+    assert out["status"] == "Couldn’t search just now."
+    assert out["retryUrls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
+    assert out["focus"] is True
+
+
+def test_an_empty_library_with_tmdb_down_says_so_in_the_status_and_above_the_error() -> None:
+    out = _run("libraryEmptyTmdbFailed")
+    assert out["waiting"] is True
+    assert out["status"] == "No matches in your library for “zephyrine”"
+    assert out["line"] == "Nothing in your library matches"
+    assert out["above"] is True
+    assert out["heads"] == ["Available to download"]
+    assert out["alerts"] == 1
+
+
+def test_the_rows_and_results_fade_out_then_in_and_can_be_interrupted() -> None:
+    out = _run("viewFade")
+    # The rows fade out over --dur-fast; nothing is hidden until that ends.
+    assert out["during"] == {"browse": False, "results": True, "anims": [["browse", 150]]}
+    assert out["after"] == {"browse": True, "results": False, "fadeIn": True, "cancelled": True}
+    assert out["clearing"] == {"anims": 2, "node": "results", "duration": 150}
+    # Typing again before the fade ends puts the results back with no flash of the rows.
+    assert out["reversed"] == {"results": False, "browse": True, "cancelled": True, "anims": 2}
+    assert out["afterStale"] == {"results": False, "browse": True}
+    assert out["quick"] == {"browse": False, "results": True, "cancelled": True}
+    assert out["reduced"] == {"ran": 0, "browse": True, "results": False}

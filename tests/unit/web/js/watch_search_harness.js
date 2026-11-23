@@ -95,7 +95,7 @@ const scenarios = {
       shown: p.results.hidden === false && p.browse.hidden === true,
     };
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
-    const tm = p.doc.querySelectorAll('.watch-card').filter((c) => c.getAttribute('data-title-ref') === 'tmdb-movie-9')[0];
+    const tm = p.doc.querySelectorAll('.watch-card').filter((c) => c.querySelector('[data-title-ref="tmdb-movie-9"]'))[0];
     out.afterTmdb = {
       heads: p.heads(),
       counts: p.doc.querySelectorAll('.results-group__count').map((c) => c.textContent),
@@ -184,16 +184,176 @@ const scenarios = {
       const link = hint.querySelector('a');
       out[name] = { keep: p.doc.querySelectorAll('[data-watch-keep]').length, calls: p.calls.length, text: hint.textContent, href: link && link.href };
     }
-    const none = load(VIEWER);
-    await none.search('zzqx');
-    await none.answer('/api/watch/search?', { items: [] });
-    out.empty = none.doc.querySelector('.results-hint') === null && none.doc.getElementById('watch-results-msg').textContent !== '';
+    // No match either: the same hint stands under the empty state, so nobody wonders why nothing outside was searched.
+    for (const [name, data] of [['admin', { ...ADMIN, tmdb_configured: false }], ['viewer', VIEWER]]) {
+      const none = load(data);
+      await none.search('zzqx');
+      await none.answer('/api/watch/search?', { items: [] });
+      const hint = none.doc.querySelector('.results-hint');
+      const link = hint && hint.querySelector('a');
+      out.empty = out.empty || {};
+      out.empty[name] = {
+        line: none.doc.querySelector('.watch-results__line').textContent,
+        text: hint && hint.textContent, href: link && link.href,
+      };
+    }
     // The reply may say it too, even when the page thought it was set up.
     const late = load(ADMIN);
     await late.search('orchard');
     await late.answer('/api/watch/search?', { items: [LIB] });
     await late.answer('/api/watch/search/tmdb', { tmdb_configured: false, items: [] });
     out.fromReply = late.doc.querySelector('.results-hint') !== null;
+    return out;
+  },
+
+  // Cards from either builder put the ref on the link, which can take focus back when the detail closes.
+  async cardLink() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    const marked = p.doc.querySelectorAll('[data-title-ref]');
+    return {
+      tags: marked.map((n) => n.tagName),
+      refs: marked.map((n) => n.getAttribute('data-title-ref')),
+      onArticle: p.doc.querySelectorAll('article').filter((n) => n.hasAttribute('data-title-ref')).length,
+    };
+  },
+
+  // A retry rebuilds the group that held the button: focus goes to the new group's heading, or to the new Try again.
+  async retryFocus() {
+    const out = {};
+    const active = (p) => p.doc.activeElement.className + '|' + p.doc.activeElement.textContent;
+    const tmdb = load(ADMIN);
+    await tmdb.search('orchard');
+    await tmdb.answer('/api/watch/search?', { items: [LIB] });
+    tmdb.calls.filter((c) => c.url.includes('/tmdb'))[0].reject(new Error('502'));
+    await settle();
+    const retry = tmdb.doc.querySelector('.watch-results__retry');
+    retry.focus();
+    click(tmdb.doc, retry);
+    await settle();
+    out.whileLoading = tmdb.doc.activeElement === retry;
+    await tmdb.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    out.tmdbOk = active(tmdb);
+    out.tmdbOkInGroup = tmdb.doc.querySelectorAll('.results-group')[1].contains(tmdb.doc.activeElement);
+    out.headingFocusable = tmdb.doc.activeElement.tabIndex;
+
+    const again = load(ADMIN);
+    await again.search('orchard');
+    await again.answer('/api/watch/search?', { items: [LIB] });
+    again.calls.filter((c) => c.url.includes('/tmdb'))[0].reject(new Error('502'));
+    await settle();
+    const first = again.doc.querySelector('.watch-results__retry');
+    first.focus();
+    click(again.doc, first);
+    await settle();
+    again.calls.filter((c) => c.url.includes('/tmdb')).pop().reject(new Error('502'));
+    await settle();
+    const second = again.doc.querySelector('.watch-results__retry');
+    out.failedAgain = second !== first && again.doc.activeElement === second;
+
+    const lib = load(ADMIN);
+    await lib.search('orchard');
+    lib.calls.filter((c) => c.url.includes('/tmdb'))[0].resolve({ tmdb_configured: true, items: [TM] });
+    lib.calls.filter((c) => !c.url.includes('/tmdb'))[0].reject(new Error('502'));
+    await settle();
+    const lr = lib.doc.querySelector('.watch-results__retry');
+    lr.focus();
+    click(lib.doc, lr);
+    await settle();
+    await lib.answer('/api/watch/search?', { items: [LIB] });
+    out.library = active(lib);
+    return out;
+  },
+
+  // Both searches failing is one line and one Try again that runs both again.
+  async bothFailed() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    p.calls.forEach((c) => c.reject(new Error('502')));
+    await settle();
+    const msg = p.$('watch-results-msg');
+    const out = {
+      text: msg.textContent, alerts: p.doc.querySelectorAll('[role="alert"]').length,
+      groups: p.doc.querySelectorAll('.results-group').length, status: p.status.textContent,
+      buttons: p.doc.querySelectorAll('button').filter((b) => b.textContent === 'Try again').length,
+    };
+    const before = p.calls.length;
+    const retry = msg.querySelector('button');
+    retry.focus();
+    click(p.doc, retry);
+    await settle();
+    out.retryUrls = p.calls.slice(before).map((c) => c.url);
+    out.focus = p.doc.activeElement === p.input;
+    return out;
+  },
+
+  // No library match and TMDB down: the status and a line above the TMDB error say the library has nothing.
+  async libraryEmptyTmdbFailed() {
+    const p = load(ADMIN);
+    await p.search('zephyrine');
+    await p.answer('/api/watch/search?', { items: [] });
+    const waiting = p.doc.querySelector('.results-none');
+    p.calls.filter((c) => c.url.includes('/tmdb'))[0].reject(new Error('502'));
+    await settle();
+    const none = p.doc.querySelector('.results-none');
+    const group = p.doc.querySelector('.results-group');
+    return {
+      waiting: waiting === null,
+      status: p.status.textContent,
+      line: none && none.textContent,
+      above: none !== null && group !== null && p.doc.querySelector('.results-groups').childNodes[0].contains(none),
+      heads: p.heads(),
+      alerts: p.doc.querySelectorAll('[role="alert"]').length,
+    };
+  },
+
+  // The rows and the results trade places by fading: out over --dur-fast, then in; reversing mid-fade stays clean.
+  async viewFade() {
+    const out = {};
+    const p = load(ADMIN);
+    p.ctx.matchMedia = () => ({ matches: false });
+    const anims = [];
+    const animate = (node) => (keyframes, opts) => {
+      const a = { node, keyframes, opts, cancelled: false, cancel() { this.cancelled = true; } };
+      anims.push(a);
+      return a;
+    };
+    p.browse.animate = animate('browse');
+    p.results.animate = animate('results');
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    out.during = { browse: p.browse.hidden === true, results: p.results.hidden, anims: anims.map((a) => [a.node, a.opts.duration]) };
+    anims[0].onfinish();
+    out.after = { browse: p.browse.hidden === true, results: p.results.hidden, fadeIn: p.results.classList.contains('fade-in'), cancelled: anims[0].cancelled };
+    // Back to the rows, and reversed before the fade ends.
+    p.type('');
+    out.clearing = { anims: anims.length, node: anims[1].node, duration: anims[1].opts.duration };
+    p.type('orchard');
+    p.timers[p.timers.length - 1].fn();
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    out.reversed = { results: p.results.hidden, browse: p.browse.hidden === true, cancelled: anims[1].cancelled, anims: anims.length };
+    anims[1].onfinish && anims[1].onfinish();
+    out.afterStale = { results: p.results.hidden, browse: p.browse.hidden === true };
+
+    // Typing then clearing at once never leaves the results up.
+    const q = load(ADMIN);
+    q.ctx.matchMedia = () => ({ matches: false });
+    const more = [];
+    q.browse.animate = (k, o) => { const a = { cancel() { this.cancelled = true; } }; more.push(a); return a; };
+    q.results.animate = q.browse.animate;
+    await q.search('orchard');
+    await q.answer('/api/watch/search?', { items: [LIB] });
+    q.type('');
+    out.quick = { browse: q.browse.hidden === true, results: q.results.hidden, cancelled: more[0].cancelled };
+    // Reduced motion: a cut, nothing animated.
+    const r = load(ADMIN);
+    let ran = 0;
+    r.browse.animate = () => { ran++; return {}; };
+    await r.search('orchard');
+    await r.answer('/api/watch/search?', { items: [LIB] });
+    out.reduced = { ran, browse: r.browse.hidden === true, results: r.results.hidden };
     return out;
   },
 
