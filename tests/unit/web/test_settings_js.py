@@ -93,6 +93,11 @@ def test_new_user_row_enters_only_after_the_add_form_has_closed() -> None:
     assert out["afterClose"] == {"rows": 2, "hidden": True, "submitDisabled": False}
 
 
+def test_form_message_clears_when_the_person_types_again() -> None:
+    out = _run("clearOnInput")
+    assert out["shown"] and out["afterInput"] == ""
+    assert out["nlShown"] and out["afterChange"] == ""
+
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]

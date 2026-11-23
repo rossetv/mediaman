@@ -204,6 +204,9 @@
         rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
       if (btnCancelNL) btnCancelNL.addEventListener('click', closeNewsletter);
+      // A changed choice of recipients makes the last message stale, unless a send is under way.
+      function clearUnlessSending() { if (!(btnConfirmNL && btnConfirmNL.disabled)) clearStatus(); }
+      if (newsletterPanel) newsletterPanel.addEventListener('change', clearUnlessSending);
 
       // Fetch-token guards against a race where the user closes and re-opens
       // the panel before the previous /api/subscribers response arrives.
@@ -233,6 +236,7 @@
               b.textContent = pair[0];
               b.addEventListener('click', function () {
                 list.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = pair[1]; });
+                clearUnlessSending();
               });
               toggleRow.appendChild(b);
             });

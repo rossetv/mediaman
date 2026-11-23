@@ -255,6 +255,16 @@
         target.className = 'inline-form-msg';
       }
 
+      // A message about what was typed goes once the person types again; a
+      // form that is sending keeps its progress line.
+      function clearOnInput(form, target, submitBtn) {
+        if (!form) return;
+        form.addEventListener('input', function () {
+          if (submitBtn && submitBtn.disabled) return;
+          if (target && target.textContent) clearMsg(target);
+        });
+      }
+
       // A check that fails before sending puts the cursor in the field to fix.
       function failOn(target, text, field) {
         target.className = 'inline-form-msg err';
@@ -320,6 +330,7 @@
         if (btnAddUser) btnAddUser.focus();
       });
 
+      clearOnInput(addUserForm, createResult, btnSubmitAddUser);
       if (addUserForm) addUserForm.addEventListener('submit', function (e) {
         e.preventDefault();
         if (btnSubmitAddUser.disabled) return;
@@ -408,6 +419,7 @@
         if (btnChangePw) btnChangePw.focus();
       });
 
+      clearOnInput(pwForm, pwResult, btnSubmitPw);
       if (pwForm) pwForm.addEventListener('submit', function (e) {
         e.preventDefault();
         if (btnSubmitPw.disabled) return;
@@ -568,6 +580,7 @@
           });
         }
         closers.push(function () { if (!submit.disabled) hide(); });
+        clearOnInput(form, msg, submit);
 
         btn.addEventListener('click', function () {
           if (submit.disabled) return;

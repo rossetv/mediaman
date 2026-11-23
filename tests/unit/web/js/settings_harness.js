@@ -367,6 +367,50 @@ const scenarios = {
     return { afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled } };
   },
 
+  // A message about what was typed goes once the person types again.
+  async clearOnInput() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js'); h.load('settings/newsletter.js');
+    h.add('div', { id: 'user-list' });
+    h.add('div', { id: 'subscriber-list' });
+    const btnAdd = h.add('button', { id: 'btn-add-user' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    const name = h.add('input', { id: 'new-username' }, form);
+    h.add('input', { id: 'new-user-password' }, form);
+    h.add('button', { id: 'btn-submit-add-user' }, form);
+    const msg = h.add('span', { id: 'create-user-result' }, form);
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    const recipients = h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    const status = h.add('span', { id: 'newsletter-send-status' }, panel);
+    const btnSend = h.add('button', { id: 'btn-send-newsletter' });
+    h.ctx.MM.api = {
+      get: (u) => Promise.resolve(u === '/api/users'
+        ? { current: 'ann', users: [] }
+        : { subscribers: [{ id: 1, email: 'a@x', active: true }] }),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.settings.users.init();
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    btnAdd.fire('click');
+    name.value = 'ab';
+    form.fire('submit');
+    const shown = msg.textContent;
+    name.value = 'abc';
+    name.fire('input');
+    btnSend.fire('click');
+    await h.flush();
+    const box = recipients.querySelector('input');
+    box.checked = false;
+    confirm.fire('click');
+    const nlShown = status.textContent;
+    box.checked = true;
+    box.fire('change');
+    return { shown, afterInput: msg.textContent, nlShown, afterChange: status.textContent };
+  },
+
   // A field the server refuses is named by its label, in a plain sentence.
   async fieldError() {
     const h = build();
