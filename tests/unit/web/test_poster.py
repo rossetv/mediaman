@@ -1129,3 +1129,47 @@ class TestOversizedPlexPoster:
 
         assert "fake-" not in caplog.text
         assert "\nWARNING forged line" not in caplog.text
+
+
+class TestPlexTransportFailures:
+    """A slow transcoder still falls back to the original; an unreachable Plex is asked once."""
+
+    @staticmethod
+    def _transport_error(url, cause):
+        return SafeHTTPError(0, f"transport error: {type(cause).__name__}", url)
+
+    def _fetch(self, transcode_cause):
+        from unittest.mock import MagicMock
+
+        from mediaman.web.routes.poster.fetch import fetch_plex_poster
+
+        urls: list[str] = []
+
+        def get(url, **kwargs):
+            urls.append(url)
+            if "/photo/:/transcode" in url:
+                raise self._transport_error(url, transcode_cause)
+            resp = MagicMock()
+            resp.content = b"original"
+            resp.headers = {"Content-Type": "image/jpeg"}
+            return resp
+
+        stub = MagicMock()
+        stub.get.side_effect = get
+        return fetch_plex_poster("https://plex", "tok", "12345", http_client=stub), urls
+
+    def test_original_is_served_after_the_transcoder_read_times_out(self):
+        (content, _), urls = self._fetch(requests.exceptions.ReadTimeout("slow"))
+
+        assert content == b"original"
+        assert len(urls) == 2
+
+    @pytest.mark.parametrize(
+        "cause",
+        [requests.exceptions.ConnectionError("refused"), requests.exceptions.ConnectTimeout("t")],
+    )
+    def test_unreachable_plex_is_asked_once(self, cause):
+        (content, _), urls = self._fetch(cause)
+
+        assert content is None
+        assert len(urls) == 1

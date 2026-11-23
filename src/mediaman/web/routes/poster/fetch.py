@@ -17,6 +17,7 @@ or a cloud credential service. The first line of defence is here:
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from time import monotonic
 from urllib.parse import urlencode, urlparse
@@ -213,6 +214,17 @@ def _log_snippet(snippet: str, token: str | None = None, limit: int = 200) -> st
     return " ".join(snippet.split())[:limit]
 
 
+# The safe client reports a transport error as a status-0 SafeHTTPError whose snippet names the
+# exception class. A connection error or connect timeout means Plex is unreachable; a read
+# timeout means it answered slowly, so the original is still worth asking for.
+_CONNECT_FAILURE_SNIPPET = re.compile(r"transport error: (ConnectionError|ConnectTimeout)$")
+
+
+def _is_connect_failure(exc: BaseException) -> bool:
+    """True when a requests exception means Plex could not be reached at all."""
+    return isinstance(exc, requests.ConnectionError | requests.ConnectTimeout)
+
+
 def fetch_plex_poster(
     plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
 ) -> tuple[bytes | None, str]:
@@ -220,8 +232,8 @@ def fetch_plex_poster(
 
     Asks Plex's photo transcoder for a card-sized copy first, so an original over the body cap
     still shows, and falls back to the original when the transcoder answers with an HTTP error
-    or a rejected body. A transport failure (Plex unreachable) ends the fetch: the original
-    would fail the same way, after the same retries. Both are GETs.
+    or a rejected body or a read timeout. A connect failure (Plex unreachable) ends the fetch:
+    the original would fail the same way, after the same retries. Both are GETs.
     http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
     _make_poster_client.
     """
@@ -241,13 +253,14 @@ def fetch_plex_poster(
                 exc.status_code,
                 _log_snippet(exc.body_snippet, plex_token),
             )
-            if exc.status_code == 0:
+            if exc.status_code == 0 and _CONNECT_FAILURE_SNIPPET.match(exc.body_snippet):
                 break
-        except requests.RequestException:
+        except requests.RequestException as exc:
             logger.warning(
                 "Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True
             )
-            break
+            if _is_connect_failure(exc):
+                break
     return None, "image/jpeg"
 
 
