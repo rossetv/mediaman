@@ -42,7 +42,7 @@
     var dur = motionToken('--dur-slow', '.25s');
     return {
       duration: /ms$/.test(dur) ? parseFloat(dur) : parseFloat(dur) * 1000,
-      easing: motionToken('--ease-out', 'ease-out')
+      easing: motionToken('--ease-out', 'cubic-bezier(.2,.8,.2,1)')
     };
   }
 
@@ -511,7 +511,10 @@
     /* Read before the menu closes: closing it drops focus to the body. */
     var hadFocus = (tile || wrapper).contains(document.activeElement);
     var inMenu = !!menu && menu.contains(document.activeElement);
-    if (tile) { tile.style.transition = 'opacity .15s ease-out'; tile.style.opacity = '.6'; }
+    if (tile) {
+      tile.style.transition = 'opacity ' + motionToken('--dur-fast', '.15s') + ' ' + motion().easing;
+      tile.style.opacity = '.6';
+    }
     if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
     keepStarted();
     var mediaId = wrapper.dataset.id;
