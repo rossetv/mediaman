@@ -1,8 +1,8 @@
 /**
  * downloads/render_recent.js — recently-added grid and upcoming list.
  *
- * The recent-grid is rebuilt wholesale on every poll (the result set is
- * small, and the items are stateless). The upcoming list diffs by
+ * The recent-grid is rebuilt only when its titles or posters change, so
+ * images do not reload and focus survives each poll. The upcoming list diffs by
  * `data-dl-id` so rows survive across polls and abandon-clicks animate
  * out cleanly.
  *
@@ -23,12 +23,36 @@
   function dom() { return MM.downloads.buildDom; }
   function row() { return MM.downloads.renderRow; }
 
+  function recentSignature(titles, posters) {
+    return JSON.stringify([titles, posters]);
+  }
+
+  /* The signature of what is on screen, read back from the DOM so the
+     server-rendered grid compares equal to the first poll's payload. */
+  function renderedSignature(container) {
+    var titles = [];
+    var posters = [];
+    var items = container.querySelectorAll('.dl-recent-item');
+    for (var i = 0; i < items.length; i++) {
+      var t = items[i].querySelector('.dl-recent-title');
+      var img = items[i].querySelector('img');
+      titles.push(t ? t.textContent : '');
+      posters.push(img ? img.getAttribute('src') : '');
+    }
+    return recentSignature(titles, posters);
+  }
+
   function updateRecent(container, recent) {
     if (!container) return;
     if (!recent || recent.length === 0) {
       while (container.firstChild) container.removeChild(container.firstChild);
       return;
     }
+    var incoming = recentSignature(
+      recent.map(function (r) { return r.title; }),
+      recent.map(function (r) { return r.poster_url || ''; })
+    );
+    if (renderedSignature(container) === incoming) return;
     var d = dom();
     /* Rebuild the recent grid using safe DOM methods */
     var section = document.createElement('div');
