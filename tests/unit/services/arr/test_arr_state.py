@@ -185,7 +185,11 @@ def test_radarr_cache_keyed_by_tmdb_id():
 
 def test_build_radarr_cache_handles_none_client():
     cache = build_radarr_cache(None)
-    assert cache == {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+    assert cache == {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "radarr_queue_progress": {},
+    }
 
 
 def test_sonarr_cache_keyed_by_tmdb_id():
@@ -199,7 +203,11 @@ def test_sonarr_cache_keyed_by_tmdb_id():
 
 def test_build_sonarr_cache_handles_none_client():
     cache = build_sonarr_cache(None)
-    assert cache == {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
+    assert cache == {
+        "sonarr_series": {},
+        "sonarr_queue_tmdb_ids": set(),
+        "sonarr_queue_progress": {},
+    }
 
 
 def test_build_radarr_cache_filters_null_tmdb_ids_and_handles_none_queue_movie():
@@ -725,3 +733,61 @@ def test_tv_unmonitored_aired_season_is_ignored():
         "sonarr_queue_tmdb_ids": set(),
     }
     assert compute_download_state("tv", 800, caches) == "in_library"
+
+
+def test_radarr_cache_queue_progress_from_size_and_sizeleft():
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 2}, {"tmdbId": 3}]
+    radarr.get_queue.return_value = [
+        {"movie": {"tmdbId": 2}, "size": 1000, "sizeleft": 580},
+        {"movie": {"tmdbId": 3}, "size": 100, "sizeleft": 150},  # over-reported: clamps to 0
+    ]
+    cache = build_radarr_cache(radarr)
+    assert cache["radarr_queue_progress"] == {2: 42, 3: 0}
+
+
+def test_sonarr_cache_queue_progress_sums_episodes_per_series():
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [{"tmdbId": 9}]
+    sonarr.get_queue.return_value = [
+        {"series": {"tmdbId": 9}, "size": 100, "sizeleft": 100},
+        {"series": {"tmdbId": 9}, "size": 100, "sizeleft": 0},
+        {"series": None, "size": 5, "sizeleft": 0},
+    ]
+    cache = build_sonarr_cache(sonarr)
+    assert cache["sonarr_queue_progress"] == {9: 50}
+    assert cache["sonarr_queue_tmdb_ids"] == {9}
+
+
+def test_annotate_download_states_sets_pct_on_queued_and_downloading(monkeypatch):
+    from mediaman.services.arr import build, state
+
+    monkeypatch.setattr(build, "build_radarr_from_db", lambda conn, key: None)
+    monkeypatch.setattr(build, "build_sonarr_from_db", lambda conn, key: None)
+    monkeypatch.setattr(
+        state,
+        "build_radarr_cache",
+        lambda client: {
+            "radarr_movies": {1: {"tmdbId": 1, "monitored": True}, 2: {"tmdbId": 2}},
+            "radarr_queue_tmdb_ids": {1},
+            "radarr_queue_progress": {1: 42},
+        },
+    )
+    monkeypatch.setattr(
+        state,
+        "build_sonarr_cache",
+        lambda client: {
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+            "sonarr_queue_progress": {},
+        },
+    )
+    results = [
+        {"tmdb_id": 1, "media_type": "movie"},  # downloading
+        {"tmdb_id": 2, "media_type": "movie"},  # queued, not in the queue yet
+        {"tmdb_id": 3, "media_type": "movie"},  # untracked
+    ]
+    state.annotate_download_states(results, None, "k")
+    assert results[0]["download_state"] == "downloading" and results[0]["download_pct"] == 42
+    assert results[1]["download_state"] == "queued" and results[1]["download_pct"] == 0
+    assert results[2]["download_state"] is None and "download_pct" not in results[2]

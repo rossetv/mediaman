@@ -22,6 +22,7 @@ from ._tmdb_shapes import (
     TmdbDetail,
     TmdbDetailsPayload,
     TmdbSearchResult,
+    certificate,
     shape_card,
     shape_detail,
 )
@@ -258,19 +259,35 @@ class TmdbClient:
         )
 
     def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
-        """Return the raw details payload with videos and credits appended, or None on
-        error.
+        """Return the raw details payload with videos, credits and the age-rating data
+        (release_dates for movies, content_ratings for TV) appended, or None on error.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
             result: object = self._get(
                 f"/{endpoint}/{tmdb_id}",
-                {"append_to_response": "videos,credits"},
+                {
+                    "append_to_response": "videos,credits,"
+                    + ("release_dates" if endpoint == "movie" else "content_ratings")
+                },
             )
             return result if isinstance(result, dict) else None  # type: ignore[return-value]
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             return None
+
+    def find_by_tvdb(self, tvdb_id: int) -> int | None:
+        """Return the TMDB TV id for a TVDB id via /find, or None on error or no match."""
+        try:
+            payload = self._get(f"/find/{tvdb_id}", {"external_source": "tvdb_id"})
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"find/{tvdb_id}", exc)
+            return None
+        results = payload.get("tv_results") if isinstance(payload, dict) else None
+        if isinstance(results, list) and results and isinstance(results[0], dict):
+            tmdb_id = results[0].get("id")
+            return tmdb_id if isinstance(tmdb_id, int) else None
+        return None
 
     # The implementations live in _tmdb_shapes; they are re-bound
     # here as static methods so ``TmdbClient.shape_card`` /
@@ -278,3 +295,4 @@ class TmdbClient:
     # that target them) work.
     shape_card = staticmethod(shape_card)
     shape_detail = staticmethod(shape_detail)
+    certificate = staticmethod(certificate)

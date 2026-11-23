@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
 
@@ -55,6 +55,8 @@ class TmdbDetailsPayload(TypedDict, total=False):
     created_by: list[dict[str, object]]
     credits: dict[str, object]
     videos: dict[str, object]
+    release_dates: dict[str, object]  # movies
+    content_ratings: dict[str, object]  # TV
 
 
 class TmdbCard(TypedDict):
@@ -179,3 +181,23 @@ def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
     out["trailer_key"] = trailer_key
 
     return out
+
+
+def certificate(details: Mapping[str, Any], kind: Literal["movie", "tv"]) -> str | None:
+    """Return the US age certificate from a details payload, or None when TMDB has none.
+
+    Needs ``release_dates`` (movie) or ``content_ratings`` (tv) appended to the request.
+    """
+    if kind == "movie":
+        for country in (details.get("release_dates") or {}).get("results") or []:
+            if country.get("iso_3166_1") != "US":
+                continue
+            for rel in country.get("release_dates") or []:
+                cert = (rel.get("certification") or "").strip()
+                if cert:
+                    return cert
+        return None
+    for entry in (details.get("content_ratings") or {}).get("results") or []:
+        if entry.get("iso_3166_1") == "US":
+            return (entry.get("rating") or "").strip() or None
+    return None

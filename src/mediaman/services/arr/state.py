@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import TYPE_CHECKING, Final, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Final, NotRequired, TypedDict
 
 from mediaman.services.arr._types import (
     ArrSeason,
@@ -52,11 +53,14 @@ ACTION_QUEUED: Final = "queued"
 class RadarrCaches(TypedDict):
     radarr_movies: dict[int, RadarrMovie]
     radarr_queue_tmdb_ids: set[int]
+    #: tmdbId -> download percentage 0-100; absent in hand-built caches.
+    radarr_queue_progress: NotRequired[dict[int, int]]
 
 
 class SonarrCaches(TypedDict):
     sonarr_series: dict[int, SonarrSeries]
     sonarr_queue_tmdb_ids: set[int]
+    sonarr_queue_progress: NotRequired[dict[int, int]]
 
 
 class ArrCaches(RadarrCaches, SonarrCaches):
@@ -222,6 +226,23 @@ def _build_arr_index(
     return index
 
 
+def _queue_progress(queue: Sequence[Mapping[str, Any]], media_key: str) -> dict[int, int]:
+    """Return ``{tmdbId: pct}`` for queue entries, summing ``size``/``sizeleft`` per item
+    so a series with several queued episodes reports one overall percentage.
+    """
+    from mediaman.services.arr.fetcher._base import clamp_progress
+
+    totals: dict[int, list[int]] = {}
+    for q in queue:
+        tid = (q.get(media_key) or {}).get("tmdbId")
+        if not tid:
+            continue
+        acc = totals.setdefault(tid, [0, 0])
+        acc[0] += q.get("size") or 0
+        acc[1] += q.get("sizeleft") or 0
+    return {tid: clamp_progress(size, left) for tid, (size, left) in totals.items()}
+
+
 def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
@@ -236,17 +257,24 @@ def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     deliberate (matches dict-update semantics) and stable across calls.
     """
     if client is None:
-        return {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+        return {
+            "radarr_movies": {},
+            "radarr_queue_tmdb_ids": set(),
+            "radarr_queue_progress": {},
+        }
     movies = _build_arr_index(
         client,
         items_getter="get_movies",
         queue_tmdb_key="movie",
         cache_name="build_radarr_cache",
     )
-    queue_ids: set[int] = {
-        tid for q in client.get_queue() if (tid := (q.get("movie") or {}).get("tmdbId"))
+    queue = client.get_queue()
+    progress = _queue_progress(queue, "movie")
+    return {
+        "radarr_movies": movies,  # type: ignore[typeddict-item]
+        "radarr_queue_tmdb_ids": set(progress),
+        "radarr_queue_progress": progress,
     }
-    return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
@@ -258,17 +286,24 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     See ``build_radarr_cache`` for the duplicate-tmdb-id handling.
     """
     if client is None:
-        return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
+        return {
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+            "sonarr_queue_progress": {},
+        }
     series = _build_arr_index(
         client,
         items_getter="get_series",
         queue_tmdb_key="series",
         cache_name="build_sonarr_cache",
     )
-    queue_ids: set[int] = {
-        tid for q in client.get_queue() if (tid := (q.get("series") or {}).get("tmdbId"))
+    queue = client.get_queue()
+    progress = _queue_progress(queue, "series")
+    return {
+        "sonarr_series": series,  # type: ignore[typeddict-item]
+        "sonarr_queue_tmdb_ids": set(progress),
+        "sonarr_queue_progress": progress,
     }
-    return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def annotate_download_states(
@@ -276,7 +311,8 @@ def annotate_download_states(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
-    """Stamp ``download_state`` onto each result dict in *results*, in place.
+    """Stamp ``download_state`` onto each result dict in *results*, in place; queued and
+    downloading items also get ``download_pct`` (0-100, 0 when not yet in the queue).
 
     Builds the Radarr and Sonarr caches from DB settings, then walks
     *results* and calls ``compute_download_state`` for each item that
@@ -319,7 +355,15 @@ def annotate_download_states(
         tmdb_id = r.get("tmdb_id")
         if tmdb_id and isinstance(tmdb_id, int):
             media_type = r["media_type"]
-            r["download_state"] = compute_download_state(str(media_type), tmdb_id, caches)
+            state = compute_download_state(str(media_type), tmdb_id, caches)
+            r["download_state"] = state
+            if state in (ACTION_QUEUED, ACTION_DOWNLOADING):
+                progress = (
+                    caches.get("radarr_queue_progress", {})
+                    if media_type == "movie"
+                    else caches.get("sonarr_queue_progress", {})
+                )
+                r["download_pct"] = progress.get(tmdb_id, 0)
 
 
 def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
