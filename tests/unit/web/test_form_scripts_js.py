@@ -27,16 +27,22 @@ def test_an_autofocus_field_is_focused_after_it_is_wrapped() -> None:
     assert _run("autofocus")["active"] is True
 
 
-def test_toggle_keeps_one_name_and_reset_hides_the_password_again() -> None:
+def test_toggle_name_follows_the_visible_word_and_reset_hides_the_password_again() -> None:
     out = _run("toggle")
     assert out["name"] == "Show password"
+    # the name starts with the visible word and the state is not also announced as pressed
     assert out["shown"] == {
         "type": "text",
         "text": "Hide",
-        "pressed": "true",
+        "pressed": None,
+        "name": "Hide password",
+    }
+    assert out["reset"] == {
+        "type": "password",
+        "text": "Show",
+        "pressed": None,
         "name": "Show password",
     }
-    assert out["reset"] == {"type": "password", "text": "Show", "pressed": "false"}
 
 
 def test_busy_form_swallows_a_quick_second_submit_then_lapses_or_clears_on_escape() -> None:

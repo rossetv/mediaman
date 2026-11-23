@@ -115,7 +115,7 @@ const scenarios = {
     btn.fire('click');
     const shown = { type: a.type, text: btn.textContent, pressed: btn.getAttribute('aria-pressed'), name: btn.getAttribute('aria-label') };
     form.fire('reset');
-    const reset = { type: a.type, text: btn.textContent, pressed: btn.getAttribute('aria-pressed') };
+    const reset = { type: a.type, text: btn.textContent, pressed: btn.getAttribute('aria-pressed'), name: btn.getAttribute('aria-label') };
     return { name, shown, reset };
   },
   guard() {

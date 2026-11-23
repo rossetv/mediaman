@@ -20,14 +20,12 @@
     btn.type = 'button';
     btn.className = 'pw-toggle';
     btn.textContent = 'Show';
-    btn.setAttribute('aria-pressed', 'false');
-    // The name stays fixed: aria-pressed carries the state, so a screen reader
-    // does not say "Hide password, pressed" for one press.
+    // The name starts with the visible word, so voice control can say "click Hide".
     btn.setAttribute('aria-label', 'Show password');
     function setShown(show) {
       input.type = show ? 'text' : 'password';
       btn.textContent = show ? 'Hide' : 'Show';
-      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     }
     btn.addEventListener('click', function () {
       setShown(input.type === 'password');
