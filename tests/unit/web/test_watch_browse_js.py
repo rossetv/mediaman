@@ -144,3 +144,16 @@ def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -
     assert out["focus"] == "1101"
     assert out["toast"] == "Kept Leaving Film for 30 days."
     assert out["undo"] == "Undo"
+
+
+def test_landing_from_recommended_scrolls_its_row_into_view_and_cleans_the_address() -> None:
+    out = _run("landOnRecommended")
+    # The marker goes before anything reads the address; an old pick link's hash stays.
+    assert out["landed"]["replacedAtOnce"] == ["/watch#recommendation-5"]
+    assert out["landed"]["scrolls"] == [{"top": 958, "behavior": "auto"}]
+    assert out["withMotion"]["replacedAtOnce"] == ["/watch?view=rows"]
+    assert out["withMotion"]["scrolls"] == [{"top": 958, "behavior": "smooth"}]
+    assert out["plain"] == {"replacedAtOnce": [], "scrolls": []}
+    # No Recommended row for a viewer with picks off, and nobody is pulled back from where they scrolled.
+    assert out["picksOff"] == {"replacedAtOnce": ["/watch"], "scrolls": []}
+    assert out["alreadyScrolled"]["scrolls"] == []

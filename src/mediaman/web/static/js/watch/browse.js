@@ -547,6 +547,29 @@
     later(POLL_MS);
   }
 
+  /* ── Landing on Recommended ── */
+
+  /* /recommended sends people here with ?row=recommended: a query, since a
+     #fragment of the redirect's own would drop an old #recommendation-<id>.
+     The marker leaves the address at once; says whether it was there. */
+  function takeLanding() {
+    var params = (window.location.search || '').replace(/^\?/, '').split('&').filter(Boolean);
+    var rest = params.filter(function (p) { return p !== 'row=recommended'; });
+    if (rest.length === params.length) return false;
+    window.history.replaceState(window.history.state, '', window.location.pathname +
+      (rest.length ? '?' + rest.join('&') : '') + (window.location.hash || ''));
+    return true;
+  }
+
+  /* Bring the Recommended row up under the top bar, unless there is none
+     (picks off) or the person has scrolled while it loaded. */
+  function showRecommended() {
+    var row = document.querySelector('[data-discover-row="recommended"]');
+    if (!row || window.scrollY > 0) return;
+    var by = row.getBoundingClientRect().top - core.clearArea().top - 12;
+    if (by > 0) window.scrollBy({ top: by, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+  }
+
   /* ── The slot ── */
 
   /* Put *content* where the skeleton is: both share one grid cell while the
@@ -589,6 +612,7 @@
       content.appendChild(el('p', 'watch-group-label', 'Discover'));
       rows.forEach(function (r) { content.appendChild(r); });
       fill(slot, content);
+      if (landing) showRecommended();
     });
   }
 
@@ -613,6 +637,7 @@
 
   watch.browse = { card: card, badge: badge };
 
+  var landing = takeLanding();
   var slot = byId('watch-discover-slot');
   if (slot) start(slot, pageData());
 })();

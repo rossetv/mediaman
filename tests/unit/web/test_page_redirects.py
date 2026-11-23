@@ -81,8 +81,9 @@ def test_library_with_no_filters_opens_the_list(make):
     assert resp.headers["location"] == "/watch?view=list"
 
 
-def test_recommended_opens_watch(make):
+def test_recommended_opens_watch_at_its_recommended_row(make):
     resp = make(recommended_router).get("/recommended", follow_redirects=False)
 
     assert resp.status_code == 302
-    assert resp.headers["location"] == "/watch"
+    # No fragment of its own, so the browser keeps an old link's #recommendation-<id>.
+    assert resp.headers["location"] == "/watch?row=recommended"

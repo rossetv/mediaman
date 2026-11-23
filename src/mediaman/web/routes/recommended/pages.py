@@ -1,4 +1,4 @@
-"""Recommended page (GET /recommended): a redirect to the Watch page, which shows the picks."""
+"""Recommended page (GET /recommended): a redirect to the Watch page's Recommended row."""
 
 from __future__ import annotations
 
@@ -16,4 +16,6 @@ def recommended_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    return RedirectResponse("/watch", status_code=302)
+    # A query, not a #fragment: a Location with its own fragment would replace the one the
+    # browser carries over, and old /recommended#recommendation-<id> links rely on that.
+    return RedirectResponse("/watch?row=recommended", status_code=302)

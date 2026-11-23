@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
-const { makeDocument, build, click, settle } = require('./fake_dom');
+const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
 const HOUR = 3600 * 1000;
 
@@ -81,6 +81,8 @@ function load(opts = {}) {
   const toasts = [];
   const timers = [];
   const calls = [];
+  const replaced = [];
+  const scrolls = [];
   const routes = Object.assign({
     'GET /api/watch/discover': () => Promise.resolve(DISCOVER),
     'GET /api/watch/recommended': () => Promise.resolve(recommended(opts)),
@@ -96,12 +98,16 @@ function load(opts = {}) {
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingLeft: '0', paddingRight: '0' }),
-    matchMedia: () => ({ matches: true }), // reduced motion: swaps are immediate
+    // Reduced motion unless a scenario asks for motion: swaps are immediate.
+    matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} },
     innerHeight: opts.innerHeight || 900,
     innerWidth: opts.innerWidth || 1280,
-    location: { pathname: '/watch', href: '/watch' },
+    location: { pathname: '/watch', href: '/watch', search: opts.search || '', hash: opts.hash || '' },
+    history: { state: null, replaceState(_s, _t, url) { replaced.push(url); } },
+    scrollY: opts.scrollY || 0,
+    scrollBy(o) { scrolls.push(o); },
     UIFeedback: { toast: (message, o) => toasts.push({ message, opts: o }) },
     MM: { api: { get: call('GET'), post: call('POST'), messageOf: (e, f) => (e && e.data && e.data.message) || f } },
     addEventListener() {},
@@ -110,7 +116,7 @@ function load(opts = {}) {
   vm.createContext(ctx);
   ['watch/core.js', 'watch/keep.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
-  return { ctx, doc, toasts, timers, calls, routes };
+  return { ctx, doc, toasts, timers, calls, routes, replaced, scrolls };
 }
 
 /* Run the timers due now (the poll), in order, once each. */
@@ -155,6 +161,29 @@ const scenarios = {
       badges: ['movie-11', 'tmdb-movie-2', 'tmdb-tv-3', 'tmdb-movie-4'].map((r) => badgeOf(p.doc, r)),
       hostileTitle: trending.querySelectorAll('.watch-card__title')[3].childNodes.map((n) => n.nodeType),
       arrows: p.doc.querySelectorAll('[data-discover-row] .watch-row__viewport').map((v) => v.querySelectorAll('.watch-row__arrow').length),
+    };
+  },
+
+  // /recommended lands with ?row=recommended: the marker leaves the address, keeping an old
+  // #recommendation-<id>, and the Recommended row (970px down) comes up under the top bar.
+  async landOnRecommended() {
+    const rect = Node.prototype.getBoundingClientRect;
+    Node.prototype.getBoundingClientRect = function () {
+      return this.getAttribute('data-discover-row') === 'recommended'
+        ? { top: 970, bottom: 1200, left: 0, right: 1280, width: 1280, height: 230 } : rect.call(this);
+    };
+    const run = async (opts) => {
+      const p = load(opts);
+      const replacedAtOnce = p.replaced.slice();
+      await settle();
+      return { replacedAtOnce, scrolls: p.scrolls };
+    };
+    return {
+      landed: await run({ search: '?row=recommended', hash: '#recommendation-5' }),
+      withMotion: await run({ search: '?view=rows&row=recommended', motion: true }),
+      plain: await run({}),
+      picksOff: await run({ search: '?row=recommended', enabled: false }),
+      alreadyScrolled: await run({ search: '?row=recommended', scrollY: 300 }),
     };
   },
 
