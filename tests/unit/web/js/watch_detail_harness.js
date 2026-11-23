@@ -151,8 +151,12 @@ function load(opts = {}) {
     (doc.listeners[e.type] || []).forEach((fn) => fn(e));
   };
 
+  /* The page's clock: real unless the scenario steps it. */
+  const clock = { now: Date.UTC(2026, 10, 24, 12) };
+  class FakeDate extends Date { static now() { return clock.now; } }
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Date, Error, isNaN,
+    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Error, isNaN,
+    Date: opts.clock ? FakeDate : Date,
     parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
@@ -210,7 +214,7 @@ function load(opts = {}) {
     return e;
   };
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
-  return { ctx, doc, toasts, timers, gets, posts, events, history, loc, routes, run, ttl, q, text, tick, key, popstate };
+  return { ctx, doc, toasts, timers, gets, posts, events, history, loc, routes, clock, run, ttl, q, text, tick, key, popstate };
 }
 
 function primary(p) {
@@ -351,6 +355,61 @@ const scenarios = {
     await settle();
     return { before, busy, posts: p.posts, queued, downloading, done: { primary: primary(p), note: p.text('.ttl__note') },
       events: p.events, toasts: p.toasts.map((t) => t.message), reloads: p.gets.filter((g) => g === '/api/watch/title/tmdb-movie-77').length };
+  },
+
+  // A download the server once reported as queued is gone by the next reply.
+  async queuedThenGoneOnReopen() {
+    let state = 'queued';
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(
+        Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state }) })))),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'queued' },
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.ctx.MMWatch.detail.close();
+    state = null;
+    await openCard(p, 'tmdb-movie-77');
+    return { before, after: primary(p).text, events: p.events };
+  },
+
+  // The status poll answers unknown for a download the server had reported.
+  async queuedThenUnknownOnPoll() {
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued' }) }),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'unknown' },
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.tick();
+    await settle();
+    return { before, after: primary(p).text, events: p.events, pollsLeft: p.timers.filter((t) => t.fn).length };
+  },
+
+  // Just after this page's own Download, the Arr not knowing of it yet is not taken as gone.
+  async justDownloadedGrace() {
+    let title = MOVIE_DL;
+    const p = load({ clock: true, routes: {
+      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(title))),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'unknown' },
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('[data-ttl-act="primary"]'));
+    await settle();
+    p.clock.now += 5000;
+    p.tick();
+    await settle();
+    const afterPoll = primary(p).text;
+    p.ctx.MMWatch.detail.close();
+    await openCard(p, 'tmdb-movie-77');
+    const afterReopen = primary(p).text;
+    p.clock.now += 30000;
+    p.tick();
+    await settle();
+    return { afterPoll, afterReopen, afterGrace: primary(p).text };
   },
 
   async downloadFails() {

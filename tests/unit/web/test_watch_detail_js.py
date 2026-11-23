@@ -125,6 +125,29 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert any("queued" in t for t in out["toasts"])
 
 
+def test_a_queued_download_the_server_no_longer_reports_gives_the_download_button_back() -> None:
+    out = _run("queuedThenGoneOnReopen")
+    assert (out["before"], out["after"]) == ("Queued", "Download")
+    assert out["events"] == [
+        {"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}
+    ]
+
+
+def test_a_poll_answering_unknown_gives_the_download_button_back_and_stops_polling() -> None:
+    out = _run("queuedThenUnknownOnPoll")
+    assert (out["before"], out["after"]) == ("Queued", "Download")
+    assert out["events"] == [
+        {"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}
+    ]
+    assert out["pollsLeft"] == 0
+
+
+def test_just_after_a_download_an_arr_that_does_not_know_it_yet_leaves_it_queued() -> None:
+    out = _run("justDownloadedGrace")
+    assert (out["afterPoll"], out["afterReopen"]) == ("Queued", "Queued")
+    assert out["afterGrace"] == "Download"
+
+
 def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again() -> None:
     out = _run("downloadFails")
     assert "Already being added" in out["err"]["text"]

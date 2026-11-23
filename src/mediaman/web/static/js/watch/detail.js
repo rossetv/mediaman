@@ -17,6 +17,9 @@
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$/;
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var POLL_MS = 5000;
+  /* How long after this page's own Download a reply that knows nothing of it
+     is the Arr catching up rather than the download being gone. */
+  var DOWNLOAD_GRACE_MS = 30000;
   var COPIED_MS = 2000;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
@@ -278,10 +281,15 @@
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
     if (data.download) {
       var k = stateOf(c.ref);
-      // A reply cached from before a Download must not undo the state it set.
-      if (data.download.state || !k.state) {
-        k.state = data.download.state || null;
-        if (data.download.state !== 'downloading') k.pct = null;
+      var st = data.download.state || null;
+      if (st) {
+        k.state = st;
+        if (st !== 'downloading') k.pct = null;
+      } else if (inFlight(k) && !inGrace(k)) {
+        // The download was removed in the Arr, or never registered.
+        k.state = null;
+        k.pct = null;
+        fire(c.ref, null, null);
       }
     }
     renderContent(true);
@@ -629,9 +637,13 @@
   /* ── Download ── */
 
   function stateOf(ref) {
-    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null };
+    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0 };
     return known[ref];
   }
+
+  function inFlight(k) { return k.state === 'queued' || k.state === 'downloading'; }
+
+  function inGrace(k) { return !!k.sentAt && Date.now() - k.sentAt < DOWNLOAD_GRACE_MS; }
 
   function seasonPickable(d) {
     return d.kind !== 'movie' && d.download && d.download.request && d.download.request.body &&
@@ -873,6 +885,7 @@
       k.busy = false;
       k.state = 'queued';
       k.pct = null;
+      k.sentAt = Date.now();
       fire(ref, 'queued', null);
       core.toast(title + ' is queued.', { variant: 'success' });
       redrawActions(ref);
@@ -907,8 +920,7 @@
 
   function pollable() {
     if (!cur || !cur.data || !cur.data.download || !isOpen) return false;
-    var st = stateOf(cur.ref).state;
-    return st === 'queued' || st === 'downloading';
+    return inFlight(stateOf(cur.ref));
   }
 
   function stopPolling() {
@@ -943,6 +955,9 @@
         k.eta = r.eta || '';
       } else if (r.state === 'queued' || r.state === 'searching') {
         k.state = 'queued';
+        k.pct = null;
+      } else if (r.state === 'unknown' && !inGrace(k)) {
+        k.state = null;
         k.pct = null;
       }
       if (k.state + ':' + k.pct !== was) {
