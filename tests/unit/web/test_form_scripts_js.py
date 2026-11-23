@@ -55,3 +55,12 @@ def test_busy_form_swallows_a_quick_second_submit_then_lapses_and_ignores_escape
     assert out["afterFreshShow"] is True
     assert out["afterRestore"] is False
     assert out["aria"] is None
+
+
+def test_a_busy_button_shows_its_busy_label_and_gets_its_own_back() -> None:
+    out = _run("busyLabel")
+    assert out["whileBusy"] == "Unsubscribing…"
+    assert out["second"] is True
+    assert out["stillBusy"] == "Unsubscribing…"
+    assert out["afterLapse"] == "Unsubscribe"
+    assert out["busyAfter"] is False

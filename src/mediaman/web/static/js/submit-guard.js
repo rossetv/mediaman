@@ -2,7 +2,7 @@
  * Submit guard — stops a form from posting twice.
  *
  * Any <form data-submit-guard> ignores a second submit while the first is in
- * flight and shows it is busy (aria-busy, dimmed buttons). The buttons are not
+ * flight and shows it is busy (aria-busy, dimmed buttons, and the busy label of a button that has one). The buttons are not
  * disabled: a disabled submitter would drop its own name/value from the post.
  * Lives in an external file so the page CSP needs no 'unsafe-inline'.
  */
@@ -18,6 +18,16 @@
     form.toggleAttribute('data-busy', busy);
     if (busy) form.setAttribute('aria-busy', 'true');
     else form.removeAttribute('aria-busy');
+    // A button may name its busy state; its own label comes back when the form is free.
+    form.querySelectorAll('[data-busy-label]').forEach(function (b) {
+      if (busy) {
+        if (b.dataset.idleLabel === undefined) b.dataset.idleLabel = b.textContent;
+        b.textContent = b.getAttribute('data-busy-label');
+      } else if (b.dataset.idleLabel !== undefined) {
+        b.textContent = b.dataset.idleLabel;
+        delete b.dataset.idleLabel;
+      }
+    });
   }
 
   function clearBusy() {

@@ -7,12 +7,12 @@
 {% block content %}
 <div class="login-page">
   <div class="login-card unsub-card">
+    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
     {% if success %}
     <div class="unsub-icon unsub-icon--success"><i class="fa-regular fa-circle-check" aria-hidden="true"></i></div>
     {% else %}
     <div class="unsub-icon unsub-icon--error"><i class="fa-regular fa-circle-xmark" aria-hidden="true"></i></div>
     {% endif %}
-    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
     <h1 class="unsub-title">{% if success %}Unsubscribed{% else %}Couldn't unsubscribe{% endif %}</h1>
     <p class="unsub-msg">{{ message }}</p>
     <p class="unsub-note">You can close this page.</p>

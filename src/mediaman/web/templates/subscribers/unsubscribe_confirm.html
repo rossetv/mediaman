@@ -16,7 +16,7 @@
     <form method="POST" action="/unsubscribe" data-submit-guard>
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="token" value="{{ token }}">
-      <button type="submit" class="unsub-btn-danger">Unsubscribe</button>
+      <button type="submit" class="unsub-btn-danger" data-busy-label="Unsubscribing…">Unsubscribe</button>
     </form>
     <p class="unsub-note">Changed your mind? Close this page and nothing changes.</p>
   </div>

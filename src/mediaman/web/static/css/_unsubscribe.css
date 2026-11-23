@@ -54,6 +54,8 @@
 /* Solid red darkened so white text keeps 4.5:1 or better. */
 .unsub-btn-danger {
   padding: 12px 32px;
+  /* Holds the busy label too, so the button keeps its width. */
+  min-width: 11.5rem;
   border: none;
   border-radius: var(--r-pill);
   background: #d70015;
@@ -62,10 +64,11 @@
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 .unsub-btn-danger:hover { background: #bf0013; }
 .unsub-btn-danger:active { background: #a8001a; transform: scale(.97); }
+.unsub-card form[data-busy] .unsub-btn-danger { opacity: .6; cursor: progress; }
 .unsub-btn-danger:focus-visible {
   outline: 2px solid var(--t1);
   outline-offset: 3px;

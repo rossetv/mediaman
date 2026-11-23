@@ -116,6 +116,21 @@ def test_unsubscribe_confirm_keeps_the_address_on_its_own_line_and_guards_the_fo
     assert "/static/js/submit-guard.js" in html
 
 
+def test_unsubscribe_pages_open_with_the_wordmark_and_the_button_names_its_busy_state():
+    templates = Jinja2Templates(directory=str(_WEB / "templates"))
+    for name, ctx in _UNSUB_PAGES:
+        html = templates.get_template(name).render(ctx)
+        assert html.index("unsub-brand") < html.index("unsub-title")
+        if "unsub-icon" in html:
+            assert html.index("unsub-brand") < html.index("unsub-icon")
+    confirm = templates.get_template(_UNSUB_PAGES[0][0]).render(_UNSUB_PAGES[0][1])
+    assert 'data-busy-label="Unsubscribing…"' in confirm
+    css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()
+    button = css.split(".unsub-btn-danger {")[1].split("}")[0]
+    assert "min-width" in button
+    assert "opacity var(--dur-fast) var(--ease-out)" in button
+
+
 def _luminance(hex_colour: str) -> float:
     channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]

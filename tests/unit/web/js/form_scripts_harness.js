@@ -11,7 +11,7 @@ class El {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
     this.parentNode = null; this.attrs = {}; this.listeners = {};
-    this.className = ''; this._text = ''; this.type = ''; this.form = null;
+    this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {};
   }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
@@ -38,6 +38,10 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(Object.assign({ target: this }, ev))); }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
+  querySelectorAll(sel) {
+    if (sel === '[data-busy-label]') return this.all().filter((e) => e.hasAttribute('data-busy-label'));
+    return [];
+  }
   matches(sel) {
     if (sel === 'form[data-submit-guard]') return this.tagName === 'FORM' && this.hasAttribute('data-submit-guard');
     return false;
@@ -141,6 +145,25 @@ const scenarios = {
     ctx.window.fire('pageshow', { persisted: true });
     const afterRestore = form.hasAttribute('data-busy');
     return { first, quick, busy, afterTimeout, afterEnter, afterEscape, afterFreshShow, afterRestore, ms, aria: form.getAttribute('aria-busy') };
+  },
+  // a submit button that names its busy state shows it, and gets its own label back
+  busyLabel() {
+    const { doc, ctx, timers, win } = build();
+    const form = doc.createElement('form');
+    form.setAttribute('data-submit-guard', '');
+    const btn = doc.createElement('button');
+    btn.setAttribute('data-busy-label', 'Unsubscribing…');
+    btn.textContent = 'Unsubscribe';
+    form.appendChild(btn);
+    doc.body.appendChild(form);
+    load(ctx, 'submit-guard.js');
+    const submit = () => { const ev = { target: form, prevented: false, preventDefault() { this.prevented = true; } }; doc.fire('submit', ev); return ev.prevented; };
+    submit();
+    const whileBusy = btn.textContent;
+    const second = submit();
+    const stillBusy = btn.textContent;
+    timers.forEach((t) => t.fn());
+    return { whileBusy, second, stillBusy, afterLapse: btn.textContent, busyAfter: form.hasAttribute('data-busy') };
   },
 };
 
