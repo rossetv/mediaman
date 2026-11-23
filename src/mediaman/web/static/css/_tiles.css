@@ -175,6 +175,9 @@
 /* Grids */
 .grid           { display: grid; gap: 20px; }
 .grid-tiles     { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+/* Rows keep their own height when the grid is taller than its rows, as while
+   a removed tile's row collapses, so they slide instead of stretching. */
+.grid-tiles     { align-content: start; }
 /* Poster grids on /search and /recommended cap at 7 columns so cards stay
    readable on ultra-wide screens, then step down at narrower widths. */
 .grid-tiles-lg  { grid-template-columns: repeat(7, minmax(0, 1fr)); }

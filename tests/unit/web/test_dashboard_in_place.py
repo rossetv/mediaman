@@ -293,3 +293,17 @@ class TestScanStatusAndToastPlacement:
         css = (_CSS / "_tiles.css").read_text(encoding="utf-8")
         assert re.search(r"@media \(hover: hover\) \{\s*\.tile:hover \{ transform", css)
         assert not re.search(r"^\.tile:hover \{", css, flags=re.M)
+
+
+class TestGridAndAbandonDialogCss:
+    def test_tile_grid_rows_keep_their_height_while_the_grid_height_animates(self):
+        assert any("align-content: start" in b for b in _blocks("_tiles.css", ".grid-tiles"))
+
+    def test_abandon_dialog_stacks_like_the_confirm_dialog_on_phones(self):
+        css = re.sub(r"/\*.*?\*/", "", (_CSS / "_dl.css").read_text(encoding="utf-8"), flags=re.S)
+        phone = css[css.index("@media (max-width: 699.98px)") :]
+        assert re.search(r"\.abandon-modal-actions \{ flex-direction: column; \}", phone)
+        assert re.search(
+            r"\.abandon-modal-actions \.btn \{[^}]*width: 100%[^}]*min-height: 44px", phone
+        )
+        assert re.search(r"\.abandon-modal-body h2 \{ font-size: 18px; \}", phone)

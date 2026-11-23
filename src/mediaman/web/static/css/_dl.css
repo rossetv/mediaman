@@ -454,3 +454,11 @@
   .dl-hero-episodes-toggle,
   .dl-compact-episodes-toggle { min-height: 44px; }
 }
+
+/* Phones: match the confirm dialog, with full-width 44px buttons stacked,
+   Cancel first, and the same title size. */
+@media (max-width: 699.98px) {
+  .abandon-modal-body h2 { font-size: 18px; }
+  .abandon-modal-actions { flex-direction: column; }
+  .abandon-modal-actions .btn { width: 100%; min-height: 44px; }
+}
