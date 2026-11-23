@@ -361,12 +361,17 @@
   .setg-pg .inline-form-grid { grid-template-columns: repeat(3, 1fr); }
   .setg-pg .inline-form--two .inline-form-grid { grid-template-columns: repeat(2, 1fr); }
 }
-.setg-pg .inline-form-actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+.setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
 .setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; color: var(--t3); min-height: 1em; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
 .setg-pg .inline-form-msg.err { color: var(--danger); }
 .setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger); }
+/* On a phone the message takes its own line under the buttons instead of a narrow column beside them. */
+@media (max-width: 639.98px) {
+  .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
+  .setg-pg .inline-form-actions .inline-form-msg:empty { display: none; }
+}
 
 .setg-pg .fpc-meter {
   height: 4px; background: var(--s3); border-radius: var(--r-pill);
