@@ -620,6 +620,33 @@ const scenarios = {
     return { at409, refetched: shown(), gets: p.gets.slice(), events: p.events, toasts: p.toasts.map((t) => t.message) };
   },
 
+  // Sonarr already tracks the show: "Already in Sonarr", unless the title asked for again is in the library.
+  async downloadShowTracked() {
+    const run = async (again) => {
+      let gets = 0;
+      const p = load({
+        routes: { '/api/watch/title/tmdb-tv-90': () => {
+          gets += 1;
+          return Promise.resolve(gets === 1 ? TV_DL : again);
+        }, '/api/watch/title/show-300': LIB_SHOW },
+        posted: { '/api/search/download': new APIError(409, 'conflict', "'Hollow Pines' is already tracked by Sonarr") },
+      });
+      p.run();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await Promise.resolve();
+      await Promise.resolve();
+      const at409 = { primary: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]') };
+      await settle();
+      return { at409, refetched: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]'), events: p.events, gets: p.gets.slice() };
+    };
+    return {
+      tracked: await run(Object.assign({}, TV_DL, { sonarr_tracked: true })),
+      inLibrary: await run(Object.assign({}, TV_DL, { in_library: true, library_ref: 'show-300' })),
+    };
+  },
+
   async recDownload() {
     const p = load({ routes: { '/api/watch/title/rec-5': REC_DL } });
     p.run();

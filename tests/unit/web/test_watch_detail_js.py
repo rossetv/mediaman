@@ -239,6 +239,18 @@ def test_a_download_the_arr_already_has_shows_the_title_in_the_library_without_t
     assert out["refetched"]["retry"] is False
 
 
+def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_it_is_in_the_library() -> None:
+    out = _run("downloadShowTracked")
+    tracked = out["tracked"]
+    assert tracked["at409"] == {"primary": "Already in Sonarr", "retry": False}
+    assert tracked["gets"].count("/api/watch/title/tmdb-tv-90") == 2
+    assert (tracked["refetched"], tracked["retry"]) == ("Already in Sonarr", False)
+    assert tracked["events"] == []
+    # The title asked for again is in the library: it opens as the library show.
+    assert out["inLibrary"]["at409"]["primary"] == "Already in Sonarr"
+    assert out["inLibrary"]["refetched"] == "Resume S2 · E4"
+
+
 def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None:
     out = _run("recDownload")
     assert out["posts"] == [{"url": "/api/recommended/5/download"}]

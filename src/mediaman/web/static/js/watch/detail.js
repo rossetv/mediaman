@@ -686,7 +686,7 @@
   /* ── Download ── */
 
   function stateOf(ref) {
-    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0 };
+    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false };
     return known[ref];
   }
 
@@ -770,7 +770,7 @@
     }
     if (!d.download) return;
     var tv = d.kind !== 'movie';
-    if (tv && d.sonarr_tracked) {
+    if (tv && (d.sonarr_tracked || k.tracked)) {
       actions.appendChild(statePill('dl-state--done', 'Already in Sonarr', 'fa-circle-check'));
       return;
     }
@@ -944,11 +944,17 @@
       }
     }).catch(function (err) {
       k.busy = false;
-      // 409: the Arr already has it, so trying again can only fail again.
+      // 409: the Arr already has it, so trying again can only fail again. Sonarr
+      // tracking a show says nothing of what is downloaded: the title asked for
+      // again says whether it is in the library.
       if (err && err.status === 409) {
-        k.state = 'in_library';
-        k.pct = null;
-        fire(ref, 'in_library', null);
+        if (d.kind === 'movie') {
+          k.state = 'in_library';
+          k.pct = null;
+          fire(ref, 'in_library', null);
+        } else {
+          k.tracked = true;
+        }
         core.toast(MM.api.messageOf(err, title + ' is already in your library.'));
         redrawActions(ref);
         if (cur && cur.ref === ref) refresh();
