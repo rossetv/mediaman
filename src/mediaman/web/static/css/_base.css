@@ -36,6 +36,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Pressed controls give their own :active feedback; the browser's tap box would
+   only cover it. */
+* { -webkit-tap-highlight-color: transparent; }
+
 img { display: block; max-width: 100%; }
 img[data-broken] { display: none; }
 
