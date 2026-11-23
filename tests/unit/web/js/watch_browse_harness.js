@@ -326,6 +326,16 @@ const scenarios = {
     };
   },
 
+  // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
+  async loggedOutOnLoad() {
+    const p = load({ routes: {
+      'GET /api/watch/discover': () => Promise.reject(apiError(401, {})),
+      'GET /api/watch/recommended': () => Promise.reject(apiError(401, {})),
+    } });
+    await settle();
+    return { href: p.ctx.location.href, failed: p.doc.querySelectorAll('.watch-row__note--failed').length };
+  },
+
   // Seventeen batches on a 390x844 phone, the pill low on the screen: the menu stays on the
   // screen, scrolls inside, and End brings the last batch into view.
   async longPicksMenu() {

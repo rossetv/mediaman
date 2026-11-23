@@ -31,6 +31,19 @@
   var IDLE_LIMIT = 2; // "idle" twice running: the worker died without a result
   var SWAP_FALLBACK_MS = 400; // past the slowest motion token, for an animation that never runs
 
+  function toLogin() { window.location.href = '/login'; }
+
+  /* A 401: the session ran out, so the login page, not a "Couldn't load". */
+  function loggedOut(err) {
+    if (!(err && err.status === 401)) return false;
+    toLogin();
+    return true;
+  }
+
+  /* What a load gives while the browser leaves for the login page: nothing,
+     so the skeleton stays until it does. */
+  function never() { return new Promise(function () {}); }
+
   /* ── Cards ── */
 
   /* The download state on a poster, or null when the title can be downloaded. */
@@ -174,7 +187,8 @@
     return section;
   }
 
-  function discoverFailed() {
+  function discoverFailed(err) {
+    if (loggedOut(err)) return never();
     return DISCOVER_ROWS.map(function (r) {
       var section = rowSection(r[0], r[1]);
       section.appendChild(failedNote(r[1], 'discover'));
@@ -388,7 +402,8 @@
     return section;
   }
 
-  function recFailed() {
+  function recFailed(err) {
+    if (loggedOut(err)) return never();
     rec = null;
     var section = rowSection('recommended', REC_TITLE);
     section.appendChild(failedNote(REC_TITLE, 'recommended'));
@@ -424,6 +439,7 @@
     if (!rec || !id || id === rec.payload.batch) return;
     rec.body.setAttribute('aria-busy', 'true');
     fetchRec(id).then(updateRec, function (err) {
+      if (loggedOut(err)) return;
       rec.body.removeAttribute('aria-busy');
       core.toast(MM.api.messageOf(err, 'Couldn’t load those picks. Try again.'), { variant: 'error' });
     });
@@ -440,14 +456,14 @@
       startRows(section);
       var focus = section.querySelector('.watch-row__scroll, [data-picks-menu]');
       if (focus && document.activeElement === button) core.focusSoftly(focus);
-    }, function () {
+    }, function (err) {
+      if (loggedOut(err)) return;
       button.removeAttribute('aria-disabled');
       button.setAttribute('aria-busy', 'false');
       core.toast('Still couldn’t load your picks. Try again in a moment.', { variant: 'error' });
     });
   }
 
-  function toLogin() { window.location.href = '/login'; }
 
   function refreshFailed(message) {
     polling = false;

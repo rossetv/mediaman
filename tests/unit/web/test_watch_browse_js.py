@@ -106,6 +106,11 @@ def test_a_refused_refresh_shows_the_reason_inline_and_can_be_tried_again() -> N
     assert (out["label"], out["disabled"]) == ("Refresh picks", None)
 
 
+def test_a_session_lost_before_the_rows_load_goes_to_login_not_an_error() -> None:
+    out = _run("loggedOutOnLoad")
+    assert out == {"href": "/login", "failed": 0}
+
+
 def test_a_long_picks_menu_stays_on_screen_and_scrolls_to_the_focused_batch() -> None:
     out = _run("longPicksMenu")
     assert out["top"] >= 0
