@@ -147,10 +147,8 @@ def test_a_modified_click_on_the_switch_is_left_to_the_browser() -> None:
 def test_the_search_field_filters_the_list_and_a_late_older_reply_is_dropped() -> None:
     out = _run("search")
     assert out["fetches"] == ["/watch/list?q=har", "/watch/list?q=harbour"]
-    assert out["history"] == [
-        ["replace", "/watch?view=list&q=har"],
-        ["replace", "/watch?view=list&q=harbour"],
-    ]
+    # The address follows only the list that is shown: the dropped reply never moves it.
+    assert out["history"] == [["replace", "/watch?view=list&q=harbour"]]
     assert out["keys"] == ["id:m2"]
     assert out["summary"] == "summary harbour"
 
@@ -174,3 +172,95 @@ def test_the_sort_select_reorders_from_the_first_page_and_keeps_focus() -> None:
     assert out["fetches"] == ["/watch/list?sort=deletion_asc"]
     assert out["history"] == [["push", "/watch?view=list&sort=deletion_asc"]]
     assert out["focus"] == "watch-list-sort"
+
+
+def test_a_keep_shows_keeping_on_the_row_and_a_failure_puts_the_row_and_focus_back() -> None:
+    out = _run("keepBusyThenFails")
+    assert out["busy"] == {
+        "row": True,
+        "label": "Keeping…",
+        "ariaBusy": "true",
+        "disabled": True,
+        "deleteDisabled": True,
+    }
+    assert out["after"] == {
+        "row": False,
+        "label": "Keep",
+        "ariaBusy": None,
+        "disabled": False,
+        "deleteDisabled": False,
+    }
+    assert out["errors"] == ["Couldn't save keep. Too many keep operations"]
+    assert out["focus"] is True
+
+
+def test_a_saved_keep_stays_busy_until_the_changed_row_is_in_and_focus_lands_on_it() -> None:
+    out = _run("keepBusyUntilTheRowIsBack")
+    assert out["whileReading"] == {"busy": True, "toast": "Kept Copperline for 30 days."}
+    assert (out["busy"], out["kept"], out["focus"]) == (False, True, True)
+
+
+def test_undo_and_remove_keep_show_removing_and_a_failure_puts_the_row_back() -> None:
+    out = _run("removingIsShown")
+    assert out["undo"] == {"label": "Removing…", "busy": True}
+    assert out["afterUndoFail"] == {"busy": False, "label": "Keep"}
+    assert out["remove"] == {"label": "Removing…", "busy": True}
+    assert out["afterRemoveFail"] == {"busy": False, "label": "Kept"}
+    assert out["errors"] == [
+        "Couldn't undo the keep. No active protection found",
+        "Couldn't remove keep. No active protection found",
+    ]
+
+
+def test_a_refused_delete_puts_focus_back_on_its_delete() -> None:
+    assert _run("deleteRefusedFocus") == {"blurred": True, "focus": True}
+
+
+def test_after_a_season_delete_focus_is_on_the_show_delete_or_the_next_row() -> None:
+    out = _run("seasonDeleteFocus")
+    assert out["stayed"]["onShowDelete"] is True
+    assert out["left"]["keys"] == ["id:m1", "id:m2", "id:m3"]
+    assert out["left"]["onNextRow"] is True
+
+
+def test_keeping_a_scheduled_movie_forever_offers_no_undo_that_would_lose_its_date() -> None:
+    out = _run("keepForeverScheduled")
+    assert out["call"] == ["postForm", "/api/media/m1/keep", {"duration": "forever"}]
+    assert (out["toast"], out["undo"]) == ("Kept Copperline forever.", False)
+
+
+def test_a_kept_row_that_leaves_the_page_stays_in_place_in_its_new_state() -> None:
+    out = _run("keptRowLeavesThePage")
+    assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+    assert (out["kept"], out["busy"], out["undo"]) == (True, False, True)
+    assert out["summary"] == "summary after"
+
+
+def test_a_deleted_movie_row_is_replaced_by_the_next_page_first_row() -> None:
+    out = _run("deleteRefills")
+    assert out["keys"] == ["id:m2", "show:77", "id:m3", "id:m9"]
+    assert out["range"] == "range after"
+
+
+def test_a_sort_that_fails_to_load_puts_the_select_back_and_leaves_the_address() -> None:
+    out = _run("sortFails")
+    assert (out["select"], out["history"], out["busy"]) == ("added_desc", [], None)
+    assert out["errors"] == ["Couldn't load the list. Try again."]
+
+
+def test_a_filter_that_fails_to_load_leaves_the_address_and_the_rows() -> None:
+    out = _run("pillFails")
+    assert out["history"] == []
+    assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_remove_all_keeps_says_removing_on_its_own_button_with_no_note() -> None:
+    out = _run("removeAllLabel")
+    assert out["busy"] == {
+        "label": "Removing…",
+        "disabled": True,
+        "note": "",
+        "noteInButtons": False,
+        "row": "Removing…",
+    }
+    assert out["after"] == "Remove all keeps"

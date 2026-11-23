@@ -42,6 +42,9 @@ Node.prototype.replaceChildren = function (...kids) {
   kids.forEach((k) => this.appendChild(k));
 };
 Node.prototype.removeEventListener = function () {};
+Object.defineProperty(Node.prototype, 'labels', {
+  get() { return this.ownerDocument.querySelectorAll('label').filter((l) => l.htmlFor === this.id); },
+});
 Object.defineProperty(Node.prototype, 'firstElementChild', { get() { return this.children[0] || null; } });
 
 function deferred() {
@@ -117,7 +120,7 @@ function load(opts = {}) {
   const browse = doc.getElementById('watch-browse');
   doc.getElementById('watch-results').hidden = true;
   if (opts.list) {
-    list.appendChild(fragment(doc, {}, opts.rows || ROWS));
+    list.appendChild(fragment(doc, opts.state || {}, opts.rows || ROWS));
     browse.hidden = true;
   } else {
     list.hidden = true;
@@ -161,7 +164,7 @@ function load(opts = {}) {
     fetch: (url) => {
       fetches.push(url);
       const entry = pages[url] || pages['*'];
-      const answer = () => Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve(entry === pages[url] ? url : '*') });
+      const answer = () => Promise.resolve({ ok: !(entry && entry.fail), status: entry && entry.fail ? 500 : 200, redirected: false, text: () => Promise.resolve(entry === pages[url] ? url : '*') });
       return entry && entry.wait ? entry.wait.promise.then(answer) : answer();
     },
     UIFeedback: {
@@ -192,6 +195,10 @@ function load(opts = {}) {
     doc, ctx, calls, toasts, errors, confirms, fetches, history, events, replies,
     /* What GET /watch/list answers for *url*: a list for *state* with *rows*. */
     serve(url, state, rows, wait) { pages[url] = { node: (d) => fragment(d, state, rows), wait }; },
+    /* GET /watch/list answers *url* with a server error. */
+    fail(url) { pages[url] = { fail: true }; },
+    /* The browser drops focus to the page when the focused button is disabled. */
+    dropFocusIfDisabled() { const a = doc.activeElement; if (a && a.disabled) a.blur(); },
     answerConfirm(v) { confirmAnswer = v; },
     popstate(search) { ctx.location.search = search; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
@@ -479,6 +486,209 @@ const scenarios = {
     out.fetches = p.fetches;
     out.history = p.history;
     return out;
+  },
+
+  // Keep a movie: the row and its Keep say so until the request settles; a failure puts both back and focus too.
+  async keepBusyThenFails() {
+    const p = load({ list: true });
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    const row = p.row('id:m1');
+    const trigger = row.querySelector('.keep-trigger');
+    trigger.focus();
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    p.dropFocusIfDisabled();
+    const del = row.querySelector('[data-action="confirm-delete"]');
+    const busy = {
+      row: row.classList.contains('is-busy'),
+      label: trigger.textContent,
+      ariaBusy: trigger.getAttribute('aria-busy'),
+      disabled: trigger.disabled === true,
+      deleteDisabled: del.disabled === true,
+    };
+    reply.reject(new Error('Too many keep operations'));
+    await settle();
+    return {
+      busy,
+      after: { row: row.classList.contains('is-busy'), label: trigger.textContent, ariaBusy: trigger.getAttribute('aria-busy'), disabled: !!trigger.disabled, deleteDisabled: !!del.disabled },
+      errors: p.errors,
+      focus: p.doc.activeElement === trigger,
+    };
+  },
+
+  // A keep that is saved stays busy until the row in its new state is in, then focus is on its Keep.
+  async keepBusyUntilTheRowIsBack() {
+    const p = load({ list: true });
+    const slow = deferred();
+    const kept = ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r));
+    p.serve('/watch/list', {}, kept, slow);
+    const row = p.row('id:m1');
+    row.querySelector('.keep-trigger').focus();
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    p.dropFocusIfDisabled();
+    await settle();
+    const whileReading = { busy: p.row('id:m1').classList.contains('is-busy'), toast: p.toasts[0].message };
+    slow.resolve();
+    await settle();
+    const now = p.row('id:m1');
+    return { whileReading, busy: now.classList.contains('is-busy'), kept: now.classList.contains('wl-row--kept'), focus: p.doc.activeElement === now.querySelector('.keep-trigger') };
+  },
+
+  // Undo of a keep and Remove keep both show Removing… on the row's Keep while they run.
+  async removingIsShown() {
+    const p = load({ list: true });
+    p.serve('/watch/list', {}, ROWS);
+    const undoReply = deferred();
+    p.replies['post /api/media/m2/unprotect'] = () => undoReply.promise;
+    click(p.doc, keepOption(p, 'id:m2', '30 days'));
+    await settle();
+    p.toasts[0].action.onClick();
+    const undoLabel = p.row('id:m2').querySelector('.keep-trigger').textContent;
+    const undoBusy = p.row('id:m2').classList.contains('is-busy');
+    undoReply.reject(new Error('No active protection found'));
+    await settle();
+    const afterUndoFail = { busy: p.row('id:m2').classList.contains('is-busy'), label: p.row('id:m2').querySelector('.keep-trigger').textContent };
+
+    const removeReply = deferred();
+    p.replies['post /api/media/m3/unprotect'] = () => removeReply.promise;
+    click(p.doc, p.row('id:m3').querySelector('[data-remove-keep-id]'));
+    const removeLabel = p.row('id:m3').querySelector('.keep-trigger').textContent;
+    const removeBusy = p.row('id:m3').classList.contains('is-busy');
+    removeReply.reject(new Error('No active protection found'));
+    await settle();
+    return {
+      undo: { label: undoLabel, busy: undoBusy },
+      afterUndoFail,
+      remove: { label: removeLabel, busy: removeBusy },
+      afterRemoveFail: { busy: p.row('id:m3').classList.contains('is-busy'), label: p.row('id:m3').querySelector('.keep-trigger').textContent },
+      errors: p.errors,
+    };
+  },
+
+  // A refused delete puts focus back on the Delete the browser dropped it from.
+  async deleteRefusedFocus() {
+    const p = load({ list: true });
+    p.replies['post /api/media/m1/delete'] = () => Promise.reject(new Error('This item is kept'));
+    const del = p.row('id:m1').querySelector('[data-action="confirm-delete"]');
+    del.focus();
+    let blurred = false;
+    p.doc.addEventListener('mm:watch-admin', (e) => { if (e.detail.phase === 'busy') { p.dropFocusIfDisabled(); blurred = p.doc.activeElement === p.doc.body; } });
+    click(p.doc, del);
+    await settle();
+    return { blurred, focus: p.doc.activeElement === del };
+  },
+
+  // After a season delete, focus is on the show row's Delete, or on the next row when the show left.
+  async seasonDeleteFocus() {
+    const out = {};
+    for (const left of [false, true]) {
+      const p = load({ list: true });
+      p.replies['get /api/show/77/seasons'] = () => Promise.resolve({
+        show_title: 'Night Shift', show_kept: false,
+        seasons: [{ id: 's1', season_number: 1, kept: false }, { id: 's2', season_number: 2, kept: false }],
+      });
+      p.serve('/watch/list', {}, left ? ROWS.filter((r) => r.id !== 's1') : ROWS);
+      click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+      await settle();
+      // The dialog and the confirm have closed: nothing on the page has focus.
+      p.doc.body.focus();
+      click(p.doc, p.doc.querySelectorAll('#season-delete-list button')[0]);
+      p.doc.body.focus();
+      await settle();
+      const a = p.doc.activeElement;
+      out[left ? 'left' : 'stayed'] = {
+        keys: p.rowKeys(),
+        onShowDelete: !!p.row('show:77') && a === p.row('show:77').querySelector('[data-action="pick-season-delete"]'),
+        onNextRow: a === p.row('id:m3').querySelector('.keep-trigger'),
+      };
+    }
+    return out;
+  },
+
+  // Keep forever on a scheduled movie replaces its deletion; nothing can bring the date back, so no Undo.
+  async keepForeverScheduled() {
+    const p = load({ list: true });
+    p.serve('/watch/list', {}, ROWS);
+    click(p.doc, keepOption(p, 'id:m1', 'forever'));
+    await settle();
+    return { call: p.calls[0], toast: p.toasts[0].message, undo: p.toasts[0].undo };
+  },
+
+  // Under the deletion sort a kept row leaves page 1; it stays in place, kept, so its Undo has a row.
+  async keptRowLeavesThePage() {
+    const p = load({ list: true, state: { sort: 'deletion_asc' } });
+    const others = ROWS.filter((r) => r.id !== 'm1').concat([{ id: 'm9', title: 'Next Page', deletion: true }]);
+    p.serve('/watch/list?sort=deletion_asc', { sort: 'deletion_asc', label: 'after' }, others);
+    p.serve('/watch/list?q=Copperline&per_page=100', { q: 'Copperline' }, [{ id: 'm1', title: 'Copperline', kept: true }]);
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    const row = p.row('id:m1');
+    return {
+      keys: p.rowKeys(),
+      kept: row.classList.contains('wl-row--kept'),
+      busy: row.classList.contains('is-busy'),
+      undo: p.toasts[0].undo,
+      summary: p.part('summary'),
+      fetches: p.fetches,
+    };
+  },
+
+  // A movie deleted from a full page: the next page's first row comes up into its place.
+  async deleteRefills() {
+    const p = load({ list: true });
+    p.serve('/watch/list', { label: 'after' }, ROWS.slice(1).concat([{ id: 'm9', title: 'Next Page' }]));
+    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    await settle();
+    return { keys: p.rowKeys(), range: p.doc.querySelector('#watch-list .page-info').textContent };
+  },
+
+  // A sort that fails to load leaves the select, the list and the address as they were.
+  async sortFails() {
+    const p = load({ list: true });
+    p.fail('/watch/list?sort=deletion_asc');
+    const select = p.doc.getElementById('watch-list-sort');
+    select.value = 'deletion_asc';
+    (p.doc.listeners.change || []).forEach((fn) => fn({ target: select }));
+    await settle();
+    return { select: select.value, history: p.history, errors: p.errors, busy: p.doc.querySelector('[data-list-root]').getAttribute('aria-busy') };
+  },
+
+  // A pill that fails to load leaves the address where it was.
+  async pillFails() {
+    const p = load({ list: true });
+    p.fail('/watch/list?type=kept');
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[1]);
+    await settle();
+    return { history: p.history, keys: p.rowKeys(), errors: p.errors };
+  },
+
+  // Remove all keeps in the show dialog says Removing… on its own button, with no note between the buttons.
+  async removeAllLabel() {
+    const rows = ROWS.map((r) => (r.id === 's1' ? Object.assign({}, r, { kept: true }) : r));
+    const p = load({ list: true, rows });
+    p.replies['get /api/show/77/seasons'] = () => Promise.resolve({
+      show_title: 'Night Shift', show_kept: false,
+      seasons: [{ id: 's1', season_number: 1, kept: true }],
+    });
+    const reply = deferred();
+    p.replies['post /api/media/s1/unprotect'] = () => reply.promise;
+    p.serve('/watch/list', {}, ROWS);
+    click(p.doc, keepOption(p, 'show:77', '30 days'));
+    await settle();
+    const remove = p.doc.getElementById('keep-dialog-remove');
+    click(p.doc, remove);
+    await settle();
+    const note = p.doc.getElementById('keep-dialog-note');
+    const busy = {
+      label: remove.textContent,
+      disabled: remove.disabled === true,
+      note: note.textContent,
+      noteInButtons: note.parentNode.classList.contains('keep-dialog-actions'),
+      row: p.row('show:77').querySelector('.keep-trigger').textContent,
+    };
+    reply.resolve({ ok: true });
+    await settle();
+    return { busy, after: remove.textContent };
   },
 
   // The sort select reorders in place, from page 1.
