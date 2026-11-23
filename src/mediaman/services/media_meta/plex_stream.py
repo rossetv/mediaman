@@ -63,6 +63,10 @@ _TIMEOUT: tuple[float, float] = (5.0, 30.0)
 _SEGMENT_MAX_BYTES = 32 * 1024 * 1024
 _PLAYLIST_MAX_BYTES = 4 * 1024 * 1024
 
+# How long after a user last touched an item a new stream of it still counts as the same viewing,
+# so the time the player has already played carries over a restart.
+VIEWING_KEEP_SECONDS = 3600.0
+
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
 _POOL_MAXSIZE = 32
@@ -117,6 +121,8 @@ class StreamInfo:
     rating_key: str
     quality: str
     info: Mapping[str, Any]
+    #: Seconds since the viewing of this item began; it carries across restarts of the stream.
+    elapsed_s: float = 0.0
 
 
 @dataclass
@@ -127,6 +133,7 @@ class _Stream:
     session_id: str
     child_path: str
     last_access: float
+    viewing_started: float
     info: dict[str, Any] = field(default_factory=dict)
 
 
@@ -155,6 +162,11 @@ class StreamManager:
         self._clock = clock
         self._lock = threading.Lock()
         self._streams: dict[str, _Stream] = {}
+        # Plex session ids handed out and not yet stopped, including ones whose Plex session is
+        # still opening and so not yet in ``_streams``; the startup tidy must leave them alone.
+        self._issued: set[str] = set()
+        # (user, rating_key) -> (when the viewing began, when it was last touched).
+        self._viewings: dict[tuple[str, str], tuple[float, float]] = {}
 
     def start(
         self,
@@ -183,6 +195,8 @@ class StreamManager:
             self._check_room(user)
         for attempt in range(2):
             session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
+            with self._lock:
+                self._issued.add(session_id)
             try:
                 child_path = self._open_session(
                     base, token, session_id, rating_key, quality, burn_subtitles
@@ -208,13 +222,20 @@ class StreamManager:
                 full = True
             else:
                 full = False
+                now = self._clock()
+                self._viewings = {
+                    k: v for k, v in self._viewings.items() if now - v[1] <= VIEWING_KEEP_SECONDS
+                }
+                began = self._viewings.get((user, rating_key), (now, now))[0]
+                self._viewings[(user, rating_key)] = (began, now)
                 self._streams[stream_id] = _Stream(
                     user=user,
                     rating_key=rating_key,
                     quality=quality,
                     session_id=session_id,
                     child_path=child_path,
-                    last_access=self._clock(),
+                    last_access=now,
+                    viewing_started=began,
                     info=dict(info or {}),
                 )
         for old_session in replaced:
@@ -270,7 +291,10 @@ class StreamManager:
     def get(self, stream_id: str, user: str) -> StreamInfo:
         stream = self._touch(stream_id, user)
         return StreamInfo(
-            rating_key=stream.rating_key, quality=stream.quality, info=dict(stream.info)
+            rating_key=stream.rating_key,
+            quality=stream.quality,
+            info=dict(stream.info),
+            elapsed_s=self._clock() - stream.viewing_started,
         )
 
     def stop(self, stream_id: str, user: str) -> None:
@@ -324,7 +348,7 @@ class StreamManager:
             )
             return 0
         with self._lock:
-            ours = {s.session_id for s in self._streams.values()}
+            ours = {s.session_id for s in self._streams.values()} | self._issued
         orphans = []
         for entry in entries:
             key = str(entry.get("key", "")) if isinstance(entry, dict) else ""
@@ -341,6 +365,7 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise StreamGone("stream is gone")
             stream.last_access = self._clock()
+            self._viewings[(user, stream.rating_key)] = (stream.viewing_started, stream.last_access)
             return stream
 
     def _creds(self) -> tuple[str, str]:
@@ -409,6 +434,9 @@ class StreamManager:
         return child_path
 
     def _call_quietly(self, action: str, session_id: str) -> None:
+        if action == "stop":
+            with self._lock:
+                self._issued.discard(session_id)
         try:
             base, token = self._creds()
             self._get(

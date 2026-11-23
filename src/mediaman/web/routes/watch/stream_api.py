@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 # nginx must not buffer it.
 _STREAM_HEADERS = {"Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"}
 
+# The player's played time can run a little ahead of the server's clock for the viewing.
+_PLAYED_SLACK_SECONDS = 30.0
+
 _START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
 
@@ -215,7 +218,8 @@ def save_watch_progress(
         show_rating_key=info.get("show_rating_key"),
         position_s=body.position_s,
         duration_s=info.get("duration_s") or 0,
-        played_s=body.played_s,
+        # played_s is the client's own count, so it cannot exceed the time the viewing has run.
+        played_s=min(body.played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
         now=now_utc(),
     )
     return respond_ok({"watched": watched})

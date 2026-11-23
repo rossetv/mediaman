@@ -106,8 +106,21 @@ def _item(key: str) -> PlexItem:
     raise PlexItemNotFound("Item not found in Plex")
 
 
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
 @pytest.fixture
-def plex(monkeypatch) -> FakePlex:
+def clock() -> Clock:
+    return Clock()
+
+
+@pytest.fixture
+def plex(monkeypatch, clock) -> FakePlex:
     fake = FakePlex()
     monkeypatch.setattr(
         plex_stream,
@@ -115,7 +128,9 @@ def plex(monkeypatch) -> FakePlex:
         lambda url, **kwargs: (True, PLEX_HOST, ("203.0.113.5",)),
     )
     monkeypatch.setattr(
-        plex_stream, "_manager", StreamManager(lambda: (PLEX_URL, TOKEN), session=fake)
+        plex_stream,
+        "_manager",
+        StreamManager(lambda: (PLEX_URL, TOKEN), session=fake, clock=clock),
     )
     monkeypatch.setattr(PlexWatch, "get_item", lambda self, key: _item(key))
     return fake
@@ -274,8 +289,11 @@ def test_stop_is_quiet_when_repeated_and_never_stops_someone_elses_stream(alice,
     assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 410
 
 
-def test_progress_is_saved_for_the_owner_with_item_season_and_duration_from_the_stream(alice, conn):
+def test_progress_is_saved_for_the_owner_with_item_season_and_duration_from_the_stream(
+    alice, conn, clock
+):
     stream_id = _stream(alice, "201")
+    clock.now += 400
     resp = alice.post(
         "/api/watch/progress",
         json={"stream_id": stream_id, "position_s": 1400, "played_s": 400},
@@ -289,6 +307,31 @@ def test_progress_is_saved_for_the_owner_with_item_season_and_duration_from_the_
     assert row["show_rating_key"] == "199"
     assert row["duration_s"] == 1500
     assert row["position_s"] == 1400
+    assert row["credited_at"] is not None
+
+
+def _post_played(client, stream_id: str, played_s: float):
+    return client.post(
+        "/api/watch/progress",
+        json={"stream_id": stream_id, "position_s": 500, "played_s": played_s},
+    )
+
+
+def test_a_huge_played_time_sent_at_once_earns_no_credit(alice, conn):
+    stream_id = _stream(alice)
+    assert _post_played(alice, stream_id, 1e9).status_code == 200
+    [row] = _progress_rows(conn)
+    assert row["credited_at"] is None
+
+
+def test_played_time_earned_before_a_restart_still_earns_credit(alice, conn, clock):
+    first = _stream(alice)
+    clock.now += 280
+    _post_played(alice, first, 280)
+    second = _stream(alice)  # the player restarts on 410 at its position
+    clock.now += 20
+    _post_played(alice, second, 300)
+    [row] = _progress_rows(conn)
     assert row["credited_at"] is not None
 
 

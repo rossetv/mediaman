@@ -66,6 +66,7 @@ class FakePlex:
         self.sessions: list[dict] = []
         self.unreachable = False
         self.prefix = ""
+        self.on_start = None
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append(
@@ -85,6 +86,8 @@ class FakePlex:
             self.decided.add(session)
             return FakeResponse(200, b"<MediaContainer/>")
         if path == f"{TRANSCODE}/start.m3u8":
+            if self.on_start:
+                self.on_start(session)
             if session not in self.decided:
                 return FakeResponse(400)
             master = (
@@ -358,6 +361,39 @@ def test_tidy_orphans_stops_only_mediaman_sessions(manager, plex):
 
     stopped = [c["params"]["session"] for c in plex.calls_to("stop")]
     assert stopped == ["mediaman-abc", "mediaman-def"]
+
+
+def test_tidy_leaves_a_session_that_is_still_being_opened(manager, plex):
+    tidied: list[int] = []
+
+    def tidy_while_opening(session: str) -> None:
+        plex.sessions = [{"key": session}]
+        tidied.append(manager.tidy_orphans())
+
+    plex.on_start = tidy_while_opening
+    _start(manager)
+
+    assert tidied == [0]
+    assert plex.calls_to("stop") == []
+
+
+def test_viewing_time_carries_across_a_restart_of_the_stream(manager, clock):
+    first = _start(manager)
+    clock.now += 280
+    manager.get(first, "alice")
+    second = _start(manager)  # the player restarts at its position
+    clock.now += 20
+
+    assert manager.get(second, "alice").elapsed_s == 300
+
+
+def test_viewing_time_starts_over_after_a_long_gap(manager, clock):
+    _start(manager)
+    clock.now += plex_stream.VIEWING_KEEP_SECONDS + 1
+    second = _start(manager)
+    clock.now += 5
+
+    assert manager.get(second, "alice").elapsed_s == 5
 
 
 def test_tidy_orphans_reports_zero_when_plex_is_down(manager, plex):
