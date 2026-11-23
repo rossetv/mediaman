@@ -152,6 +152,15 @@
    lines the buttons up across tiles of differing title and meta length. */
 .grid-tiles .keep-wrapper.tile-actions { margin-top: auto; }
 
+/* Dashboard on phones: the count and size go under the heading and Clear
+   all stays beside it. */
+@media (max-width: 519.98px) {
+  .sched-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+  .sched-hd > .u-flex { display: contents; }
+  .sched-hd .sub { grid-row: 2; grid-column: 1; }
+  .sched-hd .btn { grid-row: 1; grid-column: 2; }
+}
+
 /* Grids */
 .grid           { display: grid; gap: 20px; }
 .grid-tiles     { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
