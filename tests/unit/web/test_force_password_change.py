@@ -113,3 +113,21 @@ class TestForceChangePost:
             )
         assert resp.status_code == 302
         assert resp.headers["location"] == "/"
+
+
+def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
+    from pathlib import Path
+
+    from fastapi.templating import Jinja2Templates
+    from starlette.requests import Request
+
+    template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+    template = Jinja2Templates(directory=str(template_dir)).env.get_template(
+        "force_password_change.html"
+    )
+    request = Request({"type": "http", "path": "/", "query_string": b"", "headers": []})
+
+    html = template.render(request=request, username="new", policy="", error=None, issues=[])
+
+    assert "Choose a new password to continue." in html
+    assert "no longer meets" not in html

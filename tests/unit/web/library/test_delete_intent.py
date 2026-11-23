@@ -574,3 +574,63 @@ class TestStartupReconciliationIsOffTheStartupPath:
 
         assert conn.execute("SELECT id FROM media_items WHERE id = 'm1'").fetchone() is None
         assert "deleted" in _audit_actions(conn, "m1")
+
+
+def _add_progress(conn, rating_key: str, media_item_id: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO admin_users (username, password_hash, created_at, role)"
+        " VALUES ('aoife', 'x', '2020', 'viewer')"
+    )
+    conn.execute(
+        "INSERT INTO watch_progress (username, rating_key, media_item_id, updated_at)"
+        " VALUES ('aoife', ?, ?, '2020-01-01T00:00:00+00:00')",
+        (rating_key, media_item_id),
+    )
+    conn.commit()
+
+
+def _progress_keys(conn) -> list[str]:
+    return [r["rating_key"] for r in conn.execute("SELECT rating_key FROM watch_progress")]
+
+
+def test_reconciling_a_verified_gone_season_drops_its_episodes_progress(conn):
+    _insert_tv_season(conn, "s1", sonarr_id=None)
+    _insert_tv_season(conn, "s2", sonarr_id=None, season=2)
+    _add_progress(conn, "ep1", "s1")
+    _add_progress(conn, "ep2", "s1")
+    _add_progress(conn, "other-ep", "s2")
+    _record_delete_intent(conn, "s1", "sonarr", "none")
+
+    assert reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True) == 1
+
+    assert _progress_keys(conn) == ["other-ep"]
+
+
+def test_finishing_a_season_delete_drops_its_episodes_progress(conn):
+    from mediaman.web.repository.library_api import MediaDeleteSnapshot, finalise_delete_in_tx
+
+    _insert_tv_season(conn, "s1")
+    _insert_tv_season(conn, "s2", season=2)
+    _add_progress(conn, "ep1", "s1")
+    _add_progress(conn, "ep2", "s1")
+    _add_progress(conn, "other-ep", "s2")
+    snapshot = MediaDeleteSnapshot(
+        title="The Show",
+        media_type="tv_season",
+        file_path=None,
+        file_size_bytes=None,
+        radarr_id=None,
+        sonarr_id=202,
+        season_number=1,
+        plex_rating_key="rk-s1",
+        show_rating_key="show-rk",
+        tmdb_id=None,
+        tvdb_id=81189,
+        tracked_files=None,
+    )
+
+    finalise_delete_in_tx(
+        conn, snapshot, media_id="s1", audit_detail="Deleted: The Show", actor="admin"
+    )
+
+    assert _progress_keys(conn) == ["other-ep"]

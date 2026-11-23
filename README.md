@@ -63,7 +63,7 @@ Watch is a Netflix-style player for the Plex libraries mediaman scans. Plex conv
 
 An admin can do everything. A viewer can watch, search and request films and series, see Downloads and Recommended, keep a "leaving soon" item for 7, 30 or 90 days, and change their own password. A viewer has no settings, library tools, history or way to cancel downloads.
 
-Add a viewer under Settings › Users › Add a user and pick Viewer; they choose their own password at first sign-in. Or from the command line:
+Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 
 ```bash
 docker exec -it mediaman mediaman-create-user --role viewer   # --role viewer|admin, default admin
