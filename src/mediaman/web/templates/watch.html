@@ -114,7 +114,7 @@
   </section>
 
   {% if is_admin %}
-  <section class="watch-list" id="watch-list" aria-label="Library list"{% if not list_view %} hidden{% endif %}>{{ list_html or "" }}</section>
+  <section class="watch-list" id="watch-list" aria-label="Library list"{% if not list_view %} hidden{% endif %}>{% if list_view %}{% with q=list_q %}{% include "_watch_list.html" %}{% endwith %}{% endif %}</section>
   {% endif %}
 
   <div id="watch-detail">{% include "_watch_detail.html" %}</div>

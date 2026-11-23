@@ -141,14 +141,6 @@ def list_context(conn: sqlite3.Connection, params: Mapping[str, str]) -> dict[st
     }
 
 
-def render_list(request: Request, conn: sqlite3.Connection, params: Mapping[str, str]) -> str:
-    """The list view's markup for the filters in *params* (q, type, sort, page, per_page)."""
-    templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.get_template("_watch_list.html").render(
-        request=request, **list_context(conn, params)
-    )
-
-
 @router.get("/watch/list", response_class=HTMLResponse)
 def watch_list(request: Request) -> Response:
     resolved = resolve_admin_page_session(request)

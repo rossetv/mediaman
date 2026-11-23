@@ -21,7 +21,6 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from markupsafe import Markup
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
@@ -540,11 +539,9 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
         ("TV", [c for s, c in zip(shows, show_row, strict=True) if not s.anime], True),
         ("Anime", [c for s, c in zip(shows, show_row, strict=True) if s.anime], True),
     ]
-    list_html = (
-        Markup(list_page.render_list(request, conn, request.query_params))
-        if view == "list"
-        else None
-    )
+    # The list view's own context, included by watch.html; its q is the trimmed search term.
+    list_ctx = list_page.list_context(conn, request.query_params) if view == "list" else {}
+    list_q = list_ctx.pop("q", "")
     return _render(
         request,
         "watch.html",
@@ -564,7 +561,8 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
             "view": view,
             "q": q,
             "tmdb_configured": tmdb_configured,
-            "list_html": list_html,
+            **list_ctx,
+            "list_q": list_q,
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
