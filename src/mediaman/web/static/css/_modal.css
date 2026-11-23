@@ -26,23 +26,21 @@
   position: relative;
 }
 /* A dialog opens as the dim fades in and the sheet rises a few pixels into
-   place; `.is-closing` plays it back, faster, before the script hides it.
-   Closing is already decided, so clicks pass through. */
+   place; `.is-closing` plays it back, faster, before core/modal.js hides it.
+   Closing is already decided, so clicks pass through. The keep dialog keeps
+   `.active` while it closes, so its exit names both classes to outrank the
+   list page's own entry animation. */
 .modal-backdrop,
-.delete-modal-overlay.is-visible,
 .keep-dialog-overlay.active { animation: modal-in var(--dur) var(--ease-out); }
 .modal-backdrop > .modal-sheet,
-.delete-modal-overlay.is-visible > .delete-modal-card,
 .keep-dialog-overlay.active > .keep-dialog { animation: modal-sheet-in var(--dur) var(--ease-out); }
 .modal-backdrop.is-closing,
-.delete-modal-overlay.is-closing,
-.keep-dialog-overlay.is-closing {
+.keep-dialog-overlay.active.is-closing {
   animation: modal-out var(--dur-fast) var(--ease-out) forwards;
   pointer-events: none;
 }
 .modal-backdrop.is-closing > .modal-sheet,
-.delete-modal-overlay.is-closing > .delete-modal-card,
-.keep-dialog-overlay.is-closing > .keep-dialog { animation: modal-sheet-out var(--dur-fast) var(--ease-out) forwards; }
+.keep-dialog-overlay.active.is-closing > .keep-dialog { animation: modal-sheet-out var(--dur-fast) var(--ease-out) forwards; }
 @keyframes modal-in { from { opacity: 0; } }
 @keyframes modal-out { to { opacity: 0; } }
 @keyframes modal-sheet-in { from { transform: translateY(8px) scale(.98); } }
@@ -50,7 +48,6 @@
 /* Under reduced motion the sheet does not move; the dim still fades. */
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop > .modal-sheet,
-  .delete-modal-overlay > .delete-modal-card,
   .keep-dialog-overlay > .keep-dialog { animation: none; }
 }
 .type-pill {

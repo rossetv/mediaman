@@ -468,6 +468,32 @@ scenarios.modalReduced = async function () {
   return { opened, ...r.look(), timers: r.h.ctx.timers.length };
 };
 
+// the Watch admin dialogs (.keep-dialog-overlay, shown by the `active` class) leave through the same exit
+scenarios.modalKeepOverlay = async function () {
+  const mk = () => {
+    const h = build(() => Promise.resolve({}));
+    h.load('core/modal.js');
+    const root = new El('div', h.doc); root.className = 'keep-dialog-overlay wl-dialog';
+    const m = h.ctx.MM.modal.setupDetail(root, { manageBodyOverflow: false, useModalA11y: false, activeClass: 'active' });
+    const look = () => ({ active: root.classList.contains('active'), closing: root.classList.contains('is-closing') });
+    return { h, root, m, look };
+  };
+  const r = mk();
+  r.m.open();
+  const opened = r.look();
+  r.m.close();
+  const closing = r.look();
+  r.root.emit('animationend');
+  const closed = r.look();
+  r.m.open(); r.m.close();
+  r.m.open();
+  const reopened = { ...r.look(), timers: r.h.ctx.timers.length };
+  const q = mk();
+  q.h.ctx.reduce = true;
+  q.m.open(); q.m.close();
+  return { opened, closing, closed, reopened, reduced: { ...q.look(), timers: q.h.ctx.timers.length } };
+};
+
 // Escape closes a modal that has no ModalA11y every time it is opened, not just the first
 scenarios.modalEscape = async function () {
   const h = build(() => Promise.resolve({}));

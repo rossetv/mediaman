@@ -135,6 +135,18 @@ def test_the_shared_modal_hides_at_once_under_reduced_motion() -> None:
     assert out == {"opened": False, "hidden": True, "closing": False, "aria": "true", "timers": 0}
 
 
+def test_the_watch_admin_dialogs_fade_out_before_they_hide() -> None:
+    out = _run("modalKeepOverlay")
+    assert out["opened"] == {"active": True, "closing": False}
+    # still shown (and still `active`) while the exit plays
+    assert out["closing"] == {"active": True, "closing": True}
+    assert out["closed"] == {"active": False, "closing": False}
+    # reopening during the exit cancels it and leaves no timer behind
+    assert out["reopened"] == {"active": True, "closing": False, "timers": 0}
+    # reduced motion hides at once, with no timer
+    assert out["reduced"] == {"active": False, "closing": False, "timers": 0}
+
+
 def test_poll_now_during_a_poll_runs_another_straight_after() -> None:
     assert _run("poll")["calls"] == 2
 

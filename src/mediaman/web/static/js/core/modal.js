@@ -61,7 +61,7 @@
     var manageBodyOverflow = (opts.manageBodyOverflow !== false);
     var useModalA11y = (opts.useModalA11y !== false);
 
-    /* A .modal-backdrop plays its exit (`.is-closing`) before it is hidden.
+    /* A .modal-backdrop or .keep-dialog-overlay plays its exit (`.is-closing`) before it is hidden.
        The dialog counts as closed from the moment close() runs; reopening
        during the exit cancels it. */
     var _leaving = null;
@@ -82,7 +82,8 @@
     function _hideAfterExit() {
       if (_leaving) return;
       var reduce = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduce || !modalEl.classList.contains('modal-backdrop') || !_isVisible()) {
+      var exits = modalEl.classList.contains('modal-backdrop') || modalEl.classList.contains('keep-dialog-overlay');
+      if (reduce || !exits || !_isVisible()) {
         _cancelExit();
         _hide();
         return;
