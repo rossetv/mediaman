@@ -76,26 +76,37 @@
     node.classList.add('fade-in');
   }
 
-  /* The frames that shrink a card out of its row (sideways) or a row out of
-     the page (downwards), gap included, so nothing beside it jumps. */
-  function shrinkFrames(node, sideways) {
+  /* How a card leaves its row (sideways) or a row leaves the page
+     (downwards), gap included, so nothing beside it jumps. A card fades and
+     shrinks in place first and only then gives up its width, so its poster
+     and title are never squeezed on the way out. */
+  function shrinkMotion(node, sideways) {
     var parentStyle = getComputedStyle(node.parentNode);
+    var ease = token('--ease-out', 'ease-out');
     if (sideways) {
       var w = node.offsetWidth + 'px';
       var gap = parseFloat(parentStyle.columnGap) || 0;
-      return [
-        { flexBasis: w, width: w, marginRight: '0px', opacity: 1 },
-        { flexBasis: '0px', width: '0px', marginRight: -gap + 'px', opacity: 0 }
-      ];
+      var fade = tokenMs('--dur', 200);
+      var close = tokenMs('--dur-slow', 250);
+      var shown = { flexBasis: w, width: w, marginRight: '0px' };
+      var gone = { opacity: 0, transform: 'scale(.92)', easing: ease };
+      return {
+        duration: fade + close,
+        frames: [
+          Object.assign({ offset: 0, opacity: 1, transform: 'none', easing: ease }, shown),
+          Object.assign({ offset: fade / (fade + close) }, gone, shown),
+          Object.assign({ offset: 1, flexBasis: '0px', width: '0px', marginRight: -gap + 'px' }, gone)
+        ]
+      };
     }
     var h = node.offsetHeight + 'px';
     var rowGap = parseFloat(parentStyle.rowGap) || 0;
     var side = node.previousElementSibling ? 'marginTop' : 'marginBottom';
-    var from = { height: h, opacity: 1 };
-    var to = { height: '0px', opacity: 0 };
+    var from = { offset: 0, height: h, opacity: 1, easing: ease };
+    var to = { offset: 1, height: '0px', opacity: 0, easing: ease };
     from[side] = '0px';
     to[side] = -rowGap + 'px';
-    return [from, to];
+    return { duration: tokenMs('--dur-slow', 250), frames: [from, to] };
   }
 
   /* Shrink *node* away, then take it off the page. Returns a cancel function
@@ -105,12 +116,9 @@
       node.remove();
       return function () {};
     }
+    var motion = shrinkMotion(node, sideways);
     node.style.overflow = 'hidden';
-    var anim = node.animate(shrinkFrames(node, sideways), {
-      duration: tokenMs('--dur-slow', 250),
-      easing: token('--ease-out', 'ease-out'),
-      fill: 'forwards'
-    });
+    var anim = node.animate(motion.frames, { duration: motion.duration, fill: 'forwards' });
     anim.onfinish = function () {
       node.remove();
       anim.cancel();
@@ -123,14 +131,16 @@
     };
   }
 
-  /* Grow a node that was just put back from nothing to its own size. */
+  /* Grow a node that was just put back from nothing to its own size: the
+     same motion played backwards. */
   function growIn(node, sideways) {
     if (reduceMotion() || !node.animate) return;
-    node.style.overflow = 'hidden';
-    var anim = node.animate(shrinkFrames(node, sideways).reverse(), {
-      duration: tokenMs('--dur-slow', 250),
-      easing: token('--ease-out', 'ease-out')
+    var motion = shrinkMotion(node, sideways);
+    var frames = motion.frames.reverse().map(function (f) {
+      return Object.assign({}, f, { offset: 1 - f.offset });
     });
+    node.style.overflow = 'hidden';
+    var anim = node.animate(frames, { duration: motion.duration });
     anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; };
   }
 
@@ -185,7 +195,7 @@
       if (r.top < area.top) by = r.top - area.top - edge;
       else if (r.bottom > area.bottom) by = Math.min(r.bottom - area.bottom + edge, r.top - area.top - edge);
       if (by) window.scrollBy({ top: by, behavior: reduce ? 'auto' : 'smooth' });
-    }, reduce ? 0 : tokenMs('--dur-slow', 250));
+    }, reduce ? 0 : tokenMs('--dur', 200) + tokenMs('--dur-slow', 250));
   }
 
   /* ── Try again (Plex) ── */
