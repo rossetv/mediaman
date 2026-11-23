@@ -244,14 +244,16 @@
 }
 .watch-card__link:hover .watch-card__poster { box-shadow: var(--shadow-card); }
 .watch-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* Posters fade in as they arrive; watch-rows.js sets the classes, so without
-   it they simply appear. */
+/* Posters and the banner backdrop fade in as they arrive; watch-rows.js sets
+   the classes, so without it they simply appear. */
 .watch-card__poster > img,
 .watch-hero__poster > img,
 .watch-ep__thumb > img { transition: opacity var(--dur) var(--ease-out); }
+.watch-banner__bg { transition: opacity var(--dur-slow) var(--ease-out); }
 .has-poster-fade .watch-card__poster > img:not(.is-loaded),
 .has-poster-fade .watch-hero__poster > img:not(.is-loaded),
-.has-poster-fade .watch-ep__thumb > img:not(.is-loaded) { opacity: 0; }
+.has-poster-fade .watch-ep__thumb > img:not(.is-loaded),
+.has-poster-fade .watch-banner__bg:not(.is-loaded) { opacity: 0; }
 .watch-card__poster::after {
   content: "";
   position: absolute;
