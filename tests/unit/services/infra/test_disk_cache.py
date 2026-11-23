@@ -109,6 +109,19 @@ def test_a_failure_is_not_stored_and_is_not_retried_within_the_backoff(cache):
     assert list((cache / "meta").iterdir()) == []
 
 
+def test_a_failure_re_raised_during_the_backoff_keeps_its_errno_and_message():
+    fetch = Fetcher(OSError(111, "Connection refused"), "late")
+    store = disk_cache.meta()
+    with pytest.raises(OSError):
+        store.get_or_fetch("k", DAY, DAY, fetch)
+
+    with pytest.raises(OSError) as again:
+        store.get_or_fetch("k", DAY, DAY, fetch)
+
+    assert again.value.errno == 111
+    assert "Connection refused" in str(again.value)
+
+
 def test_after_the_backoff_a_failed_key_is_fetched_again(monkeypatch):
     monkeypatch.setattr(disk_cache, "BACKOFF_S", 0.0)
     fetch = Fetcher(LookupError("down"), "back")

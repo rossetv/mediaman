@@ -27,6 +27,7 @@ temp file a crashed write left behind.
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import json
 import logging
@@ -275,9 +276,15 @@ def _claim(flight: tuple[str, str]) -> tuple[Future[Any], bool]:
 def _bare[E: BaseException](exc: E) -> E:
     """A copy of *exc* without its traceback, cause or context, so the backoff holds no
     frames of the request that failed and each raise gets a traceback of its own."""
-    clone = type(exc).__new__(type(exc))
-    clone.args = exc.args
-    clone.__dict__.update(exc.__dict__)
+    try:
+        clone = copy.copy(exc)
+    except TypeError:  # an __init__ that wants more than args: rebuild without calling it
+        clone = type(exc).__new__(type(exc))
+        clone.args = exc.args
+        clone.__dict__.update(exc.__dict__)
+    clone.__traceback__ = None
+    clone.__cause__ = None
+    clone.__context__ = None
     return clone
 
 
