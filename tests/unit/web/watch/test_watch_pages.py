@@ -609,6 +609,27 @@ class TestPlayerPage:
         assert ctx["show_href"] == ctx["back_href"] == "/watch/show/500?season=1"
         assert ctx["leaving"] == {"days": 4, "keep_id": "501"}
 
+    def test_next_episode_in_another_season_carries_that_season_as_the_origin(self, get):
+        origin = quote("/watch/show/500?season=1", safe="")
+
+        ctx = get(f"/watch/play/512?from={origin}").json()
+
+        assert (
+            ctx["next"]["href"]
+            == f"/watch/play/521?from={quote('/watch/show/500?season=2', safe='')}"
+        )
+        assert ctx["back_href"] == "/watch/show/500?season=1"
+
+    def test_next_episode_keeps_an_origin_that_has_no_season(self, get):
+        ctx = get(f"/watch/play/512?from={quote('/watch', safe='')}").json()
+
+        assert ctx["next"]["href"] == f"/watch/play/521?from={quote('/watch', safe='')}"
+
+    def test_phone_banner_line_is_the_short_form(self, get, conn):
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        assert get("/watch").json()["banner"]["line_short"] == "S2 · E2 · 30 min left"
+
     def test_movie_goes_back_to_its_page(self, get):
         ctx = get("/watch/play/100").json()
 

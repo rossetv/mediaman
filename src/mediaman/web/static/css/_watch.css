@@ -122,6 +122,11 @@
 .watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
 .watch-banner__title { font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
+.watch-banner__line--short { display: none; }
+@media (max-width: 599.98px) {
+  .watch-banner__line--long { display: none; }
+  .watch-banner__line--short { display: block; }
+}
 
 /* Rows */
 .watch-rows { display: flex; flex-direction: column; gap: 30px; padding-top: 28px; }
@@ -188,9 +193,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.watch-badge__short { display: none; }
 .watch-badge--leaving { left: 8px; background: rgba(255,69,58,.85); font-weight: 600; }
 .watch-badge--watched { right: 8px; background: rgba(0,0,0,.65); color: rgba(255,255,255,.85); }
 .watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
+@media (max-width: 1279.98px) {
+  .watch-badge__long { display: none; }
+  .watch-badge__short { display: inline; }
+}
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { padding: 8px; }
@@ -379,5 +389,5 @@
 }
 
 /* Inline notice above the rows when Plex cannot be reached. */
-.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: rgba(255,69,58,.12); color: var(--t1); font-size: 14px; }
+.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 var(--pad) 16px; padding: 10px 14px; border-radius: 10px; background: rgba(255,69,58,.12); color: var(--t1); font-size: 14px; }
 .watch-notice__retry { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }

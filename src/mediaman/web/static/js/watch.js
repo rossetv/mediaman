@@ -38,6 +38,11 @@
     return days === 1 ? 'Leaving in 1 day' : 'Leaving in ' + days + ' days';
   }
 
+  function leavingShortText(days) {
+    if (days <= 0) return 'Leaving today';
+    return days === 1 ? '1 day left' : days + ' days left';
+  }
+
   function toast(message, variant) {
     if (window.UIFeedback) window.UIFeedback.toast(message, { variant: variant });
   }
@@ -196,7 +201,10 @@
     }
     poster.appendChild(el('span', 'watch-card__title', item.title));
     if (typeof item.leaving_days === 'number') {
-      poster.appendChild(el('span', 'watch-badge watch-badge--leaving', leavingText(item.leaving_days)));
+      var badge = el('span', 'watch-badge watch-badge--leaving');
+      badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
+      badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
+      poster.appendChild(badge);
     }
     if (item.watched) poster.appendChild(el('span', 'watch-badge watch-badge--watched', 'Watched'));
     if (item.progress_pct) {
@@ -209,7 +217,7 @@
     link.appendChild(poster);
 
     var sub = item.subtitle || '';
-    if (item.minutes_left && sub.indexOf('min left') === -1) {
+    if (item.minutes_left && !/ left$/.test(sub)) {
       sub += ' · ' + dur(item.minutes_left) + ' left';
     }
     link.appendChild(el('span', 'watch-card__sub', sub));

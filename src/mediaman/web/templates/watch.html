@@ -24,7 +24,10 @@
       <div class="watch-banner__body">
         <span class="watch-banner__kicker">{{ "Continue watching" if banner.progress_pct else "Recently added" }}</span>
         <h1 class="watch-banner__title">{{ banner.title }}</h1>
-        {% if banner.line %}<p class="watch-banner__line">{{ banner.line }}</p>{% endif %}
+        {% if banner.line %}
+        <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>
+        <p class="watch-banner__line watch-banner__line--short">{{ banner.line_short or banner.line }}</p>
+        {% endif %}
         {% if banner.progress_pct %}<progress class="watch-bar watch-bar--banner" max="100" value="{{ banner.progress_pct }}" aria-hidden="true"></progress>{% endif %}
         <div class="watch-actions">
           <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ banner.primary.label }}</a>

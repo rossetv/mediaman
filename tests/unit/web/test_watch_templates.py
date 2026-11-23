@@ -308,3 +308,44 @@ def test_base_links_the_watch_and_player_styles() -> None:
     html = _watch()
     assert "/static/css/_watch.css" in html
     assert "/static/css/_player.css" in html
+
+
+@pytest.mark.parametrize("minutes", [60, 120, 180])
+@pytest.mark.parametrize(("kind", "lead"), [("movie", "Movie"), ("show", "S2 · E4")])
+def test_exact_hour_time_left_is_said_once(minutes, kind, lead):
+    hours = f"{minutes // 60} h"
+    item = _card(kind=kind, subtitle=f"{lead} · {hours} left", minutes_left=minutes)
+
+    html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
+
+    assert html.count(f"{hours} left") == 1
+
+
+def test_card_without_time_in_its_caption_gets_it_appended():
+    item = _card(subtitle="Movie", minutes_left=120)
+
+    assert "Movie · 2 h left" in _watch(rows=[{"title": "Continue watching", "items": [item]}])
+
+
+def test_leaving_badge_has_a_short_wording_for_narrow_cards():
+    html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=90, keep_id="k")]}])
+
+    assert "Leaving in 90 days" in html
+    assert "90 days left" in html
+
+
+def test_banner_carries_a_short_line_for_phones():
+    banner = {
+        "title": "The Long Coast",
+        "line": 'Season 2 · Episode 4 — "Low Water" · 31 min left',
+        "line_short": "S2 · E4 · 31 min left",
+        "progress_pct": 40,
+        "primary": {"label": "Resume", "href": "/watch/play/9"},
+        "episodes_href": None,
+        "backdrop_url": None,
+    }
+
+    html = _watch(banner=banner)
+
+    assert "S2 · E4 · 31 min left" in html
+    assert "Season 2 · Episode 4" in html

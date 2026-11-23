@@ -114,6 +114,15 @@ def play_href(rating_key: str, *, resume: bool = False, origin: str | None = Non
     return f"/watch/play/{rating_key}" + (f"?{'&'.join(params)}" if params else "")
 
 
+def _origin_for(origin: str | None, episode: PlexEpisode) -> str | None:
+    """*origin*, with a show page's season changed to the one *episode* is in."""
+    if origin and episode.season_index is not None:
+        base, sep, _ = origin.partition("?season=")
+        if sep:
+            return f"{base}?season={episode.season_index}"
+    return origin
+
+
 def episode_label(season: int | None, episode: int | None) -> str:
     if season is None:
         return f"E{episode or 0}"
@@ -424,12 +433,15 @@ def _continue_watching(
                 if item.title:
                     line += f' — "{item.title}"'
                 line = " · ".join(p for p in (line, left_text) if p)
+                line_short = " · ".join(p for p in (label, left_text) if p)
                 episodes_href = f"/watch/show/{show.key}?season={item.parent_index}"
             else:
-                line, episodes_href = left_text, f"/watch/show/{show.key}"
+                line = line_short = left_text
+                episodes_href = f"/watch/show/{show.key}"
             banner = _banner(
                 show.title, line, pct, play_href(key, resume=True, origin="/watch"), show.key
             )
+            banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
     return cards, banner
 
@@ -813,7 +825,7 @@ def play_page(
         if following is not None:
             label = episode_label(following.season_index, following.index)
             next_episode = {
-                "href": play_href(following.rating_key, origin=origin),
+                "href": play_href(following.rating_key, origin=_origin_for(origin, following)),
                 "label": f"{label} — {following.title}" if following.title else label,
             }
 

@@ -10,6 +10,11 @@
   {%- if days <= 0 -%}Leaving today{%- elif days == 1 -%}Leaving in 1 day{%- else -%}Leaving in {{ days }} days{%- endif -%}
 {%- endmacro %}
 
+{# "Leaving in N days" on a wide card, "N days left" on a narrow one (CSS picks). #}
+{% macro leaving_badge(days) -%}
+<span class="watch-badge watch-badge--leaving"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}Leaving today{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
+{%- endmacro %}
+
 {# The Keep trigger. One shared menu (keep_menu) opens under whichever trigger is pressed. #}
 {% macro keep_button(keep_id, title="") -%}
 <button type="button" class="watch-keep" data-watch-keep="{{ keep_id }}" aria-haspopup="menu" aria-expanded="false"{% if title %} aria-label="Keep {{ title }}"{% endif %}>
@@ -33,11 +38,11 @@
     <span class="watch-card__poster">
       {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
       <span class="watch-card__title">{{ item.title }}</span>
-      {% if item.leaving_days is not none %}<span class="watch-badge watch-badge--leaving">{{ leaving_text(item.leaving_days) }}</span>{% endif %}
+      {% if item.leaving_days is not none %}{{ leaving_badge(item.leaving_days) }}{% endif %}
       {% if item.watched %}<span class="watch-badge watch-badge--watched">Watched</span>{% endif %}
       {% if item.progress_pct %}<progress class="watch-bar" max="100" value="{{ item.progress_pct }}" aria-hidden="true"></progress>{% endif %}
     </span>
-    <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and 'min left' not in (item.subtitle or '') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
+    <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and not (item.subtitle or '').endswith(' left') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
   </a>
   {% if item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
 </article>
