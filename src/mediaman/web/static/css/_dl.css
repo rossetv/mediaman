@@ -17,13 +17,15 @@
 }
 .dl-hero-bg {
   position: absolute;
-  inset: 0;
+  /* Bleed past the card by more than the blur reaches, so the blurred edge
+     (which fades to transparent) is clipped away instead of showing as a
+     band along the card's edges. */
+  inset: -100px;
   z-index: 0;
   background-size: cover;
   background-position: center;
   filter: blur(40px) saturate(1.4);
   opacity: .55;
-  transform: scale(1.2);
 }
 .dl-hero-overlay,
 .dl-hero-scrim {
