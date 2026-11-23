@@ -212,7 +212,7 @@ function seasonDoc(season) {
   return doc;
 }
 
-function load() {
+function load(opts = {}) {
   const doc = makeDocument();
   const toasts = [];
   const timers = [];
@@ -222,7 +222,7 @@ function load() {
     clearTimeout: () => {},
     AbortController: class { abort() {} },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -257,6 +257,19 @@ async function keepFromLine(page) {
   await settle();
 }
 
+/* The Watch page's Leaving soon row, with the shared Keep menu. */
+function leavingRowPage(doc) {
+  const card = (id, title) => ['article', { class: 'watch-card', 'data-keep-id': id },
+    ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__poster' }, title]],
+    ['button', { class: 'watch-keep', 'data-watch-keep': id, 'aria-label': 'Keep ' + title }, 'Keep']];
+  return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
+    ['div', { class: 'watch-rows' },
+      ['section', { class: 'watch-row', 'data-watch-leaving-row': '' },
+        ['div', { class: 'watch-row__scroll' }, card('1100', 'Leaving Film'), card('1101', 'Northbound')]]],
+    ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
+      ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
+}
+
 /* The Watch page's search box and the results it swaps in for the rows. */
 function searchPage(doc) {
   return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
@@ -271,6 +284,32 @@ function searchPage(doc) {
 }
 
 const scenarios = {
+  // Keep the first card of the Leaving soon row, with motion on.
+  async cardExit() {
+    const page = load({ motion: true });
+    const anims = [];
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    Node.prototype.animate = function (frames, timing) {
+      const anim = { node: this, frames, timing, cancel() {} };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const card = page.doc.querySelector('.watch-card');
+    click(page.doc, card.querySelector('[data-watch-keep]'));
+    click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+    await settle();
+    const exit = anims.find((a) => a.node === card);
+    const at = (prop, test) => exit.frames.filter((f) => prop in f && test(f[prop])).map((f) => f.offset);
+    return {
+      duration: exit.timing.duration,
+      // The last moment the slot is still fully open, and the first the card is gone.
+      lastOpen: Math.max(...at('width', (v) => v !== '0px')),
+      faded: Math.min(...at('opacity', (v) => v === 0)),
+      pinned: card.children.map((c) => c.style.minWidth || ''),
+    };
+  },
+
   // A search that finds nothing.
   async searchEmpty() {
     const page = load();

@@ -76,26 +76,34 @@
     node.classList.add('fade-in');
   }
 
+  /* How long a kept card takes to leave its row: it fades and shrinks for
+     --dur, and its slot starts closing part-way through that. */
+  function cardExit() {
+    var fade = tokenMs('--dur', 200);
+    var closeAt = Math.round(fade * 0.6);
+    return { fade: fade, closeAt: closeAt, total: fade + tokenMs('--dur-fast', 150) };
+  }
+
   /* How a card leaves its row (sideways) or a row leaves the page
      (downwards), gap included, so nothing beside it jumps. A card fades and
-     shrinks in place first and only then gives up its width, so its poster
-     and title are never squeezed on the way out. */
+     shrinks in place while its slot closes behind it. */
   function shrinkMotion(node, sideways) {
     var parentStyle = getComputedStyle(node.parentNode);
     var ease = token('--ease-out', 'ease-out');
     if (sideways) {
       var w = node.offsetWidth + 'px';
       var gap = parseFloat(parentStyle.columnGap) || 0;
-      var fade = tokenMs('--dur', 200);
-      var close = tokenMs('--dur-slow', 250);
-      var shown = { flexBasis: w, width: w, marginRight: '0px' };
-      var gone = { opacity: 0, transform: 'scale(.92)', easing: ease };
+      var t = cardExit();
+      var open = { flexBasis: w, width: w, marginRight: '0px' };
+      // Each property eases only between the keyframes that name it, so the
+      // fade and the close overlap.
       return {
-        duration: fade + close,
+        duration: t.total,
         frames: [
-          Object.assign({ offset: 0, opacity: 1, transform: 'none', easing: ease }, shown),
-          Object.assign({ offset: fade / (fade + close) }, gone, shown),
-          Object.assign({ offset: 1, flexBasis: '0px', width: '0px', marginRight: -gap + 'px' }, gone)
+          Object.assign({ offset: 0, opacity: 1, transform: 'none', easing: ease }, open),
+          Object.assign({ offset: t.closeAt / t.total, easing: ease }, open),
+          { offset: t.fade / t.total, opacity: 0, transform: 'scale(.92)', easing: ease },
+          { offset: 1, opacity: 0, transform: 'scale(.92)', flexBasis: '0px', width: '0px', marginRight: -gap + 'px', easing: ease }
         ]
       };
     }
@@ -109,6 +117,15 @@
     return { duration: tokenMs('--dur-slow', 250), frames: [from, to] };
   }
 
+  /* While a card's slot opens or closes, its poster, title and Keep keep
+     their own widths and are clipped, never squeezed. Returns the undo. */
+  function pinContent(node, sideways) {
+    if (!sideways) return noop;
+    var kids = toArray(node.children);
+    kids.forEach(function (kid) { kid.style.minWidth = kid.offsetWidth + 'px'; });
+    return function () { kids.forEach(function (kid) { kid.style.minWidth = ''; }); };
+  }
+
   /* Shrink *node* away, then take it off the page. Returns a cancel function
      that leaves it where it is (an Undo pressed mid-way). */
   function collapseAway(node, sideways) {
@@ -117,17 +134,20 @@
       return function () {};
     }
     var motion = shrinkMotion(node, sideways);
+    var unpin = pinContent(node, sideways);
     node.style.overflow = 'hidden';
     var anim = node.animate(motion.frames, { duration: motion.duration, fill: 'forwards' });
     anim.onfinish = function () {
       node.remove();
       anim.cancel();
       node.style.overflow = '';
+      unpin();
     };
     return function () {
       anim.onfinish = null;
       anim.cancel();
       node.style.overflow = '';
+      unpin();
     };
   }
 
@@ -139,9 +159,10 @@
     var frames = motion.frames.reverse().map(function (f) {
       return Object.assign({}, f, { offset: 1 - f.offset });
     });
+    var unpin = pinContent(node, sideways);
     node.style.overflow = 'hidden';
     var anim = node.animate(frames, { duration: motion.duration });
-    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; };
+    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; unpin(); };
   }
 
   /* Where a node is: its parent and every node after it, so it can go back
@@ -195,7 +216,7 @@
       if (r.top < area.top) by = r.top - area.top - edge;
       else if (r.bottom > area.bottom) by = Math.min(r.bottom - area.bottom + edge, r.top - area.top - edge);
       if (by) window.scrollBy({ top: by, behavior: reduce ? 'auto' : 'smooth' });
-    }, reduce ? 0 : tokenMs('--dur', 200) + tokenMs('--dur-slow', 250));
+    }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
   /* ── Try again (Plex) ── */
