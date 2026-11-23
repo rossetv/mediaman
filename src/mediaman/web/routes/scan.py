@@ -7,6 +7,7 @@ import threading
 import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from plexapi.exceptions import PlexApiException
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -189,6 +190,12 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
     config = request.app.state.config
     try:
         result = run_library_sync(conn, config.secret_key)
+        if not result:
+            return respond_err(
+                "plex_not_configured",
+                status=400,
+                message="Plex is not configured — set the Plex URL and token in Settings",
+            )
         security_event(
             conn,
             event="library.sync",
@@ -198,6 +205,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
         )
         return respond_ok({"synced": result.get("synced", 0)})
     except (
+        PlexApiException,
         SafeHTTPError,
         requests.RequestException,
         ConfigDecryptError,
