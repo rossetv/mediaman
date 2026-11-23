@@ -147,13 +147,18 @@
 
   function run(requestFn) {
     return new Promise(function (resolve, reject) {
+      var cancelled = false;
       function attempt() {
         Promise.resolve(requestFn()).then(resolve, function (err) {
           if (!isReauthRequired(err)) { reject(err); return; }
           openModal({
             onSubmit: function (pw) {
               return MM.api.post('/api/auth/reauth', { password: pw })
-                .then(function () { attempt(); return { ok: true }; })
+                .then(function () {
+                  /* The password may be accepted after the dialog was closed; that must not run the action. */
+                  if (!cancelled) attempt();
+                  return { ok: true };
+                })
                 .catch(function (reauthErr) {
                   return {
                     ok: false,
@@ -162,6 +167,7 @@
                 });
             },
             onCancel: function () {
+              cancelled = true;
               reject(new MM.api.APIError(
                 'reauth_cancelled',
                 'Cancelled',

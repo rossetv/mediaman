@@ -469,6 +469,49 @@ scenarios.reauth = async function () {
   return { opened, closing, gone, cancelledAfterEsc: cancelled };
 };
 
+// run() with the reauth dialog: the guarded request answers 403 reauth_required the first time
+function reauthRig() {
+  const h = build(() => Promise.resolve({}));
+  const body = new El('div', h.doc);
+  h.doc.body = body;
+  const orig = h.doc.createElement;
+  h.doc.createElement = (t) => { const e = orig(t); e.remove = () => { if (e.parentNode) e.parentNode.removeChild(e); }; e.focus = () => {}; return e; };
+  h.doc.querySelectorAll = (sel) => body.querySelectorAll(sel);
+  const posts = [];
+  h.ctx.MM.api = {
+    APIError: class { constructor(code) { this.name = 'APIError'; this.code = code; } },
+    post: () => new Promise((resolve) => posts.push(resolve)),
+    messageOf: () => 'failed',
+  };
+  h.load('core/modal.js');
+  h.load('core/reauth.js');
+  const calls = { n: 0 };
+  const guarded = () => {
+    calls.n++;
+    if (calls.n > 1) return Promise.resolve('done');
+    return Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } });
+  };
+  const flush = () => new Promise((r) => setImmediate(r));
+  const outcome = (p) => { const o = {}; p.then((v) => { o.value = v; }, (e) => { o.code = e.code; }); return o; };
+  const submit = (backdrop) => {
+    backdrop.querySelector('input').value = 'pw';
+    backdrop.querySelector('input').emit('keydown', { key: 'Enter' });
+  };
+  return { h, body, posts, calls, guarded, flush, outcome, submit };
+}
+
+// closing the dialog while the password is being checked must not run the guarded request
+scenarios.reauthCancelDuringCheck = async function () {
+  const r = reauthRig();
+  const out = r.outcome(r.h.ctx.MM.reauth.run(r.guarded));
+  await r.flush();
+  r.submit(r.body.children[0]);
+  r.h.fire('keydown', { key: 'Escape' });
+  r.posts[0]({});
+  await r.flush();
+  return { calls: r.calls.n, code: out.code ?? null, value: out.value ?? null };
+};
+
 // the subtitle line folds away and grows back in place
 scenarios.subtitle = async function () {
   const p = pageRig();

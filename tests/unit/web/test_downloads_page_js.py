@@ -196,3 +196,11 @@ def test_the_reauth_dialog_leaves_through_the_shared_fade() -> None:
     assert out["closing"] == {"attached": True, "leaving": True, "cancelled": 1}
     assert out["gone"] == 0
     assert out["cancelledAfterEsc"] == 2
+
+
+def test_closing_the_reauth_dialog_while_the_password_is_checked_runs_nothing() -> None:
+    out = _run("reauthCancelDuringCheck")
+    assert out["calls"] == 1
+    assert out["code"] == "reauth_cancelled"
+    assert out["value"] is None
+
