@@ -76,6 +76,20 @@ def test_a_quality_switch_shows_loading_rather_than_pause(markup):
     }
 
 
+def test_the_centre_spinner_is_hidden_while_a_frame_is_held_and_back_after(markup):
+    # The stylesheet hides the spinner under .is-held; the play button's ring stays.
+    out = run(markup, "quality_switch")
+    assert out["whileLoading"]["loading"] is True
+    assert out["whileLoading"]["held"] is True
+    assert out["afterManifest"]["held"] is True
+    assert out["afterPlaying"]["held"] is False
+
+
+def test_a_plain_stall_still_shows_the_centre_spinner(markup):
+    out = run(markup, "stall")
+    assert out == {"loading": True, "held": False}
+
+
 def test_a_refused_quality_goes_back_to_the_one_that_played_and_keeps_the_frame(markup):
     out = run(markup, "quality_refused")
     assert out["beforePlaying"]["qualities"] == ["best", "low", "low", "best"]

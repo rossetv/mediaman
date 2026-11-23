@@ -181,9 +181,13 @@
     hold.height = video.videoHeight;
     try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
     hold.hidden = false;
+    root.classList.add('is-held');
   }
 
-  function releaseFrame() { hold.hidden = true; }
+  function releaseFrame() {
+    hold.hidden = true;
+    root.classList.remove('is-held');
+  }
 
   function showMessage(text, canRetry) {
     swapping = false;

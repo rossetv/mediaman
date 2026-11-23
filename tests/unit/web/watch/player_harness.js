@@ -342,14 +342,21 @@ const scenarios = {
     p.replies.push({ ok: { stream_id: 's2', playlist: '/p2' } });
     click(p.q('[data-quality="medium"]'));
     await settle();
-    const whileLoading = { hold: holdState(p), play: playState(p), loading: p.root.classList.contains('is-loading') };
+    const whileLoading = { hold: holdState(p), play: playState(p), loading: p.root.classList.contains('is-loading'), held: p.root.classList.contains('is-held') };
     p.hlsList[p.hlsList.length - 1].emit('hlsManifestParsed');
     await settle();
-    const afterManifest = { hold: holdState(p) };
+    const afterManifest = { hold: holdState(p), held: p.root.classList.contains('is-held') };
     const v = p.video;
     v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
     fire(v, 'playing');
-    return { whileLoading: whileLoading, afterManifest: afterManifest, afterPlaying: { hold: holdState(p), play: playState(p) } };
+    return { whileLoading: whileLoading, afterManifest: afterManifest, afterPlaying: { hold: holdState(p), play: playState(p), held: p.root.classList.contains('is-held') } };
+  },
+
+  /* The buffer runs dry with no frame held. */
+  async stall(p) {
+    await streamPlays(p, 30);
+    fire(p.video, 'waiting');
+    return { loading: p.root.classList.contains('is-loading'), held: p.root.classList.contains('is-held') };
   },
 
   /* The server refuses the new quality: the one that played comes back. */
