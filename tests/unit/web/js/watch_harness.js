@@ -220,6 +220,53 @@ const scenarios = {
     return { stacked, cell, faded, after: host.children.map((c) => c.id), oldGone: !host.contains(oldNode) };
   },
 
+  // A drop or a newer swap while a fade runs wins: the older fade's end never puts back a dropped
+  // view, nor loses the newer one (whichever fade ends first).
+  async swapInterrupted() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const anim = { node: this, frames };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const doc = page.doc;
+    const swap = page.ctx.MMWatch.core.swap;
+    const fadeOut = (node) => anims.find((a) => a.node === node && a.frames[0].opacity === 1).onfinish();
+    const ids = (host) => host.descendants().filter((n) => /^v/.test(n.id)).map((n) => n.id);
+    const stage = () => {
+      const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'v0' }, 'v0']]);
+      doc.body.appendChild(host);
+      return { host, v0: doc.getElementById('v0'), v1: build(doc, ['p', { id: 'v1' }, 'v1']), v2: build(doc, ['p', { id: 'v2' }, 'v2']) };
+    };
+
+    let t = stage();
+    swap(t.v0, t.v1);
+    t.v1.remove();
+    fadeOut(t.v0);
+    await settle();
+    const dropped = ids(t.host);
+    t.host.remove();
+
+    const order = async (firstEnds) => {
+      t = stage();
+      swap(t.v0, t.v1);
+      swap(t.v1, t.v2);
+      const newerCell = t.v2.parentNode.style.gridArea;
+      const [a, b] = firstEnds === 'older' ? [t.v0, t.v1] : [t.v1, t.v0];
+      fadeOut(a);
+      await settle();
+      const between = ids(t.host);
+      fadeOut(b);
+      await settle();
+      const out = { newerCell, between, after: ids(t.host), direct: t.v2.parentNode === t.host, cell: t.v2.style.gridArea || '' };
+      t.host.remove();
+      return out;
+    };
+    return { dropped, olderEndsFirst: await order('older'), newerEndsFirst: await order('newer') };
+  },
+
   // With reduced motion the swap is immediate and runs no animation.
   async swapReduced() {
     const page = load();

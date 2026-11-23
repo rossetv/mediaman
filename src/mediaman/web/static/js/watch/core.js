@@ -91,7 +91,9 @@
 
   /* Swap *oldNode* for *newNode* in place: both sit in one grid cell while
      the old fades out and the new fades in, so nothing around them moves.
-     Returns a promise that settles once the old node is gone. */
+     A newer swap or a drop of the new node while it runs wins: the fade's end
+     puts back only what then stands in the stack. Returns a promise that
+     settles once the old node is gone. */
   function swap(oldNode, newNode) {
     var parent = oldNode.parentNode;
     if (reduceMotion() || !oldNode.animate || !parent) {
@@ -100,6 +102,8 @@
     }
     var stack = el('div');
     stack.style.display = 'grid';
+    // In the cell the old node held, so a swap of a node still fading in stays on top of it.
+    stack.style.gridArea = oldNode.style.gridArea;
     oldNode.replaceWith(stack);
     stack.appendChild(oldNode);
     stack.appendChild(newNode);
@@ -110,8 +114,14 @@
     return new Promise(function (resolve) {
       out.onfinish = function () {
         oldNode.remove();
-        newNode.style.gridArea = '';
-        if (stack.parentNode) stack.replaceWith(newNode);
+        var host = stack.parentNode;
+        if (host) {
+          toArray(stack.children).forEach(function (n) {
+            n.style.gridArea = stack.style.gridArea;
+            host.insertBefore(n, stack);
+          });
+          stack.remove();
+        }
         resolve();
       };
     });
