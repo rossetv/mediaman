@@ -100,7 +100,7 @@ function build(pollGet) {
   vm.createContext(ctx);
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   doc.getElementById = (id) => (id === 'dl-root' ? root : root.all().find((e) => e.id === id) || null);
-  return { ctx, doc, root, add, load, fire: (t, e) => (listeners[t] || []).forEach((f) => f(e)) };
+  return { ctx, doc, root, add, load, listeners, fire: (t, e) => (listeners[t] || []).forEach((f) => f(e)) };
 }
 
 const item = (id, extra) => Object.assign({
@@ -420,6 +420,70 @@ scenarios.modal = async function () {
   const pm = h.ctx.MM.modal.setupDetail(plain, { ...opts, activeClass: 'is-visible' });
   pm.open(); pm.close();
   return { closing, otherEnds, closed, reopened, plainShown: plain.classList.contains('is-visible') };
+};
+
+// Escape closes a modal that has no ModalA11y every time it is opened, not just the first
+scenarios.modalEscape = async function () {
+  const h = build(() => Promise.resolve({}));
+  h.load('core/modal.js');
+  const backdrop = new El('div', h.doc); backdrop.className = 'modal-backdrop';
+  backdrop.style.display = 'none';
+  const m = h.ctx.MM.modal.setupDetail(backdrop, { manageBodyOverflow: false, useModalA11y: false });
+  const esc = () => h.fire('keydown', { key: 'Escape' });
+  const hidden = () => backdrop.getAttribute('aria-hidden');
+  m.open(); m.close();
+  h.ctx.reduce = true;
+  m.open(); esc();
+  const secondOpen = hidden();
+  m.open(); esc();
+  const thirdOpen = hidden();
+  // a closed modal holds no listener, so reopening never stacks them
+  m.open(); m.open();
+  return { secondOpen, thirdOpen, listeners: (h.listeners.keydown || []).length };
+};
+
+// the re-authenticate dialog leaves through the shared fade, and Cancel still cancels
+scenarios.reauth = async function () {
+  const h = build(() => Promise.resolve({}));
+  const body = new El('div', h.doc);
+  h.doc.body = body;
+  h.doc.querySelectorAll = (sel) => body.querySelectorAll(sel);
+  const orig = h.doc.createElement;
+  h.doc.createElement = (t) => { const e = orig(t); e.remove = () => { if (e.parentNode) e.parentNode.removeChild(e); }; e.focus = () => {}; return e; };
+  h.doc.querySelectorAll = () => [];
+  h.load('core/modal.js');
+  h.load('core/reauth.js');
+  let cancelled = 0;
+  h.ctx.MM.reauth.openModal({ onSubmit: () => Promise.resolve({ ok: true }), onCancel: () => { cancelled++; } });
+  const backdrop = body.children[0];
+  const cancel = backdrop.querySelectorAll('button')[0];
+  const opened = { display: backdrop.style.display, leaving: backdrop.classList.contains('is-leaving') };
+  cancel.emit('click');
+  const closing = { attached: backdrop.parentNode === body, leaving: backdrop.classList.contains('is-leaving'), cancelled };
+  backdrop.emit('animationend', { animationName: 'modal-backdrop-out' });
+  h.ctx.timers.splice(0).forEach((f) => f());
+  const gone = body.children.length;
+  // Escape closes it too
+  h.ctx.MM.reauth.openModal({ onSubmit: () => Promise.resolve({ ok: true }), onCancel: () => { cancelled++; } });
+  h.fire('keydown', { key: 'Escape' });
+  return { opened, closing, gone, cancelledAfterEsc: cancelled };
+};
+
+// the subtitle line folds away and grows back in place
+scenarios.subtitle = async function () {
+  const p = pageRig();
+  const ph = p.h.root.querySelector('.ph');
+  p.upd({ subtitle: '2 downloading', hero: item('h1'), queue: [] });
+  const line = ph.querySelector('p');
+  line.emit('transitionend', { target: line, propertyName: 'height' });
+  const shown = { text: line.textContent, ...p.folding(line) };
+  p.upd({ subtitle: '', hero: null, queue: [] });
+  const folding = { attached: line.parentNode === ph, ...p.folding(line) };
+  p.upd({ subtitle: '1 downloading', hero: item('h1'), queue: [] });
+  const back = { text: line.textContent, ...p.folding(line) };
+  p.upd({ subtitle: '', hero: null, queue: [] });
+  line.emit('transitionend', { propertyName: 'height' });
+  return { shown, folding, back, removed: ph.querySelector('p') === null };
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

@@ -21,6 +21,7 @@
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
+ *   MM.modal        (core/modal.js — Escape, backdrop click and the fade out)
  *
  * Load after core/api.js, before any consumer (settings/savebar.js,
  * settings/users.js).
@@ -94,19 +95,24 @@
     document.body.appendChild(backdrop);
     setTimeout(function () { input.focus(); }, 0);
 
-    var closed = false;
-    function close(viaCancel) {
-      if (closed) return;
-      // Flag first so the keydown / backdrop handlers can't fire onCancel during teardown.
-      closed = true;
-      backdrop.remove();
-      document.removeEventListener('keydown', onKey);
-      if (viaCancel && typeof opts.onCancel === 'function') opts.onCancel();
-    }
-    function onKey(e) { if (e.key === 'Escape') close(true); }
-    document.addEventListener('keydown', onKey);
-    cancelBtn.addEventListener('click', function () { close(true); });
-    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(true); });
+    /* The shared modal owns Escape, backdrop clicks and the fade out; its
+       onClose runs for every route, so a close that is not a success is a cancel. */
+    var done = false;
+    var modal = MM.modal.setupDetail(backdrop, {
+      manageBodyOverflow: false,
+      useModalA11y: false,
+      onClose: function () {
+        input.value = '';
+        /* The fade is 200ms; the node is not needed once it has gone. */
+        setTimeout(function () { backdrop.remove(); }, 400);
+        if (!done) {
+          done = true;
+          if (typeof opts.onCancel === 'function') opts.onCancel();
+        }
+      },
+    });
+    modal.open();
+    cancelBtn.addEventListener('click', modal.close);
 
     function submit() {
       var pw = input.value;
@@ -116,9 +122,8 @@
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
         confirmBtn.disabled = false;
         if (res && res.ok) {
-          closed = true;
-          backdrop.remove();
-          document.removeEventListener('keydown', onKey);
+          done = true;
+          modal.close();
         } else {
           msg.textContent = (res && res.error) || 'Failed';
           input.focus();

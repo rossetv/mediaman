@@ -52,17 +52,21 @@
 
     /* Subtitle — the server computes the line (data.subtitle, the single
        source of truth for the count copy); the page just syncs the <p>,
-       creating or removing it as the line appears or empties. */
+       growing or folding it as the line appears or empties. */
     if (header) {
       var subtitle = header.querySelector('p');
       if (data.subtitle) {
         if (!subtitle) {
           subtitle = document.createElement('p');
           header.appendChild(subtitle);
+          dom.setText(subtitle, data.subtitle);
+          dom.reveal(subtitle);
+        } else {
+          dom.setText(subtitle, data.subtitle);
+          if (dom.isCollapsing(subtitle)) dom.reveal(subtitle);
         }
-        dom.setText(subtitle, data.subtitle);
-      } else if (subtitle) {
-        subtitle.parentNode.removeChild(subtitle);
+      } else if (subtitle && !dom.isCollapsing(subtitle)) {
+        dom.collapseAway(subtitle);
       }
     }
 

@@ -109,18 +109,13 @@
       return modalEl.style.display && modalEl.style.display !== 'none';
     }
 
-    /* _escHandler is declared before close() so the close() teardown can
-       reference it.  It is set below if ModalA11y is absent. */
+    /* Without ModalA11y the modal handles Escape itself, but only while it
+       is open: open() adds the listener and close() takes it away again. */
     var _escHandler = null;
 
     function close() {
       if (!modalEl) return;
-      /* Remove the fallback ESC listener on teardown to prevent listener
-         accumulation across multiple open/close cycles. */
-      if (_escHandler) {
-        document.removeEventListener('keydown', _escHandler);
-        _escHandler = null;
-      }
+      if (_escHandler) document.removeEventListener('keydown', _escHandler);
       _hideAfterExit();
       modalEl.setAttribute('aria-hidden', 'true');
       if (manageBodyOverflow) document.body.style.overflow = '';
@@ -135,6 +130,10 @@
     function open(payload) {
       if (!modalEl) return;
       _show();
+      if (_escHandler) {
+        document.removeEventListener('keydown', _escHandler);
+        document.addEventListener('keydown', _escHandler);
+      }
       modalEl.setAttribute('aria-hidden', 'false');
       if (manageBodyOverflow) document.body.style.overflow = 'hidden';
 
@@ -149,23 +148,14 @@
       if (e.target === modalEl) close();
     });
 
-    /* ESC key: fall back if ModalA11y isn't loaded.
-     * Only act on ESC when this specific modal is currently visible —
-     * avoids closing a hidden modal (wasteful) and avoids two
-     * setupDetail-managed modals on the same page from each handling
-     * every ESC press.
-     *
-     * The handler is stored in _escHandler (declared above close()) so
-     * close() can removeEventListener on teardown and avoid a leak. */
+    /* ESC key: fall back if ModalA11y isn't loaded. */
     if (!useModalA11y || !global.ModalA11y) {
       _escHandler = function (e) {
         if (e.key !== 'Escape') return;
-        if (!modalEl) return;
         if (!_isVisible()) return;
         if (modalEl.getAttribute('aria-hidden') === 'true') return;
         close();
       };
-      document.addEventListener('keydown', _escHandler);
     }
 
     if (useModalA11y && global.ModalA11y && modalEl.id) {

@@ -168,3 +168,31 @@ def test_single_download_page_shows_an_eta_that_arrives_on_a_later_poll() -> Non
     assert out["arrives"] == ["30% complete", "1 GB of 3 GB", "ETA 5 min"]
     assert out["changes"] == ["30% complete", "1 GB of 3 GB", "ETA 4 min"]
     assert out["clears"] == ["30% complete", "1 GB of 3 GB"]
+
+
+def test_the_subtitle_folds_away_and_grows_back_in_place() -> None:
+    out = _run("subtitle")
+    assert out["shown"] == {"text": "2 downloading", "cls": "", "height": ""}
+    # it stays attached, folding, so what sits below slides instead of jumping
+    assert out["folding"]["attached"] is True
+    assert "is-folded" in out["folding"]["cls"]
+    # coming back while it folds grows it again with the new text
+    assert out["back"]["text"] == "1 downloading"
+    assert "is-folded" not in out["back"]["cls"]
+    assert out["removed"] is True
+
+
+def test_escape_closes_a_modal_every_time_it_is_opened() -> None:
+    out = _run("modalEscape")
+    assert out["secondOpen"] == "true"
+    assert out["thirdOpen"] == "true"
+    assert out["listeners"] == 1
+
+
+def test_the_reauth_dialog_leaves_through_the_shared_fade() -> None:
+    out = _run("reauth")
+    assert out["opened"] == {"display": "flex", "leaving": False}
+    # cancelling starts the fade and reports the cancel, the node stays until it ends
+    assert out["closing"] == {"attached": True, "leaving": True, "cancelled": 1}
+    assert out["gone"] == 0
+    assert out["cancelledAfterEsc"] == 2
