@@ -12,6 +12,7 @@
  * Exposes:
  *   MM.downloads.renderHero.updateHero(container, item)
  *   MM.downloads.renderHero.updateSearchHint(card, item)
+ *   MM.downloads.renderHero.buildEpisodeRow(ep)
  */
 (function () {
   'use strict';
@@ -292,6 +293,8 @@
     /* Episodes — create, refresh, or remove the toggle + list section. */
     syncEpisodes(card, item);
 
+    d.syncAbandon(card, item, 'hero');
+
     /* Update data-dl-id if hero changed */
     if (card.getAttribute('data-dl-id') !== item.id) {
       card.setAttribute('data-dl-id', item.id);
@@ -303,5 +306,6 @@
     updateSearchHint: updateSearchHint,
     updateTypePill: updateTypePill,
     syncEpisodes: syncEpisodes,
+    buildEpisodeRow: buildEpisodeRow,
   };
 })();

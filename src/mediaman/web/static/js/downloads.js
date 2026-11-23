@@ -32,6 +32,17 @@
   function renderRow()    { return MM.downloads.renderRow; }
   function renderRecent() { return MM.downloads.renderRecent; }
 
+  /* Fade a departed row out, then drop it. The timer covers a user who has
+     reduced motion, where no animationend ever fires; a row already leaving
+     is left alone so polls do not stack listeners. */
+  function removeRow(el) {
+    if (el.classList.contains('dl-card-exit')) return;
+    el.classList.add('dl-card-exit');
+    var gone = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+    el.addEventListener('animationend', gone, { once: true });
+    setTimeout(gone, 400);
+  }
+
   function update(data) {
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
@@ -56,13 +67,16 @@
       }
     }
 
-    /* Hero */
+    /* Hero — the card is rebuilt when the container was emptied by an
+       earlier poll that had no hero. */
     if (data.hero) {
       if (!heroContainer) {
         heroContainer = document.createElement('div');
         heroContainer.id = 'dl-hero-container';
-        heroContainer.appendChild(dom.buildHeroPlaceholder(data.hero.id));
         if (header) header.after(heroContainer);
+      }
+      if (!heroContainer.querySelector('.dl-hero')) {
+        heroContainer.appendChild(dom.buildHeroPlaceholder(data.hero.id));
       }
       renderHero().updateHero(heroContainer, data.hero);
     } else {
@@ -74,42 +88,39 @@
       if (!queueContainer) {
         queueContainer = document.createElement('div');
         queueContainer.id = 'dl-queue-container';
-        var qHeader = document.createElement('div');
-        qHeader.className = 'dl-compact-header';
-        qHeader.textContent = 'Also downloading';
-        queueContainer.appendChild(qHeader);
-        var qList = document.createElement('div');
-        qList.className = 'dl-compact-list';
-        qList.id = 'dl-queue-list';
-        queueContainer.appendChild(qList);
         var insertAfter = heroContainer || (header ? header : root.firstElementChild);
         insertAfter.after(queueContainer);
       }
       var list = document.getElementById('dl-queue-list');
-      if (list) {
-        /* Track active IDs */
-        var activeIds = {};
-        for (var i = 0; i < data.queue.length; i++) {
-          activeIds[data.queue[i].id] = true;
-          var row = dom.findByDlId(list, data.queue[i].id);
-          if (row) {
-            renderRow().updateCompactRow(row, data.queue[i]);
-          }
-          /* New items will appear on next full page load — keep it simple */
+      if (!list) {
+        var qHeader = document.createElement('div');
+        qHeader.className = 'dl-compact-header';
+        qHeader.textContent = 'Also downloading';
+        queueContainer.appendChild(qHeader);
+        list = document.createElement('div');
+        list.className = 'dl-compact-list';
+        list.id = 'dl-queue-list';
+        queueContainer.appendChild(list);
+      }
+      var activeIds = {};
+      for (var i = 0; i < data.queue.length; i++) {
+        var item = data.queue[i];
+        activeIds[item.id] = true;
+        var row = dom.findByDlId(list, item.id);
+        if (row && row.classList.contains('dl-card-exit')) {
+          row.parentNode.removeChild(row);
+          row = null;
         }
-        /* Remove departed rows */
-        var rows = list.querySelectorAll('.dl-compact');
-        for (var j = 0; j < rows.length; j++) {
-          var id = rows[j].getAttribute('data-dl-id');
-          if (id && !activeIds[id]) {
-            rows[j].classList.add('dl-card-exit');
-            (function (el) {
-              el.addEventListener('animationend', function () {
-                if (el.parentNode) el.parentNode.removeChild(el);
-              }, { once: true });
-            })(rows[j]);
-          }
+        if (row) {
+          renderRow().updateCompactRow(row, item);
+        } else {
+          list.appendChild(dom.buildCompactRow(item));
         }
+      }
+      var rows = list.querySelectorAll('.dl-compact');
+      for (var j = 0; j < rows.length; j++) {
+        var id = rows[j].getAttribute('data-dl-id');
+        if (id && !activeIds[id]) removeRow(rows[j]);
       }
     } else {
       if (queueContainer) {

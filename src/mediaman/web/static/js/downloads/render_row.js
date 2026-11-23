@@ -45,6 +45,8 @@
     var eta = d.q('[data-v="eta"]', row);
     if (eta) d.setText(eta, item.eta || '');
 
+    d.syncAbandon(row, item, 'row');
+
     /* Update episode rows (same shape as hero) */
     if (item.episodes) {
       for (var i = 0; i < item.episodes.length; i++) {
