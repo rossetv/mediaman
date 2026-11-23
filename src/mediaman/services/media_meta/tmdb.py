@@ -278,12 +278,16 @@ class TmdbClient:
             return None
 
     def find_by_tvdb(self, tvdb_id: int) -> int | None:
-        """Return the TMDB TV id for a TVDB id via /find, or None on error or no match."""
+        """Return the TMDB TV id for a TVDB id via /find, or None when TMDB has no match.
+
+        A failed request raises (SafeHTTPError, requests.RequestException or ValueError),
+        so a caller can hold a no-match without holding an outage as one.
+        """
         try:
             payload = self._get(f"/find/{tvdb_id}", {"external_source": "tvdb_id"})
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"find/{tvdb_id}", exc)
-            return None
+            raise
         results = payload.get("tv_results") if isinstance(payload, dict) else None
         if isinstance(results, list) and results and isinstance(results[0], dict):
             tmdb_id = results[0].get("id")

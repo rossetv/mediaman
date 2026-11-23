@@ -1,4 +1,4 @@
-"""TMDB lists, search, details and TVDB lookups for Watch, through the disk cache.
+"""TMDB lists, search and details for Watch, through the disk cache.
 
 Only TMDB's own answers are cached; who is asking, what they watched, kept or asked to
 download never is. A failed fetch raises ``TmdbUnavailable`` and is not cached. The
@@ -8,7 +8,7 @@ run them on a worker thread.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import requests
@@ -132,40 +132,6 @@ def details(
         f"tmdb:details:v2:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
     return result
-
-
-def _find_tvdb(client: TmdbClient, tvdb_id: int) -> Callable[[], int]:
-    def fetch() -> int:
-        found = client.find_by_tvdb(tvdb_id)
-        if found is None:
-            raise TmdbUnavailable("find")
-        return found
-
-    return fetch
-
-
-def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
-    """The TMDB id of the show with this TVDB id; None when TMDB has none or fails."""
-    try:
-        result: int = _cached(
-            f"tmdb:find:tvdb:{tvdb_id}", 30 * _DAY, 180 * _DAY, _find_tvdb(client, tvdb_id)
-        )
-    except TmdbUnavailable:
-        return None
-    return result
-
-
-def known_tmdb_ids_for_tvdb(client: TmdbClient, tvdb_ids: Iterable[int]) -> dict[int, int]:
-    """The TMDB ids already cached for these TVDB ids, without waiting on TMDB; the ones
-    not cached are looked up in the background, for the next caller."""
-    found: dict[int, int] = {}
-    for tvdb_id in tvdb_ids:
-        tmdb_id = _cache().peek(
-            f"tmdb:find:tvdb:{tvdb_id}", 30 * _DAY, 180 * _DAY, _find_tvdb(client, tvdb_id)
-        )
-        if isinstance(tmdb_id, int):
-            found[tvdb_id] = tmdb_id
-    return found
 
 
 def tmdb_card(

@@ -83,20 +83,6 @@ def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
     return catalog.arr_view(conn, request.app.state.config.secret_key)
 
 
-def _library_index(
-    conn: sqlite3.Connection, libraries: list[str], client: TmdbClient
-) -> catalog.LibraryIndex:
-    shows = lib.library_shows(conn, libraries)
-    return catalog.LibraryIndex.build(
-        ((m.key, m.title, m.tmdb_id) for m in lib.library_movies(conn, libraries)),
-        ((s.key, s.title, s.tvdb_id) for s in shows),
-        ids=catalog.library_ids(conn),
-        tmdb_for_tvdb=catalog.known_tmdb_ids_for_tvdb(
-            client, {s.tvdb_id for s in shows if s.tvdb_id}
-        ),
-    )
-
-
 @router.get("/api/watch/search/tmdb")
 def api_watch_search_tmdb(
     request: Request, q: str = "", username: str = Depends(get_current_user)
@@ -116,7 +102,9 @@ def api_watch_search_tmdb(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = _library_index(conn, lib.scanned_library_ids(conn), client)
+    index = catalog.library_index(
+        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
+    )
     arr = _arr(request, conn)
     items = [
         card
@@ -138,7 +126,9 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
         shelves = catalog.discover_shelves(client)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = _library_index(conn, lib.scanned_library_ids(conn), client)
+    index = catalog.library_index(
+        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
+    )
     arr = _arr(request, conn)
     rows = [
         {
@@ -437,7 +427,10 @@ def _tmdb_title(
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
     fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, allow_fetch)
     arr = _arr(request, conn)
-    library_ref = _library_index(conn, lib.scanned_library_ids(conn), client).library_ref(
+    index = catalog.library_index(
+        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
+    )
+    library_ref = index.library_ref(
         kind, tmdb_id, fields["title"], arr, year=fields["year"], tvdb_id=fields["tvdb_id"]
     )
     if library_ref is not None:

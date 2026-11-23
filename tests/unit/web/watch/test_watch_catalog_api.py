@@ -3,7 +3,6 @@ title's detail and a season's episodes, for viewers and admins alike."""
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import replace
 
 import pytest
@@ -13,7 +12,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _discover
+from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
@@ -42,14 +41,6 @@ class DictCache:
             raise disk_cache.Refused(key)
         self.store[key] = fetch()
         return self.store[key]
-
-    def peek(self, key, fresh_s, stale_s, fetch):
-        """A miss answers None and fills the entry, as the background fetch would."""
-        if key in self.store:
-            return self.store[key]
-        with contextlib.suppress(Exception):
-            self.store[key] = fetch()
-        return None
 
 
 class FakeTmdb:
@@ -151,8 +142,11 @@ class FakeArr:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_memo():
+def _fresh_memo(monkeypatch):
     catalog.invalidate()
+    monkeypatch.setattr(_library, "_tvdb", {})
+    monkeypatch.setattr(_library, "_held", {})
+    monkeypatch.setattr(_library, "sync", True)
     yield
     catalog.invalidate()
 
@@ -305,6 +299,26 @@ class TestDiscover:
         ]
         assert rows["popular_movies"]["items"][0]["poster_url"] == "/api/watch/img/tmdb/w342/p.jpg"
         assert rows["popular_tv"]["items"][0]["library_ref"] == "show-500"
+
+    def test_a_movie_scanned_since_shows_once_the_held_library_is_out_of_date(
+        self, viewer, library, tmdb, arr, monkeypatch
+    ):
+        now = [1000.0]
+        monkeypatch.setattr(_library, "_clock", lambda: now[0])
+
+        def brand_new_ref():
+            rows = viewer.get("/api/watch/discover").json()["rows"]
+            return rows[1]["items"][0]["library_ref"]
+
+        assert brand_new_ref() is None
+        insert_media_item(library, id="120", plex_rating_key="120", title="Brand New")
+        library.execute("UPDATE media_items SET tmdb_id = 12 WHERE id = '120'")
+        library.commit()
+        now[0] += _library.INDEX_TTL_S - 1
+        assert brand_new_ref() is None
+
+        now[0] += 2
+        assert brand_new_ref() == "movie-120"
 
     def test_unreachable_arr_still_answers_without_download_state(self, viewer, tmdb, arr):
         arr.down = True
@@ -527,11 +541,7 @@ class TestShowsSonarrDoesNotTrack:
 
         assert viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"] == []
 
-    def test_discover_marks_a_show_once_tmdb_has_mapped_its_tvdb_id(
-        self, viewer, tmdb, arr, monkeypatch
-    ):
-        cache = DictCache()
-        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+    def test_discover_marks_a_show_once_tmdb_has_mapped_its_tvdb_id(self, viewer, tmdb, arr):
         tmdb.tvdb_to_tmdb = {5500: 77}
 
         viewer.get("/api/watch/discover")

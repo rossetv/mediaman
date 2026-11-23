@@ -7,6 +7,7 @@ import requests
 
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 
@@ -225,13 +226,15 @@ class TestFindByTvdb:
         fake_http.queue("GET", fake_response(json_data={"tv_results": []}))
         assert TmdbClient("token").find_by_tvdb(1) is None
 
-    def test_returns_none_on_http_error(self, fake_http, fake_response):
+    def test_an_http_error_raises_rather_than_reading_as_no_match(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(status=500))
-        assert TmdbClient("token").find_by_tvdb(1) is None
+        with pytest.raises(SafeHTTPError):
+            TmdbClient("token").find_by_tvdb(1)
 
-    def test_returns_none_on_exception(self, fake_http):
+    def test_a_connection_failure_raises_rather_than_reading_as_no_match(self, fake_http):
         fake_http.raise_on("GET", requests.ConnectionError("down"))
-        assert TmdbClient("token").find_by_tvdb(1) is None
+        with pytest.raises(SafeHTTPError):
+            TmdbClient("token").find_by_tvdb(1)
 
 
 class TestCertificate:

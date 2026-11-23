@@ -12,11 +12,10 @@ from ._discover import (
     TmdbUnavailable,
     details,
     discover_shelves,
-    known_tmdb_ids_for_tvdb,
     search,
     tmdb_card,
-    tmdb_id_for_tvdb,
 )
+from ._library import library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
 
@@ -31,9 +30,9 @@ __all__ = [
     "discover_card",
     "discover_shelves",
     "invalidate",
-    "known_tmdb_ids_for_tvdb",
     "library_href",
     "library_ids",
+    "library_index",
     "normalise_title",
     "search",
     "tmdb_card",

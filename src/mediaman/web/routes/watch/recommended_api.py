@@ -118,18 +118,12 @@ def api_watch_recommended(
     rows: list[dict[str, object]] = chosen["items"]  # type: ignore[assignment]
     arr = catalog.arr_view(conn, request.app.state.config.secret_key)
     _attach_states(conn, rows, arr)
-    libraries = lib.scanned_library_ids(conn)
-    shows = lib.library_shows(conn, libraries)
-    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
-    index = catalog.LibraryIndex.build(
-        ((m.key, m.title, m.tmdb_id) for m in lib.library_movies(conn, libraries)),
-        ((s.key, s.title, s.tvdb_id) for s in shows),
-        ids=catalog.library_ids(conn),
-        tmdb_for_tvdb=(
-            catalog.known_tmdb_ids_for_tvdb(client, {s.tvdb_id for s in shows if s.tvdb_id})
-            if client
-            else None
-        ),
+    index = catalog.library_index(
+        conn,
+        TmdbClient.from_db(conn, request.app.state.config.secret_key),
+        lib.scanned_library_ids(conn),
+        lib.library_movies,
+        lib.library_shows,
     )
     payload["batch"] = chosen["id"]
     payload["items"] = [_card(row, index, arr) for row in rows]

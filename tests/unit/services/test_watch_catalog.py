@@ -3,7 +3,6 @@ fetches through the cache, and the card and image shapes."""
 
 from __future__ import annotations
 
-import contextlib
 import threading
 from types import SimpleNamespace
 
@@ -11,7 +10,8 @@ import pytest
 
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
-from mediaman.services.watch_catalog import _arr, _discover
+from mediaman.services.watch_catalog import _arr, _discover, _library
+from tests.helpers.factories import insert_media_item
 
 
 class DictCache:
@@ -28,18 +28,13 @@ class DictCache:
         self.store[key] = fetch()
         return self.store[key]
 
-    def peek(self, key, fresh_s, stale_s, fetch):
-        """A miss answers None and fills the entry, as the background fetch would."""
-        if key in self.store:
-            return self.store[key]
-        with contextlib.suppress(Exception):
-            self.store[key] = fetch()
-        return None
-
 
 @pytest.fixture(autouse=True)
-def _fresh_memo():
+def _fresh_memo(monkeypatch):
     catalog.invalidate()
+    monkeypatch.setattr(_library, "_tvdb", {})
+    monkeypatch.setattr(_library, "_held", {})
+    monkeypatch.setattr(_library, "sync", True)
     yield
     catalog.invalidate()
 
@@ -337,19 +332,121 @@ class TestSearch:
         assert calls == ["Glass"]
 
 
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = Clock()
+    monkeypatch.setattr(_library, "_clock", fake)
+    return fake
+
+
+class Finder:
+    """TMDB's /find by TVDB id: *answers* in turn, an exception raised."""
+
+    def __init__(self, *answers) -> None:
+        self.answers = list(answers)
+        self.asked: list[int] = []
+
+    def find_by_tvdb(self, tvdb_id):
+        self.asked.append(tvdb_id)
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def _down():
+    return SafeHTTPError(status_code=503, body_snippet="", url="https://tmdb.invalid")
+
+
 class TestTvdbLookup:
-    def test_no_match_is_none_and_is_asked_again_later(self, cache):
-        calls = []
+    def test_no_match_is_held_and_asked_again_only_after_its_expiry(self, clock):
+        finder = Finder(None)
 
-        def find(tvdb_id):
-            calls.append(tvdb_id)
-            return None
+        assert catalog.tmdb_id_for_tvdb(finder, 5500) is None
+        clock.now += _library.NO_MATCH_TTL_S - 1
+        assert catalog.tmdb_id_for_tvdb(finder, 5500) is None
+        assert finder.asked == [5500]
 
-        client = SimpleNamespace(find_by_tvdb=find)
+        clock.now += 2
+        catalog.tmdb_id_for_tvdb(finder, 5500)
+        assert finder.asked == [5500, 5500]
 
-        assert catalog.tmdb_id_for_tvdb(client, 5500) is None
-        assert catalog.tmdb_id_for_tvdb(client, 5500) is None
-        assert calls == [5500, 5500]
+    def test_a_failure_is_not_held_as_no_match(self, clock):
+        finder = Finder(_down(), 77)
+
+        assert catalog.tmdb_id_for_tvdb(finder, 5500) is None
+        clock.now += _library.RETRY_S + 1
+
+        assert catalog.tmdb_id_for_tvdb(finder, 5500) == 77
+
+
+class TestLibraryIndex:
+    """The held index, built from a library of one show without a TMDB id of its own."""
+
+    @pytest.fixture
+    def library(self, conn):
+        self.movies: list[SimpleNamespace] = []
+        self.shows = [SimpleNamespace(key="500", title="Glass Coast", tvdb_id=5500)]
+        self.reads = 0
+        return conn
+
+    def _movies(self, conn, libraries):
+        self.reads += 1
+        return list(self.movies)
+
+    def _shows(self, conn, libraries):
+        return list(self.shows)
+
+    def _index(self, conn, client):
+        return catalog.library_index(conn, client, ["1"], self._movies, self._shows)
+
+    def test_it_is_built_once_within_its_window_and_afresh_after_it(self, library, clock):
+        self._index(library, None)
+        self.movies.append(SimpleNamespace(key="100", title="Brand New", tmdb_id=12))
+        clock.now += _library.INDEX_TTL_S - 1
+
+        assert self._index(library, None).movies_by_tmdb == {}
+        assert self.reads == 1
+
+        clock.now += 2
+        assert self._index(library, None).movies_by_tmdb == {12: "movie-100"}
+
+    def test_a_tvdb_id_tmdb_cannot_match_is_not_asked_again_within_its_expiry(
+        self, library, clock
+    ):
+        finder = Finder(None)
+
+        for _ in range(3):
+            self._index(library, finder)
+            clock.now += _library.INDEX_TTL_S + 1
+
+        assert finder.asked == [5500]
+
+    def test_a_match_learnt_in_the_background_is_in_the_next_index(self, library, clock):
+        finder = Finder(77)
+
+        assert self._index(library, finder).shows_by_tmdb == {}
+        assert self._index(library, finder).shows_by_tmdb == {77: "show-500"}
+        assert finder.asked == [5500]
+
+    def test_a_show_with_a_tmdb_id_of_its_own_is_not_asked_about(self, library, clock):
+        insert_media_item(
+            library, id="501", media_type="tv_season", show_rating_key="500", title="Season 1"
+        )
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        finder = Finder(78)
+
+        assert self._index(library, finder).shows_by_tmdb == {77: "show-500"}
+        assert finder.asked == []
 
 
 class TestShapes:

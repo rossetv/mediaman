@@ -11,22 +11,27 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations.throttle import record_manual_refresh
-from mediaman.services.watch_catalog import _arr
+from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.routes.watch import recommended_api
+from mediaman.web.repository import watch_library
+from mediaman.web.routes.watch import catalog_api, recommended_api
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
     insert_settings,
     insert_suggestion,
 )
-from tests.unit.web.watch.test_watch_catalog_api import FakeArr
+from tests.unit.web.watch.test_watch_catalog_api import DictCache, FakeArr, FakeTmdb
 
 
 @pytest.fixture(autouse=True)
-def _fresh_memo():
+def _fresh_memo(monkeypatch):
     catalog.invalidate()
+    monkeypatch.setattr(_library, "_tvdb", {})
+    monkeypatch.setattr(_library, "_held", {})
+    monkeypatch.setattr(_library, "sync", True)
     yield
     catalog.invalidate()
 
@@ -189,6 +194,31 @@ class TestCards:
         (item,) = _get(viewer)["items"]  # no TMDB token is set: still a 200
 
         assert (item["in_library"], item["library_ref"]) == (True, "show-9")
+
+    def test_the_row_shares_the_library_the_discover_rows_just_read(
+        self, app_factory, conn, arr, monkeypatch
+    ):
+        tmdb = FakeTmdb()
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: tmdb)
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        reads = []
+
+        def library_movies(conn, libraries):
+            reads.append(libraries)
+            return []
+
+        monkeypatch.setattr(watch_library, "library_movies", library_movies)
+        insert_suggestion(conn, title="Pick", tmdb_id=100, batch_id="2099-01-01")
+        insert_settings(conn, plex_libraries='["1"]')
+        insert_admin_user(conn, username="viewer", role="viewer")
+        conn.commit()
+        client = TestClient(app_factory(recommended_api.router, catalog_api.router, conn=conn))
+        client.cookies.set("session_token", create_session(conn, "viewer"))
+
+        assert client.get("/api/watch/discover").status_code == 200
+        assert client.get("/api/watch/recommended").status_code == 200
+
+        assert reads == [["1"]]
 
     def test_a_pick_without_a_tmdb_id_still_gets_a_card(self, viewer, conn):
         insert_suggestion(conn, title="No Id", tmdb_id=None, batch_id="2099-01-01")
