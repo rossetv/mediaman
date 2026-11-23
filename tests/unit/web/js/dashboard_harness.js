@@ -143,7 +143,11 @@ function build(tiles, opts) {
   opts = opts || {};
   const doc = makeDoc();
   fragments(doc, tiles).forEach((f) => doc.body.appendChild(f));
-  ['scan-btn', 'scan-status', 'scan-live'].forEach((id) => doc.body.appendChild(el(doc, 'span', { id, 'data-action': id === 'scan-btn' ? 'trigger-scan' : '' })));
+  doc.body.appendChild(el(doc, 'button', { id: 'scan-btn', class: 'btn scan-btn', 'data-action': 'trigger-scan' }, [
+    el(doc, 'i', { class: 'fa-solid fa-rotate-right' }),
+    el(doc, 'span', { class: 'scan-btn-label' }, [], 'Scan now'),
+  ]));
+  ['scan-status', 'scan-live'].forEach((id) => doc.body.appendChild(el(doc, 'span', { id })));
   const fetches = [];
   const keeps = [];
   const timers = [];
@@ -186,7 +190,7 @@ function build(tiles, opts) {
   ctx.MM.api = {
     postForm: () => { const d = deferred(); keeps.push(d); return d.p; },
     post: () => Promise.resolve({}),
-    get: () => Promise.resolve({ running: false, status: 'done' }),
+    get: () => Promise.resolve(opts.status || { running: false, status: 'done' }),
     messageOf: (_, f) => f,
   };
   const page = (spec) => ({ ok: true, redirected: false, url: 'http://h/', text: () => Promise.resolve(JSON.stringify(spec)) });
@@ -203,7 +207,13 @@ function build(tiles, opts) {
   const plainPost = ctx.MM.api.post;
   ctx.MM.api.post = (u) => { if (!/clear-scheduled/.test(u)) return plainPost(u); const d = deferred(); postCalls.push(d); return d.p; };
   const runTimers = () => timers.splice(0).forEach((f) => f());
-  return { doc, ctx, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
+  const scanBtn = () => {
+    const b = doc.getElementById('scan-btn');
+    const i = b.querySelector('i');
+    return { label: b.querySelector('.scan-btn-label') && b.querySelector('.scan-btn-label').textContent, icon: i && i.className };
+  };
+  const text = (id) => doc.getElementById(id).textContent;
+  return { doc, ctx, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
 }
 
 const scenarios = {
@@ -237,6 +247,29 @@ const scenarios = {
     const before = h.scrolls.length;
     h.runTimers();
     return { calls: h.doc.focusCalls, focused: h.focused(), scrolledBefore: before, scrolls: h.scrolls };
+  },
+
+  // the scan button keeps its icon through every state of a scan
+  async scanLabel() {
+    const h = build(['a']);
+    const seen = [];
+    h.click(h.doc.getElementById('scan-btn'));
+    seen.push(h.scanBtn());
+    await flush();
+    h.runTimers();
+    await flush();
+    seen.push(h.scanBtn());
+    h.fetches[0].resolve(h.page({ tiles: ['a'] }));
+    await flush();
+    h.runTimers();
+    seen.push(h.scanBtn());
+    const failed = build(['a'], { status: { running: false, status: 'error', reason: 'disk' } });
+    failed.click(failed.doc.getElementById('scan-btn'));
+    await flush();
+    failed.runTimers();
+    await flush();
+    seen.push(failed.scanBtn());
+    return { seen };
   },
 
   // keyboard Clear all: focus must not drop to the body

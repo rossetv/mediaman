@@ -136,6 +136,12 @@ class TestRefreshInPlace:
         assert [s["behavior"] for s in out["scrolls"]] == ["smooth"]
         assert out["scrolls"][0]["top"] < 0
 
+    def test_scan_button_keeps_its_icon_through_every_state(self):
+        seen = _run("scanLabel")["seen"]
+        assert [s["label"] for s in seen] == ["Scanning", "Scan complete", "Scan now", "Retry scan"]
+        assert all(s["icon"] for s in seen)
+        assert "fa-check" in seen[1]["icon"]
+
     def test_keyboard_clear_all_keeps_focus_in_the_page(self):
         out = _run("clearAll")
         assert out["busy"] == {"disabled": False, "aria": "true"}
