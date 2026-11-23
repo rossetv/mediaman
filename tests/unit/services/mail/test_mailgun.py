@@ -28,6 +28,44 @@ class TestMailgunClient:
         assert data["subject"] == "Test"
         assert data["from"] == "notify@example.com"
 
+    def test_send_adds_a_plain_text_part_with_the_links_kept(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        html = (
+            "<html><head><title>T</title><style>p{color:red}</style></head><body>"
+            '<div>Hello <b>there</b></div><a href="https://m.example/keep/tok?x=1&amp;y=2">Keep</a>'
+            "</body></html>"
+        )
+        client.send(to="user@example.com", subject="Test", html=html)
+        data = fake_http.calls[0][2]["data"]
+        assert data["html"] == html
+        assert "Hello there" in data["text"]
+        assert "Keep (https://m.example/keep/tok?x=1&y=2)" in data["text"]
+        assert "color:red" not in data["text"]
+        assert "<" not in data["text"]
+
+    def test_send_advertises_the_unsubscribe_url_when_given(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        url = "https://m.example/unsubscribe?token=abc.def%3D"
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>", unsubscribe_url=url)
+        data = fake_http.calls[0][2]["data"]
+        assert data["h:List-Unsubscribe"] == f"<{url}>"
+
+    def test_send_without_an_unsubscribe_url_sets_no_header(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert "h:List-Unsubscribe" not in fake_http.calls[0][2]["data"]
+
+    def test_send_refuses_an_unsubscribe_url_that_could_inject_a_header(self, client):
+        with pytest.raises(ValueError):
+            client.send(
+                to="user@example.com",
+                subject="Test",
+                html="<p>Hi</p>",
+                unsubscribe_url="https://m.example/u\r\nBcc: x@example.com",
+            )
+
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"domain": {"name": "example.com"}}))
         assert client.is_reachable() is True

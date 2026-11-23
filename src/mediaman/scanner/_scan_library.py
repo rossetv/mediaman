@@ -25,10 +25,12 @@ from typing import TYPE_CHECKING, cast
 
 from mediaman.core.time import now_iso
 from mediaman.scanner import repository
+from mediaman.scanner._eligibility import is_inactive
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.scanner.repository.watch_credit import last_watched_by_media_item
 
 if TYPE_CHECKING:
     from mediaman.scanner.engine import ScanEngine
@@ -81,8 +83,9 @@ class _GuardSets:
     Built once per library by _build_guard_sets so the hot
     per-item loop does ZERO ``scheduled_actions`` or ``watch_progress``
     SELECTs. ``credited`` maps a media item id to the last time anyone
-    played it in mediaman long enough to count as a watch. ``already_scheduled``
-    is mutable: when an item is freshly scheduled mid-loop it is added so
+    played it in mediaman long enough to count as a watch, and
+    ``last_watched`` to the ``last_watched_at`` stored before this scan.
+    ``already_scheduled`` is mutable: when an item is freshly scheduled mid-loop it is added so
     a later item sharing the same ``plex_rating_key`` observes it, as the
     connection's uncommitted view would.
     """
@@ -90,6 +93,7 @@ class _GuardSets:
     protected: frozenset[str]
     already_scheduled: set[str]
     credited: Mapping[str, datetime]
+    last_watched: Mapping[str, datetime]
 
 
 def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
@@ -104,6 +108,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
         protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
         credited=repository.last_credited_by_media_item(conn, media_ids),
+        last_watched=last_watched_by_media_item(conn, media_ids),
     )
 
 
@@ -190,7 +195,9 @@ def _evaluate_scan_item(
     because neither guard reads ``media_items``.
 
     A mediaman play credited to the item joins its Plex watch history, so
-    both ``last_watched_at`` and the inactivity check count it.
+    both ``last_watched_at`` and the inactivity check count it. The stored
+    ``last_watched_at`` is a floor for the inactivity check, so a watch
+    whose play is gone (its viewer deleted) still keeps the item.
     """
     conn = engine._conn
     item = f.item
@@ -206,10 +213,14 @@ def _evaluate_scan_item(
         return media_id, ScanDecision.SKIP_GUARD
 
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
-    result = evaluate_fn(f, added_at, f.watch_history)
-    if result == "schedule_deletion":
-        return media_id, ScanDecision.SCHEDULE
-    return media_id, ScanDecision.SKIP_EVAL
+    if evaluate_fn(f, added_at, f.watch_history) != "schedule_deletion":
+        return media_id, ScanDecision.SKIP_EVAL
+    last_watched = guards.last_watched.get(media_id)
+    if last_watched is not None and not is_inactive(
+        [{"viewed_at": last_watched}], engine._inactivity_days
+    ):
+        return media_id, ScanDecision.SKIP_EVAL
+    return media_id, ScanDecision.SCHEDULE
 
 
 def _apply_scan_decision(

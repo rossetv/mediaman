@@ -179,9 +179,10 @@ def _render_for_subscriber(
     secret_key: str,
     dry_run: bool,
     template: _JinjaTemplate,
-) -> str:
+) -> tuple[str, str]:
     """Mint per-subscriber tokens on shallow copies of the items (so URLs do not bleed
-    between subscribers) and render the HTML. No side effects, no DB access.
+    between subscribers) and render the HTML. Returns the HTML and the unsubscribe URL
+    in it ("" without a base URL). No side effects, no DB access.
     """
     unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
     # The email is encoded inside the signed token — no need to expose it
@@ -203,7 +204,7 @@ def _render_for_subscriber(
     _mint_deleted_tokens(subscriber_deleted, email=email, base_url=base_url, secret_key=secret_key)
     _mint_rec_tokens(subscriber_this_week, email=email, base_url=base_url, secret_key=secret_key)
 
-    return template.render(
+    html = template.render(
         report_date=report_date,
         storage=storage,
         reclaimed_week=reclaimed_week,
@@ -217,6 +218,7 @@ def _render_for_subscriber(
         base_url=base_url,
         unsubscribe_url=unsub_url,
     )
+    return html, unsub_url
 
 
 def _send_to_subscribers(
@@ -255,7 +257,7 @@ def _send_to_subscribers(
         if scheduled_items and not items and not this_week_items:
             continue  # everything was delivered and nothing else is worth an email
         scheduled_action_ids = _action_ids(items)
-        html = _render_for_subscriber(
+        html, unsub_url = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,
             this_week_items=this_week_items,
@@ -277,6 +279,7 @@ def _send_to_subscribers(
                 if len(items) == len(scheduled_items)
                 else _build_subject(items, dry_run),
                 html=html,
+                unsubscribe_url=unsub_url or None,
             )
             successfully_sent.append(email)
             if conn is not None:

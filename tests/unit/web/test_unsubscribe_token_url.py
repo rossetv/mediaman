@@ -64,7 +64,11 @@ class TestUnsubscribeUrlFormat:
             captured_urls.append(kwargs.get("html", ""))
 
         mailgun = _MM()
-        mailgun.send.side_effect = lambda to, subject, html: captured_urls.append(html)
+        header_urls = []
+        mailgun.send.side_effect = lambda to, subject, html, unsubscribe_url=None: (
+            captured_urls.append(html),
+            header_urls.append(unsubscribe_url),
+        )
         template = _MM()
         template.render.side_effect = lambda **kw: kw.get("unsubscribe_url", "")
 
@@ -90,6 +94,9 @@ class TestUnsubscribeUrlFormat:
         url = captured_urls[0]
         assert "token=" in url
         assert "email=" not in url, f"URL must not contain email= query param, got: {url}"
+        assert len(header_urls) == 1
+        assert "token=" in header_urls[0]
+        assert "email=" not in header_urls[0]
 
 
 class TestUnsubscribeRoute:

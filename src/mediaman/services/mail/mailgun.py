@@ -10,6 +10,7 @@ from urllib3.exceptions import NewConnectionError
 
 from mediaman.core.email_validation import validate_email_address as _validate_recipient
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
+from mediaman.services.mail.plaintext import html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +77,27 @@ class MailgunClient:
     def _other_base(self) -> str:
         return self._US_BASE if self._base == self._EU_BASE else self._EU_BASE
 
-    def send(self, *, to: str, subject: str, html: str) -> None:
+    def send(self, *, to: str, subject: str, html: str, unsubscribe_url: str | None = None) -> None:
+        """Send *html* with a plain-text alternative made from it. *unsubscribe_url*, when
+        given, is advertised in the List-Unsubscribe header so clients can offer their own
+        unsubscribe control.
+        """
         # Defensive validation: reject bad addresses and header-injectable values
         # before making the network call. Routes may validate at ingress, but the
         # client must not depend on that.
         _validate_recipient(to)
         _validate_header_value(subject, "subject")
 
-        data = {"from": self._from, "to": to, "subject": subject, "html": html}
+        data = {
+            "from": self._from,
+            "to": to,
+            "subject": subject,
+            "html": html,
+            "text": html_to_text(html),
+        }
+        if unsubscribe_url:
+            _validate_header_value(unsubscribe_url, "List-Unsubscribe")
+            data["h:List-Unsubscribe"] = f"<{unsubscribe_url}>"
         bases = [self._base, self._other_base()]
         last_error: Exception | None = None
         for base in bases:

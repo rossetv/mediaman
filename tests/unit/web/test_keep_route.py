@@ -223,23 +223,23 @@ class TestKeepPageRoute:
         app.state.templates = mock_templates
         return app
 
-    def test_overlong_token_returns_expired(self, conn):
+    def test_overlong_token_returns_invalid(self, conn):
         app = self._make_app(conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.get(f"/keep/{'x' * 5000}")
 
         assert resp.status_code == 200
-        assert "expired" in resp.text
+        assert json.loads(resp.text)["state"] == "invalid"
 
-    def test_invalid_token_returns_expired(self, conn):
+    def test_invalid_token_returns_invalid_state(self, conn):
         app = self._make_app(conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.get("/keep/badtoken")
 
         assert resp.status_code == 200
-        assert "expired" in resp.text
+        assert json.loads(resp.text)["state"] == "invalid"
 
     def test_valid_token_returns_active_state(self, conn):
         _insert_media_item(conn)

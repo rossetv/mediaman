@@ -11,6 +11,8 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.services.infra import SafeHTTPError
+from mediaman.services.mail.newsletter import NewsletterConfigError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -388,3 +390,53 @@ class TestArrIdsAndTrackedFiles:
         assert self._row(conn, "s1")["sonarr_id"] == 3
         assert self._row(conn, "s2")["sonarr_id"] is None
         assert in_transaction == [False], "Sonarr read inside a write transaction"
+
+
+class TestPostScanFollowupsAreBestEffort:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            NewsletterConfigError("mailgun_base_url missing"),
+            ValueError("CR/LF in from address"),
+            SafeHTTPError(401, "unauthorized", "https://api.mailgun.net/v3/x"),
+        ],
+        ids=["config", "value", "http"],
+    )
+    def test_newsletter_failure_does_not_fail_the_scan(self, conn, mock_plex, error):
+        with (
+            patch("mediaman.scanner.engine._send_newsletter", side_effect=error),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+        ):
+            engine = ScanEngine(
+                conn=conn,
+                plex_client=mock_plex,
+                library_ids=["1"],
+                library_types={"1": "movie"},
+                secret_key="k",
+                min_age_days=30,
+                inactivity_days=30,
+            )
+            result = engine.run_scan()
+
+        assert "scanned" in result
+
+    def test_recommendation_http_failure_does_not_skip_newsletter(self, conn, mock_plex):
+        with (
+            patch("mediaman.scanner.engine._send_newsletter") as mock_news,
+            patch(
+                "mediaman.scanner.engine._refresh_recommendations",
+                side_effect=SafeHTTPError(500, "boom", "https://api.openai.com/v1/x"),
+            ),
+        ):
+            engine = ScanEngine(
+                conn=conn,
+                plex_client=mock_plex,
+                library_ids=["1"],
+                library_types={"1": "movie"},
+                secret_key="k",
+                min_age_days=30,
+                inactivity_days=30,
+            )
+            engine.run_scan()
+
+        mock_news.assert_called_once()

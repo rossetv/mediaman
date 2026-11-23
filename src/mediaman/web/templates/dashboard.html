@@ -26,6 +26,13 @@
     </div>
   </div>
 
+  {% if deletions_off %}
+  <div class="root-banner" role="status">
+    <i class="fa-solid fa-circle-info root-banner-icon" aria-hidden="true"></i>
+    <p class="root-banner-list">Deletions are off: set MEDIAMAN_DELETE_ROOTS to the folders mediaman may delete from.</p>
+  </div>
+  {% endif %}
+
   {% if unavailable_roots %}
   <div class="root-banner" role="alert">
     <i class="fa-solid fa-triangle-exclamation root-banner-icon" aria-hidden="true"></i>

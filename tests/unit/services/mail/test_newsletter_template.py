@@ -182,7 +182,7 @@ def test_singular_day_left(env: Environment) -> None:
 def test_header_counts_down_to_the_soonest_deadline(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    countdown = re.search(r'class="hero-countdown">(.*?)</div>', html).group(1)
+    countdown = re.search(r'class="hero-countdown"[^>]*>(.*?)</td>', html, re.S).group(1)
     assert "9 days left" in countdown
 
 
@@ -197,14 +197,13 @@ def test_every_poster_image_declares_its_size(env: Environment) -> None:
         assert re.search(r'\sheight="\d+"', tag), tag
 
 
-def test_fluid_posters_keep_their_two_by_three_shape(env: Environment) -> None:
-    """The height attribute would otherwise beat aspect-ratio and crop posters wide."""
+def test_fluid_posters_scale_with_their_cell_without_distortion(env: Environment) -> None:
+    """The height attribute would otherwise beat the width and crop posters wide."""
     html = env.get_template("newsletter.html").render(**_full_context())
-    for parent in ("deleted-strip", "rec-card"):
-        rule = re.search(r"\.mm-email \." + parent + r" \.poster \{([^}]*)\}", html)
-        assert rule, parent
-        assert "height:auto" in rule.group(1), parent
-        assert "aspect-ratio:2/3" in rule.group(1), parent
+    fluid = [tag for tag in re.findall(r"<img\b[^>]*>", html) if 'width="100"' in tag]
+    assert fluid
+    for tag in fluid:
+        assert "width:100%;height:auto" in tag, tag
 
 
 def test_legend_lists_other_when_the_grey_segment_is_drawn(env: Environment) -> None:
@@ -213,15 +212,15 @@ def test_legend_lists_other_when_the_grey_segment_is_drawn(env: Environment) -> 
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    chips = re.search(r'<div class="chips">(.*?)</div>', html, re.S).group(1)
+    chips = re.search(r'<div [^>]*class="chips">(.*?)</div>', html, re.S).group(1)
     assert "Other 2.0 TB" in chips
-    assert "background:rgba(255,255,255,0.12)" in chips
+    assert "#48484a" in chips
 
 
 def test_legend_omits_other_when_nothing_is_left_over(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    chips = re.search(r'<div class="chips">(.*?)</div>', html, re.S).group(1)
+    chips = re.search(r'<div [^>]*class="chips">(.*?)</div>', html, re.S).group(1)
     assert "Other" not in chips
 
 
@@ -230,3 +229,74 @@ def test_never_watched_cannot_wrap(env: Environment) -> None:
 
     assert re.search(r"white-space:nowrap[^>]*>Never(&nbsp;| )watched<", html)
     assert "Never watched" not in html
+
+
+def _tags(html: str, name: str) -> list[str]:
+    return re.findall(rf"<{name}\b[^>]*>", html)
+
+
+def test_text_and_background_colours_are_inline_not_only_in_the_stylesheet(
+    env: Environment,
+) -> None:
+    """Clients that drop <style> must still get light text on the dark background."""
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    assert re.search(r"<body[^>]*background:#000000[^>]*color:#ffffff", html)
+    frame = re.search(r'<table[^>]*class="mm-email"[^>]*>', html).group(0)
+    assert "background:#000000" in frame
+    assert "color:#ffffff" in frame
+    assert "font-family:" in frame
+    title = re.search(r"<div[^>]*>Ad Astra</div>", html).group(0)
+    assert "color:#ffffff" in title
+
+
+def test_buttons_carry_their_own_background_and_padding(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    for href in ("https://example/keep/tok1", "https://example/download/d1"):
+        cell = re.search(r'<td[^>]*>(?=<a href="' + re.escape(href) + '")', html).group(0)
+        assert "background:#2997ff" in cell
+        assert "border-radius:6px" in cell
+        link = re.search(r'<a href="' + re.escape(href) + r'"[^>]*>', html).group(0)
+        assert "padding:" in link
+        assert "color:#ffffff" in link
+
+
+def test_poster_grids_are_tables_not_css_grids(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    assert "display:grid" not in html
+    assert "display:flex" not in html
+    assert html.count('class="grid"') >= 3  # scheduled, deleted, recommended
+
+
+def test_every_poster_has_the_title_as_alt_text(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    alts = {re.search(r'alt="([^"]*)"', tag).group(1) for tag in _tags(html, "img")}
+    assert alts == {
+        "Ad Astra",
+        "Westworld S4",
+        "Forgotten Film",
+        "Dune: Part Two",
+        "Oppenheimer",
+        "Severance S2",
+    }
+
+
+def test_declares_a_dark_colour_scheme(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    assert '<meta name="color-scheme" content="dark">' in html
+    assert '<meta name="supported-color-schemes" content="dark">' in html
+
+
+def test_footer_text_and_unsubscribe_link_are_readable(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    footer = html[html.index("You&#39;re receiving this") - 200 :]
+    assert "rgba(" not in footer
+    assert "color:#a1a1a6" in footer
+    link = re.search(r'<a href="https://example/unsubscribe\?token=xyz"[^>]*>', footer).group(0)
+    assert "color:#d1d1d6" in link
+    assert "underline" in link

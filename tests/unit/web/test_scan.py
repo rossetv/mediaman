@@ -375,6 +375,33 @@ class TestLibrarySync:
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
 
+    def test_library_sync_unauthorized_plex_returns_error(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        from plexapi.exceptions import Unauthorized
+
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        with patch(
+            "mediaman.scanner.runner.run_library_sync",
+            side_effect=Unauthorized("401 bad token"),
+        ):
+            resp = client.post("/api/library/sync")
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "sync_failed"
+
+    def test_library_sync_without_plex_is_not_reported_as_success(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        resp = client.post("/api/library/sync")
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["error"] == "plex_not_configured"
+        assert "URL was refused" in body["message"]
+
 
 class TestScanTriggerRateLimit:
     """Manual scan triggers must be rate-limited per admin so a leaked

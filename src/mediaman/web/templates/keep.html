@@ -5,7 +5,8 @@
   {% if state == "active" %}Keep · {{ item.title }} · Mediaman
   {% elif state == "already_kept" %}Protected · {{ item.title }} · Mediaman
   {% elif state == "deleting" %}Being deleted · {{ item.title }} · Mediaman
-  {% elif state == "error" %}Could not keep · Mediaman
+  {% elif state == "error" %}{{ error_heading or "Could not keep" }} · Mediaman
+  {% elif state == "invalid" %}Invalid link · Mediaman
   {% else %}Expired · Mediaman
   {% endif %}
 {% endblock %}
@@ -52,7 +53,8 @@
         {% elif item.media_type == "tv" %}{{ c.pill("TV", variant="tv") }}
         {% else %}{{ c.pill(item.media_type | title, variant="neutral") }}
         {% endif %}
-        {{ c.pill("Never watched", variant="stale") }}
+        {% if item.last_watched_display %}{{ c.pill("Last watched " ~ item.last_watched_display, variant="neutral") }}
+        {% else %}{{ c.pill("Never watched", variant="stale") }}{% endif %}
         {% if item.file_size_bytes %}
           {% set gb = item.file_size_bytes / 1073741824 %}
           {{ c.pill(("%.1f"|format(gb) ~ " GB") if gb >= 1 else ("%.0f"|format(item.file_size_bytes / 1048576) ~ " MB"), variant="neutral") }}
@@ -178,14 +180,14 @@
 
       <div class="status-pill status-expired">
         <span class="status-dot dot-muted"></span>
-        Not changed
+        {{ error_pill or "Not changed" }}
       </div>
 
       <div class="expired-msg">
         <div class="expired-icon">
           <i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>
         </div>
-        <h1 class="expired-title">We could not keep this item</h1>
+        <h1 class="expired-title">{{ error_heading or "We could not keep this item" }}</h1>
         <div class="expired-detail">{{ error_message }}</div>
       </div>
 
@@ -198,7 +200,7 @@
 
       <div class="status-pill status-expired">
         <span class="status-dot dot-muted"></span>
-        Expired
+        {% if state == "invalid" %}Invalid{% else %}Expired{% endif %}
       </div>
 
       {% if item and item.plex_rating_key %}
@@ -218,9 +220,10 @@
         </div>
         {# The item's title, when shown above, is the page's h1. #}
         {% set level = "h2" if item and item.plex_rating_key else "h1" %}
-        <{{ level }} class="expired-title">This link has expired</{{ level }}>
+        <{{ level }} class="expired-title">{% if state == "invalid" %}This link isn't valid{% else %}This link has expired{% endif %}</{{ level }}>
         <div class="expired-detail">
-          The protection window for this item has passed.<br>
+          {% if state == "invalid" %}This link is no longer valid or has expired.
+          {% else %}The protection window for this item has passed.{% endif %}<br>
           Sign in to the dashboard to manage your library.
         </div>
       </div>

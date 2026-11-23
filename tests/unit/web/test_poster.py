@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import requests
 
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
@@ -24,14 +25,17 @@ def _reset_poster_module_state():
     public-IP rate limiter)."""
     from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
     from mediaman.web.routes.poster import cache as cache_mod
+    from mediaman.web.routes.poster import fetch as fetch_mod
 
     cache_mod._cache_dir = None
     cache_mod._cache_gc_counter = 0
     POSTER_PUBLIC_LIMITER.reset()
+    fetch_mod._MISSING_POSTERS.clear()
     yield
     cache_mod._cache_dir = None
     cache_mod._cache_gc_counter = 0
     POSTER_PUBLIC_LIMITER.reset()
+    fetch_mod._MISSING_POSTERS.clear()
 
 
 class TestRatingKeyValidation:
@@ -981,3 +985,191 @@ class TestPosterTempCleanupOnFailure:
         cache_dir = tmp_path / "poster_cache"
         leftover = list(cache_dir.glob("*.tmp"))
         assert leftover == [], f"Stale .tmp left after replace failure: {leftover}"
+
+
+class TestOversizedPlexPoster:
+    """A poster whose original is over the body cap is served from Plex's card-sized copy."""
+
+    _KEY = "0123456789abcdef" * 4
+    _TOO_BIG = "response body too large: declared 5242880 > cap 4194304"
+
+    def _app(self, tmp_path):
+        import os as _os
+
+        _os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        _os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
+        from mediaman.db import init_db, set_connection
+        from mediaman.web.routes.poster import router
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(router)
+        return TestClient(app)
+
+    @staticmethod
+    def _plex(*, transcode_ok: bool, original_ok: bool = False):
+        """Stub client: the original is over the cap; the transcoder answers as told."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.infra import SafeHTTPError
+
+        calls: list[tuple[str, dict]] = []
+
+        def get(url, **kwargs):
+            calls.append((url, kwargs))
+            if "/photo/:/transcode" in url:
+                if not transcode_ok:
+                    raise SafeHTTPError(500, "transcoder busy", url)
+                body = b"small-card"
+            elif original_ok:
+                body = b"original"
+            else:
+                raise SafeHTTPError(200, TestOversizedPlexPoster._TOO_BIG, url)
+            resp = MagicMock()
+            resp.content = body
+            resp.headers = {"Content-Type": "image/jpeg"}
+            return resp
+
+        stub = MagicMock()
+        stub.get.side_effect = get
+        return stub, calls
+
+    def _fetch(self, client, stub, key="12345"):
+        from unittest.mock import patch
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        with (
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP", stub),
+            patch(
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
+                return_value="https://localhost",
+            ),
+            patch("mediaman.web.routes.poster._fetch_arr_poster", return_value=(None, None)),
+        ):
+            return client.get(sign_poster_url(key, self._KEY))
+
+    def test_original_over_the_cap_is_served_from_the_card_sized_copy(self, tmp_path):
+        stub, calls = self._plex(transcode_ok=True)
+        r = self._fetch(self._app(tmp_path), stub)
+
+        assert r.status_code == 200
+        assert r.content == b"small-card"
+        url, kwargs = calls[0]
+        assert url.startswith("https://localhost/photo/:/transcode?")
+        assert "url=%2Flibrary%2Fmetadata%2F12345%2Fthumb" in url
+        assert kwargs["headers"] == {"X-Plex-Token": "fake-token"}
+
+    def test_original_is_used_when_the_transcoder_fails(self, tmp_path):
+        stub, calls = self._plex(transcode_ok=False, original_ok=True)
+        r = self._fetch(self._app(tmp_path), stub)
+
+        assert r.status_code == 200
+        assert r.content == b"original"
+        assert calls[-1][0] == "https://localhost/library/metadata/12345/thumb"
+
+    def test_the_log_says_why_the_fetch_failed(self, tmp_path, caplog):
+        stub, _ = self._plex(transcode_ok=False)
+        with caplog.at_level("WARNING", logger="mediaman.web.routes.poster.fetch"):
+            r = self._fetch(self._app(tmp_path), stub)
+
+        assert r.status_code == 404
+        assert "too large" in caplog.text
+
+    def test_a_failing_poster_is_not_refetched_until_the_pause_ends(self, tmp_path):
+        from unittest.mock import patch
+
+        client = self._app(tmp_path)
+        stub, calls = self._plex(transcode_ok=False)
+        with patch("mediaman.web.routes.poster.fetch.monotonic", return_value=1000.0):
+            assert self._fetch(client, stub).status_code == 404
+            first = len(calls)
+            assert self._fetch(client, stub).status_code == 404
+            assert len(calls) == first
+        with patch("mediaman.web.routes.poster.fetch.monotonic", return_value=1000.0 + 3600):
+            assert self._fetch(client, stub).status_code == 404
+            assert len(calls) > first
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            SafeHTTPError(0, "transport error: ConnectionError", "https://localhost/x"),
+            requests.ConnectionError("plex down"),
+        ],
+        ids=["safe-http-transport", "requests-exception"],
+    )
+    def test_an_unreachable_plex_is_asked_once_not_for_the_original_too(self, tmp_path, failure):
+        from unittest.mock import MagicMock
+
+        stub = MagicMock()
+        stub.get.side_effect = failure
+        r = self._fetch(self._app(tmp_path), stub)
+
+        assert r.status_code == 404
+        assert stub.get.call_count == 1
+
+    def test_the_log_hides_the_token_even_when_it_straddles_the_cut_and_cannot_forge_lines(
+        self, tmp_path, caplog
+    ):
+        from mediaman.services.infra import SafeHTTPError
+
+        body = "x" * 195 + "fake-token" + "\nWARNING forged line"
+        stub, _ = self._plex(transcode_ok=False)
+        stub.get.side_effect = SafeHTTPError(500, body, "https://localhost/x")
+        with caplog.at_level("WARNING", logger="mediaman.web.routes.poster.fetch"):
+            self._fetch(self._app(tmp_path), stub)
+
+        assert "fake-" not in caplog.text
+        assert "\nWARNING forged line" not in caplog.text
+
+
+class TestPlexTransportFailures:
+    """A slow transcoder still falls back to the original; an unreachable Plex is asked once."""
+
+    @staticmethod
+    def _transport_error(url, cause):
+        return SafeHTTPError(0, f"transport error: {type(cause).__name__}", url)
+
+    def _fetch(self, transcode_cause):
+        from unittest.mock import MagicMock
+
+        from mediaman.web.routes.poster.fetch import fetch_plex_poster
+
+        urls: list[str] = []
+
+        def get(url, **kwargs):
+            urls.append(url)
+            if "/photo/:/transcode" in url:
+                raise self._transport_error(url, transcode_cause)
+            resp = MagicMock()
+            resp.content = b"original"
+            resp.headers = {"Content-Type": "image/jpeg"}
+            return resp
+
+        stub = MagicMock()
+        stub.get.side_effect = get
+        return fetch_plex_poster("https://plex", "tok", "12345", http_client=stub), urls
+
+    def test_original_is_served_after_the_transcoder_read_times_out(self):
+        (content, _), urls = self._fetch(requests.exceptions.ReadTimeout("slow"))
+
+        assert content == b"original"
+        assert len(urls) == 2
+
+    @pytest.mark.parametrize(
+        "cause",
+        [requests.exceptions.ConnectionError("refused"), requests.exceptions.ConnectTimeout("t")],
+    )
+    def test_unreachable_plex_is_asked_once(self, cause):
+        (content, _), urls = self._fetch(cause)
+
+        assert content is None
+        assert len(urls) == 1

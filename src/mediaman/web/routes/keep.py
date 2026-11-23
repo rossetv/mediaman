@@ -104,6 +104,7 @@ def _consume_keep_token_and_apply(
 _FORM_ERROR_MESSAGES = {
     "already_processed": "This link has already been used, so nothing more was changed.",
     "invalid_or_expired": "This link is no longer valid. It may have expired or the deletion date may have passed.",
+    "rate_limited": "Too many requests. Try again later.",
 }
 
 
@@ -182,6 +183,12 @@ def _keep_context(
     # converted to a plain dict here and the derived display field added.
     item_dict = asdict(row)
     item_dict["added_display"] = format_added_display(item_dict["added_at"])
+    watched = (
+        get_db()
+        .execute("SELECT last_watched_at FROM media_items WHERE id = ?", (row.media_item_id,))
+        .fetchone()
+    )
+    item_dict["last_watched_display"] = format_added_display(watched[0]) if watched else ""
 
     # Computed here, not in the template: ``execute_at.today()`` is tz-naive and
     # jitters across midnight.
@@ -209,13 +216,25 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     config = request.app.state.config
 
     if not _KEEP_GET_LIMITER.check(get_client_ip(request)):
-        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+        return templates.TemplateResponse(
+            request,
+            "keep.html",
+            {
+                "state": "error",
+                "item": None,
+                "error_pill": "Rate limited",
+                "error_heading": "Too many requests",
+                "error_message": "Wait a minute and open the link again.",
+                "is_admin": False,
+            },
+            status_code=429,
+        )
     if len(token) > 4096:
         return templates.TemplateResponse(
             request,
             "keep.html",
             {
-                "state": "expired",
+                "state": "invalid",
                 "item": None,
                 "is_admin": False,
             },
@@ -228,7 +247,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             request,
             "keep.html",
             {
-                "state": "expired",
+                "state": "invalid",
                 "item": None,
                 "is_admin": False,
             },
@@ -265,7 +284,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     config = request.app.state.config
 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
-        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+        return _submit_failure(request, "rate_limited", 429)
     if len(token) > 4096:
         return _submit_failure(request, "invalid_or_expired", 400)
 

@@ -20,8 +20,8 @@ SHOW_ACTIONS: tuple[str, ...] = ("kept_show", "removed_show_keep")
 # ``kept``, ``unkept`` and ``delete_failed`` each expand to multi-action IN
 # clauses so the synthetic UI label matches every DB action it stands for.
 _FILTER_MAP: dict[str, tuple[str, ...]] = {
-    "kept": ("protected", "protected_forever", "kept", "kept_show"),
-    "unkept": ("unprotected", "removed_show_keep"),
+    "kept": ("protected", "protected_forever", "kept", "kept_show", "snoozed"),
+    "unkept": ("unprotected", "unkept", "removed_show_keep"),
     "scheduled": ("scheduled_deletion",),
     "delete_failed": ("delete_failed", "delete_failed_permanent"),
 }

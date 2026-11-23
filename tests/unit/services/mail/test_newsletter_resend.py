@@ -52,7 +52,7 @@ class _Outbox:
         self.subject: dict[str, str] = {}
         self.failing: set[str] = set()
 
-    def send(self, *, to: str, subject: str, html: str) -> None:
+    def send(self, *, to: str, subject: str, html: str, unsubscribe_url: str | None = None) -> None:
         if to in self.failing:
             raise SafeHTTPError(status_code=503, body_snippet="down", url="u")
         self.sent[to] += 1

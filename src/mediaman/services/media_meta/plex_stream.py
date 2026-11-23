@@ -74,6 +74,9 @@ _PLAYLIST_MAX_BYTES = 4 * 1024 * 1024
 # How long after a user last touched an item a new stream of it still counts as the same viewing,
 # so the time the player has already played carries over a restart, even after a long pause.
 VIEWING_KEEP_SECONDS = 24 * 3600.0
+# How long a reaped stream is remembered, so a stop or progress beacon that lost the race with
+# the reaper still saves the position.
+REAPED_KEEP_SECONDS = 600.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
@@ -175,6 +178,8 @@ class StreamManager:
         self._issued: set[str] = set()
         # (user, rating_key) -> (when the viewing began, when it was last touched).
         self._viewings: dict[tuple[str, str], tuple[float, float]] = {}
+        # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
+        self._reaped: dict[str, tuple[float, _Stream]] = {}
 
     def start(
         self,
@@ -310,6 +315,32 @@ class StreamManager:
             elapsed_s=self._clock() - stream.viewing_started,
         )
 
+    def reaped(self, stream_id: str, user: str) -> StreamInfo:
+        """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.
+
+        Its played time ends at its last use, since nothing was played once it went idle.
+        Raises ``StreamGone`` for any other stream, someone else's included, and while *user*
+        has a live stream of the same item, whose newer position a late save would overwrite.
+        """
+        with self._lock:
+            reaped_at, stream = self._reaped.get(stream_id, (0.0, None))
+            if (
+                stream is None
+                or stream.user != user
+                or self._clock() - reaped_at > REAPED_KEEP_SECONDS
+                or any(
+                    s.user == user and s.rating_key == stream.rating_key
+                    for s in self._streams.values()
+                )
+            ):
+                raise StreamGone("stream is gone")
+            return StreamInfo(
+                rating_key=stream.rating_key,
+                quality=stream.quality,
+                info=dict(stream.info),
+                elapsed_s=stream.last_access - stream.viewing_started,
+            )
+
     def stop(self, stream_id: str, user: str) -> None:
         with self._lock:
             stream = self._streams.get(stream_id)
@@ -331,6 +362,12 @@ class StreamManager:
                 if now - s.last_access > IDLE_TIMEOUT_SECONDS
             ]
             stopped = [self._streams.pop(sid) for sid in idle]
+            self._reaped = {
+                sid: kept
+                for sid, kept in self._reaped.items()
+                if now - kept[0] <= REAPED_KEEP_SECONDS
+            }
+            self._reaped.update((sid, (now, s)) for sid, s in zip(idle, stopped, strict=True))
             live = [s.session_id for s in self._streams.values()]
         for stream in stopped:
             self._call_quietly("stop", stream.session_id)

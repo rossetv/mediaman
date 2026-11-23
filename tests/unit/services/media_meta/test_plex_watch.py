@@ -290,3 +290,27 @@ def test_is_in_libraries_matches_section_ids_as_strings() -> None:
     assert is_in_libraries(item, ["1"])
     assert not is_in_libraries(item, {"2"})
     assert not is_in_libraries(item, set())
+
+
+def test_unavailable_plex_logs_why_without_the_token(caplog: pytest.LogCaptureFixture) -> None:
+    path = "/library/metadata/101/thumb/9"
+    failure = SafeHTTPError(200, "response body too large: declared 9000000 > cap 8388608", BASE)
+    watch, _ = _watch({path: failure})
+    with (
+        caplog.at_level("WARNING", logger="mediaman.services.media_meta.plex_watch"),
+        pytest.raises(PlexUnavailable),
+    ):
+        watch.fetch_image(path)
+    assert "too large" in caplog.text
+    assert TOKEN not in caplog.text
+
+
+def test_a_token_straddling_the_log_cut_is_still_hidden(caplog: pytest.LogCaptureFixture) -> None:
+    path = "/library/metadata/101/thumb/9"
+    watch, _ = _watch({path: SafeHTTPError(500, "x" * 115 + TOKEN, BASE)})
+    with (
+        caplog.at_level("WARNING", logger="mediaman.services.media_meta.plex_watch"),
+        pytest.raises(PlexUnavailable),
+    ):
+        watch.fetch_image(path)
+    assert TOKEN[:5] not in caplog.text

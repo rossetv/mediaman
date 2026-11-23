@@ -12,10 +12,13 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,53 @@ def _close_tracked_connections() -> None:
             logger.exception("scheduler.shutdown.close_db_failed")
 
 
+@dataclass(frozen=True, slots=True)
+class ScanSchedule:
+    """The validated scan settings: weekly scan time and library-sync interval (0 = off)."""
+
+    scan_day: str
+    hour: int
+    minute: int
+    scan_tz: str
+    sync_interval: int
+
+
+def _weekly_scan_trigger(day_of_week: str, hour: int, minute: int, timezone: str) -> CronTrigger:
+    from apscheduler.triggers.cron import CronTrigger
+
+    return CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute, timezone=timezone)
+
+
+def _add_weekly_scan_job(
+    scheduler: BackgroundScheduler, scan_fn: Callable[[], None], trigger: CronTrigger
+) -> None:
+    scheduler.add_job(
+        scan_fn,
+        trigger=trigger,
+        id="weekly_scan",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+
+
+def _add_library_sync_job(
+    scheduler: BackgroundScheduler, sync_fn: Callable[[], None], interval_minutes: int
+) -> None:
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    scheduler.add_job(
+        sync_fn,
+        trigger=IntervalTrigger(minutes=interval_minutes),
+        id="library_sync",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+
+
 def _register_scan_jobs(
     scheduler: BackgroundScheduler,
     *,
@@ -100,33 +150,50 @@ def _register_scan_jobs(
     held* — extracting it does not release the lock, so the
     all-jobs-or-no-jobs registration window is preserved.
     """
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.interval import IntervalTrigger
-
-    scheduler.add_job(
-        scan_fn,
-        trigger=CronTrigger(
-            day_of_week=day_of_week,
-            hour=hour,
-            minute=minute,
-            timezone=timezone,
-        ),
-        id="weekly_scan",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    _add_weekly_scan_job(
+        scheduler, scan_fn, _weekly_scan_trigger(day_of_week, hour, minute, timezone)
     )
     if sync_fn and sync_interval_minutes > 0:
-        scheduler.add_job(
-            sync_fn,
-            trigger=IntervalTrigger(minutes=sync_interval_minutes),
-            id="library_sync",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        _add_library_sync_job(scheduler, sync_fn, sync_interval_minutes)
+
+
+def reschedule_scan_jobs(
+    read_schedule: Callable[[], ScanSchedule],
+    *,
+    scan_fn: Callable[[], None],
+    sync_fn: Callable[[], None],
+) -> bool:
+    """Bring the running scan jobs in line with the saved schedule.
+
+    A job is re-added only when the live one differs from *read_schedule*'s,
+    since re-adding an interval job restarts its countdown; the sync job is
+    removed when its interval is 0. Comparing with the live jobs under the lock,
+    rather than with what one save changed, means overlapping saves converge on
+    the last committed schedule. Returns False and changes nothing when no
+    scheduler is running; whatever *read_schedule* raises (``ValueError`` for a
+    malformed value) propagates and leaves the current schedule in place.
+    """
+    with _scheduler_lock:
+        running = _scheduler
+        if running is None:
+            return False
+        schedule = read_schedule()
+        trigger = _weekly_scan_trigger(
+            schedule.scan_day, schedule.hour, schedule.minute, schedule.scan_tz
         )
+        scan_job = running.get_job("weekly_scan")
+        # CronTrigger has no __eq__; its repr names every field and the timezone.
+        if scan_job is None or repr(scan_job.trigger) != repr(trigger):
+            _add_weekly_scan_job(running, scan_fn, trigger)
+        sync_job = running.get_job("library_sync")
+        if schedule.sync_interval == 0:
+            if sync_job is not None:
+                running.remove_job("library_sync")
+        elif sync_job is None or sync_job.trigger.interval != timedelta(
+            minutes=schedule.sync_interval
+        ):
+            _add_library_sync_job(running, sync_fn, schedule.sync_interval)
+    return True
 
 
 def _register_maintenance_jobs(

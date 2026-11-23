@@ -58,7 +58,9 @@ from mediaman.scanner.deletions import (
 from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher, PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
+from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
@@ -403,7 +405,12 @@ class ScanEngine:
         if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
                 _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-            except (PlexApiException, requests.RequestException, sqlite3.Error):
+            except (
+                PlexApiException,
+                requests.RequestException,
+                SafeHTTPError,
+                sqlite3.Error,
+            ):
                 # best-effort post-scan followup — must not abort scan summary
                 logger.exception("Recommendation generation failed — scan results unaffected")
         try:
@@ -412,8 +419,16 @@ class ScanEngine:
                 secret_key=self._secret_key,
                 dry_run=self._dry_run,
             )
-        except (PlexApiException, requests.RequestException, sqlite3.Error):
-            # best-effort post-scan followup — must not abort scan summary
+        except (
+            PlexApiException,
+            requests.RequestException,
+            SafeHTTPError,
+            sqlite3.Error,
+            NewsletterConfigError,
+            ValueError,
+        ):
+            # A half-configured Mailgun raises NewsletterConfigError or ValueError;
+            # neither may fail a scan whose deletions already ran.
             logger.exception("Newsletter sending failed — scan results unaffected")
 
     def execute_deletions(self) -> DeletionResult:

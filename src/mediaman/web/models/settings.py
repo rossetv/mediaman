@@ -15,6 +15,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from mediaman.bootstrap.validators import validate_scan_day, validate_scan_time
 from mediaman.scanner.runner import DAY_SETTING_RANGES
 
 from ._common import (
@@ -145,9 +146,8 @@ class SettingsUpdate(BaseModel):
     omdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     base_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
-    # ``scan_day`` is a weekday name ("monday"…); a 16-char cap covers
-    # case variants and a leading slug prefix without admitting any
-    # garbage.
+    # ``scan_day`` is a short weekday token ("mon") or a comma list of them;
+    # the 16-char cap refuses an oversized payload before the token check.
     scan_day: Annotated[str | None, Field(max_length=16)] = None
     # ``scan_time`` is a HH:MM clock value; 16 chars accommodates the
     # broadest variant without admitting garbage.
@@ -228,6 +228,28 @@ class SettingsUpdate(BaseModel):
             for item in v:
                 if isinstance(item, str):
                     _reject_crlf(item)
+        return v
+
+    @field_validator("scan_day", "scan_time", mode="before")
+    @classmethod
+    def blank_schedule_field_is_not_sent(cls, v: object) -> object:
+        """The page sends a cleared input as "", which must keep the stored value, not fail the save."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("scan_day", mode="after")
+    @classmethod
+    def validate_scan_day_field(cls, v: str | None) -> str | None:
+        """Refuse a day the scheduler cannot parse, which would keep it down at the next start."""
+        return None if v is None else validate_scan_day(v)
+
+    @field_validator("scan_time", mode="after")
+    @classmethod
+    def validate_scan_time_field(cls, v: str | None) -> str | None:
+        """Refuse a time the scheduler cannot parse, which would keep it down at the next start."""
+        if v is not None:
+            validate_scan_time(v)
         return v
 
     @field_validator("openai_model", mode="before")

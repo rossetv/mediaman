@@ -6,7 +6,6 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from fastapi import FastAPI
 
@@ -17,6 +16,7 @@ from mediaman.bootstrap.validators import (
     validate_sync_interval,
 )
 from mediaman.config import Config
+from mediaman.scanner.scheduler import ScanSchedule
 
 logger = logging.getLogger(__name__)
 
@@ -164,16 +164,7 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
             logger.exception("Stuck-deletion recovery failed at startup")
 
 
-@dataclass(frozen=True, slots=True)
-class _SchedulerConfig:
-    scan_day: str
-    hour: int
-    minute: int
-    scan_tz: str
-    sync_interval: int
-
-
-def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
+def _read_scheduler_config(conn: sqlite3.Connection) -> ScanSchedule:
     """Read and validate the scheduler settings from the DB.
 
     Each value is passed through its mediaman.bootstrap.validators
@@ -187,10 +178,11 @@ def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
     scan_time = _get_setting(conn, "scan_time", default="09:00")
     scan_tz = validate_scan_timezone(_get_setting(conn, "scan_timezone", default="UTC"))
     hour, minute = validate_scan_time(scan_time)
-    sync_interval = validate_sync_interval(
-        _get_setting(conn, "library_sync_interval", default="30")
-    )
-    return _SchedulerConfig(
+    raw_interval = _get_setting(conn, "library_sync_interval", default="30")
+    # 0 means "disabled" in the settings UI; the validator refuses it so only
+    # the scheduler config lets it through (the sync job is then not registered).
+    sync_interval = 0 if raw_interval.strip() == "0" else validate_sync_interval(raw_interval)
+    return ScanSchedule(
         scan_day=scan_day,
         hour=hour,
         minute=minute,
@@ -217,6 +209,27 @@ def _build_scheduler_callbacks(
         _run_library_sync_job(secret_key)
 
     return scan_callback, sync_callback
+
+
+SCHEDULE_SETTING_KEYS = frozenset(
+    {"scan_day", "scan_time", "scan_timezone", "library_sync_interval"}
+)
+
+
+def reschedule_scan_jobs(conn: sqlite3.Connection, db_path: str | None, secret_key: str) -> bool:
+    """Apply the saved scan schedule to the running scheduler.
+
+    Only a job whose saved schedule differs from the live one is re-added, so a
+    save that changes nothing leaves the library-sync countdown alone. Returns
+    False when no scheduler is running; raises ``ValueError`` when a stored
+    value is malformed, leaving the current schedule in place.
+    """
+    from mediaman.scanner import scheduler as sched
+
+    scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
+    return sched.reschedule_scan_jobs(
+        lambda: _read_scheduler_config(conn), scan_fn=scan_callback, sync_fn=sync_callback
+    )
 
 
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
@@ -266,12 +279,12 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         )
         app.state.scheduler_healthy = True
         logger.info(
-            "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
+            "Scheduler started: scan every %s at %02d:%02d %s, library sync %s",
             sched_config.scan_day,
             sched_config.hour,
             sched_config.minute,
             sched_config.scan_tz,
-            sched_config.sync_interval,
+            f"every {sched_config.sync_interval} min" if sched_config.sync_interval else "disabled",
         )
         return True
     # rationale: cold-start recovery; app stays up so the operator can investigate.
