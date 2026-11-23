@@ -57,3 +57,67 @@ class TestKeepPageHeadings:
 
         assert resp.text.count("<h1") == 1
         assert "This link has expired" in resp.text
+
+
+class TestKeepPageMessages:
+    def _client(self, conn: sqlite3.Connection) -> TestClient:
+        return TestKeepPageHeadings()._client(conn)
+
+    def test_damaged_link_does_not_blame_the_protection_window(self, conn):
+        text = self._client(conn).get("/keep/badtoken").text
+
+        assert "This link is no longer valid or has expired." in text
+        assert "protection window" not in text
+
+    def test_really_expired_row_keeps_the_protection_window_sentence(self, conn):
+        insert_media_item(conn, id="mi1", title="Test", plex_rating_key="rk1", file_path="/f")
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        text = self._client(conn).get(f"/keep/{token}").text
+
+        assert "The protection window for this item has passed." in text
+
+    def _active_page(self, conn, **item):
+        insert_media_item(conn, id="mi1", title="Test", file_path="/f", **item)
+        execute_at = (datetime.now(UTC) + timedelta(days=5)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        return self._client(conn).get(f"/keep/{token}").text
+
+    def test_watched_item_is_not_labelled_never_watched(self, conn):
+        text = self._active_page(conn, last_watched_at="2025-05-14T10:00:00+00:00")
+
+        assert "Never watched" not in text
+        assert "Last watched 14 May 2025" in text
+
+    def test_unwatched_item_is_labelled_never_watched(self, conn):
+        assert "Never watched" in self._active_page(conn, last_watched_at=None)
+
+    def test_rate_limited_get_renders_the_styled_page(self, conn):
+        from mediaman.web.routes.keep import _KEEP_GET_LIMITER
+
+        while _KEEP_GET_LIMITER.check("testclient"):
+            pass
+        resp = self._client(conn).get("/keep/badtoken")
+
+        assert resp.status_code == 429
+        assert "keep-page" in resp.text
+        assert "Too many requests" in resp.text
+
+    def test_rate_limited_form_post_renders_the_styled_page(self, conn):
+        from mediaman.web.routes.keep import _KEEP_POST_LIMITER
+
+        while _KEEP_POST_LIMITER.check("testclient"):
+            pass
+        resp = self._client(conn).post(
+            "/keep/badtoken", data={"duration": "7 days"}, headers={"accept": "text/html"}
+        )
+
+        assert resp.status_code == 429
+        assert "keep-page" in resp.text

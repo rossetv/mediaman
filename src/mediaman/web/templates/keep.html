@@ -52,7 +52,8 @@
         {% elif item.media_type == "tv" %}{{ c.pill("TV", variant="tv") }}
         {% else %}{{ c.pill(item.media_type | title, variant="neutral") }}
         {% endif %}
-        {{ c.pill("Never watched", variant="stale") }}
+        {% if item.last_watched_display %}{{ c.pill("Last watched " ~ item.last_watched_display, variant="neutral") }}
+        {% else %}{{ c.pill("Never watched", variant="stale") }}{% endif %}
         {% if item.file_size_bytes %}
           {% set gb = item.file_size_bytes / 1073741824 %}
           {{ c.pill(("%.1f"|format(gb) ~ " GB") if gb >= 1 else ("%.0f"|format(item.file_size_bytes / 1048576) ~ " MB"), variant="neutral") }}
@@ -220,7 +221,8 @@
         {% set level = "h2" if item and item.plex_rating_key else "h1" %}
         <{{ level }} class="expired-title">This link has expired</{{ level }}>
         <div class="expired-detail">
-          The protection window for this item has passed.<br>
+          {% if state == "invalid" %}This link is no longer valid or has expired.
+          {% else %}The protection window for this item has passed.{% endif %}<br>
           Sign in to the dashboard to manage your library.
         </div>
       </div>
