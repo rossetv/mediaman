@@ -1,7 +1,5 @@
-/* SEARCH — search-box wrapper and inputs, plus the keyframe spin
-   animation used by the search spinner. Owns `.search-*` and
-   shares `@keyframes spin` with other spinners across the site
-   (CSS keyframes are global). */
+/* SEARCH — search-box wrapper, inputs and the search spinner.
+   Owns `.search-*`. */
 
 .search-box,
 .search-wrap {
@@ -54,4 +52,3 @@
   animation: spin 1s linear infinite;
 }
 .search-wrap.loading .search-spinner { display: block; }
-@keyframes spin { to { transform: rotate(360deg); } }

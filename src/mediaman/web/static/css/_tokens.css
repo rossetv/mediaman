@@ -53,6 +53,12 @@
   /* nav-glass height. The compact .nav-topbar hardcodes 48px. */
   --nav-h:   52px;
 
+  /* Motion — quick, ease-out; _base.css switches it off under reduced motion. */
+  --dur-fast: .15s;
+  --dur:      .2s;
+  --dur-slow: .25s;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+
   /* Z-index scale — single source of truth for app-wide stacking.
      Local stacking contexts inside positioned ancestors stay numeric. */
   --z-dropdown:        50;

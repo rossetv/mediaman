@@ -97,13 +97,49 @@ h1, h2, h3, h4 {
 main { display: block; }
 main:focus { outline: none; }
 
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Add to a node render code has just inserted so it eases in. */
+.fade-in { animation: fade-in var(--dur) var(--ease-out) both; }
+
+/* Page-to-page cross-fade: same-origin navigations only, where the browser
+   supports it; elsewhere pages simply swap. The nav bars keep their own
+   layer so they stay put while the content fades. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur);
+    animation-timing-function: var(--ease-out);
+  }
+  .nav-glass   { view-transition-name: nav-glass; }
+  .nav-topbar  { view-transition-name: nav-topbar; }
+  .nav-tabs    { view-transition-name: nav-tabs; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* A frozen spinner shows nothing, so spinners and the loading dots swap
+     rotation for a slow fade, which still says "working" without movement. */
+  .btn-spinner,
+  .search-spinner,
+  .progress-icon .spinner,
+  .player.is-loading .player-spinner,
+  .scan-dots span,
+  .countdown::before {
+    animation: loading-pulse 1.6s ease-in-out infinite !important;
   }
 }
+@keyframes loading-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
 .container {
   max-width: 1320px;
