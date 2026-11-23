@@ -45,11 +45,13 @@ def test_toggle_name_follows_the_visible_word_and_reset_hides_the_password_again
     }
 
 
-def test_busy_form_swallows_a_quick_second_submit_then_lapses_or_clears_on_escape() -> None:
+def test_busy_form_swallows_a_quick_second_submit_then_lapses_and_ignores_escape() -> None:
     out = _run("guard")
     assert (out["first"], out["quick"], out["busy"]) == (False, True, True)
     assert out["ms"][0] == 10000
     assert out["afterTimeout"] is False
     assert out["afterEnter"] is True
-    assert out["afterEscape"] is False
+    assert out["afterEscape"] is True
+    assert out["afterFreshShow"] is True
+    assert out["afterRestore"] is False
     assert out["aria"] is None

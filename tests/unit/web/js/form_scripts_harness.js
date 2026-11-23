@@ -64,7 +64,7 @@ function build() {
   };
   doc.body = new El('body', doc);
   doc.activeElement = doc.body;
-  const win = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); } };
+  const win = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }, fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(ev)); } };
   const ctx = {
     document: doc, window: win,
     setTimeout: (fn, ms) => { timers.push({ fn, ms, done: false }); return timers.length; },
@@ -136,7 +136,11 @@ const scenarios = {
     doc.fire('keydown', { key: 'Escape' });
     const afterEscape = form.hasAttribute('data-busy');
     const ms = timers.map((t) => t.ms);
-    return { first, quick, busy, afterTimeout, afterEnter, afterEscape, ms, aria: form.getAttribute('aria-busy') };
+    ctx.window.fire('pageshow', { persisted: false });
+    const afterFreshShow = form.hasAttribute('data-busy');
+    ctx.window.fire('pageshow', { persisted: true });
+    const afterRestore = form.hasAttribute('data-busy');
+    return { first, quick, busy, afterTimeout, afterEnter, afterEscape, afterFreshShow, afterRestore, ms, aria: form.getAttribute('aria-busy') };
   },
 };
 

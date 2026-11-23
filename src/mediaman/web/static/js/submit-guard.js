@@ -9,8 +9,9 @@
 (function () {
   'use strict';
 
-  // Esc or Stop during a slow post leaves the page here with the form still
-  // marked busy, so the mark also lapses on its own after this long.
+  // Stop during a slow post leaves the page here with the form still marked
+  // busy, so the mark lapses on its own after this long. Esc does not release
+  // it: it can close a password-manager popup while the post is still running.
   var BUSY_MS = 10000;
 
   function setBusy(form, busy) {
@@ -31,10 +32,6 @@
     if (form.hasAttribute('data-busy')) { e.preventDefault(); return; }
     setBusy(form, true);
     setTimeout(function () { setBusy(form, false); }, BUSY_MS);
-  });
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') clearBusy();
   });
 
   // Back/forward restores the page from cache with the form still marked busy.
