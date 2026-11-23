@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import OrderedDict
+from datetime import date, datetime
 
 _SUGGESTIONS_COLS = (
     "id, title, year, media_type, category, tmdb_id, description, reason, "
@@ -52,4 +54,58 @@ def fetch_recommendations_page(
     return [dict(r) for r in rows], total
 
 
-__all__ = ["fetch_recommendations", "fetch_recommendations_page"]
+def _relative_label(batch_date: date | None, index: int, today: date) -> str:
+    if index == 0:
+        return "Latest picks"
+    if batch_date is None:
+        return "Earlier picks"
+    days = (today - batch_date).days
+    if days <= 0:
+        return "Earlier today"
+    if days == 1:
+        return "Yesterday"
+    if days < 7:
+        return f"{days} days ago"
+    if days < 14:
+        return "Last week"
+    weeks = days // 7
+    if weeks < 5:
+        return f"{weeks} weeks ago"
+    months = max(1, days // 30)
+    return "A month ago" if months == 1 else f"{months} months ago"
+
+
+def group_into_batches(
+    recommendations: list[dict[str, object]], today: date
+) -> list[dict[str, object]]:
+    """Group recommendations by batch, newest first, every batch kept.
+
+    A batch is ``{"id", "label", "date_label", "items"}``; its items are the
+    watch-history picks followed by the trending picks. A row without a
+    ``batch_id`` falls back to the date of its ``created_at``.
+    """
+    groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
+    for row in recommendations:
+        created = row.get("created_at")
+        bid = str(row.get("batch_id") or (created[:10] if isinstance(created, str) else ""))
+        group = groups.setdefault(bid, {"personal": [], "trending": []})
+        group["trending" if row.get("category") == "trending" else "personal"].append(row)
+
+    batches: list[dict[str, object]] = []
+    for index, (bid, group) in enumerate(groups.items()):
+        try:
+            batch_date: date | None = datetime.strptime(bid, "%Y-%m-%d").date()
+        except ValueError:
+            batch_date = None
+        batches.append(
+            {
+                "id": bid,
+                "label": _relative_label(batch_date, index, today),
+                "date_label": batch_date.strftime("%-d %b") if batch_date else bid,
+                "items": group["personal"] + group["trending"],
+            }
+        )
+    return batches
+
+
+__all__ = ["fetch_recommendations", "fetch_recommendations_page", "group_into_batches"]
