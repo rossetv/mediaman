@@ -81,10 +81,13 @@
     var upcoming = data.upcoming || [];
 
     if (upcoming.length === 0) {
-      if (container) container.parentNode.removeChild(container);
+      if (container && !d.isCollapsing(container)) {
+        d.collapseAway(container);
+      }
       return;
     }
 
+    var opening = !container || d.isCollapsing(container);
     if (!container) {
       container = document.createElement('div');
       container.id = 'dl-upcoming-container';
@@ -115,20 +118,22 @@
       activeIds[item.id] = true;
       var rowEl = d.findByDlId(listEl, item.id);
       if (rowEl) {
+        if (d.isCollapsing(rowEl)) d.reveal(rowEl);
         row().updateUpcomingRow(rowEl, item);
       } else {
-        listEl.appendChild(d.buildUpcomingRow(item));
+        rowEl = listEl.appendChild(d.buildUpcomingRow(item));
+        if (!opening) d.reveal(rowEl);
       }
     }
-    /* Remove departed rows */
+    /* Close departed rows */
     var rows = listEl.querySelectorAll('.dl-upcoming-row');
     for (var j = 0; j < rows.length; j++) {
       var id = rows[j].getAttribute('data-dl-id');
-      if (id && !activeIds[id]) {
-        rows[j].parentNode.removeChild(rows[j]);
-      }
+      if (id && !activeIds[id] && !d.isCollapsing(rows[j])) d.collapseAway(rows[j]);
     }
+    if (opening) d.reveal(container);
   }
+
 
   MM.downloads.renderRecent = {
     updateRecent: updateRecent,

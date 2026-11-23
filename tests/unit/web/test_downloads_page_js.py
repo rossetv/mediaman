@@ -35,6 +35,62 @@ def test_page_follows_the_poll_payload() -> None:
     assert out["afterExit"] == ["q3"]
 
 
+def test_a_departed_row_stays_until_its_height_has_closed() -> None:
+    out = _run("rowLeave")
+    assert out["during"]["rows"] == ["q1", "q2"]
+    assert "is-folded" in out["during"]["q1"]["cls"]
+    assert out["during"]["q1"]["height"] == "0px"
+    assert out["afterFade"] == ["q1", "q2"]
+    assert out["afterHeight"] == ["q2"]
+
+
+def test_a_row_that_comes_back_while_closing_stays() -> None:
+    out = _run("rowReturns")
+    assert out["rows"] == ["q1", "q2"]
+    assert out["q1"] == {"cls": "dl-compact", "height": ""}
+
+
+def test_with_reduced_motion_a_departed_row_goes_at_once() -> None:
+    assert _run("rowLeaveReduced")["rows"] == ["q2"]
+
+
+def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
+    out = _run("emptyState")
+    # the old sections keep their content while they close
+    assert out["during"]["hero"] == 1
+    assert out["during"]["queue"] == 2
+    assert "is-folded" in out["during"]["heroFold"]["cls"]
+    # the empty state grows in rather than appearing at full height
+    assert out["during"]["empty"] == 1
+    assert out["during"]["emptyFold"] == {"cls": "dl-fold", "height": "50px"}
+    assert out["after"] == {
+        "hero": 0,
+        "queue": 0,
+        "empty": 1,
+        "emptyFold": {"cls": "", "height": ""},
+    }
+
+
+def test_an_episode_list_folds_open_and_shut() -> None:
+    out = _run("episodes")
+    assert out["opening"]["display"] == ""
+    assert "dl-fold" in out["opening"]["cls"]
+    assert "dl-fold" not in out["open"]["cls"]
+    assert out["closing"] == ""
+    assert out["closed"] == "none"
+
+
+def test_the_shared_modal_fades_out_before_it_hides() -> None:
+    out = _run("modal")
+    assert out["closing"] == {"display": "flex", "leaving": True, "hidden": "true"}
+    # the sheet's own animation and a late open animation do not end the fade
+    assert out["otherEnds"] == out["closing"]
+    assert out["closed"] == {"display": "none", "leaving": False, "hidden": "true"}
+    # reopening during the fade keeps it shown
+    assert out["reopened"] == {"display": "flex", "leaving": False, "hidden": "false"}
+    assert out["plainShown"] is False
+
+
 def test_poll_now_during_a_poll_runs_another_straight_after() -> None:
     assert _run("poll")["calls"] == 2
 

@@ -20,7 +20,11 @@ class El {
       contains: (c) => list().includes(c),
       add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
       remove: (c) => { el.className = list().filter((x) => x !== c).join(' '); },
-      toggle: (c) => { if (list().includes(c)) el.classList.remove(c); else el.classList.add(c); },
+      toggle: (c, force) => {
+        const on = force === undefined ? !list().includes(c) : !!force;
+        if (on) el.classList.add(c); else el.classList.remove(c);
+        return on;
+      },
     };
   }
   setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') this.id = String(v); }
@@ -50,6 +54,12 @@ class El {
   get firstChild() { return this.children[0] || null; }
   get firstElementChild() { return this.children[0] || null; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
+  // what the browser sends when a transition or animation on this element ends
+  emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
+  get offsetHeight() { return this.style.display === 'none' ? 0 : 50; }
+  get nextElementSibling() { const p = this.parentNode; return p ? p.children[p.children.indexOf(this) + 1] || null : null; }
+  closest(sel) { let e = this; while (e && e.matches) { if (e.matches(sel)) return e; e = e.parentNode; } return null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   matches(sel) {
     let m;
@@ -71,6 +81,7 @@ function build(pollGet) {
     createElement: (t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
     getElementById: (id) => root.all().find((e) => e.id === id) || null,
   };
   const root = new El('div', doc);
@@ -81,7 +92,9 @@ function build(pollGet) {
     document: doc, console, JSON, Array, Object, String, Math, Promise,
     setTimeout: (fn) => { ctx.timers.push(fn); return ctx.timers.length; },
     clearTimeout: () => {}, CustomEvent: class {},
-    timers: [], MM: {}, MM_API: pollGet,
+    timers: [], MM: {}, MM_API: pollGet, reduce: false,
+    matchMedia: () => ({ matches: ctx.reduce }),
+    getComputedStyle: (e) => ({ opacity: e.style.opacity || '1', paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' }),
   };
   ctx.window = ctx; ctx.MM.api = { get: pollGet };
   vm.createContext(ctx);
@@ -110,6 +123,7 @@ const scenarios = {
     const base = { subtitle: '', upcoming: [], recent: [] };
     upd({ ...base, hero: item('h1'), queue: [item('q1')] });
     upd({ ...base, hero: null, queue: [] });
+    h.ctx.timers.splice(0).forEach((f) => f());   // the page has finished closing
     upd({ ...base, hero: item('h2'), queue: [item('q2')] });
     const afterRefill = { hero: heroCards(), rows: rows() };
     upd({ ...base, hero: item('h2'), queue: [item('q2'), item('q3')] });
@@ -291,6 +305,121 @@ scenarios.hero = async function () {
   const noEta = item('h', { progress: 30, size_done: '1 GB', size_total: '3 GB' });
   const noSize = item('h', { progress: 30, eta: '5 min' });
   return { full: stats(full), noEta: stats(noEta), noSize: stats(noSize) };
+};
+
+// The /downloads page on fake parts, with `upd` feeding it one poll.
+function pageRig(reduce) {
+  const h = build(() => Promise.resolve({}));
+  h.ctx.reduce = !!reduce;
+  ['core/dom.js', 'downloads/build_dom.js', 'downloads/render_hero.js', 'downloads/render_row.js', 'downloads/render_recent.js'].forEach(h.load);
+  h.ctx.MM.downloads.poll = { start: (cb) => { h.ctx.update = cb; } };
+  h.add('dl-empty-container'); h.add('dl-recent-container');
+  h.load('downloads.js');
+  const base = { subtitle: '', upcoming: [], recent: [] };
+  return {
+    h,
+    upd: (d) => h.ctx.update({ ...base, ...d }),
+    byId: (id) => h.doc.getElementById(id),
+    rows: () => h.doc.getElementById('dl-queue-list').querySelectorAll('.dl-compact').map((r) => r.getAttribute('data-dl-id')),
+    folding: (e) => ({ cls: e.className, height: e.style.height || '' }),
+  };
+}
+
+// a departed row stays, closing, until its height has closed
+scenarios.rowLeave = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h1'), queue: [item('q1'), item('q2')] });
+  p.upd({ hero: item('h1'), queue: [item('q2')] });
+  const leaving = p.byId('dl-queue-list').querySelectorAll('.dl-compact')[0];
+  const during = { rows: p.rows(), q1: p.folding(leaving) };
+  leaving.emit('transitionend', { propertyName: 'opacity' });
+  const afterFade = p.rows();
+  leaving.emit('transitionend', { propertyName: 'height' });
+  return { during, afterFade, afterHeight: p.rows() };
+};
+
+// a row that comes back while it closes opens again and stays
+scenarios.rowReturns = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h1'), queue: [item('q1'), item('q2')] });
+  p.upd({ hero: item('h1'), queue: [item('q2')] });
+  p.upd({ hero: item('h1'), queue: [item('q1'), item('q2')] });
+  const row = p.byId('dl-queue-list').querySelectorAll('.dl-compact')[0];
+  row.emit('transitionend', { propertyName: 'height' });
+  p.h.ctx.timers.splice(0).forEach((f) => f());
+  return { rows: p.rows(), q1: p.folding(row) };
+};
+
+// with reduced motion a departed row goes at once
+scenarios.rowLeaveReduced = async function () {
+  const p = pageRig(true);
+  p.upd({ hero: item('h1'), queue: [item('q1'), item('q2')] });
+  p.upd({ hero: item('h1'), queue: [item('q2')] });
+  return { rows: p.rows() };
+};
+
+// the hero and queue close in place while the empty state opens
+scenarios.emptyState = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h1'), queue: [item('q1')] });
+  p.upd({ hero: null, queue: [] });
+  const hero = p.byId('dl-hero-container'), queue = p.byId('dl-queue-container'), empty = p.byId('dl-empty-container');
+  const during = {
+    hero: hero.children.length, queue: queue.children.length, empty: empty.children.length,
+    heroFold: p.folding(hero), emptyFold: p.folding(empty),
+  };
+  // the next poll while they move changes nothing
+  p.upd({ hero: null, queue: [] });
+  [hero, queue, empty].forEach((e) => e.emit('transitionend', { propertyName: 'height' }));
+  return {
+    during,
+    after: { hero: hero.children.length, queue: queue.children.length, empty: empty.children.length, emptyFold: p.folding(empty) },
+  };
+};
+
+// an episode list opens, and on close stays shown until it has folded away
+scenarios.episodes = async function () {
+  const p = pageRig();
+  const eps = [{ label: 'S01E01', title: 'One', state: 'downloading', progress: 10 }];
+  p.upd({ hero: item('h1', { media_type: 'series', episodes: eps }), queue: [] });
+  const toggle = p.byId('dl-hero-container').querySelector('[data-v="ep-toggle"]');
+  const list = p.byId('dl-hero-container').querySelector('[data-v="ep-list"]');
+  const click = () => p.h.fire('click', { target: toggle });
+  click();
+  const opening = { display: list.style.display || '', ...p.folding(list) };
+  list.emit('transitionend', { propertyName: 'height' });
+  const open = { display: list.style.display || '', ...p.folding(list) };
+  click();
+  const closing = list.style.display || '';
+  list.emit('transitionend', { propertyName: 'height' });
+  return { opening, open, closing, closed: list.style.display };
+};
+
+// the shared modal: a backdrop fades out before it hides, and reopening cancels the hide
+scenarios.modal = async function () {
+  const h = build(() => Promise.resolve({}));
+  h.load('core/modal.js');
+  const mk = (cls) => { const e = new El('div', h.doc); e.className = cls; return e; };
+  const backdrop = mk('modal-backdrop'); const sheet = mk('modal-sheet'); backdrop.appendChild(sheet);
+  backdrop.style.display = 'none';
+  const opts = { manageBodyOverflow: false, useModalA11y: false };
+  const m = h.ctx.MM.modal.setupDetail(backdrop, opts);
+  const look = () => ({ display: backdrop.style.display, leaving: backdrop.classList.contains('is-leaving'), hidden: backdrop.getAttribute('aria-hidden') });
+  m.open(); m.close();
+  const closing = look();
+  sheet.parentNode.emit('animationend', { target: sheet, animationName: 'modal-sheet-out' });
+  backdrop.emit('animationend', { animationName: 'modal-backdrop-in' });
+  const otherEnds = look();
+  backdrop.emit('animationend', { animationName: 'modal-backdrop-out' });
+  const closed = look();
+  m.open(); m.close(); m.open();
+  h.ctx.timers.forEach((f) => f());
+  const reopened = look();
+  // a dialog that is not a .modal-backdrop hides at once
+  const plain = mk('delete-modal-overlay');
+  const pm = h.ctx.MM.modal.setupDetail(plain, { ...opts, activeClass: 'is-visible' });
+  pm.open(); pm.close();
+  return { closing, otherEnds, closed, reopened, plainShown: plain.classList.contains('is-visible') };
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

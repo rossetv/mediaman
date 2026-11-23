@@ -1,9 +1,9 @@
 /**
  * downloads/build_dom.js — DOM helpers and placeholder builders.
  *
- * Pure DOM construction — no fetches, no event listeners. Other download
- * modules consume these to either build a fresh card or look up an
- * existing one to patch in place.
+ * DOM construction, no fetches. Other download modules consume these to
+ * either build a fresh card or look up an existing one to patch in place,
+ * and to open or close a card, section or list without the page jumping.
  *
  * Thin aliases q, setText, and findByDlId delegate to MM.dom to avoid
  * duplicating logic already provided by core/dom.js.
@@ -20,6 +20,10 @@
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
+ *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
+ *   MM.downloads.buildDom.collapse(el, done)       shrink it away, then call done
+ *   MM.downloads.buildDom.collapseAway(el)          shrink it away, then remove it
+ *   MM.downloads.buildDom.isCollapsing(el)
  */
 (function () {
   'use strict';
@@ -35,6 +39,69 @@
       if (rows[i].getAttribute('data-ep') === label) return rows[i];
     }
     return null;
+  }
+
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  var FOLD_PROPS = ['opacity', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'];
+
+  /* Open or close an element in place: its height, padding and margins run
+     to their new size so nothing below it jumps. A fold that starts while
+     another runs picks up from where that one is. `done` runs once the
+     height has closed, and never if a later fold took over. */
+  function fold(el, open, done) {
+    var running = el._dlFold;
+    if (running && running.open === open) return;
+    var token = { open: open };
+    el._dlFold = token;
+
+    function finish() {
+      if (el._dlFold !== token) return;
+      el._dlFold = null;
+      el.removeEventListener('transitionend', onEnd);
+      el.classList.remove('dl-fold');
+      el.classList.remove('is-folded');
+      el.style.height = '';
+      if (done) done();
+    }
+    function onEnd(e) {
+      if (e.target === el && e.propertyName === 'height') finish();
+    }
+    function now() {
+      var cs = window.getComputedStyle(el);
+      var s = { height: el.offsetHeight + 'px' };
+      FOLD_PROPS.forEach(function (p) { s[p] = cs[p]; });
+      return s;
+    }
+
+    if (reducedMotion()) { finish(); return; }
+
+    /* Read a running fold before anything stops it. */
+    var from = running ? now() : null;
+    el.style.transition = 'none';
+    el.classList.add('dl-fold');
+    el.classList.remove('is-folded');
+    el.style.height = '';
+    var natural = el.offsetHeight;
+    if (!from) {
+      if (open) { el.classList.add('is-folded'); el.style.height = '0px'; }
+      from = now();
+    }
+    if (open) el.classList.remove('is-folded');
+    else el.classList.add('is-folded');
+    el.style.height = from.height;
+    FOLD_PROPS.forEach(function (p) { el.style[p] = from[p]; });
+    void el.offsetHeight;
+    el.style.transition = '';
+    FOLD_PROPS.forEach(function (p) { el.style[p] = ''; });
+    el.style.height = open ? natural + 'px' : '0px';
+
+    el.addEventListener('transitionend', onEnd);
+    /* transitionend never comes when the height did not change or the
+       element was hidden mid-way. */
+    setTimeout(finish, 400);
   }
 
   /* State labels come from the server (item.state_label). The canonical map
@@ -149,7 +216,7 @@
 
     /* Root .dl-hero container */
     var card = document.createElement('div');
-    card.className = 'dl-hero dl-card-enter';
+    card.className = 'dl-hero';
     if (item.id) card.setAttribute('data-dl-id', item.id);
 
     /* Background — set via DLPoster.apply (avoids CSS string injection). */
@@ -331,7 +398,7 @@
 
   /* Build a queue row, mirroring _dl_compact_row.html. */
   function buildCompactRow(item) {
-    var card = el('div', 'dl-compact dl-card-enter');
+    var card = el('div', 'dl-compact');
     card.setAttribute('data-dl-id', item.id);
     var row = el('div', 'dl-compact-row dl-row');
     card.appendChild(row);
@@ -431,7 +498,7 @@
     var root = document.getElementById('dl-root');
     var canAbandon = !root || root.getAttribute('data-can-abandon') !== 'false';
     var row = document.createElement('div');
-    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-card-enter' +
+    row.className = 'dl-compact-row dl-row dl-upcoming-row' +
       (canAbandon ? ' dl-row--has-abandon' : '');
     row.setAttribute('data-dl-id', item.id);
 
@@ -508,5 +575,11 @@
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
     syncAbandon:          syncAbandon,
+    reveal:               function (el)              { fold(el, true); },
+    collapse:             function (el, done)        { fold(el, false, done); },
+    collapseAway:         function (el) {
+      fold(el, false, function () { if (el.parentNode) el.parentNode.removeChild(el); });
+    },
+    isCollapsing:         function (el)              { return !!(el._dlFold && !el._dlFold.open); },
   };
 })();

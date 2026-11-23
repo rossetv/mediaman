@@ -88,7 +88,7 @@
 .dl-arr-link { color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
 @media (max-width: 639.98px) {
-  .dl-arr-link { display: inline-flex; align-items: center; min-height: 40px; }
+  .dl-arr-link { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 .dl-bar,
@@ -355,10 +355,20 @@
   color: var(--success);
 }
 
-.dl-card-enter { animation: fade .35s ease; }
-.dl-card-exit  { animation: fade-out .25s forwards ease; }
-@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes fade-out { to { opacity: 0; transform: translateY(-6px); } }
+.dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
+@keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* Rows, sections and episode lists that come and go: the script pins the
+   height and these carry it, with the padding and margins, to the new size
+   so what sits below slides instead of jumping. */
+.dl-fold {
+  overflow: hidden;
+  transition: height var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
+              padding var(--dur-slow) var(--ease-out), margin var(--dur-slow) var(--ease-out);
+}
+.dl-fold.is-folded { opacity: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; }
+/* The list's 8px gap folds away with the row. */
+.dl-compact-list > .dl-fold.is-folded { margin-bottom: -8px; }
 
 /* Hero card: top-right floating icon button. Above the scrim (z:1) and on
    the same plane as content (z:2). Reuses .btn--icon --ghost / --danger. */
@@ -393,6 +403,11 @@
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
 .dl-abandon-list .tog[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+/* The confirm sits in the middle of the screen like the app's other
+   confirms; a long season list still scrolls from the top. */
+#abandon-modal { padding-top: 20px; }
+#abandon-modal > .modal-sheet { margin-block: auto; }
 
 /* Abandon-search modal body — typography follows the page type hierarchy. */
 .abandon-modal-body { padding: 28px; }
@@ -429,7 +444,9 @@
   .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
   .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
-  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -20px; }
+  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -22px; }
+  .dl-hero-abandon .btn.btn--icon,
+  .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
   .dl-hero-episodes-toggle,
-  .dl-compact-episodes-toggle { min-height: 40px; }
+  .dl-compact-episodes-toggle { min-height: 44px; }
 }
