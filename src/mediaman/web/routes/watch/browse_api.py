@@ -1,4 +1,5 @@
-"""Watch JSON endpoints: title search, Keep for a set number of days, episode thumbnails.
+"""Watch JSON endpoints: title search, Keep for a set number of days (and its Undo),
+episode thumbnails.
 
 Search and Keep read only items in the scanned libraries; a thumbnail is served
 only for a Plex item in one of them. Plex addresses and tokens never reach the
@@ -8,6 +9,9 @@ response.
 from __future__ import annotations
 
 import logging
+import threading
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -16,7 +20,7 @@ from pydantic import BaseModel
 from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.db import get_db
 from mediaman.services.media_meta.plex_watch import (
     PlexItemNotFound,
@@ -57,11 +61,33 @@ _KEEP_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_d
 # shows a season of them at once.
 _THUMB_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
 
+# How long after a Keep its Undo still works. The keep overwrites the deletion date, so the
+# old one is held here, in memory, for that long; after a restart the keep simply stays.
+UNDO_WINDOW = timedelta(minutes=5)
+
+
+@dataclass(frozen=True, slots=True)
+class _Undo:
+    action_id: int
+    kept_until: str  # the execute_at the keep wrote
+    execute_at: str
+    snoozed_at: str | None
+    snooze_duration: str | None
+    expires: datetime
+
+
+_UNDO: dict[tuple[str, str], _Undo] = {}
+_UNDO_LOCK = threading.Lock()
+
 
 class _KeepBody(BaseModel):
     # Loosely typed on purpose: the handler checks both and answers a bad value with 400.
     media_item_id: Any = None
     days: Any = None
+
+
+class _UnkeepBody(BaseModel):
+    media_item_id: Any = None
 
 
 @router.get("/api/watch/search")
@@ -114,10 +140,27 @@ def api_watch_keep(
 
     duration = _KEEP_LABELS[days]
     with conn:
+        before = conn.execute(
+            "SELECT snoozed_at, snooze_duration FROM scheduled_actions WHERE id = ?",
+            (pending.action_id,),
+        ).fetchone()
         applied = apply_keep_snooze(
             conn, action_id=pending.action_id, duration=duration, days=days, now=now
         )
         if applied:
+            _remember_undo(
+                username,
+                media_item_id,
+                _Undo(
+                    action_id=pending.action_id,
+                    kept_until=(now + timedelta(days=days)).isoformat(),
+                    execute_at=pending.execute_at,
+                    snoozed_at=before["snoozed_at"],
+                    snooze_duration=before["snooze_duration"],
+                    expires=now + UNDO_WINDOW,
+                ),
+                now,
+            )
             log_audit(
                 conn,
                 media_item_id,
@@ -133,6 +176,65 @@ def api_watch_keep(
         duration,
         _sanitise_log_field(username),
     )
+    return respond_ok()
+
+
+def _remember_undo(username: str, media_item_id: str, undo: _Undo, now: datetime) -> None:
+    with _UNDO_LOCK:
+        for key in [k for k, v in _UNDO.items() if v.expires <= now]:
+            del _UNDO[key]
+        _UNDO[(username, media_item_id)] = undo
+
+
+@router.post("/api/watch/unkeep")
+def api_watch_unkeep(
+    body: _UnkeepBody,
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
+    """Undo this person's Keep from the last few minutes: the deletion date it replaced
+    comes back, and so does the emailed keep link."""
+    if not _KEEP_LIMITER.check(username):
+        return respond_err(
+            "too_many_requests", status=429, message="Too many keep operations — slow down"
+        )
+    media_item_id = body.media_item_id
+    if not isinstance(media_item_id, str) or not is_valid_key(media_item_id):
+        return respond_err("invalid_request", status=400)
+
+    now = now_utc()
+    with _UNDO_LOCK:
+        undo = _UNDO.pop((username, media_item_id), None)
+    # A deletion date that has passed in the meantime is not brought back: the keep stays.
+    old_date = parse_iso_utc(undo.execute_at) if undo else None
+    if undo is None or undo.expires <= now or old_date is None or old_date < now:
+        return respond_err("too_late", status=409, message="This can no longer be undone.")
+
+    conn = get_db()
+    with conn:
+        restored = conn.execute(
+            "UPDATE scheduled_actions SET action = 'scheduled_deletion', token_used = 0, "
+            "execute_at = ?, snoozed_at = ?, snooze_duration = ? "
+            "WHERE id = ? AND action = 'snoozed' AND execute_at = ? "
+            "AND (delete_status IS NULL OR delete_status = 'pending')",
+            (
+                undo.execute_at,
+                undo.snoozed_at,
+                undo.snooze_duration,
+                undo.action_id,
+                undo.kept_until,
+            ),
+        ).rowcount
+        if restored:
+            log_audit(
+                conn,
+                media_item_id,
+                "unprotected",
+                f"Keep undone by {username}",
+                actor=username,
+            )
+    if not restored:
+        return respond_err("too_late", status=409, message="This can no longer be undone.")
+    logger.info("watch.unkeep media_item=%s user=%s", media_item_id, _sanitise_log_field(username))
     return respond_ok()
 
 

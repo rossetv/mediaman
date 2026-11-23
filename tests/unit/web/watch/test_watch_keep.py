@@ -24,6 +24,7 @@ NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 def client(app_factory, conn, monkeypatch):
     monkeypatch.setattr(browse_api, "now_utc", lambda: NOW)
     browse_api._KEEP_LIMITER.reset()
+    browse_api._UNDO.clear()
     insert_settings(conn, plex_libraries='["1"]')
     insert_admin_user(conn, username="aoife", role="viewer")
     insert_media_item(conn, id="100", plex_rating_key="100", title="Glasshouse")
@@ -114,3 +115,134 @@ def test_keeps_are_rate_limited_per_person(client, conn, monkeypatch):
 
     assert resp.status_code == 429
     assert _action(conn, action_id)["action"] == "scheduled_deletion"
+
+
+def _keep_and_undo(client, days: int = 30):
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": days})
+    return client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+
+def test_undo_puts_the_deletion_back_as_it_was(client, conn):
+    action_id = _schedule(conn)
+    row_sql = "SELECT * FROM scheduled_actions WHERE id = ?"
+    before = dict(conn.execute(row_sql, (action_id,)).fetchone())
+
+    resp = _keep_and_undo(client)
+
+    assert resp.status_code == 200
+    assert dict(conn.execute(row_sql, (action_id,)).fetchone()) == before
+    audit = conn.execute(
+        "SELECT action, actor FROM audit_log WHERE media_item_id = '100' ORDER BY id"
+    ).fetchall()
+    assert [tuple(a) for a in audit] == [("snoozed", "aoife"), ("unprotected", "aoife")]
+
+
+def test_undo_lists_the_item_as_leaving_again(client, conn):
+    _schedule(conn)
+    _keep_and_undo(client)
+
+    again = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 7})
+
+    assert again.status_code == 200
+
+
+def test_undo_works_once(client, conn):
+    action_id = _schedule(conn)
+    _keep_and_undo(client)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 90})
+
+    client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["action"] == "scheduled_deletion"
+
+
+def test_only_the_person_who_kept_can_undo(client, conn):
+    action_id = _schedule(conn)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+    insert_admin_user(conn, username="niamh", role="viewer")
+    client.cookies.set("session_token", create_session(conn, "niamh"))
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_a_keep_made_elsewhere_cannot_be_undone_here(client, conn):
+    action_id = insert_scheduled_action(
+        conn,
+        media_item_id="100",
+        action="snoozed",
+        execute_at=(NOW + timedelta(days=30)).isoformat(),
+        token="tok-100",
+        token_used=1,
+    )
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_undo_is_refused_once_its_window_has_passed(client, conn, monkeypatch):
+    action_id = _schedule(conn)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+    monkeypatch.setattr(
+        browse_api, "now_utc", lambda: NOW + browse_api.UNDO_WINDOW + timedelta(seconds=1)
+    )
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_undo_is_refused_when_the_old_date_has_already_passed(client, conn, monkeypatch):
+    action_id = insert_scheduled_action(
+        conn,
+        media_item_id="100",
+        execute_at=(NOW + timedelta(seconds=30)).isoformat(),
+        token="tok-100",
+    )
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 7})
+    monkeypatch.setattr(browse_api, "now_utc", lambda: NOW + timedelta(minutes=1))
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_undo_leaves_a_keep_changed_since_alone(client, conn):
+    action_id = _schedule(conn)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+    conn.execute(
+        "UPDATE scheduled_actions SET execute_at = ?, snooze_duration = '90 days' WHERE id = ?",
+        ((NOW + timedelta(days=90)).isoformat(), action_id),
+    )
+    conn.commit()
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert _action(conn, action_id)["snooze_duration"] == "90 days"
+
+
+@pytest.mark.parametrize("media_item_id", [None, 100, "", "../etc"])
+def test_undo_refuses_a_bad_item_id(client, media_item_id):
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": media_item_id})
+
+    assert resp.status_code == 400
+
+
+def test_undo_is_rate_limited_per_person(client, conn, monkeypatch):
+    action_id = _schedule(conn)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+    monkeypatch.setattr(browse_api._KEEP_LIMITER, "check", lambda _key: False)
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 429
+    assert _action(conn, action_id)["action"] == "snoozed"
