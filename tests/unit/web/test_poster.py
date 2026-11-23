@@ -5,7 +5,17 @@ from __future__ import annotations
 import pytest
 import requests
 
-from tests.helpers.factories import insert_media_item, insert_settings
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_audit_log,
+    insert_media_item,
+    insert_settings,
+)
+
+
+def _scan(conn) -> None:
+    """Tick Plex library 1 as scanned; items in it may then have their poster served."""
+    insert_settings(conn, plex_libraries='["1"]')
 
 
 @pytest.fixture(autouse=True)
@@ -283,10 +293,59 @@ class TestPosterEndpointAuth:
 
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
+        insert_media_item(conn, id="12345", plex_library_id=1)
+        _scan(conn)
 
         client.cookies.set("session_token", token)
         r = client.get("/api/poster/12345")
         assert r.status_code == 200
+
+    def _session(self, conn, client, role="viewer"):
+        from mediaman.web.auth.session_store import create_session
+
+        insert_admin_user(conn, username="person", role=role)
+        client.cookies.set("session_token", create_session(conn, "person"))
+
+    @pytest.mark.parametrize("role", ["admin", "viewer"])
+    def test_session_refused_for_item_outside_scanned_libraries(self, tmp_path, role):
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client, role)
+        insert_media_item(conn, id="12345", plex_library_id=9)
+        _scan(conn)
+
+        assert client.get("/api/poster/12345").status_code == 404
+
+    def test_session_refused_for_key_not_in_the_library(self, tmp_path):
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client)
+        _scan(conn)
+
+        assert client.get("/api/poster/12345").status_code == 404
+
+    def test_show_key_of_a_scanned_season_is_served(self, tmp_path):
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client)
+        insert_media_item(
+            conn,
+            id="501",
+            plex_rating_key="501",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="12345",
+            plex_library_id=1,
+        )
+        _scan(conn)
+
+        assert client.get("/api/poster/12345").status_code == 200
+
+    def test_deleted_item_poster_is_still_served(self, tmp_path):
+        """The Dashboard lists recently deleted items with their cached poster."""
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client, "admin")
+        insert_audit_log(conn, media_item_id="777", action="deleted", detail="Deleted X [rk:12345]")
+        _scan(conn)
+
+        assert client.get("/api/poster/12345").status_code == 200
 
     def test_invalid_rating_key_unauth_returns_401_not_404(self, tmp_path):
         """Unauth + bad rating key returns 401, not 404 — prevents existence oracle."""
@@ -660,6 +719,8 @@ class TestPosterPublicRateLimit:
         conn = get_db()
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
+        insert_media_item(conn, id="12345", plex_library_id=1)
+        _scan(conn)
 
         client.cookies.set("session_token", token)
 
