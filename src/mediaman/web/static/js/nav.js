@@ -1,6 +1,7 @@
 /* Mobile "More" sheet behaviour: toggle from the More tab, close on
- * backdrop click, close on Escape. Active only on mobile viewports
- * where .nav-tabs is visible. */
+ * backdrop click or Escape, keep Tab inside while open, and close when
+ * the viewport grows past the phone layout. The fade-out is CSS; the
+ * open state changes at once. */
 (function () {
   'use strict';
 
@@ -26,6 +27,10 @@
     var open = s.toggleAttribute('open');
     var btn = trigger();
     if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      var first = s.querySelector('a[href], button:not([disabled])');
+      if (first) first.focus();
+    }
   }
 
   document.addEventListener('click', function (e) {
@@ -33,13 +38,33 @@
     if (t) { e.preventDefault(); toggleSheet(); return; }
     var s = sheet();
     if (!s || !s.hasAttribute('open')) return;
-    if (e.target === s) closeSheet(false);
+    if (e.target === s) closeSheet(true);
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
     var s = sheet();
     if (!s || !s.hasAttribute('open')) return;
-    closeSheet(true);
+    if (e.key === 'Escape') { closeSheet(true); return; }
+    if (e.key !== 'Tab') return;
+    var items = s.querySelectorAll('a[href], button:not([disabled])');
+    if (!items.length) return;
+    var first = items[0];
+    var last = items[items.length - 1];
+    if (!s.contains(document.activeElement)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   });
+
+  if (window.matchMedia) {
+    window.matchMedia('(min-width: 700px)').addEventListener('change', function (e) {
+      if (e.matches) closeSheet(false);
+    });
+  }
 })();
