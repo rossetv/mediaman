@@ -9,7 +9,6 @@
   overflow-x: clip;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
-.watch-page [hidden] { display: none !important; }
 @media (max-width: 1279.98px) { .watch-page { --watch-card-w: 128px; } }
 @media (max-width: 599.98px)  { .watch-page { --watch-card-w: 112px; --watch-gap: 10px; } }
 
@@ -45,7 +44,7 @@
 .watch-bar::-moz-progress-bar { background: var(--accent); }
 .watch-bar--banner {
   width: min(320px, 100%);
-  border-radius: 2px;
+  border-radius: var(--r-xxs);
   background: color-mix(in srgb, var(--t1) 15%, transparent);
   color: var(--t1);
 }
