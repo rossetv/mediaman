@@ -3,6 +3,9 @@
    background inside that box. */
 
 .player {
+  /* Dark enough that pill text keeps 4.5:1 even over a white frame. */
+  --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
+  --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
   position: fixed;
   inset: 0;
   z-index: var(--z-nav);
@@ -46,10 +49,13 @@
   width: 44px;
   height: 44px;
   border-radius: var(--r-pill);
-  background: var(--hair-strong);
+  background: var(--player-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   font-size: 18px;
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.player-back:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
+.player-back:hover { background: var(--player-glass-hover); }
 .player-titles {
   flex: 1 1 200px;
   min-width: 0;
@@ -179,10 +185,12 @@
   inset: 4px 0;
   z-index: -1;
   border-radius: var(--r-pill);
-  background: var(--hair-strong);
+  background: var(--player-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   transition: background var(--dur-fast) var(--ease-out);
 }
-.player-pill:hover::before { background: color-mix(in srgb, var(--t1) 22%, transparent); }
+.player-pill:hover::before { background: var(--player-glass-hover); }
 .player-pill--primary { color: var(--bg); font-weight: 600; }
 .player-pill--primary::before,
 .player-pill--primary:hover::before { background: var(--t1); }
