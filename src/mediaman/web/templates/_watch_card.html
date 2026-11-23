@@ -30,9 +30,11 @@
 </div>
 {%- endmacro %}
 
-{# One poster card. A successful Keep removes the card from the Leaving soon row
-   and strips the badge and button from any other card with the same keep id. #}
-{% macro card(item) -%}
+{# One poster card; *keep* adds the Keep button (the Leaving soon row only, so
+   the other rows' cards keep one height). A successful Keep removes the card
+   from the Leaving soon row and the badge from any other card with the same
+   keep id. #}
+{% macro card(item, keep=false) -%}
 <article class="watch-card" data-keep-id="{{ item.keep_id or '' }}">
   <a class="watch-card__link" href="{{ item.href }}">
     <span class="watch-card__poster">
@@ -44,7 +46,7 @@
     </span>
     <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and not (item.subtitle or '').endswith(' left') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
   </a>
-  {% if item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
+  {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
 </article>
 {%- endmacro %}
 

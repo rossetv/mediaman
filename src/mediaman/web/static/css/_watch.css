@@ -84,6 +84,27 @@
 }
 .watch-search__input::placeholder { color: var(--t3); }
 .watch-search__input::-webkit-search-cancel-button { -webkit-appearance: none; }
+/* While a search runs a spinner stands in for the magnifier, in a box of
+   the same width so the text does not move. */
+.watch-search__icon { flex: none; width: 22px; text-align: center; }
+.watch-search__spinner { flex: none; margin-inline: 3px; }
+.watch-search.is-pending .watch-search__icon { display: none; }
+.watch-search.is-pending .watch-search__spinner { display: block; }
+/* 44px to tap; the negative margin lines the cross up with the box's padding. */
+.watch-search__clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -14px;
+  border-radius: 50%;
+  color: var(--t3);
+  font-size: 15px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.watch-search__clear:hover { color: var(--t1); }
+.watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 
 /* Banner */
 .watch-banner {
@@ -312,7 +333,8 @@
 .watch-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .watch-keep__chev { font-size: 9px; transition: transform var(--dur-fast, .15s) var(--ease-out, ease-out); }
 .watch-keep[aria-expanded="true"] .watch-keep__chev { transform: rotate(180deg); }
-.watch-keep[disabled] { opacity: .55; cursor: progress; }
+.watch-keep[disabled],
+.watch-keep[aria-disabled="true"] { opacity: .55; cursor: progress; }
 
 /* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it. */
 .watch-keep-menu {
@@ -327,7 +349,14 @@
   border: 1px solid var(--hair-strong);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
+  opacity: 0;
+  transform: translateY(-4px) scale(.98);
+  transform-origin: top left;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
+.watch-keep-menu.is-above { transform: translateY(4px) scale(.98); transform-origin: bottom left; }
+.watch-keep-menu.is-open { opacity: 1; transform: none; pointer-events: auto; }
 .watch-keep-menu__item {
   min-height: 44px;
   padding: 0 14px;
@@ -344,11 +373,27 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
+.watch-results__msg--error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--rgba-danger-bg);
+  color: var(--t1);
+  font-size: 14px;
+}
 .watch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--watch-card-w), 1fr));
   gap: 22px var(--watch-gap);
 }
+/* What is being replaced dims, but only when the wait is long enough to notice. */
+.watch-grid,
+.watch-episodes { transition: opacity var(--dur) var(--ease-out); }
+.watch-results[aria-busy="true"] .watch-grid,
+.watch-episodes[aria-busy="true"] { opacity: .5; transition-delay: .1s; }
 .watch-grid .watch-card { width: auto; }
 
 /* Plex-not-usable and not-found panels */
@@ -383,6 +428,8 @@
 .watch-hero__meta { font-size: 14px; color: var(--t3); }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
 .watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--danger); }
+.watch-leaving:focus { outline: none; }
+.watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 
 .watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .watch-pill {
@@ -470,7 +517,8 @@
 /* Inline notice above the rows when Plex cannot be reached. */
 .watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 var(--pad) 16px; padding: 10px 14px; border-radius: var(--r-md); background: var(--rgba-danger-bg); color: var(--t1); font-size: 14px; }
 /* 44px to tap; the negative margin keeps the notice its usual height. */
-.watch-notice__retry { min-height: 44px; margin-block: -10px; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.watch-notice__retry,
+.watch-results__retry { min-height: 44px; margin-block: -10px; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
 
 /* Phones and touch screens: the Keep button grows to 44px, the pill stays. */
 @media (pointer: coarse), (max-width: 599.98px) {

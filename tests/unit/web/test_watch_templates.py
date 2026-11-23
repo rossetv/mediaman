@@ -382,3 +382,38 @@ def test_banner_carries_a_short_line_for_phones():
 
     assert "S2 · E4 · 31 min left" in html
     assert "Season 2 · Episode 4" in html
+
+
+def test_keep_shows_only_in_the_leaving_soon_row():
+    item = _card(leaving_days=3, keep_id="m1")
+
+    html = _watch(
+        rows=[
+            {"title": "Leaving soon", "items": [item]},
+            {"title": "Recently added", "items": [item]},
+        ]
+    )
+
+    assert html.count('data-watch-keep="m1"') == 1
+    assert html.count("Leaving in 3 days") == 2
+    leaving_row, other_row = html.split('aria-label="Recently added"')
+    assert 'data-watch-keep="m1"' in leaving_row
+    assert 'data-keep-id="m1"' in other_row
+
+
+def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
+    html = _watch()
+
+    assert 'id="watch-search-clear"' in html
+    top, results = html.split('id="watch-results"')
+    assert 'id="watch-search-status" role="status"' in top
+    assert 'role="status"' not in results
+
+
+@pytest.mark.parametrize(
+    "page", [("watch_show.html", _show_ctx()), ("watch_movie.html", _movie_ctx())]
+)
+def test_title_pages_load_the_poster_fade_script(page):
+    name, ctx = page
+
+    assert 'src="/static/js/watch-rows.js"' in _render(name, **ctx)
