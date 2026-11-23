@@ -205,9 +205,10 @@ class TestNoReload:
         src = (_JS / "dashboard.js").read_text(encoding="utf-8")
         assert "location.reload" not in src
 
-    def test_kept_items_script_never_reloads(self):
-        src = (_JS / "protected.js").read_text(encoding="utf-8")
-        assert "location.reload" not in src
+    def test_watch_list_scripts_never_reload(self):
+        for name in ("list.js", "admin.js"):
+            src = (_JS / "watch" / name).read_text(encoding="utf-8")
+            assert "location.reload" not in src, name
 
     def test_failed_scan_button_offers_a_retry(self):
         src = (_JS / "dashboard.js").read_text(encoding="utf-8")

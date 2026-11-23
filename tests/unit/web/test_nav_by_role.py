@@ -15,17 +15,18 @@ from mediaman.web.routes.account import router as account_router
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
 _TEMPLATES = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
-_VIEWER_LINKS = {"/watch", "/search", "/downloads", "/recommended", "/account"}
-_ADMIN_ONLY_LINKS = {"/", "/library", "/history", "/settings"}
+_VIEWER_LINKS = {"/watch", "/downloads", "/account"}
+_ADMIN_ONLY_LINKS = {"/", "/history", "/settings"}
+_RETIRED_LINKS = {"/search", "/library", "/recommended"}
 
 
-def _request(role: str | None, path: str = "/search") -> Request:
+def _request(role: str | None, path: str = "/watch") -> Request:
     state = {} if role is None else {"user_role": role}
     scope = {"type": "http", "path": path, "query_string": b"", "headers": [], "state": state}
     return Request(scope)
 
 
-def _render(role: str | None, *, path: str = "/search", **ctx: object) -> str:
+def _render(role: str | None, *, path: str = "/watch", **ctx: object) -> str:
     template = _TEMPLATES.env.get_template("_nav.html")
     return template.render(request=_request(role, path), **ctx)
 
@@ -52,7 +53,7 @@ def _more_links(html: str) -> list[str]:
 def test_viewer_menu_has_only_what_a_viewer_can_open():
     html = _render("viewer")
 
-    assert _desktop_links(html) == ["/watch", "/search", "/downloads", "/recommended", "/account"]
+    assert _desktop_links(html) == ["/watch", "/downloads", "/account"]
     assert _hrefs(html) >= _VIEWER_LINKS
     assert not (_ADMIN_ONLY_LINKS - {"/"}) & set(
         _desktop_links(html) + _tabbar_links(html) + _more_links(html)
@@ -60,30 +61,41 @@ def test_viewer_menu_has_only_what_a_viewer_can_open():
     assert "Logout" in html
 
 
-def test_viewer_phone_bar_is_watch_search_downloads_and_more_holds_the_rest():
+def test_viewer_phone_bar_is_watch_downloads_and_more_holds_the_rest():
     html = _render("viewer")
 
-    assert _tabbar_links(html) == ["/watch", "/search", "/downloads"]
-    assert _more_links(html) == ["/recommended", "/account"]
+    assert _tabbar_links(html) == ["/watch", "/downloads"]
+    assert _more_links(html) == ["/account"]
+    assert re.findall(r"<span>([^<]+)</span>", html.split('<nav class="nav-tabs"')[1]) == [
+        "Watch",
+        "Downloads",
+        "More",
+    ]
 
 
 @pytest.mark.parametrize("role", ["admin", None])
-def test_admin_and_missing_role_get_todays_menu_plus_watch(role):
+def test_admin_and_missing_role_get_the_admin_menu(role):
     html = _render(role)
 
-    assert _desktop_links(html) == [
-        "/",
-        "/library",
-        "/watch",
-        "/search",
-        "/recommended",
-        "/downloads",
-        "/history",
-        "/settings",
-    ]
+    assert _desktop_links(html) == ["/", "/watch", "/downloads", "/history", "/settings"]
     assert "/account" not in _hrefs(html)
-    assert _tabbar_links(html) == ["/watch", "/library", "/search", "/downloads"]
-    assert _more_links(html) == ["/", "/recommended", "/history", "/settings"]
+    assert _tabbar_links(html) == ["/watch", "/", "/downloads"]
+    assert _more_links(html) == ["/history", "/settings"]
+    assert re.findall(r"<span>([^<]+)</span>", html.split('<nav class="nav-tabs"')[1]) == [
+        "Watch",
+        "Dashboard",
+        "Downloads",
+        "More",
+    ]
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer", None])
+def test_retired_pages_are_never_linked_or_labelled(role):
+    html = _render(role)
+
+    assert not _RETIRED_LINKS & _hrefs(html)
+    for label in ("Search", "Library", "Recommended"):
+        assert label not in html
 
 
 def test_unknown_role_gets_the_viewer_menu():
@@ -106,10 +118,10 @@ def test_a_path_that_only_starts_like_watch_highlights_nothing():
 
 
 def test_nav_renders_without_a_request():
-    html = _TEMPLATES.env.get_template("_nav.html").render(nav_active="library")
+    html = _TEMPLATES.env.get_template("_nav.html").render(nav_active="settings")
 
     assert "/settings" in _hrefs(html)
-    assert re.search(r'href="/library"\s+class="nav-btn on"', html)
+    assert re.search(r'href="/settings"\s+class="nav-btn on"', html)
 
 
 class TestAccountPage:

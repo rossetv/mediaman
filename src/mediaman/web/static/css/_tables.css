@@ -1,6 +1,6 @@
 /* TABLES — library/history table primitives, stat cards, and the
    snooze-dropdown menu, and pagination. Covers `.tbl`,
-   `.thumb`/`.lib-thumb`, stat cards (`.stats`/`.lib-stats`). */
+   `.thumb`, stat cards (`.stats`). */
 
 .tbl { width: 100%; border-collapse: collapse; }
 .tbl .col-thumb { width: 60px; } /* thumbnail column */
@@ -40,8 +40,7 @@
 .tbl tbody tr:hover { background: var(--s1); }
 .tbl tbody tr:last-child td { border-bottom: 0; }
 
-.thumb,
-.lib-thumb {
+.thumb {
   width: 44px;
   height: 66px;
   border-radius: var(--r-xs);
@@ -50,9 +49,7 @@
   flex-shrink: 0;
   display: block;
 }
-.thumb img,
-.lib-thumb { object-fit: cover; }
-img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
+.thumb img { object-fit: cover; }
 .title-cell { font-weight: 500; color: var(--t1); overflow-wrap: anywhere; }
 .title-cell .sub {
   font-size: 12px;
@@ -61,41 +58,6 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   margin-top: 2px;
   letter-spacing: -.005em;
 }
-
-.lib-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 28px;
-}
-@media (max-width: 767px) {
-  .lib-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.lib-stat {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  transition: background .15s, border-color .15s;
-  text-decoration: none;
-  color: inherit;
-}
-.lib-stat:hover { background: var(--s2); border-color: var(--hair-strong); }
-.lib-stat-active { background: var(--s2); border-color: var(--accent); }
-
-.lib-stat-value {
-  font-family: var(--font-display);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -.03em;
-  line-height: 1;
-}
-.lib-stat-label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
-.lib-stat-value--stale { color: var(--danger); }
 
 .toolbar-row {
   display: flex;
@@ -114,11 +76,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 }
 .filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 
-.lib-mobile-sort { margin-bottom: 16px; }
-
-.lib-row-protected { background: rgba(48,209,88,.04); }
-
-/* Snooze dropdown (split-button menu used by library + dashboard) */
+/* Snooze dropdown (split-button menu used by the Watch list + dashboard) */
 .keep-wrapper {
   position: relative;
   display: inline-flex;
@@ -215,51 +173,9 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 .page-btn--ellipsis { background: transparent; border: 0; }
 .page-info { margin-left: 8px; color: var(--t3); font-size: 12px; }
 
-/* The size never splits across lines, whatever the title does. */
-.tbl--lib tbody td:nth-child(4) { white-space: nowrap; }
-.lib-sub-watched { display: none; }
-
-/* Tablet: keep the table on screen. Narrower cell padding, a no-wrap
-   actions cell and the last-watched column moved under the title leave the
-   title column the room to wrap long names. */
-@media (max-width: 1023px) {
-  .tbl--lib thead th,
-  .tbl--lib tbody td { padding-left: 8px; padding-right: 8px; }
-  .tbl--lib .lib-row-actions { flex-wrap: nowrap; }
-}
-@media (min-width: 640px) and (max-width: 1023px) {
-  .tbl--lib thead th:nth-child(5),
-  .tbl--lib tbody td:nth-child(5) { display: none; }
-  .lib-sub-watched { display: inline; }
-}
-
 /* Phone: each row is a card — poster and title, then type, size and last
    watched, then Keep and Delete side by side across the full width. */
 @media (max-width: 639.98px) {
-  .tbl--lib thead { display: none; }
-  .tbl--lib,
-  .tbl--lib tbody { display: block; }
-  .tbl--lib tbody tr {
-    display: grid;
-    grid-template-columns: 44px auto auto 1fr;
-    column-gap: 12px;
-    row-gap: 6px;
-    align-items: center;
-    padding: 14px;
-    border-bottom: 1px solid var(--hair);
-  }
-  .tbl--lib tbody tr:last-child { border-bottom: 0; }
-  .tbl--lib tbody td { display: block; padding: 0; border-bottom: 0; min-width: 0; }
-  .tbl--lib tbody td:nth-child(1) { grid-row: 1 / 3; grid-column: 1; align-self: start; }
-  .tbl--lib tbody td:nth-child(2) { grid-row: 1; grid-column: 2 / 5; align-self: start; }
-  .tbl--lib tbody td:nth-child(3) { grid-row: 2; grid-column: 2; }
-  .tbl--lib tbody td:nth-child(4) { grid-row: 2; grid-column: 3; font-size: 13px; color: var(--t2); }
-  .tbl--lib tbody td:nth-child(5) { grid-row: 2; grid-column: 4; justify-self: end; text-align: right; }
   .page-btn { min-width: 40px; height: 40px; }
-  .lib-mobile-sort .inp { min-height: 40px; }
-  .tbl--lib tbody td:nth-child(6) { grid-row: 3; grid-column: 1 / 5; margin-top: 6px; text-align: left; }
-  .tbl--lib .lib-row-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
-  .tbl--lib .lib-row-actions > .keep-wrapper { display: flex; }
-  .tbl--lib .lib-row-actions .keep-trigger { flex: 1; justify-content: center; }
   .card--bordered > table.tbl > tbody > tr:last-child > td { border-radius: 0; }
 }

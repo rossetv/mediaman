@@ -262,7 +262,7 @@ _AWKWARD_TEXT = """He said "Hi" & it's <b>bold</b>"""
 
 
 class _DataActionElements(HTMLParser):
-    """Collect the attributes of every element carrying ``data-action``."""
+    """Collect the attributes of every element carrying ``data-action`` or ``data-remove-keep-id``."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -270,14 +270,14 @@ class _DataActionElements(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         found = dict(attrs)
-        if "data-action" in found:
+        if "data-action" in found or "data-remove-keep-id" in found:
             self.elements.append(found)
 
 
 def _buttons(html: str, action: str) -> list[dict[str, str | None]]:
     parser = _DataActionElements()
     parser.feed(html)
-    return [e for e in parser.elements if e["data-action"] == action]
+    return [e for e in parser.elements if e.get("data-action") == action]
 
 
 class TestJsonDataAttributesRoundTrip:
@@ -310,34 +310,62 @@ class TestJsonDataAttributesRoundTrip:
             "tmdb_id": 603,
         }
 
-    def test_kept_page_remove_buttons_carry_ids_with_quotes(self):
+    def test_list_view_keep_and_delete_controls_carry_values_with_quotes(self):
         env = Jinja2Templates(directory=str(_TEMPLATE_DIR)).env
-        item = {
-            "title": "t",
-            "show_title": "s",
-            "media_item_id": _AWKWARD_TEXT,
-            "show_rating_key": _AWKWARD_TEXT,
+        kept = {
+            "id": _AWKWARD_TEXT,
+            "title": _AWKWARD_TEXT,
+            "is_tv": False,
+            "protected": True,
+            "season_count": 0,
+            "show_kept": False,
+            "show_rating_key": "",
+            "show_title_raw": "",
+            "has_rating_key": False,
             "plex_rating_key": "",
-            "action": "protected_forever",
-            "expiry": "Forever",
-            "type_label": "Movie",
+            "ref": "",
+            "subtitle": "",
+            "protection_label": "",
+            "last_watched": "",
             "media_type": "movie",
             "file_size": "1 GB",
+            "deletion_at": None,
         }
-        html = env.get_template("protected.html").render(
-            username="admin",
-            nav_active="kept",
-            show_items=[item],
-            forever_items=[item],
-            snoozed_items=[item],
+        show = {
+            **kept,
+            "protected": False,
+            "is_tv": True,
+            "season_count": 3,
+            "show_rating_key": _AWKWARD_TEXT,
+            "media_type": "tv",
+        }
+        html = env.get_template("_watch_list.html").render(
+            q="",
+            current_type="",
+            current_sort="name_asc",
+            page=1,
+            per_page=20,
+            total_pages=1,
+            total=2,
+            page_start=1,
+            page_end=2,
+            soon_days=3,
+            plex_configured=True,
+            sort_options=[("name_asc", "Name")],
+            stats=type("S", (), {"__getattr__": lambda self, name: 0})(),
+            items=[kept, show],
+            href=lambda **_: "/watch?view=list",
         )
 
-        (show_button,) = _buttons(html, "remove-show-keep")
-        assert json.loads(show_button["data-show-rk"] or "") == _AWKWARD_TEXT
-        keep_buttons = _buttons(html, "remove-keep")
-        assert len(keep_buttons) == 2
-        for button in keep_buttons:
-            assert json.loads(button["data-media-id"] or "") == _AWKWARD_TEXT
+        parser = _DataActionElements()
+        parser.feed(html)
+        (remove_keep,) = [e for e in parser.elements if "data-remove-keep-id" in e]
+        assert json.loads(remove_keep["data-remove-keep-id"] or "") == _AWKWARD_TEXT
+        (pick_seasons,) = [
+            e for e in parser.elements if e.get("data-action") == "pick-season-delete"
+        ]
+        assert pick_seasons["data-show-rk"] == _AWKWARD_TEXT
+        assert json.loads(pick_seasons["data-title"] or "") == _AWKWARD_TEXT
 
 
 class TestReclaimedChartIsoWeeks:

@@ -5,7 +5,7 @@
    - .nav-more-sheet — overflow drawer opened by the More tab
 
    Set `nav_active` in template context to one of:
-     dashboard | library | watch | search | recommended | downloads | history | settings | account
+     dashboard | watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
    The menu follows the role on the request (`request.state.user_role`). A viewer
@@ -18,10 +18,7 @@
 
 {% set titles = {
   'dashboard':   'Dashboard',
-  'library':     'Library',
   'watch':       'Watch',
-  'search':      'Search',
-  'recommended': 'Recommended',
   'downloads':   'Downloads',
   'history':     'History',
   'settings':    'Settings',
@@ -34,16 +31,11 @@
   <nav class="nav-links" aria-label="Primary">
     {% if is_viewer %}
     <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
-    <a href="/search"      class="nav-btn{% if active == 'search' %} on{% endif %}">Search</a>
     <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
-    <a href="/recommended" class="nav-btn{% if active == 'recommended' %} on{% endif %}">Recommended</a>
     <a href="/account"     class="nav-btn{% if active == 'account' %} on{% endif %}">Account</a>
     {% else %}
     <a href="/"            class="nav-btn{% if active == 'dashboard' %} on{% endif %}">Dashboard</a>
-    <a href="/library"     class="nav-btn{% if active == 'library' %} on{% endif %}">Library</a>
     <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
-    <a href="/search"      class="nav-btn{% if active == 'search' %} on{% endif %}">Search</a>
-    <a href="/recommended" class="nav-btn{% if active == 'recommended' %} on{% endif %}">Recommended</a>
     <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
     <a href="/history"     class="nav-btn{% if active == 'history' %} on{% endif %}">History</a>
     <a href="/settings"    class="nav-btn{% if active == 'settings' %} on{% endif %}">Settings</a>
@@ -60,22 +52,18 @@
   <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
 </div>
 
-{# Mobile bottom tab bar — four tabs plus More, for either role #}
+{# Mobile bottom tab bar — tabs plus More, for either role #}
 <nav class="nav-tabs" aria-label="Primary">
   <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch">
     <i class="fa-solid fa-play" aria-hidden="true"></i>
     <span>Watch</span>
   </a>
   {% if not is_viewer %}
-  <a class="nav-tab{% if active == 'library' %} on{% endif %}" href="/library" aria-label="Library">
-    <i class="fa-solid fa-book-open" aria-hidden="true"></i>
-    <span>Library</span>
+  <a class="nav-tab{% if active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard">
+    <i class="fa-solid fa-house" aria-hidden="true"></i>
+    <span>Dashboard</span>
   </a>
   {% endif %}
-  <a class="nav-tab{% if active == 'search' %} on{% endif %}" href="/search" aria-label="Search">
-    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-    <span>Search</span>
-  </a>
   <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads">
     <i class="fa-solid fa-download" aria-hidden="true"></i>
     <span>Downloads</span>
@@ -90,18 +78,6 @@
 <div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-modal="true" aria-label="More navigation">
   <div class="nav-more-panel">
     <div class="nav-more-handle" aria-hidden="true"></div>
-    {% if not is_viewer %}
-    <a class="nav-more-item{% if active == 'dashboard' %} on{% endif %}" href="/">
-      <i class="fa-solid fa-house" aria-hidden="true"></i>
-      Dashboard
-      <span class="chev">›</span>
-    </a>
-    {% endif %}
-    <a class="nav-more-item{% if active == 'recommended' %} on{% endif %}" href="/recommended">
-      <i class="fa-solid fa-star" aria-hidden="true"></i>
-      Recommended
-      <span class="chev">›</span>
-    </a>
     {% if is_viewer %}
     <a class="nav-more-item{% if active == 'account' %} on{% endif %}" href="/account">
       <i class="fa-solid fa-user" aria-hidden="true"></i>
