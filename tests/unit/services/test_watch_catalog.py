@@ -3,6 +3,7 @@ fetches through the cache, and the card and image shapes."""
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -108,6 +109,47 @@ class TestArrMemo:
         catalog.arr_view(None, "k")
 
         assert len(builds) == 2
+
+    def _blocking_build(self, monkeypatch):
+        started = threading.Event()
+        release = threading.Event()
+
+        def radarr():
+            if len(builds) == 1:
+                started.set()
+                release.wait(5)
+            return _radarr()
+
+        builds = self._count_builds(monkeypatch, radarr)
+        first = threading.Thread(target=lambda: catalog.arr_view(None, "k"), daemon=True)
+        first.start()
+        started.wait(5)
+        return builds, first, release
+
+    def test_callers_during_a_build_wait_for_it_instead_of_building_again(self, monkeypatch):
+        builds, first, release = self._blocking_build(monkeypatch)
+        waiters = [
+            threading.Thread(target=lambda: catalog.arr_view(None, "k"), daemon=True)
+            for _ in range(3)
+        ]
+        for waiter in waiters:
+            waiter.start()
+
+        release.set()
+        for thread in (first, *waiters):
+            thread.join(5)
+
+        assert len(builds) == 1
+
+    def test_a_caller_after_invalidate_does_not_wait_for_the_older_build(self, monkeypatch):
+        builds, first, release = self._blocking_build(monkeypatch)
+        catalog.invalidate()
+
+        catalog.arr_view(None, "k")  # would hang on the blocked build if it waited
+
+        assert len(builds) == 2
+        release.set()
+        first.join(5)
 
     def test_an_unreachable_radarr_leaves_sonarr_state_standing(self, monkeypatch):
         def down(*_):

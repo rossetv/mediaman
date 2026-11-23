@@ -13,6 +13,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import Future
 from dataclasses import dataclass
 
 import requests
@@ -40,6 +41,9 @@ _lock = threading.Lock()
 _memo: dict[str, tuple[float, ArrCaches]] = {}
 # Bumped by invalidate(), so a build that started before it is not kept.
 _generation = [0]
+# The build in progress for each generation; a caller of the same generation waits for
+# it rather than pulling both libraries again.
+_building: dict[int, Future[ArrCaches]] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,10 +111,24 @@ def arr_view(
         if held is not None and held[0] > now:
             return ArrView(held[1])
         generation = _generation[0]
-    caches: ArrCaches = {**_radarr(conn, secret_key), **_sonarr(conn, secret_key)}
+        future = _building.get(generation)
+        owner = future is None
+        if future is None:
+            future = _building[generation] = Future()
+    if not owner:
+        return ArrView(future.result())
+    try:
+        caches: ArrCaches = {**_radarr(conn, secret_key), **_sonarr(conn, secret_key)}
+    except BaseException as exc:
+        with _lock:
+            _building.pop(generation, None)
+        future.set_exception(exc)
+        raise
     with _lock:
         if _generation[0] == generation:
             _memo["arr"] = (now + TTL_S, caches)
+        _building.pop(generation, None)
+    future.set_result(caches)
     return ArrView(caches)
 
 
