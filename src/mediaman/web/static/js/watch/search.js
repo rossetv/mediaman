@@ -325,7 +325,7 @@
 
     function showNothing(q) {
       showLine('empty', 'fa-magnifying-glass');
-      var line = 'Nothing found for “' + q + '”.';
+      var line = 'No matches for “' + q + '”';
       msg.appendChild(el('span', 'watch-results__line', line));
       msg.appendChild(el('span', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
       status.textContent = line;
@@ -429,7 +429,7 @@
         paint(c);
       }).catch(function (err) {
         if ((err && err.name === 'AbortError') || current !== c) return;
-        c.lib = { state: 'failed', text: MM.api.messageOf(err, 'Search failed.') };
+        c.lib = { state: 'failed', text: MM.api.messageOf(err, 'Couldn’t search just now.') };
         paint(c);
       });
     }

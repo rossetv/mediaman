@@ -91,12 +91,12 @@
     <div class="watch-rows">
       {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
 
-      {# Discover rows load after the page; until then a skeleton holds their place. #}
+      {# Discover rows load after the page; until then a skeleton holds their place, one row for each of the four that arrive. #}
       <div class="watch-discover-slot" id="watch-discover-slot"{% if tmdb_configured %} aria-busy="true"{% endif %}>
         {% if tmdb_configured %}
         <div class="watch-discover-skel" aria-hidden="true">
           <p class="watch-group-label">Discover</p>
-          {{ skel_row() }}{{ skel_row() }}{{ skel_row() }}
+          {{ skel_row() }}{{ skel_row() }}{{ skel_row() }}{{ skel_row() }}
         </div>
         {% endif %}
       </div>

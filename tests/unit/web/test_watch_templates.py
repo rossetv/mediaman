@@ -445,3 +445,10 @@ def test_show_page_names_another_leaving_season_without_a_keep(days: int, text: 
     assert text in html
     assert "watch-leaving--other" in html
     assert "data-watch-keep" not in html
+
+
+def test_discover_skeleton_has_a_row_for_each_row_that_arrives() -> None:
+    html = _watch(tmdb_configured=True)
+    skeleton = html.split('class="watch-discover-skel"', 1)[1].split('id="watch-results"', 1)[0]
+    assert skeleton.count("watch-row watch-row--skel") == 4
+    assert "watch-discover-skel" not in _watch(tmdb_configured=False)

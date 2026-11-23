@@ -57,8 +57,8 @@ def test_a_failed_tmdb_group_keeps_the_library_and_retries_alone() -> None:
 def test_nothing_found_shows_only_when_both_groups_are_empty() -> None:
     out = _run("nothing")
     assert out["whileWaiting"] == ""
-    assert out["line"] == "Nothing found for “zzqx”."
-    assert out["status"] == "Nothing found for “zzqx”."
+    assert out["line"] == "No matches for “zzqx”"
+    assert out["status"] == "No matches for “zzqx”"
     assert out["tmdbOnly"] == {"msg": "", "heads": ["Available to download"]}
 
 
