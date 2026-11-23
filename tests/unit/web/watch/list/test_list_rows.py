@@ -9,7 +9,7 @@ JS intact whatever the title holds.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from html.parser import HTMLParser
 from urllib.parse import quote
 
@@ -305,7 +305,10 @@ def test_a_scheduled_movie_shows_its_deletion_date_and_days_left(client, conn):
         conn,
         media_item_id="42",
         action="scheduled_deletion",
-        execute_at=(datetime.now(UTC) + timedelta(days=5, hours=1)).isoformat(),
+        # Noon of the fifth UTC day ahead: the count is calendar days, so the hour of the run must not matter.
+        execute_at=datetime.combine(
+            datetime.now(UTC).date() + timedelta(days=5), time(12), UTC
+        ).isoformat(),
         token="tok-42",
     )
 
