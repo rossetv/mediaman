@@ -281,10 +281,11 @@
     if (i) i.className = 'fa-solid fa-' + (icon || 'rotate-right');
   }
 
-  /* Say why the scan stopped beside the button, and in a toast too, since
-     #scan-status is not a live region (its running clock would be read out
-     every few seconds). The button was disabled for the scan, so focus fell
-     to the body. */
+  /* Say why the scan stopped in the status beside the button, and to screen
+     readers through #scan-live, since #scan-status is not a live region (its
+     running clock would be read out every few seconds). A toast stands in
+     only where there is no status to show it. The button was disabled for the
+     scan, so focus fell to the body. */
   function scanStopped(btn, reason, opts) {
     opts = opts || {};
     btn.classList.remove('scan-running');
@@ -301,8 +302,11 @@
         a.textContent = opts.link.text;
         el.appendChild(a);
       }
+    } else if (window.UIFeedback) {
+      window.UIFeedback.error(reason);
     }
-    if (window.UIFeedback) window.UIFeedback.error(reason);
+    var live = document.getElementById('scan-live');
+    if (live) live.textContent = reason;
     if (MM.dom.focusStillIn(btn)) btn.focus();
   }
 

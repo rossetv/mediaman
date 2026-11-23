@@ -152,6 +152,7 @@ function build(tiles, opts) {
   const keeps = [];
   const timers = [];
   const scrolls = [];
+  const toasts = [];
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Date, parseFloat, AbortController,
     setTimeout: (fn) => { timers.push(fn); return timers.length; },
@@ -171,7 +172,7 @@ function build(tiles, opts) {
       }
     },
     UIFeedback: {
-      success() {}, error() {}, toast() {},
+      success() {}, error: (m) => toasts.push(m), toast() {},
       // the dialog hands focus back to what opened it just after it closes
       confirm: () => { setImmediate(() => doc.querySelector('[data-action="clear-scheduled"]').focus()); return Promise.resolve(true); },
     },
@@ -189,7 +190,7 @@ function build(tiles, opts) {
   ['core/dom.js', 'dashboard.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   ctx.MM.api = {
     postForm: () => { const d = deferred(); keeps.push(d); return d.p; },
-    post: () => Promise.resolve({}),
+    post: () => (opts.triggerFails ? Promise.reject(new Error('x')) : Promise.resolve({})),
     get: () => Promise.resolve(opts.status || { running: false, status: 'done' }),
     messageOf: (_, f) => f,
   };
@@ -213,7 +214,7 @@ function build(tiles, opts) {
     return { label: b.querySelector('.scan-btn-label') && b.querySelector('.scan-btn-label').textContent, icon: i && i.className };
   };
   const text = (id) => doc.getElementById(id).textContent;
-  return { doc, ctx, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
+  return { doc, ctx, toasts, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
 }
 
 const scenarios = {
@@ -270,6 +271,22 @@ const scenarios = {
     await flush();
     seen.push(failed.scanBtn());
     return { seen };
+  },
+
+  // a failed scan says so beside the button and to screen readers, not in a toast too
+  async scanFailed() {
+    const run = async (opts) => {
+      const h = build(['a'], opts);
+      h.click(h.doc.getElementById('scan-btn'));
+      await flush();
+      h.runTimers();
+      await flush();
+      return { toasts: h.toasts, status: h.text('scan-status'), live: h.text('scan-live'), label: h.scanBtn().label };
+    };
+    return {
+      polled: await run({ status: { running: false, status: 'error', reason: 'disk' } }),
+      trigger: await run({ triggerFails: true }),
+    };
   },
 
   // keyboard Clear all: focus must not drop to the body

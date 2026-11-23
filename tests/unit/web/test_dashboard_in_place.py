@@ -142,6 +142,14 @@ class TestRefreshInPlace:
         assert all(s["icon"] for s in seen)
         assert "fa-check" in seen[1]["icon"]
 
+    def test_failed_scan_is_told_beside_the_button_not_in_a_toast_too(self):
+        out = _run("scanFailed")
+        for case in (out["polled"], out["trigger"]):
+            assert case["toasts"] == []
+            assert case["status"]
+            assert case["live"] == case["status"]
+            assert case["label"] == "Retry scan"
+
     def test_keyboard_clear_all_keeps_focus_in_the_page(self):
         out = _run("clearAll")
         assert out["busy"] == {"disabled": False, "aria": "true"}
