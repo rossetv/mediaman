@@ -365,7 +365,6 @@
   border-radius: var(--r-md);
   border: 1px solid var(--hair);
 }
-.setg-pg .inline-form[hidden] { display: none; }
 .setg-pg .inline-form-grid {
   display: grid; gap: 12px;
   grid-template-columns: 1fr;
@@ -396,7 +395,6 @@
               padding var(--dur) var(--ease-out),
               border-width var(--dur) var(--ease-out);
 }
-.setg-pg .setg-fold[hidden] { display: none; }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
 /* Clipped only while folding, so focus rings show when it is open. */
 .setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }

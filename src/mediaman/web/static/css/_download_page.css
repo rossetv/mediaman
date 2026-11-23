@@ -69,7 +69,6 @@
   flex-direction: column;
   gap: 20px;
 }
-.dl-content[hidden] { display: none; }
 .dl-quick,
 .dl-ratings {
   display: flex;

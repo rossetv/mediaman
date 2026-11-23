@@ -19,7 +19,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.ttl[hidden] { display: none; }
 .ttl__scrim {
   position: fixed;
   inset: 0;
@@ -83,7 +82,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   background: linear-gradient(160deg, var(--s3), var(--s1));
 }
 .ttl__hero-skel { position: absolute; inset: 0; border-radius: 0; }
-.ttl__hero-skel[hidden] { display: none; }
 .ttl__art {
   position: absolute;
   inset: 0;
@@ -158,7 +156,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (min-width: 900px) { .ttl--admin .ttl__lead { grid-template-columns: minmax(0, 1fr) 280px; } }
 .ttl__main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .ttl__under { display: flex; flex-direction: column; gap: 12px; }
-.ttl__under[hidden] { display: none; }
 .ttl__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ttl__actions .btn { min-height: 44px; }
 .ttl__actions .watch-btn--play,
@@ -290,7 +287,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transform-origin: bottom left;
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.ttl-facts__menu[hidden] { display: none; }
 .ttl-facts__menu.is-open { opacity: 1; transform: none; }
 .ttl-facts__menu .watch-keep-menu__item:hover,
 .ttl-facts__menu .watch-keep-menu__item:focus-visible { background: var(--s4); }
