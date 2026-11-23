@@ -36,8 +36,9 @@ const BATCHES = [
 ];
 
 function recommended(opts = {}) {
-  const out = { ok: true, enabled: opts.enabled !== false, batch: opts.batch || BATCHES[0].id,
-    batches: opts.enabled === false ? [] : BATCHES,
+  const batches = opts.batches || BATCHES;
+  const out = { ok: true, enabled: opts.enabled !== false, batch: opts.batch || batches[0].id,
+    batches: opts.enabled === false ? [] : batches,
     items: opts.items || [card('rec-7', { rec_id: 7, reason: 'Because' }), card('rec-8', { rec_id: 8 })] };
   if (opts.enabled === false) out.items = [];
   if (opts.admin) out.refresh = opts.refresh || { available: true, next_available_at: null, running: false };
@@ -98,8 +99,8 @@ function load(opts = {}) {
     matchMedia: () => ({ matches: true }), // reduced motion: swaps are immediate
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} },
-    innerHeight: 900,
-    innerWidth: 1280,
+    innerHeight: opts.innerHeight || 900,
+    innerWidth: opts.innerWidth || 1280,
     location: { pathname: '/watch', href: '/watch' },
     UIFeedback: { toast: (message, o) => toasts.push({ message, opts: o }) },
     MM: { api: { get: call('GET'), post: call('POST'), messageOf: (e, f) => (e && e.data && e.data.message) || f } },
@@ -322,6 +323,49 @@ const scenarios = {
       cards: section.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
       after: text(p.doc.querySelector('[data-picks-refresh]')),
       toast: p.toasts.map((t) => t.message),
+    };
+  },
+
+  // Seventeen batches on a 390x844 phone, the pill low on the screen: the menu stays on the
+  // screen, scrolls inside, and End brings the last batch into view.
+  async longPicksMenu() {
+    const ITEM = 46;
+    const PAD = 7;
+    const batches = Array.from({ length: 17 }, (_, i) => ({ id: 'b' + i, label: 'Picks', date_label: (i + 1) + ' Oct' }));
+    const p = load({ batches, innerHeight: 844, innerWidth: 390 });
+    await settle();
+    const pill = rec(p.doc).querySelector('[data-picks-menu]');
+    pill.getBoundingClientRect = () => ({ top: 500, bottom: 534, left: 20, right: 120, width: 100, height: 34 });
+    const menu = p.doc.getElementById('watch-picks-menu');
+    const full = batches.length * ITEM + 2 * PAD;
+    menu.scrollTop = 0;
+    Object.defineProperty(menu, 'offsetHeight', { get: () => (menu.style.maxHeight ? parseFloat(menu.style.maxHeight) : full) });
+    const box = () => {
+      const top = parseFloat(menu.style.top);
+      return { top, bottom: top + menu.offsetHeight };
+    };
+    menu.getBoundingClientRect = () => ({ ...box(), left: 0, right: 200, width: 200, height: menu.offsetHeight });
+    menu.querySelectorAll('.watch-keep-menu__item').forEach((item, i) => {
+      item.getBoundingClientRect = () => {
+        const top = box().top + PAD + i * ITEM - menu.scrollTop;
+        return { top, bottom: top + ITEM - 2, left: 0, right: 200, width: 200, height: ITEM - 2 };
+      };
+    });
+    click(p.doc, pill);
+    const opened = box();
+    const items = menu.querySelectorAll('.watch-keep-menu__item');
+    (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'End', preventDefault() {} }));
+    const last = items[items.length - 1];
+    return {
+      full,
+      top: opened.top,
+      bottom: opened.bottom,
+      capped: menu.style.maxHeight,
+      lastFocused: p.doc.activeElement === last,
+      lastTop: last.getBoundingClientRect().top,
+      lastBottom: last.getBoundingClientRect().bottom,
+      menuTop: box().top,
+      menuBottom: box().bottom,
     };
   },
 

@@ -106,6 +106,16 @@ def test_a_refused_refresh_shows_the_reason_inline_and_can_be_tried_again() -> N
     assert (out["label"], out["disabled"]) == ("Refresh picks", None)
 
 
+def test_a_long_picks_menu_stays_on_screen_and_scrolls_to_the_focused_batch() -> None:
+    out = _run("longPicksMenu")
+    assert out["top"] >= 0
+    assert out["bottom"] <= 500  # above the pill, the side with the room
+    assert out["capped"] and float(out["capped"].removesuffix("px")) < out["full"]
+    assert out["lastFocused"] is True
+    assert out["menuTop"] <= out["lastTop"]
+    assert out["lastBottom"] <= out["menuBottom"]
+
+
 def test_a_session_lost_while_refreshing_goes_to_login() -> None:
     assert _run("refreshLoggedOut")["href"] == "/login"
 

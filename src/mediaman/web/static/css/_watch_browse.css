@@ -80,7 +80,8 @@
   .row-tool::after { inset: -4px -2px; }
 }
 
-/* The menu of earlier picks: the Keep menu, with a tick on the batch shown. */
+/* The menu of earlier picks: the Keep menu, with a tick on the batch shown.
+   A long list scrolls inside the room place() leaves it. */
 .rec-menu { min-width: 210px; }
 .rec-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 10px; }
 .rec-menu .watch-keep-menu__item > .fa-check { width: 14px; font-size: 12px; color: var(--accent); }

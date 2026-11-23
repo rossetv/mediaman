@@ -155,22 +155,42 @@
     }
 
     /* Open below the trigger, or above it when that is where the room is,
-       and stay clear of the phone's bottom tab bar. Right-aligned to a
+       and stay clear of the sticky top bar and the phone's bottom tab bar.
+       A menu taller than the room scrolls inside it. Right-aligned to a
        trigger at the right of the screen. */
     function place(trigger) {
       var gap = 6;
       var edge = 8;
       var rect = trigger.getBoundingClientRect();
-      var bottom = clearArea().bottom;
+      var area = clearArea();
+      var scrolled = node.scrollTop;
+      node.style.maxHeight = '';
       var w = node.offsetWidth;
       var h = node.offsetHeight;
-      var top = rect.bottom + gap;
-      var above = top + h > bottom - edge && rect.top - gap - h > edge;
-      if (above) top = rect.top - gap - h;
+      var below = area.bottom - edge - (rect.bottom + gap);
+      var room = rect.top - gap - (area.top + edge);
+      var above = h > below && room > below;
+      var fits = Math.max(0, Math.floor(above ? room : below));
+      if (h > fits) {
+        h = fits;
+        node.style.maxHeight = fits + 'px';
+        node.scrollTop = scrolled;
+      }
+      var top = above ? rect.top - gap - h : rect.bottom + gap;
       var left = Math.max(edge, Math.min(rect.left, window.innerWidth - w - edge));
       node.classList.toggle('is-above', above);
       node.style.top = top + 'px';
       node.style.left = left + 'px';
+    }
+
+    /* Focus *item* and scroll the menu, not the page, just enough to show it. */
+    function focusItem(item) {
+      item.focus({ preventScroll: true });
+      var box = node.getBoundingClientRect();
+      var inset = (parseFloat(getComputedStyle(node).paddingTop) + node.clientTop) || 0;
+      var r = item.getBoundingClientRect();
+      if (r.top < box.top + inset) node.scrollTop -= box.top + inset - r.top;
+      else if (r.bottom > box.bottom - inset) node.scrollTop += r.bottom - (box.bottom - inset);
     }
 
     function close(refocus) {
@@ -201,7 +221,7 @@
       node.classList.add('is-open');
       var list = items();
       var first = list.filter(function (i) { return i.getAttribute('aria-checked') === 'true'; })[0] || list[0];
-      if (first) first.focus({ preventScroll: true });
+      if (first) focusItem(first);
     }
 
     document.addEventListener('click', function (e) {
@@ -230,17 +250,17 @@
       if (e.key === 'Tab') { close(true); return; }
       var list = items();
       var idx = list.indexOf(document.activeElement);
-      if (e.key === 'ArrowDown') list[(idx + 1) % list.length].focus();
-      else if (e.key === 'ArrowUp') list[(idx - 1 + list.length) % list.length].focus();
-      else if (e.key === 'Home') list[0].focus();
-      else if (e.key === 'End') list[list.length - 1].focus();
+      if (e.key === 'ArrowDown') focusItem(list[(idx + 1) % list.length]);
+      else if (e.key === 'ArrowUp') focusItem(list[(idx - 1 + list.length) % list.length]);
+      else if (e.key === 'Home') focusItem(list[0]);
+      else if (e.key === 'End') focusItem(list[list.length - 1]);
       else return;
       e.preventDefault();
     });
 
     var queued = false;
-    function follow() {
-      if (!openTrigger || queued) return;
+    function follow(e) {
+      if (!openTrigger || queued || (e && e.target === node)) return;
       queued = true;
       window.requestAnimationFrame(function () {
         queued = false;

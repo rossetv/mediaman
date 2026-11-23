@@ -455,7 +455,8 @@
 .watch-keep[disabled],
 .watch-keep[aria-disabled="true"] { opacity: .55; cursor: progress; }
 
-/* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it. */
+/* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it.
+   place() caps its height to the room on screen; a longer list scrolls. */
 .watch-keep-menu {
   position: fixed;
   z-index: var(--z-dropdown);
@@ -468,6 +469,8 @@
   border: 1px solid var(--hair-strong);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   opacity: 0;
   transform: translateY(-4px) scale(.98);
   transform-origin: top left;
@@ -477,6 +480,7 @@
 .watch-keep-menu.is-above { transform: translateY(4px) scale(.98); transform-origin: bottom left; }
 .watch-keep-menu.is-open { opacity: 1; transform: none; pointer-events: auto; }
 .watch-keep-menu__item {
+  flex: none;
   min-height: 44px;
   padding: 0 14px;
   text-align: left;
