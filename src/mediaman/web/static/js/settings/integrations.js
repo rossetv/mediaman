@@ -147,10 +147,10 @@
                 // err is an APIError with .status and .message. 429 is the
                 // common case here; staggering above reduces occurrences, but
                 // show it distinctly if it still fires.
-                var label;
-                if (err && err.status === 429)         label = 'Rate limited';
-                else                                   label = MM.api.messageOf(err, 'Connection failed');
-                self.setConnStatus(c.service, 'err', label);
+                // A throttled service is not a disconnected one, so it gets the
+                // warning tone, which the rail badge does not count.
+                if (err && err.status === 429) self.setConnStatus(c.service, 'warn', 'Rate limited');
+                else self.setConnStatus(c.service, 'err', MM.api.messageOf(err, 'Connection failed'));
               });
           }, idx * 200);
         });

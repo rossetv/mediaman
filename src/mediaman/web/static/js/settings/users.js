@@ -95,11 +95,15 @@
       function appendNewUsers() {
         return loadUsers().then(function (users) {
           if (!userList) return;
+          // Each new row goes right after the row the server lists before it.
+          var prev = null;
           users.forEach(function (user) {
-            if (userList.querySelector('.usr-row[data-user-id="' + user.id + '"]')) return;
+            var existing = userList.querySelector('.usr-row[data-user-id="' + user.id + '"]');
+            if (existing) { prev = existing; return; }
             Array.prototype.forEach.call(userList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
             var row = buildRow(user);
-            userList.appendChild(row);
+            userList.insertBefore(row, prev ? prev.nextSibling : userList.firstChild);
+            prev = row;
             MM.settings.rows.enter(row);
           });
         });
@@ -155,9 +159,7 @@
           roleBtn.className = 'btn btn--ghost btn--sm';
           roleBtn.dataset.userAction = 'role';
           roleBtn.textContent = isAdmin ? 'Make viewer' : 'Make admin';
-          roleBtn.setAttribute('aria-label', isAdmin
-            ? 'Make ' + user.username + ' a viewer'
-            : 'Make ' + user.username + ' an admin');
+          roleBtn.setAttribute('aria-label', roleBtn.textContent + ': ' + user.username);
           roleBtn.addEventListener('click', function () {
             changeRoleFlow(user, isAdmin ? 'viewer' : 'admin', row, roleBtn);
           });
@@ -168,7 +170,7 @@
           del.className = 'link-danger';
           del.dataset.userAction = 'delete';
           del.textContent = 'Delete';
-          del.setAttribute('aria-label', 'Delete ' + user.username);
+          del.setAttribute('aria-label', 'Delete: ' + user.username);
           del.addEventListener('click', function () { deleteUserFlow(user, row, del); });
           actions.appendChild(del);
 
@@ -181,6 +183,7 @@
         var label = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Saving…';
+        btn.setAttribute('aria-label', 'Saving…: ' + user.username);
         MM.reauth.run(function () {
           return MM.api.patch('/api/users/' + user.id + '/role', { role: role });
         }).then(function () {
@@ -193,6 +196,7 @@
           var keepFocus = MM.dom.focusStillIn(btn);
           btn.disabled = false;
           btn.textContent = label;
+          btn.setAttribute('aria-label', label + ': ' + user.username);
           if (keepFocus) btn.focus();
           if (err && err.error === 'reauth_cancelled') return;
           window.UIFeedback.error(MM.api.messageOf(err, 'Could not change role'));
@@ -214,6 +218,7 @@
           if (!ok) return;
           btn.disabled = true;
           btn.textContent = 'Deleting…';
+          btn.setAttribute('aria-label', 'Deleting…: ' + user.username);
           MM.reauth.run(function () {
             return MM.api.delete('/api/users/' + user.id);
           }).then(function () {
@@ -226,6 +231,7 @@
             var keepFocus = MM.dom.focusStillIn(btn);
             btn.disabled = false;
             btn.textContent = 'Delete';
+            btn.setAttribute('aria-label', 'Delete: ' + user.username);
             if (keepFocus) btn.focus();
             if (err && err.error === 'reauth_cancelled') return;
             window.UIFeedback.error(
@@ -235,7 +241,9 @@
         });
       }
 
-      // Only one of the account and team forms is open at a time.
+      // Only one of the account and team forms is open at a time. A form whose
+      // request is in flight stays open, so its result lands where it can be
+      // seen; it closes itself when it finishes.
       var closers = [];
       function closeOthers(keep) {
         closers.forEach(function (close) { if (close !== keep) close(); });
@@ -279,16 +287,17 @@
         addUserForm.hidden = !wantOpen;
         if (wantOpen) { document.getElementById('new-username').focus(); }
         else {
+          addUserForm.reset();
           ['new-username', 'new-user-password'].forEach(function (id) {
             var el = document.getElementById(id);
-            if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
+            if (el) el.dispatchEvent(new Event('input'));
           });
           selectRole('viewer');
           if (createResult) { createResult.textContent = ''; createResult.className = 'inline-form-msg'; }
         }
       }
       function closeAddUser() { if (addUserForm && !addUserForm.hidden) toggleAddUser(false); }
-      closers.push(closeAddUser);
+      closers.push(function () { if (!(btnSubmitAddUser && btnSubmitAddUser.disabled)) closeAddUser(); });
       if (btnAddUser)       btnAddUser.addEventListener('click', function () { toggleAddUser(); });
       if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {
         toggleAddUser(false);
@@ -353,15 +362,16 @@
         pwForm.hidden = !wantOpen;
         if (wantOpen) { document.getElementById('self-old-password').focus(); }
         else {
+          pwForm.reset();
           ['self-old-password', 'self-new-password', 'self-confirm-password'].forEach(function (id) {
             var el = document.getElementById(id);
-            if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
+            if (el) el.dispatchEvent(new Event('input'));
           });
           if (pwResult) { pwResult.textContent = ''; pwResult.className = 'inline-form-msg'; }
         }
       }
       function closePwForm() { if (pwForm && !pwForm.hidden) togglePwForm(false); }
-      closers.push(closePwForm);
+      closers.push(function () { if (!(btnSubmitPw && btnSubmitPw.disabled)) closePwForm(); });
       if (btnChangePw) btnChangePw.addEventListener('click', function () { togglePwForm(); });
       if (btnCancelPw) btnCancelPw.addEventListener('click', function () {
         togglePwForm(false);
@@ -525,10 +535,11 @@
         function hide() {
           if (form.hidden) return;
           form.hidden = true;
+          form.reset();
           msg.textContent = '';
           msg.className = 'inline-form-msg';
         }
-        closers.push(hide);
+        closers.push(function () { if (!submit.disabled) hide(); });
 
         btn.addEventListener('click', function () {
           if (form.hidden) show(); else hide();
@@ -550,6 +561,8 @@
             msg.textContent = 'Saved';
             msg.className = 'inline-form-msg ok';
             var newVal = emailInp.value.trim();
+            // Closing resets the form, so what was saved becomes its starting value.
+            emailInp.defaultValue = newVal;
             if (display) {
               display.textContent = newVal || 'Not set · download alerts disabled';
             }

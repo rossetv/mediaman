@@ -63,11 +63,15 @@
       function appendNewSubscribers() {
         return MM.api.get('/api/subscribers').then(function (data) {
           if (!subList) return;
+          // Each new row goes right after the row the server lists before it.
+          var prev = null;
           (data.subscribers || []).forEach(function (s) {
-            if (subList.querySelector('.sub-row[data-id="' + s.id + '"]')) return;
+            var existing = subList.querySelector('.sub-row[data-id="' + s.id + '"]');
+            if (existing) { prev = existing; return; }
             Array.prototype.forEach.call(subList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
             var row = buildRow(s);
-            subList.appendChild(row);
+            subList.insertBefore(row, prev ? prev.nextSibling : subList.firstChild);
+            prev = row;
             MM.settings.rows.enter(row);
           });
         });
@@ -97,7 +101,7 @@
         rm.type = 'button';
         rm.className = 'link-danger';
         rm.textContent = 'Remove';
-        rm.setAttribute('aria-label', 'Remove ' + s.email);
+        rm.setAttribute('aria-label', 'Remove: ' + s.email);
         rm.addEventListener('click', function () { removeSubscriber(s, row, rm); });
         row.appendChild(rm);
         return row;
@@ -113,6 +117,7 @@
           if (!ok) return;
           btn.disabled = true;
           btn.textContent = 'Removing…';
+          btn.setAttribute('aria-label', 'Removing…: ' + s.email);
           MM.api.delete('/api/subscribers/' + s.id)
             .then(function () {
               MM.settings.rows.leave(row, {
@@ -126,6 +131,7 @@
               var keepFocus = MM.dom.focusStillIn(btn);
               btn.disabled = false;
               btn.textContent = 'Remove';
+              btn.setAttribute('aria-label', 'Remove: ' + s.email);
               if (keepFocus) btn.focus();
               window.UIFeedback.error(MM.api.messageOf(err, "Couldn't remove subscriber."));
             });

@@ -53,7 +53,10 @@
     void row.offsetHeight;
     row.classList.add('is-leaving');
     row.style.height = '0px';
-    row.addEventListener('transitionend', function (e) { if (e.target === row) finish(); });
+    // The opacity fade ends first; the row is gone only when the height has closed.
+    row.addEventListener('transitionend', function (e) {
+      if (e.target === row && e.propertyName === 'height') finish();
+    });
     // transitionend never fires when the row is hidden or the transition is cut short.
     setTimeout(finish, 400);
   }
