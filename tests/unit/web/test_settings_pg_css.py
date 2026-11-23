@@ -59,3 +59,12 @@ def test_small_buttons_are_44px_on_phones() -> None:
 def test_integration_chevron_uses_the_motion_tokens() -> None:
     chev = _declarations(".setg-pg .intg-card-hd .intg-chev")
     assert "var(--dur)" in chev and "var(--ease-out)" in chev
+
+
+def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    rules = re.findall(r"html:has\(\.setg-pg\)\s*\{([^{}]*)\}", css)
+    assert len(rules) == 2
+    assert all("scroll-padding-top" in body for body in rules)
+    # the phone rule reaches past the top bar and the chip strip (48 + 65 px)
+    assert "48px + 65px" in rules[1]

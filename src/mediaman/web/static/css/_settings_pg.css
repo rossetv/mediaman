@@ -136,6 +136,13 @@
 @media (max-width: 960px) {
   .setg-pg .setg-block { scroll-margin-top: calc(var(--nav-h) + 76px); }
 }
+/* A focused control the browser scrolls into view must clear the sticky bars. The
+   scroller is <html>, so the padding is scoped by the page it holds. */
+html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
+@media (max-width: 960px) {
+  /* top bar (48) + chip strip (65, as laid out above) + a gap */
+  html:has(.setg-pg) { scroll-padding-top: calc(48px + 65px + 12px); }
+}
 .setg-pg .setg-block-hd {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
