@@ -465,6 +465,16 @@ class TestTmdbTitle:
         assert body["reason"] == "Because."
         assert body["download"]["request"] == {"url": f"/api/recommended/{rec_id}/download"}
 
+    def test_a_pick_without_a_tmdb_id_answers_its_own_text_as_it_was_stored(
+        self, viewer, library, tmdb, arr
+    ):
+        title, description = "<!--<script>", "Fish & chips</script><b>bold</b>"
+        rec_id = insert_suggestion(library, title=title, description=description, tmdb_id=None)
+
+        body = viewer.get(f"/api/watch/title/rec-{rec_id}").json()
+
+        assert (body["title"], body["overview"]) == (title, description)
+
     def test_past_the_limit_only_a_title_tmdb_must_answer_is_refused(
         self, viewer, tmdb, arr, monkeypatch
     ):

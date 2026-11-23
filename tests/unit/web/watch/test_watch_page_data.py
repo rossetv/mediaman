@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import mediaman
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.watch import pages
-from tests.helpers.factories import insert_admin_user
+from tests.helpers.factories import insert_admin_user, insert_suggestion
 
 _TEMPLATES = Path(mediaman.__file__).parent / "web" / "templates"
 _QUERY = "</script><!--<script>x & 'y'"
@@ -44,3 +44,29 @@ def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_fa
         "q": _QUERY,
         "settings_tmdb_href": None,
     }
+
+
+def test_picks_are_not_embedded_in_the_page_so_their_text_never_reaches_the_markup(
+    app_factory, conn
+):
+    insert_admin_user(conn, username="admin", role="admin")
+    insert_suggestion(
+        conn, title="<!--<script>", description="Fish & chips</script><b>bold</b>", tmdb_id=1
+    )
+    conn.commit()
+    app = app_factory(
+        pages.router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATES))},
+    )
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "admin"))
+
+    resp = client.get("/watch")
+
+    assert resp.status_code == 200
+    (embedded,) = _ISLAND.findall(resp.text)
+    for ch in "<>&'":
+        assert ch not in embedded
+    assert "<!--<script>" not in resp.text
+    assert "Fish &" not in resp.text and "<b>bold</b>" not in resp.text

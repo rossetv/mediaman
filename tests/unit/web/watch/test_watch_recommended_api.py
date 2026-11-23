@@ -144,6 +144,14 @@ class TestCards:
         assert item["in_library"] is False
         assert item["download_state"] is None
 
+    def test_a_pick_title_with_markup_comes_back_as_it_was_stored(self, viewer, conn):
+        insert_suggestion(conn, title="<!--<script>", tmdb_id=101, batch_id="2099-01-01")
+        conn.commit()
+
+        (item,) = _get(viewer)["items"]
+
+        assert item["title"] == "<!--<script>"
+
     def test_a_pick_the_library_holds_uses_the_library_ref(self, viewer, conn):
         insert_media_item(conn, id="100", plex_rating_key="100", title="Arrival")
         conn.execute("UPDATE media_items SET tmdb_id = 100 WHERE id = '100'")
