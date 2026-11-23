@@ -198,9 +198,13 @@ def _keep_context(
     rating_key = item_dict.get("plex_rating_key")
     poster_url = sign_poster_url(rating_key, secret_key) if rating_key else ""
 
+    item_dict["snoozed_display"] = format_added_display(item_dict["snoozed_at"])
+
     return {
         "state": state,
         "item": item_dict,
+        # Set on the redirect after a keep, so the page can say what just happened.
+        "just_kept": request.query_params.get("kept") == "1",
         "poster_url": poster_url,
         "token": token,
         "is_admin": _is_admin(request),
@@ -337,7 +341,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if failure is not None:
         return _submit_failure(request, "already_processed", 409, token)
 
-    return RedirectResponse(f"/keep/{token}", status_code=302)
+    return RedirectResponse(f"/keep/{token}?kept=1", status_code=302)
 
 
 @router.post("/api/keep/{token}/forever")
