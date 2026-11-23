@@ -442,7 +442,7 @@
   color: var(--t1);
   font-size: 14px;
 }
-.watch-pill:hover { background: color-mix(in srgb, var(--t1) 2%, transparent); }
+.watch-pill:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
 
 .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
