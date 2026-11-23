@@ -56,6 +56,10 @@ P = ParamSpec("P")
 RECENT_DAYS = 30
 # How many already-watched episodes to step over when looking for the next unwatched one.
 _NEXT_LOOKAHEAD = 20
+# The Continue watching row stops filling at this many cards, and a page load makes at most
+# this many Plex lookups for it however long the person's history is.
+_CONTINUE_LIMIT = 20
+_PLEX_LOOKUP_BUDGET = 30
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 
 
@@ -204,22 +208,28 @@ def _is_admin(conn: sqlite3.Connection, username: str) -> bool:
 
 
 def _next_unwatched(
-    plex: PlexWatch, episode_key: str, progress: dict[str, WatchProgress]
+    next_episode: Callable[[str], PlexEpisode | None],
+    episode_key: str,
+    progress: dict[str, WatchProgress],
 ) -> PlexEpisode | None:
     """The first episode after *episode_key* this person has not watched; None if there is none."""
-    episode = plex.next_episode(episode_key)
+    episode = next_episode(episode_key)
     for _ in range(_NEXT_LOOKAHEAD):
         if episode is None:
             return None
         seen = progress.get(episode.rating_key)
         if seen is None or not seen.watched:
             return episode
-        episode = plex.next_episode(episode.rating_key)
+        episode = next_episode(episode.rating_key)
     return None
 
 
 def _get_item(plex: PlexWatch, rating_key: str) -> PlexItem:
     return plex.get_item(rating_key)
+
+
+def _next_episode(plex: PlexWatch, rating_key: str) -> PlexEpisode | None:
+    return plex.next_episode(rating_key)
 
 
 class _OptionalPlex:
@@ -230,13 +240,19 @@ class _OptionalPlex:
         self._request = request
         self._conn = conn
         self._plex: PlexWatch | None = None
+        self._lookups = 0
         self.error = error
+
+    @property
+    def exhausted(self) -> bool:
+        return self._lookups >= _PLEX_LOOKUP_BUDGET
 
     def call(
         self, fn: Callable[Concatenate[PlexWatch, P], T], *args: P.args, **kwargs: P.kwargs
     ) -> T | None:
-        if self.error is not None:
+        if self.error is not None or self.exhausted:
             return None
+        self._lookups += 1
         try:
             if self._plex is None:
                 self._plex = open_plex(self._request, self._conn)
@@ -263,6 +279,8 @@ def _continue_watching(
     cards: list[dict[str, Any]] = []
     banner: dict[str, Any] | None = None
     for entry in continue_watching(conn, username):
+        if len(cards) >= _CONTINUE_LIMIT:
+            break
         progress = entry.progress
         key = progress.rating_key
         if progress.show_rating_key is None:
@@ -291,7 +309,7 @@ def _continue_watching(
             continue
         if entry.find_next:
             watched = show_progress(conn, username, show.key)
-            episode = plex.call(_next_unwatched, key, watched)
+            episode = _next_unwatched(lambda k: plex.call(_next_episode, k), key, watched)
             if episode is not None:
                 cards.append(
                     card(
@@ -305,7 +323,7 @@ def _continue_watching(
             continue
 
         item = plex.call(_get_item, key)
-        if item is None and plex.error is None:
+        if item is None and plex.error is None and not plex.exhausted:
             continue  # the episode is gone from Plex
         pct, left = progress_fields(progress)
         left_text = f"{left} min left" if left else ""
@@ -459,7 +477,7 @@ def _primary_episode(
                 return {"label": f"Play {label}", "href": play_href(last.rating_key)}, (
                     item.parent_index
                 )
-            episode = _next_unwatched(plex, last.rating_key, progress)
+            episode = _next_unwatched(plex.next_episode, last.rating_key, progress)
             if episode is not None:
                 label = episode_label(episode.season_index, episode.index)
                 return {"label": f"Play {label}", "href": play_href(episode.rating_key)}, (

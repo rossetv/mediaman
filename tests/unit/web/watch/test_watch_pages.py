@@ -328,6 +328,41 @@ class TestWatchRows:
             }
         ]
 
+    def test_a_long_history_of_finished_shows_makes_a_bounded_number_of_plex_calls(
+        self, get, conn, plex, monkeypatch
+    ):
+        calls: list[str] = []
+        real = plex.next_episode
+        monkeypatch.setattr(plex, "next_episode", lambda key: calls.append(key) or real(key))
+        for n in range(60):
+            show = str(3000 + n)
+            insert_media_item(
+                conn,
+                id=f"s{n}",
+                plex_rating_key=f"s{n}",
+                title=f"Show {n}",
+                show_title=f"Show {n}",
+                media_type="tv_season",
+                season_number=1,
+                show_rating_key=show,
+                plex_library_id=1,
+            )
+            _play(conn, "aoife", f"e{n}", position=3000, duration=3000, item=f"s{n}", show=show)
+
+        assert get("/watch").status_code == 200
+        assert 0 < len(calls) <= pages._PLEX_LOOKUP_BUDGET
+
+    def test_continue_watching_stops_filling_at_its_cap(self, get, conn):
+        for n in range(30):
+            _play(conn, "aoife", f"{4000 + n}", position=600, duration=6000, item=f"{4000 + n}")
+            insert_media_item(
+                conn, id=f"{4000 + n}", plex_rating_key=f"{4000 + n}", title=f"Film {n}"
+            )
+
+        cw = _rows(get("/watch").json())["Continue watching"]
+
+        assert len(cw) == pages._CONTINUE_LIMIT
+
     def test_show_with_nothing_left_drops_out(self, get, conn):
         _play(conn, "aoife", "611", position=3000, duration=3000, item="601", show="600")
 
