@@ -178,7 +178,10 @@
   overflow-wrap: anywhere;
 }
 .watch-card__poster > .watch-bar { z-index: 2; height: 4px; }
-.watch-card__sub { font-size: 12px; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-card__sub {
+  font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
 
 .watch-badge {
   position: absolute;
