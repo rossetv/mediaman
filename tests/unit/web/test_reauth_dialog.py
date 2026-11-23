@@ -58,3 +58,7 @@ def test_dialog_buttons_are_44px_tall_on_a_phone() -> None:
     css = (_CSS / "_buttons.css").read_text()
     phone = css.split("@media (max-width: 699.98px) {")[1].split("\n}")[0]
     assert re.search(r"(^|,)\s*\.btn,[^{]*\{ min-height: 44px; \}", phone)
+
+
+def test_cancelling_the_dialog_returns_focus_to_the_control_that_asked() -> None:
+    assert _run("focusReturn") == {"restored": True}

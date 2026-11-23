@@ -41,6 +41,8 @@
     }
 
     if (closeOpen) closeOpen();
+    /* The dialog does not trap focus, so on close it hands it back to what had it. */
+    var opener = document.activeElement;
     document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
 
     var backdrop = document.createElement('div');
@@ -108,6 +110,7 @@
       useModalA11y: false,
       onClose: function () {
         input.value = '';
+        if (opener && opener !== document.body && opener.focus) opener.focus();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
         setTimeout(function () { backdrop.remove(); }, 400);
