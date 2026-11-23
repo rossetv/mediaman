@@ -62,7 +62,7 @@
   var settleTimers = new WeakMap();
   var HAS_SCROLLEND = 'onscrollend' in window;
   var SETTLE_MS = 300; // without scrollend: quiet this long means the scroll ended
-  var JUMP_SCREENS = 3; // Home/End farther than this many row widths jump at once
+  var JUMP_PX = 500; // Chrome's smooth scroll takes about half a second at this distance
 
   function settle(scroller) {
     heading.delete(scroller);
@@ -97,7 +97,7 @@
   function moveTo(scroller, left) {
     var max = scroller.scrollWidth - scroller.clientWidth;
     left = Math.max(0, Math.min(max, left));
-    goTo(scroller, left, Math.abs(left - scroller.scrollLeft) > JUMP_SCREENS * scroller.clientWidth);
+    goTo(scroller, left, Math.abs(left - scroller.scrollLeft) > JUMP_PX);
   }
 
   function pageBy(scroller, direction) {
