@@ -230,6 +230,22 @@ def test_undo_leaves_a_keep_changed_since_alone(client, conn):
     assert _action(conn, action_id)["snooze_duration"] == "90 days"
 
 
+def test_undo_leaves_a_row_turned_into_a_forever_keep_alone(client, conn):
+    action_id = _schedule(conn)
+    client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+    conn.execute(
+        "UPDATE scheduled_actions SET action = 'protected_forever' WHERE id = ?", (action_id,)
+    )
+    conn.commit()
+    row_sql = "SELECT * FROM scheduled_actions WHERE id = ?"
+    before = dict(conn.execute(row_sql, (action_id,)).fetchone())
+
+    resp = client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+
+    assert resp.status_code == 409
+    assert dict(conn.execute(row_sql, (action_id,)).fetchone()) == before
+
+
 @pytest.mark.parametrize("media_item_id", [None, 100, "", "../etc"])
 def test_undo_refuses_a_bad_item_id(client, media_item_id):
     resp = client.post("/api/watch/unkeep", json={"media_item_id": media_item_id})

@@ -1,7 +1,7 @@
 """Shared service helpers for the ``scheduled_actions`` table.
 
 The single source of truth for execute-at parsing, the token-hash insert
-into ``keep_tokens_used``, the guarded snooze/forever UPDATEs and the
+into ``keep_tokens_used``, the guarded snooze/forever UPDATEs and the snooze undo and the
 human-readable expiry formatter, so the route layer stays thin.
 
 All DB-bound helpers take ``conn: sqlite3.Connection`` as the first
@@ -33,6 +33,7 @@ from mediaman.services.scheduled_actions._mutations import (
     apply_keep_snooze,
     is_pending_unexpired,
     parse_execute_at,
+    revert_keep_snooze,
 )
 from mediaman.services.scheduled_actions._types import (
     KeepDecision,
@@ -53,5 +54,6 @@ __all__ = [
     "mark_token_consumed",
     "parse_execute_at",
     "resolve_keep_decision",
+    "revert_keep_snooze",
     "token_hash",
 ]
