@@ -196,7 +196,6 @@ def test_an_unreadable_entry_is_refetched(cache):
 
 def test_past_the_cap_the_least_recently_used_entries_are_swept(cache, monkeypatch):
     store = disk_cache.img()
-    monkeypatch.setattr(disk_cache, "_SWEEP_EVERY", 1)
     monkeypatch.setattr(store, "max_bytes", 3500)
     for n, key in enumerate(["a", "b", "c"]):
         store.get_or_fetch(key, DAY, DAY, Fetcher((b"x" * 1000, {})))
@@ -338,8 +337,7 @@ def test_a_backed_off_error_keeps_its_attributes():
     assert again.value.status_code == 404
 
 
-def test_the_sweep_removes_old_temp_files_and_keeps_fresh_ones(cache, monkeypatch):
-    monkeypatch.setattr(disk_cache, "_SWEEP_EVERY", 1)
+def test_startup_removes_old_temp_files_and_keeps_fresh_ones(cache, tmp_path):
     folder = cache / "meta"
     old = folder / "abandoned.tmp"
     live = folder / "writing.tmp"
@@ -347,10 +345,37 @@ def test_the_sweep_removes_old_temp_files_and_keeps_fresh_ones(cache, monkeypatc
     live.write_bytes(b"half")
     os.utime(old, (1000, 1000))
 
-    disk_cache.meta().get_or_fetch("k", DAY, DAY, Fetcher("v"))
+    disk_cache.init(tmp_path)
 
     assert not old.exists()
     assert live.exists()
+
+
+def _stored_bytes(folder) -> int:
+    return sum(p.stat().st_size for p in folder.iterdir())
+
+
+def test_no_write_leaves_the_store_over_its_cap_by_more_than_one_entry(cache, monkeypatch):
+    store = disk_cache.img()
+    monkeypatch.setattr(store, "max_bytes", 10_000)
+    largest = 0
+    for n in range(60):
+        store.get_or_fetch(f"k{n}", DAY, DAY, Fetcher((b"x" * 1000, {})))
+        largest = max(largest, (cache / "img" / _name(f"k{n}")).stat().st_size)
+        assert _stored_bytes(cache / "img") <= 10_000 + largest
+
+
+def test_the_cap_counts_what_was_stored_before_a_restart(cache, tmp_path, monkeypatch):
+    store = disk_cache.img()
+    for n in range(8):
+        store.get_or_fetch(f"k{n}", DAY, DAY, Fetcher((b"x" * 1000, {})))
+    monkeypatch.setattr(store, "_bytes", 0)  # a fresh process knows nothing yet
+    monkeypatch.setattr(store, "max_bytes", 5000)
+
+    disk_cache.init(tmp_path)
+    store.get_or_fetch("after", DAY, DAY, Fetcher((b"x" * 100, {})))
+
+    assert _stored_bytes(cache / "img") <= 5000
 
 
 def test_each_waiter_on_a_failed_fetch_gets_its_own_copy_of_the_error(monkeypatch):

@@ -19,9 +19,10 @@ client.
 Until ``init`` names the data dir (at startup) nothing is stored and every call fetches.
 Set ``sync = True`` (tests) to run the background refresh inline.
 
-Each store is capped; every ``_SWEEP_EVERY`` writes a non-blocking sweep deletes the
-least recently used files (by mtime, which a hit bumps) down to 90% of the cap, and any
-temp file a crashed write left behind.
+Each store is capped. It keeps a running total of its bytes, counted afresh by ``init``;
+a write that takes the total past the cap starts a non-blocking sweep, which deletes the
+least recently used files (by mtime, which a hit bumps) down to 90% of the cap. ``init``
+and each sweep also delete any temp file a crashed write left behind.
 """
 
 from __future__ import annotations
@@ -48,7 +49,6 @@ Image = tuple[bytes, dict[str, str]]
 
 BACKOFF_S = 60.0
 _BACKOFF_MAX_KEYS = 1024
-_SWEEP_EVERY = 50
 _TMP_MAX_AGE_S = 600.0
 _META_MAX_BYTES = 64 * 1024 * 1024
 _IMG_MAX_BYTES = 1024 * 1024 * 1024
@@ -80,7 +80,7 @@ class Store[T]:
         self.max_bytes = max_bytes
         self._encode = encode
         self._decode = decode
-        self._writes = 0
+        self._bytes = 0
         self._sweep_lock = threading.Lock()
 
     def get_or_fetch(
@@ -202,11 +202,16 @@ class Store[T]:
     def _write(self, path: Path, value: T) -> None:
         payload, info = self._encode(value)
         header = json.dumps({"t": time.time(), "i": info}).encode()
+        entry = header + b"\n" + payload
         temp: str | None = None
         try:
             with tempfile.NamedTemporaryFile(dir=path.parent, delete=False, suffix=".tmp") as f:
                 temp = f.name
-                f.write(header + b"\n" + payload)
+                f.write(entry)
+            try:
+                replaced = path.stat().st_size
+            except OSError:
+                replaced = 0
             os.replace(temp, path)
             temp = None
         except OSError:
@@ -215,45 +220,58 @@ class Store[T]:
                 with contextlib.suppress(OSError):
                     os.remove(temp)
             return
-        self._maybe_sweep(path.parent)
-
-    def _maybe_sweep(self, directory: Path) -> None:
         with _guard:
-            self._writes += 1
-            if self._writes < _SWEEP_EVERY:
-                return
-            self._writes = 0
+            self._bytes += len(entry) - replaced
+            over = self._bytes > self.max_bytes
+        if over:
+            self._sweep(path.parent)
+
+    def _count(self, directory: Path) -> None:
+        """Set the running total from the files on disk."""
+        total = sum(size for _, size, _ in _entries(directory))
+        with _guard:
+            self._bytes = total
+
+    def _sweep(self, directory: Path) -> None:
         if not self._sweep_lock.acquire(blocking=False):
             return
         try:
-            entries: list[tuple[float, int, Path]] = []
-            tmp_cutoff = time.time() - _TMP_MAX_AGE_S
-            for entry in directory.iterdir():
-                try:
-                    st = entry.stat()
-                except OSError:
-                    continue
-                if entry.suffix == ".tmp":
-                    # Left behind by a write a crash cut short; a live one is seconds old.
-                    if st.st_mtime < tmp_cutoff:
-                        with contextlib.suppress(OSError):
-                            entry.unlink()
-                    continue
-                entries.append((st.st_mtime, st.st_size, entry))
+            entries = _entries(directory)
             total = sum(size for _, size, _ in entries)
-            if total <= self.max_bytes:
-                return
-            target = int(self.max_bytes * 0.9)
-            for _, size, entry in sorted(entries, key=lambda e: e[0]):
-                if total <= target:
-                    break
-                with contextlib.suppress(OSError):
-                    entry.unlink()
-                    total -= size
+            if total > self.max_bytes:
+                target = int(self.max_bytes * 0.9)
+                for _, size, entry in sorted(entries, key=lambda e: e[0]):
+                    if total <= target:
+                        break
+                    with contextlib.suppress(OSError):
+                        entry.unlink()
+                        total -= size
+            with _guard:
+                self._bytes = total
         except OSError:
             logger.debug("Sweeping the %s cache failed", self.name, exc_info=True)
         finally:
             self._sweep_lock.release()
+
+
+def _entries(directory: Path) -> list[tuple[float, int, Path]]:
+    """(mtime, size, path) of each entry in *directory*, deleting on the way any temp file
+    a crashed write left behind."""
+    entries: list[tuple[float, int, Path]] = []
+    tmp_cutoff = time.time() - _TMP_MAX_AGE_S
+    for entry in directory.iterdir():
+        try:
+            st = entry.stat()
+        except OSError:
+            continue
+        if entry.suffix == ".tmp":
+            # A live one is seconds old.
+            if st.st_mtime < tmp_cutoff:
+                with contextlib.suppress(OSError):
+                    entry.unlink()
+            continue
+        entries.append((st.st_mtime, st.st_size, entry))
+    return entries
 
 
 def _backoff(flight: tuple[str, str]) -> BaseException | None:
@@ -337,7 +355,9 @@ def init(data_dir: str | Path) -> None:
     global _root
     root = Path(data_dir) / "watch_cache"
     for store in (_META, _IMG):
-        (root / store.name).mkdir(parents=True, exist_ok=True)
+        directory = root / store.name
+        directory.mkdir(parents=True, exist_ok=True)
+        store._count(directory)
     _root = root
 
 
