@@ -5,19 +5,20 @@
 {% set type_nouns = {"": "titles", "movie": "movies", "tv": "TV shows", "anime": "anime", "kept": "kept titles", "stale": "stale titles"} %}
 <div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}">
 
+  {# An active tile's link clears its filter, so a second click undoes the first. #}
   <div class="wl-stats" data-list-part="stats">
     {% for value, label, count, size in [
       ("movie", "Movies", stats.movies, stats.movies_size),
       ("tv", "TV shows", stats.tv, stats.tv_size),
       ("anime", "Anime", stats.anime, stats.anime_size),
     ] %}
-    <a class="wl-stat{% if current_type == value %} wl-stat--on{% endif %}" href="{{ href(type=value, page=1) }}" data-list-nav{% if current_type == value %} aria-current="true"{% endif %}>
+    <a class="wl-stat{% if current_type == value %} wl-stat--on{% endif %}" data-stat="{{ value }}" href="{{ href(type='' if current_type == value else value, page=1) }}" data-list-nav{% if current_type == value %} aria-current="true"{% endif %}>
       <span class="wl-stat__value">{{ count }}</span>
       <span class="wl-stat__label">{{ label }}</span>
       <span class="wl-stat__size">{{ size }}</span>
     </a>
     {% endfor %}
-    <a class="wl-stat{% if current_type == 'stale' %} wl-stat--on{% endif %}" href="{{ href(type='stale', page=1) }}" data-list-nav{% if current_type == 'stale' %} aria-current="true"{% endif %}>
+    <a class="wl-stat{% if current_type == 'stale' %} wl-stat--on{% endif %}" data-stat="stale" href="{{ href(type='' if current_type == 'stale' else 'stale', page=1) }}" data-list-nav{% if current_type == 'stale' %} aria-current="true"{% endif %}>
       <span class="wl-stat__value{% if stats.stale > 0 %} wl-stat__value--stale{% endif %}">{{ stats.stale }}</span>
       <span class="wl-stat__label">Stale ({{ stats.stale_min_age }}+ days, unwatched)</span>
     </a>
@@ -162,6 +163,7 @@
       </table>
     </div>
 
+    {% if total_pages > 1 %}
     <nav class="pagination" aria-label="Pages">
       {% if page > 1 %}
       <a class="page-btn" href="{{ href(page=page - 1) }}" data-list-nav aria-label="Previous page">‹</a>
@@ -187,6 +189,7 @@
       <button type="button" class="page-btn disabled" disabled aria-label="Next page">›</button>
       {% endif %}
     </nav>
+    {% endif %}
 
   {% elif q or current_type %}
     <div class="empty wl-empty">

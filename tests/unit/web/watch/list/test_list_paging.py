@@ -138,3 +138,34 @@ def test_sort_select_offers_the_deletion_sorts(client, conn):
     options = re.findall(r'<option value="(\w+)"\s*(selected)?', select)
     assert ("deletion_asc", "selected") in options
     assert ("deletion_desc", "") in options
+
+
+def test_a_list_that_fits_on_one_page_shows_no_pager(client, conn):
+    _add_movies(conn, 2)
+
+    page = client.get("/watch/list").text
+
+    assert "Movie 1" in page
+    assert 'class="pagination"' not in page
+    assert "Page 1 of 1" not in page
+
+
+def _stat_hrefs(page):
+    return {
+        stat: html.unescape(href)
+        for stat, href in re.findall(r'class="wl-stat[^"]*" data-stat="(\w+)" href="([^"]+)"', page)
+    }
+
+
+def test_an_active_stats_tile_clears_its_filter_and_the_others_set_theirs(client, conn):
+    _add_movies(conn, 1)
+
+    hrefs = _stat_hrefs(
+        client.get("/watch/list", params={"type": "movie", "sort": "size_desc"}).text
+    )
+
+    assert parse_qs(urlsplit(hrefs["movie"]).query) == {"view": ["list"], "sort": ["size_desc"]}
+    assert parse_qs(urlsplit(hrefs["tv"]).query)["type"] == ["tv"]
+
+    stale = _stat_hrefs(client.get("/watch/list", params={"type": "stale"}).text)["stale"]
+    assert "type" not in parse_qs(urlsplit(stale).query)
