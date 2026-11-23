@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from urllib.parse import urlparse
+from time import monotonic
+from urllib.parse import urlencode, urlparse
 
 import requests
 from fastapi.responses import Response
@@ -52,6 +53,18 @@ _POSTER_HTTP = SafeHTTPClient(
     default_timeout=(3.0, 3.0),
     default_max_bytes=4 * 1024 * 1024,
 )
+
+# A poster no source could supply is not asked for again for a few minutes: failures are
+# never written to the disk cache, so without this every page load would refetch it.
+# rating_key -> monotonic time the pause ends.
+_MISSING_POSTER_PAUSE_SECONDS = 180.0
+_MISSING_POSTERS_MAX = 1024
+_MISSING_POSTERS: dict[str, float] = {}
+
+# Cards show posters at most a few hundred pixels wide; asking Plex for this size keeps an
+# original of many megabytes under the body cap.
+_POSTER_WIDTH = 600
+_POSTER_HEIGHT = 900
 
 
 def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
@@ -194,22 +207,32 @@ def fetch_plex_poster(
     plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
 ) -> tuple[bytes | None, str]:
     """Fetch a poster from Plex; returns (content, content_type) or (None, 'image/jpeg').
+
+    Asks Plex's photo transcoder for a card-sized copy first, so an original over the body cap
+    still shows, and falls back to the original when the transcoder fails. Both are GETs.
     http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
     _make_poster_client.
     """
     client = http_client if http_client is not None else _POSTER_HTTP
-    thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
-    try:
-        response = client.get(thumb_url, headers={"X-Plex-Token": plex_token})
-        return response.content, safe_mime(response.headers.get("Content-Type"))
-    except SafeHTTPError as exc:
-        logger.warning(
-            "Plex poster fetch failed for rating_key=%s (%s)",
-            rating_key,
-            exc.status_code,
-        )
-    except requests.RequestException:
-        logger.warning("Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True)
+    thumb_path = f"/library/metadata/{rating_key}/thumb"
+    query = urlencode(
+        {"width": _POSTER_WIDTH, "height": _POSTER_HEIGHT, "minSize": 1, "url": thumb_path}
+    )
+    for url in (f"{plex_base}/photo/:/transcode?{query}", f"{plex_base}{thumb_path}"):
+        try:
+            response = client.get(url, headers={"X-Plex-Token": plex_token})
+            return response.content, safe_mime(response.headers.get("Content-Type"))
+        except SafeHTTPError as exc:
+            logger.warning(
+                "Plex poster fetch failed for rating_key=%s (%s): %s",
+                rating_key,
+                exc.status_code,
+                exc.body_snippet[:200],
+            )
+        except requests.RequestException:
+            logger.warning(
+                "Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True
+            )
     return None, "image/jpeg"
 
 
@@ -273,7 +296,12 @@ def _fetch_allowed_poster_bytes(
         response = client.get(poster_url)
         return response.content, safe_mime(response.headers.get("Content-Type"))
     except SafeHTTPError as exc:
-        logger.warning("Arr poster fetch refused/failed: %s (%s)", poster_url, exc.status_code)
+        logger.warning(
+            "Arr poster fetch refused/failed: %s (%s): %s",
+            poster_url,
+            exc.status_code,
+            exc.body_snippet[:200],
+        )
     except requests.RequestException:
         logger.warning("Failed to fetch arr poster from %s", poster_url, exc_info=True)
     return None, None
@@ -317,6 +345,9 @@ def resolve_poster_content(
     Arr fallback, so the freshly composed SSRF allowlist reaches every fetch and a
     misconfigured plex_url cannot mask an allowlist gap.
     """
+    now = monotonic()
+    if _MISSING_POSTERS.get(rating_key, 0.0) > now:
+        return None, "", Response(status_code=404)
     poster_client = _make_poster_client(conn)
     content, content_type = fetch_plex_poster(
         plex_base, plex_token, rating_key, http_client=poster_client
@@ -328,6 +359,9 @@ def resolve_poster_content(
         )
         if content is None:
             logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
+            if len(_MISSING_POSTERS) >= _MISSING_POSTERS_MAX:
+                _MISSING_POSTERS.clear()
+            _MISSING_POSTERS[rating_key] = now + _MISSING_POSTER_PAUSE_SECONDS
             return None, "", Response(status_code=404)
         content_type = fallback_type or "image/jpeg"
     return content, content_type, None

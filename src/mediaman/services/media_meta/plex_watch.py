@@ -179,6 +179,11 @@ class PlexWatch:
         except SafeHTTPError as exc:
             if exc.status_code == 404:
                 raise PlexItemNotFound("Item not found in Plex") from None
+            logger.warning(
+                "plex_watch.request_failed status=%s reason=%s",
+                exc.status_code,
+                exc.body_snippet[:120].replace(self._token, "***"),
+            )
             raise PlexUnavailable("Plex could not be reached") from None
         except requests.RequestException as exc:
             logger.warning("plex_watch.request_failed error=%s", type(exc).__name__)
