@@ -175,15 +175,15 @@ def resolve_page_session(
 
 
 def is_admin(request: Request) -> bool:
-    """Return True when *request* carries a valid admin session cookie.
+    """Return True when *request* carries a valid session cookie of an admin user.
 
     Used by page routes that gate admin-only UI affordances without
     rejecting anonymous visitors (keep, kept).
     """
-    return (
-        get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
-        is not None
-    )
+    username = get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
+    if username is None:
+        return False
+    return get_user_role(get_db(), username) == "admin"
 
 
 def landing_path(conn: sqlite3.Connection, username: str) -> str:

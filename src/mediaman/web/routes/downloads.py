@@ -17,6 +17,7 @@ from starlette.responses import Response
 from mediaman.db import get_db
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
+from mediaman.services.downloads.download_queue.items import DownloadsResponse
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
 
@@ -44,16 +45,14 @@ def _lookup_dl_item(
     return None
 
 
-def _hide_abandon(payload: dict[str, object]) -> None:
+def _hide_abandon(payload: DownloadsResponse) -> None:
     """Clear abandon_visible on every item so a viewer's page never offers Abandon."""
-    items: list[object] = [payload.get("hero")]
-    for key in ("queue", "upcoming"):
-        bucket = payload.get(key)
-        if isinstance(bucket, list):
-            items.extend(bucket)
+    hero = payload["hero"]
+    items = [*payload["queue"], *payload["upcoming"]]
+    if hero is not None:
+        items.append(hero)
     for item in items:
-        if isinstance(item, dict):
-            item["abandon_visible"] = False
+        item["abandon_visible"] = False
 
 
 @router.get("/downloads", response_class=HTMLResponse)

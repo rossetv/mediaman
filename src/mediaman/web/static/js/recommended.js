@@ -34,7 +34,8 @@
     }
   }
   var _recData = _recDataEl ? JSON.parse(_recDataEl.textContent) : {};
-  var _canShare = !!_recDataEl && _recDataEl.getAttribute('data-can-share') === 'true';
+  var _pageEl = document.getElementById('rec-page');
+  var _canShare = !!_pageEl && _pageEl.getAttribute('data-can-share') === 'true';
   var _modalRecId = null;
 
   function _clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }

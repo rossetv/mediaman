@@ -253,7 +253,7 @@ def test_nav_template_emits_all_surfaces():
     ):
         assert href in nav, f"missing nav link: {href}"
     # Bottom tabs + More sheet must contain the five primary tabs.
-    for label in (">Home<", ">Library<", ">Search<", ">Downloads<", ">More<"):
+    for label in (">Watch<", ">Library<", ">Search<", ">Downloads<", ">More<"):
         assert label in nav, f"missing bottom-tab label: {label}"
 
 

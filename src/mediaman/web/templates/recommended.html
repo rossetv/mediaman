@@ -5,7 +5,7 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container" id="rec-page" data-can-share="{{ 'true' if is_admin else 'false' }}">
 
   <div class="ph">
     <div class="ph-row">
@@ -90,7 +90,7 @@
 {# JSON island stays inline — type="application/json" is non-executable so
    no CSP nonce is required. recommended.js parses textContent to bootstrap
    the modal data. #}
-<script id="rec-data" type="application/json" data-can-share="{{ 'true' if is_admin else 'false' }}">{{ all_recommendations_json | safe }}</script>
+<script id="rec-data" type="application/json">{{ all_recommendations_json | safe }}</script>
 {# Helper modules must register on MM.recommended before recommended.js
    wires them into the page. #}
 {% if is_admin %}<script src="/static/js/recommended/refresh.js" defer></script>{% endif %}

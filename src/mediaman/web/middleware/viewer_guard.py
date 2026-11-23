@@ -103,7 +103,10 @@ class ViewerGuardMiddleware(BaseHTTPMiddleware):
         if template is not None and template.startswith("/static/"):
             return await call_next(request)
 
-        conn = get_db()
+        try:
+            conn = get_db()
+        except RuntimeError:
+            return await call_next(request)
         username = resolve_cached_session(request, conn, token)
         if username is None:
             return await call_next(request)
