@@ -371,6 +371,79 @@ def authed_client():
 
 
 @pytest.fixture
+def viewer_client():
+    """Build a `TestClient` whose cookies carry a fresh session for a viewer.
+
+    Usage::
+
+        def test_x(viewer_client, conn):
+            client = viewer_client(app, conn)
+            resp = client.get("/watch")
+
+    Build *app* with ``mediaman.main.create_app`` when the test relies on
+    the viewer guard: ``app_factory`` apps carry no middleware.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from mediaman.web.auth.password_hash import create_user
+    from mediaman.web.auth.session_store import create_session
+
+    def _build(
+        app: FastAPI,
+        conn,
+        *,
+        username: str = "viewer",
+        password: str = "password1234",
+    ) -> TestClient:
+        create_user(conn, username, password, enforce_policy=False, role="viewer")
+        token = create_session(conn, username)
+        client = TestClient(app, raise_server_exceptions=True)
+        client.cookies.set("session_token", token)
+        return client
+
+    return _build
+
+
+@pytest.fixture
+def guarded_app(conn):
+    """The real app from ``create_app`` with every route replaced by a recorder.
+
+    Returns ``(app, reached)``. The full middleware stack runs; a request
+    that gets past it is answered 204 by the recorder instead of the route,
+    and ``reached`` gets ``(method, path, request.state.user_role)``. A
+    request missing from ``reached`` was stopped by a middleware, so no
+    route handler ran for it.
+    """
+    from starlette.middleware import Middleware
+    from starlette.responses import Response
+
+    from mediaman.db import set_connection
+    from mediaman.main import create_app
+
+    reached: list[tuple[str, str, str | None]] = []
+
+    class _Recorder:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            role = scope.get("state", {}).get("user_role")
+            reached.append((scope["method"], scope["path"], role))
+            await Response(status_code=204)(scope, receive, send)
+
+    set_connection(conn)
+    app = create_app()
+    # The last user middleware is the innermost, so the recorder sits just
+    # above the router.
+    app.user_middleware.append(Middleware(_Recorder))
+    return app, reached
+
+
+@pytest.fixture
 def freezer():
     """Freeze ``datetime.now`` (and the stdlib ``time`` family) at a fixed UTC
     instant. Advance the clock with ``freezer.tick(delta)`` — ``delta`` is a

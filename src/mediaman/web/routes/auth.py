@@ -17,6 +17,7 @@ from mediaman.services.rate_limit import (
     get_client_ip,
 )
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
+from mediaman.web.auth.middleware import landing_path
 from mediaman.web.auth.password_hash import (
     authenticate,
     set_must_change_password,
@@ -177,7 +178,7 @@ def login_submit(
         # UA cannot pollute the audit row.
         detail={"ua_hash": _ua_hash(user_agent), "force_rotation": weak_password},
     )
-    response = RedirectResponse("/", status_code=302)
+    response = RedirectResponse(landing_path(conn, username), status_code=302)
     set_session_cookie(response, token, secure=is_request_secure(request))
     return response
 

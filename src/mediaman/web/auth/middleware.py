@@ -30,6 +30,9 @@ binding (User-Agent + client IP) is consistently applied:
     pulls the ``session_token`` cookie off the request itself.  Used by
     page-rendering routes that toggle admin-only UI affordances on or off
     without rejecting anonymous callers (keep and kept).
+
+`landing_path`
+    Where a user lands after signing in, by role.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from starlette.responses import RedirectResponse
 
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.auth.session_store import validate_session
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
@@ -180,3 +184,11 @@ def is_admin(request: Request) -> bool:
         get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
         is not None
     )
+
+
+def landing_path(conn: sqlite3.Connection, username: str) -> str:
+    """Return where *username* lands after signing in: ``/watch`` for a viewer, ``/`` otherwise.
+
+    Only a convenience: the viewer guard, not this, keeps a non-admin off ``/``.
+    """
+    return "/watch" if get_user_role(conn, username) == "viewer" else "/"
