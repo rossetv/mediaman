@@ -1,6 +1,6 @@
 {# Shared pieces of the Watch pages. Import with:
        {% import "_watch_card.html" as w %}
-   watch.js builds the same card markup for search results; keep the two in step. #}
+   watch/browse.js and watch/search.js build the same card markup; keep them in step. #}
 
 {% macro dur(minutes) -%}
   {%- if minutes >= 60 -%}{{ minutes // 60 }} h{% if minutes % 60 %} {{ minutes % 60 }} min{% endif %}{%- else -%}{{ minutes }} min{%- endif -%}
@@ -35,17 +35,44 @@
 </div>
 {%- endmacro %}
 
+{# The title id a library card's detail opens with: movie-<key> or show-<key>,
+   from its /watch/movie or /watch/show link. A card that plays (Continue
+   watching) has none. #}
+{% macro title_ref(item) -%}
+  {%- if item.ref -%}{{ item.ref }}
+  {%- else -%}
+    {%- set path = (item.href or '').split('?')[0] -%}
+    {%- for prefix, kind in (('/watch/movie/', 'movie'), ('/watch/show/', 'show')) -%}
+      {%- if path.startswith(prefix) and path[prefix|length:].isdigit() -%}{{ kind }}-{{ path[prefix|length:] }}{%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{# A title's download state on its poster: "In library", "Queued" or "↓ 42%";
+   none means it can be downloaded. browse.js builds the same badge. #}
+{% macro state_badge(item) -%}
+  {%- if item.download_state == "downloading" -%}
+<span class="watch-badge watch-badge--state watch-badge--downloading"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i>{% if item.download_pct is not none %}<span class="sr-only">Downloading </span>{{ item.download_pct }}%{% else %}Downloading{% endif %}</span>
+  {%- elif item.download_state == "queued" -%}
+<span class="watch-badge watch-badge--state watch-badge--queued"><i class="fa-solid fa-clock" aria-hidden="true"></i>Queued</span>
+  {%- elif item.in_library or item.download_state in ("in_library", "partial") -%}
+<span class="watch-badge watch-badge--state watch-badge--in"><i class="fa-solid fa-check" aria-hidden="true"></i>In library</span>
+  {%- endif -%}
+{%- endmacro %}
+
 {# One poster card; *keep* adds the Keep button (the Leaving soon row only, so
    the other rows' cards keep one height). A successful Keep removes the card
    from the Leaving soon row and the badge from any other card with the same
    keep id. #}
 {% macro card(item, keep=false) -%}
 <article class="watch-card" data-keep-id="{{ item.keep_id or '' }}">
-  <a class="watch-card__link" href="{{ item.href }}">
+  {% set ref = title_ref(item) %}
+  <a class="watch-card__link" href="{{ item.href }}"{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">
       {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
       <span class="watch-card__title">{{ item.title }}</span>
       {% if item.leaving_days is not none %}{{ leaving_badge(item.leaving_days) }}{% endif %}
+      {{ state_badge(item) }}
       {% if item.watched %}<span class="watch-badge watch-badge--watched">Watched</span>{% endif %}
       {% if item.progress_pct %}<progress class="watch-bar" max="100" value="{{ item.progress_pct }}" aria-hidden="true"></progress>{% endif %}
     </span>

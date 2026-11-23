@@ -124,15 +124,11 @@
 
   function noop() {}
 
-  /* ── Keep menu ── */
-
-  var menu = byId('watch-keep-menu');
-  var openTrigger = null;
-  var hideTimer = null;
-
-  function menuItems() {
-    return toArray(menu.querySelectorAll('[data-days]'));
-  }
+  /* ── Menus ──
+     The one small menu of the page: Keep for N days, and the batch of picks
+     on Recommended. Fixed under its trigger, so a scrolling row never clips
+     it; arrow keys, Home, End, Esc and Tab; it follows its trigger through
+     any scroll and closes once the trigger is out of sight. */
 
   /* Whether the trigger can still be seen: on the screen, and inside the
      visible part of its row. */
@@ -148,53 +144,122 @@
     return r.right > box.left && r.left < box.right;
   }
 
-  /* Open below the trigger, or above it when that is where the room is, and
-     stay clear of the phone's bottom tab bar. */
-  function placeMenu(trigger) {
-    var gap = 6;
-    var edge = 8;
-    var rect = trigger.getBoundingClientRect();
-    var bottom = clearArea().bottom;
-    var w = menu.offsetWidth;
-    var h = menu.offsetHeight;
-    var top = rect.bottom + gap;
-    var above = top + h > bottom - edge && rect.top - gap - h > edge;
-    if (above) top = rect.top - gap - h;
-    var left = Math.max(edge, Math.min(rect.left, window.innerWidth - w - edge));
-    menu.classList.toggle('is-above', above);
-    menu.style.top = top + 'px';
-    menu.style.left = left + 'px';
-  }
+  /* *opts*: trigger (selector), choose(trigger, item), canOpen(trigger),
+     spare() (where focus goes when the trigger has left the page). */
+  function makeMenu(node, opts) {
+    var openTrigger = null;
+    var hideTimer = null;
 
-  function closeMenu(refocus) {
-    if (!openTrigger) return;
-    var trigger = openTrigger;
-    openTrigger = null;
-    trigger.setAttribute('aria-expanded', 'false');
-    if (refocus && document.body.contains(trigger)) {
-      trigger.focus();
-    } else if (menu.contains(document.activeElement)) {
-      // Closed without a press (scrolled away, season swapped): focus must not stay on a hidden item.
-      var spare = document.body.contains(trigger) ? trigger
-        : document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
-      if (spare) spare.focus({ preventScroll: true }); else document.activeElement.blur();
+    function items() {
+      return toArray(node.querySelectorAll('.watch-keep-menu__item'));
     }
-    menu.classList.remove('is-open');
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(function () { menu.hidden = true; }, reduceMotion() ? 0 : EXIT_FALLBACK_MS);
+
+    /* Open below the trigger, or above it when that is where the room is,
+       and stay clear of the phone's bottom tab bar. Right-aligned to a
+       trigger at the right of the screen. */
+    function place(trigger) {
+      var gap = 6;
+      var edge = 8;
+      var rect = trigger.getBoundingClientRect();
+      var bottom = clearArea().bottom;
+      var w = node.offsetWidth;
+      var h = node.offsetHeight;
+      var top = rect.bottom + gap;
+      var above = top + h > bottom - edge && rect.top - gap - h > edge;
+      if (above) top = rect.top - gap - h;
+      var left = Math.max(edge, Math.min(rect.left, window.innerWidth - w - edge));
+      node.classList.toggle('is-above', above);
+      node.style.top = top + 'px';
+      node.style.left = left + 'px';
+    }
+
+    function close(refocus) {
+      if (!openTrigger) return;
+      var trigger = openTrigger;
+      openTrigger = null;
+      trigger.setAttribute('aria-expanded', 'false');
+      if (refocus && document.body.contains(trigger)) {
+        trigger.focus();
+      } else if (node.contains(document.activeElement)) {
+        // Closed without a press (scrolled away, swapped out): focus must not stay on a hidden item.
+        var spare = document.body.contains(trigger) ? trigger : (opts.spare && opts.spare());
+        if (spare) spare.focus({ preventScroll: true }); else document.activeElement.blur();
+      }
+      node.classList.remove('is-open');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(function () { node.hidden = true; }, reduceMotion() ? 0 : EXIT_FALLBACK_MS);
+    }
+
+    function open(trigger) {
+      close(false);
+      clearTimeout(hideTimer);
+      openTrigger = trigger;
+      node.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      place(trigger);
+      void node.offsetWidth; // start the entrance from the closed look
+      node.classList.add('is-open');
+      var list = items();
+      var first = list.filter(function (i) { return i.getAttribute('aria-checked') === 'true'; })[0] || list[0];
+      if (first) first.focus({ preventScroll: true });
+    }
+
+    document.addEventListener('click', function (e) {
+      var target = e.target;
+      if (!target.closest) return;
+      var trigger = target.closest(opts.trigger);
+      if (trigger) {
+        if (opts.canOpen && !opts.canOpen(trigger)) return;
+        if (openTrigger === trigger) close(false); else open(trigger);
+        return;
+      }
+      var item = target.closest('.watch-keep-menu__item');
+      if (item && openTrigger && node.contains(item)) {
+        var chosen = openTrigger;
+        close(true);
+        opts.choose(chosen, item);
+        return;
+      }
+      close(false);
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (!openTrigger) return;
+      if (e.key === 'Escape') { e.preventDefault(); close(true); return; }
+      // Back on the trigger first, so Tab carries on from there.
+      if (e.key === 'Tab') { close(true); return; }
+      var list = items();
+      var idx = list.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') list[(idx + 1) % list.length].focus();
+      else if (e.key === 'ArrowUp') list[(idx - 1 + list.length) % list.length].focus();
+      else if (e.key === 'Home') list[0].focus();
+      else if (e.key === 'End') list[list.length - 1].focus();
+      else return;
+      e.preventDefault();
+    });
+
+    var queued = false;
+    function follow() {
+      if (!openTrigger || queued) return;
+      queued = true;
+      window.requestAnimationFrame(function () {
+        queued = false;
+        if (!openTrigger) return;
+        if (inView(openTrigger)) place(openTrigger); else close(false);
+      });
+    }
+    window.addEventListener('resize', follow);
+    document.addEventListener('scroll', follow, { capture: true, passive: true });
+
+    return {
+      node: node,
+      open: open,
+      close: close,
+      trigger: function () { return openTrigger; }
+    };
   }
 
-  function openMenu(trigger) {
-    closeMenu(false);
-    clearTimeout(hideTimer);
-    openTrigger = trigger;
-    menu.hidden = false;
-    trigger.setAttribute('aria-expanded', 'true');
-    placeMenu(trigger);
-    void menu.offsetWidth; // start the entrance from the closed look
-    menu.classList.add('is-open');
-    menuItems()[0].focus({ preventScroll: true });
-  }
+  var menu = byId('watch-keep-menu');
 
   /* ── Keep ── */
 
@@ -228,8 +293,9 @@
     }
   }
 
-  /* Where focus goes when a kept card leaves its row: the next card, else
-     the one before; when the row goes, the next row, else the search box. */
+  /* Where focus goes when a kept card leaves its row: the next card's Keep,
+     else the one before's, so a run of Keeps needs no Tab between them; when
+     the row goes, the next row, else the search box. */
   function focusAfterCard(card) {
     var sibling = card.nextElementSibling;
     while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.nextElementSibling;
@@ -237,7 +303,7 @@
       sibling = card.previousElementSibling;
       while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.previousElementSibling;
     }
-    return sibling ? sibling.querySelector('.watch-card__link') : null;
+    return sibling ? sibling.querySelector('[data-watch-keep]') || sibling.querySelector('.watch-card__link') : null;
   }
 
   function focusAfterRow(row) {
@@ -424,7 +490,7 @@
       var moveFocus = focusLost(trigger);
       var done = applyKept(id, days, trigger);
       if (moveFocus && done.focus) focusSoftly(done.focus);
-      toast('Kept ' + (name || 'this') + ' for ' + days + ' days', {
+      toast('Kept ' + (name || 'this') + ' for ' + days + ' days.', {
         variant: 'success',
         action: { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } }
       });
@@ -463,59 +529,18 @@
     });
   }
 
-  if (menu) {
-    document.addEventListener('click', function (e) {
-      var target = e.target;
-      if (!target.closest) return;
-      var trigger = target.closest('[data-watch-keep]');
-      if (trigger) {
-        if (busy[trigger.getAttribute('data-watch-keep')]) return;
-        if (openTrigger === trigger) closeMenu(false); else openMenu(trigger);
-        return;
-      }
-      var item = target.closest('#watch-keep-menu [data-days]');
-      if (item && openTrigger) {
-        var chosen = openTrigger;
-        closeMenu(true);
-        keep(chosen, parseInt(item.getAttribute('data-days'), 10));
-        return;
-      }
-      closeMenu(false);
-    });
-
-    document.addEventListener('keydown', function (e) {
-      if (!openTrigger) return;
-      if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
-      // Back on the trigger first, so Tab carries on from there.
-      if (e.key === 'Tab') { closeMenu(true); return; }
-      var items = menuItems();
-      var idx = items.indexOf(document.activeElement);
-      if (e.key === 'ArrowDown') items[(idx + 1) % items.length].focus();
-      else if (e.key === 'ArrowUp') items[(idx - 1 + items.length) % items.length].focus();
-      else if (e.key === 'Home') items[0].focus();
-      else if (e.key === 'End') items[items.length - 1].focus();
-      else return;
-      e.preventDefault();
-    });
-
-    // The menu is fixed, so it follows its trigger through any scroll or
-    // resize, and closes only once the trigger is out of sight.
-    var queued = false;
-    function follow() {
-      if (!openTrigger || queued) return;
-      queued = true;
-      window.requestAnimationFrame(function () {
-        queued = false;
-        if (!openTrigger) return;
-        if (inView(openTrigger)) placeMenu(openTrigger); else closeMenu(false);
-      });
+  var keepMenu = menu ? makeMenu(menu, {
+    trigger: '[data-watch-keep]',
+    canOpen: function (trigger) { return !busy[trigger.getAttribute('data-watch-keep')]; },
+    choose: function (trigger, item) { keep(trigger, parseInt(item.getAttribute('data-days'), 10)); },
+    spare: function () {
+      return document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
     }
-    window.addEventListener('resize', follow);
-    document.addEventListener('scroll', follow, { capture: true, passive: true });
-  }
+  }) : null;
 
   window.MMWatch.keep = {
-    closeMenu: closeMenu,
+    menu: makeMenu,
+    closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; }
   };
 })();

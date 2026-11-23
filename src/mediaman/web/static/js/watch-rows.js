@@ -2,7 +2,8 @@
  * fades while there is more to see, and posters that fade in as they load.
  *
  * Without this script the rows still scroll (touch, trackpad, keyboard) and
- * the posters simply appear.
+ * the posters simply appear. MMWatch.rows.init(viewport) starts a row added
+ * after the page loaded.
  */
 (function () {
   'use strict';
@@ -128,9 +129,13 @@
     return btn;
   }
 
+  var started = new WeakSet();
+
+  /* Give one row its arrows, keys and fades; a row already given them is left alone. */
   function initRow(viewport) {
     var scroller = viewport.querySelector('.watch-row__scroll');
-    if (!scroller) return;
+    if (!scroller || started.has(viewport)) return;
+    started.add(viewport);
 
     var prev = arrow('prev', 'Previous');
     var next = arrow('next', 'Next');
@@ -172,5 +177,8 @@
     refresh(viewport, scroller);
   }
 
+  // Rows put on the page later (the Discover rows) are started by whoever adds them.
+  window.MMWatch = window.MMWatch || {};
+  window.MMWatch.rows = { init: initRow };
   Array.prototype.forEach.call(page.querySelectorAll('.watch-row__viewport'), initRow);
 })();
