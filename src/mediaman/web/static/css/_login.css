@@ -79,18 +79,24 @@
   background: var(--s3);
 }
 
+/* Sized and pressed as a large primary .btn. */
 .login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  padding: 12px 22px;
+  min-height: 44px;
+  padding: 0 22px;
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
   border-radius: var(--r-pill);
   background: var(--accent-cta);
-  color: #fff;
-  transition: background .15s;
+  color: var(--t1);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .login-btn:hover { background: var(--accent-hi); }
+.login-btn:active { transform: scale(.97); }
 
 /* Pending state set by submit-guard.js */
 form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
@@ -125,7 +131,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 .error-msg {
   margin-bottom: 14px;
   padding: 10px 12px;
-  background: rgba(255,69,58,.1);
+  background: var(--rgba-danger-bg-soft);
   border: 1px solid rgba(255,69,58,.3);
   border-radius: var(--r-sm);
   color: var(--danger);
@@ -172,7 +178,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   height: 100%;
   width: 0;
   background: var(--danger);
-  transition: width .25s, background .25s;
+  transition: width var(--dur-slow) var(--ease-out), background var(--dur-slow) var(--ease-out);
 }
 .fpc-meter-fill.weak   { background: var(--danger); }
 .fpc-meter-fill.ok     { background: var(--warning); }

@@ -35,6 +35,10 @@
   --warning: #ffd60a;
   --danger:  #ff453a;
   --danger-soft: #ffb4ae;   /* danger-toned text on a dark scrim */
+  /* Solid red darkened so white text on it keeps 4.5:1 or better. */
+  --danger-solid:        #d70015;
+  --danger-solid-hover:  #bf0013;
+  --danger-solid-active: #a8001a;
   --orange:  #ff9f0a;
   --purple:  #bf5af2;
 
@@ -52,9 +56,18 @@
   --r-md:   10px;
   --r-lg:   12px;
   --r-pill: 980px;
+  --r-xxs:  4px;            /* thin bars, scrollbar thumbs, focus ring */
 
   /* The single allowed shadow. */
   --shadow-card: rgba(0,0,0,.4) 0 20px 60px -15px, rgba(0,0,0,.3) 0 6px 20px -8px;
+
+  /* Status-light glows: light on the same plane as the dot, not elevation. */
+  --glow-success: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+  --glow-warning: 0 0 8px color-mix(in srgb, var(--warning) 60%, transparent);
+  --glow-danger:  0 0 8px color-mix(in srgb, var(--danger) 60%, transparent);
+
+  /* Dims the page behind a dialog. */
+  --scrim-modal: rgba(0,0,0,.7);
 
   /* Spacing & nav */
   --pad:     clamp(20px,4vw,40px);
@@ -85,6 +98,12 @@
      Sits at exactly one step above --bg without introducing a new surface step. */
   --rgba-overlay-sm: rgba(255,255,255,.06);
 
+  /* Hover tint on a transparent control, a neutral chip, and the ghost
+     border on hover. */
+  --rgba-overlay-xs: rgba(255,255,255,.04);
+  --rgba-overlay-md: rgba(255,255,255,.08);
+  --hair-hover:      rgba(255,255,255,.3);
+
   /* Accent (blue) chip background — keep, badge-tv, type pills, lib-pill.on.
      Low-opacity background counterpart (0.10–0.22 alpha) for the
      accent/interactive semantic; .15 is the canonical mid-point. */
@@ -110,6 +129,21 @@
   /* Orange chip background — .pill--movie, .badge-movie alias.
      .18 chip-pill convention. */
   --rgba-orange-bg: rgba(255,159,10,.18);
+
+  /* Hover steps of the chip backgrounds, and the faint danger wash a text
+     button takes on hover. */
+  --rgba-accent-bg-hover:  rgba(41,151,255,.24);
+  --rgba-success-bg-hover: rgba(48,209,88,.22);
+  --rgba-danger-bg-hover:  rgba(255,69,58,.2);
+  --rgba-danger-bg-soft:   rgba(255,69,58,.1);
+
+  /* Status chips (pills) use the .18 chip convention in every colour. */
+  --rgba-accent-chip:  rgba(41,151,255,.18);
+  --rgba-success-chip: rgba(48,209,88,.18);
+  --rgba-danger-chip:  rgba(255,69,58,.18);
+
+  /* A control's track or a pressed neutral control. */
+  --rgba-overlay-lg: rgba(255,255,255,.12);
 
   /* Row gap shared by .setg-row, .settings-subrow, and .form-row. */
   --gap-row: 20px;

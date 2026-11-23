@@ -51,7 +51,7 @@ def test_save_error_stays_visible_on_phones() -> None:
 
 
 def test_small_buttons_are_44px_on_phones() -> None:
-    phone = PANELS[PANELS.rindex("max-width: 639.98px") :]
+    phone = PANELS[PANELS.index("max-width: 699.98px") :]
     assert ".setg-pg .btn--sm" in phone
     assert "min-height: 44px" in phone
 

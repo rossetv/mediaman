@@ -76,14 +76,14 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: -.01em;
-  background: rgba(255,255,255,.12);
+  background: var(--rgba-overlay-lg);
   color: var(--t1);
 }
 .dl-state-searching     { background: var(--rgba-warning-bg); color: var(--warning); }
-.dl-state-downloading   { background: rgba(41,151,255,.18); color: var(--accent); }
-.dl-state-almost_ready  { background: rgba(48,209,88,.18); color: var(--success); }
-.dl-state-ready         { background: rgba(48,209,88,.22); color: var(--success); }
-.dl-state-upcoming      { background: rgba(255,255,255,.08); color: var(--t2); }
+.dl-state-downloading   { background: var(--rgba-accent-chip); color: var(--accent); }
+.dl-state-almost_ready  { background: var(--rgba-success-chip); color: var(--success); }
+.dl-state-ready         { background: var(--rgba-success-bg-hover); color: var(--success); }
+.dl-state-upcoming      { background: var(--rgba-overlay-md); color: var(--t2); }
 .dl-state-pill--xs      { padding: 2px 8px; font-size: 9px; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
@@ -97,7 +97,7 @@
 .dl-hero-bar {
   height: 6px;
   border-radius: var(--r-pill);
-  background: rgba(255,255,255,.12);
+  background: var(--rgba-overlay-lg);
   overflow: hidden;
   margin-bottom: 10px;
 }
@@ -109,7 +109,7 @@
   border-radius: inherit;
   position: relative;
   overflow: hidden; /* clip the shimmer ::after to the filled portion */
-  transition: width .3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 .dl-bar-fill::after,
 .dl-hero-fill::after {
@@ -148,7 +148,7 @@
   padding: 12px 16px;
   border-radius: var(--r-md);
   background: var(--s1);
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .dl-compact-row:hover,
 .dl-row:hover { background: var(--s2); }
@@ -183,7 +183,7 @@
   margin-top: 6px;
 }
 .dl-row-bar-fill,
-.dl-compact-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width .3s; }
+.dl-compact-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
 .dl-compact-fill.green { background: var(--success); }
 .dl-row-meta,
 .dl-compact-meta {
@@ -239,19 +239,19 @@
   margin-top: 18px;
   padding: 6px 10px;
   border-radius: var(--r-pill);
-  background: rgba(255,255,255,.08);
+  background: var(--rgba-overlay-md);
   font-size: 12px;
   color: var(--t2);
   cursor: pointer;
   border: 0;
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .dl-hero-episodes-toggle:hover,
 .dl-compact-episodes-toggle:hover { background: rgba(255,255,255,.14); color: var(--t1); }
 .dl-hero-episodes-toggle:active,
 .dl-compact-episodes-toggle:active { background: rgba(255,255,255,.2); color: var(--t1); }
 .dl-hero-episodes-toggle .fa-chevron-right,
-.dl-compact-episodes-toggle .fa-chevron-right { transition: transform .2s; }
+.dl-compact-episodes-toggle .fa-chevron-right { transition: transform var(--dur) var(--ease-out); }
 .dl-hero-episodes-toggle.open .fa-chevron-right,
 .dl-compact-episodes-toggle.open .fa-chevron-right { transform: rotate(90deg); }
 
@@ -277,30 +277,30 @@
   font-size: 12px;
   border-radius: var(--r-xs);
 }
-.dl-ep-row:hover { background: rgba(255,255,255,.04); }
+.dl-ep-row:hover { background: var(--rgba-overlay-xs); }
 .dl-ep-row-pack { opacity: .7; }
 .dl-ep-number   { color: var(--t3); font-variant-numeric: tabular-nums; }
 .dl-ep-title    { color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dl-ep-mini-bar {
   width: 60px;
   height: 3px;
-  background: rgba(255,255,255,.12);
+  background: var(--rgba-overlay-lg);
   border-radius: var(--r-pill);
   overflow: hidden;
 }
-.dl-ep-mini-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width .3s; }
+.dl-ep-mini-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
 .dl-ep-mini-fill.green { background: var(--success); }
 .dl-ep-status-pill {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  background: rgba(255,255,255,.08);
+  background: var(--rgba-overlay-md);
   color: var(--t2);
   white-space: nowrap;
 }
-.dl-ep-status-pill.ready { background: rgba(48,209,88,.18); color: var(--success); }
-.dl-ep-status-pill.downloading { background: rgba(41,151,255,.18); color: var(--accent); }
+.dl-ep-status-pill.ready { background: var(--rgba-success-chip); color: var(--success); }
+.dl-ep-status-pill.downloading { background: var(--rgba-accent-chip); color: var(--accent); }
 .dl-ep-status-pill.queued { background: var(--rgba-warning-bg); color: var(--warning); }
 
 /* Recently added (downloads page bottom) */
@@ -344,7 +344,7 @@
   background: rgba(48,209,88,.85);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  color: #fff;
+  color: var(--t1);
   font-size: 13px;
 }
 .dl-recent-title {
@@ -367,8 +367,10 @@
    so what sits below slides instead of jumping. */
 .dl-fold {
   overflow: hidden;
-  transition: height var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
-              padding var(--dur-slow) var(--ease-out), margin var(--dur-slow) var(--ease-out);
+  transition: height var(--dur-slow) var(--ease-out),
+              opacity var(--dur) var(--ease-out),
+              padding var(--dur-slow) var(--ease-out),
+              margin var(--dur-slow) var(--ease-out);
 }
 .dl-fold.is-folded { opacity: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; }
 /* The list's 8px gap folds away with the row. */
@@ -392,10 +394,10 @@
   right: 8px;
   z-index: 2;
 }
-.dl-row--has-abandon .dl-compact-right { padding-right: 38px; }
+.dl-row--has-abandon .dl-compact-right { padding-right: 44px; }
 /* Upcoming rows have no .dl-compact-right; pad the row itself so the
    "Scheduled" pill doesn't sit underneath the abandon button. */
-.dl-upcoming-row.dl-row--has-abandon { padding-right: 44px; }
+.dl-upcoming-row.dl-row--has-abandon { padding-right: 52px; }
 
 /* Multi-season picker inside the confirm modal — list of toggle rows. */
 .dl-abandon-list {
@@ -451,13 +453,13 @@
   .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -22px; }
   .dl-hero-abandon .btn.btn--icon,
   .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
-  .dl-hero-episodes-toggle,
-  .dl-compact-episodes-toggle { min-height: 44px; }
 }
 
 /* Phones: match the confirm dialog, with full-width 44px buttons stacked,
    Cancel first, and the same title size. */
 @media (max-width: 699.98px) {
+  .dl-hero-episodes-toggle,
+  .dl-compact-episodes-toggle { min-height: 44px; }
   .abandon-modal-body h2 { font-size: 18px; }
   .abandon-modal-actions { flex-direction: column; }
   .abandon-modal-actions .btn { width: 100%; min-height: 44px; }

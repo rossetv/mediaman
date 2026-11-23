@@ -36,7 +36,7 @@
   vertical-align: middle;
   font-size: 14px;
 }
-.tbl tbody tr { transition: background .15s; }
+.tbl tbody tr { transition: background var(--dur-fast) var(--ease-out); }
 .tbl tbody tr:hover { background: var(--s1); }
 .tbl tbody tr:last-child td { border-bottom: 0; }
 
@@ -106,7 +106,7 @@
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease-out),
               transform var(--dur-fast) var(--ease-out),
-              display var(--dur-fast) allow-discrete;
+              display var(--dur-fast) var(--ease-out) allow-discrete;
 }
 .keep-wrapper.is-open .snooze-dropdown {
   display: flex;
@@ -133,7 +133,7 @@
   background: transparent;
   border: 0;
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   white-space: nowrap;
 }
 .snooze-option:hover,
@@ -142,7 +142,7 @@
 .snooze-option.forever { color: var(--success); }
 .snooze-option--remove { color: var(--danger); border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 10px; }
 .snooze-option--remove:hover,
-.snooze-option--remove:focus-visible { background: rgba(255,69,58,.1); color: var(--danger); }
+.snooze-option--remove:focus-visible { background: var(--rgba-danger-bg-soft); color: var(--danger); }
 
 /* Pagination */
 .pagination {
@@ -165,7 +165,7 @@
   background: var(--s1);
   border: 1px solid var(--hair);
   text-decoration: none;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .page-btn:hover { background: var(--s2); color: var(--t1); }
 .page-btn.active { background: var(--accent); color: var(--color-on-accent); border-color: var(--accent); }
@@ -175,7 +175,9 @@
 
 /* Phone: each row is a card — poster and title, then type, size and last
    watched, then Keep and Delete side by side across the full width. */
+@media (max-width: 699.98px) {
+  .page-btn { min-width: 44px; height: 44px; }
+}
 @media (max-width: 639.98px) {
-  .page-btn { min-width: 40px; height: 40px; }
   .card--bordered > table.tbl > tbody > tr:last-child > td { border-radius: 0; }
 }

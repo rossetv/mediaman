@@ -141,7 +141,10 @@ def test_unsubscribe_button_text_is_readable_in_every_state():
     css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()
     for state in ("", ":hover", ":active"):
         rule = css.split(f".unsub-btn-danger{state} {{")[1].split("}")[0]
-        fill = re.search(r"background: (#[0-9a-f]{6})", rule).group(1)
+        fill = re.search(r"background: (#[0-9a-f]{6}|var\(--[\w-]+\))", rule).group(1)
+        if fill.startswith("var("):
+            tokens = (_WEB / "static" / "css" / "_tokens.css").read_text()
+            fill = re.search(rf"{re.escape(fill[4:-1])}:\s*(#[0-9a-f]{{6}});", tokens).group(1)
         ratio = 1.05 / (_luminance(fill) + 0.05)
         assert ratio >= 4.5, (state, fill, ratio)
     assert ".unsub-btn-danger:focus-visible" in css

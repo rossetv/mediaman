@@ -101,9 +101,9 @@
   padding: 9px 14px; border-radius: var(--r-md);
   color: var(--t2); font-size: 14px; font-weight: 500;
   text-decoration: none; white-space: nowrap;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.setg-pg .setg-rail-item:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.setg-pg .setg-rail-item:hover { color: var(--t1); background: var(--rgba-overlay-xs); }
 .setg-pg .setg-rail-item:active { background: var(--s3); }
 .setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s3); }
 .setg-pg .setg-rail-item > .fa-solid {
@@ -118,7 +118,7 @@
   background: var(--s2);
 }
 .setg-pg .setg-rail-item .rail-count.warn { background: rgba(255,214,10,.15); color: var(--warning); }
-.setg-pg .setg-rail-item .rail-count.err  { background: rgba(255,69,58,.15);  color: var(--danger);  }
+.setg-pg .setg-rail-item .rail-count.err  { background: var(--rgba-danger-bg);  color: var(--danger);  }
 
 .setg-pg .setg-body { min-width: 0; }
 .setg-pg .setg-body .ph { padding: 28px 0 8px; }
@@ -182,7 +182,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 12px; margin-top: 3px; }
 .setg-pg .setg-card-hd .head-info { flex: 1; min-width: 0; }
 .setg-pg .setg-card-hd .head-actions { display: flex; gap: 10px; align-items: center; }
-.setg-pg .setg-card-hd .btn { font-size: 12px; padding: 6px 14px; }
+.setg-pg .setg-card-hd .btn { font-size: 12px; padding: 0 14px; }
 .setg-pg .setg-card-bd { padding: 6px 24px; }
 .setg-pg .setg-card-bd--pad { padding: 22px 24px; }
 /* A card whose only content is a hidden panel shows just its header. */
@@ -213,7 +213,8 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   padding: 9px 12px;
   font-size: 14px; color: var(--t1);
   font-family: var(--font-text);
-  transition: border-color .15s, background .15s;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
   width: 100%; min-width: 0;
 }
 @media (max-width: 639.98px) {
@@ -243,10 +244,10 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   padding: 5px 10px; font-size: 11px; color: var(--t3);
   border-radius: var(--r-pill); background: transparent;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
-.setg-pg .inp-reveal:active { color: var(--t1); background: rgba(255,255,255,.12); }
+.setg-pg .inp-reveal:active { color: var(--t1); background: var(--rgba-overlay-lg); }
 /* Show/hide on account password fields (show-password.js wraps the input). */
 .setg-pg .pw-wrap { position: relative; }
 .setg-pg .pw-wrap .inp { width: 100%; padding-right: 66px; }
@@ -257,7 +258,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .setg-pg .pw-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
-.setg-pg .pw-toggle:active { color: var(--t1); background: rgba(255,255,255,.12); }
+.setg-pg .pw-toggle:active { color: var(--t1); background: var(--rgba-overlay-lg); }
 
 .setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .setg-pg .fld-lbl {
@@ -281,15 +282,15 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   position: relative; width: 44px; height: 26px;
   background: var(--s4); border-radius: var(--r-pill);
   cursor: pointer; flex-shrink: 0;
-  transition: background .2s, transform var(--dur-fast) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .setg-pg .tog:active { transform: scale(.94); }
 @media (prefers-reduced-motion: reduce) { .setg-pg .tog:active { transform: none; } }
 .setg-pg .tog::after {
   content: ""; position: absolute; top: 2px; left: 2px;
   width: 22px; height: 22px; border-radius: 50%;
-  background: #fff;
-  transition: transform .2s;
+  background: var(--t1);
+  transition: transform var(--dur) var(--ease-out);
 }
 .setg-pg .tog.on { background: var(--success); }
 .setg-pg .tog.on::after { transform: translateX(18px); }
@@ -298,11 +299,12 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .conn-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--t4); display: inline-block;
-  transition: background .15s, box-shadow .15s;
+  transition: background var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
-.setg-pg .conn.ok       .conn-dot { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,.6); }
-.setg-pg .conn.warn     .conn-dot { background: var(--warning); box-shadow: 0 0 8px rgba(255,214,10,.6); }
-.setg-pg .conn.err      .conn-dot { background: var(--danger);  box-shadow: 0 0 8px rgba(255,69,58,.6);  }
+.setg-pg .conn.ok       .conn-dot { background: var(--success); box-shadow: var(--glow-success); }
+.setg-pg .conn.warn     .conn-dot { background: var(--warning); box-shadow: var(--glow-warning); }
+.setg-pg .conn.err      .conn-dot { background: var(--danger);  box-shadow: var(--glow-danger);  }
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
 
@@ -317,7 +319,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   /* Off-screen is not hidden: without visibility the "Unsaved changes" text
      and both buttons stay readable and tabbable while nothing is edited. */
   visibility: hidden;
-  transition: transform .25s cubic-bezier(.2,.8,.2,1), visibility 0s .25s;
+  transition: transform var(--dur-slow) var(--ease-out), visibility 0s var(--dur-slow);
 }
 .setg-pg .savebar.on { transform: translateY(0); visibility: visible; transition-delay: 0s; }
 .setg-pg .savebar .sb-inner {
@@ -326,7 +328,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 }
 .setg-pg .savebar .sb-dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6);
+  background: var(--warning); box-shadow: var(--glow-warning);
 }
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
@@ -339,12 +341,12 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
    the danger colour, and the message gains an "Save failed" label. */
 .setg-pg .savebar.is-error .sb-dot {
   background: var(--danger);
-  box-shadow: 0 0 10px rgba(255, 69, 58, .6);
+  box-shadow: var(--glow-danger);
 }
 .setg-pg .savebar.is-error .sb-msg { color: var(--danger); }
 .setg-pg .savebar.is-error .sb-sub {
   color: var(--danger);
-  background: rgba(255, 69, 58, .12);
+  background: var(--rgba-danger-bg);
   padding: 4px 10px;
   border-radius: var(--r-pill);
   font-weight: 500;
@@ -413,34 +415,22 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   .reauth-sheet .reauth-msg { transition: none; }
 }
 
-.setg-pg .btn-test {
-  font-size: 12px; font-weight: 500; padding: 7px 14px;
-  background: transparent; border: 1px solid var(--hair-strong);
-  color: var(--t1); border-radius: var(--r-pill);
-  transition: background .15s, border-color .15s;
-  white-space: nowrap;
-}
-.setg-pg .btn-test:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.3); }
-.setg-pg .btn-test:active:not(:disabled) { background: rgba(255,255,255,.08); }
-.setg-pg .btn-test:disabled { opacity: .6; cursor: default; }
 
 .setg-pg .disk-badge {
   font-size: 11px; font-weight: 500; padding: 3px 10px;
   border-radius: var(--r-pill); background: var(--s3);
   color: var(--t3); font-variant-numeric: tabular-nums;
 }
-.setg-pg .disk-badge.ok   { color: var(--success); background: rgba(48,209,88,.12); }
-.setg-pg .disk-badge.warn { color: var(--warning); background: rgba(255,214,10,.12); }
+.setg-pg .disk-badge.ok   { color: var(--success); background: var(--rgba-success-bg); }
+.setg-pg .disk-badge.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
 
 /* Phone tap targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */
-@media (max-width: 639.98px) {
+@media (max-width: 699.98px) {
   .setg-pg .setg-rail-item { min-height: 44px; }
-  .setg-pg .btn-test { min-height: 44px; }
-  .setg-pg .tog::before,
   .setg-pg .inp-reveal::before,
-  .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -7px -4px; }
+  .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -9px -4px; }
   /* Helper-text links: the extra height goes below the line, not onto the input above. */
   .setg-pg .fld-sub a,
   .setg-pg .setg-row-sub a { position: relative; }

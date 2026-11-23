@@ -94,7 +94,7 @@
 }
 .ui-toast--error {
   border-left-color: var(--danger);
-  background: linear-gradient(90deg, rgba(255,69,58,.10), var(--s2) 40%), var(--s2);
+  background: linear-gradient(90deg, var(--rgba-danger-bg-soft), var(--s2) 40%), var(--s2);
   color: var(--t1);
 }
 .ui-toast--info {
@@ -109,7 +109,7 @@
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(0,0,0,.6);
+  background: var(--scrim-modal);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   display: flex;

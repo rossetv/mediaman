@@ -7,7 +7,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
-  background: rgba(0,0,0,.7);
+  background: var(--scrim-modal);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   display: flex;
@@ -15,7 +15,6 @@
   justify-content: center;
   padding: 60px 20px 20px;
   overflow-y: auto;
-  animation: modal-backdrop-in var(--dur) var(--ease-out);
 }
 .modal-sheet {
   background: var(--s2);
@@ -26,28 +25,45 @@
   box-shadow: var(--shadow-card);
   position: relative;
 }
-/* Open and close like the app's confirm dialog: the dim fades, the sheet
-   rises a few pixels into place. Closing is already decided, so clicks pass. */
-.modal-backdrop > .modal-sheet { animation: modal-sheet-in var(--dur) var(--ease-out); }
-.modal-backdrop.is-leaving { animation: modal-backdrop-out var(--dur) var(--ease-out) forwards; pointer-events: none; }
-.modal-backdrop.is-leaving > .modal-sheet { animation: modal-sheet-out var(--dur) var(--ease-out) forwards; }
-@keyframes modal-backdrop-in { from { opacity: 0; } }
-@keyframes modal-backdrop-out { to { opacity: 0; } }
+/* A dialog opens as the dim fades in and the sheet rises a few pixels into
+   place; `.is-closing` plays it back, faster, before the script hides it.
+   Closing is already decided, so clicks pass through. */
+.modal-backdrop,
+.delete-modal-overlay.is-visible,
+.keep-dialog-overlay.active { animation: modal-in var(--dur) var(--ease-out); }
+.modal-backdrop > .modal-sheet,
+.delete-modal-overlay.is-visible > .delete-modal-card,
+.keep-dialog-overlay.active > .keep-dialog { animation: modal-sheet-in var(--dur) var(--ease-out); }
+.modal-backdrop.is-closing,
+.delete-modal-overlay.is-closing,
+.keep-dialog-overlay.is-closing {
+  animation: modal-out var(--dur-fast) var(--ease-out) forwards;
+  pointer-events: none;
+}
+.modal-backdrop.is-closing > .modal-sheet,
+.delete-modal-overlay.is-closing > .delete-modal-card,
+.keep-dialog-overlay.is-closing > .keep-dialog { animation: modal-sheet-out var(--dur-fast) var(--ease-out) forwards; }
+@keyframes modal-in { from { opacity: 0; } }
+@keyframes modal-out { to { opacity: 0; } }
 @keyframes modal-sheet-in { from { transform: translateY(8px) scale(.98); } }
 @keyframes modal-sheet-out { to { transform: translateY(8px) scale(.98); } }
-.detail-modal-quick .type-pill,
+/* Under reduced motion the sheet does not move; the dim still fades. */
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop > .modal-sheet,
+  .delete-modal-overlay > .delete-modal-card,
+  .keep-dialog-overlay > .keep-dialog { animation: none; }
+}
 .type-pill {
   display: inline-flex;
   padding: 3px 10px;
   border-radius: var(--r-pill);
-  background: rgba(41,151,255,.18);
+  background: var(--rgba-accent-chip);
   color: var(--accent);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .03em;
   text-transform: uppercase;
 }
-.detail-modal-quick .type-pill--movie,
 .type-pill--movie { background: var(--rgba-orange-bg); color: var(--orange); }
 .meta-text { color: var(--t2); font-size: 13px; }
 .rating-pill {
@@ -61,7 +77,7 @@
 }
 .rating-pill.r-tmdb { background: rgba(255,159,10,.15); color: var(--orange); }
 .rating-pill.r-imdb { background: var(--rgba-warning-bg); color: var(--warning); }
-.rating-pill.r-rt   { background: rgba(255,69,58,.15); color: var(--danger); }
+.rating-pill.r-rt   { background: var(--rgba-danger-bg); color: var(--danger); }
 .rating-pill.r-meta { background: rgba(48,209,88,.15); color: var(--success); }
 
 .detail-modal-cast {
@@ -92,41 +108,13 @@
   margin-top: 8px;
   flex-wrap: wrap;
 }
-.btn-download {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 22px;
-  border-radius: var(--r-pill);
-  background: var(--accent-cta);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  flex: 1;
-  min-width: 180px;
-  transition: background .15s;
-}
-.btn-download:hover { background: var(--accent-hi); }
-.btn-download:disabled { opacity: .55; cursor: not-allowed; }
-.btn-download.ready,
-.btn-download.queued {
-  background: var(--rgba-success-bg);
-  color: var(--success);
-}
-.btn-download.queued { background: rgba(255,214,10,.14); color: var(--warning); }
-.btn-download.adding { background: rgba(41,151,255,.18); color: var(--accent); }
-
-/* State modifier classes — toggled from JS instead of inline style.background/color.
-   is-added: success flash after a download request completes. */
-.btn-download.is-added  { background: var(--rgba-success-bg); color: var(--success); }
-
 /* Generic delete-confirm + keep dialog */
 .delete-modal-overlay,
 .keep-dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: rgba(0,0,0,.6);
+  background: var(--scrim-modal);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   display: none;
@@ -154,7 +142,7 @@
 .keep-dialog { max-width: 540px; }
 .keep-dialog h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
 .keep-duration-bar { display: flex; gap: 6px; padding: 4px; background: var(--s1); border-radius: var(--r-pill); margin-bottom: 14px; flex-wrap: wrap; }
-.keep-dur-btn { padding: 6px 12px; border-radius: var(--r-pill); font-size: 12px; color: var(--t2); transition: background .15s, color .15s; }
+.keep-dur-btn { padding: 6px 12px; border-radius: var(--r-pill); font-size: 12px; color: var(--t2); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .keep-dur-btn:hover { color: var(--t1); }
 .keep-dur-btn.active { background: var(--s3); color: var(--t1); font-weight: 500; }
 
@@ -176,17 +164,11 @@
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
 .keep-all-row { background: var(--s3); font-weight: 500; }
 .keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-shrink: 0; }
-/* The ghost button has a border; give the others a transparent one so every
-   button in a dialog row is the same height. */
-.keep-dialog-actions .btn:not(.btn--ghost),
-.delete-modal-actions .btn:not(.btn--ghost) { border: 1px solid transparent; }
+@media (max-width: 699.98px) {
+  .keep-dur-btn,
+  .snooze-option { min-height: 44px; }
+}
 @media (max-width: 639.98px) {
-  .modal-sheet .btn,
-  .ui-confirm-actions .btn { min-height: 44px; }
-  .keep-dur-btn { min-height: 40px; }
-  .snooze-option { min-height: 40px; }
-  .keep-dialog-actions .btn,
-  .delete-modal-actions .btn { min-height: 40px; }
   /* A long details line wraps inside its row instead of pushing Delete out. */
   .keep-season-details { white-space: normal; min-width: 0; }
 }

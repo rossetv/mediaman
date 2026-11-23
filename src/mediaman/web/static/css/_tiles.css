@@ -13,7 +13,7 @@
   flex-direction: column;
   gap: 10px;
   cursor: pointer;
-  transition: transform .2s;
+  transition: transform var(--dur) var(--ease-out);
   min-width: 0;
 }
 /* .tile-hit: stretched, transparent button overlay providing the
@@ -58,7 +58,7 @@
   overflow: hidden;
   background: var(--s3);
   position: relative;
-  transition: box-shadow .25s;
+  transition: box-shadow var(--dur-slow) var(--ease-out);
 }
 .tile-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile-poster::before {
@@ -122,8 +122,8 @@
 .tile-actions { display: flex; gap: 6px; margin-top: 2px; position: relative; z-index: 2; }
 .tile-actions .btn { flex: 1; min-width: 0; }
 .tile-actions .btn--icon { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; }
-@media (max-width: 639.98px) {
-  .tile-actions .btn--icon { flex-basis: 40px; width: 40px; height: 40px; }
+@media (max-width: 699.98px) {
+  .tile-actions .btn--icon { flex-basis: 44px; width: 44px; height: 44px; }
 }
 /* Dashboard: grid items already stretch to the row, so pinning the Keep row
    lines the buttons up across tiles of differing title and meta length. */
@@ -136,11 +136,6 @@
   .sched-hd > .u-flex { display: contents; }
   .sched-hd .sub { grid-row: 2; grid-column: 1; }
   .sched-hd .btn { grid-row: 1; grid-column: 2; }
-}
-@media (max-width: 639.98px) {
-  .dash .btn { min-height: 44px; }
-  .dash .tile-actions .btn--icon { flex-basis: 44px; width: 44px; height: 44px; }
-  .dash .snooze-option { min-height: 44px; }
 }
 
 /* Grids */
@@ -159,126 +154,9 @@
   scrollbar-width: thin;
 }
 .shelf::-webkit-scrollbar { height: 8px; }
-.shelf::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 4px; }
+.shelf::-webkit-scrollbar-thumb { background: var(--s3); border-radius: var(--r-xxs); }
 .shelf .tile { flex: 0 0 170px; width: 170px; max-width: 170px; }
 
-/* AI reason chip on a recommended tile. */
-.reason {
-  margin-top: 4px;
-  padding: 8px 10px;
-  background: var(--s3);
-  border-radius: var(--r-xs);
-  font-size: 11px;
-  color: var(--t2);
-  line-height: 1.45;
-}
-.reason b { color: var(--t1); font-weight: 600; }
-
-/* poster-card built by core/tiles.js — same look as .tile */
-.poster-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  cursor: pointer;
-  transition: transform .2s;
-  min-width: 0;
-}
-.poster-card:hover { transform: translateY(-2px); }
-.poster-card:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) {
-  .tile:active, .poster-card:active { transform: none; }
+  .tile:active { transform: none; }
 }
-.poster-card:hover .poster { box-shadow: var(--shadow-card); }
-.poster-card .poster {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2/3;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--s3);
-  transition: box-shadow .25s;
-}
-.poster-card .poster img { width: 100%; height: 100%; object-fit: cover; }
-.poster-card .poster::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(to bottom, rgba(0,0,0,.45) 0%, transparent 25%, transparent 65%, rgba(0,0,0,.85) 100%);
-}
-/* Rating chips sit top-left of the poster so they never collide with the
-   bottom-right state pill (In Library / queued / downloading). Each rating
-   gets its own compact pill so neither can force a wrap. */
-.poster-card .poster-chips,
-.tile-poster .poster-chips {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-  display: flex;
-  gap: 4px;
-  flex-wrap: nowrap;
-}
-.poster-card .poster-chip,
-.tile-poster .poster-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--r-pill);
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(0,0,0,.6);
-  color: #fff;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  white-space: nowrap;
-  line-height: 1;
-}
-.poster-card .poster-chip .chip-icon,
-.tile-poster .poster-chip .chip-icon {
-  font-size: 11px;
-  line-height: 1;
-}
-.poster-card .poster-chip.r-imdb .chip-icon,
-.tile-poster .poster-chip.r-imdb .chip-icon { color: var(--warning); }
-.poster-card .poster-state,
-.tile-poster .poster-state {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  z-index: 2;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-}
-.poster-card .poster-state.in_library,
-.tile-poster .poster-state.in_library { background: rgba(48,209,88,.85); color: #00210b; }
-.poster-card .poster-state.downloading,
-.tile-poster .poster-state.downloading { background: rgba(41,151,255,.85); color: #001a30; }
-.poster-card .poster-state.queued,
-.tile-poster .poster-state.queued { background: rgba(255,214,10,.85); color: #2a2400; }
-.poster-card .poster-empty {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  color: var(--t4);
-  font-size: 18px;
-}
-.poster-card .poster-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.poster-card .card-title {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.poster-card .card-meta { font-size: 12px; color: var(--t3); }
-

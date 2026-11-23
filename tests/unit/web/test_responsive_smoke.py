@@ -215,8 +215,11 @@ def test_single_shadow_token():
     css = _css()
     assert "--shadow-card:" in css
     box_shadows = re.findall(r"box-shadow:\s*([^;]+);", css)
+    tokens = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", css))
     for value in box_shadows:
         v = value.strip()
+        # A shadow token is held to the same rule as a literal.
+        v = re.sub(r"^var\((--glow-[\w-]+)\)$", lambda m: tokens[m.group(1)].strip(), v)
         if "var(--shadow-card)" in v or v in ("none", "inherit"):
             continue
         # Status-dot / focus-ring style glows: small radius (≤12px) with
