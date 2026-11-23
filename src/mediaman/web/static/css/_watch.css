@@ -298,7 +298,8 @@
   text-overflow: ellipsis;
 }
 .watch-badge__short { display: none; }
-.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 85%, transparent); font-weight: 600; }
+/* Opaque and darkened so white text holds 4.5:1 over any poster. */
+.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); font-weight: 600; }
 .watch-badge--watched { right: 8px; background: color-mix(in srgb, var(--scrim) 65%, transparent); color: color-mix(in srgb, var(--t1) 85%, transparent); }
 .watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
 @media (max-width: 1279.98px) {
