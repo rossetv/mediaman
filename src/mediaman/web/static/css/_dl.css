@@ -248,6 +248,8 @@
 }
 .dl-hero-episodes-toggle:hover,
 .dl-compact-episodes-toggle:hover { background: rgba(255,255,255,.14); color: var(--t1); }
+.dl-hero-episodes-toggle:active,
+.dl-compact-episodes-toggle:active { background: rgba(255,255,255,.2); color: var(--t1); }
 .dl-hero-episodes-toggle .fa-chevron-right,
 .dl-compact-episodes-toggle .fa-chevron-right { transition: transform .2s; }
 .dl-hero-episodes-toggle.open .fa-chevron-right,

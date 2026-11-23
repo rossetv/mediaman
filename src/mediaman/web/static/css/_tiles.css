@@ -41,6 +41,7 @@
   outline-offset: 2px;
 }
 .tile:hover { transform: translateY(-2px); }
+.tile:active { transform: scale(.97); }
 /* An open keep menu must sit above the tiles in the rows below it. */
 .tile:has(.keep-wrapper.is-open) { z-index: 30; }
 .tile:hover .tile-poster { box-shadow: var(--shadow-card); }
@@ -332,6 +333,10 @@
   min-width: 0;
 }
 .poster-card:hover { transform: translateY(-2px); }
+.poster-card:active { transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) {
+  .tile:active, .poster-card:active { transform: none; }
+}
 .poster-card:hover .poster { box-shadow: var(--shadow-card); }
 .poster-card .poster {
   position: relative;

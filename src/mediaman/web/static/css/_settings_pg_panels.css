@@ -111,6 +111,8 @@
   outline: 2px solid var(--accent-cta);
   outline-offset: -2px;
 }
+.setg-pg .intg-card-hd { transition: background var(--dur-fast) var(--ease-out); }
+.setg-pg .intg-card-hd:active { background: rgba(255,255,255,.04); }
 .setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
 .setg-pg .intg-card-hd .glyph {
   width: 36px; height: 36px; border-radius: var(--r-sm);
@@ -142,6 +144,8 @@
   cursor: pointer; transition: all .15s;
 }
 .setg-pg .lib-pill:hover { background: var(--s3); color: var(--t1); }
+.setg-pg .lib-pill:active { background: var(--s4); color: var(--t1); transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) { .setg-pg .lib-pill:active { transform: none; } }
 .setg-pg .lib-pill.on {
   background: rgba(41,151,255,.12); color: var(--accent);
   border-color: rgba(41,151,255,.4);
@@ -273,6 +277,7 @@
   transition: background .15s;
 }
 .setg-pg .recipient-item:hover { background: var(--s3); }
+.setg-pg .recipient-item:active { background: var(--s4); }
 .setg-pg .recipient-item:has(input:checked) { background: rgba(0,113,227,.08); }
 .setg-pg .recipient-item:has(input:checked):hover { background: rgba(0,113,227,.14); }
 .setg-pg .recipient-item label {
