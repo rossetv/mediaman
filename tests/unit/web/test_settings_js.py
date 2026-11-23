@@ -93,6 +93,9 @@ def test_new_user_row_enters_only_after_the_add_form_has_closed() -> None:
     assert out["afterClose"] == {"rows": 2, "hidden": True, "submitDisabled": False}
     # focus goes back to the button without scrolling the page to it
     assert out["refocus"] == {"onButton": True, "preventScroll": True}
+    # ...and the button is scrolled into view only once the fold has ended
+    assert out["scrollWhileClosing"] == 0
+    assert out["scrollAfterClose"] == [{"block": "nearest", "behavior": "smooth"}]
 
 
 def test_form_message_clears_when_the_person_types_again() -> None:

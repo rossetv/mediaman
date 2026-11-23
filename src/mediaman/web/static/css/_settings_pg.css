@@ -398,11 +398,13 @@
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 .reauth-sheet .reauth-msg.is-shown { opacity: 1; }
-/* On a phone the message gets its own full-width line above the buttons,
-   so a long one never squeezes them. The line is always there: no jump. */
-@media (max-width: 639.98px) {
-  .reauth-sheet .reauth-actions { flex-wrap: wrap; }
-  .reauth-sheet .reauth-msg { order: -1; flex: 0 0 100%; margin-right: 0; }
+/* On a phone the buttons stack full width like the confirm dialog's, Cancel
+   above the main one, and the message gets its own line above them. The line is
+   always there: no jump. */
+@media (max-width: 699.98px) {
+  .reauth-sheet .reauth-actions { flex-direction: column; align-items: stretch; }
+  .reauth-sheet .reauth-actions .btn { width: 100%; min-height: 44px; }
+  .reauth-sheet .reauth-msg { order: -1; margin-right: 0; align-self: stretch; }
 }
 @media (prefers-reduced-motion: reduce) {
   .reauth-sheet .reauth-msg { transition: none; }

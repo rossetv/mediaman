@@ -381,7 +381,14 @@
           var closed = new Promise(function (resolve) {
             setTimeout(function () {
               var hadFocus = MM.dom.focusStillIn(addUserForm);
-              toggleAddUser(false, resolve);
+              toggleAddUser(false, function () {
+                // Once the fold has finished the button's place is settled: bring it into view.
+                if (hadFocus && btnAddUser) {
+                  var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                  btnAddUser.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
+                }
+                resolve();
+              });
               if (hadFocus && btnAddUser) btnAddUser.focus({ preventScroll: true });
             }, 700);
           });

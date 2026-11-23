@@ -34,15 +34,23 @@ def test_the_message_fades_out_before_it_is_emptied() -> None:
     assert out["emptied"] == {"text": "", "on": False}
 
 
-def test_the_message_fades_and_takes_its_own_line_on_a_phone() -> None:
+def test_the_message_fades_and_the_buttons_stack_like_the_confirm_dialog_on_a_phone() -> None:
     css = (_CSS / "_settings_pg.css").read_text()
     base = css.split(".reauth-sheet .reauth-msg {")[1].split("}")[0]
     assert "opacity: 0" in base
     assert "transition: opacity var(--dur-fast) var(--ease-out)" in base
     assert re.search(r"\.reauth-msg\.is-shown \{ opacity: 1; \}", css)
-    phone = css.split(".reauth-msg.is-shown")[1].split("\n}")[0]
-    assert ".reauth-actions { flex-wrap: wrap; }" in phone
-    assert "flex: 0 0 100%" in phone
+    phone = (
+        css.split(".reauth-msg.is-shown { opacity: 1; }")[1]
+        .split("@media (max-width: 699.98px) {")[1]
+        .split("\n}")[0]
+    )
+    assert "flex-direction: column" in phone
+    assert re.search(r"\.reauth-actions \.btn \{ width: 100%; min-height: 44px; \}", phone)
+    assert "order: -1" in phone  # the message stays on its own line above the buttons
+    # Cancel comes before the main button in the markup, as in the confirm dialog
+    js = (_CSS.parent / "js" / "core" / "reauth.js").read_text()
+    assert js.index("cancelBtn);") < js.index("confirmBtn);")
 
 
 def test_dialog_buttons_are_44px_tall_on_a_phone() -> None:

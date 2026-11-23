@@ -365,12 +365,16 @@ const scenarios = {
     await h.flush();
     const rowsNow = () => names(userList, 'usr-row').length;
     const afterCreate = { rows: rowsNow(), open: !form.hidden };
+    btnAdd.scrollCalls = [];
+    btnAdd.scrollIntoView = function (o) { this.scrollCalls.push(o); };
     h.timers.splice(0).filter((t) => t.ms === 700).forEach((t) => t.fn());
     await h.flush();
+    const scrollWhileClosing = btnAdd.scrollCalls.length;
     const whileClosing = { rows: rowsNow(), shut: form.classList.contains('is-shut'), hidden: form.hidden };
     form.fire('transitionend', { propertyName: 'grid-template-rows' });
     await h.flush();
     return {
+      scrollWhileClosing, scrollAfterClose: btnAdd.scrollCalls,
       afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled },
       // handing focus back to the button must not scroll the page to it
       refocus: { onButton: h.doc.activeElement === btnAdd, preventScroll: !!(btnAdd.lastFocusOpts && btnAdd.lastFocusOpts.preventScroll) },
