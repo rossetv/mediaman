@@ -24,6 +24,7 @@
                  data_attrs={"action": "trigger-scan"},
                  icon='<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> ') }}
         <span id="scan-status" class="scan-status"></span>
+        <span id="scan-live" class="sr-only" role="status"></span>
       </div>
     </div>
   </div>
@@ -35,6 +36,7 @@
   </div>
   {% endif %}
 
+  <div data-fragment="roots">
   {% if unavailable_roots %}
   <div class="root-banner" role="alert">
     <i class="fa-solid fa-triangle-exclamation root-banner-icon" aria-hidden="true"></i>
@@ -45,6 +47,7 @@
     </ul>
   </div>
   {% endif %}
+  </div>
 
   {# Storage — bespoke layout (storage-num has nested <small>, legend dots use
      CSS-classed helpers rather than inline colours). Macro c.storage uses a

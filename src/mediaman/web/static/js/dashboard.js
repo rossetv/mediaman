@@ -34,39 +34,225 @@
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
-  /* Keeps in flight: a page refresh waits for the last one, so a tile whose
-     request has not finished is not put back by an earlier answer. */
+  function motionToken(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  function motion() {
+    var dur = motionToken('--dur-slow', '.25s');
+    return {
+      duration: /ms$/.test(dur) ? parseFloat(dur) : parseFloat(dur) * 1000,
+      easing: motionToken('--ease-out', 'ease-out')
+    };
+  }
+
+  function tileRects(scope) {
+    var rects = {};
+    MM.dom.qa('.tile', scope).forEach(function (t) {
+      var w = t.querySelector('[data-id]');
+      if (w) rects[w.dataset.id] = t.getBoundingClientRect();
+    });
+    return rects;
+  }
+
+  /* Slide each tile that was on the page from where it was to where it is
+     now. Returns how many tiles were already there. */
+  function slideTiles(scope, before, m) {
+    var kept = 0;
+    MM.dom.qa('.tile', scope).forEach(function (t) {
+      var w = t.querySelector('[data-id]');
+      var was = w && before[w.dataset.id];
+      if (!was) {
+        t.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], m);
+        return;
+      }
+      kept += 1;
+      var now = t.getBoundingClientRect();
+      var dx = was.left - now.left;
+      var dy = was.top - now.top;
+      if (dx || dy) t.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], m);
+    });
+    return kept;
+  }
+
+  /* Put a fragment's fresh copy in place. Tiles still listed slide to their
+     new place; otherwise the old copy fades out over the new one. The height
+     follows either way, so what is below never jumps in one frame. */
+  function swapFragment(cur, node) {
+    if (reduceMotion() || !cur.animate) { cur.replaceWith(node); return; }
+    var m = motion();
+    var from = cur.getBoundingClientRect().height;
+    var before = tileRects(cur);
+    cur.before(node);
+    cur.removeAttribute('data-fragment');
+    cur.setAttribute('aria-hidden', 'true');
+    cur.inert = true;
+    cur.style.display = 'none';
+    var to = node.getBoundingClientRect().height;
+    if (slideTiles(node, before, m) > 0) {
+      cur.remove();
+    } else {
+      /* The old copy fades out inside the new one, so it moves with the page
+         and the shrinking height clips it. */
+      Array.prototype.forEach.call(node.children, function (c) {
+        c.animate([{ opacity: 0 }, { opacity: 1 }], m);
+      });
+      node.style.position = 'relative';
+      cur.style.cssText = 'position:absolute;margin:0;pointer-events:none;top:0;left:0;right:0';
+      node.appendChild(cur);
+      var at = cur.getBoundingClientRect();
+      var box = node.getBoundingClientRect();
+      /* A first child's margin collapses through the fragment in the flow but
+         not in the pinned copy, so line the first children up when they match. */
+      var a = cur.firstElementChild;
+      var b = node.firstElementChild;
+      var dy = a && b && a.tagName === b.tagName
+        ? b.getBoundingClientRect().top - a.getBoundingClientRect().top
+        : box.top - at.top;
+      cur.style.top = dy + 'px';
+      cur.style.left = (box.left - at.left) + 'px';
+      cur.style.right = (at.right - box.right) + 'px';
+      var fade = cur.animate([{ opacity: 1 }, { opacity: 0 }], { duration: m.duration, easing: m.easing, fill: 'forwards' });
+      fade.onfinish = fade.oncancel = function () { cur.remove(); node.style.position = ''; };
+    }
+    if (Math.abs(from - to) < 1) return;
+    node.style.overflow = 'hidden';
+    var grow = node.animate([{ height: from + 'px' }, { height: to + 'px' }], m);
+    grow.onfinish = grow.oncancel = function () { node.style.overflow = ''; };
+  }
+
+  /* Where focus sits in a fragment, told by what it is rather than which node,
+     so it can be found again in the fresh copy. */
+  function focusPlace(cur) {
+    var el = document.activeElement;
+    if (!el || el === document.body || !cur.contains(el)) return null;
+    var sel = null;
+    if (el.dataset.action) {
+      sel = '[data-action="' + el.dataset.action + '"]' +
+        (el.dataset.duration ? '[data-duration="' + el.dataset.duration + '"]' : '');
+    } else if (el.id) {
+      sel = '#' + el.id;
+    } else if (el.classList.contains('btn-sm-caret')) {
+      sel = '.btn-sm-caret';
+    }
+    var item = el.closest('[data-id]');
+    return {
+      sel: sel,
+      id: item && item.dataset.id,
+      index: sel ? MM.dom.qa(sel, cur).indexOf(el) : -1
+    };
+  }
+
+  /* The same control in the fresh copy; the one now in its place when its
+     own item has gone; the heading only when the list is empty. */
+  function restoreFocus(node, place) {
+    var target = null;
+    if (place.sel) {
+      var all = MM.dom.qa(place.sel, node).filter(function (e) { return !e.closest('[inert]'); });
+      if (place.id) {
+        target = all.filter(function (e) {
+          var item = e.closest('[data-id]');
+          return item && item.dataset.id === place.id;
+        })[0] || null;
+      }
+      if (!target && all.length) target = all[Math.min(place.index, all.length - 1)];
+    }
+    if (target) {
+      target.focus({ preventScroll: true });
+      if (document.activeElement === target) return;
+    }
+    var heading = node.querySelector('h2');
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+  }
+
+  /* A refresh that finds the login page instead of the dashboard: the session
+     has ended, so send the user to sign in rather than leave the page stale. */
+  function signIn() {
+    window.location.href = '/login';
+    return new Promise(function () {});
+  }
+
+  /* Keeps in flight hold a refresh back until the last one settles, so a tile
+     whose request has not finished is not put back by an earlier answer.
+     keepGen moves whenever a keep starts or ends, and refreshSeq with each
+     refresh: an answer read before either moved is out of date. */
   var keepsInFlight = 0;
+  var keepGen = 0;
+  var refreshSeq = 0;
+  var refreshWaiting = false;
 
   /* Re-read the page and swap in the parts that change with a scan, a clear or
      a keep, so nothing reloads and the scroll position stays put. Resolves true
-     when the parts were swapped. */
+     when the page now shows the server's latest. */
   function refreshFragments() {
+    if (keepsInFlight > 0) { refreshWaiting = true; return Promise.resolve(false); }
+    refreshWaiting = false;
+    var seq = ++refreshSeq;
+    var gen = keepGen;
     return fetch(window.location.pathname, {
       credentials: 'same-origin',
       headers: { Accept: 'text/html' }
     }).then(function (res) {
       if (!res.ok) throw new Error('refresh failed');
+      if (res.redirected && /\/login(?:[?#]|$)/.test(res.url)) return signIn();
       return res.text();
     }).then(function (html) {
-      if (keepsInFlight > 0) return false;
+      if (seq !== refreshSeq) return false;
+      if (gen !== keepGen) return refreshFragments();
       var doc = new DOMParser().parseFromString(html, 'text/html');
+      if (!doc.querySelector('[data-fragment]')) return signIn();
       MM.dom.qa('[data-fragment]').forEach(function (cur) {
         var fresh = doc.querySelector('[data-fragment="' + cur.dataset.fragment + '"]');
-        if (!fresh) return;
-        var hadFocus = cur.contains(document.activeElement);
+        if (!fresh || cur.isEqualNode(fresh)) return;
+        var place = focusPlace(cur);
         var node = document.importNode(fresh, true);
-        cur.replaceWith(node);
-        if (hadFocus) {
-          var target = node.querySelector('h2');
-          if (target) { target.tabIndex = -1; target.focus(); }
-        }
+        swapFragment(cur, node);
+        if (place) restoreFocus(node, place);
       });
       return true;
     });
   }
 
+  function keepStarted() {
+    keepsInFlight += 1;
+    keepGen += 1;
+  }
+
+  /* A saved keep refreshes once its tile has gone; a failed one runs the
+     refresh it held back, if any. */
+  function keepSettled(saved) {
+    keepsInFlight -= 1;
+    keepGen += 1;
+    if (!saved && keepsInFlight === 0 && refreshWaiting) refreshFragments().catch(function () {});
+  }
+
+  /* How long "Finished in …" stays before it fades away. */
+  var STATUS_LINGER_MS = 5000;
+  var statusFade = { timer: 0, anim: null };
+
+  function stopStatusFade() {
+    clearTimeout(statusFade.timer);
+    if (statusFade.anim) statusFade.anim.cancel();
+    statusFade = { timer: 0, anim: null };
+  }
+
+  function fadeStatusLater(el) {
+    stopStatusFade();
+    statusFade.timer = setTimeout(function () {
+      var clear = function () {
+        statusFade.anim = null;
+        el.textContent = '';
+        el.classList.remove('scan-status--success');
+      };
+      if (reduceMotion() || !el.animate) { clear(); return; }
+      var m = motion();
+      statusFade.anim = el.animate([{ opacity: 1 }, { opacity: 0 }], m);
+      statusFade.anim.onfinish = clear;
+    }, STATUS_LINGER_MS);
+  }
+
   function updateScanStatus(msg) {
+    stopStatusFade();
     var el = document.getElementById('scan-status');
     if (!el) return;
     el.textContent = '';
@@ -88,7 +274,8 @@
   }
 
   /* The button was disabled for the scan, so focus fell to the body; say why it
-     stopped in a toast too, since #scan-status is not a live region. */
+     stopped in a toast too, since #scan-status is not a live region (its
+     running clock would be read out every few seconds). */
   function scanStopped(btn, reason, label) {
     btn.classList.remove('scan-running');
     btn.textContent = label || 'Scan now';
@@ -138,12 +325,17 @@
             btn.classList.add('is-success');
             btn.textContent = 'Scan complete ✓';
             var statusEl = document.getElementById('scan-status');
+            var liveEl = document.getElementById('scan-live');
             var took = 'Finished in ' + fmtElapsed(_scanElapsed);
+            stopStatusFade();
             if (statusEl) {
               statusEl.textContent = took;
               statusEl.classList.add('scan-status--success');
             }
-            refreshFragments().catch(function () {
+            if (liveEl) liveEl.textContent = 'Scan ' + took.toLowerCase();
+            refreshFragments().then(function () {
+              if (statusEl) fadeStatusLater(statusEl);
+            }, function () {
               if (statusEl) statusEl.textContent = took + '. Refresh the page to see the results.';
             }).then(function () {
               setTimeout(function () {
@@ -183,6 +375,8 @@
     _scanElapsed = 0;
     _scanStart = Date.now();
     updateScanStatus('Starting scan…');
+    var live = document.getElementById('scan-live');
+    if (live) live.textContent = '';
     MM.api.post('/api/scan/trigger')
       .then(function (data) {
         if (data.status === 'already_running') updateScanStatus('Scan already in progress');
@@ -277,20 +471,26 @@
       });
   }
 
-  /* Submit a keep request from a dashboard tile. The library.html keep-dialog
-     flow is too heavy for the dashboard scheduled view, so we just submit
-     directly with the chosen duration. */
-  /* Shrink a tile away and take it off the page. */
+  /* Shrink a tile away, take it off the page and slide the rest into place. */
   function removeTile(tile) {
     return new Promise(function (resolve) {
       if (reduceMotion() || !tile.animate) { tile.remove(); resolve(); return; }
+      var m = motion();
       tile.style.overflow = 'hidden';
       var anim = tile.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.96)' }],
-        { duration: 200, easing: 'ease-out', fill: 'forwards' });
-      anim.onfinish = function () { tile.remove(); resolve(); };
+        { duration: m.duration, easing: m.easing, fill: 'forwards' });
+      anim.onfinish = function () {
+        var grid = tile.parentNode;
+        var before = grid ? tileRects(grid) : {};
+        tile.remove();
+        if (grid) slideTiles(grid, before, m);
+        resolve();
+      };
     });
   }
 
+  /* Submit a keep straight from a tile with the chosen duration; the
+     library's keep dialog is more than the dashboard needs. */
   function dashSubmitKeep(btn, duration) {
     var wrapper = btn.closest('.keep-wrapper');
     if (!wrapper) return;
@@ -299,14 +499,18 @@
     wrapper.dataset.keepBusy = '1';
     wrapper.setAttribute('aria-busy', 'true');
     var tile = wrapper.closest('.tile');
+    var menu = wrapper.querySelector('.snooze-dropdown');
+    /* Read before the menu closes: closing it drops focus to the body. */
+    var hadFocus = (tile || wrapper).contains(document.activeElement);
+    var inMenu = !!menu && menu.contains(document.activeElement);
     if (tile) { tile.style.transition = 'opacity .15s ease-out'; tile.style.opacity = '.6'; }
     if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
-    keepsInFlight += 1;
+    keepStarted();
     var mediaId = wrapper.dataset.id;
     MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
       { duration: duration })
       .then(function (data) {
-        keepsInFlight -= 1;
+        keepSettled(true);
         /* Saved, but the item was already being deleted: say so. */
         if (data && data.deletion_running && data.message) {
           window.UIFeedback.toast(data.message, { duration: 8000 });
@@ -315,24 +519,24 @@
         }
         var grid = tile && tile.parentNode;
         var next = tile && (tile.nextElementSibling || tile.previousElementSibling);
-        var hadFocus = tile && tile.contains(document.activeElement);
+        var moveFocus = hadFocus && tile && MM.dom.focusStillIn(tile);
         return (tile ? removeTile(tile) : Promise.resolve()).then(function () {
-          if (hadFocus) {
-            var go = next && next.querySelector('.btn');
+          if (moveFocus) {
+            var go = next && next.querySelector('[data-action="keep-tile"]');
             if (!go && grid) { go = grid.closest('[data-fragment]'); go = go && go.querySelector('h2'); }
             if (go) { if (!go.matches('button, a')) go.tabIndex = -1; go.focus(); }
           }
           return refreshFragments();
         }).catch(function () {});
       }, function (err) {
-        keepsInFlight -= 1;
+        keepSettled(false);
         delete wrapper.dataset.keepBusy;
         wrapper.removeAttribute('aria-busy');
         if (tile) tile.style.opacity = '';
         var msg = MM.api.messageOf(err, 'Try again.');
         window.UIFeedback.error("Couldn't save keep. " + msg);
         var trigger = wrapper.querySelector('.keep-trigger, .btn-sm-caret');
-        if (trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
+        if (inMenu && trigger && MM.dom.focusStillIn(wrapper)) trigger.focus();
       });
   }
 
