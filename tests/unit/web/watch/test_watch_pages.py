@@ -678,6 +678,31 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     assert "Can't reach Plex right now." in play.text
 
 
+@pytest.mark.parametrize(
+    ("scheduled", "reserved"),
+    [(None, False), ("502", True)],
+    ids=["nothing leaving", "other season"],
+)
+def test_show_page_reserves_the_leaving_line_only_when_a_season_is_leaving(
+    app_factory, conn, library, plex, monkeypatch, scheduled, reserved
+):
+    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
+    if scheduled:
+        _schedule(conn, scheduled, 3)
+    app = app_factory(
+        pages.router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+    )
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "aoife"))
+
+    html = client.get("/watch/show/500?season=1").text
+
+    assert ("data-watch-leaving></p>" in html) is reserved
+    assert "Leaving in" not in html
+
+
 def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, monkeypatch):
     monkeypatch.setattr(pages, "now_utc", lambda: NOW)
     _schedule(conn, "100", 2)

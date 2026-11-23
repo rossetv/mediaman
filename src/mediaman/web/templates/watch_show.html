@@ -24,7 +24,7 @@
       <h1 class="watch-hero__title">{{ show.title }}</h1>
       {% if show.meta_line %}<p class="watch-hero__meta">{{ show.meta_line }}</p>{% endif %}
       {% if show.summary %}<p class="watch-hero__summary">{{ show.summary }}</p>{% endif %}
-      {% if leaving %}{{ w.leaving_line(leaving, show.title) }}{% endif %}
+      {% if leaving %}{{ w.leaving_line(leaving, show.title) }}{% elif season_leaving %}<p class="watch-leaving" data-watch-leaving></p>{% endif %}
       <div class="watch-actions">
         <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ primary.label }}</a>
       </div>

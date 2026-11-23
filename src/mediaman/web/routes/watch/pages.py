@@ -642,6 +642,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         "primary": None,
         "seasons": [],
         "leaving": None,
+        "season_leaving": False,
         "episodes": [],
     }
     episodes_cache: dict[str, list[PlexEpisode]] = {}
@@ -673,10 +674,15 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         return _render(request, "watch_show.html", ctx)
 
     leaving = None
+    now = now_utc()
+    # Any leaving season reserves the line's slot, so a switch to one never moves the controls.
+    season_leaving = any(
+        p.show_key == show_key and p.season_number is not None
+        for p in lib.pending_deletions(conn, libraries, now)
+    )
     if selected is not None:
         season_id = lib.season_item_id(conn, libraries, show_key, selected.index)
         if season_id is not None:
-            now = now_utc()
             leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id, now), now)
     season_origin = f"/watch/show/{show_key}" + (f"?season={selected.index}" if selected else "")
     ctx.update(
@@ -697,6 +703,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
                 for s in show.seasons
             ],
             "leaving": leaving,
+            "season_leaving": season_leaving,
             "episodes": [
                 _episode_row(e, progress.get(e.rating_key), season_origin) for e in episodes
             ],
