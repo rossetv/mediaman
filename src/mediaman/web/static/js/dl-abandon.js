@@ -23,6 +23,7 @@
   var confirmBtn  = MM.dom.q('[data-abandon-confirm]', modal);
   var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
 
+  var busy = false;    // an abandon request is in flight
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
   /* This modal intentionally does NOT lock body scroll. setupDetail owns
@@ -33,6 +34,7 @@
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;
+      busy = false;
     },
   });
 
@@ -132,7 +134,7 @@
   }
 
   function updateConfirmLabel() {
-    if (!current) return;
+    if (!current || busy) return;
     if (current.kind !== 'series' || current.stuckSeasons.length <= 1) return;
     var n = selectedSeasons().length;
     confirmLabel.textContent = n === 0 ? 'Abandon' :
@@ -141,7 +143,7 @@
   }
 
   function doConfirm() {
-    if (!current) return;
+    if (!current || busy) return;
     if (confirmBtn.getAttribute('aria-disabled') === 'true') return;
 
     var seasons = [];
@@ -153,7 +155,10 @@
       }
     }
 
+    var idleLabel = confirmLabel.textContent;
+    busy = true;
     confirmBtn.setAttribute('aria-disabled', 'true');
+    confirmLabel.textContent = current.upcoming ? 'Stopping…' : 'Abandoning…';
 
     var endpoint = '/api/downloads/' + encodeURIComponent(current.dlId) + '/abandon';
     MM.api.post(endpoint, { seasons: seasons })
@@ -162,6 +167,8 @@
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
       })
       .catch(function (err) {
+        busy = false;
+        confirmLabel.textContent = idleLabel;
         confirmBtn.setAttribute('aria-disabled', 'false');
         window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
       });
