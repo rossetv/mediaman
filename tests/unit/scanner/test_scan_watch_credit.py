@@ -103,6 +103,15 @@ def test_a_season_played_in_mediaman_yesterday_is_not_scheduled(viewer):
     assert (summary["scheduled"], summary["skipped"]) == (0, 1)
 
 
+def test_a_season_stays_safe_after_its_only_viewer_is_deleted(viewer):
+    _credit_episode_play(viewer, days_ago=1)
+    _scan(viewer)
+    viewer.execute("DELETE FROM admin_users WHERE username = 'aoife'")
+    assert last_credited_by_media_item(viewer, [SEASON]) == {}
+
+    assert _scan(viewer)["scheduled"] == 0
+
+
 def test_a_mediaman_play_older_than_the_inactivity_window_still_allows_scheduling(viewer):
     _credit_episode_play(viewer, days_ago=45)
 
