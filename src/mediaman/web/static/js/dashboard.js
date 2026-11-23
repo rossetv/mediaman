@@ -438,7 +438,7 @@
   }
 
   async function clearScheduled(btn) {
-    if (!window.UIFeedback) return;
+    if (!window.UIFeedback || btn.getAttribute('aria-disabled') === 'true') return;
     var proceed = await window.UIFeedback.confirm({
       title: 'Clear all scheduled deletions?',
       body: 'Nothing is deleted now. Items will be re-evaluated on the next scan and may be rescheduled.',
@@ -446,8 +446,10 @@
       confirmVariant: 'danger'
     });
     if (!proceed) return;
-    /* The label stays as it is so the button does not change width. */
-    btn.disabled = true;
+    /* aria-disabled, not disabled, so the focus the dialog hands back stays
+       on the button until the section is swapped. The label stays as it is so
+       the button does not change width. */
+    btn.setAttribute('aria-disabled', 'true');
     btn.setAttribute('aria-busy', 'true');
     MM.api.post('/api/scan/clear-scheduled')
       .then(function (data) {
@@ -465,7 +467,7 @@
       })
       .then(function () {
         if (!btn.isConnected) return;
-        btn.disabled = false;
+        btn.removeAttribute('aria-disabled');
         btn.removeAttribute('aria-busy');
         if (MM.dom.focusStillIn(btn)) btn.focus();
       });

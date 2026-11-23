@@ -16,7 +16,7 @@ const camelToData = (k) => 'data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerC
 class El {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
-    this.parentNode = null; this.attrs = {}; this.style = {}; this._text = '';
+    this.parentNode = null; this.attrs = {}; this.style = {}; this._text = ''; this._disabled = false;
     const el = this;
     this.dataset = new Proxy({}, {
       get: (_, k) => (typeof k === 'string' ? el.attrs[camelToData(k)] : undefined),
@@ -24,6 +24,9 @@ class El {
       deleteProperty: (_, k) => { delete el.attrs[camelToData(k)]; return true; },
     });
   }
+  /* Disabling the focused control drops focus to the body, as a browser does. */
+  get disabled() { return this._disabled; }
+  set disabled(v) { this._disabled = !!v; if (v && this.doc.activeElement === this) this.doc.activeElement = this.doc.body; }
   get id() { return this.attrs.id || ''; }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
@@ -82,6 +85,7 @@ class El {
   }
   /* A control inside a closed menu is hidden, so it cannot take focus. */
   focus(opts) {
+    if (this.disabled) return;
     this.doc.focusCalls.push({ id: this.dataset.action, opts });
     const menu = this.closest('.snooze-dropdown');
     if (!this.isConnected || (menu && !menu.parentNode.classList.contains('is-open'))) return;
@@ -125,7 +129,8 @@ function fragments(doc, tiles) {
   return [
     el(doc, 'div', { 'data-fragment': 'summary' }, [], tiles.length + ' scheduled'),
     el(doc, 'section', { 'data-fragment': 'scheduled' }, [
-      el(doc, 'div', { class: 'sec-hd' }, [el(doc, 'h2', {}, [], 'Scheduled for deletion')]),
+      el(doc, 'div', { class: 'sec-hd' }, [el(doc, 'h2', {}, [], 'Scheduled for deletion')].concat(
+        tiles.length ? [el(doc, 'button', { class: 'btn', 'data-action': 'clear-scheduled' }, [], 'Clear all')] : [])),
       tiles.length ? el(doc, 'div', { class: 'grid grid-tiles' }, tiles.map(tile)) : el(doc, 'div', { class: 'empty' }),
     ]),
   ];
@@ -161,7 +166,11 @@ function build(tiles, opts) {
         return page;
       }
     },
-    UIFeedback: { success() {}, error() {}, toast() {} },
+    UIFeedback: {
+      success() {}, error() {}, toast() {},
+      // the dialog hands focus back to what opened it just after it closes
+      confirm: () => { setImmediate(() => doc.querySelector('[data-action="clear-scheduled"]').focus()); return Promise.resolve(true); },
+    },
     SnoozeMenu: {
       closeAll() {
         doc.querySelectorAll('.keep-wrapper').forEach((w) => w.classList.remove('is-open'));
@@ -190,8 +199,11 @@ function build(tiles, opts) {
     const w = a.closest && a.closest('[data-id]');
     return { id: w ? w.dataset.id : null, tag: a.tagName, text: a.textContent, inPage: a.isConnected };
   };
+  const postCalls = [];
+  const plainPost = ctx.MM.api.post;
+  ctx.MM.api.post = (u) => { if (!/clear-scheduled/.test(u)) return plainPost(u); const d = deferred(); postCalls.push(d); return d.p; };
   const runTimers = () => timers.splice(0).forEach((f) => f());
-  return { doc, ctx, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
+  return { doc, ctx, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
 }
 
 const scenarios = {
@@ -225,6 +237,25 @@ const scenarios = {
     const before = h.scrolls.length;
     h.runTimers();
     return { calls: h.doc.focusCalls, focused: h.focused(), scrolledBefore: before, scrolls: h.scrolls };
+  },
+
+  // keyboard Clear all: focus must not drop to the body
+  async clearAll() {
+    const h = build(['a', 'b']);
+    const btn = h.doc.querySelector('[data-action="clear-scheduled"]');
+    btn.focus();
+    h.click(btn);
+    await flush();
+    const busy = { disabled: btn.disabled, aria: btn.getAttribute('aria-disabled') };
+    const focusWhileBusy = h.focused().tag;
+    h.click(btn);
+    await flush();
+    const posts = h.postCalls.length;
+    h.postCalls[0].resolve({ cleared: 2 });
+    await flush();
+    h.fetches[0].resolve(h.page({ tiles: [] }));
+    await flush();
+    return { busy, posts, focusWhileBusy, focused: h.focused() };
   },
 
   // keep picked from the menu: closing the menu must not lose the place

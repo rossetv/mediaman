@@ -136,6 +136,14 @@ class TestRefreshInPlace:
         assert [s["behavior"] for s in out["scrolls"]] == ["smooth"]
         assert out["scrolls"][0]["top"] < 0
 
+    def test_keyboard_clear_all_keeps_focus_in_the_page(self):
+        out = _run("clearAll")
+        assert out["busy"] == {"disabled": False, "aria": "true"}
+        assert out["posts"] == 1
+        assert out["focusWhileBusy"] == "BUTTON"
+        assert out["focused"]["inPage"] is True
+        assert out["focused"]["tag"] != "BODY"
+
     def test_failed_keep_moves_focus_only_out_of_the_closed_menu(self):
         out = _run("failedKeep")
         assert out["fromButton"]["id"] == "a"
