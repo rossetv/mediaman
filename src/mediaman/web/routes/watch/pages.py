@@ -21,6 +21,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
@@ -36,6 +37,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexWatch,
     is_in_libraries,
 )
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import resolve_page_session
@@ -48,6 +50,7 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
+from mediaman.web.routes.watch import list_page
 
 router = APIRouter()
 
@@ -76,8 +79,11 @@ _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
 _ORIGIN_RE = re.compile(
-    r"/watch|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
+    r"/watch(#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|rec-[0-9]{1,10}))?"
+    r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
+# A search typed into the page's field is never this long; a longer ?q= is cut.
+_QUERY_MAX = 200
 
 
 def open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
@@ -476,11 +482,15 @@ def _leaving_card(pending: lib.PendingDeletion, now: datetime) -> dict[str, Any]
 
 
 @router.get("/watch", response_class=HTMLResponse)
-def watch_page(request: Request) -> Response:
+def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved
+    is_admin = _is_admin(conn, username)
+    view = "list" if is_admin and view == "list" else "rows"
+    q = q.strip()[:_QUERY_MAX]
+    tmdb_configured = TmdbClient.from_db(conn, request.app.state.config.secret_key) is not None
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
     set_up = plex_is_configured(conn)
@@ -521,26 +531,47 @@ def watch_page(request: Request) -> Response:
             "backdrop_url": latest["poster_url"],
         }
 
+    # (title, cards, under the "Your library" divider); Discover goes between the two groups.
     rows = [
-        ("Continue watching", continue_row),
-        ("Leaving soon", leaving_row),
-        ("Recently added", recent_row),
-        ("Movies", movie_row),
-        ("TV", [c for s, c in zip(shows, show_row, strict=True) if not s.anime]),
-        ("Anime", [c for s, c in zip(shows, show_row, strict=True) if s.anime]),
+        ("Continue watching", continue_row, False),
+        ("Leaving soon", leaving_row, False),
+        ("Recently added", recent_row, False),
+        ("Movies", movie_row, True),
+        ("TV", [c for s, c in zip(shows, show_row, strict=True) if not s.anime], True),
+        ("Anime", [c for s, c in zip(shows, show_row, strict=True) if s.anime], True),
     ]
+    list_html = (
+        Markup(list_page.render_list(request, conn, request.query_params))
+        if view == "list"
+        else None
+    )
     return _render(
         request,
         "watch.html",
         {
             "username": username,
             "banner": banner,
-            "rows": [{"title": title, "items": items} for title, items in rows if items],
-            # Not set up blanks the page (nothing can play); a failure part way only drops
-            # what came from Plex and shows a notice above the rows.
+            "rows": [
+                {"title": title, "items": items, "library": in_library}
+                for title, items, in_library in rows
+                if items
+            ],
+            # Not set up blanks the browse rows (nothing can play); a failure part way only
+            # drops what came from Plex and shows a notice above the rows.
             "watch_error": None if set_up else "not_set_up",
             "plex_unreachable": set_up and plex.error is not None,
-            "is_admin": _is_admin(conn, username),
+            "is_admin": is_admin,
+            "view": view,
+            "q": q,
+            "tmdb_configured": tmdb_configured,
+            "list_html": list_html,
+            "page_data": {
+                "is_admin": is_admin,
+                "tmdb_configured": tmdb_configured,
+                "view": view,
+                "q": q,
+                "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
+            },
         },
     )
 

@@ -4,6 +4,7 @@ refused."""
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -24,8 +25,9 @@ from mediaman.services.media_meta.plex_watch import (
     PlexUnavailable,
 )
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
 from mediaman.web.repository.watch_progress import save_progress
-from mediaman.web.routes.watch import pages
+from mediaman.web.routes.watch import list_page, pages
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
@@ -465,10 +467,29 @@ class TestWatchRows:
             "/watch/../admin",
             "/watch?x=1",
             "/watch/show/5/x",
+            "/watch#title=",
+            "/watch#title=movie-1/x",
+            "/watch#title=tmdb-show-1",
+            "/watch#title=rec-1&x=1",
+            "/watch#x=movie-1",
         ],
     )
     def test_back_origin_outside_the_allow_list_is_ignored(self, origin):
         assert pages.safe_origin(origin) is None
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "/watch#title=movie-100",
+            "/watch#title=show-500",
+            "/watch#title=tmdb-tv-7",
+            "/watch#title=rec-3",
+        ],
+    )
+    def test_back_may_return_to_a_title_open_on_the_watch_page(self, get, origin):
+        ctx = get(f"/watch/play/511?from={quote(origin, safe='')}").json()
+
+        assert ctx["back_href"] == origin
 
     def test_back_returns_to_where_the_person_came_from(self, get):
         origin = "/watch/show/500?season=2"
@@ -735,3 +756,135 @@ def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, 
         assert resp.status_code == 200, path
         assert text in resp.text, path
         assert "plex.invalid" not in resp.text
+
+
+def _page(app_factory, conn, monkeypatch, url: str, user: str, *, guard: bool = True):
+    """*url* rendered with the real templates behind the viewer guard, signed in as *user*."""
+    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
+    app = app_factory(
+        pages.router,
+        list_page.router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+    )
+    if guard:
+        app.add_middleware(ViewerGuardMiddleware)
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, user))
+    return client.get(url, follow_redirects=False)
+
+
+@pytest.fixture
+def admin(conn):
+    insert_admin_user(conn, username="orla")
+    return "orla"
+
+
+class TestWatchShell:
+    def test_only_an_admin_can_ask_for_the_list_view(self, get, admin):
+        assert get("/watch?view=list", user=admin).json()["view"] == "list"
+        assert get("/watch?view=list").json()["view"] == "rows"
+        assert get("/watch?view=other", user=admin).json()["view"] == "rows"
+
+    def test_the_search_is_trimmed_and_cut_to_a_sane_length(self, get):
+        assert get("/watch?q=%20%20glass%20").json()["q"] == "glass"
+        assert len(get("/watch?q=" + "a" * 5000).json()["q"]) == 200
+
+    def test_library_rows_are_marked_to_sit_under_their_divider(self, get):
+        rows = get("/watch").json()["rows"]
+
+        assert {r["title"]: r["library"] for r in rows} == {
+            "Recently added": False,
+            "Movies": True,
+            "TV": True,
+            "Anime": True,
+        }
+
+    def test_page_data_says_whether_tmdb_is_set_up_and_links_settings_for_admins(
+        self, get, conn, admin
+    ):
+        assert get("/watch").json()["page_data"]["tmdb_configured"] is False
+        insert_settings(conn, tmdb_read_token="tok")
+
+        viewer, owner = (
+            get("/watch").json()["page_data"],
+            get("/watch", user=admin).json()["page_data"],
+        )
+
+        assert viewer["tmdb_configured"] is True
+        assert viewer["settings_tmdb_href"] is None
+        assert owner["settings_tmdb_href"] == "/settings#setg-integrations"
+
+
+def test_discover_sits_between_recently_added_and_the_library_rows(
+    app_factory, conn, library, plex, monkeypatch
+):
+    insert_settings(conn, tmdb_read_token="tok")
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    recent = html.index('aria-label="Recently added"')
+    slot = html.index('id="watch-discover-slot"')
+    divider = html.index(">Your library<")
+    movies = html.index('aria-label="Movies"')
+    assert recent < slot < divider < movies
+    assert "watch-row--skel" in html[slot:divider]
+
+
+def test_without_tmdb_the_discover_slot_is_empty(app_factory, conn, library, plex, monkeypatch):
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    slot = html.index('id="watch-discover-slot"')
+    assert "skel" not in html[slot : html.index(">Your library<")]
+
+
+def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(
+    app_factory, conn, library, plex, monkeypatch
+):
+    conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")
+    insert_settings(conn, tmdb_read_token="tok")
+
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    assert "Plex isn't set up yet." in html
+    assert 'id="watch-search"' in html
+    assert "watch-row--skel" in html
+    assert 'aria-label="Movies"' not in html
+    assert "Your library" not in html
+
+
+def test_an_admin_gets_the_view_switch_and_the_list_in_place_of_the_rows(
+    app_factory, conn, library, plex, monkeypatch, admin
+):
+    rows = _page(app_factory, conn, monkeypatch, "/watch", admin).text
+    listed = _page(app_factory, conn, monkeypatch, "/watch?view=list", admin).text
+
+    assert 'href="/watch" data-view="rows" aria-current="page"' in rows
+    assert re.search(r'id="watch-list"[^>]*hidden', rows)
+    assert not re.search(r'id="watch-browse"[^>]*hidden', rows)
+    assert 'href="/watch?view=list" data-view="list" aria-current="page"' in listed
+    assert re.search(r'id="watch-browse"[^>]*hidden', listed)
+    assert not re.search(r'id="watch-list"[^>]*hidden', listed)
+    assert 'placeholder="Search your library"' in listed
+
+
+def test_a_viewer_gets_no_view_switch_list_or_admin_wording_even_when_asking_for_the_list(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _schedule(conn, "100", 2)
+
+    html = _page(app_factory, conn, monkeypatch, "/watch?view=list", "aoife").text
+
+    assert 'aria-label="Movies"' in html
+    for leak in ("watch-viewtoggle", 'id="watch-list"', "watch/list.js", "watch/admin.js"):
+        assert leak not in html
+    for word in ("Delete", "Size", "Deletion", "/settings"):
+        assert word not in html
+
+
+def test_the_list_fragment_is_for_admins_only(app_factory, conn, library, plex, monkeypatch, admin):
+    # Without the guard in front, so the route's own check is what refuses.
+    viewer = _page(app_factory, conn, monkeypatch, "/watch/list", "aoife", guard=False)
+    owner = _page(app_factory, conn, monkeypatch, "/watch/list", admin)
+
+    assert (viewer.status_code, viewer.headers["location"]) == (303, "/watch")
+    assert owner.status_code == 200

@@ -42,7 +42,17 @@ def _card(**over: object) -> dict:
 
 
 def _watch(**over: object) -> str:
-    ctx: dict = {"banner": None, "rows": [], "watch_error": None, "is_admin": False}
+    ctx: dict = {
+        "banner": None,
+        "rows": [],
+        "watch_error": None,
+        "is_admin": False,
+        "view": "rows",
+        "q": "",
+        "tmdb_configured": False,
+        "list_html": None,
+        "page_data": {},
+    }
     ctx.update(over)
     return _render("watch.html", **ctx)
 

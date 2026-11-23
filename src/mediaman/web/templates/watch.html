@@ -5,22 +5,59 @@
 
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/css/_watch_browse.css">
+<link rel="stylesheet" href="/static/css/_watch_search.css">
+<link rel="stylesheet" href="/static/css/_watch_detail.css">
+{% if is_admin %}<link rel="stylesheet" href="/static/css/_watch_list.css">{% endif %}
+{% endblock %}
+
+{% macro row_section(row) -%}
+<section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
+  <h2 class="watch-row__title">{{ row.title }}</h2>
+  <div class="watch-row__viewport">
+    <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
+      {% for item in row['items'] %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
+    </div>
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro skel_row() -%}
+<div class="watch-row watch-row--skel">
+  <span class="skel skel--title watch-row__title-skel"></span>
+  <div class="watch-row__viewport">
+    <div class="watch-row__scroll">
+      {% for _ in range(10) %}<div class="watch-card--skel"><span class="skel skel--poster"></span><span class="skel skel--line"></span></div>{% endfor %}
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
 {% block content %}
+{% set list_view = is_admin and view == "list" %}
 <div class="watch-page" id="watch-page">
-  {% if watch_error %}
-  {{ w.error_state(watch_error, is_admin) }}
-  {% else %}
-  <div class="watch-top">
+  <div class="watch-top" id="watch-top">
     <div class="watch-search" role="search">
       <i class="fa-solid fa-magnifying-glass watch-search__icon" aria-hidden="true"></i>
       <span class="search-spinner watch-search__spinner" aria-hidden="true"></span>
-      <input id="watch-search" class="watch-search__input" type="search" placeholder="Search films and shows" aria-label="Search films and shows" autocomplete="off" spellcheck="false">
-      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search" hidden><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      {% set search_label = "Search your library" if list_view else "Search films and shows" %}
+      <input id="watch-search" class="watch-search__input" type="search" placeholder="{{ search_label }}" aria-label="{{ search_label }}" autocomplete="off" spellcheck="false"{% if q %} value="{{ q }}"{% endif %}>
+      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search"{% if not q %} hidden{% endif %}><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
+    {% if is_admin %}
+    <nav class="watch-viewtoggle" id="watch-viewtoggle" aria-label="View">
+      <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i><span class="watch-viewtoggle__label">Browse</span></a>
+      <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}><i class="fa-solid fa-list" aria-hidden="true"></i><span class="watch-viewtoggle__label">List</span></a>
+    </nav>
+    {% endif %}
     <p class="sr-only" id="watch-search-status" role="status"></p>
   </div>
 
-  <div id="watch-browse">
+  <div id="watch-browse"{% if list_view %} hidden{% endif %}>
+    {% if watch_error %}
+    {{ w.error_state(watch_error, is_admin) }}
+    {% else %}
     {% if banner %}
     <section class="watch-banner" aria-label="Featured">
       {% if banner.backdrop_url %}<img class="watch-banner__bg" src="{{ banner.backdrop_url }}" alt="" data-broken-on-error>{% endif %}
@@ -46,20 +83,28 @@
       <button type="button" class="watch-notice__retry" data-watch-retry>Try again</button>
     </p>
     {% endif %}
+    {% endif %}
 
+    {% set shelf = [] if watch_error else rows %}
+    {% set library = namespace(rows=false) %}
+    {% for row in shelf if row['items'] and row['library'] %}{% set library.rows = true %}{% endfor %}
     <div class="watch-rows">
-      {% for row in rows %}
-      {% if row['items'] %}
-      <section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
-        <h2 class="watch-row__title">{{ row.title }}</h2>
-        <div class="watch-row__viewport">
-          <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
-            {% for item in row['items'] %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
-          </div>
+      {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
+
+      {# Discover rows load after the page; until then a skeleton holds their place. #}
+      <div class="watch-discover-slot" id="watch-discover-slot"{% if tmdb_configured %} aria-busy="true"{% endif %}>
+        {% if tmdb_configured %}
+        <div class="watch-discover-skel" aria-hidden="true">
+          <p class="watch-group-label">Discover</p>
+          {{ skel_row() }}{{ skel_row() }}{{ skel_row() }}
         </div>
-      </section>
+        {% endif %}
+      </div>
+
+      {% if library.rows %}
+      <p class="watch-group-label">Your library</p>
+      {% for row in shelf if row['items'] and row['library'] %}{{ row_section(row) }}{% endfor %}
       {% endif %}
-      {% endfor %}
     </div>
   </div>
 
@@ -68,14 +113,26 @@
     <div class="watch-grid" id="watch-grid"></div>
   </section>
 
-  {{ w.keep_menu() }}
+  {% if is_admin %}
+  <section class="watch-list" id="watch-list" aria-label="Library list"{% if not list_view %} hidden{% endif %}>{{ list_html or "" }}</section>
   {% endif %}
+
+  <div id="watch-detail">{% include "_watch_detail.html" %}</div>
+
+  {{ w.keep_menu() }}
   <div class="page-bottom-spacer"></div>
 </div>
 
+<script type="application/json" id="watch-page-data">{{ page_data | tojson }}</script>
 <script src="/static/js/watch/core.js" defer></script>
 <script src="/static/js/watch/keep.js" defer></script>
 <script src="/static/js/watch/search.js" defer></script>
+<script src="/static/js/watch/browse.js" defer></script>
+<script src="/static/js/watch/detail.js" defer></script>
+{% if is_admin %}
+<script src="/static/js/watch/admin.js" defer></script>
+<script src="/static/js/watch/list.js" defer></script>
+{% endif %}
 <script src="/static/js/watch.js" defer></script>
 <script src="/static/js/watch-rows.js" defer></script>
 {% endblock %}
