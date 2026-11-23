@@ -212,13 +212,19 @@ def stop_stream(
 ) -> Response:
     """Stop the stream; one that is already gone is not an error.
 
-    A body with the final position and played time is saved first, as progress would be.
-    A missing or malformed body never keeps the stream from stopping.
+    A body with the final position and played time is saved first, as progress would be,
+    even when the reaper has just stopped the stream. A missing or malformed body never keeps
+    the stream from stopping.
     """
+    manager = get_stream_manager()
+    if final is not None:
+        with contextlib.suppress(StreamGone):
+            try:
+                stream = manager.get(stream_id, username)
+            except StreamGone:
+                stream = manager.reaped(stream_id, username)
+            _save(stream, username, final.position_s, final.played_s)
     with contextlib.suppress(StreamGone):
-        manager = get_stream_manager()
-        if final is not None:
-            _save(manager.get(stream_id, username), username, final.position_s, final.played_s)
         manager.stop(stream_id, username)
     return Response(status_code=204)
 
@@ -252,9 +258,16 @@ def save_watch_progress(
     username: Annotated[str, Depends(get_current_user)],
     body: Annotated[_ProgressRequest, Depends(_progress_body)],
 ) -> Response:
-    """Save the person's position; the item and its duration come from their stream."""
+    """Save the person's position; the item and its duration come from their stream.
+
+    A save for a stream the reaper stopped lately is kept, and still answered 410 so the
+    player starts a new stream.
+    """
     try:
         stream = get_stream_manager().get(body.stream_id, username)
     except StreamGone:
+        with contextlib.suppress(StreamGone):
+            stream = get_stream_manager().reaped(body.stream_id, username)
+            _save(stream, username, body.position_s, body.played_s)
         return _gone()
     return respond_ok({"watched": _save(stream, username, body.position_s, body.played_s)})

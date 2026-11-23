@@ -398,6 +398,64 @@ def test_stop_with_a_bad_body_still_stops(alice, conn):
     assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 410
 
 
+def _reap_after_idle(clock) -> None:
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert plex_stream.get_stream_manager().reap() == 1
+
+
+def test_a_stop_arriving_after_the_reaper_still_saves_the_final_position(alice, conn, clock):
+    stream_id = _stream(alice, "201")
+    clock.now += 400
+    assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 200
+    _reap_after_idle(clock)
+    resp = alice.post(
+        f"/api/watch/stream/{stream_id}/stop", json={"position_s": 1400, "played_s": 400}
+    )
+    assert resp.status_code == 204
+    [row] = _progress_rows(conn)
+    assert (row["username"], row["rating_key"], row["position_s"]) == ("alice", "201", 1400)
+    assert row["credited_at"] is not None
+
+
+def test_a_progress_beacon_after_the_reaper_saves_and_still_says_gone(alice, conn, clock):
+    stream_id = _stream(alice)
+    _reap_after_idle(clock)
+    resp = alice.post(
+        "/api/watch/progress", json={"stream_id": stream_id, "position_s": 60, "played_s": 60}
+    )
+    assert resp.status_code == 410
+    [row] = _progress_rows(conn)
+    assert (row["rating_key"], row["position_s"]) == ("101", 60)
+
+
+def test_a_reaped_stream_credits_no_played_time_past_its_last_use(alice, conn, clock):
+    stream_id = _stream(alice)
+    clock.now += 600
+    plex_stream.get_stream_manager().reap()
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 600, "played_s": 600})
+    [row] = _progress_rows(conn)
+    assert row["credited_at"] is None
+
+
+def test_another_user_cannot_save_into_a_reaped_stream(alice, bob, conn, clock):
+    stream_id = _stream(alice)
+    _reap_after_idle(clock)
+    bob.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 500, "played_s": 500})
+    bob.post(
+        "/api/watch/progress", json={"stream_id": stream_id, "position_s": 500, "played_s": 500}
+    )
+    assert _progress_rows(conn) == []
+
+
+def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
+    stream_id = _stream(alice)
+    _reap_after_idle(clock)
+    clock.now += plex_stream.REAPED_KEEP_SECONDS + 1
+    plex_stream.get_stream_manager().reap()
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 60, "played_s": 60})
+    assert _progress_rows(conn) == []
+
+
 def test_no_response_or_log_line_reveals_plex_address_session_or_token(alice, bob, plex, caplog):
     caplog.set_level(logging.DEBUG)
     stream_id = _stream(alice)
