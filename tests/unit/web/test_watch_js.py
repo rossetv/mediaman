@@ -17,15 +17,23 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_a_season_that_is_not_leaving_keeps_the_leaving_line_slot_empty() -> None:
+def test_a_season_switch_shows_the_quiet_line_then_the_real_one_in_the_same_slot() -> None:
     out = _run("season")
-    assert out["second"] == {"text": "", "kept": False, "beforeActions": True}
+    assert out["second"] == {
+        "text": "Season 1 leaves in 3 days",
+        "kept": False,
+        "other": True,
+        "keep": False,
+        "beforeActions": True,
+    }
     assert out["back"]["text"].startswith("Leaving in 3 days")
+    assert (out["back"]["other"], out["back"]["keep"]) == (False, True)
     assert out["back"]["beforeActions"] is True
 
 
-def test_undo_after_moving_to_another_season_leaves_that_season_slot_empty() -> None:
-    assert _run("undoElsewhere")["second"]["text"] == ""
+def test_undo_after_moving_to_another_season_leaves_that_season_line_alone() -> None:
+    second = _run("undoElsewhere")["second"]
+    assert (second["text"], second["other"]) == ("Season 1 leaves in 3 days", True)
 
 
 def test_the_kept_line_is_marked_kept_until_undo() -> None:

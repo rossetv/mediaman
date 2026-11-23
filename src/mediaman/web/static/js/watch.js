@@ -826,9 +826,11 @@
       });
     }
 
-    /* A season that is not leaving leaves the line's slot empty, so Resume
-       and the season tabs stay where the next tap expects them. The slot is
-       a new node: an Undo still pending refills the old one. */
+    /* The line's slot keeps its place through a switch, so Resume and the
+       season tabs stay where the next tap expects them: the new season's
+       own line (on one that is not leaving, the quiet one naming the season
+       that is), else an empty slot. The slot is a new node: an Undo still
+       pending refills the old one. */
     function swapLeaving(doc) {
       var oldLine = document.querySelector('.watch-hero__info [data-watch-leaving]');
       var newLine = doc.querySelector('.watch-hero__info [data-watch-leaving]');

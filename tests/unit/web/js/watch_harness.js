@@ -205,10 +205,15 @@ function showPage(doc, season, line) {
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
 }
 
+/* On a season that is not leaving, the server names the one that is. */
+function otherLeavingLine() {
+  return ['p', { class: 'watch-leaving watch-leaving--other', 'data-watch-leaving': '' }, 'Season 1 leaves in 3 days'];
+}
+
 /* The page as the server sends it for each season: Season 1 is leaving, Season 2 is not. */
 function seasonDoc(season) {
   const doc = makeDocument();
-  doc.body.appendChild(showPage(doc, season, season === 1 ? leavingLine(3) : null));
+  doc.body.appendChild(showPage(doc, season, season === 1 ? leavingLine(3) : otherLeavingLine()));
   return doc;
 }
 
@@ -245,6 +250,8 @@ function lineState(doc) {
   return {
     text: line.textContent.trim(),
     kept: line.classList.contains('watch-leaving--kept'),
+    other: line.classList.contains('watch-leaving--other'),
+    keep: !!line.querySelector('[data-watch-keep]'),
     beforeActions: line.nextElementSibling === doc.querySelector('.watch-hero__info .watch-actions'),
   };
 }

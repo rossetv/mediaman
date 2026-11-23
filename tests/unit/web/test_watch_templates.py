@@ -417,3 +417,21 @@ def test_title_pages_load_the_poster_fade_script(page):
     name, ctx = page
 
     assert 'src="/static/js/watch-rows.js"' in _render(name, **ctx)
+
+
+@pytest.mark.parametrize(
+    ("days", "text"),
+    [
+        (0, "Season 1 leaves today"),
+        (1, "Season 1 leaves in 1 day"),
+        (5, "Season 1 leaves in 5 days"),
+    ],
+)
+def test_show_page_names_another_leaving_season_without_a_keep(days: int, text: str) -> None:
+    html = _render(
+        "watch_show.html",
+        **_show_ctx(season_leaving=True, other_leaving={"season": 1, "days": days}),
+    )
+    assert text in html
+    assert "watch-leaving--other" in html
+    assert "data-watch-keep" not in html
