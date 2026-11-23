@@ -1,62 +1,43 @@
-/* UNSUBSCRIBE — standalone pages (unsubscribe_confirm.html,
-   unsubscribe_result.html). These pages do not extend base.html
-   so they carry their own minimal token-aligned styles. */
+/* UNSUBSCRIBE — the confirm and result pages sit in the sign-in card
+   (.login-page / .login-card); this file only adds their own parts. */
 
-/* Page shell */
-.unsub-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  font-family: var(--font-text);
-  color: var(--t1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-}
+.unsub-card { text-align: center; }
 
-.unsub-card {
-  text-align: center;
-  max-width: 400px;
-  padding: 40px;
-}
-
-/* Wordmark */
 .unsub-brand {
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 600;
+  letter-spacing: -.03em;
   margin-bottom: 16px;
 }
-.unsub-brand-accent {
-  color: var(--accent);
-}
+.unsub-brand-accent { color: var(--accent); }
 
-/* Headings / body */
 .unsub-title {
   font-size: 17px;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin: 0 0 8px;
 }
 .unsub-sub {
   font-size: 15px;
   color: var(--t3);
   line-height: 1.5;
-  margin-bottom: 24px;
+  margin: 0 0 24px;
+}
+/* On its own line so a narrow card never leaves a word stranded before it */
+.unsub-email {
+  display: block;
+  color: var(--t1);
+  overflow-wrap: anywhere;
 }
 
-/* Result icon (checkmark / cross) */
-.unsub-icon--success {
+.unsub-icon {
   font-size: 48px;
-  color: var(--success);
+  line-height: 1;
   margin-bottom: 16px;
 }
-.unsub-icon--error {
-  font-size: 48px;
-  color: var(--danger);
-  margin-bottom: 16px;
-}
+.unsub-icon--success { color: var(--success); }
+.unsub-icon--error { color: var(--danger); }
 
-/* Result message */
 .unsub-msg {
   font-size: 15px;
   color: var(--t3);
@@ -69,17 +50,27 @@
   line-height: 1.5;
   margin: 20px 0 0;
 }
-.unsub-title { margin-top: 0; }
 
-/* Buttons */
+/* Solid red darkened so white text keeps 4.5:1 or better. */
 .unsub-btn-danger {
   padding: 12px 32px;
-  border-radius: var(--r-pill);
   border: none;
-  background: var(--danger);
-  color: var(--t1);
+  border-radius: var(--r-pill);
+  background: #d70015;
+  color: #fff;
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.unsub-btn-danger:hover { background: #bf0013; }
+.unsub-btn-danger:active { background: #a8001a; transform: scale(.97); }
+.unsub-btn-danger:focus-visible {
+  outline: 2px solid var(--t1);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .unsub-btn-danger { transition: none; }
+  .unsub-btn-danger:active { transform: none; }
 }

@@ -90,3 +90,43 @@ def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
             + r" \{ font-size: 16px; \}"
         )
         assert re.search(pattern, text), name
+
+
+_UNSUB_PAGES = (
+    ("subscribers/unsubscribe_confirm.html", {"email": "a@b.c", "token": "t"}),
+    ("subscribers/unsubscribe_result.html", {"message": "m", "success": True}),
+    ("subscribers/unsubscribe_result.html", {"message": "m", "success": False}),
+)
+
+
+def test_unsubscribe_pages_sit_in_the_sign_in_card_with_icon_font_glyphs():
+    templates = Jinja2Templates(directory=str(_WEB / "templates"))
+    for name, ctx in _UNSUB_PAGES:
+        html = templates.get_template(name).render(ctx)
+        assert "login-card" in html
+        assert "&#10003;" not in html and "&#10007;" not in html
+
+
+def test_unsubscribe_confirm_keeps_the_address_on_its_own_line_and_guards_the_form():
+    templates = Jinja2Templates(directory=str(_WEB / "templates"))
+    html = templates.get_template(_UNSUB_PAGES[0][0]).render(_UNSUB_PAGES[0][1])
+
+    assert "<br" not in html
+    assert "data-submit-guard" in html
+    assert "/static/js/submit-guard.js" in html
+
+
+def _luminance(hex_colour: str) -> float:
+    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def test_unsubscribe_button_text_is_readable_in_every_state():
+    css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()
+    for state in ("", ":hover", ":active"):
+        rule = css.split(f".unsub-btn-danger{state} {{")[1].split("}")[0]
+        fill = re.search(r"background: (#[0-9a-f]{6})", rule).group(1)
+        ratio = 1.05 / (_luminance(fill) + 0.05)
+        assert ratio >= 4.5, (state, fill, ratio)
+    assert ".unsub-btn-danger:focus-visible" in css
