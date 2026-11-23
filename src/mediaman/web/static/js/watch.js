@@ -414,10 +414,12 @@
       var season = seasonShown();
       parts.forEach(function (n) { n.remove(); });
       line.textContent = 'Kept for ' + days + ' days';
+      line.classList.add('watch-leaving--kept');
       line.tabIndex = -1;
       focus = line;
       undos.push(function () {
         line.textContent = '';
+        line.classList.remove('watch-leaving--kept');
         parts.forEach(function (n) { line.appendChild(n); });
         line.removeAttribute('tabindex');
         putLineBack(line, season);
@@ -785,12 +787,21 @@
       });
     }
 
+    /* A season that is not leaving leaves the line's slot empty, so Resume
+       and the season tabs stay where the next tap expects them. The slot is
+       a new node: an Undo still pending refills the old one. */
     function swapLeaving(doc) {
       var oldLine = document.querySelector('.watch-hero__info [data-watch-leaving]');
       var newLine = doc.querySelector('.watch-hero__info [data-watch-leaving]');
-      var fresh = newLine ? document.importNode(newLine, true) : null;
+      var fresh = null;
+      if (newLine) {
+        fresh = document.importNode(newLine, true);
+        fadeIn(fresh);
+      } else if (oldLine) {
+        fresh = el('p', 'watch-leaving');
+        fresh.setAttribute('data-watch-leaving', '');
+      }
       if (oldLine && fresh) oldLine.replaceWith(fresh);
-      else if (oldLine) oldLine.remove();
       else if (fresh) document.querySelector('.watch-hero__info .watch-actions').before(fresh);
     }
 
