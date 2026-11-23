@@ -39,6 +39,10 @@
   border-color: var(--accent);
   background: var(--s3);
 }
+@media (max-width: 639.98px) {
+  /* 16px stops iOS zooming the page when a field is focused */
+  .inp { font-size: 16px; }
+}
 select.inp,
 .form-select { cursor: pointer; padding-right: 32px; }
 .form-select--sm { min-width: 140px; }

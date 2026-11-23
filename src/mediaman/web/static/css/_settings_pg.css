@@ -212,6 +212,9 @@
   transition: border-color .15s, background .15s;
   width: 100%; min-width: 0;
 }
+@media (max-width: 639.98px) {
+  .setg-pg .inp { font-size: 16px; }
+}
 .setg-pg .inp:focus { border-color: var(--accent); background: var(--s3); }
 .setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
 .setg-pg .inp::placeholder { color: var(--t3); }
