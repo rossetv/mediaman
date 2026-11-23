@@ -29,6 +29,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.services.watch_catalog import TmdbUnavailable
 from mediaman.web.repository.search import (
     RatingsCacheRow,
     fetch_ratings_cache,
@@ -43,10 +44,6 @@ _DISCOVER_STALE_S = 7 * 24 * 3600
 _MAX_QUERY_LEN = 100
 
 
-class _ShelfEmpty(Exception):
-    """TMDB answered nothing for a shelf page; raised so the disk cache does not store it."""
-
-
 def _fetch_discover_shelf(
     shelf_key: str,
     fetch_fn: Callable[[int], list[dict[str, object]]],
@@ -56,13 +53,14 @@ def _fetch_discover_shelf(
     """Fetch one page of a discover shelf through the disk cache (fresh 6 h, served stale up
     to 7 d), stamping media_type on each item when inject_media_type is set (the popular
     endpoints omit it). The client answers [] on a failure, so an empty page is not cached
-    and the shelf comes back empty. The key matches Watch's discover rows for page 1.
+    and the shelf comes back empty. The key matches Watch's discover rows for page 1, so both
+    raise the same TmdbUnavailable: the cache hands a stored failure to whoever asks next.
     """
 
     def fetch() -> list[dict[str, object]]:
         raw = fetch_fn(page)
         if not raw:
-            raise _ShelfEmpty(shelf_key)
+            raise TmdbUnavailable(shelf_key)
         if inject_media_type:
             return [{**item, "media_type": inject_media_type} for item in raw]
         return raw
@@ -71,7 +69,7 @@ def _fetch_discover_shelf(
         shelf: list[dict[str, object]] = disk_cache.meta().get_or_fetch(
             f"tmdb:discover:{shelf_key}:{page}", _DISCOVER_FRESH_S, _DISCOVER_STALE_S, fetch
         )
-    except _ShelfEmpty:
+    except TmdbUnavailable:
         return []
     return shelf
 

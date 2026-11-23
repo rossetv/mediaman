@@ -969,3 +969,44 @@ class TestDownloadNotifiesRequestingAdmin:
         # The email must be the admin's real address, not the subscriber's.
         call_email = mock_record.call_args[1]["email"]
         assert call_email == "admin@example.com"
+
+
+class TestDiscoverSharedWithWatch:
+    """Watch's discover rows and the search shelves share disk-cache keys, and the cache
+    re-raises a stored failure to the next caller of the key."""
+
+    @pytest.fixture(autouse=True)
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
+
+    def test_a_watch_row_that_failed_leaves_the_search_shelf_empty(self):
+        from types import SimpleNamespace
+
+        from mediaman.services import watch_catalog
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        client = SimpleNamespace(
+            trending=lambda page: [],
+            popular_movies=lambda page: [{"id": 1}],
+            popular_tv=lambda page: [{"id": 2}],
+        )
+        watch_catalog.discover_shelves(client)
+
+        assert _fetch_discover_shelf("trending", lambda page: [{"id": 9}], None, 1) == []
+
+    def test_an_empty_search_shelf_leaves_the_watch_row_out_not_failed(self):
+        from types import SimpleNamespace
+
+        from mediaman.services import watch_catalog
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        assert _fetch_discover_shelf("trending", lambda page: [], None, 1) == []
+        client = SimpleNamespace(
+            trending=lambda page: [{"id": 9}],
+            popular_movies=lambda page: [{"id": 1}],
+            popular_tv=lambda page: [{"id": 2}],
+        )
+
+        rows = watch_catalog.discover_shelves(client)
+
+        assert [r[0] for r in rows] == ["popular_movies", "popular_tv"]
