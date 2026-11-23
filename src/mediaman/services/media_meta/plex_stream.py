@@ -36,7 +36,12 @@ from mediaman.services.infra.http.streaming import (
     _read_capped,
     _SizeCapExceeded,
 )
-from mediaman.services.media_meta.plex_watch import PlexError, PlexNotConfigured, PlexUnavailable
+from mediaman.services.media_meta.plex_watch import (
+    _RATING_KEY_RE,
+    PlexError,
+    PlexNotConfigured,
+    PlexUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +67,6 @@ MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
 _POOL_MAXSIZE = 32
 
-_RATING_KEY_RE = re.compile(r"[0-9]{1,18}")
 _SEGMENT_NAME_RE = re.compile(r"[0-9]{1,6}\.(ts|m4s|mp4|vtt|aac)")
 _VARIANT_RE = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/index\.m3u8")
 _EXTINF_RE = re.compile(r"#EXTINF:([0-9]{1,6}(?:\.[0-9]{1,9})?)(?:,.*)?")
@@ -191,6 +195,13 @@ class StreamManager:
                 logger.info("plex_stream: start failed, retrying once")
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
+            # A concurrent start of the same item may have stored its stream meanwhile.
+            twins = [
+                sid
+                for sid, s in self._streams.items()
+                if s.user == user and s.rating_key == rating_key
+            ]
+            replaced = [self._streams.pop(sid).session_id for sid in twins]
             try:
                 self._check_room(user)
             except TooManyStreams:
@@ -206,6 +217,8 @@ class StreamManager:
                     last_access=self._clock(),
                     info=dict(info or {}),
                 )
+        for old_session in replaced:
+            self._call_quietly("stop", old_session)
         if full:
             # Concurrent starts can all pass the first check; the one that loses gives its session back.
             self._call_quietly("stop", session_id)

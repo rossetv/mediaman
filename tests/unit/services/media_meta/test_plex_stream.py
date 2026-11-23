@@ -496,6 +496,31 @@ def test_a_start_that_loses_a_race_for_the_last_slot_gives_its_session_back(mana
     assert last_stop == plex.calls_to("start.m3u8")[loser_index]["params"]["session"]
 
 
+def test_two_starts_of_the_same_item_racing_leave_one_stream_and_stop_the_other(manager, plex):
+    real_open = manager._open_session
+    raced = []
+    inner = []
+
+    def open_then_same_item_starts(*args):
+        child = real_open(*args)
+        if not raced:
+            raced.append(True)
+            inner.append(_start(manager))
+        return child
+
+    manager._open_session = open_then_same_item_starts
+
+    outer = _start(manager)
+
+    assert len(manager._streams) == 1
+    assert manager.get(outer, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(inner[0], "alice")
+    sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
+    stopped = [c["params"]["session"] for c in plex.calls_to("stop")]
+    assert stopped == [sessions[1]]
+
+
 def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
     plex.prefix = "/plex"
     manager = StreamManager(lambda: (f"{PLEX_URL}/plex/", TOKEN), session=plex)
@@ -526,7 +551,8 @@ def test_the_allowed_hosts_reach_the_outbound_safety_check(plex, monkeypatch, ho
     assert all(h == frozenset({"plex.test"}) for h in seen)
 
 
-def test_init_stream_manager_passes_the_allowed_hosts_on():
+def test_init_stream_manager_passes_the_allowed_hosts_on(monkeypatch):
+    monkeypatch.setattr(plex_stream, "_manager", None)
     manager = init_stream_manager(lambda: None, allowed_hosts=frozenset({"plex.test"}))
 
     assert manager._allowed_hosts == frozenset({"plex.test"})
