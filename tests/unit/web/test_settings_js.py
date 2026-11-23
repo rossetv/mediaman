@@ -106,3 +106,14 @@ def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     # a field the page does not show falls back to its key in words
     assert "Mystery key is not valid." in text
     assert "base_url" not in text and "got" not in text
+
+
+def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
+    out = _run("roleInPlace")
+    assert out == {
+        "sameRow": True,
+        "pill": "Admin",
+        "button": "Make viewer",
+        "focused": True,
+        "disabled": False,
+    }

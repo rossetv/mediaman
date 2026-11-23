@@ -421,6 +421,12 @@
 .setg-pg .sub-row.is-entering,
 .setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
 @keyframes setg-row-in { from { opacity: 0; transform: translateY(-4px); } }
+/* A changed role fades its pill in where the old one stood. */
+.setg-pg .usr-row .pill.is-changed { animation: setg-pill-in var(--dur-slow) var(--ease-out); }
+@keyframes setg-pill-in { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) {
+  .setg-pg .usr-row .pill.is-changed { animation: none; }
+}
 .setg-pg .sub-row.is-leaving,
 .setg-pg .usr-row.is-leaving {
   overflow: hidden; opacity: 0;

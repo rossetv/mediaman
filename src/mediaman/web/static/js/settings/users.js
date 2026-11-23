@@ -142,10 +142,7 @@
         meta.appendChild(sub);
         row.appendChild(meta);
 
-        var isAdmin = user.role !== 'viewer';
         var roleLabel = document.createElement('span');
-        roleLabel.className = 'pill ' + (isAdmin ? 'pill--tv' : 'pill--neutral');
-        roleLabel.textContent = isAdmin ? 'Admin' : 'Viewer';
         row.appendChild(roleLabel);
 
         if (user.username !== currentUser) {
@@ -156,10 +153,11 @@
           roleBtn.type = 'button';
           roleBtn.className = 'btn btn--ghost btn--sm';
           roleBtn.dataset.userAction = 'role';
-          roleBtn.textContent = isAdmin ? 'Make viewer' : 'Make admin';
-          roleBtn.setAttribute('aria-label', roleBtn.textContent + ': ' + user.username);
           roleBtn.addEventListener('click', function () {
-            changeRoleFlow(user, isAdmin ? 'viewer' : 'admin', row, roleBtn);
+            changeRoleFlow(user, isAdmin(user) ? 'viewer' : 'admin', roleBtn, function () {
+              paintRole(user, roleLabel, roleBtn);
+              roleLabel.classList.add('is-changed');
+            });
           });
           actions.appendChild(roleBtn);
 
@@ -174,10 +172,24 @@
 
           row.appendChild(actions);
         }
+        paintRole(user, roleLabel, roleBtn);
+        roleLabel.addEventListener('animationend', function () { roleLabel.classList.remove('is-changed'); });
         return row;
       }
 
-      function changeRoleFlow(user, role, row, btn) {
+      function isAdmin(user) { return user.role !== 'viewer'; }
+
+      // A role change updates the row where it is, so focus stays on its button.
+      function paintRole(user, pill, btn) {
+        var admin = isAdmin(user);
+        pill.className = 'pill ' + (admin ? 'pill--tv' : 'pill--neutral');
+        pill.textContent = admin ? 'Admin' : 'Viewer';
+        if (!btn) return;
+        btn.textContent = admin ? 'Make viewer' : 'Make admin';
+        btn.setAttribute('aria-label', btn.textContent + ': ' + user.username);
+      }
+
+      function changeRoleFlow(user, role, btn, changed) {
         var label = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Saving…';
@@ -185,10 +197,11 @@
         MM.reauth.run(function () {
           return MM.api.patch('/api/users/' + user.id + '/role', { role: role });
         }).then(function () {
-          var refreshed = buildRow(Object.assign({}, user, { role: role }));
-          row.replaceWith(refreshed);
-          var again = refreshed.querySelector('[data-user-action="role"]');
-          if (again && MM.dom.focusStillIn(refreshed)) again.focus();
+          var keepFocus = MM.dom.focusStillIn(btn);
+          user.role = role;
+          btn.disabled = false;
+          changed();
+          if (keepFocus) btn.focus();
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
           var keepFocus = MM.dom.focusStillIn(btn);

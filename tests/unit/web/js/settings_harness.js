@@ -436,6 +436,35 @@ const scenarios = {
     return { text: status.textContent };
   },
 
+  // A role change updates its row where it stands.
+  async roleInPlace() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }),
+      patch: () => Promise.resolve({}),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = userList.querySelector('.usr-row');
+    const btn = row.querySelector('[data-user-action="role"]');
+    btn.focus();
+    btn.fire('click');
+    await h.flush();
+    const again = row.querySelector('[data-user-action="role"]');
+    return {
+      sameRow: userList.querySelector('.usr-row') === row,
+      pill: row.querySelector('.pill').textContent,
+      button: again.textContent,
+      focused: h.doc.activeElement === again,
+      disabled: again.disabled,
+    };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();
