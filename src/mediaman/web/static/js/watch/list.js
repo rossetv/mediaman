@@ -432,6 +432,11 @@
       /* A page the server moved back (its last row went) is loaded whole once the row has left. */
       if (action === 'delete' && same(state, stateOf(fresh))) refill(now, fresh);
     }, function () {
+      /* The change is saved but the rows were not read again: let go of them. */
+      keys.forEach(function (key) {
+        var row = rowByKey(key);
+        if (row) setBusy(row, false, action);
+      });
       window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
     });
   }
