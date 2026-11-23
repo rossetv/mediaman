@@ -15,10 +15,11 @@
 
   function toArray(list) { return Array.prototype.slice.call(list); }
 
-  /* Only same-site paths may become a link or image address. */
+  /* Only same-site paths may become a link or image address. Browsers drop
+     tabs and newlines from a URL, so "/\t/host" would become "//host". */
   function safePath(value) {
     return typeof value === 'string' && value.charAt(0) === '/' &&
-      value.charAt(1) !== '/' && value.charAt(1) !== '\\' ? value : '';
+      value.charAt(1) !== '/' && value.charAt(1) !== '\\' && !/[\t\n\r]/.test(value) ? value : '';
   }
 
   function toast(message, opts) {

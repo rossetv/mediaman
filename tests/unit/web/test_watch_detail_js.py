@@ -134,17 +134,13 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
 def test_a_queued_download_the_server_no_longer_reports_gives_the_download_button_back() -> None:
     out = _run("queuedThenGoneOnReopen")
     assert (out["before"], out["after"]) == ("Queued", "Download")
-    assert out["events"] == [
-        {"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}
-    ]
+    assert out["events"] == [{"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}]
 
 
 def test_a_poll_answering_unknown_gives_the_download_button_back_and_stops_polling() -> None:
     out = _run("queuedThenUnknownOnPoll")
     assert (out["before"], out["after"]) == ("Queued", "Download")
-    assert out["events"] == [
-        {"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}
-    ]
+    assert out["events"] == [{"ref": "tmdb-movie-77", "download_state": None, "download_pct": None}]
     assert out["pollsLeft"] == 0
 
 
@@ -288,3 +284,11 @@ def test_tab_stays_inside_the_overlay() -> None:
     assert (out["wrappedToFirst"], out["wrappedToLast"]) == (True, True)
     assert out["prevented"] == [True, True]
     assert out["pulledBack"] is True
+
+
+def test_safe_path_keeps_only_same_site_paths_and_refuses_ones_with_tabs_or_newlines() -> None:
+    out = dict(_run("safePath"))
+    assert out.pop("/watch/movie/1") == "/watch/movie/1"
+    for refused in ("/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "/watch\t/x"):
+        assert out.pop(refused) == "", refused
+    assert set(out.values()) == {""}

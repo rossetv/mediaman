@@ -576,6 +576,14 @@ const scenarios = {
     };
   },
 
+  async safePath() {
+    const p = load({});
+    p.run();
+    const inputs = ['/watch/movie/1', '//evil.example', '/\\evil.example', '/\t/evil.example', '/\n/evil.example',
+      '/\r/evil.example', '/watch\t/x', 'https://evil.example/'];
+    return inputs.map((v) => [v, p.ctx.MMWatch.core.safePath(v)]);
+  },
+
   async adminWithoutApi() {
     const p = load({ admin: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
     p.run();
