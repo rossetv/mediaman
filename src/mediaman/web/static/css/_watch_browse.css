@@ -15,11 +15,16 @@
    line of the heading's type, a card's sub-line one line of its 12px text. */
 .watch-discover-skel .watch-row__title-skel { font-size: 19px; line-height: 1.1; height: 1lh; }
 .watch-discover-skel .watch-card--skel .skel--line { font-size: 12px; margin-block: calc((1lh - 10px) / 2); }
-/* The first is Recommended's, whose heading is as tall as its tools. */
-.watch-discover-skel .watch-row--skel:nth-child(2) .watch-row__title-skel { margin-top: calc((34px - 1lh) / 2); margin-bottom: calc((34px - 1lh) / 2 + 12px); }
+/* Recommended's heading is as tall as its tools. */
+.watch-discover-skel .watch-row--skel-tools .watch-row__title-skel { margin-top: calc((34px - 1lh) / 2); margin-bottom: calc((34px - 1lh) / 2 + 12px); }
+/* Picks switched off, for an admin: the row is a heading over a 44px note
+   (on a phone, a line over its 44px link). A flex column, so no margins collapse. */
+.watch-row--skel-note { display: flex; flex-direction: column; align-items: flex-start; }
+.watch-row__note-skel { width: 260px; max-width: calc(100% - 2 * var(--pad)); margin: 16px var(--pad); }
 @media (max-width: 599.98px) {
   .watch-discover-skel .watch-row__title-skel { font-size: 17px; }
-  .watch-discover-skel .watch-row--skel:nth-child(2) .watch-row__title-skel { margin-top: calc((44px - 1lh) / 2); margin-bottom: calc((44px - 1lh) / 2 + 10px); }
+  .watch-row__note-skel { margin-block: 28px 28.5px; }
+  .watch-discover-skel .watch-row--skel-tools .watch-row__title-skel { margin-top: calc((44px - 1lh) / 2); margin-bottom: calc((44px - 1lh) / 2 + 10px); }
 }
 
 /* A row heading with tools on its right (Recommended: the batch of picks and,
@@ -94,8 +99,22 @@
   font-size: 14px;
   color: var(--t3);
 }
-.watch-row__note--failed { color: var(--t2); }
+/* A row that did not load keeps a row's height, so the rows below stay put. */
+.watch-row__note--failed {
+  min-height: calc(var(--watch-card-w) * 3 / 2 + 6px + 18px);
+  justify-content: center;
+  margin-inline: var(--pad);
+  padding: 0 16px;
+  border: 1px dashed var(--hair-strong);
+  border-radius: var(--r-md);
+  color: var(--t2);
+}
 .watch-row__hint { color: var(--t3); }
+/* On a phone the line sits over its action, at the same height whatever the width. */
+@media (max-width: 599.98px) {
+  .watch-row__note { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
+  .watch-row__note--failed { align-items: center; }
+}
 .watch-row__retry,
 .watch-row__link {
   display: inline-flex;

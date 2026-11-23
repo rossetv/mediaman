@@ -832,11 +832,43 @@ def test_discover_sits_between_recently_added_and_the_library_rows(
     assert "watch-row--skel" in html[slot:divider]
 
 
-def test_without_tmdb_the_discover_slot_is_empty(app_factory, conn, library, plex, monkeypatch):
-    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+@pytest.mark.parametrize(
+    ("tmdb", "picks", "as_admin", "rows", "recommended", "note"),
+    [
+        (True, True, False, 4, 1, 0),
+        (False, True, False, 1, 1, 0),
+        (True, False, False, 3, 0, 0),
+        (False, False, False, 0, 0, 0),
+        (False, False, True, 1, 0, 1),
+        (True, False, True, 4, 0, 1),
+    ],
+)
+def test_the_discover_skeleton_holds_a_place_for_each_row_that_will_arrive(
+    app_factory,
+    conn,
+    library,
+    plex,
+    monkeypatch,
+    admin,
+    tmdb,
+    picks,
+    as_admin,
+    rows,
+    recommended,
+    note,
+):
+    if tmdb:
+        insert_settings(conn, tmdb_read_token="tok")
+    if not picks:
+        insert_settings(conn, suggestions_enabled="false")
 
-    slot = html.index('id="watch-discover-slot"')
-    assert "skel" not in html[slot : html.index(">Your library<")]
+    html = _page(app_factory, conn, monkeypatch, "/watch", admin if as_admin else "aoife").text
+
+    slot = html[html.index('id="watch-discover-slot"') : html.index(">Your library<")]
+    assert slot.count('class="watch-row watch-row--skel') == rows
+    assert slot.count("watch-row--skel-tools") == recommended
+    assert slot.count("watch-row--skel-note") == note
+    assert ('aria-busy="true"' in slot) is (rows > 0)
 
 
 def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(

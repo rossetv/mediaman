@@ -23,14 +23,22 @@
 </section>
 {%- endmacro %}
 
-{% macro skel_row() -%}
-<div class="watch-row watch-row--skel">
+{% macro skel_row(tools=false) -%}
+<div class="watch-row watch-row--skel{% if tools %} watch-row--skel-tools{% endif %}">
   <span class="skel skel--title watch-row__title-skel"></span>
   <div class="watch-row__viewport">
     <div class="watch-row__scroll">
       {% for _ in range(10) %}<div class="watch-card--skel"><span class="skel skel--poster"></span><span class="skel skel--line"></span></div>{% endfor %}
     </div>
   </div>
+</div>
+{%- endmacro %}
+
+{# An admin's Recommended row with picks switched off: a heading and a one-line note. #}
+{% macro skel_note_row() -%}
+<div class="watch-row watch-row--skel watch-row--skel-note">
+  <span class="skel skel--title watch-row__title-skel"></span>
+  <span class="skel skel--line watch-row__note-skel"></span>
 </div>
 {%- endmacro %}
 
@@ -92,12 +100,16 @@
     <div class="watch-rows">
       {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
 
-      {# Discover rows load after the page; until then a skeleton holds their place, one row for each of the four that arrive. #}
-      <div class="watch-discover-slot" id="watch-discover-slot"{% if tmdb_configured %} aria-busy="true"{% endif %}>
-        {% if tmdb_configured %}
+      {# Discover rows load after the page; until then a skeleton holds the place of each row that
+         will arrive: Recommended while picks are on (an admin's switched-off note when they are
+         not) and the three TMDB rows when TMDB is set up. #}
+      {% set discover_skel = picks_on or is_admin or tmdb_configured %}
+      <div class="watch-discover-slot" id="watch-discover-slot"{% if discover_skel %} aria-busy="true"{% endif %}>
+        {% if discover_skel %}
         <div class="watch-discover-skel" aria-hidden="true">
           <p class="watch-group-label">Discover</p>
-          {{ skel_row() }}{{ skel_row() }}{{ skel_row() }}{{ skel_row() }}
+          {% if picks_on %}{{ skel_row(tools=true) }}{% elif is_admin %}{{ skel_note_row() }}{% endif %}
+          {% if tmdb_configured %}{{ skel_row() }}{{ skel_row() }}{{ skel_row() }}{% endif %}
         </div>
         {% endif %}
       </div>

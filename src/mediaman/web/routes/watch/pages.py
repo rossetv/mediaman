@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
-from mediaman.services.infra import allowed_outbound_hosts, get_string_setting
+from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
@@ -575,6 +575,7 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
             "view": view,
             "q": q,
             "tmdb_configured": tmdb_configured,
+            "picks_on": get_bool_setting(conn, "suggestions_enabled", default=True),
             **list_ctx,
             "list_q": list_q,
             "page_data": {

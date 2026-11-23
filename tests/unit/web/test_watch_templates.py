@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -50,6 +51,7 @@ def _watch(**over: object) -> str:
         "view": "rows",
         "q": "",
         "tmdb_configured": False,
+        "picks_on": False,
         "list_html": None,
         "page_data": {},
     }
@@ -447,8 +449,31 @@ def test_show_page_names_another_leaving_season_without_a_keep(days: int, text: 
     assert "data-watch-keep" not in html
 
 
-def test_discover_skeleton_has_a_row_for_each_row_that_arrives() -> None:
-    html = _watch(tmdb_configured=True)
+def test_discover_skeleton_puts_recommended_first_with_its_tools_height() -> None:
+    html = _watch(tmdb_configured=True, picks_on=True)
     skeleton = html.split('class="watch-discover-skel"', 1)[1].split('id="watch-results"', 1)[0]
-    assert skeleton.count("watch-row watch-row--skel") == 4
-    assert "watch-discover-skel" not in _watch(tmdb_configured=False)
+    rows = skeleton.split('class="watch-row watch-row--skel')[1:]
+    assert len(rows) == 4
+    assert rows[0].startswith(" watch-row--skel-tools")
+    assert not any("skel-tools" in r for r in rows[1:])
+    assert "watch-discover-skel" not in _watch()
+
+
+def test_banner_details_opens_the_title_overlay() -> None:
+    banner = {
+        "title": "The Long Coast",
+        "ref": "show-500",
+        "line": "",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/9"},
+        "episodes_href": "/watch/show/500",
+        "backdrop_url": None,
+    }
+    html = _watch(banner=banner)
+    actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
+    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>', actions)
+    assert details is not None
+    assert 'href="/watch#title=show-500"' in details.group(0)
+    assert 'data-title="The Long Coast"' in details.group(0)
+    assert "watch-btn--grey" in details.group(0)
+    assert "Details</a>" in actions
