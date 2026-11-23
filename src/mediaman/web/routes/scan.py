@@ -7,7 +7,7 @@ import threading
 import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from plexapi.exceptions import PlexApiException
+from plexapi.exceptions import PlexApiException, Unauthorized
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -176,6 +176,20 @@ def clear_scheduled(
     return {"ok": True, "cleared": result.cleared, "already_deleting": result.already_deleting}
 
 
+def _sync_failure_message(exc: Exception) -> str:
+    """Say what went wrong with a library sync, without echoing the URL or token."""
+    refused = isinstance(exc, Unauthorized) or (
+        isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
+    )
+    if refused:
+        return "Plex refused the token — check the Plex token in Settings"
+    if isinstance(exc, ConfigDecryptError):
+        return "Saved settings could not be read — check the secret key"
+    if isinstance(exc, (requests.RequestException, SafeHTTPError)):
+        return "Couldn't reach Plex — check the Plex URL in Settings and that the server is running"
+    return "Library sync failed"
+
+
 @router.post("/api/library/sync")
 def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     from mediaman.scanner.runner import run_library_sync
@@ -220,4 +234,4 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             ip=get_client_ip(request),
             detail={"error": str(exc)[:200]},
         )
-        return respond_err("sync_failed", status=502, message="Library sync failed")
+        return respond_err("sync_failed", status=502, message=_sync_failure_message(exc))

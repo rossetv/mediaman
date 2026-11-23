@@ -16,6 +16,7 @@
  *   MM.settings.diskThresholds.init({ selectedLibs, diskThresholds })
  *   MM.settings.diskThresholds.collect()                — for collectSettings
  *   MM.settings.diskThresholds.getSelectedLibs()        — for collectSettings
+ *   MM.settings.diskThresholds.state() / restore(state) — for Discard
  */
 (function () {
   'use strict';
@@ -310,8 +311,24 @@
     loadPlexLibraries();
   }
 
+  // The library selection and thresholds as they stand, for Discard to go back to.
+  function state() {
+    var disk = collect();
+    return { libs: SELECTED_LIBS.slice(), disk: disk === null ? DISK_THRESHOLDS : disk };
+  }
+
+  function restore(saved) {
+    SELECTED_LIBS = saved.libs.slice();
+    DISK_THRESHOLDS = saved.disk;
+    if (!LOADED) return;
+    renderLibraryPills();
+    renderDiskRows();
+  }
+
   MM.settings.diskThresholds = {
     init: init,
+    state: state,
+    restore: restore,
     collect: collect,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };

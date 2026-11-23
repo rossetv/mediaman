@@ -5,12 +5,15 @@
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
- *   - Discard-confirm via UIFeedback
+ *   - Discard-confirm via UIFeedback, then the last saved values put back
+ *     in place
  *
  * Cross-module dependencies:
  *   window.UIFeedback (confirm dialog)
  *   MM.reauth         (core/reauth.js — centred reauth modal)
  *   MM.api            (core/api.js — told when edits are unsaved)
+ *   MM.settings.diskThresholds / MM.settings.toggles (Discard puts their
+ *                     state back)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
@@ -36,12 +39,12 @@
   // bar can go back to where they were working.
   var lastEdited = null;
 
-  // The bar hides after a save. Only a keyboard save restores focus, since a
+  // The bar hides after a save or a discard. Only a keyboard press restores focus, since a
   // pointer user has no focus to lose and a refocus would scroll them back or
   // raise a phone keyboard. Focus already moved elsewhere is left alone; focus
   // lost to the body or the bar returns to the last edited control, or to the
   // page heading when that cannot take focus.
-  function settleAfterSave(fromKeyboard) {
+  function settleAfterHide(fromKeyboard) {
     markClean();
     if (!fromKeyboard) return;
     var active = document.activeElement;
@@ -66,6 +69,36 @@
       !el.closest('#newsletter-send-panel, .inline-form, .sub-add');
   }
 
+  // The values Discard goes back to: those on the page at load, then those of the last save.
+  var saved = null;
+
+  function settingsControls() {
+    return Array.prototype.filter.call(
+      document.querySelectorAll('.setg-pg input[id], .setg-pg select[id], .setg-pg textarea[id]'),
+      function (el) { return isSettingsInput(el) && !el.closest('#disk-threshold-rows'); }
+    );
+  }
+
+  function snapshot() {
+    var values = {};
+    settingsControls().forEach(function (el) {
+      values[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
+    });
+    var disk = MM.settings.diskThresholds ? MM.settings.diskThresholds.state() : null;
+    saved = { values: values, disk: disk };
+  }
+
+  function restoreSaved() {
+    if (!saved) return;
+    settingsControls().forEach(function (el) {
+      if (!(el.id in saved.values)) return;
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = saved.values[el.id];
+      else el.value = saved.values[el.id];
+    });
+    if (saved.disk && MM.settings.diskThresholds) MM.settings.diskThresholds.restore(saved.disk);
+    if (MM.settings.toggles && MM.settings.toggles.sync) MM.settings.toggles.sync();
+  }
+
   // Plain wording for the codes the settings route sends without a message.
   var SAVE_ERROR_WORDS = {
     ssrf_blocked: 'One of the addresses points somewhere mediaman may not connect to.',
@@ -75,15 +108,48 @@
     settings_decrypt_failed: 'Saved secrets could not be read — check the secret key.',
   };
 
+  // Plain endings for what the server says about one field, matched on its
+  // message; the field's label from the page goes in front.
+  var FIELD_ERROR_WORDS = [
+    [/scheme must be http or https/i, 'must start with http:// or https://.'],
+    [/must include a host/i, 'needs a server name after http:// or https://.'],
+    [/invalid URL/i, 'is not a valid address.'],
+    [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
+    [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
+    [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
+    [/integer/i, 'must be a whole number.'],
+    [/timezone/i, 'is not a time zone mediaman knows.'],
+    [/must be one of/i, 'is not one of the choices offered.'],
+  ];
+
+  // The label a person sees for a setting, or its key in words when the page has none.
+  function fieldLabel(key) {
+    var el = document.getElementById(key);
+    var label = el && el.getAttribute('aria-label');
+    if (label) return label;
+    var words = key.replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  function fieldError(key, msg) {
+    for (var i = 0; i < FIELD_ERROR_WORDS.length; i++) {
+      var m = msg.match(FIELD_ERROR_WORDS[i][0]);
+      if (m) {
+        var words = FIELD_ERROR_WORDS[i][1].replace(/\$(\d)/g, function (_, n) { return m[n] || ''; });
+        return fieldLabel(key) + ' ' + words;
+      }
+    }
+    return fieldLabel(key) + ' is not valid.';
+  }
+
   // Turn FastAPI 422 bodies into a one-line human summary.
   function summariseSaveError(data, statusCode) {
     if (data && Array.isArray(data.detail) && data.detail.length) {
       return data.detail.map(function (d) {
         var loc = Array.isArray(d.loc) ? d.loc.filter(function (p) { return p !== 'body'; }) : [];
-        var field = loc.length ? loc.join('.') : 'request';
-        var msg = (d.msg || 'invalid').replace(/^Value error,\s*/, '');
-        return field + ' — ' + msg;
-      }).join(' · ');
+        if (!loc.length || typeof loc[0] !== 'string') return 'Save failed — try again.';
+        return fieldError(loc[0], String(d.msg || ''));
+      }).filter(function (line, i, all) { return all.indexOf(line) === i; }).join(' ');
     }
     if (data && typeof data.detail === 'string') return data.detail;
     if (data && data.message) return data.message;
@@ -159,13 +225,14 @@
           // succeeded. Treat any 2xx that lacks data.status==='saved' as a
           // partial success (shouldn't happen, but be defensive).
           if (data.status === 'saved' || data.ok !== false) {
+            snapshot();
             saveBtn.textContent = 'Saved ✓';
             if (statusEl) {
               statusEl.textContent = ignored.length
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(function () { settleAfterSave(fromKeyboard); }, 600);
+            setTimeout(function () { settleAfterHide(fromKeyboard); }, 600);
             refreshOverviewHero();
             setTimeout(function () {
               saveBtn.textContent = orig;
@@ -213,16 +280,24 @@
       if (savebar && savebar.classList.contains('is-error')) clearSaveError();
     }, true);
 
+    snapshot();
+
     var discardBtn = document.getElementById('btn-discard');
-    if (discardBtn) discardBtn.addEventListener('click', function () {
-      /* TODO: use UIFeedback.confirm instead of window.confirm for consistency. */
+    if (discardBtn) discardBtn.addEventListener('click', function (e) {
+      var fromKeyboard = e.detail === 0;
       window.UIFeedback.confirm({
         title: 'Discard unsaved changes?',
-        body: 'The page will reload and any unsaved settings will be lost.',
+        body: 'Every setting goes back to how it was last saved.',
         confirmLabel: 'Discard',
         confirmVariant: 'danger',
       }).then(function (ok) {
-        if (ok) window.location.reload();
+        if (!ok) return;
+        restoreSaved();
+        clearSaveError();
+        if (saveBtn) saveBtn.textContent = 'Save Settings';
+        if (statusEl) statusEl.textContent = 'Edits apply to every section at once.';
+        refreshOverviewHero();
+        settleAfterHide(fromKeyboard);
       });
     });
   }

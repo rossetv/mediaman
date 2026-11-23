@@ -8,11 +8,13 @@
  *   - Rail scroll-spy (highlights the active section in `.setg-rail`)
  *
  * Cross-module dependencies:
+ *   MM.settings.rows                — folds an integration card's body open and shut
  *   MM.settings.savebar.markDirty   — invoked when a toggle flips so the
  *                                     savebar appears.
  *
  * Exposes:
  *   MM.settings.toggles.init()
+ *   MM.settings.toggles.sync()   — redraws switches from their inputs
  */
 (function () {
   'use strict';
@@ -50,6 +52,17 @@
     });
   }
 
+  // Redraw each switch from its hidden input, after Discard puts the values back.
+  function sync() {
+    document.querySelectorAll('.setg-pg [data-toggle]').forEach(function (node) {
+      var input = document.getElementById(node.getAttribute('data-target'));
+      if (!input) return;
+      var on = input.value === (node.getAttribute('data-on-value') || 'true');
+      node.classList.toggle('on', on);
+      node.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
   function wireIntegrationCards() {
     function toggleIntg(hd) {
       var card = hd.closest('.intg-card');
@@ -59,10 +72,17 @@
       var isOpen = !expanded;
       hd.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       if (body) {
-        if (isOpen) { body.removeAttribute('hidden'); }
-        else        { body.setAttribute('hidden', ''); }
+        if (isOpen) MM.settings.rows.open(body); else MM.settings.rows.close(body);
       }
     }
+    // Each body folds like the inline forms, which need an inner wrapper to fold into.
+    document.querySelectorAll('.setg-pg .intg-card-bd').forEach(function (body) {
+      var inner = document.createElement('div');
+      inner.className = 'setg-fold-inner';
+      while (body.firstChild) inner.appendChild(body.firstChild);
+      body.appendChild(inner);
+      body.classList.add('setg-fold');
+    });
     document.querySelectorAll('.setg-pg [data-intg-toggle]').forEach(function (hd) {
       hd.addEventListener('click', function (e) {
         if (e.target.closest('.btn-test')) return;
@@ -100,9 +120,11 @@
     var lastActiveHref = null;
     function syncRail() {
       if (!blocks.length) return;
-      var pos = window.scrollY + 140;
+      // A section is current once its top passes a line a third of the way
+      // down the view, so a short section in plain view is not skipped.
+      var line = Math.max(140, window.innerHeight * 0.35);
       var current = blocks[0];
-      blocks.forEach(function (b) { if (b.offsetTop <= pos) current = b; });
+      blocks.forEach(function (b) { if (b.getBoundingClientRect().top <= line) current = b; });
       var atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 4);
       if (atBottom) current = blocks[blocks.length - 1];
       var id = current ? '#' + current.id : '';
@@ -131,5 +153,6 @@
 
   MM.settings.toggles = {
     init: init,
+    sync: sync,
   };
 })();

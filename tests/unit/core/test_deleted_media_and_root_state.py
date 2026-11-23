@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from mediaman.core.audit import log_audit
-from mediaman.core.delete_root_state import read_delete_root_state, write_delete_root_state
+from mediaman.core.delete_root_state import (
+    read_delete_root_state,
+    read_delete_root_waiting,
+    write_delete_root_state,
+)
 from mediaman.core.deleted_media import fetch_deleted_media, record_deleted_media
 from mediaman.db import init_db
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 def test_log_audit_returns_distinct_ids(tmp_path):
@@ -70,3 +75,41 @@ def test_was_redownloaded_after_needs_a_newer_match():
     assert was_redownloaded_after("2026-01-01", ["tmdb:7"], times)
     assert not was_redownloaded_after("2026-02-01", ["tmdb:7"], times)
     assert not was_redownloaded_after("2026-01-01", ["tmdb:8"], times)
+
+
+def _waiting_action(conn):
+    insert_media_item(conn, id="m1", title="F", plex_rating_key="rk1")
+    return insert_scheduled_action(conn, media_item_id="m1", token="t1")
+
+
+def test_waiting_ids_out_of_int64_range_fall_back_to_stored_count(tmp_path):
+    conn = init_db(str(tmp_path / "e.db"))
+    write_delete_root_state(conn, {"/a": 4}, {"/a": [2**70]})
+    assert read_delete_root_waiting(conn) == {"/a": 4}
+    conn.close()
+
+
+def test_waiting_ids_that_are_not_a_list_of_ints_fall_back_to_stored_count(tmp_path):
+    conn = init_db(str(tmp_path / "f.db"))
+    real = _waiting_action(conn)
+    for bad in ("123", [real, "1"], [real, True], [real, 1.5], {"1": 1}):
+        write_delete_root_state(conn, {"/a": 4}, {"/a": bad})
+        assert read_delete_root_waiting(conn) == {"/a": 4}, bad
+    conn.close()
+
+
+def test_waiting_counts_with_more_ids_than_sqlite_binds(tmp_path):
+    conn = init_db(str(tmp_path / "g.db"))
+    real = _waiting_action(conn)
+    ids = [real, *range(real + 1, real + 40_001)]
+    write_delete_root_state(conn, {"/a": len(ids)}, {"/a": ids})
+    assert read_delete_root_waiting(conn) == {"/a": 1}
+    conn.close()
+
+
+def test_waiting_falls_back_to_stored_counts_when_the_count_query_fails(tmp_path):
+    conn = init_db(str(tmp_path / "h.db"))
+    write_delete_root_state(conn, {"/a": 2}, {"/a": [1, 2]})
+    conn.execute("DROP TABLE scheduled_actions")
+    assert read_delete_root_waiting(conn) == {"/a": 2}
+    conn.close()

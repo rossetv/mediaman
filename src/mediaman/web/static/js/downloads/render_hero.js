@@ -12,6 +12,7 @@
  * Exposes:
  *   MM.downloads.renderHero.updateHero(container, item)
  *   MM.downloads.renderHero.updateSearchHint(card, item)
+ *   MM.downloads.renderHero.buildEpisodeRow(ep)
  */
 (function () {
   'use strict';
@@ -262,7 +263,7 @@
     /* State pill */
     var pill = d.q('.dl-state-pill', card);
     if (pill) {
-      pill.className = 'dl-state-pill dl-state-' + item.state;
+      pill.className = pill.className.replace(/\bdl-state-(?!pill)\S*/g, '').trim() + ' dl-state-' + item.state;
       d.setText(pill, item.state_label || item.state);
     }
 
@@ -286,11 +287,12 @@
     if (sizeDone) d.setText(sizeDone, item.size_done || '');
     var sizeTotal = d.q('[data-v="size-total"]', card);
     if (sizeTotal) d.setText(sizeTotal, item.size_total || '');
-    var eta = d.q('[data-v="eta"]', card);
-    if (eta) d.setText(eta, item.eta || '');
+    d.updateEtaStat(card, item.eta);
 
     /* Episodes — create, refresh, or remove the toggle + list section. */
     syncEpisodes(card, item);
+
+    d.syncAbandon(card, item, 'hero');
 
     /* Update data-dl-id if hero changed */
     if (card.getAttribute('data-dl-id') !== item.id) {
@@ -303,5 +305,6 @@
     updateSearchHint: updateSearchHint,
     updateTypePill: updateTypePill,
     syncEpisodes: syncEpisodes,
+    buildEpisodeRow: buildEpisodeRow,
   };
 })();

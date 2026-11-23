@@ -1,21 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Unsubscribe · Mediaman</title>
-  <link rel="stylesheet" href="/static/css/_tokens.css">
-  <link rel="stylesheet" href="/static/css/_unsubscribe.css">
-</head>
-<body class="unsub-body">
-  <div class="unsub-card">
+{% extends "base.html" %}
+
+{% block title %}Unsubscribe · Mediaman{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css">{% endblock %}
+
+{% block content %}
+<div class="login-page">
+  <div class="login-card unsub-card">
+    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
     {% if success %}
-    <div class="unsub-icon--success">&#10003;</div>
+    <div class="unsub-icon unsub-icon--success"><i class="fa-regular fa-circle-check" aria-hidden="true"></i></div>
     {% else %}
-    <div class="unsub-icon--error">&#10007;</div>
+    <div class="unsub-icon unsub-icon--error"><i class="fa-regular fa-circle-xmark" aria-hidden="true"></i></div>
     {% endif %}
-    <div class="unsub-brand">media<span class="unsub-brand-accent">man</span></div>
-    <div class="unsub-msg">{{ message }}</div>
+    <h1 class="unsub-title">{% if success %}Unsubscribed{% else %}Couldn't unsubscribe{% endif %}</h1>
+    <p class="unsub-msg">{{ message }}</p>
+    <p class="unsub-note">You can close this page.</p>
   </div>
-</body>
-</html>
+</div>
+{% endblock %}

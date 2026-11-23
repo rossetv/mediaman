@@ -24,7 +24,7 @@
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('.dl-state-pill', row);
     if (pill) {
-      pill.className = 'dl-state-pill dl-state-' + item.state;
+      pill.className = pill.className.replace(/\bdl-state-(?!pill)\S*/g, '').trim() + ' dl-state-' + item.state;
       pill.style.fontSize = '9px';
       d.setText(pill, item.state_label || item.state);
     }
@@ -44,6 +44,8 @@
     if (sizeTotal) d.setText(sizeTotal, item.size_total || '');
     var eta = d.q('[data-v="eta"]', row);
     if (eta) d.setText(eta, item.eta || '');
+
+    d.syncAbandon(row, item, 'row');
 
     /* Update episode rows (same shape as hero) */
     if (item.episodes) {

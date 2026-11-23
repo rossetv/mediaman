@@ -40,10 +40,12 @@
   background: var(--s3); display: flex; margin: 22px 0 14px;
 }
 .setg-pg .ov-storage .bar span { display: block; height: 100%; }
+/* Columns set by the card's width alone, so the figures arriving never re-wrap the legend. */
 .setg-pg .ov-storage .chips {
-  display: flex; flex-wrap: wrap; gap: 8px 20px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 20px;
   font-size: 12.5px; color: var(--t2);
 }
+.setg-pg .ov-storage .chips > :only-child { grid-column: 1 / -1; }
 .setg-pg .ov-storage .chip-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   margin-right: 7px; vertical-align: middle;
@@ -109,6 +111,8 @@
   outline: 2px solid var(--accent-cta);
   outline-offset: -2px;
 }
+.setg-pg .intg-card-hd { transition: background var(--dur-fast) var(--ease-out); }
+.setg-pg .intg-card-hd:active { background: rgba(255,255,255,.04); }
 .setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
 .setg-pg .intg-card-hd .glyph {
   width: 36px; height: 36px; border-radius: var(--r-sm);
@@ -123,14 +127,14 @@
 .setg-pg .intg-card-hd .intg-chev {
   font-size: 14px;
   color: var(--t3);
-  transition: transform .18s ease;
+  transition: transform var(--dur) var(--ease-out);
   flex-shrink: 0;
 }
 .setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .intg-chev {
   transform: rotate(180deg);
 }
 .setg-pg .intg-card-bd { padding: 22px 24px 24px; }
-.setg-pg .intg-card-bd > .fld-row + .fld-row { margin-top: 18px; }
+.setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row { margin-top: 18px; }
 .setg-pg .lib-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .setg-pg .lib-pill-count { font-size: 11.5px; }
 .setg-pg .lib-pill {
@@ -140,6 +144,8 @@
   cursor: pointer; transition: all .15s;
 }
 .setg-pg .lib-pill:hover { background: var(--s3); color: var(--t1); }
+.setg-pg .lib-pill:active { background: var(--s4); color: var(--t1); transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) { .setg-pg .lib-pill:active { transform: none; } }
 .setg-pg .lib-pill.on {
   background: rgba(41,151,255,.12); color: var(--accent);
   border-color: rgba(41,151,255,.4);
@@ -271,13 +277,14 @@
   transition: background .15s;
 }
 .setg-pg .recipient-item:hover { background: var(--s3); }
+.setg-pg .recipient-item:active { background: var(--s4); }
 .setg-pg .recipient-item:has(input:checked) { background: rgba(0,113,227,.08); }
 .setg-pg .recipient-item:has(input:checked):hover { background: rgba(0,113,227,.14); }
 .setg-pg .recipient-item label {
   cursor: pointer; flex: 1; color: var(--t1);
   font-family: var(--font-text);
   letter-spacing: -.005em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .setg-pg .recipient-item input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -336,6 +343,11 @@
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
+.setg-pg .usr-row .usr-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
+/* Wide enough for the longest label each button shows, so a pending label never moves what sits beside it. */
+.setg-pg .usr-row [data-user-action="role"] { min-width: 8.2em; }
+.setg-pg .usr-row [data-user-action="delete"] { min-width: 6.75em; }
+.setg-pg .usr-row .pill { flex-shrink: 0; }
 .setg-pg .usr-row .you-pill {
   font-size: 10px; font-weight: 600;
   padding: 2px 8px; border-radius: var(--r-pill);
@@ -359,12 +371,37 @@
   .setg-pg .inline-form-grid { grid-template-columns: repeat(3, 1fr); }
   .setg-pg .inline-form--two .inline-form-grid { grid-template-columns: repeat(2, 1fr); }
 }
-.setg-pg .inline-form-actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
-.setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; color: var(--t3); min-height: 1em; }
+.setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+.setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
 .setg-pg .inline-form-msg.err { color: var(--danger); }
 .setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger); }
+/* On a phone the message takes its own line under the buttons instead of a narrow column beside them.
+   The line stays reserved while the form is open, so a message appearing or clearing moves nothing. */
+@media (max-width: 639.98px) {
+  .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
+}
+
+/* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
+.setg-pg .setg-fold {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out), margin var(--dur) var(--ease-out),
+              padding var(--dur) var(--ease-out), border-width var(--dur) var(--ease-out);
+}
+.setg-pg .setg-fold[hidden] { display: none; }
+.setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
+/* Clipped only while folding, so focus rings show when it is open. */
+.setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }
+.setg-pg .setg-fold.is-shut {
+  grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px);
+  margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0;
+  border-top-width: 0; border-bottom-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setg-pg .setg-fold { transition: none; }
+}
 
 .setg-pg .fpc-meter {
   height: 4px; background: var(--s3); border-radius: var(--r-pill);
@@ -388,7 +425,32 @@
 }
 .setg-pg .link-danger:hover { background: rgba(255,69,58,.10); }
 
+/* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
+.setg-pg .sub-row.is-entering,
+.setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
+@keyframes setg-row-in { from { opacity: 0; transform: translateY(-4px); } }
+/* A changed role fades its pill in where the old one stood. */
+.setg-pg .usr-row .pill.is-changed { animation: setg-pill-in var(--dur-slow) var(--ease-out); }
+@keyframes setg-pill-in { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) {
+  .setg-pg .usr-row .pill.is-changed { animation: none; }
+}
+.setg-pg .sub-row.is-leaving,
+.setg-pg .usr-row.is-leaving {
+  overflow: hidden; opacity: 0;
+  padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
+  transition: height var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out),
+              padding var(--dur) var(--ease-out), margin var(--dur) var(--ease-out);
+}
+/* The list's 6px gap folds away with the row. */
+.setg-pg .sub-row.is-leaving { margin-top: -6px; }
+
 @media (max-width: 520px) {
+  /* Name and email take the first line; the role and actions wrap under them. */
+  .setg-pg .usr-row { flex-wrap: wrap; gap: 8px 12px; }
+  .setg-pg .usr-row .usr-meta { flex-basis: calc(100% - 50px); }
+  .setg-pg .usr-row .pill { margin-left: 50px; }
+  .setg-pg .usr-row .usr-actions { margin-left: auto; }
   .setg-pg .sub-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px 10px; }
   .setg-pg .sub-row .em { flex-basis: calc(100% - 40px); }
   .setg-pg .sub-row .sub-stat { margin-left: 40px; }
@@ -401,6 +463,21 @@
 }
 
 @media (max-width: 639.98px) {
+  .setg-pg .btn--sm,
+  .setg-pg .recipient-toggles .btn { min-height: 44px; }
   .setg-pg .link-danger,
-  .setg-pg .sub-row .link-danger { min-height: 40px; }
+  .setg-pg .sub-row .link-danger,
+  .setg-pg .usr-actions .btn { min-height: 44px; }
+}
+
+/* Wide enough for "Testing…" and "Select recipients", so the label changing moves nothing. */
+.setg-pg .btn-test[data-test-service] { min-width: 7em; }
+.setg-pg #btn-send-newsletter { min-width: 10.75em; }
+
+@media (max-width: 699.98px) {
+  .setg-pg .savebar .btn { min-height: 44px; }
+  /* A save error is how the person learns what to fix, so it keeps its own line; the standing caption stays hidden. */
+  .setg-pg .savebar:not(.is-error) .sb-sub,
+  .setg-pg .savebar .sb-sub:empty { display: none; }
+  .setg-pg .savebar.is-error .sb-sub { display: block; order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
 }

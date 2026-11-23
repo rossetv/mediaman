@@ -350,6 +350,38 @@ class TestKeepPageRoute:
         assert "Scheduled for deletion" not in html
         assert "snooze-btn" not in html
 
+    def _kept_page(self, conn, freezer, follow_up: str):
+        freezer.move_to("2026-11-23T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = _insert_action(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.post(f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False)
+        assert resp.status_code == 302
+        url = resp.headers["location"] if follow_up == "redirect" else f"/keep/{token}"
+        return " ".join(client.get(url).text.split())
+
+    def test_page_right_after_a_keep_says_kept_not_already_kept(self, conn, freezer):
+        text = self._kept_page(conn, freezer, "redirect")
+
+        assert "Kept for 30 days" in text
+        assert "Already kept" not in text
+
+    def test_reopening_the_link_later_says_already_kept(self, conn, freezer):
+        text = self._kept_page(conn, freezer, "reopen")
+
+        assert "Already kept for 30 days" in text
+        assert "This item was kept on 23 November 2026." in text
+
+    @pytest.mark.parametrize("follow_up", ["redirect", "reopen"])
+    def test_dates_on_the_kept_page_share_one_format(self, conn, freezer, follow_up):
+        text = self._kept_page(conn, freezer, follow_up)
+
+        assert not re.search(r"\d{4}-\d{2}-\d{2}", text)
+        assert "23 December 2026" in text
+
     @pytest.mark.parametrize("action", ["snoozed", "scheduled_deletion"])
     def test_row_being_deleted_shows_that_state_and_no_buttons(self, conn, action):
         _insert_media_item(conn)

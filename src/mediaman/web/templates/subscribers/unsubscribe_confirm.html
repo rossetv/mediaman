@@ -1,26 +1,25 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Unsubscribe · Mediaman</title>
-  <link rel="stylesheet" href="/static/css/_tokens.css">
-  <link rel="stylesheet" href="/static/css/_unsubscribe.css">
-</head>
-<body class="unsub-body">
-  <div class="unsub-card">
-    <div class="unsub-brand">media<span class="unsub-brand-accent">man</span></div>
-    <div class="unsub-title">Unsubscribe?</div>
-    <div class="unsub-sub">
-      You will no longer receive newsletter emails at<br>
-      <strong class="text-t1">{{ email }}</strong>
-    </div>
-    <form method="POST" action="/unsubscribe">
+{% extends "base.html" %}
+
+{% block title %}Unsubscribe · Mediaman{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css">{% endblock %}
+
+{% block content %}
+<div class="login-page">
+  <div class="login-card unsub-card">
+    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
+    <h1 class="unsub-title">Unsubscribe?</h1>
+    <p class="unsub-sub">
+      You will no longer receive newsletter emails at
+      <strong class="unsub-email">{{ email }}</strong>
+    </p>
+    <form method="POST" action="/unsubscribe" data-submit-guard>
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="token" value="{{ token }}">
-      <button type="submit" class="unsub-btn-danger">Unsubscribe</button>
-      <a href="/" class="unsub-btn-cancel">Cancel</a>
+      <button type="submit" class="unsub-btn-danger" data-busy-label="Unsubscribing…">Unsubscribe</button>
     </form>
+    <p class="unsub-note">Changed your mind? Close this page and nothing changes.</p>
   </div>
-</body>
-</html>
+</div>
+<script src="/static/js/submit-guard.js" defer></script>
+{% endblock %}

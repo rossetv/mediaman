@@ -23,6 +23,7 @@
   var confirmBtn  = MM.dom.q('[data-abandon-confirm]', modal);
   var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
 
+  var inflight = {};   // dlId -> true while its abandon request runs
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
   /* This modal intentionally does NOT lock body scroll. setupDetail owns
@@ -63,16 +64,14 @@
           'unmonitored. It stays in your library so you can re-monitor any ' +
           'time — nothing is deleted from disk.';
       listEl.style.display = 'none';
-      confirmLabel.textContent = upcoming ? 'Stop tracking' : 'Abandon';
-      confirmBtn.setAttribute('aria-disabled', 'false');
     } else {
       copyEl.textContent =
         'Pick which seasons to stop chasing. Already-downloaded seasons ' +
         'stay put — only the seasons you tick will be unmonitored in Sonarr.';
       listEl.style.display = '';
       stuck.forEach(function (s) { listEl.appendChild(buildSeasonRow(s)); });
-      updateConfirmLabel();
     }
+    showConfirmState();
 
     _abandonModal.open();
   }
@@ -103,12 +102,13 @@
     tog.setAttribute('aria-checked', 'true');
     tog.setAttribute('aria-labelledby', lbl.id);
     function flip() {
+      if (isBusy()) return;
       tog.classList.toggle('on');
       tog.setAttribute(
         'aria-checked',
         tog.classList.contains('on') ? 'true' : 'false'
       );
-      updateConfirmLabel();
+      showConfirmState();
     }
     tog.addEventListener('click', flip);
     tog.addEventListener('keydown', function (e) {
@@ -131,17 +131,37 @@
       .map(function (row) { return parseInt(row.dataset.season, 10); });
   }
 
-  function updateConfirmLabel() {
+  function isBusy() { return !!(current && inflight[current.dlId]); }
+
+  function isPicker() {
+    return !current.upcoming && current.kind === 'series' && current.stuckSeasons.length > 1;
+  }
+
+  /* The button and the season switches follow the current selection and
+     whether this item has a request running. */
+  function showConfirmState() {
     if (!current) return;
-    if (current.kind !== 'series' || current.stuckSeasons.length <= 1) return;
-    var n = selectedSeasons().length;
-    confirmLabel.textContent = n === 0 ? 'Abandon' :
-      'Abandon ' + n + ' season' + (n === 1 ? '' : 's');
-    confirmBtn.setAttribute('aria-disabled', n === 0 ? 'true' : 'false');
+    var busy = isBusy();
+    Array.from(listEl.querySelectorAll('.tog')).forEach(function (tog) {
+      tog.setAttribute('aria-disabled', busy ? 'true' : 'false');
+      tog.setAttribute('tabindex', busy ? '-1' : '0');
+    });
+    if (busy) {
+      confirmLabel.textContent = current.upcoming ? 'Stopping…' : 'Abandoning…';
+      confirmBtn.setAttribute('aria-disabled', 'true');
+    } else if (isPicker()) {
+      var n = selectedSeasons().length;
+      confirmLabel.textContent = n === 0 ? 'Abandon' :
+        'Abandon ' + n + ' season' + (n === 1 ? '' : 's');
+      confirmBtn.setAttribute('aria-disabled', n === 0 ? 'true' : 'false');
+    } else {
+      confirmLabel.textContent = current.upcoming ? 'Stop tracking' : 'Abandon';
+      confirmBtn.setAttribute('aria-disabled', 'false');
+    }
   }
 
   function doConfirm() {
-    if (!current) return;
+    if (!current || isBusy()) return;
     if (confirmBtn.getAttribute('aria-disabled') === 'true') return;
 
     var seasons = [];
@@ -153,16 +173,23 @@
       }
     }
 
-    confirmBtn.setAttribute('aria-disabled', 'true');
+    var dlId = current.dlId;
+    inflight[dlId] = true;
+    showConfirmState();
 
-    var endpoint = '/api/downloads/' + encodeURIComponent(current.dlId) + '/abandon';
+    /* The dialog may be closed or reopened for another item while the request
+       runs, so only touch it when it still shows this item. */
+    var showsThis = function () { return current && current.dlId === dlId; };
+    var endpoint = '/api/downloads/' + encodeURIComponent(dlId) + '/abandon';
     MM.api.post(endpoint, { seasons: seasons })
       .then(function () {
-        close();
+        delete inflight[dlId];
+        if (showsThis()) close();
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
       })
       .catch(function (err) {
-        confirmBtn.setAttribute('aria-disabled', 'false');
+        delete inflight[dlId];
+        if (showsThis()) showConfirmState();
         window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
       });
   }

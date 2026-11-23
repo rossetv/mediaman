@@ -2,7 +2,8 @@
  * settings/users.js — Users settings module.
  *
  * Responsibilities:
- *   - User list rendering (GET /api/users)
+ *   - User list rendering (GET /api/users), with adds, role changes and
+ *     deletes applied to the rows in place
  *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
@@ -15,6 +16,7 @@
  *   MM.api     (core/api.js)
  *   MM.dom     (core/dom.js)
  *   MM.reauth  (core/reauth.js)
+ *   MM.settings.rows (settings/rows.js)
  *
  * Exposes:
  *   MM.settings.users.init()
@@ -53,6 +55,9 @@
     }
   }
 
+  // The dialog's fade out (--dur is 200 ms), with a little to spare.
+  var REAUTH_FADE_MS = 220;
+
   MM.settings.users = {
 
     init: function () {
@@ -65,88 +70,153 @@
         return el;
       }
 
+      var userList = document.getElementById('user-list');
+      var currentUser = '';
+
       function loadUsers() {
-        MM.api.get('/api/users')
-          .then(renderUsers)
-          .catch(function () {
-            var list = document.getElementById('user-list');
-            if (list) { list.replaceChildren(); list.appendChild(makeMsg("Couldn't load users.", 'err')); }
+        return MM.api.get('/api/users')
+          .then(function (data) {
+            currentUser = data.current;
+            return data.users || [];
           });
       }
 
-      function renderUsers(data) {
-        var list = document.getElementById('user-list');
-        if (!list) return;
-        list.replaceChildren();
-        if (!data.users || !data.users.length) { list.appendChild(makeMsg('No users yet.')); return; }
-        data.users.forEach(function (user) {
-          var row = document.createElement('div');
-          row.className = 'usr-row';
-          row.dataset.userId = user.id;
+      function showUsers() {
+        loadUsers()
+          .then(function (users) {
+            if (!userList) return;
+            userList.replaceChildren();
+            if (!users.length) { userList.appendChild(makeMsg('No users yet.')); return; }
+            users.forEach(function (user) { userList.appendChild(buildRow(user)); });
+          })
+          .catch(function () {
+            if (userList) { userList.replaceChildren(); userList.appendChild(makeMsg("Couldn't load users.", 'err')); }
+          });
+      }
 
-          var av = document.createElement('div');
-          av.className = 'av';
-          av.textContent = (user.username || '?').charAt(0).toUpperCase();
-          row.appendChild(av);
-
-          var meta = document.createElement('div');
-          meta.className = 'usr-meta';
-          var name = document.createElement('div');
-          name.className = 'usr-name';
-          name.textContent = user.username;
-          if (user.username === data.current) {
-            var you = document.createElement('span');
-            you.className = 'you-pill';
-            you.textContent = 'You';
-            name.appendChild(document.createTextNode(' '));
-            name.appendChild(you);
-          }
-          meta.appendChild(name);
-          var sub = document.createElement('div');
-          sub.className = 'usr-sub';
-          var emailPart = user.email ? user.email : 'No email';
-          var joinedPart = user.created_at
-            ? 'joined ' + String(user.created_at).slice(0, 10)
-            : '';
-          sub.textContent = joinedPart
-            ? emailPart + ' · ' + joinedPart
-            : emailPart;
-          meta.appendChild(sub);
-          row.appendChild(meta);
-
-          var isAdmin = user.role !== 'viewer';
-          var roleLabel = document.createElement('span');
-          roleLabel.className = 'pill ' + (isAdmin ? 'pill--tv' : 'pill--neutral');
-          roleLabel.textContent = isAdmin ? 'Admin' : 'Viewer';
-          row.appendChild(roleLabel);
-
-          if (user.username !== data.current) {
-            var roleBtn = document.createElement('button');
-            roleBtn.type = 'button';
-            roleBtn.className = 'btn btn--ghost btn--sm';
-            roleBtn.textContent = isAdmin ? 'Make viewer' : 'Make admin';
-            roleBtn.addEventListener('click', function () {
-              changeRoleFlow(user, isAdmin ? 'viewer' : 'admin');
-            });
-            row.appendChild(roleBtn);
-
-            var del = document.createElement('button');
-            del.type = 'button';
-            del.className = 'link-danger';
-            del.textContent = 'Delete';
-            del.addEventListener('click', function () { deleteUserFlow(user); });
-            row.appendChild(del);
-          }
-          list.appendChild(row);
+      // A new user is added to the list as it stands, so focus and scroll stay put.
+      function appendNewUsers(users) {
+        if (!userList) return;
+        // Each new row goes right after the row the server lists before it.
+        var prev = null;
+        users.forEach(function (user) {
+          var existing = userList.querySelector('.usr-row[data-user-id="' + user.id + '"]');
+          if (existing) { prev = existing; return; }
+          Array.prototype.forEach.call(userList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
+          var row = buildRow(user);
+          userList.insertBefore(row, prev ? prev.nextSibling : userList.firstChild);
+          prev = row;
+          MM.settings.rows.enter(row);
         });
       }
 
-      function changeRoleFlow(user, role) {
+      function buildRow(user) {
+        var row = document.createElement('div');
+        row.className = 'usr-row';
+        row.dataset.userId = user.id;
+
+        var av = document.createElement('div');
+        av.className = 'av';
+        av.textContent = (user.username || '?').charAt(0).toUpperCase();
+        row.appendChild(av);
+
+        var meta = document.createElement('div');
+        meta.className = 'usr-meta';
+        var name = document.createElement('div');
+        name.className = 'usr-name';
+        name.textContent = user.username;
+        if (user.username === currentUser) {
+          var you = document.createElement('span');
+          you.className = 'you-pill';
+          you.textContent = 'You';
+          name.appendChild(document.createTextNode(' '));
+          name.appendChild(you);
+        }
+        meta.appendChild(name);
+        var sub = document.createElement('div');
+        sub.className = 'usr-sub';
+        var emailPart = user.email ? user.email : 'No email';
+        var joinedPart = user.created_at
+          ? 'joined ' + String(user.created_at).slice(0, 10)
+          : '';
+        sub.textContent = joinedPart
+          ? emailPart + ' · ' + joinedPart
+          : emailPart;
+        meta.appendChild(sub);
+        row.appendChild(meta);
+
+        var roleLabel = document.createElement('span');
+        row.appendChild(roleLabel);
+
+        if (user.username !== currentUser) {
+          var actions = document.createElement('div');
+          actions.className = 'usr-actions';
+
+          var roleBtn = document.createElement('button');
+          roleBtn.type = 'button';
+          roleBtn.className = 'btn btn--ghost btn--sm';
+          roleBtn.dataset.userAction = 'role';
+          roleBtn.addEventListener('click', function () {
+            changeRoleFlow(user, isAdmin(user) ? 'viewer' : 'admin', roleBtn, function () {
+              paintRole(user, roleLabel, roleBtn);
+              roleLabel.classList.add('is-changed');
+            });
+          });
+          actions.appendChild(roleBtn);
+
+          var del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'link-danger';
+          del.dataset.userAction = 'delete';
+          del.textContent = 'Delete';
+          del.setAttribute('aria-label', 'Delete: ' + user.username);
+          del.addEventListener('click', function () { deleteUserFlow(user, row, del); });
+          actions.appendChild(del);
+
+          row.appendChild(actions);
+        }
+        paintRole(user, roleLabel, roleBtn);
+        roleLabel.addEventListener('animationend', function () { roleLabel.classList.remove('is-changed'); });
+        return row;
+      }
+
+      function isAdmin(user) { return user.role !== 'viewer'; }
+
+      // A role change updates the row where it is, so focus stays on its button.
+      function paintRole(user, pill, btn) {
+        var admin = isAdmin(user);
+        pill.className = 'pill ' + (admin ? 'pill--tv' : 'pill--neutral');
+        pill.textContent = admin ? 'Admin' : 'Viewer';
+        if (!btn) return;
+        btn.textContent = admin ? 'Make viewer' : 'Make admin';
+        btn.setAttribute('aria-label', btn.textContent + ': ' + user.username);
+      }
+
+      function changeRoleFlow(user, role, btn, changed) {
+        var label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        btn.setAttribute('aria-label', 'Saving…: ' + user.username);
         MM.reauth.run(function () {
           return MM.api.patch('/api/users/' + user.id + '/role', { role: role });
         }).then(function () {
-          loadUsers();
+          // The reauth dialog is still fading out; the new pill waits until it has gone.
+          var behind = document.querySelector('.reauth-backdrop');
+          function apply() {
+            var keepFocus = MM.dom.focusStillIn(btn);
+            user.role = role;
+            btn.disabled = false;
+            changed();
+            if (keepFocus) btn.focus();
+          }
+          if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();
+          window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
+          var keepFocus = MM.dom.focusStillIn(btn);
+          btn.disabled = false;
+          btn.textContent = label;
+          btn.setAttribute('aria-label', label + ': ' + user.username);
+          if (keepFocus) btn.focus();
           if (err && err.error === 'reauth_cancelled') return;
           window.UIFeedback.error(MM.api.messageOf(err, 'Could not change role'));
         });
@@ -157,7 +227,7 @@
       // Two-step UX: a destructive-confirm dialog, then the centred
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
-      function deleteUserFlow(user) {
+      function deleteUserFlow(user, row, btn) {
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
           body: 'Irreversible. All active sessions for this user will be terminated.',
@@ -165,17 +235,62 @@
           confirmVariant: 'danger',
         }).then(function (ok) {
           if (!ok) return;
+          btn.disabled = true;
+          btn.textContent = 'Deleting…';
+          btn.setAttribute('aria-label', 'Deleting…: ' + user.username);
           MM.reauth.run(function () {
             return MM.api.delete('/api/users/' + user.id);
           }).then(function () {
-            loadUsers();
+            MM.settings.rows.leave(row, {
+              focusSelector: '[data-user-action="delete"]',
+              fallback: btnAddUser,
+            });
+            window.UIFeedback.success('Deleted ' + user.username);
           }).catch(function (err) {
+            var keepFocus = MM.dom.focusStillIn(btn);
+            btn.disabled = false;
+            btn.textContent = 'Delete';
+            btn.setAttribute('aria-label', 'Delete: ' + user.username);
+            if (keepFocus) btn.focus();
             if (err && err.error === 'reauth_cancelled') return;
             window.UIFeedback.error(
               MM.api.messageOf(err, 'Could not delete user')
             );
           });
         });
+      }
+
+      // Only one of the account and team forms is open at a time. A form whose
+      // request is in flight stays open, so its result lands where it can be
+      // seen; it closes itself when it finishes.
+      var closers = [];
+      function closeOthers(keep) {
+        closers.forEach(function (close) { if (close !== keep) close(); });
+      }
+
+      var rows = MM.settings.rows;
+
+      function clearMsg(target) {
+        if (!target) return;
+        target.textContent = '';
+        target.className = 'inline-form-msg';
+      }
+
+      // A message about what was typed goes once the person types again; a
+      // form that is sending keeps its progress line.
+      function clearOnInput(form, target, submitBtn) {
+        if (!form) return;
+        form.addEventListener('input', function () {
+          if (submitBtn && submitBtn.disabled) return;
+          if (target && target.textContent) clearMsg(target);
+        });
+      }
+
+      // A check that fails before sending puts the cursor in the field to fix.
+      function failOn(target, text, field) {
+        target.className = 'inline-form-msg err';
+        target.textContent = text;
+        if (field) field.focus();
       }
 
       var addUserForm      = document.getElementById('add-user-form');
@@ -202,45 +317,85 @@
         if (b) selectRole(b.dataset.role);
       });
 
-      function toggleAddUser(open) {
+      // Closing folds the form away first and resets it once it is out of sight.
+      function toggleAddUser(open, closed) {
         if (!addUserForm) return;
-        var wantOpen = (typeof open === 'boolean') ? open : addUserForm.hidden;
-        addUserForm.hidden = !wantOpen;
-        if (wantOpen) { document.getElementById('new-username').focus(); }
-        else {
+        var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
+        if (wantOpen) {
+          closeOthers(closeAddUser);
+          rows.open(addUserForm);
+          document.getElementById('new-username').focus();
+          return;
+        }
+        rows.close(addUserForm, function () {
+          addUserForm.reset();
           ['new-username', 'new-user-password'].forEach(function (id) {
             var el = document.getElementById(id);
-            if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
+            if (el) el.dispatchEvent(new Event('input'));
           });
           selectRole('viewer');
-          if (createResult) { createResult.textContent = ''; createResult.className = 'inline-form-msg'; }
-        }
+          clearMsg(createResult);
+          if (closed) closed();
+        });
       }
-      if (btnAddUser)       btnAddUser.addEventListener('click', function () { toggleAddUser(); });
-      if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () { toggleAddUser(false); });
+      function closeAddUser() { if (addUserForm && rows.isOpen(addUserForm)) toggleAddUser(false); }
+      closers.push(function () { if (!(btnSubmitAddUser && btnSubmitAddUser.disabled)) closeAddUser(); });
+      // A form that is sending cannot be closed or reset from its own buttons.
+      if (btnAddUser)       btnAddUser.addEventListener('click', function () {
+        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        toggleAddUser();
+      });
+      if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {
+        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        toggleAddUser(false);
+        if (btnAddUser) btnAddUser.focus();
+      });
 
-      if (btnSubmitAddUser) btnSubmitAddUser.addEventListener('click', function () {
-        var username = document.getElementById('new-username').value.trim();
-        var password = document.getElementById('new-user-password').value;
+      clearOnInput(addUserForm, createResult, btnSubmitAddUser);
+      if (addUserForm) addUserForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (btnSubmitAddUser.disabled) return;
+        var nameInput = document.getElementById('new-username');
+        var pwInput = document.getElementById('new-user-password');
+        var username = nameInput.value.trim();
+        var password = pwInput.value;
         if (username.length < 3) {
-          createResult.className = 'inline-form-msg err';
-          createResult.textContent = 'Username must be at least 3 characters.';
+          failOn(createResult, 'Username must be at least 3 characters.', nameInput);
           return;
         }
         if (password.length < 12) {
-          createResult.className = 'inline-form-msg err';
-          createResult.textContent = 'Password must be at least 12 characters.';
+          failOn(createResult, 'Password must be at least 12 characters.', pwInput);
           return;
         }
         btnSubmitAddUser.disabled = true;
+        createResult.className = 'inline-form-msg';
+        createResult.textContent = 'Creating…';
         MM.reauth.run(function () {
           return MM.api.post('/api/users', { username: username, password: password, role: selectedRole() });
         }).then(function () {
-          btnSubmitAddUser.disabled = false;
           createResult.className = 'inline-form-msg ok';
           createResult.textContent = 'User "' + username + '" created.';
-          setTimeout(function () { toggleAddUser(false); }, 700);
-          loadUsers();
+          var listed = loadUsers().catch(function () { return null; });
+          // Submit stays disabled until the form has closed, so a second Enter cannot create twice.
+          // The new row comes in only then, so the list does not jump under it.
+          var closed = new Promise(function (resolve) {
+            setTimeout(function () {
+              var hadFocus = MM.dom.focusStillIn(addUserForm);
+              toggleAddUser(false, function () {
+                // Once the fold has finished the button's place is settled: bring it into view.
+                if (hadFocus && btnAddUser) {
+                  var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                  btnAddUser.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
+                }
+                resolve();
+              });
+              if (hadFocus && btnAddUser) btnAddUser.focus({ preventScroll: true });
+            }, 700);
+          });
+          Promise.all([listed, closed]).then(function (done) {
+            btnSubmitAddUser.disabled = false;
+            if (done[0]) appendNewUsers(done[0]); else showUsers();
+          });
         }).catch(function (err) {
           btnSubmitAddUser.disabled = false;
           if (err && err.error === 'reauth_cancelled') {
@@ -250,6 +405,8 @@
           }
           createResult.className = 'inline-form-msg err';
           renderApiError(createResult, err);
+          var field = err && err.issues && err.issues.length ? pwInput : nameInput;
+          field.focus();
         });
       });
 
@@ -259,52 +416,66 @@
       var btnSubmitPw  = document.getElementById('btn-submit-password');
       var pwResult     = document.getElementById('password-result');
 
-      function togglePwForm(open) {
+      function togglePwForm(open, closed) {
         if (!pwForm) return;
-        var wantOpen = (typeof open === 'boolean') ? open : pwForm.hidden;
-        pwForm.hidden = !wantOpen;
-        if (wantOpen) { document.getElementById('self-old-password').focus(); }
-        else {
+        var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(pwForm);
+        if (wantOpen) {
+          closeOthers(closePwForm);
+          rows.open(pwForm);
+          document.getElementById('self-old-password').focus();
+          return;
+        }
+        rows.close(pwForm, function () {
+          pwForm.reset();
           ['self-old-password', 'self-new-password', 'self-confirm-password'].forEach(function (id) {
             var el = document.getElementById(id);
-            if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
+            if (el) el.dispatchEvent(new Event('input'));
           });
-          if (pwResult) { pwResult.textContent = ''; pwResult.className = 'inline-form-msg'; }
-        }
+          clearMsg(pwResult);
+          if (closed) closed();
+        });
       }
-      if (btnChangePw) btnChangePw.addEventListener('click', function () { togglePwForm(); });
-      if (btnCancelPw) btnCancelPw.addEventListener('click', function () { togglePwForm(false); });
+      function closePwForm() { if (pwForm && rows.isOpen(pwForm)) togglePwForm(false); }
+      closers.push(function () { if (!(btnSubmitPw && btnSubmitPw.disabled)) closePwForm(); });
+      if (btnChangePw) btnChangePw.addEventListener('click', function () {
+        if (btnSubmitPw && btnSubmitPw.disabled) return;
+        togglePwForm();
+      });
+      if (btnCancelPw) btnCancelPw.addEventListener('click', function () {
+        if (btnSubmitPw && btnSubmitPw.disabled) return;
+        togglePwForm(false);
+        if (btnChangePw) btnChangePw.focus();
+      });
 
-      if (btnSubmitPw) btnSubmitPw.addEventListener('click', function () {
-        var oldPw = document.getElementById('self-old-password').value;
-        var newPw = document.getElementById('self-new-password').value;
-        var conf  = document.getElementById('self-confirm-password').value;
-        if (!oldPw) {
-          pwResult.className = 'inline-form-msg err';
-          pwResult.textContent = 'Enter your current password.';
-          return;
-        }
-        if (newPw.length < 12) {
-          pwResult.className = 'inline-form-msg err';
-          pwResult.textContent = 'New password must be at least 12 characters.';
-          return;
-        }
-        if (newPw !== conf) {
-          pwResult.className = 'inline-form-msg err';
-          pwResult.textContent = "Passwords don't match.";
-          return;
-        }
+      clearOnInput(pwForm, pwResult, btnSubmitPw);
+      if (pwForm) pwForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (btnSubmitPw.disabled) return;
+        var oldInput = document.getElementById('self-old-password');
+        var newInput = document.getElementById('self-new-password');
+        var confInput = document.getElementById('self-confirm-password');
+        var oldPw = oldInput.value;
+        var newPw = newInput.value;
+        var conf  = confInput.value;
+        if (!oldPw) { failOn(pwResult, 'Enter your current password.', oldInput); return; }
+        if (newPw.length < 12) { failOn(pwResult, 'New password must be at least 12 characters.', newInput); return; }
+        if (newPw !== conf) { failOn(pwResult, "Passwords don't match.", confInput); return; }
         btnSubmitPw.disabled = true;
+        pwResult.className = 'inline-form-msg';
+        pwResult.textContent = 'Updating…';
         MM.reauth.run(function () {
           return MM.api.post('/api/users/change-password', {
             old_password: oldPw,
             new_password: newPw,
           });
         }).then(function () {
-          btnSubmitPw.disabled = false;
           pwResult.className = 'inline-form-msg ok';
           pwResult.textContent = 'Password updated.';
-          setTimeout(function () { togglePwForm(false); }, 900);
+          setTimeout(function () {
+            var hadFocus = MM.dom.focusStillIn(pwForm);
+            togglePwForm(false, function () { btnSubmitPw.disabled = false; });
+            if (hadFocus && btnChangePw) btnChangePw.focus({ preventScroll: true });
+          }, 900);
         }).catch(function (err) {
           btnSubmitPw.disabled = false;
           if (err && err.error === 'reauth_cancelled') {
@@ -314,6 +485,7 @@
           }
           pwResult.className = 'inline-form-msg err';
           renderApiError(pwResult, err);
+          (err && err.error === 'wrong_password' ? oldInput : newInput).focus();
         });
       });
 
@@ -357,8 +529,9 @@
         if (uniq >= 6) s++;
         if (len >= 16) s++;
         if (len >= 20 || cls >= 4) s++;
-        var tone = 'weak', label = 'Too weak';
-        if (s >= 5)      { tone = 'strong'; label = 'Strong'; }
+        // The server also refuses common passwords, so the best this can say is "so far".
+        var tone = 'weak', label = 'Too simple so far';
+        if (s >= 5)      { tone = 'strong'; label = 'Looks good so far'; }
         else if (s >= 3) { tone = 'ok';     label = 'Getting there'; }
         return { pct: Math.min(100, (s / 5) * 100), tone: tone, label: label };
       }
@@ -422,23 +595,34 @@
         if (!btn || !form) return;
 
         function show() {
-          form.hidden = false;
-          msg.textContent = '';
-          msg.className = 'inline-form-msg';
+          closeOthers(hide);
+          rows.open(form);
+          clearMsg(msg);
           emailInp.focus();
         }
-        function hide() {
-          form.hidden = true;
-          msg.textContent = '';
-          msg.className = 'inline-form-msg';
+        function hide(closed) {
+          rows.close(form, function () {
+            form.reset();
+            clearMsg(msg);
+            if (closed) closed();
+          });
         }
+        closers.push(function () { if (!submit.disabled) hide(); });
+        clearOnInput(form, msg, submit);
 
         btn.addEventListener('click', function () {
-          if (form.hidden) show(); else hide();
+          if (submit.disabled) return;
+          if (rows.isOpen(form)) hide(); else show();
         });
-        cancel.addEventListener('click', hide);
+        cancel.addEventListener('click', function () {
+          if (submit.disabled) return;
+          hide();
+          btn.focus();
+        });
 
-        submit.addEventListener('click', function () {
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          if (submit.disabled) return;
           submit.disabled = true;
           msg.textContent = 'Saving…';
           msg.className = 'inline-form-msg';
@@ -451,13 +635,16 @@
             msg.textContent = 'Saved';
             msg.className = 'inline-form-msg ok';
             var newVal = emailInp.value.trim();
+            // Closing resets the form, so what was saved becomes its starting value.
+            emailInp.defaultValue = newVal;
             if (display) {
               display.textContent = newVal || 'Not set · download alerts disabled';
             }
             btn.textContent = newVal ? 'Edit email' : 'Add email';
             setTimeout(function () {
-              hide();
-              submit.disabled = false;
+              var hadFocus = MM.dom.focusStillIn(form);
+              hide(function () { submit.disabled = false; });
+              if (hadFocus) btn.focus({ preventScroll: true });
             }, 800);
           }).catch(function (err) {
             submit.disabled = false;
@@ -468,11 +655,12 @@
             }
             msg.textContent = MM.api.messageOf(err, 'Could not save');
             msg.className = 'inline-form-msg err';
+            emailInp.focus();
           });
         });
       }
 
-      loadUsers();
+      showUsers();
       initEmailEditor();
     },
   };

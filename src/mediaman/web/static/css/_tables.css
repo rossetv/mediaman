@@ -140,9 +140,31 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   display: none;
   flex-direction: column;
   gap: 2px;
+  /* Grows out of its trigger and shrinks back into it; display waits for the
+     exit to end, and a reopen mid-exit turns back from where it is. */
+  opacity: 0;
+  transform: translateY(-4px) scale(.97);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out),
+              display var(--dur-fast) allow-discrete;
 }
-.keep-wrapper.is-open .snooze-dropdown { display: flex; }
-.keep-wrapper.opens-up .snooze-dropdown { top: auto; bottom: calc(100% + 6px); }
+.keep-wrapper.is-open .snooze-dropdown {
+  display: flex;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+@starting-style {
+  .keep-wrapper.is-open .snooze-dropdown { opacity: 0; transform: translateY(-4px) scale(.97); }
+}
+.keep-wrapper.opens-up .snooze-dropdown {
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform-origin: bottom right;
+}
+.keep-wrapper.opens-up:not(.is-open) .snooze-dropdown { transform: translateY(4px) scale(.97); }
 
 .snooze-option {
   text-align: left;

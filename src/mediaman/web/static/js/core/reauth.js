@@ -21,6 +21,7 @@
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
+ *   MM.modal        (core/modal.js — Escape, backdrop click and the fade out)
  *
  * Load after core/api.js, before any consumer (settings/savebar.js,
  * settings/users.js).
@@ -30,12 +31,16 @@
 
   window.MM = window.MM || {};
 
+  /* Closes the dialog that is open, so a second one cancels the first instead of orphaning it. */
+  var closeOpen = null;
+
   function openModal(opts) {
     opts = opts || {};
     if (typeof opts.onSubmit !== 'function') {
       throw new TypeError('MM.reauth.openModal: opts.onSubmit must be a function');
     }
 
+    if (closeOpen) closeOpen();
     document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
 
     var backdrop = document.createElement('div');
@@ -77,6 +82,7 @@
     actions.className = 'reauth-actions';
     var msg = document.createElement('span');
     msg.className = 'reauth-msg';
+    msg.setAttribute('aria-live', 'polite');
     actions.appendChild(msg);
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
@@ -94,33 +100,53 @@
     document.body.appendChild(backdrop);
     setTimeout(function () { input.focus(); }, 0);
 
-    var closed = false;
-    function close(viaCancel) {
-      if (closed) return;
-      // Flag first so the keydown / backdrop handlers can't fire onCancel during teardown.
-      closed = true;
-      backdrop.remove();
-      document.removeEventListener('keydown', onKey);
-      if (viaCancel && typeof opts.onCancel === 'function') opts.onCancel();
+    /* The shared modal owns Escape, backdrop clicks and the fade out; its
+       onClose runs for every route, so a close that is not a success is a cancel. */
+    var done = false;
+    var modal = MM.modal.setupDetail(backdrop, {
+      manageBodyOverflow: false,
+      useModalA11y: false,
+      onClose: function () {
+        input.value = '';
+        if (closeOpen === modal.close) closeOpen = null;
+        /* The fade is 200ms; the node is not needed once it has gone. */
+        setTimeout(function () { backdrop.remove(); }, 400);
+        if (!done) {
+          done = true;
+          if (typeof opts.onCancel === 'function') opts.onCancel();
+        }
+      },
+    });
+    modal.open();
+    closeOpen = modal.close;
+    cancelBtn.addEventListener('click', modal.close);
+
+    /* The line is always laid out; showing it only fades it, so nothing moves.
+       The old words stay until the fade has gone, so it never empties mid-fade. */
+    var clearTimer = null;
+    function say(text) {
+      clearTimeout(clearTimer);
+      if (text) {
+        msg.textContent = text;
+        msg.classList.add('is-shown');
+      } else {
+        msg.classList.remove('is-shown');
+        clearTimer = setTimeout(function () { msg.textContent = ''; }, 200);
+      }
     }
-    function onKey(e) { if (e.key === 'Escape') close(true); }
-    document.addEventListener('keydown', onKey);
-    cancelBtn.addEventListener('click', function () { close(true); });
-    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(true); });
 
     function submit() {
       var pw = input.value;
-      if (!pw) { msg.textContent = 'Password required.'; return; }
+      if (!pw) { say('Password required.'); return; }
       confirmBtn.disabled = true;
-      msg.textContent = '';
+      say('');
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
         confirmBtn.disabled = false;
         if (res && res.ok) {
-          closed = true;
-          backdrop.remove();
-          document.removeEventListener('keydown', onKey);
+          done = true;
+          modal.close();
         } else {
-          msg.textContent = (res && res.error) || 'Failed';
+          say((res && res.error) || 'Failed');
           input.focus();
           input.select();
         }
@@ -142,13 +168,18 @@
 
   function run(requestFn) {
     return new Promise(function (resolve, reject) {
+      var cancelled = false;
       function attempt() {
         Promise.resolve(requestFn()).then(resolve, function (err) {
           if (!isReauthRequired(err)) { reject(err); return; }
           openModal({
             onSubmit: function (pw) {
               return MM.api.post('/api/auth/reauth', { password: pw })
-                .then(function () { attempt(); return { ok: true }; })
+                .then(function () {
+                  /* The password may be accepted after the dialog was closed; that must not run the action. */
+                  if (!cancelled) attempt();
+                  return { ok: true };
+                })
                 .catch(function (reauthErr) {
                   return {
                     ok: false,
@@ -157,6 +188,7 @@
                 });
             },
             onCancel: function () {
+              cancelled = true;
               reject(new MM.api.APIError(
                 'reauth_cancelled',
                 'Cancelled',

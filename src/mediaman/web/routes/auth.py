@@ -72,7 +72,7 @@ def login_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
-def _render_rate_limited(request: Request) -> Response:
+def _render_rate_limited(request: Request, username: str) -> Response:
     """Re-render the login form with the throttle message and a Retry-After hint. The value is
     an upper bound: the actual unblock is sliding-window.
     """
@@ -82,6 +82,8 @@ def _render_rate_limited(request: Request) -> Response:
         "login.html",
         {
             "error": "Too many attempts. Try again later.",
+            # Only the posted username comes back (the template escapes it); never the password.
+            "username": username,
         },
     )
     response.headers["Retry-After"] = str(_LOGIN_RATE_WINDOW_SECONDS)
@@ -112,6 +114,8 @@ def _handle_failed_login(
         "login.html",
         {
             "error": "Invalid username or password.",
+            # Only the posted username comes back (the template escapes it); never the password.
+            "username": username,
         },
     )
 
@@ -153,7 +157,7 @@ def login_submit(
 ) -> Response:
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
-        return _render_rate_limited(request)
+        return _render_rate_limited(request, username)
 
     conn = get_db()
     if not authenticate(conn, username, password, client_ip=client_ip):

@@ -104,6 +104,7 @@
   transition: background .15s, color .15s;
 }
 .setg-pg .setg-rail-item:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.setg-pg .setg-rail-item:active { background: var(--s3); }
 .setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s3); }
 .setg-pg .setg-rail-item > .fa-solid {
   font-size: 14px;
@@ -128,9 +129,16 @@
 
 .setg-pg .setg-block {
   padding-top: 64px;
-  scroll-margin-top: calc(var(--nav-h) + 16px);
 }
 .setg-pg .setg-block:first-child { padding-top: 24px; }
+/* A focused control the browser scrolls into view must clear the sticky bars. The
+   scroller is <html>, so the padding is scoped by the page it holds. Section jumps rely on it too, so
+   .setg-block carries no scroll-margin of its own. */
+html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
+@media (max-width: 960px) {
+  /* top bar (48) + chip strip (65, as laid out above) + a gap */
+  html:has(.setg-pg) { scroll-padding-top: calc(48px + 65px + 12px); }
+}
 .setg-pg .setg-block-hd {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
@@ -208,6 +216,9 @@
   transition: border-color .15s, background .15s;
   width: 100%; min-width: 0;
 }
+@media (max-width: 639.98px) {
+  .setg-pg .inp { font-size: 16px; }
+}
 .setg-pg .inp:focus { border-color: var(--accent); background: var(--s3); }
 .setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
 .setg-pg .inp::placeholder { color: var(--t3); }
@@ -235,6 +246,18 @@
   transition: background .15s, color .15s;
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+.setg-pg .inp-reveal:active { color: var(--t1); background: rgba(255,255,255,.12); }
+/* Show/hide on account password fields (show-password.js wraps the input). */
+.setg-pg .pw-wrap { position: relative; }
+.setg-pg .pw-wrap .inp { width: 100%; padding-right: 66px; }
+.setg-pg .pw-toggle {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  padding: 5px 10px; font-size: 11px; color: var(--t3);
+  border-radius: var(--r-pill); background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.setg-pg .pw-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+.setg-pg .pw-toggle:active { color: var(--t1); background: rgba(255,255,255,.12); }
 
 .setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .setg-pg .fld-lbl {
@@ -258,8 +281,10 @@
   position: relative; width: 44px; height: 26px;
   background: var(--s4); border-radius: var(--r-pill);
   cursor: pointer; flex-shrink: 0;
-  transition: background .2s;
+  transition: background .2s, transform var(--dur-fast) var(--ease-out);
 }
+.setg-pg .tog:active { transform: scale(.94); }
+@media (prefers-reduced-motion: reduce) { .setg-pg .tog:active { transform: none; } }
 .setg-pg .tog::after {
   content: ""; position: absolute; top: 2px; left: 2px;
   width: 22px; height: 22px; border-radius: 50%;
@@ -306,6 +331,8 @@
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
 .setg-pg .savebar #save-status:empty { display: none; }
+/* Wide enough for "Save Settings", so "Saving…", "Saved ✓" and "Try again" do not shift the bar. */
+.setg-pg .savebar #btn-save { min-width: 8.5em; }
 
 /* Error state — danger red on a tinted chip,
    never as a saturated background. The dot turns red, the sub-text takes
@@ -367,9 +394,23 @@
   margin-top: 20px;
 }
 .reauth-sheet .reauth-msg {
-  font-size: 12px; color: var(--danger);
+  font-size: 12px; line-height: 1.4; color: var(--danger);
   margin-right: auto; align-self: center;
-  min-height: 1em;
+  min-height: 1.4em;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.reauth-sheet .reauth-msg.is-shown { opacity: 1; }
+/* On a phone the buttons stack full width like the confirm dialog's, Cancel
+   above the main one, and the message gets its own line above them. The line is
+   always there: no jump. */
+@media (max-width: 699.98px) {
+  .reauth-sheet .reauth-actions { flex-direction: column; align-items: stretch; }
+  .reauth-sheet .reauth-actions .btn { width: 100%; min-height: 44px; }
+  .reauth-sheet .reauth-msg { order: -1; margin-right: 0; align-self: stretch; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reauth-sheet .reauth-msg { transition: none; }
 }
 
 .setg-pg .btn-test {
@@ -380,6 +421,7 @@
   white-space: nowrap;
 }
 .setg-pg .btn-test:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.3); }
+.setg-pg .btn-test:active:not(:disabled) { background: rgba(255,255,255,.08); }
 .setg-pg .btn-test:disabled { opacity: .6; cursor: default; }
 
 .setg-pg .disk-badge {
@@ -391,13 +433,14 @@
 .setg-pg .disk-badge.warn { color: var(--warning); background: rgba(255,214,10,.12); }
 .setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
 
-/* Phone tap targets: a 40px hit area on the settings controls, with the look
+/* Phone tap targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */
 @media (max-width: 639.98px) {
-  .setg-pg .setg-rail-item { min-height: 40px; }
-  .setg-pg .btn-test { min-height: 40px; }
+  .setg-pg .setg-rail-item { min-height: 44px; }
+  .setg-pg .btn-test { min-height: 44px; }
   .setg-pg .tog::before,
-  .setg-pg .inp-reveal::before { content: ""; position: absolute; inset: -7px -4px; }
+  .setg-pg .inp-reveal::before,
+  .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -7px -4px; }
   /* Helper-text links: the extra height goes below the line, not onto the input above. */
   .setg-pg .fld-sub a,
   .setg-pg .setg-row-sub a { position: relative; }

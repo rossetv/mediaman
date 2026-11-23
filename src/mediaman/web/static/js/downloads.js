@@ -32,6 +32,16 @@
   function renderRow()    { return MM.downloads.renderRow; }
   function renderRecent() { return MM.downloads.renderRecent; }
 
+
+  function clear(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  /* Close a section that has content, emptying it once it has closed. */
+  function closeSection(dom, box) {
+    if (box && box.firstElementChild && !dom.isCollapsing(box)) dom.collapse(box, function () { clear(box); });
+  }
+
   function update(data) {
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
@@ -42,31 +52,42 @@
 
     /* Subtitle — the server computes the line (data.subtitle, the single
        source of truth for the count copy); the page just syncs the <p>,
-       creating or removing it as the line appears or empties. */
+       growing or folding it as the line appears or empties. */
     if (header) {
       var subtitle = header.querySelector('p');
       if (data.subtitle) {
         if (!subtitle) {
           subtitle = document.createElement('p');
           header.appendChild(subtitle);
+          dom.setText(subtitle, data.subtitle);
+          dom.reveal(subtitle);
+        } else {
+          dom.setText(subtitle, data.subtitle);
+          if (dom.isCollapsing(subtitle)) dom.reveal(subtitle);
         }
-        dom.setText(subtitle, data.subtitle);
-      } else if (subtitle) {
-        subtitle.parentNode.removeChild(subtitle);
+      } else if (subtitle && !dom.isCollapsing(subtitle)) {
+        dom.collapseAway(subtitle);
       }
     }
 
-    /* Hero */
+    /* Hero — the card is rebuilt when the container was emptied by an
+       earlier poll that had no hero. */
     if (data.hero) {
       if (!heroContainer) {
         heroContainer = document.createElement('div');
         heroContainer.id = 'dl-hero-container';
-        heroContainer.appendChild(dom.buildHeroPlaceholder(data.hero.id));
         if (header) header.after(heroContainer);
       }
-      renderHero().updateHero(heroContainer, data.hero);
+      if (!heroContainer.querySelector('.dl-hero')) {
+        heroContainer.appendChild(dom.buildHeroPlaceholder(data.hero.id));
+        renderHero().updateHero(heroContainer, data.hero);
+        dom.reveal(heroContainer);
+      } else {
+        if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
+        renderHero().updateHero(heroContainer, data.hero);
+      }
     } else {
-      if (heroContainer) { while (heroContainer.firstChild) heroContainer.removeChild(heroContainer.firstChild); }
+      closeSection(dom, heroContainer);
     }
 
     /* Queue */
@@ -74,47 +95,46 @@
       if (!queueContainer) {
         queueContainer = document.createElement('div');
         queueContainer.id = 'dl-queue-container';
-        var qHeader = document.createElement('div');
-        qHeader.className = 'dl-compact-header';
-        qHeader.textContent = 'Also downloading';
-        queueContainer.appendChild(qHeader);
-        var qList = document.createElement('div');
-        qList.className = 'dl-compact-list';
-        qList.id = 'dl-queue-list';
-        queueContainer.appendChild(qList);
         var insertAfter = heroContainer || (header ? header : root.firstElementChild);
         insertAfter.after(queueContainer);
       }
       var list = document.getElementById('dl-queue-list');
-      if (list) {
-        /* Track active IDs */
-        var activeIds = {};
-        for (var i = 0; i < data.queue.length; i++) {
-          activeIds[data.queue[i].id] = true;
-          var row = dom.findByDlId(list, data.queue[i].id);
-          if (row) {
-            renderRow().updateCompactRow(row, data.queue[i]);
-          }
-          /* New items will appear on next full page load — keep it simple */
-        }
-        /* Remove departed rows */
-        var rows = list.querySelectorAll('.dl-compact');
-        for (var j = 0; j < rows.length; j++) {
-          var id = rows[j].getAttribute('data-dl-id');
-          if (id && !activeIds[id]) {
-            rows[j].classList.add('dl-card-exit');
-            (function (el) {
-              el.addEventListener('animationend', function () {
-                if (el.parentNode) el.parentNode.removeChild(el);
-              }, { once: true });
-            })(rows[j]);
-          }
+      /* A section that opens brings its rows with it; only rows added to an
+         open list open on their own. */
+      var opening = !list || dom.isCollapsing(queueContainer);
+      if (!list) {
+        var qHeader = document.createElement('div');
+        qHeader.className = 'dl-compact-header';
+        qHeader.textContent = 'Also downloading';
+        queueContainer.appendChild(qHeader);
+        list = document.createElement('div');
+        list.className = 'dl-compact-list';
+        list.id = 'dl-queue-list';
+        queueContainer.appendChild(list);
+      }
+      var activeIds = {};
+      for (var i = 0; i < data.queue.length; i++) {
+        var item = data.queue[i];
+        activeIds[item.id] = true;
+        var row = dom.findByDlId(list, item.id);
+        if (row) {
+          if (dom.isCollapsing(row)) dom.reveal(row);
+          renderRow().updateCompactRow(row, item);
+        } else {
+          row = list.appendChild(dom.buildCompactRow(item));
+          if (!opening) dom.reveal(row);
         }
       }
+      var rows = list.querySelectorAll('.dl-compact');
+      for (var j = 0; j < rows.length; j++) {
+        var id = rows[j].getAttribute('data-dl-id');
+        if (id && !activeIds[id] && !dom.isCollapsing(rows[j])) {
+          dom.collapseAway(rows[j]);
+        }
+      }
+      if (opening) dom.reveal(queueContainer);
     } else {
-      if (queueContainer) {
-        while (queueContainer.firstChild) queueContainer.removeChild(queueContainer.firstChild);
-      }
+      closeSection(dom, queueContainer);
     }
 
     /* Empty state — #dl-empty-container is always in the DOM at a fixed
@@ -125,8 +145,11 @@
       var hasCard = emptyContainer.firstElementChild !== null;
       if (nothingActive && !hasCard) {
         emptyContainer.appendChild(dom.buildEmptyState());
-      } else if (!nothingActive && hasCard) {
-        while (emptyContainer.firstChild) emptyContainer.removeChild(emptyContainer.firstChild);
+        dom.reveal(emptyContainer);
+      } else if (nothingActive && dom.isCollapsing(emptyContainer)) {
+        dom.reveal(emptyContainer);
+      } else if (!nothingActive) {
+        closeSection(dom, emptyContainer);
       }
     }
 
@@ -143,8 +166,13 @@
     var isOpen = toggle.classList.toggle('open');
     toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     var list = toggle.nextElementSibling;
-    if (list && list.getAttribute('data-v') === 'ep-list') {
-      list.style.display = list.style.display === 'none' ? '' : 'none';
+    if (!list || list.getAttribute('data-v') !== 'ep-list') return;
+    var dom = buildDom();
+    if (isOpen) {
+      list.style.display = '';
+      dom.reveal(list);
+    } else {
+      dom.collapse(list, function () { list.style.display = 'none'; });
     }
   });
 

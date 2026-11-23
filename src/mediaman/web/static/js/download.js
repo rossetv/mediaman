@@ -176,8 +176,7 @@
         var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
         if (sizeTotal) sizeTotal.textContent = data.size_total || '';
 
-        var eta = wrapper.querySelector('[data-v="eta"]');
-        if (eta) eta.textContent = data.eta || '';
+        MM.downloads.buildDom.updateEtaStat(wrapper, data.eta);
 
         /* Episode rows for series */
         if (data.episodes && data.episodes.length) {

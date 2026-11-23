@@ -2,7 +2,8 @@
  * settings/newsletter.js — Newsletter settings module.
  *
  * Responsibilities:
- *   - Subscriber list rendering and removal (GET/DELETE /api/subscribers)
+ *   - Subscriber list rendering, adds and confirmed removals applied to the
+ *     rows in place (GET/POST/DELETE /api/subscribers)
  *   - Add subscriber form (#btn-add-subscriber, #new-subscriber-email)
  *   - Newsletter send panel (#newsletter-send-panel)
  *     - Open/close toggle (#btn-send-newsletter, #btn-cancel-newsletter)
@@ -12,6 +13,7 @@
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
  *   MM.dom  (core/dom.js)
+ *   MM.settings.rows (settings/rows.js)
  *
  * Exposes:
  *   MM.settings.newsletter.init()
@@ -34,62 +36,106 @@
         return el;
       }
 
+      var subList = document.getElementById('subscriber-list');
+
+      function showEmpty() {
+        if (subList && !subList.querySelector('.sub-row')) {
+          subList.replaceChildren(makeMsg('No subscribers yet.'));
+        }
+      }
+
       function loadSubscribers() {
         MM.api.get('/api/subscribers')
           .then(function (data) { renderSubscribers(data.subscribers || []); })
           .catch(function () {
-            var list = document.getElementById('subscriber-list');
-            if (list) { list.replaceChildren(); list.appendChild(makeMsg("Couldn't load subscribers.", 'err')); }
+            if (subList) { subList.replaceChildren(); subList.appendChild(makeMsg("Couldn't load subscribers.", 'err')); }
           });
       }
 
       function renderSubscribers(subs) {
-        var list = document.getElementById('subscriber-list');
-        if (!list) return;
-        list.replaceChildren();
-        if (!subs.length) { list.appendChild(makeMsg('No subscribers yet.')); return; }
-        subs.forEach(function (s) {
-          var row = document.createElement('div');
-          row.className = 'sub-row';
-          row.dataset.id = String(s.id);
+        if (!subList) return;
+        subList.replaceChildren();
+        subs.forEach(function (s) { subList.appendChild(buildRow(s)); });
+        showEmpty();
+      }
 
-          var av = document.createElement('div');
-          av.className = 'av';
-          av.textContent = (s.email || '?').charAt(0).toUpperCase();
-          row.appendChild(av);
-
-          var em = document.createElement('div');
-          em.className = 'em';
-          em.textContent = s.email;
-          row.appendChild(em);
-
-          var stat = document.createElement('span');
-          stat.className = 'sub-stat' + (s.active ? ' active' : ' bounced');
-          stat.textContent = s.active ? 'Active' : 'Bounced';
-          row.appendChild(stat);
-
-          var rm = document.createElement('button');
-          rm.type = 'button';
-          rm.className = 'link-danger';
-          rm.textContent = 'Remove';
-          rm.addEventListener('click', function () { removeSubscriber(s.id, rm); });
-          row.appendChild(rm);
-
-          list.appendChild(row);
+      // A new subscriber joins the list as it stands, so nothing else moves.
+      function appendNewSubscribers() {
+        return MM.api.get('/api/subscribers').then(function (data) {
+          if (!subList) return;
+          // Each new row goes right after the row the server lists before it.
+          var prev = null;
+          (data.subscribers || []).forEach(function (s) {
+            var existing = subList.querySelector('.sub-row[data-id="' + s.id + '"]');
+            if (existing) { prev = existing; return; }
+            Array.prototype.forEach.call(subList.querySelectorAll('.fld-sub'), function (m) { m.remove(); });
+            var row = buildRow(s);
+            subList.insertBefore(row, prev ? prev.nextSibling : subList.firstChild);
+            prev = row;
+            MM.settings.rows.enter(row);
+          });
         });
       }
 
-      function removeSubscriber(id, btn) {
-        btn.disabled = true;
-        MM.api.delete('/api/subscribers/' + id)
-          .then(function () { loadSubscribers(); })
-          .catch(function (err) {
-            btn.disabled = false;
-            var msg = MM.api.messageOf(err, "Couldn't remove subscriber.");
-            if (window.UIFeedback && window.UIFeedback.error) {
-              window.UIFeedback.error(msg);
-            } else { window.alert(msg); }
-          });
+      function buildRow(s) {
+        var row = document.createElement('div');
+        row.className = 'sub-row';
+        row.dataset.id = String(s.id);
+
+        var av = document.createElement('div');
+        av.className = 'av';
+        av.textContent = (s.email || '?').charAt(0).toUpperCase();
+        row.appendChild(av);
+
+        var em = document.createElement('div');
+        em.className = 'em';
+        em.textContent = s.email;
+        row.appendChild(em);
+
+        var stat = document.createElement('span');
+        stat.className = 'sub-stat' + (s.active ? ' active' : ' bounced');
+        stat.textContent = s.active ? 'Active' : 'Bounced';
+        row.appendChild(stat);
+
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'link-danger';
+        rm.textContent = 'Remove';
+        rm.setAttribute('aria-label', 'Remove: ' + s.email);
+        rm.addEventListener('click', function () { removeSubscriber(s, row, rm); });
+        row.appendChild(rm);
+        return row;
+      }
+
+      function removeSubscriber(s, row, btn) {
+        window.UIFeedback.confirm({
+          title: 'Remove ' + s.email + '?',
+          body: 'They stop getting the newsletter. You can add them again later.',
+          confirmLabel: 'Remove',
+          confirmVariant: 'danger',
+        }).then(function (ok) {
+          if (!ok) return;
+          btn.disabled = true;
+          btn.textContent = 'Removing…';
+          btn.setAttribute('aria-label', 'Removing…: ' + s.email);
+          MM.api.delete('/api/subscribers/' + s.id)
+            .then(function () {
+              MM.settings.rows.leave(row, {
+                focusSelector: '.link-danger',
+                fallback: addSubInp,
+                done: showEmpty,
+              });
+              window.UIFeedback.success('Removed ' + s.email);
+            })
+            .catch(function (err) {
+              var keepFocus = MM.dom.focusStillIn(btn);
+              btn.disabled = false;
+              btn.textContent = 'Remove';
+              btn.setAttribute('aria-label', 'Remove: ' + s.email);
+              if (keepFocus) btn.focus();
+              window.UIFeedback.error(MM.api.messageOf(err, "Couldn't remove subscriber."));
+            });
+        });
       }
 
       var addSubBtn = document.getElementById('btn-add-subscriber');
@@ -108,13 +154,10 @@
         MM.api.postForm('/api/subscribers', { email: email })
           .then(function () {
             addSubInp.value = '';
-            loadSubscribers();
+            return appendNewSubscribers().catch(loadSubscribers);
           })
           .catch(function (err) {
-            var msg = MM.api.messageOf(err, "Couldn't add subscriber.");
-            if (window.UIFeedback && window.UIFeedback.error) {
-              window.UIFeedback.error(msg);
-            } else { window.alert(msg); }
+            window.UIFeedback.error(MM.api.messageOf(err, "Couldn't add subscriber."));
           })
           .then(function () {
             addingSubscriber = false;
@@ -137,23 +180,39 @@
       var btnConfirmNL      = document.getElementById('btn-confirm-newsletter');
       var newsletterStatus  = document.getElementById('newsletter-send-status');
 
+      var rows = MM.settings.rows;
+
+      function clearStatus() {
+        if (!newsletterStatus) return;
+        newsletterStatus.textContent = '';
+        newsletterStatus.className = 'inline-form-msg';
+      }
+
       function openNewsletter() {
         if (!newsletterPanel) return;
-        newsletterPanel.hidden = false;
+        rows.open(newsletterPanel);
         if (btnSendNL) btnSendNL.textContent = 'Close';
         renderRecipientCheckboxes();
       }
       function closeNewsletter() {
         if (!newsletterPanel) return;
-        newsletterPanel.hidden = true;
         if (btnSendNL) btnSendNL.textContent = 'Select recipients';
-        if (newsletterStatus) newsletterStatus.textContent = '';
+        rows.close(newsletterPanel, clearStatus);
       }
 
+      // A panel that is sending cannot be closed from its own buttons.
+      function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
       if (btnSendNL) btnSendNL.addEventListener('click', function () {
-        newsletterPanel.hidden ? openNewsletter() : closeNewsletter();
+        if (sending()) return;
+        rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
-      if (btnCancelNL) btnCancelNL.addEventListener('click', closeNewsletter);
+      if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
+        if (sending()) return;
+        closeNewsletter();
+      });
+      // A changed choice of recipients makes the last message stale, unless a send is under way.
+      function clearUnlessSending() { if (!sending()) clearStatus(); }
+      if (newsletterPanel) newsletterPanel.addEventListener('change', clearUnlessSending);
 
       // Fetch-token guards against a race where the user closes and re-opens
       // the panel before the previous /api/subscribers response arrives.
@@ -168,7 +227,7 @@
           .then(function (data) {
             // Bail if the user has closed the panel or re-opened it (new fetch).
             if (token !== _recipientFetchToken) return;
-            if (!newsletterPanel || newsletterPanel.hidden) return;
+            if (!newsletterPanel || !rows.isOpen(newsletterPanel)) return;
             var subs = (data.subscribers || []).filter(function (s) { return s.active; });
             if (!subs.length) {
               list.appendChild(makeMsg('No active subscribers.'));
@@ -183,6 +242,7 @@
               b.textContent = pair[0];
               b.addEventListener('click', function () {
                 list.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = pair[1]; });
+                clearUnlessSending();
               });
               toggleRow.appendChild(b);
             });

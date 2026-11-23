@@ -40,10 +40,16 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.tile:hover { transform: translateY(-2px); }
+/* Only where a pointer can hover: on touch the lift would stay after a tap. */
+@media (hover: hover) {
+  .tile:hover { transform: translateY(-2px); }
+}
+.tile:active { transform: scale(.97); }
 /* An open keep menu must sit above the tiles in the rows below it. */
 .tile:has(.keep-wrapper.is-open) { z-index: 30; }
-.tile:hover .tile-poster { box-shadow: var(--shadow-card); }
+@media (hover: hover) {
+  .tile:hover .tile-poster { box-shadow: var(--shadow-card); }
+}
 
 .tile-poster {
   width: 100%;
@@ -152,9 +158,26 @@
    lines the buttons up across tiles of differing title and meta length. */
 .grid-tiles .keep-wrapper.tile-actions { margin-top: auto; }
 
+/* Dashboard on phones: the count and size go under the heading, Clear all
+   stays beside it, and every control has a 44px tap area. */
+@media (max-width: 519.98px) {
+  .sched-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+  .sched-hd > .u-flex { display: contents; }
+  .sched-hd .sub { grid-row: 2; grid-column: 1; }
+  .sched-hd .btn { grid-row: 1; grid-column: 2; }
+}
+@media (max-width: 639.98px) {
+  .dash .btn { min-height: 44px; }
+  .dash .tile-actions .btn--icon { flex-basis: 44px; width: 44px; height: 44px; }
+  .dash .snooze-option { min-height: 44px; }
+}
+
 /* Grids */
 .grid           { display: grid; gap: 20px; }
 .grid-tiles     { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+/* Rows keep their own height when the grid is taller than its rows, as while
+   a removed tile's row collapses, so they slide instead of stretching. */
+.grid-tiles     { align-content: start; }
 /* Poster grids on /search and /recommended cap at 7 columns so cards stay
    readable on ultra-wide screens, then step down at narrower widths. */
 .grid-tiles-lg  { grid-template-columns: repeat(7, minmax(0, 1fr)); }
@@ -318,6 +341,10 @@
   min-width: 0;
 }
 .poster-card:hover { transform: translateY(-2px); }
+.poster-card:active { transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) {
+  .tile:active, .poster-card:active { transform: none; }
+}
 .poster-card:hover .poster { box-shadow: var(--shadow-card); }
 .poster-card .poster {
   position: relative;

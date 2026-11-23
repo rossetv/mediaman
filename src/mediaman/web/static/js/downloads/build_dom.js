@@ -1,9 +1,9 @@
 /**
  * downloads/build_dom.js — DOM helpers and placeholder builders.
  *
- * Pure DOM construction — no fetches, no event listeners. Other download
- * modules consume these to either build a fresh card or look up an
- * existing one to patch in place.
+ * DOM construction, no fetches. Other download modules consume these to
+ * either build a fresh card or look up an existing one to patch in place,
+ * and to open or close a card, section or list without the page jumping.
  *
  * Thin aliases q, setText, and findByDlId delegate to MM.dom to avoid
  * duplicating logic already provided by core/dom.js.
@@ -18,6 +18,12 @@
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState()
  *   MM.downloads.buildDom.buildUpcomingRow(item)
+ *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
+ *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
+ *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
+ *   MM.downloads.buildDom.collapse(el, done)       shrink it away, then call done
+ *   MM.downloads.buildDom.collapseAway(el)          shrink it away, then remove it
+ *   MM.downloads.buildDom.isCollapsing(el)
  */
 (function () {
   'use strict';
@@ -33,6 +39,69 @@
       if (rows[i].getAttribute('data-ep') === label) return rows[i];
     }
     return null;
+  }
+
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  var FOLD_PROPS = ['opacity', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'];
+
+  /* Open or close an element in place: its height, padding and margins run
+     to their new size so nothing below it jumps. A fold that starts while
+     another runs picks up from where that one is. `done` runs once the
+     height has closed, and never if a later fold took over. */
+  function fold(el, open, done) {
+    var running = el._dlFold;
+    if (running && running.open === open) return;
+    var token = { open: open };
+    el._dlFold = token;
+
+    function finish() {
+      if (el._dlFold !== token) return;
+      el._dlFold = null;
+      el.removeEventListener('transitionend', onEnd);
+      el.classList.remove('dl-fold');
+      el.classList.remove('is-folded');
+      el.style.height = '';
+      if (done) done();
+    }
+    function onEnd(e) {
+      if (e.target === el && e.propertyName === 'height') finish();
+    }
+    function now() {
+      var cs = window.getComputedStyle(el);
+      var s = { height: el.offsetHeight + 'px' };
+      FOLD_PROPS.forEach(function (p) { s[p] = cs[p]; });
+      return s;
+    }
+
+    if (reducedMotion()) { finish(); return; }
+
+    /* Read a running fold before anything stops it. */
+    var from = running ? now() : null;
+    el.style.transition = 'none';
+    el.classList.add('dl-fold');
+    el.classList.remove('is-folded');
+    el.style.height = '';
+    var natural = el.offsetHeight;
+    if (!from) {
+      if (open) { el.classList.add('is-folded'); el.style.height = '0px'; }
+      from = now();
+    }
+    if (open) el.classList.remove('is-folded');
+    else el.classList.add('is-folded');
+    el.style.height = from.height;
+    FOLD_PROPS.forEach(function (p) { el.style[p] = from[p]; });
+    void el.offsetHeight;
+    el.style.transition = '';
+    FOLD_PROPS.forEach(function (p) { el.style[p] = ''; });
+    el.style.height = open ? natural + 'px' : '0px';
+
+    el.addEventListener('transitionend', onEnd);
+    /* transitionend never comes when the height did not change or the
+       element was hidden mid-way. */
+    setTimeout(finish, 400);
   }
 
   /* State labels come from the server (item.state_label). The canonical map
@@ -116,6 +185,30 @@
    *   Shape: { id, title, poster_url, state, state_label, progress, eta }
    * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
    */
+  function buildEtaStat(text) {
+    var wrap = document.createElement('span');
+    wrap.appendChild(document.createTextNode('ETA '));
+    var eta = document.createElement('b');
+    eta.setAttribute('data-v', 'eta');
+    eta.textContent = text;
+    wrap.appendChild(eta);
+    return wrap;
+  }
+
+  /* The ETA stat exists only while there is an ETA, so it is added, updated
+   * and removed here. */
+  function updateEtaStat(card, text) {
+    var eta = card.querySelector('[data-v="eta"]');
+    if (eta && text) {
+      eta.textContent = text;
+    } else if (eta) {
+      eta.parentNode.parentNode.removeChild(eta.parentNode);
+    } else if (text) {
+      var stats = card.querySelector('.dl-hero-details');
+      if (stats) stats.appendChild(buildEtaStat(text));
+    }
+  }
+
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
@@ -123,7 +216,7 @@
 
     /* Root .dl-hero container */
     var card = document.createElement('div');
-    card.className = 'dl-hero dl-card-enter';
+    card.className = 'dl-hero';
     if (item.id) card.setAttribute('data-dl-id', item.id);
 
     /* Background — set via DLPoster.apply (avoids CSS string injection). */
@@ -190,27 +283,37 @@
     if (state === 'searching') progressWrap.style.display = 'none';
 
     var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar';
+    bar.className = 'dl-hero-bar dl-bar';
     var fill = document.createElement('div');
-    fill.className = 'dl-hero-fill';
+    fill.className = 'dl-hero-fill dl-bar-fill' + (state === 'almost_ready' ? ' green' : '');
     fill.setAttribute('data-v', 'fill');
     fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
     progressWrap.appendChild(bar);
 
+    /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", "ETA x". */
     var details = document.createElement('div');
-    details.className = 'dl-hero-details';
+    details.className = 'dl-hero-details dl-stats';
     var pctWrap = document.createElement('span');
-    var pct = document.createElement('span');
+    var pct = document.createElement('b');
     pct.className = 'dl-hero-pct';
     pct.setAttribute('data-v', 'pct');
     pct.textContent = (item.progress || 0) + '%';
     pctWrap.appendChild(pct);
+    pctWrap.appendChild(document.createTextNode(' complete'));
     details.appendChild(pctWrap);
-    var eta = document.createElement('span');
-    eta.setAttribute('data-v', 'eta');
-    if (item.eta) eta.textContent = item.eta;
-    details.appendChild(eta);
+    var sizeWrap = document.createElement('span');
+    var done = document.createElement('b');
+    done.setAttribute('data-v', 'size-done');
+    done.textContent = item.size_done || '';
+    var total = document.createElement('span');
+    total.setAttribute('data-v', 'size-total');
+    total.textContent = item.size_total || '';
+    sizeWrap.appendChild(done);
+    sizeWrap.appendChild(document.createTextNode(' of '));
+    sizeWrap.appendChild(total);
+    details.appendChild(sizeWrap);
+    if (item.eta) details.appendChild(buildEtaStat(item.eta));
     progressWrap.appendChild(details);
     info.appendChild(progressWrap);
 
@@ -229,13 +332,173 @@
     return card;
   }
 
+  function canAbandonHere() {
+    var root = document.getElementById('dl-root');
+    return !root || root.getAttribute('data-can-abandon') !== 'false';
+  }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  /* Mirrors the abandon_btn macro in _components.html. */
+  function fillAbandonButton(btn, item) {
+    btn.setAttribute('data-dl-id', item.id);
+    btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
+    btn.setAttribute('data-title', item.title || '');
+    btn.setAttribute('data-stuck-seasons', JSON.stringify(item.stuck_seasons || []));
+  }
+
+  function buildAbandonButton(item) {
+    var btn = el('button', 'btn btn--icon btn--ghost');
+    btn.type = 'button';
+    btn.setAttribute('data-abandon-trigger', '');
+    btn.setAttribute('aria-label', 'Abandon search');
+    btn.setAttribute('title', 'Abandon search');
+    fillAbandonButton(btn, item);
+    var icon = el('i', 'fa-solid fa-xmark');
+    icon.setAttribute('aria-hidden', 'true');
+    btn.appendChild(icon);
+    return btn;
+  }
+
+  /* The server decides per poll whether an item may be abandoned and which
+     seasons are stuck (abandon_visible, stuck_seasons); keep the button in
+     step with it. kind is 'hero' or 'row'. */
+  function syncAbandon(card, item, kind) {
+    var isHero = kind === 'hero';
+    var wrapClass = isHero ? 'dl-hero-abandon' : 'dl-row-abandon';
+    var host = isHero ? card : card.querySelector('.dl-compact-row');
+    if (!host) return;
+    var wrap = host.querySelector('.' + wrapClass);
+    var want = canAbandonHere() && !!item.abandon_visible;
+    if (!want) {
+      if (wrap) wrap.parentNode.removeChild(wrap);
+      if (!isHero) host.classList.remove('dl-row--has-abandon');
+      return;
+    }
+    if (wrap) {
+      var existing = wrap.querySelector('[data-abandon-trigger]');
+      if (existing) fillAbandonButton(existing, item);
+      return;
+    }
+    wrap = el('div', wrapClass);
+    wrap.appendChild(buildAbandonButton(item));
+    if (isHero) {
+      var content = card.querySelector('.dl-hero-content');
+      card.insertBefore(wrap, content);
+    } else {
+      host.classList.add('dl-row--has-abandon');
+      host.appendChild(wrap);
+    }
+  }
+
+  /* Build a queue row, mirroring _dl_compact_row.html. */
+  function buildCompactRow(item) {
+    var card = el('div', 'dl-compact');
+    card.setAttribute('data-dl-id', item.id);
+    var row = el('div', 'dl-compact-row dl-row');
+    card.appendChild(row);
+
+    var poster = el('div', 'dl-compact-poster dl-row-poster');
+    if (item.poster_url) {
+      var img = el('img');
+      img.src = item.poster_url;
+      img.alt = '';
+      poster.appendChild(img);
+    }
+    row.appendChild(poster);
+
+    var info = el('div', 'dl-compact-info dl-row-info');
+    info.appendChild(el('div', 'dl-compact-title dl-row-title', item.title));
+
+    var meta = el('div', 'dl-compact-meta dl-row-meta');
+    var pill = el('span', 'dl-state-pill dl-state-pill--xs dl-state-' + item.state,
+      item.state_label || item.state);
+    pill.setAttribute('data-v', 'pill');
+    meta.appendChild(pill);
+    var sizeInfo = el('span');
+    sizeInfo.setAttribute('data-v', 'size-info');
+    if (item.state === 'searching') sizeInfo.style.display = 'none';
+    var done = el('span', '', item.size_done || '');
+    done.setAttribute('data-v', 'size-done');
+    var total = el('span', '', item.size_total || '');
+    total.setAttribute('data-v', 'size-total');
+    sizeInfo.appendChild(done);
+    sizeInfo.appendChild(document.createTextNode(' of '));
+    sizeInfo.appendChild(total);
+    meta.appendChild(sizeInfo);
+    var episodes = item.episodes || [];
+    if (episodes.length) {
+      meta.appendChild(el('span', '',
+        episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '')));
+    }
+    info.appendChild(meta);
+
+    var hint = el('div', 'dl-search-hint');
+    hint.setAttribute('data-v', 'search-hint');
+    hint.style.display = 'none';
+    info.appendChild(hint);
+
+    var bar = el('div', 'dl-compact-bar dl-row-bar');
+    var fill = el('div', 'dl-compact-fill dl-row-bar-fill' +
+      (item.state === 'almost_ready' ? ' green' : ''));
+    fill.setAttribute('data-v', 'fill');
+    fill.style.width = (item.progress || 0) + '%';
+    bar.appendChild(fill);
+    info.appendChild(bar);
+    row.appendChild(info);
+
+    var right = el('div', 'dl-compact-right');
+    var pct = el('div', 'dl-compact-pct dl-row-pct', item.progress > 0 ? item.progress + '%' : '—');
+    pct.setAttribute('data-v', 'pct');
+    right.appendChild(pct);
+    var eta = el('div', 'dl-compact-eta', item.eta || '');
+    eta.setAttribute('data-v', 'eta');
+    right.appendChild(eta);
+    row.appendChild(right);
+
+    syncAbandon(card, item, 'row');
+
+    if (episodes.length) {
+      var toggle = el('button', 'dl-compact-episodes-toggle');
+      toggle.type = 'button';
+      toggle.setAttribute('data-v', 'ep-toggle');
+      toggle.setAttribute('aria-expanded', 'false');
+      var chev = el('i', 'fa-solid fa-chevron-right');
+      chev.setAttribute('aria-hidden', 'true');
+      toggle.appendChild(chev);
+      toggle.appendChild(el('span', '', episodes.length + ' episode' +
+        (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '')));
+      card.appendChild(toggle);
+      var list = el('div', 'dl-compact-episodes');
+      list.setAttribute('data-v', 'ep-list');
+      list.style.display = 'none';
+      for (var i = 0; i < episodes.length; i++) {
+        list.appendChild(MM.downloads.renderHero.buildEpisodeRow(episodes[i]));
+      }
+      card.appendChild(list);
+    }
+
+    updateHint(card, item);
+    return card;
+  }
+
+  function updateHint(card, item) {
+    var hero = MM.downloads.renderHero;
+    if (hero && hero.updateSearchHint) hero.updateSearchHint(card, item);
+  }
+
   /* Build upcoming row element. */
   function buildUpcomingRow(item) {
     /* The server marks the page root; viewers get no stop-tracking button. */
     var root = document.getElementById('dl-root');
     var canAbandon = !root || root.getAttribute('data-can-abandon') !== 'false';
     var row = document.createElement('div');
-    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-card-enter' +
+    row.className = 'dl-compact-row dl-row dl-upcoming-row' +
       (canAbandon ? ' dl-row--has-abandon' : '');
     row.setAttribute('data-dl-id', item.id);
 
@@ -304,9 +567,19 @@
     findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
     findByEp:             findByEp,
     buildHero:            buildHero,
+    buildEtaStat:         buildEtaStat,
+    updateEtaStat:        updateEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
     buildUpcomingRow:     buildUpcomingRow,
+    buildCompactRow:      buildCompactRow,
+    syncAbandon:          syncAbandon,
+    reveal:               function (el)              { fold(el, true); },
+    collapse:             function (el, done)        { fold(el, false, done); },
+    collapseAway:         function (el) {
+      fold(el, false, function () { if (el.parentNode) el.parentNode.removeChild(el); });
+    },
+    isCollapsing:         function (el)              { return !!(el._dlFold && !el._dlFold.open); },
   };
 })();

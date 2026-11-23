@@ -5,7 +5,8 @@
  *   - Connection-status pills (shared updater for intg-card + ov-status)
  *   - Manual test buttons (<button data-test-service="…">)
  *   - Auto-test configured services on page load
- *   - Plex library sync button (#btn-sync-library)
+ *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
+ *   - Rail badge counting the services whose check failed
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
@@ -14,6 +15,7 @@
  * Exposes:
  *   MM.settings.integrations.init()
  *   MM.settings.integrations.setConnStatus(service, tone, label)
+ *   MM.settings.integrations.paintRailCount()
  */
 (function () {
   'use strict';
@@ -43,6 +45,26 @@
         var stEl = el.querySelector('[data-ov-status]');
         if (stEl) stEl.textContent = label;
       });
+      MM.settings.integrations.paintRailCount();
+    },
+
+    paintRailCount: function () {
+      var item = document.querySelector('.setg-rail-item[href="#setg-integrations"]');
+      if (!item) return;
+      var failed = document.querySelectorAll('[data-conn].err').length;
+      var badge = item.querySelector('.rail-count');
+      if (!failed) {
+        if (badge) badge.remove();
+        item.removeAttribute('aria-label');
+        return;
+      }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'rail-count err';
+        item.appendChild(badge);
+      }
+      badge.textContent = String(failed);
+      item.setAttribute('aria-label', 'Integrations, ' + failed + ' not connected');
     },
 
     /* The pill label changes on the page-load auto-check too, so only this
@@ -61,6 +83,16 @@
         return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
       }
 
+      // A throttled service is not a disconnected one, so a 429 gets the
+      // warning tone, which the rail badge does not count. Returns the label.
+      function setFailedStatus(service, err) {
+        var label = (err && err.status === 429)
+          ? 'Rate limited'
+          : MM.api.messageOf(err, 'Connection failed');
+        self.setConnStatus(service, (err && err.status === 429) ? 'warn' : 'err', label);
+        return label;
+      }
+
       function testService(service, btn) {
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) self.announce(service, '');
@@ -72,9 +104,9 @@
           })
           .catch(function (err) {
             // MM.api rejects on ok:false too, so a failed test lands here.
-            var label = MM.api.messageOf(err, 'Connection failed');
-            self.setConnStatus(service, 'err', label);
-            if (btn) { btn.textContent = 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
+            var label = setFailedStatus(service, err);
+            // A throttled test did not fail; the button says to try again later.
+            if (btn) { btn.textContent = (err && err.status === 429) ? 'Try later' : 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
           })
           .then(function () {
             // .then used as finally (broad browser compat).
@@ -122,13 +154,9 @@
                 self.setConnStatus(c.service, 'ok', 'Connected');
               })
               .catch(function (err) {
-                // err is an APIError with .status and .message. 429 is the
-                // common case here; staggering above reduces occurrences, but
-                // show it distinctly if it still fires.
-                var label;
-                if (err && err.status === 429)         label = 'Rate limited';
-                else                                   label = MM.api.messageOf(err, 'Connection failed');
-                self.setConnStatus(c.service, 'err', label);
+                // 429 is the common case here; staggering above reduces
+                // occurrences, but it is still shown distinctly if it fires.
+                setFailedStatus(c.service, err);
               });
           }, idx * 200);
         });
@@ -148,10 +176,11 @@
         syncBtn.appendChild(document.createTextNode('Syncing…'));
         syncBtn.disabled = true;
         MM.api.post('/api/library/sync')
-          .then(function (data) {
-            syncBtn.textContent = data.ok ? 'Synced ✓' : 'Failed';
+          .then(function () { syncBtn.textContent = 'Synced ✓'; })
+          .catch(function (err) {
+            syncBtn.textContent = 'Failed';
+            window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'));
           })
-          .catch(function () { syncBtn.textContent = 'Failed'; })
           .then(function () {
             setTimeout(function () {
               var keepFocus = MM.dom.focusStillIn(syncBtn);

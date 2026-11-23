@@ -52,13 +52,19 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         "/readyz",
     )
 
+    # Exact paths, not prefixes: the unsubscribe link is authorised by its signed token,
+    # so a flagged admin opening it from an email must not be bounced away.
+    _ALLOWED_PATHS = ("/unsubscribe",)
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         token = request.cookies.get("session_token")
         if not token:
             return await call_next(request)
 
         path = request.url.path
-        if any(path == p or path.startswith(p) for p in self._ALLOWED_PREFIXES):
+        if path in self._ALLOWED_PATHS or any(
+            path == p or path.startswith(p) for p in self._ALLOWED_PREFIXES
+        ):
             return await call_next(request)
 
         # Cheap check — avoid importing the DB layer at module load

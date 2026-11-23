@@ -10,8 +10,11 @@
       <div class="lbl">Storage across your libraries</div>
       <div class="big" id="ov-storage-big">—</div>
       <div class="bar" id="ov-storage-bar"></div>
+      {# The legend is laid out before the figures arrive, so the card does not grow under the reader. #}
       <div class="chips" id="ov-storage-chips">
-        <span><span class="chip-dot chip-dot--loading"></span>Loading…</span>
+        {% for name in ["Movies", "TV Shows", "Anime", "Other"] %}
+        <span><span class="chip-dot chip-dot--loading"></span>{{ name }} <b>—</b></span>
+        {% endfor %}
       </div>
       <div class="ov-foot">
         {{ c.btn("Configure paths & thresholds", variant="secondary", size="sm",

@@ -35,21 +35,28 @@
     var submit = document.getElementById('account-submit-password');
     if (!form || !result || !submit) return;
 
-    var fields = ['account-old-password', 'account-new-password', 'account-confirm-password'];
-
-    function fail(text) {
+    // The message is announced by the status region; the cursor goes where the fix is.
+    function fail(text, fieldId) {
       result.className = 'inline-form-msg err';
       result.textContent = text;
+      document.getElementById(fieldId).focus();
     }
+
+    // A message about what was typed goes once the person types again; a send keeps its message.
+    form.addEventListener('input', function () {
+      if (submit.disabled || !result.textContent) return;
+      result.className = 'inline-form-msg';
+      result.textContent = '';
+    });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var oldPw = document.getElementById('account-old-password').value;
       var newPw = document.getElementById('account-new-password').value;
       var conf = document.getElementById('account-confirm-password').value;
-      if (!oldPw) { fail('Enter your current password.'); return; }
-      if (newPw.length < 12) { fail('New password must be at least 12 characters.'); return; }
-      if (newPw !== conf) { fail("Passwords don't match."); return; }
+      if (!oldPw) { fail('Enter your current password.', 'account-old-password'); return; }
+      if (newPw.length < 12) { fail('New password must be at least 12 characters.', 'account-new-password'); return; }
+      if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
 
       submit.disabled = true;
       MM.reauth.run(function () {
@@ -59,7 +66,7 @@
         });
       }).then(function () {
         submit.disabled = false;
-        fields.forEach(function (id) { document.getElementById(id).value = ''; });
+        form.reset();
         result.className = 'inline-form-msg ok';
         result.textContent = 'Password updated.';
       }).catch(function (err) {
@@ -71,6 +78,9 @@
         }
         result.className = 'inline-form-msg err';
         renderApiError(result, err);
+        document.getElementById(
+          err && err.error === 'wrong_password' ? 'account-old-password' : 'account-new-password'
+        ).focus();
       });
     });
   }

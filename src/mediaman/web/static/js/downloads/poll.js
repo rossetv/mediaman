@@ -16,6 +16,7 @@
 
   var POLL_MS = 2000;
   var polling = false;
+  var pendingNow = false;
   var consecutiveFailures = 0;
   var intervalId = null;
   var onData = null;
@@ -45,7 +46,16 @@
         var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
         scheduleNextPoll(backoff);
       })
-      .finally(function () { polling = false; });
+      .finally(function () {
+        polling = false;
+        /* A refresh asked for while this poll was in flight may have missed
+           the change that prompted it, so poll again straight away. */
+        if (pendingNow) {
+          pendingNow = false;
+          if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
+          runPoll();
+        }
+      });
   }
 
   function start(cb) {
@@ -61,6 +71,7 @@
 
     /* Allow external code (e.g. dl-abandon.js) to request an immediate poll. */
     document.addEventListener('mediaman:poll:now', function () {
+      if (polling) { pendingNow = true; return; }
       if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
       runPoll();
     });

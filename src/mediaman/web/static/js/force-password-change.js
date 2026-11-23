@@ -109,16 +109,26 @@
     setOk(ckUnique,   r.unique);
 
     var s = score(pw, r);
+    var allOk = r.length && r.classes && r.username && r.unique;
     var pct = Math.min(100, (s / 5) * 100);
     fill.style.width = pct + '%';
     var tone = 'weak';
-    var text = 'Too weak';
-    if (s >= 5)      { tone = 'strong'; text = 'Strong'; }
+    var text = 'Too simple so far';
+    if (s >= 5 && allOk) { tone = 'strong'; text = 'Looks good so far'; }
     else if (s >= 3) { tone = 'ok';     text = 'Getting there'; }
     fill.className = 'fpc-meter-fill ' + tone;
     label.textContent = text;
     label.className = 'fpc-caption-' + tone;
     updateMatch();
+  }
+
+  // A rejected submit re-renders the page with the old password empty: put the
+  // cursor on the first empty field, or on the new password when all are filled.
+  if (MM.dom.q('.policy-issues') || MM.dom.q('.error-msg')) {
+    var target = [document.getElementById('old_password'), newPw, confirmPw].filter(function (el) {
+      return el && !el.value;
+    })[0] || newPw;
+    target.focus();
   }
 
   newPw.addEventListener('input', render);
