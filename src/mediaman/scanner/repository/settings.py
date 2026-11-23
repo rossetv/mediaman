@@ -28,6 +28,8 @@ def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
 
 def read_delete_allowed_roots_setting(
     conn: sqlite3.Connection,
+    *,
+    log_empty: bool = True,
 ) -> list[str]:
     """Read ``delete_allowed_roots`` from settings / env.
 
@@ -49,6 +51,8 @@ def read_delete_allowed_roots_setting(
        deletion (path safety contract). Letting an unconfigured
        installation silently accept ``/`` would be catastrophic.
 
+    ``log_empty=False`` silences that error for read-only callers such as the
+    dashboard.
     Documenting the precedence inline so anyone reading the deletion
     path can confirm at a glance that the unusual order — DB beats env
     — is deliberate: the admin UI value must not be silently overridden
@@ -84,11 +88,10 @@ def read_delete_allowed_roots_setting(
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
-    if not roots:
+    if not roots and log_empty:
         logger.error(
-            "delete_allowed_roots is not configured — all deletions "
-            "will be refused. Set the delete_allowed_roots setting "
-            "(JSON list) or the MEDIAMAN_DELETE_ROOTS env var "
-            "(colon-separated) to re-enable deletions."
+            "No delete folders are configured, so all deletions will be refused. "
+            "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated paths) "
+            "or the delete_allowed_roots setting (JSON list) to re-enable deletions."
         )
     return roots

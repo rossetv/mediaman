@@ -487,7 +487,7 @@ class TestDeleteRootBanner:
 
     def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn):
         html = _dashboard_html(app_factory, authed_client, conn)
-        assert "root-banner" not in html
+        assert "is empty or not mounted" not in html
 
     def test_banner_escapes_paths(self, app_factory, authed_client, conn):
         write_delete_root_state(conn, {"/m/<script>alert(1)</script>": 2})
@@ -586,3 +586,33 @@ class TestScheduledSeasonPill:
         html = _dashboard_html(app_factory, authed_client, conn)
 
         assert re.search(r'class="pill pill--tv">\s*TV · S3', html)
+
+
+class TestDeletionsOffNotice:
+    _NOTICE = "Deletions are off: set MEDIAMAN_DELETE_ROOTS"
+
+    def test_notice_shown_when_no_delete_folders_are_set(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert self._NOTICE in html
+
+    def test_notice_hidden_when_env_sets_delete_folders(
+        self, app_factory, authed_client, conn, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert self._NOTICE not in html
+
+    def test_notice_hidden_when_setting_row_sets_delete_folders(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', '[\"/media/tv\"]', 0, '2026-01-01')"
+        )
+        conn.commit()
+        html = _dashboard_html(app_factory, authed_client, conn)
+        assert self._NOTICE not in html

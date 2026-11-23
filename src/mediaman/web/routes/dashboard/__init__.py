@@ -17,6 +17,7 @@ from starlette.responses import Response
 from mediaman.core.delete_root_state import read_delete_root_state
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
+from mediaman.scanner.repository import read_delete_allowed_roots_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
@@ -63,6 +64,7 @@ def dashboard_page(request: Request) -> Response:
 
     # Read from the settings row only; the page never touches a mount.
     unavailable_roots = sorted(read_delete_root_state(conn).items())
+    deletions_off = not read_delete_allowed_roots_setting(conn, log_empty=False)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
@@ -80,6 +82,7 @@ def dashboard_page(request: Request) -> Response:
             "recently_deleted": recently_deleted,
             "reclaimed_total": reclaimed_total,
             "unavailable_roots": unavailable_roots,
+            "deletions_off": deletions_off,
         },
     )
 

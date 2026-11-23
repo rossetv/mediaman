@@ -908,8 +908,8 @@ class DeletionExecutor:
         if not allowed_roots:
             if rows:
                 logger.error(
-                    "Skipping %d pending deletion(s): delete_allowed_roots not "
-                    "configured. Set the setting or `MEDIAMAN_DELETE_ROOTS` env var.",
+                    "Skipping %d pending deletion(s): no delete folders are configured. "
+                    "Set the MEDIAMAN_DELETE_ROOTS env var or the delete_allowed_roots setting.",
                     len(rows),
                 )
         else:
