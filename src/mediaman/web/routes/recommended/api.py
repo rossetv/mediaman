@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
@@ -139,6 +140,7 @@ def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
     notify_email: str | None,
+    actor: str,
     row: SuggestionDetail,
     recommendation_id: int,
     secret_key: str,
@@ -158,6 +160,13 @@ def _add_rec_to_radarr(
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
+        log_audit(
+            conn,
+            safe_title,
+            "downloaded",
+            f"Added '{safe_title}' to Radarr by {actor}",
+            actor=actor,
+        )
         if notify_email:
             record_download_notification(
                 conn,
@@ -174,6 +183,7 @@ def _add_rec_to_sonarr(
     conn: sqlite3.Connection,
     *,
     notify_email: str | None,
+    actor: str,
     row: SuggestionDetail,
     recommendation_id: int,
     secret_key: str,
@@ -217,6 +227,13 @@ def _add_rec_to_sonarr(
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
+        log_audit(
+            conn,
+            safe_title,
+            "downloaded",
+            f"Added '{safe_title}' to Sonarr by {actor}",
+            actor=actor,
+        )
         if notify_email:
             record_download_notification(
                 conn,
@@ -256,6 +273,7 @@ def api_download_recommendation(
             return _add_rec_to_radarr(
                 conn,
                 notify_email=notify_email,
+                actor=admin,
                 row=row,
                 recommendation_id=recommendation_id,
                 secret_key=config.secret_key,
@@ -263,6 +281,7 @@ def api_download_recommendation(
         return _add_rec_to_sonarr(
             conn,
             notify_email=notify_email,
+            actor=admin,
             row=row,
             recommendation_id=recommendation_id,
             secret_key=config.secret_key,

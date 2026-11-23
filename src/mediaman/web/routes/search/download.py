@@ -219,7 +219,9 @@ def _submit_movie(
             "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
             body.tmdb_id,
         )
-    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Radarr", actor=actor)
+    log_audit(
+        conn, body.title, "downloaded", f"Added '{body.title}' to Radarr by {actor}", actor=actor
+    )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
@@ -301,7 +303,9 @@ def _submit_tv(
             "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
             body.tmdb_id,
         )
-    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr", actor=actor)
+    log_audit(
+        conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr by {actor}", actor=actor
+    )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
