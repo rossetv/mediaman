@@ -10,6 +10,7 @@ import jinja2
 import pytest
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
 
 # The nav belongs to another page's concerns; an empty one keeps these tests
 # about the Watch templates only.
@@ -477,3 +478,28 @@ def test_banner_details_opens_the_title_overlay() -> None:
     assert 'data-title="The Long Coast"' in details.group(0)
     assert "watch-btn--grey" in details.group(0)
     assert "Details</a>" in actions
+
+
+def _phone_rules(sheet: str) -> list[tuple[str, str]]:
+    """(selectors, declarations) of every rule inside a `@media (max-width: 699.98px)` block."""
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(r"@media \(max-width: 699\.98px\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    return [
+        (head.strip(), body)
+        for block in blocks
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+    ]
+
+
+def test_the_picks_batch_and_refresh_tools_are_44px_tall_below_700px() -> None:
+    rules = _phone_rules("_watch_browse.css")
+    assert any(
+        head == ".row-tool" and re.search(r"(?<![\w-])height:\s*44px", body) for head, body in rules
+    )
+    # The skeleton's Recommended heading matches the 44px tools, so nothing moves when they load.
+    skel = [
+        body
+        for head, body in rules
+        if head.endswith(".watch-row--skel-tools .watch-row__title-skel")
+    ]
+    assert skel and "44px" in skel[0]

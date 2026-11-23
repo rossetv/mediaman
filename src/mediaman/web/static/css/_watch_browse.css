@@ -21,10 +21,14 @@
    (on a phone, a line over its 44px link). A flex column, so no margins collapse. */
 .watch-row--skel-note { display: flex; flex-direction: column; align-items: flex-start; }
 .watch-row__note-skel { width: 260px; max-width: calc(100% - 2 * var(--pad)); margin: 16px var(--pad); }
+/* Below 700px the row tools are 44px tall, so the skeleton's heading is too. */
+@media (max-width: 699.98px) {
+  .watch-discover-skel .watch-row--skel-tools .watch-row__title-skel { margin-top: calc((44px - 1lh) / 2); margin-bottom: calc((44px - 1lh) / 2 + 12px); }
+}
 @media (max-width: 599.98px) {
   .watch-discover-skel .watch-row__title-skel { font-size: 17px; }
   .watch-row__note-skel { margin-block: 28px 28.5px; }
-  .watch-discover-skel .watch-row--skel-tools .watch-row__title-skel { margin-top: calc((44px - 1lh) / 2); margin-bottom: calc((44px - 1lh) / 2 + 10px); }
+  .watch-discover-skel .watch-row--skel-tools .watch-row__title-skel { margin-bottom: calc((44px - 1lh) / 2 + 10px); }
 }
 
 /* A row heading with tools on its right (Recommended: the batch of picks and,
@@ -70,14 +74,17 @@
 @media (prefers-reduced-motion: reduce) {
   .row-tool.is-busy > .fa-rotate-right { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
+@media (max-width: 699.98px) {
+  .watch-row__tools:not(:empty) { min-height: 44px; }
+  .row-tool { height: 44px; }
+  .row-tool::after { content: none; }
+}
 @media (max-width: 599.98px) {
   .watch-row__head { margin-bottom: 10px; }
   .row-tool__long { display: none; }
-  .watch-row__tools:not(:empty) { min-height: 44px; }
   .watch-row__head { gap: 8px; }
   .watch-row__tools { gap: 2px; }
-  .row-tool { height: 36px; padding: 0 10px; }
-  .row-tool::after { inset: -4px -2px; }
+  .row-tool { padding: 0 10px; }
 }
 
 /* The menu of earlier picks: the Keep menu, with a tick on the batch shown.
