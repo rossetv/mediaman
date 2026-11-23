@@ -512,6 +512,17 @@ scenarios.reauthCancelDuringCheck = async function () {
   return { calls: r.calls.n, code: out.code ?? null, value: out.value ?? null };
 };
 
+// a second reauth closes the first dialog, which counts as its cancel
+scenarios.reauthSecond = async function () {
+  const r = reauthRig();
+  const first = r.outcome(r.h.ctx.MM.reauth.run(r.guarded));
+  await r.flush();
+  const again = () => Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } });
+  const second = r.outcome(r.h.ctx.MM.reauth.run(again));
+  await r.flush();
+  return { first: first.code ?? null, second: second.code ?? null, dialogs: r.body.querySelectorAll('.reauth-backdrop').filter((b) => !b.classList.contains('is-leaving')).length };
+};
+
 // the subtitle line folds away and grows back in place
 scenarios.subtitle = async function () {
   const p = pageRig();

@@ -31,12 +31,16 @@
 
   window.MM = window.MM || {};
 
+  /* Closes the dialog that is open, so a second one cancels the first instead of orphaning it. */
+  var closeOpen = null;
+
   function openModal(opts) {
     opts = opts || {};
     if (typeof opts.onSubmit !== 'function') {
       throw new TypeError('MM.reauth.openModal: opts.onSubmit must be a function');
     }
 
+    if (closeOpen) closeOpen();
     document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
 
     var backdrop = document.createElement('div');
@@ -103,6 +107,7 @@
       useModalA11y: false,
       onClose: function () {
         input.value = '';
+        if (closeOpen === modal.close) closeOpen = null;
         /* The fade is 200ms; the node is not needed once it has gone. */
         setTimeout(function () { backdrop.remove(); }, 400);
         if (!done) {
@@ -112,6 +117,7 @@
       },
     });
     modal.open();
+    closeOpen = modal.close;
     cancelBtn.addEventListener('click', modal.close);
 
     function submit() {
