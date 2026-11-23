@@ -384,6 +384,10 @@
   color: var(--t1);
   font-size: 14px;
 }
+/* The season load error sits outside .watch-results, so it brings the page gutter itself
+   and lines up with the episode list below it. */
+.watch-results__msg--season { margin-inline: var(--pad); max-width: 1100px; }
+@media (min-width: 900px) { .watch-results__msg--season { margin-left: calc(260px + var(--pad)); } }
 .watch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--watch-card-w), 1fr));

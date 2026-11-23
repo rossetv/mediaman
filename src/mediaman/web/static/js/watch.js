@@ -467,10 +467,20 @@
       (menu && menu.contains(active)) || !document.body.contains(active);
   }
 
-  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>". */
+  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>".
+     A season keep adds the season: from the card's subtitle, or the season tab shown. */
   function titleOf(button) {
     var label = button.getAttribute('aria-label');
-    return label ? label.replace(/^Keep /, '') : '';
+    var title = label ? label.replace(/^Keep /, '') : '';
+    if (!title) return '';
+    var season = '';
+    var sub = button.closest('.watch-card') && button.closest('.watch-card').querySelector('.watch-card__sub');
+    if (sub && /^Season \d+$/.test(sub.textContent)) season = sub.textContent;
+    else if (button.closest('[data-watch-leaving]')) {
+      var tab = document.querySelector('.watch-seasons a.watch-pill.on');
+      if (tab) season = tab.textContent.trim();
+    }
+    return season ? title + ', ' + season : title;
   }
 
   function keep(trigger, days) {
@@ -794,9 +804,10 @@
       select(shown);
       list.setAttribute('aria-busy', 'false');
       clearFailure();
-      failure = el('p', 'watch-results__msg watch-results__msg--error');
+      failure = el('p', 'watch-results__msg watch-results__msg--error watch-results__msg--season');
       failure.setAttribute('role', 'alert');
-      failure.appendChild(el('span', '', 'Could not load that season.'));
+      var asked = pills().filter(function (pill) { return pill.getAttribute('href') === href; })[0];
+      failure.appendChild(el('span', '', 'Could not load ' + (asked ? asked.textContent.trim() : 'that season') + '.'));
       var retry = el('button', 'watch-results__retry', 'Try again');
       retry.type = 'button';
       retry.addEventListener('click', function () {
