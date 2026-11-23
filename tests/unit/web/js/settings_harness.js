@@ -14,13 +14,14 @@ function matchesCompound(el, sel) {
   const tag = rest.match(/^[a-zA-Z][\w-]*/);
   if (tag) { if (el.tagName !== tag[0].toUpperCase()) return false; rest = rest.slice(tag[0].length); }
   let m;
-  const part = /#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=(?:"([^"]*)"|([^\]]*)))?\]/y;
+  const part = /#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=(?:"([^"]*)"|([^\]]*)))?\]|(:checked)/y;
   while (rest) {
     part.lastIndex = 0;
     m = part.exec(rest);
     if (!m) return false;
     if (m[1] && el.id !== m[1]) return false;
     if (m[2] && !el.classList.contains(m[2])) return false;
+    if (m[6] && !el.checked) return false;
     if (m[3]) {
       const v = el.getAttribute(m[3]);
       const want = m[4] !== undefined ? m[4] : m[5];
@@ -69,6 +70,7 @@ class El {
   }
   getAttribute(k) {
     if (k === 'id') return this.id || null;
+    if (k === 'type' && this.type) return this.type;
     if (k.startsWith('data-')) {
       const key = k.slice(5).replace(/-(\w)/g, (_, c) => c.toUpperCase());
       if (key in this.dataset) return String(this.dataset[key]);
@@ -409,6 +411,69 @@ const scenarios = {
     box.checked = true;
     box.fire('change');
     return { shown, afterInput: msg.textContent, nlShown, afterChange: status.textContent };
+  },
+
+  // The account page's message goes once any field is edited, but not while the form is sending.
+  async accountClearOnInput() {
+    const h = build();
+    const form = h.add('form', { id: 'account-password-form' });
+    const oldPw = h.add('input', { id: 'account-old-password', type: 'password' }, form);
+    h.add('input', { id: 'account-new-password', type: 'password' }, form);
+    h.add('input', { id: 'account-confirm-password', type: 'password' }, form);
+    const submit = h.add('button', { id: 'account-submit-password' }, form);
+    const msg = h.add('span', { id: 'account-password-result' }, form);
+    let finish;
+    h.ctx.MM.api = { post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('account.js');
+    form.fire('submit');
+    const shown = msg.textContent;
+    oldPw.value = 'a';
+    oldPw.fire('input');
+    const afterInput = msg.textContent;
+    // a send under way keeps its message
+    h.doc.getElementById('account-old-password').value = 'old';
+    h.doc.getElementById('account-new-password').value = 'a-long-enough-password';
+    h.doc.getElementById('account-confirm-password').value = 'a-long-enough-password';
+    msg.textContent = 'Working';
+    form.fire('submit');
+    oldPw.fire('input');
+    const whileSending = { text: msg.textContent, disabled: submit.disabled };
+    finish({});
+    await h.flush();
+    return { shown, afterInput, whileSending };
+  },
+
+  // A newsletter send under way ignores its own toggle and Cancel.
+  async newsletterBusy() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    h.add('div', { id: 'subscriber-list' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    const cancel = h.add('button', { id: 'btn-cancel-newsletter' }, panel);
+    h.add('span', { id: 'newsletter-send-status' }, panel);
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    let finish;
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }] }),
+      post: () => new Promise((r) => { finish = r; }),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    toggle.fire('click');
+    await h.flush();
+    confirm.fire('click');
+    toggle.fire('click');
+    cancel.fire('click');
+    h.drain();
+    const whileSending = { hidden: panel.hidden, toggle: toggle.textContent, disabled: confirm.disabled };
+    finish({ sent_to: 1 });
+    await h.flush();
+    cancel.fire('click');
+    return { whileSending, afterwards: { toggle: toggle.textContent } };
   },
 
   // A field the server refuses is named by its label, in a plain sentence.

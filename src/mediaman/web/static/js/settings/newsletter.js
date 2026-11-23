@@ -200,12 +200,18 @@
         rows.close(newsletterPanel, clearStatus);
       }
 
+      // A panel that is sending cannot be closed from its own buttons.
+      function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
       if (btnSendNL) btnSendNL.addEventListener('click', function () {
+        if (sending()) return;
         rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
-      if (btnCancelNL) btnCancelNL.addEventListener('click', closeNewsletter);
+      if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
+        if (sending()) return;
+        closeNewsletter();
+      });
       // A changed choice of recipients makes the last message stale, unless a send is under way.
-      function clearUnlessSending() { if (!(btnConfirmNL && btnConfirmNL.disabled)) clearStatus(); }
+      function clearUnlessSending() { if (!sending()) clearStatus(); }
       if (newsletterPanel) newsletterPanel.addEventListener('change', clearUnlessSending);
 
       // Fetch-token guards against a race where the user closes and re-opens

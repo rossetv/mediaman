@@ -99,6 +99,18 @@ def test_form_message_clears_when_the_person_types_again() -> None:
     assert out["nlShown"] and out["afterChange"] == ""
 
 
+def test_account_message_clears_on_edit_but_not_while_sending() -> None:
+    out = _run("accountClearOnInput")
+    assert out["shown"] and out["afterInput"] == ""
+    assert out["whileSending"] == {"text": "Working", "disabled": True}
+
+
+def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
+    out = _run("newsletterBusy")
+    assert out["whileSending"] == {"hidden": False, "toggle": "Close", "disabled": True}
+    assert out["afterwards"] == {"toggle": "Select recipients"}
+
+
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]
     assert "Base URL must start with http:// or https://." in text
