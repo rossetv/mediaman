@@ -157,3 +157,46 @@ class TestNoReload:
         src = (_JS / "dashboard.js").read_text(encoding="utf-8")
         assert "'Scan failed'" not in src
         assert "Retry scan" in src
+
+
+class TestBannerCountFollowsKeepAndClear:
+    def _banner(self, client) -> str:
+        parser = _Fragments()
+        parser.feed(client.get("/").text)
+        return " ".join(parser.roots_text.split())
+
+    def test_count_drops_after_a_keep_and_folder_goes_at_zero(
+        self, app_factory, authed_client, conn
+    ):
+        ids = []
+        for n in (1, 2):
+            insert_media_item(conn, id=f"m{n}", title=f"F{n}", plex_rating_key=f"rk{n}")
+            ids.append(insert_scheduled_action(conn, media_item_id=f"m{n}", token=f"tok{n}"))
+        write_delete_root_state(conn, {"/media/tv": 2}, {"/media/tv": ids})
+        conn.commit()
+        app = app_factory(
+            dashboard_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+        )
+        client = authed_client(app, conn)
+        assert "2 scheduled deletions are waiting" in self._banner(client)
+
+        conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (ids[0],))
+        conn.commit()
+        assert "1 scheduled deletion is waiting" in self._banner(client)
+
+        conn.execute("DELETE FROM scheduled_actions")
+        conn.commit()
+        assert "/media/tv" not in self._banner(client)
+
+    def test_row_recorded_with_counts_only_still_renders(self, app_factory, authed_client, conn):
+        write_delete_root_state(conn, {"/media/tv": 3})
+        conn.commit()
+        app = app_factory(
+            dashboard_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+        )
+        client = authed_client(app, conn)
+        assert "3 scheduled deletions are waiting" in self._banner(client)

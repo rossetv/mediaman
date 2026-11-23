@@ -21,7 +21,6 @@ import logging
 import os
 import re
 import sqlite3
-from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -752,16 +751,17 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
 _FOLDER_AUDIT_ID = "_delete_root:"
 
 
-def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, int]) -> None:
-    """Store *waiting* (folder -> items held back) and audit how it differs from the last pass.
+def _record_folders_unavailable(conn: sqlite3.Connection, waiting: dict[str, list[int]]) -> None:
+    """Store *waiting* (folder -> ids of the rows held back) and audit how it differs from the last pass.
 
     A folder newly held, or holding a different count, gets a row; a folder no
     longer held gets one saying nothing waits on it any more, which does not
     mean it has content: its last waiting row may simply have gone.
     """
     previous = read_delete_root_state(conn)
-    write_delete_root_state(conn, waiting)
-    for folder, count in waiting.items():
+    write_delete_root_state(conn, {f: len(ids) for f, ids in waiting.items()}, waiting)
+    for folder, ids in waiting.items():
+        count = len(ids)
         if previous.get(folder) == count:
             continue
         items = "1 scheduled deletion waits" if count == 1 else f"{count} scheduled deletions wait"
@@ -865,14 +865,13 @@ class DeletionExecutor:
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
         due = [row for row in rows if not is_kept_deletion(self._conn, row.id, now.isoformat())]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
-        waiting = Counter(
-            folder
-            for row in due
-            if allowed_roots and (folder := _unavailable_for(row, allowed_roots)) is not None
-        )
+        waiting: dict[str, list[int]] = {}
+        for row in due:
+            if allowed_roots and (folder := _unavailable_for(row, allowed_roots)) is not None:
+                waiting.setdefault(folder, []).append(row.id)
         for row in due:
             log_audit(self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}")
-        _record_folders_unavailable(self._conn, dict(waiting))
+        _record_folders_unavailable(self._conn, waiting)
         self._conn.commit()
 
     def _recover_then_fetch_pending(self, now: datetime) -> list[DeletionRow]:
@@ -917,7 +916,10 @@ class DeletionExecutor:
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
-        _record_folders_unavailable(self._conn, dict(Counter(self._waiting.values())))
+        by_folder: dict[str, list[int]] = {}
+        for row_id, folder in self._waiting.items():
+            by_folder.setdefault(folder, []).append(row_id)
+        _record_folders_unavailable(self._conn, by_folder)
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()

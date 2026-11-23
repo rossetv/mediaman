@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.core.delete_root_state import read_delete_root_state
+from mediaman.core.delete_root_state import read_delete_root_waiting
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.scanner.repository import read_delete_allowed_roots_setting
@@ -63,7 +63,7 @@ def dashboard_page(request: Request) -> Response:
     reclaimed_total = format_bytes(sum_reclaimed_bytes(conn))
 
     # Read from the settings row only; the page never touches a mount.
-    unavailable_roots = sorted(read_delete_root_state(conn).items())
+    unavailable_roots = sorted(read_delete_root_waiting(conn).items())
     deletions_off = not read_delete_allowed_roots_setting(conn, quiet=True)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
