@@ -46,7 +46,7 @@ ACTION_BADGE_CLASS = {
     "scanned": "badge-action-scanned",
     "scheduled": "badge-action-scheduled",
     ACTION_SCHEDULED_DELETION: "badge-action-scheduled",
-    ACTION_SNOOZED: "badge-action-snoozed",
+    ACTION_SNOOZED: "badge-action-protected",
     "kept": "badge-action-protected",
     "protected": "badge-action-protected",
     ACTION_PROTECTED_FOREVER: "badge-action-protected",
@@ -71,12 +71,15 @@ ACTION_BADGE_CLASS = {
 }
 
 ACTION_LABELS = {
+    # A snooze is recorded when an admin or viewer keeps an item for a while.
+    ACTION_SNOOZED: "kept",
     "protected": "kept",
     ACTION_PROTECTED_FOREVER: "kept",
-    "unprotected": "unkept",
+    "unprotected": "keep removed",
+    "unkept": "keep removed",
     ACTION_SCHEDULED_DELETION: "scheduled",
     "kept_show": "kept show",
-    "removed_show_keep": "unkept show",
+    "removed_show_keep": "keep removed",
     "dry_run_skip": "dry run: skipped",
     "delete_failed": "delete failed",
     "delete_failed_permanent": "delete failed",
@@ -91,6 +94,35 @@ ACTION_LABELS = {
     "re_downloaded": "re-downloaded",
 }
 
+SECURITY_EVENT_LABELS = {
+    "login.success": "Signed in",
+    "login.failed": "Sign-in failed",
+    "logout": "Signed out",
+    "user.created": "User created",
+    "user.deleted": "User deleted",
+    "user.role_changed": "User role changed",
+    "user.email_updated": "User email changed",
+    "user.unlocked": "User unlocked",
+    "password.changed": "Password changed",
+    "password.force_changed": "Password changed",
+    "reauth.granted": "Password confirmed",
+    "reauth.failed": "Password confirmation failed",
+    "session.destroy": "Session ended",
+    "session.revoke_all": "All sessions ended",
+    "settings.write": "Settings changed",
+    "settings.write.throttled": "Settings changes throttled",
+    "scan.triggered": "Scan started",
+    "scan.cleared": "Scan cleared",
+    "library.sync": "Library synced",
+    "library.sync.failed": "Library sync failed",
+    "newsletter.sent": "Newsletter sent",
+    "subscriber.added": "Subscriber added",
+    "subscriber.removed": "Subscriber removed",
+    "subscriber.opted_out": "Subscriber opted out",
+}
+
+_SECURITY_WHO_RE = re.compile(r"^actor=(\S+) ip=(\S+)")
+
 _DELETE_ROOT_PREFIX = "_delete_root:"
 
 _CONTROL_BYTES_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -103,13 +135,27 @@ def _scrub_detail(detail: str | None) -> str:
     return _CONTROL_BYTES_RE.sub("", detail)
 
 
+def _security_label(event: str) -> str:
+    return (
+        SECURITY_EVENT_LABELS.get(event) or event.replace(".", " ").replace("_", " ").capitalize()
+    )
+
+
+def _security_detail(detail: str | None) -> str:
+    """Return "who from where" for a security row; the raw body is never shown."""
+    m = _SECURITY_WHO_RE.match(_scrub_detail(detail))
+    if not m:
+        return ""
+    return " from ".join(p for p in m.groups() if p != "-")
+
+
 def _build_item(r: AuditRow) -> dict[str, object]:
     action = r.action
     is_security = isinstance(action, str) and action.startswith("sec:")
 
     if is_security:
-        title = action[4:]
-        action_label = action[4:]
+        title = _security_label(action[4:])
+        action_label = "security"
         badge = "badge-action-security"
     else:
         resolved_title = r.mi_title or r.ks_title
@@ -130,7 +176,7 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         "action": action,
         "action_label": action_label,
         "badge_class": badge,
-        "detail": _scrub_detail(r.detail),
+        "detail": _security_detail(r.detail) if is_security else _scrub_detail(r.detail),
         "space_impact": format_bytes(r.space_reclaimed_bytes) if r.space_reclaimed_bytes else "",
         "created_at": r.created_at,
         "title": title,

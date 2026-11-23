@@ -53,7 +53,7 @@ class TestSecurityFilter:
         assert body["total"] == 1
         item = body["items"][0]
         assert item["action"] == "sec:reauth.granted"
-        assert item["title"] == "reauth.granted"
+        assert item["title"] == "Password confirmed"
         assert item["is_security"] is True
         assert item["badge_class"] == "badge-action-security"
 

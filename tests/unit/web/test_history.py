@@ -365,8 +365,8 @@ class TestSecurityTitleHoist:
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) == 1
-        # Must be the event name, not "plex_token".
-        assert items[0]["title"] == "settings.write"
+        # Must be the event label, not "plex_token".
+        assert items[0]["title"] == "Settings changed"
         assert items[0]["title"] != "plex_token"
 
 
@@ -551,3 +551,46 @@ class TestScannerTitlesWithPunctuation:
             "Star Wars — A New Hope",
             "Schindler's List",
         }
+
+
+class TestHistoryBadgesAndSecurityRows:
+    def _page(self, app_factory, authed_client, conn) -> str:
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/history")
+        assert resp.status_code == 200
+        return resp.text
+
+    def test_keep_rows_are_badged_kept_and_removal_as_keep_removed(
+        self, app_factory, authed_client, conn
+    ):
+        insert_audit_log(
+            conn, media_item_id="m1", action="snoozed", detail="Kept for 30 days by admin (a)"
+        )
+        insert_audit_log(
+            conn, media_item_id="m2", action="unprotected", detail="Protection removed by a"
+        )
+        html = self._page(app_factory, authed_client, conn)
+        assert re.findall(r'<span class="pill pill--(\w+)">\s*([^<]+?)\s*</span>', html) == [
+            ("neutral", "keep removed"),
+            ("kept", "kept"),
+        ]
+
+    def test_security_rows_show_readable_label_and_no_raw_json(
+        self, app_factory, authed_client, conn
+    ):
+        from mediaman.core.audit import security_event
+
+        security_event(
+            conn, event="login.success", actor="admin", ip="10.0.0.1", detail={"ua_hash": "abc123"}
+        )
+        security_event(conn, event="user.created", actor="admin", ip="10.0.0.1")
+        html = self._page(app_factory, authed_client, conn)
+        assert "Signed in" in html
+        assert "User created" in html
+        assert "ua_hash" not in html
+        assert "login.success" not in html
+        assert "admin from 10.0.0.1" in html
