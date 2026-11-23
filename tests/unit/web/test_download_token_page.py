@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -643,6 +644,39 @@ class TestYoutubeTrailerKeyValidation:
         assert ctx["item"]["trailer_key"] is None
 
 
+def _render_queued_page(
+    app_factory, conn, secret_key, email: str | None, recommendation_id: int | None = None
+) -> str:
+    from pathlib import Path
+
+    from fastapi.templating import Jinja2Templates
+
+    template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+    app = app_factory(
+        download_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(template_dir))},
+    )
+    token = generate_download_token(
+        email=email,
+        action="download",
+        title="Dune",
+        media_type="movie",
+        tmdb_id=42,
+        recommendation_id=recommendation_id,
+        secret_key=secret_key,
+    )
+    queued_in_radarr = {
+        "radarr_movies": {42: {"hasFile": False, "monitored": True}},
+        "radarr_queue_tmdb_ids": set(),
+    }
+    with patch.object(_download_confirm, "_get_radarr_cache_cached", return_value=queued_in_radarr):
+        resp = TestClient(app).get(f"/download/{token}")
+    assert resp.status_code == 200
+    assert "dl-hint" in resp.text
+    return resp.text
+
+
 class TestDownloadPageEmailPromise:
     """The page only promises an email when the link carries an address to send it to."""
 
@@ -651,46 +685,39 @@ class TestDownloadPageEmailPromise:
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def _render_queued_page(self, app_factory, conn, secret_key, email: str | None) -> str:
-        from pathlib import Path
-
-        from fastapi.templating import Jinja2Templates
-
-        template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
-        app = app_factory(
-            download_router,
-            conn=conn,
-            state_extras={"templates": Jinja2Templates(directory=str(template_dir))},
-        )
-        token = generate_download_token(
-            email=email,
-            action="download",
-            title="Dune",
-            media_type="movie",
-            tmdb_id=42,
-            recommendation_id=None,
-            secret_key=secret_key,
-        )
-        queued_in_radarr = {
-            "radarr_movies": {42: {"hasFile": False, "monitored": True}},
-            "radarr_queue_tmdb_ids": set(),
-        }
-        with patch.object(
-            _download_confirm, "_get_radarr_cache_cached", return_value=queued_in_radarr
-        ):
-            resp = TestClient(app).get(f"/download/{token}")
-        assert resp.status_code == 200
-        assert "dl-hint" in resp.text
-        return resp.text
-
     def test_link_without_email_promises_no_email(self, app_factory, conn, secret_key):
-        page = self._render_queued_page(app_factory, conn, secret_key, email=None)
+        page = _render_queued_page(app_factory, conn, secret_key, email=None)
 
         assert "notified by email" not in page
         assert '"notify_by_email": false' in page
 
     def test_link_with_email_still_promises_one(self, app_factory, conn, secret_key):
-        page = self._render_queued_page(app_factory, conn, secret_key, email="a@example.com")
+        page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
         assert "notified by email" in page
         assert '"notify_by_email": true' in page
+
+
+class TestDownloadPageTrailer:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_trailer_iframe_uses_no_cookie_origin(self, app_factory, conn, secret_key):
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            trailer_key="dQw4w9WgXcQ",
+            created_at="2026-01-01",
+        )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        iframe = re.search(r'<iframe src="([^"]+)"', page)
+        assert iframe is not None
+        assert iframe.group(1) == "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0"
+        assert 'sandbox="allow-scripts allow-same-origin allow-presentation"' in page

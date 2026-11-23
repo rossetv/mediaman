@@ -61,7 +61,7 @@ _CSP_STATIC_DIRECTIVES = (
     "https://artworks.thetvdb.com; "
     "connect-src 'self'; "
     "media-src 'self' blob:; "
-    "frame-src https://www.youtube.com https://www.youtube-nocookie.com; "
+    "frame-src https://www.youtube-nocookie.com; "
     "frame-ancestors 'none'; "
     "object-src 'none'; "
     "base-uri 'self'; "

@@ -47,7 +47,8 @@ class TestSecurityHeadersMiddleware:
         assert "object-src 'none'" in csp
         assert "base-uri 'self'" in csp
         assert "form-action 'self'" in csp
-        assert "frame-src https://www.youtube.com https://www.youtube-nocookie.com" in csp
+        assert "frame-src https://www.youtube-nocookie.com;" in csp
+        assert "www.youtube.com" not in csp
         # img-src allows any HTTPS source (Radarr/Sonarr/Plex return
         # posters from shifting CDNs we can't enumerate).
         assert "img-src 'self' data: blob: https:" in csp
@@ -61,9 +62,7 @@ class TestSecurityHeadersMiddleware:
         assert directives["connect-src"] == "connect-src 'self'"
         assert directives["default-src"] == "default-src 'self'"
         assert directives["object-src"] == "object-src 'none'"
-        assert directives["frame-src"] == (
-            "frame-src https://www.youtube.com https://www.youtube-nocookie.com"
-        )
+        assert directives["frame-src"] == "frame-src https://www.youtube-nocookie.com"
 
     def test_only_frame_src_changed_in_policy(self):
         """Every directive other than frame-src keeps its exact value."""
@@ -84,7 +83,7 @@ class TestSecurityHeadersMiddleware:
             ),
             "connect-src": "connect-src 'self'",
             "media-src": "media-src 'self' blob:",
-            "frame-src": ("frame-src https://www.youtube.com https://www.youtube-nocookie.com"),
+            "frame-src": "frame-src https://www.youtube-nocookie.com",
             "frame-ancestors": "frame-ancestors 'none'",
             "object-src": "object-src 'none'",
             "base-uri": "base-uri 'self'",
