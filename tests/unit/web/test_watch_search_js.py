@@ -152,3 +152,16 @@ def test_the_rows_and_results_fade_out_then_in_and_can_be_interrupted() -> None:
     assert out["afterStale"] == {"results": False, "browse": True}
     assert out["quick"] == {"browse": False, "results": True, "cancelled": True}
     assert out["reduced"] == {"ran": 0, "browse": True, "results": False}
+
+
+def test_a_new_search_while_the_last_results_fade_out_ends_in_one_clean_view() -> None:
+    out = _run("settledAfterFade")
+    # No match: the line, and no groups or placeholders left behind from the fade.
+    assert out["nothing"]["heads"] == []
+    assert out["nothing"]["skeleton"] == 0
+    assert out["nothing"]["stacks"] == 0
+    assert out["nothing"]["msg"].startswith("No matches for “zzqx”")
+    # Two searches in a row: only the last one's results stand.
+    assert out["chained"]["titles"] == ["Harrow"]
+    assert out["chained"]["heads"] == ["In your library"]
+    assert (out["chained"]["skeleton"], out["chained"]["stacks"]) == (0, 0)

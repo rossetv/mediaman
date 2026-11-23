@@ -357,6 +357,53 @@ const scenarios = {
     return out;
   },
 
+  // Results replace each other with a cross-fade; whatever order the queries and replies come in, the end is one clean view.
+  async settledAfterFade() {
+    const live = [];
+    // Motion is on once the first results are up: every fade runs until the scenario ends it.
+    const animate = function () { const a = { cancel() {} }; live.push(a); return a; };
+    const finish = () => live.splice(0).forEach((a) => a.onfinish && a.onfinish());
+    const page = async () => {
+      const p = load(ADMIN);
+      await p.search('orchard');
+      await p.answer('/api/watch/search?', { items: [LIB] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+      p.ctx.matchMedia = () => ({ matches: false });
+      return p;
+    };
+    const view = (p) => ({
+      heads: p.heads(), titles: p.doc.querySelectorAll('.watch-card__title').map((t) => t.textContent), skeleton: p.doc.querySelectorAll('.watch-card--skel').length,
+      stacks: p.results.children.filter((n) => n.style.display === 'grid').length, msg: p.$('watch-results-msg').textContent,
+    });
+    const out = {};
+    const proto = require('./fake_dom').Node.prototype;
+    proto.animate = animate;
+    try {
+      // Nothing matches while the old results are still fading out.
+      const a = await page();
+      await a.search('zzqx');
+      await a.answer('/api/watch/search?', { items: [] });
+      await a.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      finish();
+      await settle();
+      out.nothing = view(a);
+
+      // The next query lands before the last fade is over.
+      const b = await page();
+      await b.search('tallow');
+      await b.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Tallow' }] });
+      await b.search('harrow');
+      await b.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Harrow' }] });
+      await b.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      finish();
+      await settle();
+      out.chained = view(b);
+    } finally {
+      delete proto.animate;
+    }
+    return out;
+  },
+
   // A query under two letters asks the library only; two letters ask TMDB too.
   async short() {
     const p = load(ADMIN);
