@@ -48,11 +48,6 @@ class TestListFragment:
         resp = client.get("/watch/list")
         assert resp.status_code == 200
 
-    def test_context_includes_username(self, _app, authed_client, conn):
-        client = authed_client(_app, conn)
-        ctx = client.get("/watch/list").json()
-        assert ctx["username"] == "admin"
-
     def test_context_includes_items_and_stats(self, _app, authed_client, conn):
         _insert_movie(conn, "m1", "Dune")
         client = authed_client(_app, conn)
@@ -75,17 +70,23 @@ class TestListFragment:
         assert resp.status_code == 200
         assert resp.json()["current_type"] == ""
 
-    def test_page_below_minimum_rejected(self, _app, authed_client, conn):
-        """A page value of 0 is rejected with 422 at the input layer."""
+    def test_page_below_minimum_is_clamped_to_the_first_page(self, _app, authed_client, conn):
+        for i in range(3):
+            _insert_movie(conn, f"m{i}", f"Film {i}")
         client = authed_client(_app, conn)
-        resp = client.get("/watch/list?page=0")
-        assert resp.status_code == 422
+        resp = client.get("/watch/list?page=0&per_page=2")
+        assert resp.status_code == 200
+        ctx = resp.json()
+        assert (ctx["page"], ctx["page_start"], ctx["page_end"]) == (1, 1, 2)
 
-    def test_per_page_above_maximum_rejected(self, _app, authed_client, conn):
-        """A per_page value above 100 is rejected with 422."""
+    def test_per_page_above_maximum_is_clamped_to_100(self, _app, authed_client, conn):
+        for i in range(101):
+            _insert_movie(conn, f"m{i}", f"Film {i}")
         client = authed_client(_app, conn)
         resp = client.get("/watch/list?per_page=9999")
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        ctx = resp.json()
+        assert (ctx["per_page"], len(ctx["items"]), ctx["total_pages"]) == (100, 100, 2)
 
     def test_pagination_metadata_correct(self, _app, authed_client, conn):
         """page_start, page_end, and total_pages are computed correctly."""

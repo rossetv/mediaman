@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
@@ -150,19 +150,14 @@ def render_list(request: Request, conn: sqlite3.Connection, params: Mapping[str,
 
 
 @router.get("/watch/list", response_class=HTMLResponse)
-def watch_list(
-    request: Request,
-    page: int = Query(default=1, ge=1, le=MAX_PAGE),
-    per_page: int = Query(default=DEFAULT_PER_PAGE, ge=1, le=MAX_PER_PAGE),
-) -> Response:
+def watch_list(request: Request) -> Response:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
+    _username, conn = resolved
     templates = cast(Jinja2Templates, request.app.state.templates)
-    context = list_context(conn, request.query_params)
     response = templates.TemplateResponse(
-        request, "_watch_list.html", {"username": username, **context}
+        request, "_watch_list.html", list_context(conn, request.query_params)
     )
     response.headers["Cache-Control"] = "no-store"
     return response
