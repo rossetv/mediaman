@@ -230,7 +230,7 @@ class TestKeepPageRoute:
         resp = client.get(f"/keep/{'x' * 5000}")
 
         assert resp.status_code == 200
-        assert "invalid" in resp.text
+        assert json.loads(resp.text)["state"] == "invalid"
 
     def test_invalid_token_returns_invalid_state(self, conn):
         app = self._make_app(conn)
@@ -239,7 +239,7 @@ class TestKeepPageRoute:
         resp = client.get("/keep/badtoken")
 
         assert resp.status_code == 200
-        assert "invalid" in resp.text
+        assert json.loads(resp.text)["state"] == "invalid"
 
     def test_valid_token_returns_active_state(self, conn):
         _insert_media_item(conn)
