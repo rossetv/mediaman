@@ -19,6 +19,7 @@ from mediaman.bootstrap.data_dir import (
     assert_data_dir_writable,
     remediation_for,
 )
+from mediaman.services.infra import disk_cache
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -66,6 +67,8 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
     # request doesn't race with the lazy mkdir inside the poster route.
     poster_cache_dir = Path(config.data_dir) / "poster_cache"
     poster_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    disk_cache.init(config.data_dir)
 
 
 __all__ = [
