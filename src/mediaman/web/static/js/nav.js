@@ -64,7 +64,15 @@
 
   if (window.matchMedia) {
     window.matchMedia('(min-width: 700px)').addEventListener('change', function (e) {
-      if (e.matches) closeSheet(false);
+      if (!e.matches) return;
+      var s = sheet();
+      var a = document.activeElement;
+      // The browser may already have dropped focus to <body> when the
+      // sheet went display:none, so an open modal sheet counts as focus in it.
+      var hadFocus = s && s.hasAttribute('open') && (!a || a === document.body || s.contains(a));
+      closeSheet(false);
+      var main = document.getElementById('main-content');
+      if (hadFocus && main) main.focus();
     });
   }
 })();
