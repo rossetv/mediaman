@@ -151,6 +151,7 @@ const scenarios = {
       label: text(slot.querySelector('.watch-group-label')),
       refs: trending.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
       hrefs: trending.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('href')),
+      kinds: p.doc.querySelectorAll('[data-discover-row] [data-title-ref]').map((a) => [a.getAttribute('data-title-ref'), a.getAttribute('data-kind')]),
       badges: ['movie-11', 'tmdb-movie-2', 'tmdb-tv-3', 'tmdb-movie-4'].map((r) => badgeOf(p.doc, r)),
       hostileTitle: trending.querySelectorAll('.watch-card__title')[3].childNodes.map((n) => n.nodeType),
       arrows: p.doc.querySelectorAll('[data-discover-row] .watch-row__viewport').map((v) => v.querySelectorAll('.watch-row__arrow').length),

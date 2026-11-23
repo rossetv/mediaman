@@ -184,6 +184,7 @@
       ref: ref,
       origin: opts.origin || (wasOpen && cur ? cur.origin : null),
       title: opts.title || '',
+      kind: kindOf(ref, opts.kind),
       data: null,
       facts: null,
       keepId: null,
@@ -209,6 +210,19 @@
     if (!wasOpen) show(cur.origin);
     titleEl.focus({ preventScroll: true });
     load(cur);
+  }
+
+  /* 'movie', 'show' or '' while the title loads: from the ref, else from
+     whoever opened it or a card of it on the page (a pick's ref says neither). */
+  function kindOf(ref, given) {
+    var m = /^(movie|tmdb-movie|show|tmdb-tv)-/.exec(ref);
+    if (m) return /movie/.test(m[1]) ? 'movie' : 'show';
+    if (given === 'movie' || given === 'show') return given;
+    var cards = toArray(document.querySelectorAll('[data-title-ref][data-kind]')).filter(function (n) {
+      return n.getAttribute('data-title-ref') === ref;
+    });
+    var kind = cards.length ? cards[0].getAttribute('data-kind') : '';
+    return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
   /* Close at the person's request: Back undoes the entry the open added;
@@ -376,8 +390,7 @@
     hide(art, true);
     art.removeAttribute('src');
     art.classList.remove('is-loaded');
-    var kind = /^(movie|tmdb-movie)-/.test(cur.ref) ? 'movie' : /^(show|tmdb-tv)-/.test(cur.ref) ? 'show' : '';
-    kindEl.textContent = kind ? kindLabel({ kind: kind }) : '';
+    kindEl.textContent = cur.kind ? kindLabel({ kind: cur.kind }) : '';
     titleEl.textContent = cur.title;
     if (!cur.title) titleEl.appendChild(skel('skel--line ttl__title-skel'));
     hide(taglineEl, true);
@@ -1559,7 +1572,7 @@
     var ref = card.getAttribute('data-title-ref');
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
-    open(ref, { origin: card, title: cardTitle(card), push: true });
+    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), push: true });
   });
 
   /* ── The address ── */
@@ -1583,7 +1596,7 @@
   window.MMWatch.detail = {
     open: function (ref, opts) {
       opts = opts || {};
-      open(ref, { origin: opts.origin, title: opts.title, push: opts.push !== false });
+      open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, push: opts.push !== false });
     },
     close: requestClose
   };

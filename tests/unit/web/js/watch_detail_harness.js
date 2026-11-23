@@ -280,6 +280,23 @@ const scenarios = {
     return { history: p.history.slice(), gets: p.gets.slice(), reason: p.text('.ttl__reason') };
   },
 
+  // A pick's ref says nothing of its kind: the card that opens it does, and a cold link knows none.
+  async recKind() {
+    const pick = Object.assign({}, REC_DL, { kind: 'show' });
+    const p = load({ routes: { '/api/watch/title/rec-5': pick } });
+    p.run();
+    p.doc.querySelector('.watch-rows').appendChild(build(p.doc,
+      ['a', { class: 'watch-card__link', href: '/watch#title=rec-5', 'data-title-ref': 'rec-5', 'data-kind': 'show' }, 'Pick']));
+    click(p.doc, p.doc.querySelector('[data-title-ref="rec-5"]'));
+    const fromCard = p.text('[data-ttl-part="kind"]');
+    await settle();
+    const cold = load({ hash: '#title=rec-5', routes: { '/api/watch/title/rec-5': pick } });
+    cold.run();
+    const fromColdLink = cold.text('[data-ttl-part="kind"]');
+    await settle();
+    return { fromCard, fromColdLink, loaded: cold.text('[data-ttl-part="kind"]') };
+  },
+
   async libraryMatchSwitches() {
     const p = load({ routes: {
       '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' }),

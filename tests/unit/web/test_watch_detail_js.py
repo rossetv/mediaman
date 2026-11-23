@@ -55,6 +55,13 @@ def test_an_old_recommendation_link_opens_the_pick() -> None:
     assert "two slow mysteries" in out["reason"]
 
 
+def test_a_pick_opened_from_its_card_names_its_kind_while_loading() -> None:
+    out = _run("recKind")
+    assert out["fromCard"] == "TV series"
+    assert out["fromColdLink"] == ""
+    assert out["loaded"] == "TV series"
+
+
 def test_a_tmdb_title_in_the_library_opens_as_the_library_title() -> None:
     out = _run("libraryMatchSwitches")
     assert out["gets"][:2] == ["/api/watch/title/tmdb-movie-77", "/api/watch/title/movie-120"]

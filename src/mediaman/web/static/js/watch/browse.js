@@ -85,6 +85,7 @@
     var link = el('a', 'watch-card__link');
     link.setAttribute('href', safePath(item.href) || '/watch#title=' + ref);
     link.setAttribute('data-title-ref', ref);
+    if (item.kind === 'movie' || item.kind === 'show') link.setAttribute('data-kind', item.kind);
     if (item.in_library) link.setAttribute('data-in-library', '');
     var poster = el('span', 'watch-card__poster');
     var src = safePath(item.poster_url);

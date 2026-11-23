@@ -32,6 +32,11 @@ def test_cards_open_by_title_ref_keep_a_link_and_drop_a_bad_ref() -> None:
     assert out["hrefs"][1] == "/watch#title=tmdb-movie-2"
 
 
+def test_each_card_carries_its_kind_for_the_detail_to_show_while_loading() -> None:
+    kinds = dict(_run("loaded")["kinds"])
+    assert (kinds["rec-7"], kinds["tmdb-tv-3"], kinds["tmdb-movie-2"]) == ("movie", "show", "movie")
+
+
 def test_a_title_from_the_server_is_text_never_markup() -> None:
     assert _run("loaded")["hostileTitle"] == [3]
 
