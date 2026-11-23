@@ -155,6 +155,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   transition: background .15s;
 }
 .snooze-btn:hover { background: var(--s4); }
+form[data-busy] .snooze-btn { opacity: .6; cursor: progress; }
 .snooze-btn .duration { color: var(--accent); font-weight: 600; }
 .snooze-btn.snooze-forever { background: rgba(48,209,88,.15); color: var(--success); }
 .snooze-btn.snooze-forever .duration { color: var(--success); }

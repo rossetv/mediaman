@@ -75,7 +75,7 @@
 
       <div class="snooze-section">
         <div class="snooze-label">Keep this item and delay deletion</div>
-        <form method="post" action="/keep/{{ token }}">
+        <form method="post" action="/keep/{{ token }}" data-submit-guard>
           <div class="snooze-buttons">
             <button class="snooze-btn" type="submit" name="duration" value="7 days">
               Keep for <span class="duration">7 days</span>
@@ -237,4 +237,5 @@
 
   </div>
 </div>
+{% if state == "active" %}<script src="/static/js/submit-guard.js" defer></script>{% endif %}
 {% endblock %}

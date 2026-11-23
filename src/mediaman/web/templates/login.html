@@ -13,20 +13,24 @@
     <div class="error-msg" role="alert">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="/login" novalidate>
+    <form method="post" action="/login" novalidate data-submit-guard>
       <div class="login-field">
         <label for="username">Username</label>
         <input id="username" type="text" name="username"
-               autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
+               autocomplete="username" autocapitalize="none" spellcheck="false"
+               {% if username %}value="{{ username }}"{% else %}autofocus{% endif %} required>
       </div>
 
       <div class="login-field">
         <label for="password">Password</label>
-        <input id="password" type="password" name="password" autocomplete="current-password" required>
+        <input id="password" type="password" name="password" autocomplete="current-password"
+               data-show-password {% if username %}autofocus{% endif %} required>
       </div>
 
       <button class="login-btn" type="submit">Sign in</button>
     </form>
   </div>
 </div>
+<script src="/static/js/submit-guard.js" defer></script>
+<script src="/static/js/show-password.js" defer></script>
 {% endblock %}

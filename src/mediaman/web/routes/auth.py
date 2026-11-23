@@ -112,6 +112,8 @@ def _handle_failed_login(
         "login.html",
         {
             "error": "Invalid username or password.",
+            # Only the posted username comes back (the template escapes it); never the password.
+            "username": username,
         },
     )
 

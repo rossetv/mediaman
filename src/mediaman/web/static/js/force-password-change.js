@@ -109,17 +109,21 @@
     setOk(ckUnique,   r.unique);
 
     var s = score(pw, r);
+    var allOk = r.length && r.classes && r.username && r.unique;
     var pct = Math.min(100, (s / 5) * 100);
     fill.style.width = pct + '%';
     var tone = 'weak';
-    var text = 'Too weak';
-    if (s >= 5)      { tone = 'strong'; text = 'Strong'; }
+    var text = 'Too simple so far';
+    if (s >= 5 && allOk) { tone = 'strong'; text = 'Looks good so far'; }
     else if (s >= 3) { tone = 'ok';     text = 'Getting there'; }
     fill.className = 'fpc-meter-fill ' + tone;
     label.textContent = text;
     label.className = 'fpc-caption-' + tone;
     updateMatch();
   }
+
+  // A rejected password re-renders the page: put the cursor where the fix goes.
+  if (MM.dom.q('.policy-issues')) newPw.focus();
 
   newPw.addEventListener('input', render);
   confirmPw.addEventListener('input', updateMatch);
