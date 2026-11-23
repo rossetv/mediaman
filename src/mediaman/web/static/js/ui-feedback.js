@@ -184,8 +184,10 @@
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || (action ? 8000 : 4000);
     function expire() {
-      // Never take the button away from someone about to press it.
-      if (action && (node.contains(document.activeElement) || node.matches(':hover'))) {
+      // Never take the button away from someone about to press it. A touch
+      // screen's sticky :hover after a tap does not count as a pointer.
+      var pointerHover = window.matchMedia('(hover: hover)').matches && node.matches(':hover');
+      if (action && (node.contains(document.activeElement) || pointerHover)) {
         setTimeout(expire, 2000);
         return;
       }
