@@ -235,8 +235,22 @@
       body.textContent = '';
       lockPage(false);
     });
-    if (origin && document.body.contains(origin)) origin.focus({ preventScroll: true });
+    var to = origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin : cur && cur.fallback;
+    if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
+  }
+
+  /* Where focus goes when the list row the overlay opened from is deleted:
+     the next row's first action, else the previous row's, else the list. */
+  function rowFallback(origin) {
+    var row = origin && origin.closest && origin.closest('tr[data-row-key]');
+    if (!row) return null;
+    var near = row.nextElementSibling || row.previousElementSibling;
+    var action = near && near.querySelector('.keep-trigger, .wl-actions .btn');
+    if (action) return action;
+    var list = row.closest('#watch-list');
+    if (list && !list.hasAttribute('tabindex')) list.setAttribute('tabindex', '-1');
+    return list;
   }
 
   /* ── Loading ── */
@@ -1355,7 +1369,10 @@
     var showRk = w.show_rk || del.show_rk || '';
     var mine = (d.id && ids.indexOf(String(d.id)) >= 0) || (showRk && d.showRk === showRk);
     if (!mine) return;
-    if (d.action === 'delete' && !d.showRk) requestClose();
+    if (d.action === 'delete' && !d.showRk) {
+      cur.fallback = rowFallback(cur.origin);
+      requestClose();
+    }
     else refresh();
   });
 

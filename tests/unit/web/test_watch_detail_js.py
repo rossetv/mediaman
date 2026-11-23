@@ -237,6 +237,19 @@ def test_an_admin_sees_the_facts_and_keeps_or_deletes_through_the_admin_actions(
     assert "Metascore 74" in out["ratings"]
 
 
+def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
+    out = _run("deleteFromListRow")
+    assert out["next"] == {
+        "closed": True,
+        "focus": "del-121",
+        "tabindex": None,
+        "preventScroll": True,
+    }
+    assert out["previous"]["focus"] == "del-119"
+    assert (out["only"]["focus"], out["only"]["tabindex"]) == ("watch-list", "-1")
+    assert out["only"]["preventScroll"] is True
+
+
 def test_without_the_admin_actions_an_admin_keeps_through_the_shared_keep() -> None:
     assert _run("adminWithoutApi") == {"facts": True, "foot": False, "keep": True}
 
