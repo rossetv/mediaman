@@ -129,6 +129,22 @@ class TestPlexLibrariesEndpoint:
         assert resp.json()["error"] == "fetch_failed"
         assert resp.json()["libraries"] == []
 
+    def test_returns_fetch_failed_when_plex_rejects_the_token(
+        self, app_factory, authed_client, conn
+    ):
+        from plexapi.exceptions import Unauthorized
+
+        client = _client(app_factory, authed_client, conn)
+        with patch(
+            "mediaman.web.routes.settings.api.build_plex_from_db",
+            side_effect=Unauthorized("401 expired token"),
+        ):
+            resp = client.get("/api/plex/libraries")
+
+        assert resp.status_code == 200
+        assert resp.json()["error"] == "fetch_failed"
+        assert resp.json()["libraries"] == []
+
     def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""
         app = _app(app_factory, conn)
@@ -471,6 +487,72 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         client = _client(app_factory, authed_client, conn)
         resp = client.put("/api/settings", json={"library_sync_interval": 1441})
         assert resp.status_code == 422
+
+
+class TestSettingsPutReschedulesRunningScheduler:
+    """A saved schedule change must reach the live scheduler, not wait for a restart."""
+
+    @pytest.fixture
+    def scheduler(self):
+        from mediaman.scanner import scheduler as sched
+
+        running = sched.start_scheduler(
+            scan_fn=lambda: None,
+            hour=9,
+            minute=0,
+            sync_fn=lambda: None,
+            sync_interval_minutes=30,
+            secret_key="k",
+        )
+        yield running
+        sched.stop_scheduler()
+
+    @staticmethod
+    def _cron_field(job, name):
+        return str(next(f for f in job.trigger.fields if f.name == name))
+
+    def test_new_scan_time_moves_the_weekly_scan(self, app_factory, authed_client, conn, scheduler):
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert resp.status_code == 200
+        job = scheduler.get_job("weekly_scan")
+        assert self._cron_field(job, "hour") == "14"
+        assert self._cron_field(job, "minute") == "30"
+
+    def test_disabling_library_sync_removes_the_job_and_enabling_adds_it_back(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+
+        client.put("/api/settings", json={"library_sync_interval": 0})
+        assert scheduler.get_job("library_sync") is None
+        assert scheduler.get_job("weekly_scan") is not None
+
+        client.put("/api/settings", json={"library_sync_interval": 15})
+        assert scheduler.get_job("library_sync").trigger.interval.total_seconds() == 15 * 60
+
+    def test_unrelated_setting_leaves_the_schedule_alone(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+        before = scheduler.get_job("weekly_scan")
+
+        resp = client.put("/api/settings", json={"grace_days": 14})
+
+        assert resp.status_code == 200
+        assert scheduler.get_job("weekly_scan").trigger is before.trigger
+
+    def test_saving_a_schedule_with_no_scheduler_running_still_succeeds(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert resp.status_code == 200
+        assert resp.json()["written"] == ["scan_time"]
 
 
 class TestApiTestServiceOpenAiTmdbOmdb:

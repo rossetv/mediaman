@@ -220,6 +220,42 @@ def _build_scheduler_callbacks(
     return scan_callback, sync_callback
 
 
+SCHEDULE_SETTING_KEYS = frozenset(
+    {"scan_day", "scan_time", "scan_timezone", "library_sync_interval"}
+)
+
+
+def reschedule_scan_jobs(conn: sqlite3.Connection, db_path: str | None, secret_key: str) -> bool:
+    """Apply the saved scan schedule to the running scheduler.
+
+    Re-registers the weekly scan and the library-sync job from the DB, and
+    removes the sync job when the interval is 0 (disabled). Returns False and
+    changes nothing when no scheduler is running; raises ``ValueError`` when a
+    stored value is malformed, leaving the current schedule in place.
+    """
+    from mediaman.scanner import scheduler as sched
+
+    cfg = _read_scheduler_config(conn)
+    scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
+    with sched._scheduler_lock:
+        running = sched._scheduler
+        if running is None:
+            return False
+        sched._register_scan_jobs(
+            running,
+            scan_fn=scan_callback,
+            day_of_week=cfg.scan_day,
+            hour=cfg.hour,
+            minute=cfg.minute,
+            timezone=cfg.scan_tz,
+            sync_fn=sync_callback,
+            sync_interval_minutes=cfg.sync_interval,
+        )
+        if cfg.sync_interval == 0 and running.get_job("library_sync") is not None:
+            running.remove_job("library_sync")
+    return True
+
+
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
     from mediaman.scanner.scheduler import start_scheduler
 

@@ -24,8 +24,10 @@ from collections.abc import Callable
 import requests as _requests
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
+from plexapi.exceptions import PlexApiException
 from starlette.responses import Response
 
+from mediaman.bootstrap.scan_jobs import SCHEDULE_SETTING_KEYS, reschedule_scan_jobs
 from mediaman.core.audit import security_event
 from mediaman.core.time import now_iso
 from mediaman.db import get_db
@@ -201,6 +203,12 @@ def _persist_settings(
             "internal_error", status=500, message="Internal error during settings write"
         )
     _invalidate_test_cache_for_keys(set(written))
+    if SCHEDULE_SETTING_KEYS.intersection(written):
+        # The values are already saved, so a failure here must not turn the save into an error.
+        try:
+            reschedule_scan_jobs(conn, getattr(request.app.state, "db_path", None), secret_key)
+        except ValueError:
+            logger.warning("settings.reschedule_failed", exc_info=True)
     return respond_ok({"status": "saved", "written": written, "ignored": ignored})
 
 
@@ -395,6 +403,8 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         _requests.RequestException,
         ArrError,
         ConfigDecryptError,
+        # a wrong or expired token surfaces as plexapi's Unauthorized
+        PlexApiException,
         ValueError,
     ):
         logger.exception("Failed to fetch Plex libraries")
