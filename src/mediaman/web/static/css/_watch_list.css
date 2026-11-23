@@ -1,5 +1,5 @@
 /* Watch page: the admin list view of the library (stats, filters, table,
-   pager), its phone cards below 640px, the busy and leaving rows, and the
+   pager), its phone cards below 700px, the busy and leaving rows, and the
    keep and season dialogs admin.js opens. */
 
 .wl { padding: 24px var(--pad) 0; }
@@ -68,8 +68,8 @@
 .wl-table .keep-trigger,
 .wl-table .btn--sm { height: 32px; min-height: 32px; }
 .wl-table .btn--sm { padding-inline: 14px; }
-/* Touch screens wider than a phone (tablets) still get 44px actions. */
-@media (pointer: coarse) {
+/* 44px actions below 700px, and on touch screens wider than that (tablets). */
+@media (pointer: coarse), (max-width: 699.98px) {
   .wl-table .keep-trigger,
   .wl-table .btn--sm { height: 44px; min-height: 44px; }
 }
@@ -110,17 +110,22 @@
 .wl .page-of { display: none; }
 
 /* ── Dialogs admin.js opens (TV keep, season delete) ── */
+.keep-dialog-note { margin: 14px 0 0; font-size: 12px; color: var(--t3); }
+.keep-dialog-note:empty { display: none; }
 .wl-dialog.active { animation: wl-dialog-scrim var(--dur) var(--ease-out); }
 .wl-dialog.active > .keep-dialog { animation: wl-dialog-in var(--dur) var(--ease-out); }
 @keyframes wl-dialog-scrim { from { opacity: 0; } }
 @keyframes wl-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 
-/* ── Tablet: last watched folds into the title's sub-line ── */
+/* ── Tablet: last watched folds into the title's sub-line, and the
+   actions column gives the title what Keep and Delete do not need ── */
 @media (max-width: 1023.98px) {
   .wl-table thead th,
   .wl-table tbody td { padding-left: 8px; padding-right: 8px; }
 }
-@media (min-width: 640px) and (max-width: 1023.98px) {
+@media (min-width: 700px) and (max-width: 1023.98px) {
+  .wl-table .col-del { width: 104px; }
+  .wl-table .col-act { width: auto; }
   .wl-table thead th:nth-child(5),
   .wl-table tbody td:nth-child(5) { display: none; }
   .wl-sub-watched { display: inline; }
@@ -132,14 +137,14 @@
   .wl-skel__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* ── Phone: each row is a card ── */
-@media (max-width: 639.98px) {
+/* ── Phone, and narrow windows too tight for seven columns: each row is a card ── */
+@media (max-width: 699.98px) {
   .wl,
   .wl-skel { padding-top: 18px; }
   .wl-stat { padding: 14px 16px; }
   .wl-stat__value { font-size: 26px; }
   .wl-toolbar .wl-pills { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 0; }
-  .wl-toolbar .fpill { padding-inline: 10px; }
+  .wl-toolbar .fpill { padding-inline: 10px; min-width: 44px; justify-content: center; }
   .wl-sort { width: 100%; margin-left: 0; }
   .wl-sort .inp { flex: 1; min-height: 44px; }
 
@@ -164,6 +169,9 @@
   .wl-table tbody td:nth-child(5) { display: none; }
   .wl-table tbody td:nth-child(6) { grid-row: 2; grid-column: 4; justify-self: end; text-align: right; }
   .wl-table tbody td:nth-child(7) { grid-row: 3; grid-column: 1 / 5; margin-top: 8px; text-align: left; }
+  /* The title is the one way into the detail: a hit area past its text. */
+  .wl-title { position: relative; }
+  a.wl-title::after { content: ""; position: absolute; inset: -14px -6px; }
   .wl-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
   .wl-actions > .keep-wrapper { display: flex; }
   .wl-actions .keep-trigger { flex: 1; justify-content: center; }
