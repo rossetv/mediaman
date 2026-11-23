@@ -419,9 +419,7 @@ class TestLibraryIndex:
         clock.now += 2
         assert self._index(library, None).movies_by_tmdb == {12: "movie-100"}
 
-    def test_a_tvdb_id_tmdb_cannot_match_is_not_asked_again_within_its_expiry(
-        self, library, clock
-    ):
+    def test_a_tvdb_id_tmdb_cannot_match_is_not_asked_again_within_its_expiry(self, library, clock):
         finder = Finder(None)
 
         for _ in range(3):
