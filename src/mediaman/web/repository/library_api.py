@@ -349,6 +349,7 @@ def finalise_delete_in_tx(
             title=snapshot.title,
         )
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
+        conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
 
 

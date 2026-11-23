@@ -200,9 +200,10 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
 
 
 def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
-    """Delete ``media_items`` rows in chunks.
+    """Delete ``media_items`` rows, and the Watch progress saved against them, in chunks.
 
-    Issues only the ``media_items`` DELETE — the matching
+    Besides the ``media_items`` DELETE this removes the ``watch_progress``
+    rows that point at them. The matching
     ``scheduled_actions`` rows belong to the ``scheduled_actions``
     repository and are removed by
     scheduled_actions.delete_actions_for_media_items, which the
@@ -217,6 +218,10 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
         # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
+        conn.execute(  # nosec B608
+            f"DELETE FROM watch_progress WHERE media_item_id IN ({placeholders})",
+            tuple(chunk),
+        )
         conn.execute(  # nosec B608
             f"DELETE FROM media_items WHERE id IN ({placeholders})",
             tuple(chunk),

@@ -242,6 +242,7 @@ def _reconcile_one_intent(
                 conn.execute(
                     "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
                 )
+                conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_item_id,))
                 conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
             _complete_delete_intent(conn, intent_id)
             logger.info(
