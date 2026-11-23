@@ -83,6 +83,16 @@
         return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
       }
 
+      // A throttled service is not a disconnected one, so a 429 gets the
+      // warning tone, which the rail badge does not count. Returns the label.
+      function setFailedStatus(service, err) {
+        var label = (err && err.status === 429)
+          ? 'Rate limited'
+          : MM.api.messageOf(err, 'Connection failed');
+        self.setConnStatus(service, (err && err.status === 429) ? 'warn' : 'err', label);
+        return label;
+      }
+
       function testService(service, btn) {
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) self.announce(service, '');
@@ -94,8 +104,7 @@
           })
           .catch(function (err) {
             // MM.api rejects on ok:false too, so a failed test lands here.
-            var label = MM.api.messageOf(err, 'Connection failed');
-            self.setConnStatus(service, 'err', label);
+            var label = setFailedStatus(service, err);
             if (btn) { btn.textContent = 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
           })
           .then(function () {
@@ -144,13 +153,9 @@
                 self.setConnStatus(c.service, 'ok', 'Connected');
               })
               .catch(function (err) {
-                // err is an APIError with .status and .message. 429 is the
-                // common case here; staggering above reduces occurrences, but
-                // show it distinctly if it still fires.
-                // A throttled service is not a disconnected one, so it gets the
-                // warning tone, which the rail badge does not count.
-                if (err && err.status === 429) self.setConnStatus(c.service, 'warn', 'Rate limited');
-                else self.setConnStatus(c.service, 'err', MM.api.messageOf(err, 'Connection failed'));
+                // 429 is the common case here; staggering above reduces
+                // occurrences, but it is still shown distinctly if it fires.
+                setFailedStatus(c.service, err);
               });
           }, idx * 200);
         });

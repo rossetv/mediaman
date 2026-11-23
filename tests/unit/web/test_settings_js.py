@@ -76,3 +76,11 @@ def test_rate_limited_service_is_not_counted_as_not_connected() -> None:
     out = _run("rail")
     assert "warn" in out["plex"].split()
     assert out["badge"] == "1"
+
+
+def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
+    out = _run("manualRateLimit")
+    assert "warn" in out["pill"].split()
+    assert "err" not in out["pill"].split()
+    assert out["label"].strip().endswith("Rate limited")
+    assert out["badge"] is None

@@ -340,6 +340,27 @@ const scenarios = {
     const badge = item.querySelector('.rail-count');
     return { plex: h.doc.querySelector('[data-conn="plex"]').className, badge: badge ? badge.textContent : null };
   },
+
+  // A pressed Test that gets a 429 shows the warning tone and leaves the badge alone.
+  async manualRateLimit() {
+    const h = build();
+    h.load('settings/integrations.js');
+    const item = h.add('a', { className: 'setg-rail-item' });
+    item.setAttribute('href', '#setg-integrations');
+    const pill = h.add('span', { className: 'conn' });
+    pill.setAttribute('data-conn', 'plex');
+    const lbl = h.add('span', {}, pill);
+    lbl.setAttribute('data-conn-label', '');
+    const btn = h.add('button', {});
+    btn.setAttribute('data-test-service', 'plex');
+    h.ctx.MM.api = { post: () => Promise.reject({ status: 429 }), messageOf: () => 'Connection failed' };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.MM.settings.integrations.init();
+    btn.fire('click');
+    await h.flush();
+    const badge = item.querySelector('.rail-count');
+    return { pill: pill.className, label: pill.textContent, badge: badge ? badge.textContent : null };
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));
