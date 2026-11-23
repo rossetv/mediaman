@@ -222,7 +222,9 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "error",
                 "item": None,
-                "error_message": _FORM_ERROR_MESSAGES["rate_limited"],
+                "error_pill": "Rate limited",
+                "error_heading": "Too many requests",
+                "error_message": "Wait a minute and open the link again.",
                 "is_admin": False,
             },
             status_code=429,

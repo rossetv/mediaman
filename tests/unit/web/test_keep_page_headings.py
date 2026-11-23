@@ -31,10 +31,13 @@ class TestKeepPageHeadings:
         set_connection(conn)
         return TestClient(app, raise_server_exceptions=True)
 
-    def test_expired_state_has_an_h1(self, conn):
-        resp = self._client(conn).get("/keep/badtoken")
+    def test_invalid_state_has_a_neutral_h1_and_pill(self, conn):
+        text = self._client(conn).get("/keep/badtoken").text
 
-        assert re.search(r"<h1[^>]*>\s*This link has expired\s*</h1>", resp.text)
+        assert re.search(r"<h1[^>]*>\s*This link isn't valid\s*</h1>", text)
+        assert "expired" not in re.sub(r"status-expired|expired-\w+", "", text).split("<h1")[0].lower()
+        assert re.search(r"</span>\s*Invalid\s*</div>", text)
+        assert "This link has expired" not in text
 
     def test_error_state_has_an_h1(self, conn):
         resp = self._client(conn).post(
@@ -109,6 +112,9 @@ class TestKeepPageMessages:
         assert resp.status_code == 429
         assert "keep-page" in resp.text
         assert "Too many requests" in resp.text
+        assert "We could not keep this item" not in resp.text
+        assert "Not changed" not in resp.text
+        assert "open the link again" in resp.text
 
     def test_rate_limited_form_post_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_POST_LIMITER
