@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.core.audit import log_audit
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -337,4 +338,6 @@ def api_download(
         raise
     if resp.status_code >= 400:
         _release_download(admin, body.tmdb_id, body.media_type, _dedup_token(body))
+    else:
+        watch_catalog.invalidate()
     return resp

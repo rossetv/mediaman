@@ -15,6 +15,7 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
@@ -299,3 +300,6 @@ def api_download_recommendation(
     except (ArrError, ValueError):
         logger.exception("Failed to add recommendation '%s'", row.title)
         return respond_failure("Failed to add to download queue", status=502)
+    finally:
+        # Watch holds Radarr and Sonarr state briefly; drop it so the title shows queued.
+        watch_catalog.invalidate()
