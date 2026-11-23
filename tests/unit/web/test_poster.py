@@ -7,7 +7,6 @@ import requests
 
 from tests.helpers.factories import (
     insert_admin_user,
-    insert_audit_log,
     insert_media_item,
     insert_settings,
 )
@@ -306,14 +305,21 @@ class TestPosterEndpointAuth:
         insert_admin_user(conn, username="person", role=role)
         client.cookies.set("session_token", create_session(conn, "person"))
 
-    @pytest.mark.parametrize("role", ["admin", "viewer"])
-    def test_session_refused_for_item_outside_scanned_libraries(self, tmp_path, role):
+    def test_viewer_refused_for_item_outside_scanned_libraries(self, tmp_path):
         client, conn = self._build_test_app(tmp_path, self._KEY)
-        self._session(conn, client, role)
+        self._session(conn, client, "viewer")
         insert_media_item(conn, id="12345", plex_library_id=9)
         _scan(conn)
 
         assert client.get("/api/poster/12345").status_code == 404
+
+    def test_admin_may_fetch_poster_outside_scanned_libraries(self, tmp_path):
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+        self._session(conn, client, "admin")
+        insert_media_item(conn, id="12345", plex_library_id=9)
+        _scan(conn)
+
+        assert client.get("/api/poster/12345").status_code == 200
 
     def test_session_refused_for_key_not_in_the_library(self, tmp_path):
         client, conn = self._build_test_app(tmp_path, self._KEY)
@@ -334,15 +340,6 @@ class TestPosterEndpointAuth:
             show_rating_key="12345",
             plex_library_id=1,
         )
-        _scan(conn)
-
-        assert client.get("/api/poster/12345").status_code == 200
-
-    def test_deleted_item_poster_is_still_served(self, tmp_path):
-        """The Dashboard lists recently deleted items with their cached poster."""
-        client, conn = self._build_test_app(tmp_path, self._KEY)
-        self._session(conn, client, "admin")
-        insert_audit_log(conn, media_item_id="777", action="deleted", detail="Deleted X [rk:12345]")
         _scan(conn)
 
         assert client.get("/api/poster/12345").status_code == 200

@@ -231,11 +231,10 @@ def pending_deletion(
 
 
 def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: str) -> bool:
-    """Whether a poster may be served for *key*.
+    """Whether a poster may be served to a viewer for *key*.
 
     True for the key of a movie or season in the scanned libraries, or of
-    the show such a season belongs to, and for an item the audit log records
-    as deleted (the Dashboard still shows those, from the poster cache).
+    the show such a season belongs to.
     """
     lib_sql, params = _in_libraries(libraries)
     # rationale: only the fixed library filter and "?" placeholders are interpolated
@@ -243,13 +242,6 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
         f"SELECT 1 FROM media_items WHERE {lib_sql}"
         " AND (id = ? OR plex_rating_key = ? OR show_rating_key = ?) LIMIT 1",
         (*params, key, key, key),
-    ).fetchone()
-    if row is not None:
-        return True
-    row = conn.execute(
-        "SELECT 1 FROM audit_log WHERE action = 'deleted'"
-        " AND (media_item_id = ? OR instr(detail, ?) > 0) LIMIT 1",
-        (key, f"[rk:{key}]"),
     ).fetchone()
     return row is not None
 

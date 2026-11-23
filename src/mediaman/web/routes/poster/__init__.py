@@ -31,6 +31,7 @@ from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.watch_library import is_poster_key_allowed, scanned_library_ids
 from mediaman.web.routes.poster.cache import (
     CACHE_MAX_AGE_SECONDS as _CACHE_MAX_AGE_SECONDS,
@@ -124,11 +125,13 @@ def proxy_poster(
     if auth_err is not None:
         return auth_err
 
-    # A signed URL was issued by mediaman for that key; a session may only
-    # reach posters of items in the scanned libraries.
+    # A signed URL was issued by mediaman for that key, and an admin may see any poster;
+    # a viewer may only reach posters of items in the scanned libraries.
     if admin is not None:
         db = get_db()
-        if not is_poster_key_allowed(db, scanned_library_ids(db), rating_key):
+        if get_user_role(db, admin) != "admin" and not is_poster_key_allowed(
+            db, scanned_library_ids(db), rating_key
+        ):
             return Response(status_code=404)
 
     cache_dir = _get_cache_dir(config.data_dir)
