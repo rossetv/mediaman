@@ -35,8 +35,6 @@
     var submit = document.getElementById('account-submit-password');
     if (!form || !result || !submit) return;
 
-    var fields = ['account-old-password', 'account-new-password', 'account-confirm-password'];
-
     // The message is announced by the status region; the cursor goes where the fix is.
     function fail(text, fieldId) {
       result.className = 'inline-form-msg err';
@@ -61,7 +59,7 @@
         });
       }).then(function () {
         submit.disabled = false;
-        fields.forEach(function (id) { document.getElementById(id).value = ''; });
+        form.reset();
         result.className = 'inline-form-msg ok';
         result.textContent = 'Password updated.';
       }).catch(function (err) {

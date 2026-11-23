@@ -122,8 +122,14 @@
     updateMatch();
   }
 
-  // A rejected password re-renders the page: put the cursor where the fix goes.
-  if (MM.dom.q('.policy-issues')) newPw.focus();
+  // A rejected submit re-renders the page with the old password empty: put the
+  // cursor on the first empty field, or on the new password when all are filled.
+  if (MM.dom.q('.policy-issues') || MM.dom.q('.error-msg')) {
+    var target = [document.getElementById('old_password'), newPw, confirmPw].filter(function (el) {
+      return el && !el.value;
+    })[0] || newPw;
+    target.focus();
+  }
 
   newPw.addEventListener('input', render);
   confirmPw.addEventListener('input', updateMatch);

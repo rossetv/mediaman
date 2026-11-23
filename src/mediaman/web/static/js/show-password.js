@@ -9,6 +9,8 @@
   'use strict';
 
   document.querySelectorAll('input[type="password"][data-show-password]').forEach(function (input) {
+    // Moving an element drops its focus, so note it now and give it back.
+    var hadFocus = document.activeElement === input;
     var wrap = document.createElement('div');
     wrap.className = 'pw-wrap';
     input.parentNode.insertBefore(wrap, input);
@@ -19,14 +21,23 @@
     btn.className = 'pw-toggle';
     btn.textContent = 'Show';
     btn.setAttribute('aria-pressed', 'false');
+    // The name stays fixed: aria-pressed carries the state, so a screen reader
+    // does not say "Hide password, pressed" for one press.
     btn.setAttribute('aria-label', 'Show password');
-    btn.addEventListener('click', function () {
-      var show = input.type === 'password';
+    function setShown(show) {
       input.type = show ? 'text' : 'password';
       btn.textContent = show ? 'Hide' : 'Show';
       btn.setAttribute('aria-pressed', show ? 'true' : 'false');
-      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    }
+    btn.addEventListener('click', function () {
+      setShown(input.type === 'password');
     });
     wrap.appendChild(btn);
+
+    if (hadFocus || (input.hasAttribute('autofocus') && (!document.activeElement || document.activeElement === document.body))) {
+      input.focus();
+    }
+    // A reopened form must not keep showing the last password typed into it.
+    if (input.form) input.form.addEventListener('reset', function () { setShown(false); });
   });
 })();
