@@ -512,6 +512,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         "is_admin": _is_admin(conn, username),
         "back_href": "/watch",
         "watch_error": None,
+        "not_available": False,
         "show": None,
         "primary": None,
         "seasons": [],
@@ -538,7 +539,8 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
             selected = show.seasons[0]
         episodes = episodes_of(selected.rating_key) if selected else []
     except PlexItemNotFound:
-        raise HTTPException(status_code=404) from None
+        ctx["not_available"] = True
+        return _render(request, "watch_show.html", ctx)
     except PlexError as exc:
         ctx["watch_error"] = plex_error_code(exc)
         return _render(request, "watch_show.html", ctx)
@@ -643,13 +645,14 @@ def play_page(request: Request, rating_key: str, resume: str = "") -> Response:
         plex = open_plex(request, conn)
         item = plex.get_item(rating_key)
     except PlexError as exc:
-        # The player has no state of its own for these; the movie page's panels say it.
-        ctx = _movie_ctx(username, _is_admin(conn, username))
-        if isinstance(exc, PlexItemNotFound):
-            ctx["not_available"] = True
-        else:
-            ctx["watch_error"] = plex_error_code(exc)
-        return _render(request, "watch_movie.html", ctx)
+        # The player has no state of its own for these; a plain page says it.
+        ctx = {
+            "username": username,
+            "is_admin": _is_admin(conn, username),
+            "back_href": "/watch",
+            "watch_error": None if isinstance(exc, PlexItemNotFound) else plex_error_code(exc),
+        }
+        return _render(request, "watch_unavailable.html", ctx)
     if item.type not in ("movie", "episode") or not is_in_libraries(item, libraries):
         raise HTTPException(status_code=404)
 

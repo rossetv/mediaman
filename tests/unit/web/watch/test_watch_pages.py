@@ -493,8 +493,41 @@ class TestPlayerPage:
     def test_item_outside_scanned_libraries_is_refused(self, get, key):
         assert get(f"/watch/play/{key}").status_code == 404
 
-    def test_item_gone_from_plex_is_no_longer_available(self, get):
-        assert get("/watch/play/123456").json()["not_available"] is True
+    def test_item_gone_from_plex_has_no_error_code_and_no_player(self, get):
+        ctx = get("/watch/play/123456").json()
+
+        assert ctx["watch_error"] is None
+        assert "item" not in ctx
+
+
+def test_gone_and_unreachable_pages_say_so_in_plain_words(
+    app_factory, conn, library, plex, monkeypatch
+):
+    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
+    del plex.shows["500"]
+    app = app_factory(
+        pages.router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+    )
+    app.mount("/static", StaticFiles(directory=str(_WEB / "static")), name="static")
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "aoife"))
+
+    show = client.get("/watch/show/500")
+    assert show.status_code == 200
+    assert "This show is not in the library any more." in show.text
+
+    # An episode is gone from Plex: the text must not call it a film.
+    play = client.get("/watch/play/123456")
+    assert play.status_code == 200
+    assert "This is not in the library any more." in play.text
+    assert "film" not in play.text.lower()
+
+    plex.error = PlexUnavailable("Plex could not be reached")
+    play = client.get("/watch/play/512")
+    assert play.status_code == 200
+    assert "Can't reach Plex right now." in play.text
 
 
 def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, monkeypatch):

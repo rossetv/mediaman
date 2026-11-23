@@ -11,7 +11,9 @@
     <a class="watch-back" href="{{ back_href or '/watch' }}">‹ Back to Watch</a>
   </div>
 
-  {% if watch_error %}
+  {% if not_available %}
+  {{ w.gone_state("This show is not in the library any more.") }}
+  {% elif watch_error %}
   {{ w.error_state(watch_error, is_admin) }}
   {% else %}
   <section class="watch-hero">

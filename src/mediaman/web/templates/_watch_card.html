@@ -62,6 +62,14 @@
 </section>
 {%- endmacro %}
 
+{# The state for an item Plex no longer has; *text* names what is gone. #}
+{% macro gone_state(text) -%}
+<section class="watch-state" role="status">
+  <h1 class="watch-state__title">No longer available</h1>
+  <p class="watch-state__text">{{ text }}</p>
+</section>
+{%- endmacro %}
+
 {# "Leaving in N days · Keep" line for a show page or a movie page. #}
 {% macro leaving_line(leaving, title="") -%}
 <p class="watch-leaving" data-watch-leaving>

@@ -12,10 +12,7 @@
   </div>
 
   {% if not_available %}
-  <section class="watch-state" role="status">
-    <h1 class="watch-state__title">No longer available</h1>
-    <p class="watch-state__text">This film is not in the library any more.</p>
-  </section>
+  {{ w.gone_state("This film is not in the library any more.") }}
   {% elif watch_error %}
   {{ w.error_state(watch_error, is_admin) }}
   {% else %}
