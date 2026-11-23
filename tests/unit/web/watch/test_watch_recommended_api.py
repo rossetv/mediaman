@@ -224,6 +224,28 @@ class TestCards:
         row = conn.execute("SELECT downloaded_at FROM suggestions WHERE id = ?", (rec_id,))
         assert row.fetchone()[0] is None
 
+    def test_a_view_outdated_by_an_invalidate_does_not_clear_the_mark(
+        self, viewer, conn, arr, monkeypatch
+    ):
+        rec_id = insert_suggestion(
+            conn, title="Sent", tmdb_id=300, downloaded_at="2099-01-01", batch_id="2099-01-01"
+        )
+        conn.commit()
+        real = catalog.arr_view
+
+        def built_then_invalidated(*args, **kwargs):
+            view = real(*args, **kwargs)
+            catalog.invalidate()
+            return view
+
+        monkeypatch.setattr(catalog, "arr_view", built_then_invalidated)
+
+        (item,) = _get(viewer)["items"]
+
+        assert item["download_state"] == "queued"
+        row = conn.execute("SELECT downloaded_at FROM suggestions WHERE id = ?", (rec_id,))
+        assert row.fetchone()[0] == "2099-01-01"
+
     def test_with_radarr_down_a_pick_sent_for_download_still_shows_queued(self, viewer, conn, arr):
         arr.down = True
         rec_id = insert_suggestion(

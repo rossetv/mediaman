@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.time import now_utc
 from mediaman.db import get_db, is_refresh_running
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.arr.state import ACTION_QUEUED
+from mediaman.services.arr.state import ACTION_QUEUED, clear_stale_downloaded_at
 from mediaman.services.infra import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import get_current_user
@@ -31,7 +31,8 @@ def _attach_states(
 ) -> None:
     """Mark each pick with its download state and percent done. A pick marked as sent
     for download that the service, set up and answering, no longer tracks loses the
-    mark here and in the database, so it stops showing as queued."""
+    mark here and in the database, so it stops showing as queued. A view that an
+    invalidate has outdated heals nothing: the flag may have been set since."""
     stale: list[object] = []
     for row in rows:
         tmdb_id = row.get("tmdb_id")
@@ -42,17 +43,10 @@ def _attach_states(
         if state is not None:
             row["download_state"] = state
             row["download_pct"] = pct
-        elif row.get("downloaded_at") and arr.answers_for(media_type):
+        elif row.get("downloaded_at") and arr.answers_for(media_type) and arr.is_current():
             row["downloaded_at"] = None
             stale.append(row["id"])
-    if stale:
-        placeholders = ",".join("?" * len(stale))
-        with conn:
-            # rationale: only "?" placeholders are interpolated; every id is bound
-            conn.execute(  # nosec B608
-                f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
-                stale,
-            )
+    clear_stale_downloaded_at(conn, stale)
 
 
 def _card(

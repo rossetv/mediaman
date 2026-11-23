@@ -469,6 +469,22 @@ def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCache
         return build_sonarr_cache(None), False
 
 
+def clear_stale_downloaded_at(conn: sqlite3.Connection, ids: Sequence[object]) -> None:
+    """Clear ``downloaded_at`` on the suggestions *ids* that Radarr/Sonarr no longer track.
+
+    Runs in one transaction so a locked database rolls back cleanly on a render path.
+    """
+    if not ids:
+        return
+    placeholders = ",".join("?" * len(ids))
+    with conn:
+        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
+        conn.execute(  # nosec B608
+            f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
+            list(ids),
+        )
+
+
 # NOTE: this module hosts several concepts — state constants, state
 # computation, cache builders, LazyArrClients, and this recommendation-
 # annotation orchestrator. ``attach_download_states`` arguably belongs nearer
@@ -579,17 +595,7 @@ def attach_download_states(
 
             all_recs[item["id"]] = item
 
-    if conn is not None and stale_flag_ids:
-        placeholders = ",".join("?" * len(stale_flag_ids))
-        # The in-memory ``downloaded_at = None`` self-heal above and this DB
-        # write are one fact (clear the stale badge); run the write inside an
-        # explicit transaction so a locked-DB failure rolls back cleanly
-        # rather than leaving a half-applied state on this render path.
-        with conn:
-            # rationale: placeholders is purely "?" * len(stale_flag_ids) — no user value ever enters the SQL text
-            conn.execute(
-                f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
-                stale_flag_ids,
-            )
+    if conn is not None:
+        clear_stale_downloaded_at(conn, stale_flag_ids)
 
     return all_recs

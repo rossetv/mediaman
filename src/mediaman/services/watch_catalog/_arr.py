@@ -52,6 +52,12 @@ class ArrView:
     #: The services ("radarr", "sonarr") set up and answering, so a title missing from
     #: one is truly not tracked there.
     answering: frozenset[str] = frozenset()
+    #: The generation of the build that made this view; None for one not built here.
+    generation: int | None = None
+
+    def is_current(self) -> bool:
+        """Whether no invalidate has happened since this view was built."""
+        return self.generation is not None and self.generation == _generation[0]
 
     def answers_for(self, kind: str) -> bool:
         """Whether the service that would fetch a title of *kind* answered."""
@@ -139,7 +145,7 @@ def arr_view(
     answering = frozenset(
         name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr_answered)) if ok
     )
-    view = ArrView({**radarr, **sonarr}, answering)
+    view = ArrView({**radarr, **sonarr}, answering, generation)
     with _lock:
         if _generation[0] == generation:
             _memo["arr"] = (now + TTL_S, view)
