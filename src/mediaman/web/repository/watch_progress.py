@@ -1,9 +1,7 @@
 """Repository functions for each person's Watch progress.
 
 Progress lives only in mediaman's ``watch_progress`` table; nothing here
-talks to Plex. Every read is scoped to one username except
-last_credited_by_media_item, which the cleanup scan uses to count
-mediaman plays across everyone.
+talks to Plex. Every read is scoped to one username.
 """
 
 from __future__ import annotations
@@ -15,7 +13,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from mediaman.core.format import ensure_tz
-from mediaman.core.time import parse_iso_utc
 
 # Fraction of the duration past which an item counts as watched.
 WATCHED_FRACTION = 0.9
@@ -182,22 +179,3 @@ def continue_watching(conn: sqlite3.Connection, username: str) -> list[ContinueC
         seen_shows.add(show_key)
         cards.append(ContinueCard(progress=progress, find_next=progress.watched))
     return cards
-
-
-def last_credited_by_media_item(conn: sqlite3.Connection) -> dict[str, datetime]:
-    """Return the latest credited play of each media item across all people.
-
-    Keyed by ``media_items.id`` (a movie, or the season an episode belongs
-    to), for the cleanup scan to treat like a Plex watch.
-    """
-    rows = conn.execute(
-        "SELECT media_item_id, MAX(credited_at) AS credited_at FROM watch_progress"
-        " WHERE media_item_id IS NOT NULL AND credited_at IS NOT NULL"
-        " GROUP BY media_item_id"
-    ).fetchall()
-    credited: dict[str, datetime] = {}
-    for row in rows:
-        when = parse_iso_utc(row["credited_at"])
-        if when is not None:
-            credited[row["media_item_id"]] = when
-    return credited

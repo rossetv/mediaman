@@ -10,6 +10,7 @@ from mediaman.core.time import parse_iso_utc
 from mediaman.scanner._scan_library import scan_tv_library
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import FetchedLibrary, PlexItemFetch
+from mediaman.scanner.repository import last_credited_by_media_item
 from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
@@ -131,3 +132,45 @@ def test_an_already_scheduled_season_stays_scheduled_when_played(viewer):
     ).fetchall()
     assert [(r["id"], r["action"]) for r in rows] == [(action_id, "scheduled_deletion")]
     assert summary["skipped"] == 1
+
+
+def test_credit_is_the_latest_across_people_and_episodes_of_a_season(viewer):
+    viewer.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at, role)"
+        " VALUES ('niamh', '', '2026-01-01T00:00:00+00:00', 'viewer')"
+    )
+    older = _credit_episode_play(viewer, days_ago=3)
+    later = datetime.now(UTC) - timedelta(days=1)
+    for username, rating_key, when in (
+        ("niamh", "episode-1", older),
+        ("aoife", "episode-4", later),
+    ):
+        save_progress(
+            viewer,
+            username=username,
+            rating_key=rating_key,
+            media_item_id=SEASON,
+            show_rating_key="show-1",
+            position_s=1500.0,
+            duration_s=1500.0,
+            played_s=1500.0,
+            now=when,
+        )
+
+    assert last_credited_by_media_item(viewer) == {SEASON: later}
+
+
+def test_a_short_play_is_not_a_credit(viewer):
+    save_progress(
+        viewer,
+        username="aoife",
+        rating_key="episode-3",
+        media_item_id=SEASON,
+        show_rating_key="show-1",
+        position_s=100.0,
+        duration_s=1500.0,
+        played_s=20.0,
+        now=datetime.now(UTC),
+    )
+
+    assert last_credited_by_media_item(viewer) == {}

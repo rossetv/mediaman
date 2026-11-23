@@ -9,7 +9,6 @@ import pytest
 from mediaman.web.repository.watch_progress import (
     continue_watching,
     get_progress,
-    last_credited_by_media_item,
     save_progress,
     show_progress,
 )
@@ -79,7 +78,7 @@ class TestCredit:
 
     def test_five_minutes_of_play_credits_the_item(self, users):
         _save(users, position=310.0, played=300.0)
-        assert last_credited_by_media_item(users) == {"m1": NOON}
+        assert _credited(users, "m1") == NOON.isoformat()
 
     def test_a_short_item_is_credited_only_when_played_to_the_end(self, users):
         # A 4-minute item: 90% of it (216 s) is the threshold, not 300 s.
@@ -90,22 +89,10 @@ class TestCredit:
 
     def test_a_later_short_save_keeps_the_earlier_credit(self, users):
         _save(users, position=400.0, played=400.0)
+        first = _credited(users, "m1")
         _save(users, position=410.0, played=5.0, now=NOON + timedelta(hours=1))
-        assert last_credited_by_media_item(users) == {"m1": NOON}
-
-    def test_credit_is_the_latest_across_people_and_episodes_of_a_season(self, users):
-        later = NOON + timedelta(days=1)
-        _save(users, username="admin", rating_key="e1", media_item_id="s1", show="sh", played=600.0)
-        _save(
-            users,
-            username="aoife",
-            rating_key="e2",
-            media_item_id="s1",
-            show="sh",
-            played=600.0,
-            now=later,
-        )
-        assert last_credited_by_media_item(users) == {"s1": later}
+        assert first is not None
+        assert _credited(users, "m1") == first
 
 
 class TestPerPerson:

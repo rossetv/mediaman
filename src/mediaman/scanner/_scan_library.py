@@ -29,14 +29,31 @@ from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
-from mediaman.web.repository.watch_progress import last_credited_by_media_item
 
 if TYPE_CHECKING:
     from mediaman.scanner.engine import ScanEngine
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ScanDecision", "scan_items", "scan_movie_library", "scan_tv_library"]
+__all__ = [
+    "ScanDecision",
+    "scan_items",
+    "scan_movie_library",
+    "scan_tv_library",
+    "with_mediaman_play",
+]
+
+
+def with_mediaman_play(f: PlexItemFetch, credited: Mapping[str, datetime]) -> PlexItemFetch:
+    """Return *f* with its latest mediaman play added to its Plex watch history.
+
+    Shared by the cleanup scan and the library sync so both advance
+    ``last_watched_at`` from the same plays.
+    """
+    credited_at = credited.get(f.item["plex_rating_key"])
+    if credited_at is None:
+        return f
+    return replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
 
 
 class ScanDecision(enum.Enum):
@@ -86,7 +103,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     return _GuardSets(
         protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
-        credited=last_credited_by_media_item(conn),
+        credited=repository.last_credited_by_media_item(conn),
     )
 
 
@@ -180,9 +197,7 @@ def _evaluate_scan_item(
     media_id = item["plex_rating_key"]
     if seen_keys is not None:
         seen_keys.add(media_id)
-    credited_at = guards.credited.get(media_id)
-    if credited_at is not None:
-        f = replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
+    f = with_mediaman_play(f, guards.credited)
     _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
 
     if media_id in guards.protected:
