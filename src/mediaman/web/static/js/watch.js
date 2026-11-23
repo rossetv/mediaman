@@ -241,7 +241,14 @@
     var trigger = openTrigger;
     openTrigger = null;
     trigger.setAttribute('aria-expanded', 'false');
-    if (refocus && document.body.contains(trigger)) trigger.focus();
+    if (refocus && document.body.contains(trigger)) {
+      trigger.focus();
+    } else if (menu.contains(document.activeElement)) {
+      // Closed without a press (scrolled away, season swapped): focus must not stay on a hidden item.
+      var spare = document.body.contains(trigger) ? trigger
+        : document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
+      if (spare) spare.focus({ preventScroll: true }); else document.activeElement.blur();
+    }
     menu.classList.remove('is-open');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(function () { menu.hidden = true; }, reduceMotion() ? 0 : EXIT_FALLBACK_MS);
@@ -446,7 +453,7 @@
       focus: focus,
       undo: function () {
         var back = null;
-        undos.forEach(function (fn) { back = fn() || back; });
+        undos.forEach(function (fn) { var b = fn(); if (!back) back = b; });
         return back;
       }
     };
@@ -460,31 +467,38 @@
       (menu && menu.contains(active)) || !document.body.contains(active);
   }
 
+  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>". */
+  function titleOf(button) {
+    var label = button.getAttribute('aria-label');
+    return label ? label.replace(/^Keep /, '') : '';
+  }
+
   function keep(trigger, days) {
     var id = trigger.getAttribute('data-watch-keep');
     if (busy[id]) return;
+    var name = titleOf(trigger);
     setBusy(id, true);
     MM.api.post(KEEP_URL, { media_item_id: id, days: days }).then(function () {
       var moveFocus = focusLost(trigger);
       var done = applyKept(id, days, trigger);
       if (moveFocus && done.focus) focusSoftly(done.focus);
-      toast('Kept for ' + days + ' days', {
+      toast('Kept ' + (name || 'this') + ' for ' + days + ' days', {
         variant: 'success',
-        action: { label: 'Undo', onClick: function () { undoKeep(id, days, done); } }
+        action: { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } }
       });
       setBusy(id, false);
     }).catch(function (err) {
-      toast(MM.api.messageOf(err, 'Could not keep this. Try again.'), { variant: 'error' });
+      toast(MM.api.messageOf(err, 'Could not keep ' + (name || 'this') + '. Try again.'), { variant: 'error' });
       setBusy(id, false);
     });
   }
 
   /* Undo puts the title back at once and asks the server after; if the
      server says no, the Keep stands and is taken off the page again. */
-  function undoKeep(id, days, done) {
+  function undoKeep(id, days, done, name) {
     // The toast is gone already, so an Undo pressed mid-way waits its turn.
     if (busy[id]) {
-      afterBusy[id] = function () { undoKeep(id, days, done); };
+      afterBusy[id] = function () { undoKeep(id, days, done, name); };
       return;
     }
     var back = done.undo();
@@ -495,14 +509,14 @@
       back.focus();
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
-      toast('Keep undone', { variant: 'info' });
+      toast('Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
       setBusy(id, false);
     }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];
       var moveFocus = trigger ? focusLost(trigger) : false;
       var again = applyKept(id, days, trigger);
       if (moveFocus && again.focus) focusSoftly(again.focus);
-      toast(MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.'), { variant: 'error' });
+      toast(MM.api.messageOf(err, 'Could not undo' + (name ? ' for ' + name : '') + '. It stays kept for ' + days + ' days.'), { variant: 'error' });
       setBusy(id, false);
     });
   }
@@ -740,13 +754,15 @@
 
   /* A season tab swaps the episode list in place: no reload, no jump to the
      top, focus stays on the tab. The address changes too, so Back and a
-     shared link work; any trouble falls back to loading the page. */
+     shared link work; when a season will not load, the one showing stays and an error offers a retry. */
   function initSeasons() {
     var nav = document.querySelector('.watch-seasons');
     var list = document.querySelector('.watch-episodes');
     if (!nav || !list || !window.fetch || !window.DOMParser || !window.history.pushState) return;
     var loading = null;
     var current = null;
+    var shown = null; // the season whose episodes are on the page
+    var failure = null;
 
     function pills() { return toArray(nav.querySelectorAll('a.watch-pill')); }
 
@@ -768,8 +784,32 @@
       else if (fresh) document.querySelector('.watch-hero__info .watch-actions').before(fresh);
     }
 
+    function clearFailure() {
+      if (failure) failure.remove();
+      failure = null;
+    }
+
+    /* The season stays as it was; the user can try the one they asked for again. */
+    function showFailed(href, push) {
+      select(shown);
+      list.setAttribute('aria-busy', 'false');
+      clearFailure();
+      failure = el('p', 'watch-results__msg watch-results__msg--error');
+      failure.setAttribute('role', 'alert');
+      failure.appendChild(el('span', '', 'Could not load that season.'));
+      var retry = el('button', 'watch-results__retry', 'Try again');
+      retry.type = 'button';
+      retry.addEventListener('click', function () {
+        select(href);
+        load(href, push);
+      });
+      failure.appendChild(retry);
+      list.before(failure);
+    }
+
     function load(href, push) {
       if (loading) loading.abort();
+      clearFailure();
       var ctrl = new AbortController();
       loading = ctrl;
       list.setAttribute('aria-busy', 'true');
@@ -792,16 +832,19 @@
           list = fresh;
           fadeIn(list);
           select(on.getAttribute('href'));
+          shown = current;
           if (push) window.history.pushState({ watchSeason: href }, '', href);
         })
         .catch(function (err) {
           if (err && err.name === 'AbortError') return;
-          window.location.assign(href);
+          if (loading && loading !== ctrl) return;
+          loading = null;
+          showFailed(href, push);
         });
     }
 
     var first = nav.querySelector('a.watch-pill.on');
-    current = first ? first.getAttribute('href') : null;
+    current = shown = first ? first.getAttribute('href') : null;
 
     nav.addEventListener('click', function (e) {
       var pill = e.target.closest && e.target.closest('a.watch-pill');
