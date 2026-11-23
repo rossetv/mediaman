@@ -85,13 +85,25 @@
   }
 
   var undoListening = false;
+  var undoHint = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '') ? 'Cmd+Z' : 'Ctrl+Z';
+
+  // A confirm dialog or any open aria-modal dialog owns the keyboard.
+  function modalOpen() {
+    if (document.querySelector('.ui-confirm-overlay:not(.is-leaving)')) return true;
+    return Array.prototype.some.call(document.querySelectorAll('[aria-modal="true"]'), function (m) {
+      if (m.getAttribute('aria-hidden') === 'true') return false;
+      var cs = getComputedStyle(m);
+      return cs.display !== 'none' && cs.visibility !== 'hidden';
+    });
+  }
   // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
   // field where it is the field's own undo.
   function listenForUndo() {
     if (undoListening) return;
     undoListening = true;
     document.addEventListener('keydown', function (e) {
-      if (e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (modalOpen()) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
       var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
@@ -114,7 +126,7 @@
       node.classList.add('ui-toast--action');
       var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
                                'aria-keyshortcuts': 'Control+Z Meta+Z',
-                               'aria-label': action.label + ' (Ctrl+Z)' });
+                               'aria-label': action.label + ' (' + undoHint + ')' });
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
         dismissToast(node);
@@ -133,7 +145,7 @@
         b.setAttribute('aria-label', b.textContent);
       });
       btn.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
-      btn.setAttribute('aria-label', action.label + ' (Ctrl+Z)');
+      btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
       listenForUndo();
     }
     // At most three at once, and never a stack taller than the host's
