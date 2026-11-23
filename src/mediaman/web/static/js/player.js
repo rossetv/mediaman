@@ -98,7 +98,9 @@
   var lastTime = null;
   var dragging = false;
   var quality = readQuality();
-  var goodQuality = null;    // the quality of the last stream that started
+  var goodQuality = null;    // the quality of the last stream that played
+  var streamQuality = null;  // the quality of the stream now loading or playing
+  var revertNotice = null;   // toast to show once the reverted stream plays
 
   var mediaRecoverUsed = false;
   var fatalRestartUsed = false;
@@ -156,9 +158,7 @@
   function revertQuality(pos) {
     var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
     setQuality(goodQuality);
-    if (window.UIFeedback) {
-      window.UIFeedback.error("Couldn't change the quality. Staying on " + label + '.');
-    }
+    revertNotice = "Couldn't change the quality. Staying on " + label + '.';
     return startStream(pos);
   }
 
@@ -172,6 +172,7 @@
     els.messageText.textContent = text;
     els.retry.hidden = !canRetry;
     els.message.hidden = false;
+    revertNotice = null;
     showControls();
     if (canRetry) els.retry.focus();
   }
@@ -210,7 +211,7 @@
           }
           starting = false;
           streamId = data.stream_id;
-          goodQuality = quality;
+          streamQuality = quality;
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
@@ -281,6 +282,14 @@
       return;
     }
     if (!data.fatal) return;
+    if (goodQuality && goodQuality !== quality) {
+      /* A quality that never played failed in the player: go back to the one that did. */
+      var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
+      setQuality(goodQuality);
+      revertNotice = "Couldn't change the quality. Staying on " + label + '.';
+      restartStream(true);
+      return;
+    }
     if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !mediaRecoverUsed) {
       mediaRecoverUsed = true;
       noteTrouble();
@@ -424,6 +433,11 @@
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
+    if (streamId) goodQuality = streamQuality;
+    if (revertNotice) {
+      if (window.UIFeedback) window.UIFeedback.error(revertNotice);
+      revertNotice = null;
+    }
     swapping = false;
     pendingStart = null;
     setLoading(false);
@@ -619,6 +633,30 @@
   if (els.keep && leaving) {
     var keeping = false;
     var keepTrigger = els.keep.querySelector('[data-menu-trigger]');
+    var undoing = false;
+
+    /* Put the pill back at once; if the server refuses, the keep stands. */
+    var undoKeep = function (done, original, days) {
+      if (undoing) return;
+      undoing = true;
+      MM.api.post('/api/watch/unkeep', { media_item_id: leaving.keep_id }).then(function () {
+        var active = document.activeElement;
+        var moveFocus = !active || active === document.body || done.contains(active) ||
+          (active.closest && active.closest('.ui-toast'));
+        els.keep.textContent = '';
+        els.keep.appendChild(original);
+        keeping = false;
+        keepTrigger.setAttribute('aria-busy', 'false');
+        if (moveFocus) keepTrigger.focus();
+        undoing = false;
+        if (window.UIFeedback) window.UIFeedback.toast('Keep undone', { variant: 'info' });
+      }).catch(function (err) {
+        undoing = false;
+        var msg = MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.');
+        if (window.UIFeedback) window.UIFeedback.error(msg);
+      });
+    };
+
     els.keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (keeping) return;
@@ -629,13 +667,19 @@
         MM.api.post('/api/watch/keep', { media_item_id: leaving.keep_id, days: days })
           .then(function () {
             var hadFocus = els.keep.contains(document.activeElement);
-            els.keep.textContent = '';
+            var original = document.createDocumentFragment();
+            while (els.keep.firstChild) original.appendChild(els.keep.firstChild);
             var done = document.createElement('span');
             done.className = 'player-pill';
             done.textContent = 'Kept for ' + days + ' days';
             els.keep.appendChild(done);
             if (hadFocus) { done.tabIndex = -1; done.focus(); }
-            if (window.UIFeedback) window.UIFeedback.toast('Kept for ' + days + ' days', { variant: 'success' });
+            if (window.UIFeedback) {
+              window.UIFeedback.toast('Kept for ' + days + ' days', {
+                variant: 'success',
+                action: { label: 'Undo', onClick: function () { undoKeep(done, original, days); } }
+              });
+            }
           })
           .catch(function (err) {
             keeping = false;
@@ -687,10 +731,17 @@
     scheduleIdle();
   }
 
+  /* Keyboard focus on a control keeps the controls up; mouse focus does not. */
+  function keyboardInChrome() {
+    var a = document.activeElement;
+    if (!a || a === video || !root.contains(a)) return false;
+    try { return a.matches(':focus-visible'); } catch (e) { return false; }
+  }
+
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && !menuOpen() && els.message.hidden) {
+      if (!video.paused && !dragging && !menuOpen() && els.message.hidden && !keyboardInChrome()) {
         root.classList.add('is-idle');
       }
     }, IDLE_MS);

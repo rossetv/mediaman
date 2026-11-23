@@ -134,17 +134,58 @@
     anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; };
   }
 
-  /* Put a node back where it was taken from, or at the end when the node
-     that followed it has gone too. */
+  /* Where a node is: its parent and every node after it, so it can go back
+     before the first of those still there, whatever else has gone since. */
+  function spotOf(node) {
+    var after = [];
+    for (var n = node.nextSibling; n; n = n.nextSibling) after.push(n);
+    return { node: node, parent: node.parentNode, after: after };
+  }
+
   function putBack(spot) {
-    var next = spot.next && spot.next.parentNode === spot.parent ? spot.next : null;
+    var next = null;
+    for (var i = 0; i < spot.after.length && !next; i++) {
+      if (spot.after[i].parentNode === spot.parent) next = spot.after[i];
+    }
     spot.parent.insertBefore(spot.node, next);
   }
 
   function takeOut(node) {
-    var spot = { node: node, parent: node.parentNode, next: node.nextSibling };
+    var spot = spotOf(node);
     node.remove();
     return spot;
+  }
+
+  function noop() {}
+
+  /* The part of the window no sticky top bar or phone tab bar covers. */
+  function clearArea() {
+    var area = { top: 0, bottom: window.innerHeight };
+    toArray(document.querySelectorAll('.nav-glass, .nav-topbar, .nav-tabs')).forEach(function (bar) {
+      if (getComputedStyle(bar).display === 'none') return;
+      var r = bar.getBoundingClientRect();
+      if (bar.classList.contains('nav-tabs')) area.bottom = Math.min(area.bottom, r.top);
+      else area.top = Math.max(area.top, r.bottom);
+    });
+    return area;
+  }
+
+  /* Focus a node without the instant jump focus() makes to show it; once
+     whatever is collapsing has settled, scroll to it only if it is out of
+     sight. */
+  function focusSoftly(node) {
+    node.focus({ preventScroll: true });
+    var reduce = reduceMotion();
+    setTimeout(function () {
+      if (document.activeElement !== node) return;
+      var edge = 8;
+      var area = clearArea();
+      var r = node.getBoundingClientRect();
+      var by = 0;
+      if (r.top < area.top) by = r.top - area.top - edge;
+      else if (r.bottom > area.bottom) by = Math.min(r.bottom - area.bottom + edge, r.top - area.top - edge);
+      if (by) window.scrollBy({ top: by, behavior: reduce ? 'auto' : 'smooth' });
+    }, reduce ? 0 : tokenMs('--dur-slow', 250));
   }
 
   /* ── Try again (Plex) ── */
@@ -183,11 +224,7 @@
     var gap = 6;
     var edge = 8;
     var rect = trigger.getBoundingClientRect();
-    var bottom = window.innerHeight;
-    var tabs = document.querySelector('.nav-tabs');
-    if (tabs && getComputedStyle(tabs).display !== 'none') {
-      bottom = Math.min(bottom, tabs.getBoundingClientRect().top);
-    }
+    var bottom = clearArea().bottom;
     var w = menu.offsetWidth;
     var h = menu.offsetHeight;
     var top = rect.bottom + gap;
@@ -225,6 +262,7 @@
   /* ── Keep ── */
 
   var busy = {};
+  var afterBusy = {}; // an Undo pressed while its title was busy, run once it is not
 
   function triggersFor(id) {
     return toArray(document.querySelectorAll('[data-watch-keep]')).filter(function (t) {
@@ -246,6 +284,11 @@
       if (on) t.setAttribute('aria-disabled', 'true'); else t.removeAttribute('aria-disabled');
       t.setAttribute('aria-busy', on ? 'true' : 'false');
     });
+    var next = !on && afterBusy[id];
+    if (next) {
+      delete afterBusy[id];
+      next();
+    }
   }
 
   /* Where focus goes when a kept card leaves its row: the next card, else
@@ -265,18 +308,103 @@
     return (other && other.querySelector('.watch-row__scroll')) || byId('watch-search');
   }
 
+  /* A kept Leaving soon card waits on the cancel of its own collapse. The one
+     that emptied its row stays in it (holdsRow), and the row waits on its
+     spot and the cancel of its collapse, until an Undo brings it back. */
+  var keptCards = new WeakMap();
+  var goneRows = new WeakMap();
+
+  function away(node, sideways, shown) {
+    if (shown) return collapseAway(node, sideways);
+    node.remove();
+    return noop;
+  }
+
+  /* Shrink a kept card out of its Leaving soon row, or the row out of the
+     page when it was the last. Behind search results the row is hidden: it
+     just goes. Returns { undo, focus } as applyKept does. */
+  function keepFromRow(card, row, shown) {
+    var scroller = card.parentNode;
+    var left = toArray(scroller.children).filter(function (c) {
+      return c !== card && !c.classList.contains('is-kept');
+    });
+    var focus = left.length ? focusAfterCard(card) : focusAfterRow(row);
+    var spot = spotOf(card);
+    var state = { cancel: noop, holdsRow: !left.length };
+    card.classList.add('is-kept');
+    card.inert = true;
+    keptCards.set(card, state);
+    if (left.length) {
+      state.cancel = away(card, true, shown);
+    } else {
+      goneRows.set(row, { spot: spotOf(row), cancel: away(row, false, shown) });
+    }
+    return {
+      focus: focus,
+      undo: function () {
+        var own = keptCards.get(card);
+        if (own) own.cancel();
+        keptCards.delete(card);
+        card.classList.remove('is-kept');
+        card.inert = false;
+        var rowBack = false;
+        var gone = goneRows.get(row);
+        if (gone) {
+          goneRows.delete(row);
+          gone.cancel();
+          if (!row.parentNode) { putBack(gone.spot); rowBack = true; }
+          // A kept card that emptied the row is still in it: it goes now,
+          // at once when the row is only now coming back.
+          toArray(scroller.children).forEach(function (c) {
+            var other = keptCards.get(c);
+            if (c === card || !other || !other.holdsRow) return;
+            other.holdsRow = false;
+            other.cancel = away(c, true, !rowBack && c.getClientRects().length > 0);
+          });
+        }
+        var cardBack = card.parentNode !== scroller;
+        if (cardBack) putBack(spot);
+        if (rowBack) {
+          if (row.getClientRects().length) growIn(row, false);
+        } else if (cardBack && card.getClientRects().length) {
+          growIn(card, true);
+        }
+        return card.querySelector('[data-watch-keep]');
+      }
+    };
+  }
+
+  function seasonShown() {
+    var on = document.querySelector('.watch-seasons a.watch-pill.on');
+    return on ? on.getAttribute('href') : null;
+  }
+
+  /* The title page's line, put back in the hero when the season tabs took
+     it off and its season is the one shown again. */
+  function putLineBack(line, season) {
+    if (document.body.contains(line) || seasonShown() !== season) return;
+    var info = document.querySelector('.watch-hero__info');
+    if (!info) return;
+    var current = info.querySelector('[data-watch-leaving]');
+    var actions = info.querySelector('.watch-actions');
+    if (current) current.replaceWith(line);
+    else if (actions) actions.before(line);
+    else info.appendChild(line);
+  }
+
   /* Take what a Keep ends off the page. Returns { undo, focus }: undo puts it
      all back (and returns the Keep button to focus), focus is where focus
      should go now. */
-  function applyKept(id, days) {
+  function applyKept(id, days, trigger) {
     var undos = [];
     var focus = null;
 
     // A title page's "Leaving in N days · Keep" line says how long it is kept.
-    triggersFor(id).forEach(function (trigger) {
-      var line = trigger.closest('[data-watch-leaving]');
+    triggersFor(id).forEach(function (button) {
+      var line = button.closest('[data-watch-leaving]');
       if (!line) return;
       var parts = toArray(line.childNodes);
+      var season = seasonShown();
       parts.forEach(function (n) { n.remove(); });
       line.textContent = 'Kept for ' + days + ' days';
       line.tabIndex = -1;
@@ -285,42 +413,25 @@
         line.textContent = '';
         parts.forEach(function (n) { line.appendChild(n); });
         line.removeAttribute('tabindex');
-        return trigger;
+        putLineBack(line, season);
+        return button;
       });
     });
 
-    cardsFor(id).forEach(function (card) {
+    // The card the Keep was pressed in comes first, so focus stays there.
+    var own = trigger && trigger.closest('.watch-card');
+    cardsFor(id).sort(function (a, b) { return (b === own) - (a === own); }).forEach(function (card) {
+      var shown = card.getClientRects().length > 0;
       var row = card.closest('[data-watch-leaving-row]');
       if (row) {
-        // The Leaving soon card shrinks away; its row too when it was the last.
-        var scroller = card.parentNode;
-        var left = toArray(scroller.children).filter(function (c) {
-          return c !== card && !c.classList.contains('is-kept');
-        });
-        var gone = left.length ? card : row;
-        // Behind search results the row is hidden: it just goes, and focus
-        // stays with what can be seen.
-        var shown = card.getClientRects().length > 0;
-        if (!focus && shown) focus = left.length ? focusAfterCard(card) : focusAfterRow(row);
-        var spot = { node: gone, parent: gone.parentNode, next: gone.nextSibling };
-        card.classList.add('is-kept');
-        card.inert = true;
-        var cancel = shown ? collapseAway(gone, gone === card) : (gone.remove(), function () {});
-        undos.push(function () {
-          cancel();
-          card.classList.remove('is-kept');
-          card.inert = false;
-          if (!gone.parentNode) {
-            putBack(spot);
-            if (gone.getClientRects().length) growIn(gone, gone === card);
-          }
-          return card.querySelector('[data-watch-keep]');
-        });
+        var taken = keepFromRow(card, row, shown);
+        undos.push(taken.undo);
+        if (!focus && shown) focus = taken.focus;
         return;
       }
       // Anywhere else the card stays, without its leaving badge or Keep.
       var spots = toArray(card.querySelectorAll('.watch-badge--leaving, [data-watch-keep]')).map(takeOut);
-      if (!focus && spots.length) focus = card.querySelector('.watch-card__link');
+      if (!focus && shown && spots.length) focus = card.querySelector('.watch-card__link');
       undos.push(function () {
         var back = null;
         spots.forEach(function (s) {
@@ -354,24 +465,28 @@
     if (busy[id]) return;
     setBusy(id, true);
     MM.api.post(KEEP_URL, { media_item_id: id, days: days }).then(function () {
-      setBusy(id, false);
       var moveFocus = focusLost(trigger);
-      var done = applyKept(id, days);
-      if (moveFocus && done.focus) done.focus.focus();
+      var done = applyKept(id, days, trigger);
+      if (moveFocus && done.focus) focusSoftly(done.focus);
       toast('Kept for ' + days + ' days', {
         variant: 'success',
         action: { label: 'Undo', onClick: function () { undoKeep(id, days, done); } }
       });
-    }).catch(function (err) {
       setBusy(id, false);
+    }).catch(function (err) {
       toast(MM.api.messageOf(err, 'Could not keep this. Try again.'), { variant: 'error' });
+      setBusy(id, false);
     });
   }
 
   /* Undo puts the title back at once and asks the server after; if the
      server says no, the Keep stands and is taken off the page again. */
   function undoKeep(id, days, done) {
-    if (busy[id]) return;
+    // The toast is gone already, so an Undo pressed mid-way waits its turn.
+    if (busy[id]) {
+      afterBusy[id] = function () { undoKeep(id, days, done); };
+      return;
+    }
     var back = done.undo();
     setBusy(id, true);
     var active = document.activeElement;
@@ -380,15 +495,15 @@
       back.focus();
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
-      setBusy(id, false);
       toast('Keep undone', { variant: 'info' });
-    }).catch(function (err) {
       setBusy(id, false);
+    }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];
       var moveFocus = trigger ? focusLost(trigger) : false;
-      var again = applyKept(id, days);
-      if (moveFocus && again.focus) again.focus.focus();
+      var again = applyKept(id, days, trigger);
+      if (moveFocus && again.focus) focusSoftly(again.focus);
       toast(MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.'), { variant: 'error' });
+      setBusy(id, false);
     });
   }
 
@@ -518,10 +633,14 @@
 
     var timer = null;
     var pending = null;
+    // The message dims with the old results while a search runs.
+    msg.style.transition = 'opacity var(--dur) var(--ease-out)';
 
     function setPending(on) {
       box.classList.toggle('is-pending', on);
       results.setAttribute('aria-busy', on ? 'true' : 'false');
+      msg.style.opacity = on ? '.5' : '';
+      msg.style.transitionDelay = on ? '.1s' : '';
     }
 
     function showBrowse() {
@@ -583,6 +702,8 @@
       var ctrl = new AbortController();
       pending = ctrl;
       setPending(true);
+      // Emptied now, so the same answer is read out again when it comes.
+      status.textContent = '';
       MM.api.get(SEARCH_URL + encodeURIComponent(q), { signal: ctrl.signal }).then(function (data) {
         if (pending !== ctrl) return;
         pending = null;

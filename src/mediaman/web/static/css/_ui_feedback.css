@@ -72,6 +72,17 @@
   transition: background var(--dur-fast) var(--ease-out);
 }
 .ui-toast__action:hover { background: var(--hair-strong); }
+/* Touch and phones: a 44 px target without a taller toast (negative margin
+   absorbs the extra height). */
+@media (pointer: coarse), (max-width: 600px) {
+  .ui-toast__action {
+    min-height: 44px;
+    margin-block: -12px;
+    padding-inline: 12px;
+    display: inline-flex;
+    align-items: center;
+  }
+}
 
 /* Variant accents — coloured left-border + tinted background hint,
    reusing the semantic palette. The gradient sits on a solid --s2 so page
@@ -171,4 +182,15 @@
    (up to two rows) sit under the stack. */
 @media (max-width: 699.98px) {
   .ui-toast-host { --toast-reserve: 150px; }
+}
+
+/* Watch on a phone: the search field sits at the top, so the toasts go to
+   the bottom, above the tab bar. */
+@media (max-width: 699.98px) {
+  body:has(.watch-search) .ui-toast-host {
+    top: auto;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px);
+    max-height: calc(100dvh - var(--nav-h) - 64px - 24px);
+    justify-content: flex-end;
+  }
 }

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
-from mediaman.core.time import now_utc, parse_iso_utc
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.media_meta.plex_watch import (
     PlexItemNotFound,
@@ -29,7 +29,7 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import apply_keep_snooze
+from mediaman.services.scheduled_actions import apply_keep_snooze, revert_keep_snooze
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.models import VALID_KEEP_DURATIONS
@@ -141,11 +141,16 @@ def api_watch_keep(
     duration = _KEEP_LABELS[days]
     with conn:
         before = conn.execute(
-            "SELECT snoozed_at, snooze_duration FROM scheduled_actions WHERE id = ?",
+            "SELECT execute_at, snoozed_at, snooze_duration FROM scheduled_actions WHERE id = ?",
             (pending.action_id,),
         ).fetchone()
-        applied = apply_keep_snooze(
-            conn, action_id=pending.action_id, duration=duration, days=days, now=now
+        applied = before is not None and apply_keep_snooze(
+            conn,
+            action_id=pending.action_id,
+            duration=duration,
+            days=days,
+            now=now,
+            expected_execute_at=before["execute_at"],
         )
         if applied:
             _remember_undo(
@@ -154,7 +159,7 @@ def api_watch_keep(
                 _Undo(
                     action_id=pending.action_id,
                     kept_until=(now + timedelta(days=days)).isoformat(),
-                    execute_at=pending.execute_at,
+                    execute_at=before["execute_at"],
                     snoozed_at=before["snoozed_at"],
                     snooze_duration=before["snooze_duration"],
                     expires=now + UNDO_WINDOW,
@@ -204,26 +209,20 @@ def api_watch_unkeep(
     now = now_utc()
     with _UNDO_LOCK:
         undo = _UNDO.pop((username, media_item_id), None)
-    # A deletion date that has passed in the meantime is not brought back: the keep stays.
-    old_date = parse_iso_utc(undo.execute_at) if undo else None
-    if undo is None or undo.expires <= now or old_date is None or old_date < now:
+    if undo is None or undo.expires <= now:
         return respond_err("too_late", status=409, message="This can no longer be undone.")
 
     conn = get_db()
     with conn:
-        restored = conn.execute(
-            "UPDATE scheduled_actions SET action = 'scheduled_deletion', token_used = 0, "
-            "execute_at = ?, snoozed_at = ?, snooze_duration = ? "
-            "WHERE id = ? AND action = 'snoozed' AND execute_at = ? "
-            "AND (delete_status IS NULL OR delete_status = 'pending')",
-            (
-                undo.execute_at,
-                undo.snoozed_at,
-                undo.snooze_duration,
-                undo.action_id,
-                undo.kept_until,
-            ),
-        ).rowcount
+        restored = revert_keep_snooze(
+            conn,
+            undo.action_id,
+            kept_until=undo.kept_until,
+            execute_at=undo.execute_at,
+            snoozed_at=undo.snoozed_at,
+            snooze_duration=undo.snooze_duration,
+            now=now,
+        )
         if restored:
             log_audit(
                 conn,

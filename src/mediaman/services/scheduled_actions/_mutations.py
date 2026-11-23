@@ -3,7 +3,8 @@
 ``parse_execute_at`` and ``is_pending_unexpired`` are pure-logic helpers
 used by both the display layer and the mutation layer.  The two ``apply_*``
 functions issue guarded UPDATEs that atomically check action / delete_status /
-token_used / execute_at to prevent double-application of a keep decision.
+token_used / execute_at to prevent double-application of a keep decision;
+``revert_keep_snooze`` undoes a snooze under the same kind of guard.
 
 All DB helpers take ``conn: sqlite3.Connection`` and never call
 ``conn.commit()`` — transaction boundaries belong to the caller.
@@ -62,29 +63,77 @@ def apply_keep_snooze(
     duration: str,
     days: int,
     now: datetime,
+    *,
+    expected_execute_at: str | None = None,
 ) -> int:
     """Apply a finite snooze to a ``scheduled_deletion`` row.
 
     The UPDATE is guarded by ``action='scheduled_deletion'``,
     ``delete_status='pending'``, ``token_used=0`` and
     ``execute_at >= now`` so a concurrent mutation or an already-expired row
-    cannot be accidentally applied.  Returns the
+    cannot be accidentally applied.  With *expected_execute_at* the row must
+    also still hold that deletion date, so a caller that read the date to
+    restore it later knows it is the one the snooze replaced.  Returns the
     rowcount (0 means nothing happened — caller should respond 409).
     """
     new_execute = (now + timedelta(days=days)).isoformat()
-    cursor = conn.execute(
+    sql = (
         "UPDATE scheduled_actions SET action=?, token_used=1, "
         "execute_at=?, snoozed_at=?, snooze_duration=? "
         "WHERE id=? AND action='scheduled_deletion' "
         "AND (delete_status IS NULL OR delete_status='pending') "
-        "AND token_used=0 AND execute_at >= ?",
+        "AND token_used=0 AND execute_at >= ?"
+    )
+    params: list[object] = [
+        ACTION_SNOOZED,
+        new_execute,
+        now.isoformat(),
+        duration,
+        action_id,
+        now.isoformat(),
+    ]
+    if expected_execute_at is not None:
+        sql += " AND execute_at = ?"
+        params.append(expected_execute_at)
+    return conn.execute(sql, params).rowcount
+
+
+def revert_keep_snooze(
+    conn: sqlite3.Connection,
+    action_id: int,
+    *,
+    kept_until: str,
+    execute_at: str,
+    snoozed_at: str | None,
+    snooze_duration: str | None,
+    now: datetime,
+) -> int:
+    """Undo a snooze written by ``apply_keep_snooze``, putting the deletion back.
+
+    *kept_until* is the ``execute_at`` the snooze wrote; *execute_at*,
+    *snoozed_at* and *snooze_duration* are the values it replaced.  The row
+    must still be that snooze (``action='snoozed'`` with *kept_until* as its
+    date) and its deletion still pending, and the old date must not have
+    passed.  ``token_used`` goes back to 0, which is what it was: the snooze
+    only applies to a row whose emailed keep link is unused.  Returns the
+    rowcount (0 means nothing was undone — caller should respond 409).
+    """
+    old_date = parse_iso_strict_utc(execute_at)
+    if old_date is None or old_date < now:
+        return 0
+    cursor = conn.execute(
+        "UPDATE scheduled_actions SET action=?, token_used=0, "
+        "execute_at=?, snoozed_at=?, snooze_duration=? "
+        "WHERE id=? AND action=? AND execute_at=? "
+        "AND (delete_status IS NULL OR delete_status='pending')",
         (
-            ACTION_SNOOZED,
-            new_execute,
-            now.isoformat(),
-            duration,
+            ACTION_SCHEDULED_DELETION,
+            execute_at,
+            snoozed_at,
+            snooze_duration,
             action_id,
-            now.isoformat(),
+            ACTION_SNOOZED,
+            kept_until,
         ),
     )
     return cursor.rowcount

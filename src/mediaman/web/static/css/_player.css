@@ -24,7 +24,7 @@
 }
 
 /* Controls fade out while playing and nobody touches anything. */
-.player-chrome { transition: opacity .25s ease; }
+.player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
 .player.is-idle .player-chrome { opacity: 0; pointer-events: none; }
 .player.is-idle { cursor: none; }
 
@@ -37,7 +37,7 @@
   flex-wrap: wrap;
   gap: 12px 18px;
   padding: max(26px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) 40px max(32px, env(safe-area-inset-left));
-  background: linear-gradient(180deg, rgba(0,0,0,.7), rgba(0,0,0,0));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 70%, transparent), transparent);
 }
 .player-back {
   flex: none;
@@ -49,7 +49,7 @@
   background: var(--hair-strong);
   font-size: 18px;
 }
-.player-back:hover { background: rgba(255,255,255,.2); }
+.player-back:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .player-titles {
   flex: 1 1 200px;
   min-width: 0;
@@ -75,7 +75,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.player-keep-btn { color: #ffb4ae; }
+.player-keep-btn { color: var(--danger-soft); }
 
 /* Bottom bar: seek row over the control row. */
 .player-bottom {
@@ -85,7 +85,7 @@
   flex-direction: column;
   gap: 4px;
   padding: 48px max(32px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
-  background: linear-gradient(0deg, rgba(0,0,0,.8), rgba(0,0,0,0));
+  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), transparent);
 }
 .player-seek-row {
   display: flex;
@@ -115,7 +115,7 @@
   width: 100%;
   height: 5px;
   border-radius: 3px;
-  background: rgba(255,255,255,.2);
+  background: color-mix(in srgb, var(--t1) 20%, transparent);
 }
 .player-seek-buffered,
 .player-seek-played {
@@ -125,7 +125,7 @@
   width: 0;
   border-radius: 3px;
 }
-.player-seek-buffered { background: rgba(255,255,255,.35); }
+.player-seek-buffered { background: color-mix(in srgb, var(--t1) 35%, transparent); }
 .player-seek-played { background: var(--accent); }
 .player-seek-thumb {
   position: absolute;
@@ -136,7 +136,7 @@
   margin: -7.5px 0 0 -7.5px;
   border-radius: 50%;
   background: var(--t1);
-  transition: transform .15s ease;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .player-seek:hover .player-seek-thumb,
 .player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
@@ -180,9 +180,9 @@
   z-index: -1;
   border-radius: var(--r-pill);
   background: var(--hair-strong);
-  transition: background .15s ease;
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.player-pill:hover::before { background: rgba(255,255,255,.22); }
+.player-pill:hover::before { background: color-mix(in srgb, var(--t1) 22%, transparent); }
 .player-pill--primary { color: var(--bg); font-weight: 600; }
 .player-pill--primary::before,
 .player-pill--primary:hover::before { background: var(--t1); }
@@ -233,7 +233,7 @@
    without delay. */
 @keyframes player-pop { from { opacity: 0; translate: 0 var(--pop-y, 8px); } }
 .player-menu,
-.player-card { animation: player-pop var(--dur, .2s) var(--ease-out, ease-out); }
+.player-card { animation: player-pop var(--dur) var(--ease-out); }
 .player-menu--down { --pop-y: -6px; }
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
@@ -247,13 +247,13 @@
   width: 48px;
   height: 48px;
   margin: -24px 0 0 -24px;
-  border: 3px solid rgba(255,255,255,.2);
+  border: 3px solid color-mix(in srgb, var(--t1) 20%, transparent);
   border-top-color: var(--t1);
   border-radius: 50%;
   animation: player-spin .9s linear infinite;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s ease;
+  transition: opacity var(--dur) var(--ease-out);
 }
 .player.is-loading .player-spinner { opacity: 1; }
 @keyframes player-spin { to { transform: rotate(360deg); } }

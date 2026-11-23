@@ -7,7 +7,7 @@
   align-items: center;
   gap: 28px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
@@ -48,7 +48,7 @@
   border: 0;
   border-radius: var(--r-pill);
   white-space: nowrap;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   font-family: var(--font-text);
 }
 .nav-btn:hover,
@@ -75,7 +75,7 @@
   align-items: center;
   gap: 14px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
@@ -97,7 +97,7 @@
   z-index: var(--z-nav);
   height: calc(64px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair);
@@ -117,7 +117,7 @@
   background: transparent;
   border: 0;
   cursor: pointer;
-  transition: color .15s;
+  transition: color var(--dur-fast) var(--ease-out);
   text-decoration: none;
   letter-spacing: -.005em;
 }
@@ -133,7 +133,7 @@
   position: fixed;
   inset: 0;
   z-index: calc(var(--z-nav) + 1);
-  background: rgba(0,0,0,.55);
+  background: color-mix(in srgb, var(--scrim) 55%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   align-items: flex-end;
@@ -142,14 +142,14 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--dur, .2s) var(--ease-out, ease-out),
-              visibility 0s linear var(--dur, .2s);
+  transition: opacity var(--dur) var(--ease-out),
+              visibility 0s linear var(--dur);
 }
 .nav-more-sheet[open] {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transition: opacity var(--dur, .2s) var(--ease-out, ease-out);
+  transition: opacity var(--dur) var(--ease-out);
 }
 
 .nav-more-panel {
@@ -161,7 +161,7 @@
   padding: 8px 8px calc(20px + env(safe-area-inset-bottom, 0px));
   box-shadow: var(--shadow-card);
   transform: translateY(24px);
-  transition: transform var(--dur, .2s) var(--ease-out, ease-out);
+  transition: transform var(--dur) var(--ease-out);
 }
 .nav-more-sheet[open] .nav-more-panel { transform: none; }
 @media (prefers-reduced-motion: reduce) {
@@ -192,7 +192,7 @@
   cursor: pointer;
   text-decoration: none;
   text-align: left;
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .nav-more-item > .fa-solid { font-size: 18px; flex-shrink: 0; }
 .nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
