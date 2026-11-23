@@ -149,6 +149,39 @@ def test_rows_render_and_an_empty_row_is_left_out() -> None:
     assert "Anime" not in html
 
 
+class _Scrollers(HTMLParser):
+    """Collect the attributes of every row scroller."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if "watch-row__scroll" in (a.get("class") or "").split():
+            self.found.append(a)
+
+
+def test_each_row_is_a_keyboard_reachable_region_named_after_its_title() -> None:
+    html = _watch(
+        rows=[
+            {"title": "Recently added", "items": [_card()]},
+            {"title": "Leaving soon", "items": [_card(leaving_days=2, keep_id="m1")]},
+        ]
+    )
+    scrollers = _Scrollers()
+    scrollers.feed(html)
+
+    assert [(s.get("role"), s.get("tabindex"), s.get("aria-label")) for s in scrollers.found] == [
+        ("region", "0", "Recently added"),
+        ("region", "0", "Leaving soon"),
+    ]
+
+
+def test_watch_page_loads_the_row_script_from_a_file() -> None:
+    assert '<script src="/static/js/watch-rows.js" defer></script>' in _watch()
+
+
 @pytest.mark.parametrize(
     ("days", "text"),
     [(0, "Leaving today"), (1, "Leaving in 1 day"), (5, "Leaving in 5 days")],

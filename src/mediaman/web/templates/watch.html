@@ -49,8 +49,10 @@
       {% if row['items'] %}
       <section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
         <h2 class="watch-row__title">{{ row.title }}</h2>
-        <div class="watch-row__scroll">
-          {% for item in row['items'] %}{{ w.card(item) }}{% endfor %}
+        <div class="watch-row__viewport">
+          <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
+            {% for item in row['items'] %}{{ w.card(item) }}{% endfor %}
+          </div>
         </div>
       </section>
       {% endif %}
@@ -69,4 +71,5 @@
 </div>
 
 <script src="/static/js/watch.js" defer></script>
+<script src="/static/js/watch-rows.js" defer></script>
 {% endblock %}

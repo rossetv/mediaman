@@ -1,5 +1,6 @@
 /* WATCH — the browse pages (Watch, show, movie).
-   Poster cards are 150px wide on a laptop, 128px on a tablet, 112px on a phone.
+   Poster cards are 150px wide on a laptop, 128px on a tablet, 112px on a phone;
+   on a touch screen the row cards size themselves so the next card peeks in.
    Only the poster rows scroll sideways; everything else wraps. */
 
 .watch-page {
@@ -13,7 +14,7 @@
 @media (max-width: 599.98px)  { .watch-page { --watch-card-w: 112px; --watch-gap: 10px; } }
 
 /* Buttons: the mock's white play pill and grey secondary pill. */
-.watch-btn--play { background: #fff; color: #000; font-weight: 600; min-height: 44px; padding-inline: 26px; font-size: 16px; }
+.watch-btn--play { background: var(--t1); color: var(--bg); font-weight: 600; min-height: 44px; padding-inline: 26px; font-size: 16px; }
 .watch-btn--play:hover { background: rgba(255,255,255,.85); }
 .watch-btn--grey { background: rgba(255,255,255,.14); color: var(--t1); min-height: 44px; padding-inline: 22px; font-size: 16px; }
 .watch-btn--grey:hover { background: rgba(255,255,255,.22); }
@@ -46,11 +47,11 @@
   width: min(320px, 100%);
   border-radius: 2px;
   background: rgba(255,255,255,.15);
-  color: #fff;
+  color: var(--t1);
 }
 .watch-bar--banner::-webkit-progress-bar { background: rgba(255,255,255,.15); }
-.watch-bar--banner::-webkit-progress-value { background: #fff; }
-.watch-bar--banner::-moz-progress-bar { background: #fff; }
+.watch-bar--banner::-webkit-progress-value { background: var(--t1); }
+.watch-bar--banner::-moz-progress-bar { background: var(--t1); }
 .watch-card__poster > .watch-bar,
 .watch-ep__thumb > .watch-bar { position: absolute; left: 0; right: 0; bottom: 0; }
 
@@ -93,13 +94,13 @@
   align-items: flex-end;
   padding: 0 var(--pad) 44px;
   overflow: hidden;
-  background: radial-gradient(ellipse at 75% 40%, #3a4a63 0%, #1a2233 45%, #000 80%);
+  background: radial-gradient(ellipse at 75% 40%, #3a4a63 0%, #1a2233 45%, var(--bg) 80%);
 }
 .watch-banner::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, #000 18%, rgba(0,0,0,.2) 60%, rgba(0,0,0,0));
+  background: linear-gradient(90deg, var(--bg) 18%, rgba(0,0,0,.2) 60%, rgba(0,0,0,0));
   pointer-events: none;
 }
 .watch-banner__bg {
@@ -128,21 +129,82 @@
   .watch-banner__line--short { display: block; }
 }
 
-/* Rows */
-.watch-rows { display: flex; flex-direction: column; gap: 30px; padding-top: 28px; }
+/* Rows run to the screen edge; at rest the first card lines up with the
+   title, and whatever is cut off at either edge fades out across the gutter.
+   With a mouse, arrow buttons in the gutters page a screenful; on touch each
+   swipe lands on a card. watch-rows.js adds the arrows and sets .has-prev /
+   .has-next, which show the fades and the arrows. The scroller's block padding
+   gives the hover shadow and focus ring room; the negative margin keeps that
+   room out of the layout. */
+@property --watch-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --watch-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+
+.watch-rows { display: flex; flex-direction: column; gap: 30px; padding-top: 28px; container-type: inline-size; }
 .watch-row { min-width: 0; }
 .watch-row__title { font-size: 19px; font-weight: 600; padding: 0 var(--pad); margin-bottom: 12px; }
+.watch-row__viewport { position: relative; }
 .watch-row__scroll {
   display: flex;
   gap: var(--watch-gap);
   overflow-x: auto;
-  padding: 4px var(--pad) 6px;
-  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  padding: 6px var(--pad) 16px;
+  margin: -6px 0 -16px;
   scroll-padding-inline: var(--pad);
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent);
+  transition: --watch-fade-l var(--dur, .2s) var(--ease-out, ease-out), --watch-fade-r var(--dur, .2s) var(--ease-out, ease-out);
 }
+.watch-row__scroll::-webkit-scrollbar { display: none; }
+/* The fades would hide the focus ring's ends, so a focused row drops them. */
+.watch-row__scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-md); -webkit-mask-image: none; mask-image: none; }
+.has-prev > .watch-row__scroll { --watch-fade-l: var(--pad); }
+.has-next > .watch-row__scroll { --watch-fade-r: var(--pad); }
 .watch-row__scroll > .watch-card { flex: 0 0 var(--watch-card-w); scroll-snap-align: start; }
+/* Cards in a row share its height, so Keep buttons line up along the bottom. */
+.watch-row__scroll > .watch-card > .watch-keep { margin-top: auto; }
+
+.watch-row__arrow { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .watch-row__arrow {
+    position: absolute;
+    z-index: 3;
+    top: calc(var(--watch-card-w) * .75 - 22px); /* the middle of a 2:3 poster */
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--hair-strong);
+    border-radius: 50%;
+    background: rgba(29,29,31,.72);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    backdrop-filter: blur(12px) saturate(1.4);
+    color: var(--t1);
+    font-size: 16px;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--dur, .2s) var(--ease-out, ease-out), visibility 0s linear var(--dur, .2s), background-color var(--dur-fast, .15s) var(--ease-out, ease-out), transform var(--dur-fast, .15s) var(--ease-out, ease-out);
+  }
+  .watch-row__arrow--prev { left: max(4px, calc(var(--pad) / 2 - 22px)); }
+  .watch-row__arrow--next { right: max(4px, calc(var(--pad) / 2 - 22px)); }
+  .has-prev > .watch-row__arrow--prev,
+  .has-next > .watch-row__arrow--next { opacity: 1; visibility: visible; transition-delay: 0s; }
+  .watch-row__arrow:hover { background: rgba(58,58,62,.9); }
+  .watch-row__arrow:active { transform: scale(.94); }
+}
+
+/* Touch: each swipe lands on a card, and the cards size themselves so about
+   2.5 show on a phone and 4.4 on a tablet, the last one peeking in. */
+@media (hover: none), (pointer: coarse) {
+  .watch-rows { --watch-peek: 4.4; --watch-card-w: clamp(112px, calc((100cqi - var(--pad)) / var(--watch-peek) - var(--watch-gap)), 170px); }
+  .watch-row__scroll { scroll-snap-type: x mandatory; }
+}
+@media (hover: none) and (max-width: 599.98px), (pointer: coarse) and (max-width: 599.98px) {
+  .watch-rows { --watch-peek: 2.5; }
+}
 
 /* Card */
 .watch-card { display: flex; flex-direction: column; gap: 6px; width: var(--watch-card-w); min-width: 0; }
@@ -157,10 +219,18 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: box-shadow .25s;
+  transition: box-shadow var(--dur-slow, .25s) var(--ease-out, ease-out);
 }
 .watch-card__link:hover .watch-card__poster { box-shadow: var(--shadow-card); }
 .watch-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* Posters fade in as they arrive; watch-rows.js sets the classes, so without
+   it they simply appear. */
+.watch-card__poster > img,
+.watch-hero__poster > img,
+.watch-ep__thumb > img { transition: opacity var(--dur, .2s) var(--ease-out, ease-out); }
+.has-poster-fade .watch-card__poster > img:not(.is-loaded),
+.has-poster-fade .watch-hero__poster > img:not(.is-loaded),
+.has-poster-fade .watch-ep__thumb > img:not(.is-loaded) { opacity: 0; }
 .watch-card__poster::after {
   content: "";
   position: absolute;
@@ -190,7 +260,7 @@
   font-size: 11px;
   padding: 3px 8px;
   border-radius: var(--r-pill);
-  color: #fff;
+  color: var(--t1);
   max-width: calc(100% - 16px);
   white-space: nowrap;
   overflow: hidden;
@@ -207,14 +277,16 @@
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { padding: 8px; }
-  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: 10px; }
+  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
   .watch-badge--leaving { left: 6px; }
   .watch-badge--watched { right: 6px; }
 }
 
-/* Keep trigger. The hit area is 44px high without making the pill bulky. */
+/* Keep trigger. The pill is drawn by ::before so the button itself can be a
+   44px touch target on a phone without the pill looking bulky. */
 .watch-keep {
   position: relative;
+  isolation: isolate;
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
@@ -222,15 +294,23 @@
   min-height: 32px;
   padding: 0 12px;
   border-radius: var(--r-pill);
-  background: var(--rgba-success-bg);
   color: var(--success);
   font-size: 12px;
   font-weight: 600;
 }
+.watch-keep::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--rgba-success-bg);
+  transition: background-color var(--dur-fast, .15s) var(--ease-out, ease-out);
+}
 .watch-keep::after { content: ""; position: absolute; inset: -6px -4px; }
-.watch-keep:hover { background: rgba(48,209,88,.22); }
+.watch-keep:hover::before { background: rgba(48,209,88,.22); }
 .watch-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.watch-keep__chev { font-size: 9px; transition: transform .15s; }
+.watch-keep__chev { font-size: 9px; transition: transform var(--dur-fast, .15s) var(--ease-out, ease-out); }
 .watch-keep[aria-expanded="true"] .watch-keep__chev { transform: rotate(180deg); }
 .watch-keep[disabled] { opacity: .55; cursor: progress; }
 
@@ -278,7 +358,7 @@
 
 /* Show and movie pages */
 .watch-detail {
-  background: radial-gradient(ellipse at 80% 0%, #24324a 0%, #000 60%) no-repeat;
+  background: radial-gradient(ellipse at 80% 0%, #24324a 0%, var(--bg) 60%) no-repeat;
   background-size: 100% 620px;
 }
 .watch-detail__top { padding: 20px var(--pad) 0; }
@@ -316,7 +396,7 @@
   font-size: 14px;
 }
 .watch-pill:hover { background: rgba(255,255,255,.2); }
-.watch-pill.on { background: #fff; color: #000; font-weight: 600; }
+.watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
 
 .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
 @media (min-width: 900px) { .watch-episodes { margin-left: 260px; } }
@@ -360,7 +440,7 @@
   .watch-top { padding-top: 12px; }
   .watch-search { max-width: none; }
   .watch-banner { height: 260px; margin-top: 12px; padding-bottom: 20px; }
-  .watch-banner::after { background: linear-gradient(0deg, #000 8%, rgba(0,0,0,0) 60%); }
+  .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, rgba(0,0,0,0) 60%); }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
   .watch-banner__title { font-size: 30px; }
@@ -387,10 +467,14 @@
   .watch-ep__state { justify-self: start; align-self: end; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .watch-card__poster, .watch-keep__chev { transition: none; }
-}
-
 /* Inline notice above the rows when Plex cannot be reached. */
-.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 var(--pad) 16px; padding: 10px 14px; border-radius: 10px; background: rgba(255,69,58,.12); color: var(--t1); font-size: 14px; }
-.watch-notice__retry { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.watch-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 var(--pad) 16px; padding: 10px 14px; border-radius: var(--r-md); background: var(--rgba-danger-bg); color: var(--t1); font-size: 14px; }
+/* 44px to tap; the negative margin keeps the notice its usual height. */
+.watch-notice__retry { min-height: 44px; margin-block: -10px; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Phones and touch screens: the Keep button grows to 44px, the pill stays. */
+@media (pointer: coarse), (max-width: 599.98px) {
+  .watch-keep { min-height: 44px; }
+  .watch-keep::before { inset: 6px 0; }
+  .watch-keep::after { content: none; }
+}
