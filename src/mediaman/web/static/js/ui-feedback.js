@@ -50,7 +50,21 @@
     }
     function onEnd(e) { if (e.target === node && e.propertyName === 'opacity') remove(); }
     node.addEventListener('transitionend', onEnd);
-    setTimeout(remove, 400);
+    setTimeout(remove, exitMs(node) + 100);
+  }
+
+  // The longest transition (delay included) the node runs, in ms.
+  function exitMs(node) {
+    var cs = getComputedStyle(node);
+    function list(v) {
+      return v.split(',').map(function (t) {
+        var n = parseFloat(t) || 0;
+        return /ms\s*$/.test(t) ? n : n * 1000;
+      });
+    }
+    var d = list(cs.transitionDuration), dl = list(cs.transitionDelay), max = 0;
+    d.forEach(function (x, i) { max = Math.max(max, x + dl[i % dl.length]); });
+    return max;
   }
 
   function dismissToast(node) {
@@ -70,6 +84,23 @@
     return host;
   }
 
+  var undoListening = false;
+  // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
+  // field where it is the field's own undo.
+  function listenForUndo() {
+    if (undoListening) return;
+    undoListening = true;
+    document.addEventListener('keydown', function (e) {
+      if (e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      var t = e.target;
+      if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+      var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
+      if (!btns.length) return;
+      e.preventDefault();
+      btns[btns.length - 1].click();
+    });
+  }
+
   function toast(message, opts) {
     opts = opts || {};
     var variant = opts.variant || 'info';
@@ -81,7 +112,9 @@
     var action = opts.action;
     if (action && action.label && typeof action.onClick === 'function') {
       node.classList.add('ui-toast--action');
-      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label });
+      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
+                               'aria-keyshortcuts': 'Control+Z Meta+Z',
+                               'aria-label': action.label + ' (Ctrl+Z)' });
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
         dismissToast(node);
@@ -92,6 +125,16 @@
     } else {
       action = null;
       node.textContent = message;
+    }
+    if (action) {
+      // Only the newest action toast answers the shortcut.
+      Array.prototype.forEach.call(host.querySelectorAll('.ui-toast__action'), function (b) {
+        b.removeAttribute('aria-keyshortcuts');
+        b.setAttribute('aria-label', b.textContent);
+      });
+      btn.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
+      btn.setAttribute('aria-label', action.label + ' (Ctrl+Z)');
+      listenForUndo();
     }
     // At most three at once, and never a stack taller than the host's
     // height budget. The new toast always stays; the oldest non-error goes
@@ -114,14 +157,15 @@
     };
     var kids = live().filter(function (c) { return c !== node; });
     while (kids.length > 0 && (kids.length >= 3 || overBudget())) {
-      var victim = kids.filter(function (c) {
+      // A toast with an action is never evicted while its time runs.
+      var plain = kids.filter(function (c) {
+        return !c.classList.contains('ui-toast--action');
+      });
+      var victim = plain.filter(function (c) {
         return !c.classList.contains('ui-toast--error');
-      })[0] || kids[0];
-      if (victim.classList.contains('ui-toast--error')) {
-        dismissToast(victim);
-      } else {
-        host.removeChild(victim);
-      }
+      })[0] || plain[0];
+      if (!victim) break;
+      dismissToast(victim);
       kids = live().filter(function (c) { return c !== node; });
     }
     // Animate in on next frame
@@ -129,7 +173,7 @@
     var duration = opts.duration || (action ? 8000 : 4000);
     function expire() {
       // Never take the button away from someone about to press it.
-      if (action && node.contains(document.activeElement)) {
+      if (action && (node.contains(document.activeElement) || node.matches(':hover'))) {
         setTimeout(expire, 2000);
         return;
       }
