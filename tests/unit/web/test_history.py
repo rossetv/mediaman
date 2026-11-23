@@ -487,6 +487,49 @@ class TestHistoryPillColour:
         assert pills == [variant]
 
 
+class TestMergedKeepFilters:
+    def _actions(self, app_factory, authed_client, conn, action):
+        if not hasattr(self, "_client"):
+            self._client = authed_client(app_factory(history_router, conn=conn), conn)
+        resp = self._client.get("/api/history", params={"action": action})
+        return {i["action"] for i in resp.json()["items"]}
+
+    def _seed(self, conn):
+        for n, a in enumerate(["snoozed", "protected", "unkept", "removed_show_keep", "deleted"]):
+            insert_audit_log(conn, media_item_id=f"m{n}", action=a)
+
+    def test_kept_filter_covers_snoozed_and_kept(self, app_factory, authed_client, conn):
+        self._seed(conn)
+        got = self._actions(app_factory, authed_client, conn, "kept")
+        assert got == {"snoozed", "protected"}
+
+    def test_keep_removed_filter_covers_unkept_and_show_keep_removal(
+        self, app_factory, authed_client, conn
+    ):
+        self._seed(conn)
+        got = self._actions(app_factory, authed_client, conn, "unkept")
+        assert got == {"unkept", "removed_show_keep"}
+
+    def test_old_single_action_values_still_filter_exactly(self, app_factory, authed_client, conn):
+        self._seed(conn)
+        assert self._actions(app_factory, authed_client, conn, "snoozed") == {"snoozed"}
+        assert self._actions(app_factory, authed_client, conn, "removed_show_keep") == {
+            "removed_show_keep"
+        }
+
+    def test_pills_show_one_kept_and_one_keep_removed(self, app_factory, authed_client, conn):
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        html = authed_client(app, conn).get("/history").text
+        assert html.count(">Kept<") == 1
+        assert html.count(">Keep removed<") == 1
+        assert "?action=snoozed" not in html
+        assert "?action=removed_show_keep" not in html
+
+
 class TestHistoryFilterButtons:
     def test_redownloaded_filter_button_is_hyphenated(self, app_factory, authed_client, conn):
         app = app_factory(
@@ -496,9 +539,9 @@ class TestHistoryFilterButtons:
         )
         resp = authed_client(app, conn).get("/history")
         assert resp.status_code == 200
-        assert "Re-Downloaded" in resp.text
+        assert "Re-downloaded" in resp.text
         assert "Re Downloaded" not in resp.text
-        assert "Delete Failed" in resp.text
+        assert "Delete failed" in resp.text
 
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():
@@ -594,3 +637,19 @@ class TestHistoryBadgesAndSecurityRows:
         assert "ua_hash" not in html
         assert "login.success" not in html
         assert "admin from 10.0.0.1" in html
+
+    def test_security_row_with_spaced_actor_and_unlabelled_event(
+        self, app_factory, authed_client, conn
+    ):
+        from mediaman.core.audit import security_event
+
+        security_event(conn, event="aes.canary_failed", actor="Jane Doe", ip="10.0.0.2")
+        html = self._page(app_factory, authed_client, conn)
+        assert "Jane Doe from 10.0.0.2" in html
+        assert "Aes canary" not in html
+
+    def test_filter_pills_use_row_labels(self, app_factory, authed_client, conn):
+        html = self._page(app_factory, authed_client, conn)
+        assert ">Keep removed<" in html
+        assert "Unprotected" not in html
+        assert "Removed Show Keep" not in html

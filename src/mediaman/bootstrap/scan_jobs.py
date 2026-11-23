@@ -6,7 +6,6 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from fastapi import FastAPI
 
@@ -17,6 +16,7 @@ from mediaman.bootstrap.validators import (
     validate_sync_interval,
 )
 from mediaman.config import Config
+from mediaman.scanner.scheduler import ScanSchedule
 
 logger = logging.getLogger(__name__)
 
@@ -164,16 +164,7 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
             logger.exception("Stuck-deletion recovery failed at startup")
 
 
-@dataclass(frozen=True, slots=True)
-class _SchedulerConfig:
-    scan_day: str
-    hour: int
-    minute: int
-    scan_tz: str
-    sync_interval: int
-
-
-def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
+def _read_scheduler_config(conn: sqlite3.Connection) -> ScanSchedule:
     """Read and validate the scheduler settings from the DB.
 
     Each value is passed through its mediaman.bootstrap.validators
@@ -191,7 +182,7 @@ def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
     # 0 means "disabled" in the settings UI; the validator refuses it so only
     # the scheduler config lets it through (the sync job is then not registered).
     sync_interval = 0 if raw_interval.strip() == "0" else validate_sync_interval(raw_interval)
-    return _SchedulerConfig(
+    return ScanSchedule(
         scan_day=scan_day,
         hour=hour,
         minute=minute,
@@ -228,32 +219,17 @@ SCHEDULE_SETTING_KEYS = frozenset(
 def reschedule_scan_jobs(conn: sqlite3.Connection, db_path: str | None, secret_key: str) -> bool:
     """Apply the saved scan schedule to the running scheduler.
 
-    Re-registers the weekly scan and the library-sync job from the DB, and
-    removes the sync job when the interval is 0 (disabled). Returns False and
-    changes nothing when no scheduler is running; raises ``ValueError`` when a
-    stored value is malformed, leaving the current schedule in place.
+    Only a job whose saved schedule differs from the live one is re-added, so a
+    save that changes nothing leaves the library-sync countdown alone. Returns
+    False when no scheduler is running; raises ``ValueError`` when a stored
+    value is malformed, leaving the current schedule in place.
     """
     from mediaman.scanner import scheduler as sched
 
-    cfg = _read_scheduler_config(conn)
     scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
-    with sched._scheduler_lock:
-        running = sched._scheduler
-        if running is None:
-            return False
-        sched._register_scan_jobs(
-            running,
-            scan_fn=scan_callback,
-            day_of_week=cfg.scan_day,
-            hour=cfg.hour,
-            minute=cfg.minute,
-            timezone=cfg.scan_tz,
-            sync_fn=sync_callback,
-            sync_interval_minutes=cfg.sync_interval,
-        )
-        if cfg.sync_interval == 0 and running.get_job("library_sync") is not None:
-            running.remove_job("library_sync")
-    return True
+    return sched.reschedule_scan_jobs(
+        lambda: _read_scheduler_config(conn), scan_fn=scan_callback, sync_fn=sync_callback
+    )
 
 
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:

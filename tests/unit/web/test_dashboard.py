@@ -485,15 +485,32 @@ class TestDeleteRootBanner:
         )
         assert "/media/tv</span> is empty or not mounted: 1 scheduled deletion is waiting" in html
 
-    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn):
+    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/media/movies")
         html = _dashboard_html(app_factory, authed_client, conn)
-        assert "is empty or not mounted" not in html
+        assert "root-banner" not in html
 
     def test_banner_escapes_paths(self, app_factory, authed_client, conn):
         write_delete_root_state(conn, {"/m/<script>alert(1)</script>": 2})
         html = _dashboard_html(app_factory, authed_client, conn)
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+    def test_page_load_logs_nothing_about_delete_roots(
+        self, app_factory, authed_client, conn, monkeypatch, caplog
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", ",:")
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at)"
+            " VALUES ('delete_allowed_roots', 'not json', 0, '2026-01-01')"
+        )
+        with caplog.at_level("DEBUG"):
+            _dashboard_html(app_factory, authed_client, conn)
+        assert not [
+            r
+            for r in caplog.records
+            if "DELETE_ROOTS" in r.getMessage().upper() or "delete_roots" in r.getMessage()
+        ]
 
 
 class TestCachedDiskUsage:

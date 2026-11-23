@@ -182,7 +182,7 @@ class PlexWatch:
             logger.warning(
                 "plex_watch.request_failed status=%s reason=%s",
                 exc.status_code,
-                exc.body_snippet[:120].replace(self._token, "***"),
+                exc.body_snippet.replace(self._token, "***")[:120],
             )
             raise PlexUnavailable("Plex could not be reached") from None
         except requests.RequestException as exc:

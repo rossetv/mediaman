@@ -194,7 +194,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             return respond_err(
                 "plex_not_configured",
                 status=400,
-                message="Plex is not configured — set the Plex URL and token in Settings",
+                message="Plex is not configured or its URL was refused — check the Plex URL and token in Settings",
             )
         security_event(
             conn,

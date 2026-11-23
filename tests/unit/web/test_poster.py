@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import requests
 
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
@@ -1096,3 +1097,79 @@ class TestOversizedPlexPoster:
         with patch("mediaman.web.routes.poster.fetch.monotonic", return_value=1000.0 + 3600):
             assert self._fetch(client, stub).status_code == 404
             assert len(calls) > first
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            SafeHTTPError(0, "transport error: ConnectionError", "https://localhost/x"),
+            requests.ConnectionError("plex down"),
+        ],
+        ids=["safe-http-transport", "requests-exception"],
+    )
+    def test_an_unreachable_plex_is_asked_once_not_for_the_original_too(self, tmp_path, failure):
+        from unittest.mock import MagicMock
+
+        stub = MagicMock()
+        stub.get.side_effect = failure
+        r = self._fetch(self._app(tmp_path), stub)
+
+        assert r.status_code == 404
+        assert stub.get.call_count == 1
+
+    def test_the_log_hides_the_token_even_when_it_straddles_the_cut_and_cannot_forge_lines(
+        self, tmp_path, caplog
+    ):
+        from mediaman.services.infra import SafeHTTPError
+
+        body = "x" * 195 + "fake-token" + "\nWARNING forged line"
+        stub, _ = self._plex(transcode_ok=False)
+        stub.get.side_effect = SafeHTTPError(500, body, "https://localhost/x")
+        with caplog.at_level("WARNING", logger="mediaman.web.routes.poster.fetch"):
+            self._fetch(self._app(tmp_path), stub)
+
+        assert "fake-" not in caplog.text
+        assert "\nWARNING forged line" not in caplog.text
+
+
+class TestPlexTransportFailures:
+    """A slow transcoder still falls back to the original; an unreachable Plex is asked once."""
+
+    @staticmethod
+    def _transport_error(url, cause):
+        return SafeHTTPError(0, f"transport error: {type(cause).__name__}", url)
+
+    def _fetch(self, transcode_cause):
+        from unittest.mock import MagicMock
+
+        from mediaman.web.routes.poster.fetch import fetch_plex_poster
+
+        urls: list[str] = []
+
+        def get(url, **kwargs):
+            urls.append(url)
+            if "/photo/:/transcode" in url:
+                raise self._transport_error(url, transcode_cause)
+            resp = MagicMock()
+            resp.content = b"original"
+            resp.headers = {"Content-Type": "image/jpeg"}
+            return resp
+
+        stub = MagicMock()
+        stub.get.side_effect = get
+        return fetch_plex_poster("https://plex", "tok", "12345", http_client=stub), urls
+
+    def test_original_is_served_after_the_transcoder_read_times_out(self):
+        (content, _), urls = self._fetch(requests.exceptions.ReadTimeout("slow"))
+
+        assert content == b"original"
+        assert len(urls) == 2
+
+    @pytest.mark.parametrize(
+        "cause",
+        [requests.exceptions.ConnectionError("refused"), requests.exceptions.ConnectTimeout("t")],
+    )
+    def test_unreachable_plex_is_asked_once(self, cause):
+        (content, _), urls = self._fetch(cause)
+
+        assert content is None
+        assert len(urls) == 1

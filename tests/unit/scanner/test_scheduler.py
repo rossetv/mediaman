@@ -95,6 +95,27 @@ def test_stop_scheduler_shuts_down(mock_cls):
     assert _sched_module._scheduler is None
 
 
+def test_reschedule_reads_the_schedule_while_holding_the_scheduler_lock():
+    """A save that reads before taking the lock could apply a stale schedule after a newer one."""
+    _sched_module._scheduler = MagicMock()
+    lock_held_during_read = []
+
+    def read_schedule():
+        lock_held_during_read.append(_sched_module._scheduler_lock.locked())
+        return _sched_module.ScanSchedule(
+            scan_day="mon", hour=9, minute=0, scan_tz="UTC", sync_interval=30
+        )
+
+    applied = _sched_module.reschedule_scan_jobs(
+        read_schedule,
+        scan_fn=lambda: None,
+        sync_fn=lambda: None,
+    )
+
+    assert applied is True
+    assert lock_held_during_read == [True]
+
+
 def test_stop_scheduler_noop_when_not_started():
     """stop_scheduler must not raise when no scheduler is running."""
     assert _sched_module._scheduler is None

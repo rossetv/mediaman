@@ -64,7 +64,7 @@ def dashboard_page(request: Request) -> Response:
 
     # Read from the settings row only; the page never touches a mount.
     unavailable_roots = sorted(read_delete_root_state(conn).items())
-    deletions_off = not read_delete_allowed_roots_setting(conn, log_empty=False)
+    deletions_off = not read_delete_allowed_roots_setting(conn, quiet=True)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(

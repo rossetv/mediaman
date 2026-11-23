@@ -16,7 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def parse_delete_roots_env(env_val: str) -> list[str]:
+def parse_delete_roots_env(env_val: str, *, quiet: bool = False) -> list[str]:
     """Parse ``MEDIAMAN_DELETE_ROOTS`` using the canonical colon/comma rules.
 
     The canonical separator is ``':'`` (PATH-style).  A ``','`` separator
@@ -29,17 +29,19 @@ def parse_delete_roots_env(env_val: str) -> list[str]:
 
     Single source of truth for separator handling — both the disk-usage
     path and the deletion path go through here.
+
+    ``quiet=True`` skips the separator warnings for read-only callers.
     """
     if not env_val:
         return []
     has_colon = ":" in env_val
     has_comma = "," in env_val
-    if has_comma:
+    if has_comma and not quiet:
         logger.warning(
             "MEDIAMAN_DELETE_ROOTS uses ',' separator — this is deprecated. "
             "Use ':' (PATH-style) instead; see .env.example."
         )
-    if has_comma and has_colon:
+    if has_comma and has_colon and not quiet:
         logger.error(
             "MEDIAMAN_DELETE_ROOTS contains both ':' and ',' separators — "
             "this is almost certainly a mistake.  Pick one (':' preferred) and retry."

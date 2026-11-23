@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 _BLOCK_TAGS = frozenset(
     {"p", "div", "br", "tr", "table", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol"}
 )
+_CELL_TAGS = frozenset({"td", "th"})
 _SKIPPED_TAGS = frozenset({"style", "script", "head", "title"})
 
 
@@ -32,6 +33,8 @@ class _TextExtractor(HTMLParser):
             self._skip_depth = max(0, self._skip_depth - 1)
         elif tag in _BLOCK_TAGS:
             self._parts.append("\n")
+        elif tag in _CELL_TAGS:
+            self._parts.append(" ")
         elif tag == "a" and self._links:
             href, start = self._links.pop()
             label = " ".join("".join(self._parts[start:]).split())

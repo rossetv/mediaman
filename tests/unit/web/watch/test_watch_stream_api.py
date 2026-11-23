@@ -447,6 +447,19 @@ def test_another_user_cannot_save_into_a_reaped_stream(alice, bob, conn, clock):
     assert _progress_rows(conn) == []
 
 
+def test_a_late_save_from_a_reaped_stream_never_overwrites_a_newer_stream_of_the_same_item(
+    alice, conn, clock
+):
+    old_id = _stream(alice)
+    _reap_after_idle(clock)
+    new_id = _stream(alice)
+    alice.post("/api/watch/progress", json={"stream_id": new_id, "position_s": 900, "played_s": 0})
+    alice.post("/api/watch/progress", json={"stream_id": old_id, "position_s": 60, "played_s": 0})
+    alice.post(f"/api/watch/stream/{old_id}/stop", json={"position_s": 60, "played_s": 0})
+    [row] = _progress_rows(conn)
+    assert row["position_s"] == 900
+
+
 def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
     stream_id = _stream(alice)
     _reap_after_idle(clock)

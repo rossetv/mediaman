@@ -11,6 +11,7 @@ from mediaman.scanner._scan_library import scan_tv_library
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import FetchedLibrary, PlexItemFetch
 from mediaman.scanner.repository import last_credited_by_media_item
+from mediaman.web.auth.password_hash import delete_user
 from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
@@ -110,6 +111,33 @@ def test_a_season_stays_safe_after_its_only_viewer_is_deleted(viewer):
     assert last_credited_by_media_item(viewer, [SEASON]) == {}
 
     assert _scan(viewer)["scheduled"] == 0
+
+
+def _delete_viewer(conn) -> None:
+    [user_id] = conn.execute("SELECT id FROM admin_users WHERE username = 'aoife'").fetchone()
+    assert delete_user(conn, user_id, current_username="admin") is True
+
+
+def test_a_season_played_then_its_viewer_deleted_before_any_scan_is_not_scheduled(viewer):
+    insert_media_item(viewer, id=SEASON, plex_rating_key=SEASON, media_type="season")
+    _credit_episode_play(viewer, days_ago=1)
+    _delete_viewer(viewer)
+
+    assert _scan(viewer)["scheduled"] == 0
+
+
+def test_deleting_a_viewer_never_moves_a_later_last_watched_back(viewer):
+    later = datetime.now(UTC) - timedelta(hours=1)
+    insert_media_item(
+        viewer, id=SEASON, plex_rating_key=SEASON, media_type="season", last_watched_at=later
+    )
+    _credit_episode_play(viewer, days_ago=1)
+    _delete_viewer(viewer)
+
+    row = viewer.execute(
+        "SELECT last_watched_at FROM media_items WHERE id = ?", (SEASON,)
+    ).fetchone()
+    assert parse_iso_utc(row["last_watched_at"]) == later
 
 
 def test_a_mediaman_play_older_than_the_inactivity_window_still_allows_scheduling(viewer):

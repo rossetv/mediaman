@@ -1,4 +1,4 @@
-"""SQL reads of when items were last watched, for the watch clock."""
+"""SQL of when items were last watched, for the watch clock."""
 
 from __future__ import annotations
 
@@ -54,4 +54,21 @@ def last_watched_by_media_item(
         "SELECT id, last_watched_at AS at FROM media_items"
         " WHERE id IN ({placeholders}) AND last_watched_at IS NOT NULL",
         media_ids,
+    )
+
+
+def keep_credited_plays(conn: sqlite3.Connection, username: str) -> None:
+    """Fold *username*'s credited plays into ``media_items.last_watched_at``.
+
+    Run before the person is deleted, since their plays go with them and
+    a scan may not have stored them yet. Only moves the time forward.
+    """
+    conn.execute(
+        "UPDATE media_items SET last_watched_at = MAX(("
+        " SELECT MAX(credited_at) FROM watch_progress"
+        " WHERE username = ? AND media_item_id = media_items.id),"
+        " COALESCE(last_watched_at, ''))"
+        " WHERE id IN (SELECT media_item_id FROM watch_progress"
+        " WHERE username = ? AND credited_at IS NOT NULL)",
+        (username, username),
     )

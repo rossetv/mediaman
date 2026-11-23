@@ -204,10 +204,10 @@ def _persist_settings(
         )
     _invalidate_test_cache_for_keys(set(written))
     if SCHEDULE_SETTING_KEYS.intersection(written):
-        # The values are already saved, so a failure here must not turn the save into an error.
         try:
             reschedule_scan_jobs(conn, getattr(request.app.state, "db_path", None), secret_key)
-        except ValueError:
+        # rationale: the save is already committed and the scheduler reads it at the next restart.
+        except Exception:
             logger.warning("settings.reschedule_failed", exc_info=True)
     return respond_ok({"status": "saved", "written": written, "ignored": ignored})
 

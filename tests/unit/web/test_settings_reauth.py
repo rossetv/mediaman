@@ -115,10 +115,10 @@ class TestSensitiveSettingsRequireReauth:
         """A scan-day tweak does not need a fresh reauth."""
         client = _client(app_factory, authed_client, conn, with_reauth=False)
 
-        resp = client.put("/api/settings", json={"scan_day": "monday"})
+        resp = client.put("/api/settings", json={"scan_day": "mon"})
         assert resp.status_code == 200
         row = conn.execute("SELECT value FROM settings WHERE key = 'scan_day'").fetchone()
-        assert row["value"] == "monday"
+        assert row["value"] == "mon"
 
     def test_mixed_payload_rejected_atomically(self, app_factory, authed_client, conn):
         """A body with one sensitive + one non-sensitive key must reject
@@ -128,7 +128,7 @@ class TestSensitiveSettingsRequireReauth:
         resp = client.put(
             "/api/settings",
             json={
-                "scan_day": "monday",
+                "scan_day": "mon",
                 "plex_token": "should-not-land",
             },
         )

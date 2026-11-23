@@ -95,8 +95,8 @@ class TestRejectCRLFAlsoRejectsNUL:
 
     def test_settings_update_rejects_nul_in_strings(self):
         """Make sure the model-level CRLF validator picks up NUL too."""
-        with pytest.raises(ValidationError):
-            SettingsUpdate(scan_day="mon\x00day")
+        with pytest.raises(ValidationError, match="CR, LF, or NUL"):
+            SettingsUpdate(nzbget_username="user\x00evil")
 
 
 class TestDiskThresholdsSizeCap:

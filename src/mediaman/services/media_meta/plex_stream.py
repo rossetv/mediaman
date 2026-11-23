@@ -319,7 +319,8 @@ class StreamManager:
         """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.
 
         Its played time ends at its last use, since nothing was played once it went idle.
-        Raises ``StreamGone`` for any other stream, someone else's included.
+        Raises ``StreamGone`` for any other stream, someone else's included, and while *user*
+        has a live stream of the same item, whose newer position a late save would overwrite.
         """
         with self._lock:
             reaped_at, stream = self._reaped.get(stream_id, (0.0, None))
@@ -327,6 +328,10 @@ class StreamManager:
                 stream is None
                 or stream.user != user
                 or self._clock() - reaped_at > REAPED_KEEP_SECONDS
+                or any(
+                    s.user == user and s.rating_key == stream.rating_key
+                    for s in self._streams.values()
+                )
             ):
                 raise StreamGone("stream is gone")
             return StreamInfo(

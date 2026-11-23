@@ -29,7 +29,7 @@ def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
 def read_delete_allowed_roots_setting(
     conn: sqlite3.Connection,
     *,
-    log_empty: bool = True,
+    quiet: bool = False,
 ) -> list[str]:
     """Read ``delete_allowed_roots`` from settings / env.
 
@@ -49,10 +49,13 @@ def read_delete_allowed_roots_setting(
     3. If both are empty we return ``[]`` and log a loud error: the
        caller must treat an empty list as fail-closed and refuse every
        deletion (path safety contract). Letting an unconfigured
-       installation silently accept ``/`` would be catastrophic.
+       installation silently accept ``/`` would be catastrophic. The
+       error is logged unless ``quiet`` is true.
 
-    ``log_empty=False`` silences that error for read-only callers such as the
-    dashboard.
+    ``quiet=True`` silences every log line of this read (bad JSON, an
+    unparseable env var, nothing configured) for read-only callers such as
+    the dashboard; the returned list is the same.
+
     Documenting the precedence inline so anyone reading the deletion
     path can confirm at a glance that the unusual order — DB beats env
     — is deliberate: the admin UI value must not be silently overridden
@@ -66,13 +69,14 @@ def read_delete_allowed_roots_setting(
             if isinstance(parsed, list):
                 roots = [str(r) for r in parsed if r]
         except (ValueError, TypeError):
-            logger.warning(
-                "scanner.delete_roots.invalid_json — could not parse "
-                "delete_allowed_roots setting value %r; "
-                "falling through to env-var / fail-closed path.",
-                row["value"],
-                exc_info=True,
-            )
+            if not quiet:
+                logger.warning(
+                    "scanner.delete_roots.invalid_json — could not parse "
+                    "delete_allowed_roots setting value %r; "
+                    "falling through to env-var / fail-closed path.",
+                    row["value"],
+                    exc_info=True,
+                )
     if not roots:
         env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
         if env_val:
@@ -81,14 +85,14 @@ def read_delete_allowed_roots_setting(
             # separator handling.
             from mediaman.services.infra import parse_delete_roots_env
 
-            roots = parse_delete_roots_env(env_val)
-            if not roots:
+            roots = parse_delete_roots_env(env_val, quiet=quiet)
+            if not roots and not quiet:
                 logger.error(
                     "MEDIAMAN_DELETE_ROOTS is set but no valid roots "
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
-    if not roots and log_empty:
+    if not roots and not quiet:
         logger.error(
             "MEDIAMAN_DELETE_ROOTS is not configured, so all deletions will be refused. "
             "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated paths) "

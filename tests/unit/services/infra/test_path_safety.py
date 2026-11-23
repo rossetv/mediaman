@@ -49,3 +49,13 @@ class TestParseDeleteRootsEnv:
         colon_result = parse_delete_roots_env("/data/movies:/data/tv")
         comma_result = parse_delete_roots_env("/data/movies,/data/tv")
         assert colon_result == comma_result
+
+
+class TestQuietParse:
+    def test_quiet_parses_the_same_but_logs_nothing(self, caplog):
+        assert parse_delete_roots_env("/a:/b,/c", quiet=True) == ["/a", "/b", "/c"]
+        assert caplog.records == []
+
+    def test_default_still_warns_on_comma_separator(self, caplog):
+        parse_delete_roots_env("/a,/b")
+        assert any("deprecated" in r.message for r in caplog.records)

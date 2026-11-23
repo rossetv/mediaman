@@ -299,7 +299,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "nzbget_username": "nzbuser",
         "mailgun_domain": "mg.example.com",
         "mailgun_from_address": "no-reply@example.com",
-        "scan_day": "Monday",
+        "scan_day": "mon",
         "scan_time": "03:00",
         "scan_timezone": "Europe/London",
         "library_sync_interval": 30,
@@ -488,6 +488,34 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         resp = client.put("/api/settings", json={"library_sync_interval": 1441})
         assert resp.status_code == 422
 
+    def test_a_cleared_schedule_input_keeps_the_stored_value_and_saves_the_rest(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        assert client.put("/api/settings", json={"scan_time": "07:15"}).status_code == 200
+
+        resp = client.put(
+            "/api/settings",
+            json={"scan_day": "", "scan_time": "", "nzbget_username": "nzbuser", "grace_days": 14},
+        )
+
+        assert resp.status_code == 200
+        data = client.get("/api/settings").json()
+        assert data["scan_time"] == "07:15"
+        assert data["nzbget_username"] == "nzbuser"
+        assert data["grace_days"] == 14
+
+    @pytest.mark.parametrize(("key", "value"), [("scan_time", "25:99"), ("scan_day", "monday")])
+    def test_put_refuses_a_schedule_value_the_scheduler_cannot_parse(
+        self, app_factory, authed_client, conn, key, value
+    ):
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.put("/api/settings", json={key: value})
+
+        assert resp.status_code == 422
+        assert conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone() is None
+
 
 class TestSettingsPutReschedulesRunningScheduler:
     """A saved schedule change must reach the live scheduler, not wait for a restart."""
@@ -521,6 +549,16 @@ class TestSettingsPutReschedulesRunningScheduler:
         assert self._cron_field(job, "hour") == "14"
         assert self._cron_field(job, "minute") == "30"
 
+    def test_new_timezone_alone_moves_the_weekly_scan(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+
+        resp = client.put("/api/settings", json={"scan_timezone": "Asia/Tokyo"})
+
+        assert resp.status_code == 200
+        assert str(scheduler.get_job("weekly_scan").trigger.timezone) == "Asia/Tokyo"
+
     def test_disabling_library_sync_removes_the_job_and_enabling_adds_it_back(
         self, app_factory, authed_client, conn, scheduler
     ):
@@ -543,6 +581,67 @@ class TestSettingsPutReschedulesRunningScheduler:
 
         assert resp.status_code == 200
         assert scheduler.get_job("weekly_scan").trigger is before.trigger
+
+    def test_saving_the_page_unchanged_keeps_the_library_sync_countdown(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+        page_payload = {
+            "scan_day": "mon",
+            "scan_time": "09:00",
+            "scan_timezone": "UTC",
+            "library_sync_interval": "30",
+            "grace_days": 14,
+        }
+        assert client.put("/api/settings", json=page_payload).status_code == 200
+        next_sync = scheduler.get_job("library_sync").next_run_time
+
+        resp = client.put("/api/settings", json=page_payload)
+
+        assert resp.status_code == 200
+        assert scheduler.get_job("library_sync").next_run_time == next_sync
+
+    def test_new_scan_time_keeps_the_library_sync_countdown(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        client = _client(app_factory, authed_client, conn)
+        next_sync = scheduler.get_job("library_sync").next_run_time
+
+        client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert scheduler.get_job("library_sync").next_run_time == next_sync
+
+    def test_a_failing_reschedule_does_not_undo_the_save(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        import sqlite3
+
+        client = _client(app_factory, authed_client, conn)
+
+        with patch(
+            "mediaman.web.routes.settings.api.reschedule_scan_jobs",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ):
+            resp = client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert resp.status_code == 200
+        row = conn.execute("SELECT value FROM settings WHERE key = 'scan_time'").fetchone()
+        assert row["value"] == "14:30"
+
+    def test_a_save_that_changes_nothing_still_applies_a_schedule_the_live_jobs_missed(
+        self, app_factory, authed_client, conn, scheduler
+    ):
+        """An overlapping save can commit a time without applying it; the next save must."""
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('scan_time', '14:30', 0, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+        client = _client(app_factory, authed_client, conn)
+
+        client.put("/api/settings", json={"scan_time": "14:30"})
+
+        assert self._cron_field(scheduler.get_job("weekly_scan"), "hour") == "14"
 
     def test_saving_a_schedule_with_no_scheduler_running_still_succeeds(
         self, app_factory, authed_client, conn
@@ -1075,10 +1174,10 @@ class TestSettingsThrottleAuditLog:
 
         # Burn through the burst window (20/min).
         for _ in range(20):
-            resp = client.put("/api/settings", json={"scan_day": "monday"})
+            resp = client.put("/api/settings", json={"scan_day": "mon"})
             assert resp.status_code == 200
 
-        resp = client.put("/api/settings", json={"scan_day": "monday"})
+        resp = client.put("/api/settings", json={"scan_day": "mon"})
         assert resp.status_code == 429
 
         rows = conn.execute(

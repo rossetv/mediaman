@@ -56,11 +56,12 @@ class TestSettingsUpdate:
 
     def test_settings_update_rejects_crlf_in_strings(self):
         """CR or LF in any string field must be rejected."""
-        with pytest.raises(ValidationError):
-            SettingsUpdate(scan_day="Mon\r\nEvil: injected")
+        with pytest.raises(ValidationError, match="CR, LF, or NUL"):
+            SettingsUpdate(nzbget_username="user\r\nEvil: injected")
 
     def test_rejects_crlf_in_scan_time(self):
-        with pytest.raises(ValidationError):
+        """The line-break check runs on scan_time before the time format check."""
+        with pytest.raises(ValidationError, match="CR, LF, or NUL"):
             SettingsUpdate(scan_time="08:00\nX-Header: evil")
 
     def test_rejects_crlf_in_nzbget_username(self):

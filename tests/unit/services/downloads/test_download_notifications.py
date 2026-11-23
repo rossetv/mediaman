@@ -63,6 +63,10 @@ class TestDownloadReadyTemplate:
         assert "Directed by Jane Doe" in html
         assert "READY TO WATCH" in html
 
+    def test_poster_image_alt_is_the_escaped_title(self):
+        html = _render(poster_src="https://x/p.jpg", title="A <b> & B")
+        assert 'alt="A &lt;b&gt; &amp; B"' in html
+
     def test_declares_a_dark_colour_scheme(self):
         html = _render()
         assert '<meta name="color-scheme" content="dark">' in html
