@@ -50,12 +50,13 @@
     node.classList.add('fade-in');
   }
 
-  /* How long a kept card takes to leave its row: it fades and shrinks for
-     --dur, and its slot starts closing part-way through that. */
+  /* How long a kept card takes to leave its row: all of it within
+     --dur-slow. It fades and shrinks for --dur, and its slot starts closing
+     at 0.6 of the whole, so the cards after it have settled by the end. */
   function cardExit() {
-    var fade = tokenMs('--dur', 200);
-    var closeAt = Math.round(fade * 0.6);
-    return { fade: fade, closeAt: closeAt, total: fade + tokenMs('--dur-fast', 150) };
+    var total = tokenMs('--dur-slow', 250);
+    var fade = Math.min(tokenMs('--dur', 200), total);
+    return { fade: fade, closeAt: Math.round(total * 0.6), total: total };
   }
 
   /* The part of the window no sticky top bar or phone tab bar covers. */

@@ -127,6 +127,8 @@ const scenarios = {
   // Keep the first card of the Leaving soon row, with motion on.
   async cardExit() {
     const page = load({ motion: true });
+    const tokens = { '--dur-fast': '150ms', '--dur': '200ms', '--dur-slow': '.25s' };
+    page.ctx.getComputedStyle = () => ({ getPropertyValue: (n) => tokens[n] || '', display: 'block' });
     const anims = [];
     page.doc.body.appendChild(leavingRowPage(page.doc));
     Node.prototype.animate = function (frames, timing) {

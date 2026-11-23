@@ -53,8 +53,10 @@ def test_an_empty_search_shows_a_hint_and_reads_out_only_the_line() -> None:
 
 def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_content() -> None:
     out = _run("cardExit")
-    assert out["duration"] <= 350
-    assert out["lastOpen"] < out["faded"]
+    # The whole exit fits --dur-slow (250ms); the slot starts closing at 0.6 of it.
+    assert out["duration"] == 250
+    assert out["lastOpen"] == 0.6
+    assert out["lastOpen"] < out["faded"] <= 1
     assert all(width == "20px" for width in out["pinned"])
 
 
