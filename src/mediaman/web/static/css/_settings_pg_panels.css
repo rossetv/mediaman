@@ -428,5 +428,6 @@
 
 @media (max-width: 639.98px) {
   .setg-pg .link-danger,
-  .setg-pg .sub-row .link-danger { min-height: 40px; }
+  .setg-pg .sub-row .link-danger,
+  .setg-pg .usr-actions .btn { min-height: 44px; }
 }
