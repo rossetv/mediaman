@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library import fetch_stats
+from mediaman.web.repository.library_query import fetch_stats
 from tests.helpers.factories import insert_media_item
 from tests.unit.scanner.test_runner import _set_setting
 

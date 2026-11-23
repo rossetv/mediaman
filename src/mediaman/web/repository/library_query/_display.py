@@ -14,6 +14,7 @@ from mediaman.core.format import days_ago as _days_ago_fmt
 from mediaman.core.format import format_bytes, relative_day_label
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
+from mediaman.services.scheduled_actions.days_left import days_left
 
 
 def days_ago(dt_str: str | None) -> str:
@@ -101,6 +102,7 @@ def _shape_rows(
     # the 18-key output dict is the natural seam and cannot be split further.
     """
     items = []
+    now = now_utc()
     for r in rows:
         display_type = r["display_type"]
         is_tv = display_type in ("tv", "anime")
@@ -124,6 +126,8 @@ def _shape_rows(
                 type_label = "1 season"
         else:
             type_label = "MOVIE"
+
+        deletion_at = parse_iso_strict_utc(r["deletion_at"])
 
         added_ago = days_ago(r["added_at"])
         subtitle_parts = []
@@ -153,6 +157,8 @@ def _shape_rows(
                 "protected": protected,
                 "protection_label": prot_label,
                 "show_kept": show_kept,
+                "deletion_at": r["deletion_at"] if deletion_at else None,
+                "deletion_days": days_left(deletion_at, now) if deletion_at else None,
             }
         )
     return items

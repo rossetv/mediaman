@@ -44,6 +44,7 @@ from mediaman.web.repository.library_query import (
     VALID_SORTS,
     VALID_TYPES,
     fetch_library,
+    fetch_stats,
 )
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.library_api._redownload_match import (
@@ -109,6 +110,7 @@ def api_library(
             "page": page,
             "per_page": per_page,
             "total_pages": total_pages,
+            "stats": fetch_stats(conn),
         }
     )
 

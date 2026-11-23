@@ -7,12 +7,18 @@ the library route.
 from __future__ import annotations
 
 import sqlite3
+from datetime import timedelta
 
+from mediaman.core.format import format_bytes
+from mediaman.core.time import now_utc
+from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
     TV_SEASON_TYPES,
 )
+
+DUE_SOON_DAYS = 14
 
 
 def count_movies(conn: sqlite3.Connection) -> int:
@@ -89,3 +95,93 @@ def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str)
 def sum_total_size_bytes(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
     return int(row["n"] or 0)
+
+
+def sum_size_bytes_by_type(conn: sqlite3.Connection) -> dict[str, int]:
+    """Return the total file size of movies, TV and anime, in bytes."""
+    result = {"movies": 0, "tv": 0, "anime": 0}
+    for row in conn.execute(
+        "SELECT media_type, SUM(file_size_bytes) AS n FROM media_items GROUP BY media_type"
+    ):
+        if row["media_type"] == "movie":
+            key = "movies"
+        elif row["media_type"] in TV_SEASON_TYPES:
+            key = "tv"
+        elif row["media_type"] in ANIME_SEASON_TYPES:
+            key = "anime"
+        else:
+            continue
+        result[key] += int(row["n"] or 0)
+    return result
+
+
+def count_deletions_due(conn: sqlite3.Connection, *, now: str, until: str) -> int:
+    """Return the display items (movies, and shows once each) with a deletion due in the window."""
+    season_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
+    # rationale: placeholders are purely "?" * len(...) — no user value enters the SQL text
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n FROM (
+            SELECT mi.id FROM media_items mi
+            WHERE mi.media_type = 'movie' AND EXISTS (
+                SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
+                AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
+                AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
+                AND sa.execute_at >= ? AND sa.execute_at <= ?)
+            UNION ALL
+            SELECT MIN(mi.id) FROM media_items mi
+            WHERE mi.media_type IN ({season_placeholders}) AND EXISTS (
+                SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
+                AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
+                AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
+                AND sa.execute_at >= ? AND sa.execute_at <= ?)
+            GROUP BY COALESCE(mi.show_rating_key, mi.show_title)
+        )
+        """,
+        (now, until, *ALL_SEASON_TYPES, now, until),
+    ).fetchone()
+    return int(row["n"])
+
+
+def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
+    """Return counts, sizes, the stale count and the deletions due soon for the library page.
+
+    TV/anime totals group like fetch_library's display_items CTE, by
+    COALESCE(show_rating_key, show_title). COUNT(DISTINCT NULL) counts 0 while the CTE's
+    GROUP BY NULL collapses such rows into one group, so the count wraps a GROUP BY
+    sub-select to make NULL count as 1.
+    """
+    movies = count_movies(conn)
+    tv = count_tv_shows(conn)
+    anime = count_anime_shows(conn)
+
+    min_age = get_day_setting(conn, "min_age_days", default=30)
+    inactivity = get_day_setting(conn, "inactivity_days", default=30)
+
+    now = now_utc()
+    age_cutoff = (now - timedelta(days=min_age)).isoformat()
+    watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
+
+    stale = count_stale(conn, age_cutoff=age_cutoff, watch_cutoff=watch_cutoff)
+    due_soon = count_deletions_due(
+        conn, now=now.isoformat(), until=(now + timedelta(days=DUE_SOON_DAYS)).isoformat()
+    )
+
+    sizes = sum_size_bytes_by_type(conn)
+    total = movies + tv + anime
+    total_size = format_bytes(sum_total_size_bytes(conn))
+
+    return {
+        "movies": movies,
+        "tv": tv,
+        "anime": anime,
+        "stale": stale,
+        "stale_min_age": min_age,
+        "total": total,
+        "total_size": total_size,
+        "movies_size": format_bytes(sizes["movies"]),
+        "tv_size": format_bytes(sizes["tv"]),
+        "anime_size": format_bytes(sizes["anime"]),
+        "due_soon": due_soon,
+        "due_soon_days": DUE_SOON_DAYS,
+    }

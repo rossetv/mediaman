@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
+from mediaman.core.format import format_bytes
 from mediaman.db import init_db, set_connection
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.web.routes.library import (
@@ -672,3 +673,106 @@ class TestFetchStats:
             _insert_tv_season(conn, f"s{season}", "Fresh Show", "rk-fresh", season=season)
         stats = fetch_stats(conn)
         assert stats["stale"] == 0
+
+
+def _schedule_deletion(conn, media_id: str, days: float, **fields) -> None:
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="scheduled_deletion",
+        execute_at=(datetime.now(UTC) + timedelta(days=days)).isoformat(),
+        token=f"tok-{media_id}",
+        **fields,
+    )
+
+
+def _insert_season(conn, media_id: str, show: str, key: str, size: int = 10) -> None:
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=f"{show} {media_id}",
+        media_type="tv_season",
+        show_title=show,
+        show_rating_key=key,
+        plex_rating_key=f"rk-{media_id}",
+        added_at=_now_iso(),
+        file_path="/f",
+        file_size_bytes=size,
+    )
+
+
+class TestPendingDeletion:
+    def test_row_carries_the_pending_deletion_date_and_days(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _insert_movie(conn, "m2")
+        _schedule_deletion(conn, "m1", 5.5)
+        items, _ = fetch_library(conn)
+        by_id = {i["id"]: i for i in items}
+        assert by_id["m1"]["deletion_at"] is not None
+        assert by_id["m1"]["deletion_days"] in (5, 6)
+        assert by_id["m2"]["deletion_at"] is None
+        assert by_id["m2"]["deletion_days"] is None
+
+    def test_used_lapsed_and_deleting_actions_do_not_count(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        for i, (days, kw) in enumerate(
+            [(3, {"token_used": True}), (-2, {}), (3, {"delete_status": "deleting"})]
+        ):
+            _insert_movie(conn, f"m{i}")
+            _schedule_deletion(conn, f"m{i}", days, **kw)
+        items, _ = fetch_library(conn)
+        assert all(i["deletion_at"] is None for i in items)
+
+    def test_show_row_takes_its_soonest_season(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_season(conn, "s1", "Show", "k1")
+        _insert_season(conn, "s2", "Show", "k1")
+        _schedule_deletion(conn, "s1", 9.5)
+        _schedule_deletion(conn, "s2", 2.5)
+        items, _ = fetch_library(conn)
+        assert len(items) == 1
+        assert items[0]["deletion_days"] in (2, 3)
+
+    def test_deletion_sorts_put_unscheduled_rows_last(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        for mid, days in [("a", 9.5), ("b", 2.5), ("c", None)]:
+            _insert_movie(conn, mid, title=mid)
+            if days is not None:
+                _schedule_deletion(conn, mid, days)
+        asc, _ = fetch_library(conn, sort="deletion_asc")
+        desc, _ = fetch_library(conn, sort="deletion_desc")
+        assert [i["id"] for i in asc] == ["b", "a", "c"]
+        assert [i["id"] for i in desc] == ["a", "b", "c"]
+
+
+class TestStatsSizesAndDue:
+    def test_sizes_by_type(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", file_size=2048)
+        _insert_season(conn, "s1", "Show", "k1", size=1024)
+        _insert_season(conn, "s2", "Show", "k1", size=1024)
+        stats = fetch_stats(conn)
+        assert stats["movies_size"] == format_bytes(2048)
+        assert stats["tv_size"] == format_bytes(2048)
+        assert stats["anime_size"] == format_bytes(0)
+
+    def test_due_soon_counts_items_in_the_next_14_days_once_per_show(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "soon")
+        _insert_movie(conn, "later")
+        _insert_season(conn, "s1", "Show", "k1")
+        _insert_season(conn, "s2", "Show", "k1")
+        _schedule_deletion(conn, "soon", 3)
+        _schedule_deletion(conn, "later", 20)
+        _schedule_deletion(conn, "s1", 2)
+        _schedule_deletion(conn, "s2", 4)
+        stats = fetch_stats(conn)
+        assert stats["due_soon"] == 2
+        assert stats["due_soon_days"] == 14

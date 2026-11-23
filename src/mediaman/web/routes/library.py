@@ -7,8 +7,6 @@ peer-route import; this module re-exports them for external importers (tests, ap
 
 from __future__ import annotations
 
-import sqlite3
-from datetime import timedelta
 from typing import cast
 
 from fastapi import APIRouter, Query, Request
@@ -16,9 +14,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.core.format import format_bytes
-from mediaman.core.time import now_utc
-from mediaman.scanner.runner import get_day_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import resolve_admin_page_session
 from mediaman.web.repository.library_query import (
@@ -40,17 +35,13 @@ from mediaman.web.repository.library_query import (
     VALID_TYPES as VALID_TYPES,
 )
 from mediaman.web.repository.library_query import (
-    count_anime_shows,
-    count_movies,
-    count_stale,
-    count_tv_shows,
-    sum_total_size_bytes,
-)
-from mediaman.web.repository.library_query import (
     days_ago as days_ago,
 )
 from mediaman.web.repository.library_query import (
     fetch_library as fetch_library,
+)
+from mediaman.web.repository.library_query import (
+    fetch_stats as fetch_stats,
 )
 from mediaman.web.repository.library_query import (
     protection_label as protection_label,
@@ -58,42 +49,6 @@ from mediaman.web.repository.library_query import (
 from mediaman.web.repository.library_query import (
     type_css as type_css,
 )
-
-
-def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return counts and stale count for the library stats bar.
-
-    TV/anime totals group like fetch_library's display_items CTE, by
-    COALESCE(show_rating_key, show_title). COUNT(DISTINCT NULL) counts 0 while the CTE's
-    GROUP BY NULL collapses such rows into one group, so the count wraps a GROUP BY
-    sub-select to make NULL count as 1.
-    """
-    movies = count_movies(conn)
-    tv = count_tv_shows(conn)
-    anime = count_anime_shows(conn)
-
-    min_age = get_day_setting(conn, "min_age_days", default=30)
-    inactivity = get_day_setting(conn, "inactivity_days", default=30)
-
-    now = now_utc()
-    age_cutoff = (now - timedelta(days=min_age)).isoformat()
-    watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
-
-    stale = count_stale(conn, age_cutoff=age_cutoff, watch_cutoff=watch_cutoff)
-
-    total = movies + tv + anime
-    total_size = format_bytes(sum_total_size_bytes(conn))
-
-    return {
-        "movies": movies,
-        "tv": tv,
-        "anime": anime,
-        "stale": stale,
-        "stale_min_age": min_age,
-        "total": total,
-        "total_size": total_size,
-    }
-
 
 router = APIRouter()
 
