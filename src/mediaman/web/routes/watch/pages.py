@@ -394,7 +394,7 @@ def _continue_watching(
                 )
             )
             if banner is None:
-                banner = _banner(movie.title, left_text, pct, href, movie.key)
+                banner = _banner(movie.title, left_text, pct, href, movie.key, "movie")
             continue
 
         show = shows.get(progress.show_rating_key)
@@ -444,21 +444,30 @@ def _continue_watching(
                 line = line_short = left_text
                 episodes_href = f"/watch/show/{show.key}"
             banner = _banner(
-                show.title, line, pct, play_href(key, resume=True, origin="/watch"), show.key
+                show.title,
+                line,
+                pct,
+                play_href(key, resume=True, origin="/watch"),
+                show.key,
+                "show",
             )
             banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
     return cards, banner
 
 
-def _banner(title: str, line: str, pct: int | None, href: str, poster_key: str) -> dict[str, Any]:
+def _banner(
+    title: str, line: str, pct: int | None, href: str, key: str, kind: str
+) -> dict[str, Any]:
+    """The banner for a library title; its ref opens the title's detail overlay."""
     return {
         "title": title,
+        "ref": f"{kind}-{key}",
         "line": line,
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        "backdrop_url": poster_url(poster_key),
+        "backdrop_url": poster_url(key),
     }
 
 
@@ -507,22 +516,27 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     plex.check_reachable()
     leaving_row = [_leaving_card(p, now) for p in pending]
 
-    # (added, card, where the banner's Play goes): a movie plays, a show opens its page.
+    # (added, card, where the banner's Play goes, its detail ref): a movie plays, a show
+    # opens its page.
     newest = sorted(
         [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"))
+            (_added(m.added_at), c, play_href(m.key, origin="/watch"), f"movie-{m.key}")
             for m, c in zip(movies, movie_row, strict=True)
         ]
-        + [(_added(s.added_at), c, c["href"]) for s, c in zip(shows, show_row, strict=True)],
+        + [
+            (_added(s.added_at), c, c["href"], f"show-{s.key}")
+            for s, c in zip(shows, show_row, strict=True)
+        ],
         key=lambda entry: entry[0],
         reverse=True,
     )
     cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, _ in newest if added >= cutoff]
+    recent_row = [c for added, c, _, _ in newest if added >= cutoff]
     if banner is None and newest:
-        _, latest, play = newest[0]
+        _, latest, play, ref = newest[0]
         banner = {
             "title": latest["title"],
+            "ref": ref,
             "line": latest["subtitle"],
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},

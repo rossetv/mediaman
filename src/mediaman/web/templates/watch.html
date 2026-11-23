@@ -72,6 +72,7 @@
         <div class="watch-actions">
           <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ banner.primary.label }}</a>
           {% if banner.episodes_href %}<a class="btn btn--lg watch-btn--grey" href="{{ banner.episodes_href }}">Episodes</a>{% endif %}
+          {% if banner.ref %}<a class="btn btn--lg watch-btn--grey" href="/watch#title={{ banner.ref }}" data-title-ref="{{ banner.ref }}" data-title="{{ banner.title }}">Details</a>{% endif %}
         </div>
       </div>
     </section>

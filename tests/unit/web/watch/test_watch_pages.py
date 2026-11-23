@@ -315,6 +315,7 @@ class TestWatchRows:
         assert "Continue watching" not in _rows(ctx)
         assert ctx["banner"]["primary"]["label"] == "Play"
         assert ctx["banner"]["title"] == "Glasshouse"
+        assert ctx["banner"]["ref"] == "movie-101"
 
     def test_finished_episode_is_followed_by_the_next_unwatched_one(self, get, conn):
         _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
@@ -390,6 +391,7 @@ class TestWatchRows:
         }
         assert banner["episodes_href"] == "/watch/show/500?season=2"
         assert banner["progress_pct"] == 40
+        assert banner["ref"] == "show-500"
 
     def test_plex_not_set_up_still_lists_the_library(self, get, conn):
         conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")

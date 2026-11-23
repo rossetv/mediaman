@@ -634,7 +634,7 @@
 @media (max-width: 599.98px) {
   .watch-top { padding-top: 12px; }
   .watch-search { max-width: none; }
-  .watch-banner { height: 260px; margin-top: 12px; padding-bottom: 20px; }
+  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 64px var(--pad) 20px; }
   .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, transparent 60%); }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
@@ -642,6 +642,10 @@
   .watch-banner__line { font-size: 13px; }
   .watch-actions { flex-direction: column; }
   .watch-actions .btn { width: 100%; }
+  /* The banner's Play takes the full width; Episodes and Details share the row under it. */
+  .watch-banner .watch-actions { flex-direction: row; }
+  .watch-banner .watch-actions .btn { flex: 1 1 0; width: auto; padding-inline: 12px; }
+  .watch-banner .watch-actions .watch-btn--play { flex-basis: 100%; }
   .watch-rows { gap: 22px; padding-top: 18px; }
   .watch-row__title { font-size: 17px; margin-bottom: 10px; }
 
