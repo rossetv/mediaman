@@ -6,7 +6,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-nav);
-  background: #000;
+  background: var(--bg);
   color: var(--t1);
   overflow: hidden;
   user-select: none;
@@ -20,7 +20,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--bg);
 }
 
 /* Controls fade out while playing and nobody touches anything. */
@@ -135,7 +135,7 @@
   height: 15px;
   margin: -7.5px 0 0 -7.5px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--t1);
   transition: transform .15s ease;
 }
 .player-seek:hover .player-seek-thumb,
@@ -183,9 +183,9 @@
   transition: background .15s ease;
 }
 .player-pill:hover::before { background: rgba(255,255,255,.22); }
-.player-pill--primary { color: #000; font-weight: 600; }
+.player-pill--primary { color: var(--bg); font-weight: 600; }
 .player-pill--primary::before,
-.player-pill--primary:hover::before { background: #fff; }
+.player-pill--primary:hover::before { background: var(--t1); }
 
 .player-volume { display: flex; align-items: center; }
 .player-volume-slider {
@@ -207,7 +207,7 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--r-lg);
-  background: rgba(29,29,31,.96);
+  background: color-mix(in srgb, var(--s2) 96%, transparent);
   box-shadow: var(--shadow-card);
 }
 .player-menu--up { bottom: calc(100% + 4px); }
@@ -229,6 +229,17 @@
   color: var(--accent);
 }
 
+/* Menus and cards rise in when they open; they are usable at once, and hide
+   without delay. */
+@keyframes player-pop { from { opacity: 0; translate: 0 var(--pop-y, 8px); } }
+.player-menu,
+.player-card { animation: player-pop var(--dur, .2s) var(--ease-out, ease-out); }
+.player-menu--down { --pop-y: -6px; }
+@media (prefers-reduced-motion: reduce) {
+  .player-menu,
+  .player-card { animation: none; }
+}
+
 /* Spinner while a stream starts or the buffer runs dry. */
 .player-spinner {
   position: absolute;
@@ -237,7 +248,7 @@
   height: 48px;
   margin: -24px 0 0 -24px;
   border: 3px solid rgba(255,255,255,.2);
-  border-top-color: #fff;
+  border-top-color: var(--t1);
   border-radius: 50%;
   animation: player-spin .9s linear infinite;
   opacity: 0;
@@ -255,7 +266,7 @@
   gap: 6px;
   padding: 20px 22px 14px;
   border-radius: var(--r-lg);
-  background: rgba(29,29,31,.94);
+  background: color-mix(in srgb, var(--s2) 94%, transparent);
   box-shadow: var(--shadow-card);
   max-width: calc(100% - 32px);
 }

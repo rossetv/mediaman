@@ -15,7 +15,8 @@
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works.
+ * which is also how a quality change works. If the server refuses the
+ * stream of a new quality, the quality that was playing comes back.
  */
 (function () {
   'use strict';
@@ -97,6 +98,7 @@
   var lastTime = null;
   var dragging = false;
   var quality = readQuality();
+  var goodQuality = null;    // the quality of the last stream that started
 
   var mediaRecoverUsed = false;
   var fatalRestartUsed = false;
@@ -137,12 +139,27 @@
     }
   }
 
-  function chooseQuality(value) {
-    if (!QUALITIES[value] || value === quality) return;
+  function setQuality(value) {
     quality = value;
     try { window.localStorage.setItem(QUALITY_KEY, value); } catch (e) { /* storage blocked */ }
     showQuality();
+  }
+
+  function chooseQuality(value) {
+    if (!QUALITIES[value] || value === quality) return;
+    setQuality(value);
     restartStream(true);
+  }
+
+  /* The server refused the stream of a new quality, and the old stream is
+     already stopped: start the quality that was playing, where it was. */
+  function revertQuality(pos) {
+    var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
+    setQuality(goodQuality);
+    if (window.UIFeedback) {
+      window.UIFeedback.error("Couldn't change the quality. Staying on " + label + '.');
+    }
+    return startStream(pos);
   }
 
   /* ---- messages and loading ------------------------------------------- */
@@ -193,14 +210,18 @@
           }
           starting = false;
           streamId = data.stream_id;
+          goodQuality = quality;
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
           if (gen !== generation) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
-          starting = false;
           var known = err && START_ERRORS[err.error];
+          if (goodQuality && goodQuality !== quality && (!known || known.retry)) {
+            return revertQuality(pos);
+          }
+          starting = false;
           showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
         });
     }
@@ -544,20 +565,36 @@
 
   root.querySelectorAll('[data-quality]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      closeMenus();
+      closeMenus(true);
       chooseQuality(btn.getAttribute('data-quality'));
     });
   });
 
   /* ---- menus ---------------------------------------------------------- */
 
-  function closeMenus() {
+  /* Close every menu; with `refocus`, put focus back on the trigger of the one that was open. */
+  function closeMenus(refocus) {
+    var opened = openTrigger();
     root.querySelectorAll('[data-menu-trigger]').forEach(function (t) {
       t.setAttribute('aria-expanded', 'false');
       t.parentNode.querySelector('.player-menu').hidden = true;
     });
+    if (refocus && opened) opened.focus();
   }
-  function menuOpen() { return !!root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
+  function openTrigger() { return root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
+  function menuOpen() { return !!openTrigger(); }
+
+  /* Arrow keys, Home and End move between the items of the open menu. */
+  function moveInMenu(key) {
+    var items = openTrigger().parentNode.querySelectorAll('.player-menu-item');
+    var at = Array.prototype.indexOf.call(items, document.activeElement);
+    var to;
+    if (key === 'Home') to = 0;
+    else if (key === 'End') to = items.length - 1;
+    else if (key === 'ArrowDown') to = at < 0 ? 0 : (at + 1) % items.length;
+    else to = at < 0 ? items.length - 1 : (at - 1 + items.length) % items.length;
+    items[to].focus();
+  }
 
   root.querySelectorAll('[data-menu-trigger]').forEach(function (trigger) {
     trigger.addEventListener('click', function (e) {
@@ -583,14 +620,16 @@
     els.keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var days = parseInt(btn.getAttribute('data-keep-days'), 10);
-        closeMenus();
+        closeMenus(true);
         MM.api.post('/api/watch/keep', { media_item_id: leaving.keep_id, days: days })
           .then(function () {
+            var hadFocus = els.keep.contains(document.activeElement);
             els.keep.textContent = '';
             var done = document.createElement('span');
             done.className = 'player-pill';
             done.textContent = 'Kept for ' + days + ' days';
             els.keep.appendChild(done);
+            if (hadFocus) { done.tabIndex = -1; done.focus(); }
             if (window.UIFeedback) window.UIFeedback.toast('Kept for ' + days + ' days', { variant: 'success' });
           })
           .catch(function (err) {
@@ -655,6 +694,8 @@
   root.addEventListener('pointermove', function (e) {
     if (e.pointerType === 'mouse') showControls();
   });
+  /* Keyboard focus must never land on controls that cannot be seen. */
+  root.addEventListener('focusin', showControls);
 
   /* A click on the picture plays or pauses; a tap shows or hides the controls. */
   video.addEventListener('click', function () {
@@ -672,10 +713,19 @@
   /* ---- keyboard ------------------------------------------------------- */
 
   document.addEventListener('keydown', function (e) {
+    showControls();
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
-    if (e.key === 'Escape') { closeMenus(); showControls(); return; }
+    if (e.key === 'Escape') { closeMenus(true); return; }
+    if (menuOpen()) {
+      if (e.key === 'Tab') { closeMenus(true); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        moveInMenu(e.key);
+        return;
+      }
+    }
     if (e.key === ' ' || e.key === 'Spacebar') {
       if (onControl) return;
       e.preventDefault();
