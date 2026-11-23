@@ -11,11 +11,14 @@ import requests
 
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_stream import (
-    PlexNotConfigured,
-    PlexUnavailable,
+    MAX_STREAMS_PER_USER,
+    MAX_STREAMS_TOTAL,
     StreamGone,
     StreamManager,
+    TooManyStreams,
+    init_stream_manager,
 )
+from mediaman.services.media_meta.plex_watch import PlexError, PlexNotConfigured, PlexUnavailable
 
 PLEX_URL = "http://plex.test:32400"
 TOKEN = "SECRET-TOKEN-123"
@@ -62,6 +65,7 @@ class FakePlex:
         self.child_playlist = CHILD_PLAYLIST
         self.sessions: list[dict] = []
         self.unreachable = False
+        self.prefix = ""
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append(
@@ -70,6 +74,9 @@ class FakePlex:
         if self.unreachable:
             raise requests.ConnectionError(f"cannot connect to {url}?X-Plex-Token={TOKEN}")
         path = urlsplit(url).path
+        if not path.startswith(self.prefix):
+            return FakeResponse(404)
+        path = path[len(self.prefix) :]
         session = (params or {}).get("session")
         if path == f"{TRANSCODE}/decision":
             if self.fail_decisions:
@@ -121,7 +128,7 @@ def _safe_resolve(monkeypatch):
     monkeypatch.setattr(
         plex_stream,
         "resolve_safe_outbound_url",
-        lambda url: (True, "plex.test", ("203.0.113.5",)),
+        lambda url, **kwargs: (True, "plex.test", ("203.0.113.5",)),
     )
 
 
@@ -267,7 +274,7 @@ def test_reap_stops_idle_streams_on_plex_and_keeps_active_ones(manager, plex, cl
     idle = _start(manager)
     idle_session = plex.calls[0]["params"]["session"]
     clock.now += 100
-    active = _start(manager)
+    active = _start(manager, rating_key="456")
     active_session = plex.calls_to("decision")[-1]["params"]["session"]
     clock.now += 81
 
@@ -404,7 +411,9 @@ def test_plex_failure_leaks_no_address_or_token(manager, plex, caplog, failure):
 
 
 def test_refused_plex_address_sends_nothing(manager, plex, monkeypatch):
-    monkeypatch.setattr(plex_stream, "resolve_safe_outbound_url", lambda url: (False, None, None))
+    monkeypatch.setattr(
+        plex_stream, "resolve_safe_outbound_url", lambda url, **kwargs: (False, None, None)
+    )
 
     with pytest.raises(PlexUnavailable):
         _start(manager)
@@ -420,3 +429,137 @@ def test_missing_or_bad_credentials_mean_not_configured(plex, creds):
         _start(manager)
 
     assert plex.calls == []
+
+
+def test_a_user_cannot_hold_more_than_the_per_user_limit(manager, plex):
+    for key in range(MAX_STREAMS_PER_USER):
+        _start(manager, rating_key=str(key + 1))
+    starts = len(plex.calls_to("start.m3u8"))
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="99")
+
+    assert len(plex.calls_to("start.m3u8")) == starts
+    _start(manager, user="bob", rating_key="99")
+
+
+def test_the_limit_frees_up_when_a_stream_is_stopped(manager):
+    ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
+
+    manager.stop(ids[0], "alice")
+
+    _start(manager, rating_key="99")
+
+
+def test_restarting_the_same_item_replaces_the_old_stream_and_stops_it_on_plex(manager, plex):
+    first = _start(manager)
+    first_session = plex.calls_to("start.m3u8")[0]["params"]["session"]
+
+    for _ in range(MAX_STREAMS_PER_USER + 2):
+        second = _start(manager, quality="low")
+
+    with pytest.raises(StreamGone):
+        manager.get(first, "alice")
+    assert manager.get(second, "alice").quality == "low"
+    stopped = [c["params"]["session"] for c in plex.calls_to("stop")]
+    assert first_session in stopped
+
+
+def test_total_streams_are_capped_across_users(manager):
+    for n in range(MAX_STREAMS_TOTAL):
+        _start(manager, user=f"user{n}")
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, user="one-more")
+
+
+def test_a_start_that_loses_a_race_for_the_last_slot_gives_its_session_back(manager, plex):
+    for key in range(MAX_STREAMS_PER_USER - 1):
+        _start(manager, rating_key=str(key + 1))
+    real_open = manager._open_session
+    raced = []
+
+    def open_then_other_start_wins(*args):
+        child = real_open(*args)
+        if not raced:
+            raced.append(True)
+            _start(manager, rating_key="77")
+        return child
+
+    manager._open_session = open_then_other_start_wins
+    loser_index = len(plex.calls_to("start.m3u8"))
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="88")
+
+    last_stop = plex.calls_to("stop")[-1]["params"]["session"]
+    assert last_stop == plex.calls_to("start.m3u8")[loser_index]["params"]["session"]
+
+
+def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
+    plex.prefix = "/plex"
+    manager = StreamManager(lambda: (f"{PLEX_URL}/plex/", TOKEN), session=plex)
+
+    stream_id = _start(manager)
+    manager.playlist(stream_id, "alice")
+    manager.segment(stream_id, "alice", "00000.ts")
+    manager.stop(stream_id, "alice")
+
+    assert plex.calls
+    assert all(urlsplit(c["url"]).path.startswith("/plex/video/") for c in plex.calls)
+
+
+@pytest.mark.parametrize("hosts", [frozenset({"plex.test"}), lambda: frozenset({"plex.test"})])
+def test_the_allowed_hosts_reach_the_outbound_safety_check(plex, monkeypatch, hosts):
+    seen = []
+
+    def resolve(url, **kwargs):
+        seen.append(kwargs.get("allowed_hosts"))
+        return True, "plex.test", ("203.0.113.5",)
+
+    monkeypatch.setattr(plex_stream, "resolve_safe_outbound_url", resolve)
+    manager = StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, allowed_hosts=hosts)
+
+    _start(manager)
+
+    assert seen
+    assert all(h == frozenset({"plex.test"}) for h in seen)
+
+
+def test_init_stream_manager_passes_the_allowed_hosts_on():
+    manager = init_stream_manager(lambda: None, allowed_hosts=frozenset({"plex.test"}))
+
+    assert manager._allowed_hosts == frozenset({"plex.test"})
+
+
+def test_stream_errors_are_the_plex_watch_errors(plex):
+    manager = StreamManager(lambda: None, session=plex)
+
+    with pytest.raises(PlexNotConfigured) as excinfo:
+        _start(manager)
+
+    assert isinstance(excinfo.value, PlexError)
+    assert PlexUnavailable is plex_stream.PlexUnavailable
+
+
+def test_a_rating_key_of_eighteen_digits_is_accepted(manager, plex):
+    _start(manager, rating_key="1" * 18)
+
+    assert plex.calls_to("start.m3u8")[0]["params"]["path"] == f"/library/metadata/{'1' * 18}"
+
+
+def test_stop_survives_plex_credentials_going_away(plex):
+    creds: list = [(PLEX_URL, TOKEN)]
+    manager = StreamManager(lambda: creds[0], session=plex)
+    stream_id = _start(manager)
+    creds[0] = None
+
+    manager.stop(stream_id, "alice")
+
+
+def test_the_default_session_has_a_wide_connection_pool():
+    manager = StreamManager(lambda: None)
+
+    adapter = manager._session.get_adapter("https://plex.test/")
+
+    assert adapter._pool_maxsize == 32

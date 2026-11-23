@@ -26,6 +26,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from mediaman import __version__
 from mediaman.services.infra import resolve_safe_outbound_url
@@ -35,6 +36,7 @@ from mediaman.services.infra.http.streaming import (
     _read_capped,
     _SizeCapExceeded,
 )
+from mediaman.services.media_meta.plex_watch import PlexError, PlexNotConfigured, PlexUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,11 @@ _TIMEOUT: tuple[float, float] = (5.0, 30.0)
 _SEGMENT_MAX_BYTES = 32 * 1024 * 1024
 _PLAYLIST_MAX_BYTES = 4 * 1024 * 1024
 
-_RATING_KEY_RE = re.compile(r"[0-9]{1,12}")
+MAX_STREAMS_PER_USER = 3
+MAX_STREAMS_TOTAL = 20
+_POOL_MAXSIZE = 32
+
+_RATING_KEY_RE = re.compile(r"[0-9]{1,18}")
 _SEGMENT_NAME_RE = re.compile(r"[0-9]{1,6}\.(ts|m4s|mp4|vtt|aac)")
 _VARIANT_RE = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/index\.m3u8")
 _EXTINF_RE = re.compile(r"#EXTINF:([0-9]{1,6}(?:\.[0-9]{1,9})?)(?:,.*)?")
@@ -91,16 +97,15 @@ class StreamGone(Exception):
     """The stream is unknown, belongs to someone else, or was stopped or reaped."""
 
 
-class PlexUnavailable(Exception):
-    """Plex could not be reached or answered with something unusable."""
-
-
-class PlexNotConfigured(PlexUnavailable):
-    """No usable Plex address and token are set."""
+class TooManyStreams(Exception):
+    """The user, or mediaman as a whole, already has as many live streams as allowed."""
 
 
 #: Returns ``(plex_url, plex_token)``, or ``None`` when Plex is not set up.
 CredentialsProvider = Callable[[], tuple[str, str] | None]
+
+#: Outbound host allow-list: the set itself, or a callable returning it (read on every call).
+AllowedHosts = frozenset[str] | Callable[[], frozenset[str]] | None
 
 
 @dataclass(frozen=True)
@@ -133,9 +138,16 @@ class StreamManager:
         *,
         session: requests.Session | None = None,
         clock: Callable[[], float] = time.monotonic,
+        allowed_hosts: AllowedHosts = None,
     ) -> None:
         self._credentials = credentials
-        self._session = session if session is not None else requests.Session()
+        self._allowed_hosts = allowed_hosts
+        if session is None:
+            session = requests.Session()
+            adapter = HTTPAdapter(pool_maxsize=_POOL_MAXSIZE)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+        self._session = session
         self._clock = clock
         self._lock = threading.Lock()
         self._streams: dict[str, _Stream] = {}
@@ -151,14 +163,20 @@ class StreamManager:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
         A failed start is retried once with a fresh session, since Plex intermittently refuses
-        a start right after another one for the same item. Raises ``ValueError`` for an unknown
-        quality or a malformed rating key.
+        a start right after another one for the same item. The user's other streams of the same
+        item are stopped first, since the player starts a new one on a quality change or restart.
+        Raises ``ValueError`` for an unknown quality or a malformed rating key, and
+        ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
         if quality not in QUALITY_PRESETS:
             raise ValueError(f"unknown quality {quality!r}")
         if not _RATING_KEY_RE.fullmatch(rating_key):
             raise ValueError("rating key must be numeric")
         base, token = self._creds()
+        for session_id in self._drop_same_item(user, rating_key):
+            self._call_quietly("stop", session_id)
+        with self._lock:
+            self._check_room(user)
         for attempt in range(2):
             session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
             try:
@@ -173,16 +191,42 @@ class StreamManager:
                 logger.info("plex_stream: start failed, retrying once")
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
-            self._streams[stream_id] = _Stream(
-                user=user,
-                rating_key=rating_key,
-                quality=quality,
-                session_id=session_id,
-                child_path=child_path,
-                last_access=self._clock(),
-                info=dict(info or {}),
-            )
+            try:
+                self._check_room(user)
+            except TooManyStreams:
+                full = True
+            else:
+                full = False
+                self._streams[stream_id] = _Stream(
+                    user=user,
+                    rating_key=rating_key,
+                    quality=quality,
+                    session_id=session_id,
+                    child_path=child_path,
+                    last_access=self._clock(),
+                    info=dict(info or {}),
+                )
+        if full:
+            # Concurrent starts can all pass the first check; the one that loses gives its session back.
+            self._call_quietly("stop", session_id)
+            raise TooManyStreams("too many streams are open")
         return stream_id
+
+    def _drop_same_item(self, user: str, rating_key: str) -> list[str]:
+        with self._lock:
+            ids = [
+                sid
+                for sid, s in self._streams.items()
+                if s.user == user and s.rating_key == rating_key
+            ]
+            return [self._streams.pop(sid).session_id for sid in ids]
+
+    def _check_room(self, user: str) -> None:
+        """Raise ``TooManyStreams`` if a new stream would pass a limit; the lock must be held."""
+        if len(self._streams) >= MAX_STREAMS_TOTAL:
+            raise TooManyStreams("too many streams are open")
+        if sum(1 for s in self._streams.values() if s.user == user) >= MAX_STREAMS_PER_USER:
+            raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
 
     def playlist(self, stream_id: str, user: str) -> str:
         """Return the media playlist with every URI rewritten to mediaman's segment route."""
@@ -261,7 +305,7 @@ class StreamManager:
             )
             container = json.loads(raw).get("MediaContainer") or {}
             entries = container.get("TranscodeSession") or []
-        except (PlexUnavailable, ValueError, AttributeError) as exc:
+        except (PlexError, ValueError, AttributeError) as exc:
             logger.warning(
                 "plex_stream: could not list transcode sessions (%s)", type(exc).__name__
             )
@@ -298,7 +342,7 @@ class StreamManager:
             or "@" in parts.netloc
         ):
             raise PlexNotConfigured("the Plex address is not a valid http(s) address")
-        return f"{parts.scheme.lower()}://{parts.netloc}", token
+        return f"{parts.scheme.lower()}://{parts.netloc}{parts.path.rstrip('/')}", token
 
     def _open_session(
         self,
@@ -362,7 +406,7 @@ class StreamManager:
                 params={"session": session_id},
                 max_bytes=_PLAYLIST_MAX_BYTES,
             )
-        except PlexUnavailable as exc:
+        except PlexError as exc:
             logger.warning("plex_stream: %s failed (%s)", action, exc)
 
     def _get(
@@ -378,7 +422,8 @@ class StreamManager:
     ) -> bytes:
         """GET *path* on Plex with the token in a header only, inside a DNS pin, body capped."""
         url = base + path
-        safe, hostname, pinned_ips = resolve_safe_outbound_url(url)
+        allowed = self._allowed_hosts() if callable(self._allowed_hosts) else self._allowed_hosts
+        safe, hostname, pinned_ips = resolve_safe_outbound_url(url, allowed_hosts=allowed)
         if not safe:
             raise PlexUnavailable("the Plex address was refused by the outbound safety check")
         headers = {
@@ -466,10 +511,12 @@ def _segment_url(name: str, stream_id: str) -> str:
 _manager: StreamManager | None = None
 
 
-def init_stream_manager(credentials: CredentialsProvider) -> StreamManager:
+def init_stream_manager(
+    credentials: CredentialsProvider, *, allowed_hosts: AllowedHosts = None
+) -> StreamManager:
     """Create the process-wide manager (replacing any earlier one) and return it."""
     global _manager
-    _manager = StreamManager(credentials)
+    _manager = StreamManager(credentials, allowed_hosts=allowed_hosts)
     return _manager
 
 
