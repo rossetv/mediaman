@@ -260,6 +260,16 @@ def test_a_waiter_is_answered_even_when_storing_the_value_fails(monkeypatch):
     monkeypatch.setattr(store, "_encode", broken_encode)
     started = threading.Event()
     release = threading.Event()
+    joined = threading.Event()
+    claim = disk_cache._claim
+
+    def noting_claim(flight):
+        future, owner = claim(flight)
+        if not owner:
+            joined.set()
+        return future, owner
+
+    monkeypatch.setattr(disk_cache, "_claim", noting_claim)
 
     def slow():
         started.set()
@@ -282,9 +292,10 @@ def test_a_waiter_is_answered_even_when_storing_the_value_fails(monkeypatch):
         target=lambda: waited.append(store.get_or_fetch("k", DAY, DAY, slow)), daemon=True
     )
     second.start()
+    assert joined.wait(5)
     release.set()
     first.join(5)
-    second.join(2)
+    second.join(5)
 
     assert waited == ["v"]
     assert len(owner_error) == 1
