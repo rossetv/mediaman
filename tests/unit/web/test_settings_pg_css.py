@@ -68,3 +68,10 @@ def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
     assert all("scroll-padding-top" in body for body in rules)
     # the phone rule reaches past the top bar and the chip strip (48 + 65 px)
     assert "48px + 65px" in rules[1]
+
+
+def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if ".setg-block" in head and "-hd" not in head:
+            assert "scroll-margin" not in body

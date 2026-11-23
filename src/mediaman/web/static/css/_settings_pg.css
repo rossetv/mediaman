@@ -129,15 +129,11 @@
 
 .setg-pg .setg-block {
   padding-top: 64px;
-  scroll-margin-top: calc(var(--nav-h) + 16px);
 }
 .setg-pg .setg-block:first-child { padding-top: 24px; }
-/* Below 960px the rail is a sticky strip under the top bar: land headings below it too. */
-@media (max-width: 960px) {
-  .setg-pg .setg-block { scroll-margin-top: calc(var(--nav-h) + 76px); }
-}
 /* A focused control the browser scrolls into view must clear the sticky bars. The
-   scroller is <html>, so the padding is scoped by the page it holds. */
+   scroller is <html>, so the padding is scoped by the page it holds. Section jumps rely on it too, so
+   .setg-block carries no scroll-margin of its own. */
 html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 @media (max-width: 960px) {
   /* top bar (48) + chip strip (65, as laid out above) + a gap */
