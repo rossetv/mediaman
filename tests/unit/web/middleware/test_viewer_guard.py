@@ -167,3 +167,13 @@ def test_a_viewer_lands_on_watch_after_a_forced_password_change(real_app, conn):
     )
 
     assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+
+
+def test_a_viewer_can_reconfirm_their_password(guarded_app, conn, viewer_client):
+    app, reached = guarded_app
+    client = viewer_client(app, conn)
+
+    resp = client.post("/api/auth/reauth", json={"password": "x"}, headers=_ORIGIN)
+
+    assert resp.status_code == 204
+    assert [(m, p) for m, p, _ in reached] == [("POST", "/api/auth/reauth")]

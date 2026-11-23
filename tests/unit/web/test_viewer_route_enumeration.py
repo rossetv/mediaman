@@ -27,6 +27,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/poster/{rating_key}"),
     ("GET", "/account"),
     ("POST", "/api/users/change-password"),
+    ("POST", "/api/auth/reauth"),
     ("GET", "/login"),
     ("POST", "/login"),
     ("POST", "/api/auth/logout"),
