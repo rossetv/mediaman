@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 from mediaman.core.format import days_ago as _days_ago_fmt
-from mediaman.core.format import format_bytes, relative_day_label
+from mediaman.core.format import format_bytes
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 from mediaman.services.scheduled_actions.days_left import days_left
@@ -47,13 +47,14 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
         now = now_utc()
         if execute_at < now:
             return None
-        return relative_day_label(
-            execute_at,
-            now=now,
-            today="Kept for less than a day",
-            tomorrow="Kept for 1 more day",
-            future=lambda days: f"Kept for {days} more days",
-        )
+        # Whole days of elapsed time left, not UTC calendar days: a keep ending in two
+        # hours must not read "1 more day" just because midnight UTC falls in between.
+        days = (execute_at - now).days
+        if days < 1:
+            return "Kept for less than a day"
+        if days == 1:
+            return "Kept for 1 more day"
+        return f"Kept for {days} more days"
     return None
 
 
