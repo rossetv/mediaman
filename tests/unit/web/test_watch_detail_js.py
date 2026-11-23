@@ -316,6 +316,14 @@ def test_share_says_copied_with_one_timer_then_goes_back() -> None:
     assert out["after"] == "Share"
 
 
+def test_share_holds_one_width_through_sharing_and_copied() -> None:
+    states = _run("shareWidth")
+    assert [s["text"] for s in states] == ["Share", "Sharing…", "Copied"]
+    # Every state lays out the longest label unseen, so the button never resizes.
+    longest = max((s["text"] for s in states), key=len)
+    assert {s["widest"] for s in states} == {longest}
+
+
 def test_share_without_the_clipboard_shows_the_link_to_copy() -> None:
     out = _run("shareClipboardFails")
     assert out == {

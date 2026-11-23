@@ -743,6 +743,28 @@ const scenarios = {
     return { copied, timersSet, timersAfterSecond, after: p.text('[data-ttl-act="share"]') };
   },
 
+  // Share, Sharing… and Copied: what each state shows, and what holds the button's width.
+  async shareWidth() {
+    let release = null;
+    const p = load({ admin: true, routes: { '/api/watch/title/rec-5': REC_DL },
+      posted: { '/api/recommended/5/share-token': () => new Promise((resolve) => { release = resolve; }) } });
+    p.run();
+    p.ctx.MMWatch.detail.open('rec-5', {});
+    await settle();
+    const label = () => {
+      const n = p.q('[data-ttl-act="share"] .ttl__share-label');
+      return { text: n.textContent, widest: n.getAttribute('data-widest') };
+    };
+    const states = [label()];
+    click(p.doc, p.q('[data-ttl-act="share"]'));
+    states.push(label());
+    release({ ok: true, share_url: 'https://example.test/download/tok' });
+    await settle();
+    await settle();
+    states.push(label());
+    return states;
+  },
+
   async shareClipboardFails() {
     const p = load({ admin: true, clipboardFails: true, routes: { '/api/watch/title/rec-5': REC_DL }, posted: { '/api/recommended/5/share-token': { ok: true, share_url: 'https://example.test/download/tok' } } });
     p.run();

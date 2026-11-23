@@ -166,7 +166,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__actions .skel--pill { flex: none; }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .ttl__download .btn-spinner { margin-right: 0; }
-.ttl__share { min-width: 132px; }
+.ttl__share-label { display: inline-flex; flex-direction: column; }
+.ttl__share-label::after { content: attr(data-widest); height: 0; overflow: hidden; visibility: hidden; }
 .ttl__share[aria-disabled="true"] { cursor: progress; }
 .watch-btn--keep { background: var(--rgba-success-bg); color: var(--success); min-height: 44px; padding-inline: 20px; font-size: 16px; font-weight: 600; }
 .watch-btn--keep:hover { background: color-mix(in srgb, var(--success) 22%, transparent); }
@@ -339,7 +340,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions .btn,
   .ttl__actions .dl-state { width: 100%; padding-inline: 12px; }
   .ttl__actions .skel--pill { width: auto !important; }
-  .ttl__share { min-width: 0; }
   .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); margin-inline: -8px; padding: 10px 8px; }
   .ttl .watch-ep__state { display: none; }
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }

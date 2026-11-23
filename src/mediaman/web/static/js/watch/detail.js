@@ -1110,7 +1110,10 @@
     var st = cur.shareState;
     var b = button('btn btn--lg watch-btn--grey ttl__share', '', st === 'copied' ? 'fa-check' : 'fa-share-nodes');
     b.setAttribute('data-ttl-act', 'share');
-    b.appendChild(el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share'));
+    var label = el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share');
+    // The longest label, laid out unseen, holds the button's width in every state.
+    label.setAttribute('data-widest', 'Sharing…');
+    b.appendChild(label);
     if (st === 'busy') b.setAttribute('aria-disabled', 'true');
     b.addEventListener('click', share);
     return b;
