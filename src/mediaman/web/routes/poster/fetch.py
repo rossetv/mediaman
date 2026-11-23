@@ -203,13 +203,25 @@ def load_plex_credentials(
     return plex_base, plex_token, None
 
 
+def _log_snippet(snippet: str, token: str | None = None, limit: int = 200) -> str:
+    """Make an upstream body snippet safe to log: the token is redacted before the cut, so one
+    straddling the limit cannot leak, and any line break is folded to a space so the body
+    cannot forge log lines.
+    """
+    if token:
+        snippet = snippet.replace(token, "***")
+    return " ".join(snippet.split())[:limit]
+
+
 def fetch_plex_poster(
     plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
 ) -> tuple[bytes | None, str]:
     """Fetch a poster from Plex; returns (content, content_type) or (None, 'image/jpeg').
 
     Asks Plex's photo transcoder for a card-sized copy first, so an original over the body cap
-    still shows, and falls back to the original when the transcoder fails. Both are GETs.
+    still shows, and falls back to the original when the transcoder answers with an HTTP error
+    or a rejected body. A transport failure (Plex unreachable) ends the fetch: the original
+    would fail the same way, after the same retries. Both are GETs.
     http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
     _make_poster_client.
     """
@@ -227,12 +239,15 @@ def fetch_plex_poster(
                 "Plex poster fetch failed for rating_key=%s (%s): %s",
                 rating_key,
                 exc.status_code,
-                exc.body_snippet[:200],
+                _log_snippet(exc.body_snippet, plex_token),
             )
+            if exc.status_code == 0:
+                break
         except requests.RequestException:
             logger.warning(
                 "Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True
             )
+            break
     return None, "image/jpeg"
 
 
@@ -300,7 +315,7 @@ def _fetch_allowed_poster_bytes(
             "Arr poster fetch refused/failed: %s (%s): %s",
             poster_url,
             exc.status_code,
-            exc.body_snippet[:200],
+            _log_snippet(exc.body_snippet),
         )
     except requests.RequestException:
         logger.warning("Failed to fetch arr poster from %s", poster_url, exc_info=True)
