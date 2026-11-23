@@ -263,7 +263,7 @@
     /* State pill */
     var pill = d.q('.dl-state-pill', card);
     if (pill) {
-      pill.className = 'dl-state-pill dl-state-' + item.state;
+      pill.className = pill.className.replace(/\bdl-state-(?!pill)\S*/g, '').trim() + ' dl-state-' + item.state;
       d.setText(pill, item.state_label || item.state);
     }
 

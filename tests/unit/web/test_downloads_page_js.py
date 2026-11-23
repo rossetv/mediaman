@@ -71,6 +71,27 @@ def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
     }
 
 
+def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
+    out = _run("pillSize")
+    assert "dl-state-pill--xs" in out["before"]
+    assert out["after"].split() == ["dl-state-pill", "dl-state-pill--xs", "dl-state-almost_ready"]
+
+
+def test_the_recent_section_folds_out_when_it_empties() -> None:
+    out = _run("recentLeaves")
+    assert "is-folded" in out["during"]["cls"]
+    assert out["during"]["height"] == "0px"
+    # coming back while it closes opens it again
+    assert "is-folded" not in out["back"]["cls"]
+    assert out["gone"] is True
+
+
+def test_with_reduced_motion_the_recent_section_goes_at_once() -> None:
+    out = _run("recentLeavesReduced")
+    assert out["during"] is None
+    assert out["boxEmpty"] is True
+
+
 def test_an_episode_list_folds_open_and_shut() -> None:
     out = _run("episodes")
     assert out["opening"]["display"] == ""

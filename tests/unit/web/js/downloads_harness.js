@@ -540,4 +540,32 @@ scenarios.subtitle = async function () {
   return { shown, folding, back, removed: ph.querySelector('p') === null };
 };
 
+// a poll update swaps the state colour of a pill and keeps its size
+scenarios.pillSize = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h1'), queue: [item('q1')] });
+  const pill = () => p.byId('dl-queue-list').querySelector('.dl-state-pill');
+  const before = pill().className;
+  p.upd({ hero: item('h1'), queue: [item('q1', { state: 'almost_ready', state_label: 'Almost ready' })] });
+  return { before, after: pill().className };
+};
+
+// the recent section folds out when it empties, and stays if it refills while closing
+scenarios.recentLeaves = async function (reduce) {
+  const p = pageRig(reduce);
+  const recent = [{ title: 'A', poster_url: '/a.jpg' }];
+  p.upd({ hero: item('h1'), queue: [], recent });
+  const box = p.byId('dl-recent-container');
+  const section = () => box.querySelector('.dl-recent-section');
+  p.upd({ hero: item('h1'), queue: [], recent: [] });
+  const during = section() ? p.folding(section()) : null;
+  p.upd({ hero: item('h1'), queue: [], recent });
+  const back = section() ? p.folding(section()) : null;
+  p.upd({ hero: item('h1'), queue: [], recent: [] });
+  const s = section();
+  if (s) s.emit('transitionend', { propertyName: 'height' });
+  return { during, back, gone: section() === null, boxEmpty: box.children.length === 0 };
+};
+scenarios.recentLeavesReduced = () => scenarios.recentLeaves(true);
+
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

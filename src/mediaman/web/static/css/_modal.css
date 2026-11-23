@@ -400,6 +400,7 @@
 .keep-dialog-actions .btn:not(.btn--ghost),
 .delete-modal-actions .btn:not(.btn--ghost) { border: 1px solid transparent; }
 @media (max-width: 639.98px) {
+  .modal-sheet .btn { min-height: 44px; }
   .keep-dur-btn { min-height: 40px; }
   .snooze-option { min-height: 40px; }
   .keep-dialog-actions .btn,

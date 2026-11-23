@@ -44,16 +44,22 @@
 
   function updateRecent(container, recent) {
     if (!container) return;
+    var d = dom();
+    var shown = container.querySelector('.dl-recent-section');
     if (!recent || recent.length === 0) {
-      while (container.firstChild) container.removeChild(container.firstChild);
+      if (shown) {
+        if (!d.isCollapsing(shown)) d.collapseAway(shown);
+      } else {
+        while (container.firstChild) container.removeChild(container.firstChild);
+      }
       return;
     }
+    if (shown && d.isCollapsing(shown)) d.reveal(shown);
     var incoming = recentSignature(
       recent.map(function (r) { return r.title; }),
       recent.map(function (r) { return r.poster_url || ''; })
     );
     if (renderedSignature(container) === incoming) return;
-    var d = dom();
     /* Rebuild the recent grid using safe DOM methods */
     var section = document.createElement('div');
     section.className = 'dl-recent-section';
