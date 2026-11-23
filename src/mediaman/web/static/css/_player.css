@@ -1,0 +1,304 @@
+/* WATCH PLAYER — full-window video with its controls laid over the picture.
+   Every control is at least 44 px tall for touch; pills draw a 36 px
+   background inside that box. */
+
+.player {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-nav);
+  background: #000;
+  color: var(--t1);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.player [hidden] { display: none !important; }
+
+.player-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* Controls fade out while playing and nobody touches anything. */
+.player-chrome { transition: opacity .25s ease; }
+.player.is-idle .player-chrome { opacity: 0; pointer-events: none; }
+.player.is-idle { cursor: none; }
+
+/* Top bar: back, title, optional "Leaving" chip. */
+.player-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: max(26px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) 40px max(32px, env(safe-area-inset-left));
+  background: linear-gradient(180deg, rgba(0,0,0,.7), rgba(0,0,0,0));
+}
+.player-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-pill);
+  background: var(--hair-strong);
+  font-size: 18px;
+}
+.player-back:hover { background: rgba(255,255,255,.2); }
+.player-titles {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+.player-title {
+  font-family: var(--font-text);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-subtitle {
+  font-size: 14px;
+  color: var(--t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-keep-btn { color: #ffb4ae; }
+
+/* Bottom bar: seek row over the control row. */
+.player-bottom {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 48px max(32px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
+  background: linear-gradient(0deg, rgba(0,0,0,.8), rgba(0,0,0,0));
+}
+.player-seek-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.player-time {
+  flex: none;
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+}
+.player-time:last-child { text-align: right; }
+
+/* The seek target is 44 px tall; the visible track is 5 px in its middle. */
+.player-seek {
+  flex: 1;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+.player-seek-track {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255,255,255,.2);
+}
+.player-seek-buffered,
+.player-seek-played {
+  position: absolute;
+  left: 0; top: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+}
+.player-seek-buffered { background: rgba(255,255,255,.35); }
+.player-seek-played { background: var(--accent); }
+.player-seek-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 15px;
+  height: 15px;
+  margin: -7.5px 0 0 -7.5px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .15s ease;
+}
+.player-seek:hover .player-seek-thumb,
+.player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.player-spacer { flex: 1; }
+
+.player-btn {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+}
+.player-btn--text { font-size: 14px; padding: 0 6px; }
+
+/* A 44 px tall hit area with a 36 px pill drawn inside it. */
+.player-pill {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.player-pill::before {
+  content: '';
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border-radius: var(--r-pill);
+  background: var(--hair-strong);
+  transition: background .15s ease;
+}
+.player-pill:hover::before { background: rgba(255,255,255,.22); }
+.player-pill--primary { color: #000; font-weight: 600; }
+.player-pill--primary::before,
+.player-pill--primary:hover::before { background: #fff; }
+
+.player-volume { display: flex; align-items: center; }
+.player-volume-slider {
+  width: 90px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.player-narrow { display: none; }
+
+/* Small menus: quality (opens up) and keep (opens down). */
+.player-menu-wrap { position: relative; }
+.player-menu {
+  position: absolute;
+  right: 0;
+  z-index: 1;
+  min-width: 170px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  background: rgba(29,29,31,.96);
+  box-shadow: var(--shadow-card);
+}
+.player-menu--up { bottom: calc(100% + 4px); }
+.player-menu--down { top: calc(100% + 4px); }
+.player-menu-item {
+  min-height: 44px;
+  padding: 0 12px;
+  text-align: left;
+  font-size: 14px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+.player-menu-item:hover,
+.player-menu-item:focus-visible { background: var(--hair-strong); }
+.player-menu-item[aria-checked="true"]::after {
+  content: '✓';
+  float: right;
+  margin-left: 12px;
+  color: var(--accent);
+}
+
+/* Spinner while a stream starts or the buffer runs dry. */
+.player-spinner {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  border: 3px solid rgba(255,255,255,.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: player-spin .9s linear infinite;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.player.is-loading .player-spinner { opacity: 1; }
+@keyframes player-spin { to { transform: rotate(360deg); } }
+
+/* Cards: the "next episode" countdown and the error message. */
+.player-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 22px 14px;
+  border-radius: var(--r-lg);
+  background: rgba(29,29,31,.94);
+  box-shadow: var(--shadow-card);
+  max-width: calc(100% - 32px);
+}
+.player-card-title { font-size: 17px; font-weight: 600; }
+.player-card-line { font-size: 14px; color: var(--t2); }
+.player-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.player-upnext {
+  right: max(32px, env(safe-area-inset-right));
+  bottom: 140px;
+  width: 340px;
+}
+.player-message {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 420px;
+  text-align: center;
+  align-items: center;
+}
+.player-message .player-card-actions { justify-content: center; }
+
+@media (min-width: 1920px) {
+  .player-title { font-size: 22px; }
+  .player-subtitle { font-size: 16px; }
+  .player-seek-row { font-size: 15px; }
+  .player-pill { font-size: 15px; }
+}
+
+/* No volume slider where there is no room, or on touch screens, where the
+   device's own buttons set the volume. */
+@media (max-width: 767px), (pointer: coarse) {
+  .player-volume-slider { display: none; }
+}
+
+@media (max-width: 600px) {
+  .player-top { padding: max(12px, env(safe-area-inset-top)) 12px 32px; gap: 8px 12px; }
+  .player-title { font-size: 16px; }
+  .player-subtitle { font-size: 13px; }
+  .player-bottom { padding: 40px 12px max(6px, env(safe-area-inset-bottom)); gap: 0; }
+  .player-seek-row { gap: 8px; font-size: 12px; }
+  .player-controls { gap: 2px; }
+  .player-pill { padding: 0 10px; }
+  .player-wide { display: none; }
+  .player-narrow { display: inline; }
+  .player-upnext { left: 12px; right: 12px; width: auto; bottom: 120px; max-width: none; }
+}

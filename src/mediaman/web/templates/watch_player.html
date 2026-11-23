@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{# Full-window player. The page context reaches player.js only through the
+   data-attributes on #player: tojson output is safe inside single quotes. #}
+
+{% set qualities = [("best", "Best", "1080p"), ("medium", "Medium", "720p"), ("low", "Low", "480p")] %}
+
+{% block title %}{{ item.title }} · Mediaman{% endblock %}
+
+{% block head %}
+  <script src="/static/vendor/hls/hls.min.js" defer></script>
+  <script src="/static/js/player.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="player" id="player"
+     data-item='{{ item|tojson }}'
+     data-start-s="{{ start_s or 0 }}"
+     data-back-href="{{ back_href }}"
+     data-next='{{ next|tojson }}'
+     data-show-href="{{ show_href or '' }}"
+     data-leaving='{{ leaving|tojson }}'>
+
+  <video class="player-video" playsinline webkit-playsinline preload="auto"></video>
+
+  <div class="player-spinner" data-spinner aria-hidden="true"></div>
+
+  <div class="player-top player-chrome">
+    <a class="player-back" href="{{ back_href }}" aria-label="Back">
+      <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+    </a>
+    <div class="player-titles">
+      <h1 class="player-title">{{ item.title }}</h1>
+      {% if item.subtitle %}<p class="player-subtitle">{{ item.subtitle }}</p>{% endif %}
+    </div>
+    {% if leaving %}
+    <div class="player-menu-wrap player-keep" data-keep>
+      <button type="button" class="player-pill player-keep-btn" data-menu-trigger
+              aria-haspopup="menu" aria-expanded="false">
+        {% if leaving.days <= 0 %}Leaving today{% elif leaving.days == 1 %}Leaving in 1 day{% else %}Leaving in {{ leaving.days }} days{% endif %}
+        · Keep <span aria-hidden="true">▾</span>
+      </button>
+      <div class="player-menu player-menu--down" role="menu" hidden>
+        {% for days in [7, 30, 90] %}
+        <button type="button" class="player-menu-item" role="menuitem" data-keep-days="{{ days }}">Keep for {{ days }} days</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="player-bottom player-chrome">
+    <div class="player-seek-row">
+      <span class="player-time" data-elapsed>0:00</span>
+      <div class="player-seek" data-seek role="slider" tabindex="0" aria-label="Seek"
+           aria-valuemin="0" aria-valuemax="{{ (item.duration_s or 0)|round|int }}" aria-valuenow="0">
+        <div class="player-seek-track">
+          <div class="player-seek-buffered" data-buffered></div>
+          <div class="player-seek-played" data-played></div>
+          <div class="player-seek-thumb" data-thumb></div>
+        </div>
+      </div>
+      <span class="player-time" data-remaining></span>
+    </div>
+
+    <div class="player-controls">
+      <button type="button" class="player-btn" data-play aria-label="Play">
+        <i class="fa-solid fa-play" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="player-btn player-btn--text" data-back10 aria-label="Back 10 seconds">↺ 10</button>
+      <button type="button" class="player-btn player-btn--text" data-fwd10 aria-label="Forward 10 seconds">10 ↻</button>
+      <div class="player-volume">
+        <button type="button" class="player-btn" data-mute aria-label="Mute">
+          <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+        </button>
+        <input type="range" class="player-volume-slider" data-volume min="0" max="1" step="0.05" value="1" aria-label="Volume">
+      </div>
+
+      <span class="player-spacer"></span>
+
+      {% if next %}
+      <a class="player-pill" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}">
+        <i class="fa-solid fa-forward-step player-narrow" aria-hidden="true"></i>
+        <span class="player-wide">Next episode ›</span>
+      </a>
+      {% endif %}
+
+      <div class="player-menu-wrap">
+        <button type="button" class="player-pill" data-menu-trigger data-quality-btn
+                aria-haspopup="menu" aria-expanded="false" aria-label="Quality: Best, 1080p">
+          <span class="player-wide" data-quality-name>Best ·</span> <span data-quality-res>1080p</span>
+        </button>
+        <div class="player-menu player-menu--up" role="menu" hidden>
+          {% for value, name, res in qualities %}
+          <button type="button" class="player-menu-item" role="menuitemradio"
+                  aria-checked="{{ 'true' if value == 'best' else 'false' }}"
+                  data-quality="{{ value }}" data-quality-label="{{ name }}" data-quality-res="{{ res }}">{{ name }} · {{ res }}</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button type="button" class="player-pill" data-fullscreen aria-label="Full screen">
+        <i class="fa-solid fa-expand player-narrow" aria-hidden="true"></i>
+        <span class="player-wide" data-fullscreen-label>Full screen</span>
+      </button>
+    </div>
+  </div>
+
+  {% if next %}
+  <div class="player-card player-upnext" data-upnext role="dialog" aria-label="Next episode" hidden>
+    <p class="player-card-title">Next episode in <span data-countdown>10</span> s</p>
+    <p class="player-card-line">{{ next.label }}</p>
+    <div class="player-card-actions">
+      <button type="button" class="player-pill player-pill--primary" data-upnext-play>Play now</button>
+      <button type="button" class="player-pill" data-upnext-cancel>Cancel</button>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="player-card player-message" data-message role="alert" hidden>
+    <p class="player-card-title" data-message-text></p>
+    <div class="player-card-actions">
+      <button type="button" class="player-pill player-pill--primary" data-retry hidden>Try again</button>
+      <a class="player-pill" href="{{ back_href }}">Back</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
