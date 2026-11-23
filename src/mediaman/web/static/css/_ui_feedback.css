@@ -42,12 +42,46 @@
   box-shadow: var(--shadow-card);
   opacity: 0;
   transform: translateX(12px);
-  transition: opacity .2s ease, transform .2s ease;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
   overflow-wrap: anywhere;
 }
 .ui-toast.is-visible {
   opacity: 1;
   transform: translateX(0);
+}
+
+/* A leaving toast is going: it takes no clicks while it fades. */
+.ui-toast.is-leaving { pointer-events: none; }
+
+/* Toast with an action (Undo): message left, button right. */
+.ui-toast--action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ui-toast__msg { flex: 1; min-width: 0; }
+.ui-toast__action {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin: -4px -8px -4px 0;
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.ui-toast__action:hover { background: var(--hair-strong); }
+/* Touch and phones: a 44 px target without a taller toast (negative margin
+   absorbs the extra height). */
+@media (pointer: coarse), (max-width: 600px) {
+  .ui-toast__action {
+    min-height: 44px;
+    margin-block: -12px;
+    padding-inline: 12px;
+    display: inline-flex;
+    align-items: center;
+  }
 }
 
 /* Variant accents — coloured left-border + tinted background hint,
@@ -82,9 +116,11 @@
   justify-content: center;
   padding: 20px;
   opacity: 0;
-  transition: opacity .2s ease;
+  transition: opacity var(--dur) var(--ease-out);
 }
 .ui-confirm-overlay.is-visible { opacity: 1; }
+/* The answer is already given while it fades: let clicks through. */
+.ui-confirm-overlay.is-leaving { pointer-events: none; }
 
 .ui-confirm-card {
   background: var(--s2);
@@ -95,7 +131,7 @@
   width: 100%;
   box-shadow: var(--shadow-card);
   transform: translateY(8px) scale(.98);
-  transition: transform .2s ease;
+  transition: transform var(--dur) var(--ease-out);
 }
 .ui-confirm-overlay.is-visible .ui-confirm-card {
   transform: translateY(0) scale(1);
@@ -125,6 +161,12 @@
   flex-wrap: wrap;
 }
 
+/* Phones: full-width 44px buttons, stacked so Confirm lands nearest the thumb. */
+@media (max-width: 699.98px) {
+  .ui-confirm-actions { flex-direction: column; }
+  .ui-confirm-actions .btn { width: 100%; min-height: 44px; }
+}
+
 /* Mobile — collapse host to a single column hugging the top edge
    so toasts don't fight the safe-area inset on phones. */
 @media (max-width: 600px) {
@@ -146,4 +188,15 @@
    (up to two rows) sit under the stack. */
 @media (max-width: 699.98px) {
   .ui-toast-host { --toast-reserve: 150px; }
+}
+
+/* Watch on a phone: the search field sits at the top, so the toasts go to
+   the bottom, above the tab bar. */
+@media (max-width: 699.98px) {
+  body:has(.watch-search) .ui-toast-host {
+    top: auto;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px);
+    max-height: calc(100dvh - var(--nav-h) - 64px - 24px);
+    justify-content: flex-end;
+  }
 }

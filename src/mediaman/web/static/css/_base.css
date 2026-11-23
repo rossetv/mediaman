@@ -36,6 +36,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Pressed controls give their own :active feedback; the browser's tap box would
+   only cover it. */
+* { -webkit-tap-highlight-color: transparent; }
+
 img { display: block; max-width: 100%; }
 img[data-broken] { display: none; }
 
@@ -84,7 +88,7 @@ h1, h2, h3, h4 {
   border-radius: var(--r-sm);
   text-decoration: none;
   transform: translateY(-200%);
-  transition: transform .15s;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .skip-link:focus,
 .skip-link:focus-visible {
@@ -97,13 +101,37 @@ h1, h2, h3, h4 {
 main { display: block; }
 main:focus { outline: none; }
 
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Add to a node render code has just inserted so it eases in. */
+.fade-in { animation: fade-in var(--dur) var(--ease-out) backwards; }
+
+/* Pages swap with a clean cut, not `@view-transition { navigation: auto }`:
+   Chrome intermittently shows the cross-fade's first frame as pure white. */
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* A frozen spinner shows nothing, so spinners and the loading dots swap
+     rotation for a slow fade, which still says "working" without movement. */
+  .btn-spinner,
+  .search-spinner,
+  .progress-icon .spinner,
+  .player.is-loading .player-spinner,
+  .scan-dots span,
+  .countdown::before {
+    animation: loading-pulse 1.6s ease-in-out infinite !important;
   }
 }
+@keyframes loading-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
 .container {
   max-width: 1320px;
@@ -189,17 +217,17 @@ main:focus { outline: none; }
   width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 10px rgba(48,209,88,.6);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--success) 60%, transparent);
   flex-shrink: 0;
   display: inline-block;
 }
 .conn-dot.off  { background: var(--t4); box-shadow: none; }
-.conn-dot.warn { background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6); }
+.conn-dot.warn { background: var(--warning); box-shadow: 0 0 10px color-mix(in srgb, var(--warning) 60%, transparent); }
 /* ok/err modifier classes — JS sets these instead of writing inline boxShadow.
    The default (no modifier) dot already uses --success; .ok is explicit for
    the setConnStatus path so it can remove .err without an inline style reset. */
-.conn-dot.ok   { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,.6); }
-.conn-dot.err  { background: var(--danger);  box-shadow: 0 0 8px rgba(255,69,58,.6); }
+.conn-dot.ok   { background: var(--success); box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent); }
+.conn-dot.err  { background: var(--danger);  box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 60%, transparent); }
 
 .empty {
   padding: 60px 20px;

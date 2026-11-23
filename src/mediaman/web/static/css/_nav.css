@@ -7,7 +7,7 @@
   align-items: center;
   gap: 28px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
@@ -30,6 +30,10 @@
   gap: 4px;
   margin-left: 4px;
   flex: 1;
+  /* overflow-x also clips vertically: fill the bar's height so a link's
+     focus ring has room above and below. */
+  align-self: stretch;
+  align-items: center;
   overflow-x: auto;
   scrollbar-width: none;
   list-style: none;
@@ -48,12 +52,19 @@
   border: 0;
   border-radius: var(--r-pill);
   white-space: nowrap;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
   font-family: var(--font-text);
 }
+/* A 44px link leaves 3.5px of the bar above and below it: keep the ring within. */
+.nav-links a:focus-visible,
+.nav-links button:focus-visible { outline-offset: 1px; }
 .nav-btn:hover,
 .nav-links a:hover,
 .nav-links button:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+.nav-btn:active,
+.nav-links a:active,
+.nav-links button:active { transform: scale(.97); }
 
 .nav-btn.on,
 .nav-btn.active,
@@ -63,7 +74,7 @@
 /* Logout sits at the end of the desktop link rail. */
 .nav-logout-form { display: inline-flex; margin-left: auto; }
 .nav-btn--logout { color: var(--t3); }
-.nav-btn--logout:hover { color: var(--danger); background: rgba(255,69,58,.08); }
+.nav-btn--logout:hover { color: var(--danger); background: var(--rgba-danger-bg); }
 
 /* Mobile top bar (brand + page title) — visible < 700 px */
 .nav-topbar {
@@ -75,7 +86,7 @@
   align-items: center;
   gap: 14px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
@@ -97,7 +108,7 @@
   z-index: var(--z-nav);
   height: calc(64px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: rgba(0,0,0,0.8);
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair);
@@ -113,33 +124,45 @@
   gap: 3px;
   font-size: 10px;
   font-weight: 500;
-  color: rgba(255,255,255,.55);
+  color: var(--t3);
   background: transparent;
   border: 0;
   cursor: pointer;
-  transition: color .15s;
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   text-decoration: none;
   letter-spacing: -.005em;
 }
 .nav-tab > .fa-solid { font-size: 20px; }
 .nav-tab:hover,
 .nav-tab.on { color: var(--accent); }
+.nav-tab:active { transform: scale(.94); }
 
 /* Overflow sheet (More) — one step above nav surfaces; sits above
    dropdowns (--z-dropdown: 50) and the nav bar (--z-nav: 60) so the
    overlay covers the bottom tab bar when the sheet slides up. */
 .nav-more-sheet {
-  display: none;
+  display: flex;
   position: fixed;
   inset: 0;
   z-index: calc(var(--z-nav) + 1);
-  background: rgba(0,0,0,.55);
+  background: color-mix(in srgb, var(--scrim) 55%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   align-items: flex-end;
   justify-content: center;
+  /* Closed: invisible and out of the tab order once the fade-out ends. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out),
+              visibility 0s linear var(--dur);
 }
-.nav-more-sheet[open] { display: flex; }
+.nav-more-sheet[open] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity var(--dur) var(--ease-out);
+}
 
 .nav-more-panel {
   width: 100%;
@@ -149,11 +172,14 @@
   border-top-right-radius: var(--r-lg);
   padding: 8px 8px calc(20px + env(safe-area-inset-bottom, 0px));
   box-shadow: var(--shadow-card);
-  animation: sheet-rise .25s ease;
+  transform: translateY(24px);
+  transition: transform var(--dur) var(--ease-out);
 }
-@keyframes sheet-rise {
-  from { transform: translateY(20px); opacity: .4; }
-  to   { transform: none; opacity: 1; }
+.nav-more-sheet[open] .nav-more-panel { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .nav-more-sheet,
+  .nav-more-sheet[open],
+  .nav-more-panel { transition: none; }
 }
 .nav-more-handle {
   width: 36px;
@@ -178,14 +204,16 @@
   cursor: pointer;
   text-decoration: none;
   text-align: left;
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .nav-more-item > .fa-solid { font-size: 18px; flex-shrink: 0; }
 .nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
-.nav-more-item:hover { background: var(--s3); }
+.nav-more-item:hover,
+.nav-more-item:active { background: var(--s3); }
 .nav-more-item.on { background: var(--s3); color: var(--accent); }
 .nav-more-item--danger { color: var(--danger); }
-.nav-more-item--danger:hover { background: rgba(255,69,58,.08); }
+.nav-more-item--danger:hover,
+.nav-more-item--danger:active { background: var(--rgba-danger-bg); }
 .nav-more-divider { height: 1px; background: var(--hair); margin: 6px 12px; }
 
 /* Surface swap at 700 px */
@@ -205,11 +233,16 @@
 }
 
 
-/* Tablet: 40px tap height on the top bar links. */
-@media (min-width: 700px) and (max-width: 1023.98px) {
+/* Rail links keep a 44px touch target on tablets and touch screens. */
+@media (min-width: 700px) and (max-width: 1023.98px), (pointer: coarse) {
   .nav-btn,
   .nav-links a,
-  .nav-links button { min-height: 40px; }
+  .nav-links button { min-height: 44px; }
+}
+
+/* The sheet is a phone surface; hide it if the window outgrows the phone layout. */
+@media (min-width: 700px) {
+  .nav-more-sheet { display: none; }
 }
 
 /* Narrow tablet: tighten the rail so every link shows in full at the

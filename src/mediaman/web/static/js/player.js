@@ -15,7 +15,9 @@
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works.
+ * which is also how a quality change works. If the server refuses the
+ * stream of a new quality, the quality that was playing comes back.
+ * While a new stream replaces the old one, the last frame stays on screen.
  */
 (function () {
   'use strict';
@@ -56,7 +58,8 @@
   var showHref = root.getAttribute('data-show-href') || '';
   var startS = parseFloat(root.getAttribute('data-start-s')) || 0;
 
-  var video = root.querySelector('.player-video');
+  var video = root.querySelector('video.player-video');
+  var hold = root.querySelector('[data-hold]');
   var q = function (sel) { return root.querySelector(sel); };
   var els = {
     play: q('[data-play]'),
@@ -74,6 +77,7 @@
     fullscreen: q('[data-fullscreen]'),
     fullscreenLabel: q('[data-fullscreen-label]'),
     upnext: q('[data-upnext]'),
+    upnextFill: q('[data-upnext-fill]'),
     countdown: q('[data-countdown]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
@@ -97,6 +101,9 @@
   var lastTime = null;
   var dragging = false;
   var quality = readQuality();
+  var goodQuality = quality; // the last quality that played, or the one the page started with
+  var streamQuality = null;  // the quality of the stream now loading or playing
+  var revertNotice = null;   // toast to show once the reverted stream plays
 
   var mediaRecoverUsed = false;
   var fatalRestartUsed = false;
@@ -137,24 +144,59 @@
     }
   }
 
-  function chooseQuality(value) {
-    if (!QUALITIES[value] || value === quality) return;
+  function setQuality(value) {
     quality = value;
     try { window.localStorage.setItem(QUALITY_KEY, value); } catch (e) { /* storage blocked */ }
     showQuality();
+  }
+
+  function chooseQuality(value) {
+    if (!QUALITIES[value] || value === quality) return;
+    revertNotice = null;
+    setQuality(value);
     restartStream(true);
+  }
+
+  /* The server refused the stream of a new quality, and the old stream is
+     already stopped: start the quality that was playing, where it was. */
+  function revertQuality(pos) {
+    var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
+    setQuality(goodQuality);
+    revertNotice = "Couldn't change the quality. Staying on " + label + '.';
+    return startStream(pos);
   }
 
   /* ---- messages and loading ------------------------------------------- */
 
-  function setLoading(on) { root.classList.toggle('is-loading', on); }
+  function setLoading(on) {
+    root.classList.toggle('is-loading', on);
+    showPlayState();
+  }
+
+  /* Draw the frame on screen over the video, so tearing the stream down
+     does not leave the picture black. */
+  function holdFrame() {
+    if (video.readyState < 2 || !video.videoWidth) return;
+    hold.width = video.videoWidth;
+    hold.height = video.videoHeight;
+    try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
+    hold.hidden = false;
+    root.classList.add('is-held');
+  }
+
+  function releaseFrame() {
+    hold.hidden = true;
+    root.classList.remove('is-held');
+  }
 
   function showMessage(text, canRetry) {
-    setLoading(false);
     swapping = false;
+    releaseFrame();
+    setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !canRetry;
     els.message.hidden = false;
+    revertNotice = null;
     showControls();
     if (canRetry) els.retry.focus();
   }
@@ -193,14 +235,18 @@
           }
           starting = false;
           streamId = data.stream_id;
+          streamQuality = quality;
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
           if (gen !== generation) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
-          starting = false;
           var known = err && START_ERRORS[err.error];
+          if (goodQuality && goodQuality !== quality && (!known || known.retry)) {
+            return revertQuality(pos);
+          }
+          starting = false;
           showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
         });
     }
@@ -237,6 +283,7 @@
     streamId = null;
     swapping = true;
     hideUpnext();
+    holdFrame();
     if (old) stopOnServer(old);
     destroyHls();
     startStream(pos);
@@ -260,6 +307,14 @@
       return;
     }
     if (!data.fatal) return;
+    if (goodQuality && goodQuality !== quality) {
+      /* A quality that never played failed in the player: go back to the one that did. */
+      var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
+      setQuality(goodQuality);
+      revertNotice = "Couldn't change the quality. Staying on " + label + '.';
+      restartStream(true);
+      return;
+    }
     if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !mediaRecoverUsed) {
       mediaRecoverUsed = true;
       noteTrouble();
@@ -351,6 +406,12 @@
 
   function togglePlay() {
     if (!els.message.hidden) return;
+    if (swapping) {
+      /* No video to pause yet: the new stream starts the way this leaves it. */
+      wantPlaying = !wantPlaying;
+      showPlayState();
+      return;
+    }
     if (video.paused || video.ended) {
       if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
       play();
@@ -386,11 +447,16 @@
 
   function skip(delta) { seekTo(position() + delta); }
 
+  /* While a stream loads to play, the button shows it working, not a Pause
+     that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
-    var paused = video.paused || video.ended;
+    var busy = wantPlaying && root.classList.contains('is-loading');
+    var paused = (video.paused || video.ended) && !busy;
     els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    if (busy) els.play.setAttribute('aria-busy', 'true');
+    else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('i');
-    icon.className = 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
+    icon.className = busy ? 'player-btn-ring' : 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
     root.classList.toggle('is-paused', paused);
     if (paused) showControls();
     else scheduleIdle();
@@ -403,10 +469,15 @@
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
+    if (streamId) goodQuality = streamQuality;
+    if (revertNotice) {
+      if (window.UIFeedback) window.UIFeedback.error(revertNotice);
+      revertNotice = null;
+    }
     swapping = false;
     pendingStart = null;
+    releaseFrame();
     setLoading(false);
-    showPlayState();
   });
   video.addEventListener('play', function () {
     wantPlaying = true;
@@ -420,7 +491,11 @@
     saveProgress();
   });
   video.addEventListener('waiting', function () { setLoading(true); });
-  video.addEventListener('canplay', function () { if (video.paused) setLoading(false); });
+  video.addEventListener('canplay', function () {
+    if (!video.paused) return;
+    if (!wantPlaying && !swapping) releaseFrame();
+    setLoading(false);
+  });
   video.addEventListener('seeking', function () { lastTime = null; });
   video.addEventListener('seeked', function () {
     settleStart();
@@ -544,20 +619,36 @@
 
   root.querySelectorAll('[data-quality]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      closeMenus();
+      closeMenus(true);
       chooseQuality(btn.getAttribute('data-quality'));
     });
   });
 
   /* ---- menus ---------------------------------------------------------- */
 
-  function closeMenus() {
+  /* Close every menu; with `refocus`, put focus back on the trigger of the one that was open. */
+  function closeMenus(refocus) {
+    var opened = openTrigger();
     root.querySelectorAll('[data-menu-trigger]').forEach(function (t) {
       t.setAttribute('aria-expanded', 'false');
       t.parentNode.querySelector('.player-menu').hidden = true;
     });
+    if (refocus && opened) opened.focus();
   }
-  function menuOpen() { return !!root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
+  function openTrigger() { return root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
+  function menuOpen() { return !!openTrigger(); }
+
+  /* Arrow keys, Home and End move between the items of the open menu. */
+  function moveInMenu(key) {
+    var items = openTrigger().parentNode.querySelectorAll('.player-menu-item');
+    var at = Array.prototype.indexOf.call(items, document.activeElement);
+    var to;
+    if (key === 'Home') to = 0;
+    else if (key === 'End') to = items.length - 1;
+    else if (key === 'ArrowDown') to = at < 0 ? 0 : (at + 1) % items.length;
+    else to = at < 0 ? items.length - 1 : (at - 1 + items.length) % items.length;
+    items[to].focus();
+  }
 
   root.querySelectorAll('[data-menu-trigger]').forEach(function (trigger) {
     trigger.addEventListener('click', function (e) {
@@ -580,20 +671,59 @@
   /* ---- keep ----------------------------------------------------------- */
 
   if (els.keep && leaving) {
+    var keeping = false;
+    var keepTrigger = els.keep.querySelector('[data-menu-trigger]');
+    var undoing = false;
+
+    /* Put the pill back at once; if the server refuses, the keep stands. */
+    var undoKeep = function (done, original, days) {
+      if (undoing) return;
+      undoing = true;
+      MM.api.post('/api/watch/unkeep', { media_item_id: leaving.keep_id }).then(function () {
+        var active = document.activeElement;
+        var moveFocus = !active || active === document.body || done.contains(active) ||
+          (active.closest && active.closest('.ui-toast'));
+        els.keep.textContent = '';
+        els.keep.appendChild(original);
+        keeping = false;
+        keepTrigger.setAttribute('aria-busy', 'false');
+        if (moveFocus) keepTrigger.focus();
+        undoing = false;
+        if (window.UIFeedback) window.UIFeedback.toast('Keep undone', { variant: 'info' });
+      }).catch(function (err) {
+        undoing = false;
+        var msg = MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.');
+        if (window.UIFeedback) window.UIFeedback.error(msg);
+      });
+    };
+
     els.keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (keeping) return;
+        keeping = true;
+        keepTrigger.setAttribute('aria-busy', 'true');
         var days = parseInt(btn.getAttribute('data-keep-days'), 10);
-        closeMenus();
+        closeMenus(true);
         MM.api.post('/api/watch/keep', { media_item_id: leaving.keep_id, days: days })
           .then(function () {
-            els.keep.textContent = '';
+            var hadFocus = els.keep.contains(document.activeElement);
+            var original = document.createDocumentFragment();
+            while (els.keep.firstChild) original.appendChild(els.keep.firstChild);
             var done = document.createElement('span');
             done.className = 'player-pill';
             done.textContent = 'Kept for ' + days + ' days';
             els.keep.appendChild(done);
-            if (window.UIFeedback) window.UIFeedback.toast('Kept for ' + days + ' days', { variant: 'success' });
+            if (hadFocus) { done.tabIndex = -1; done.focus(); }
+            if (window.UIFeedback) {
+              window.UIFeedback.toast('Kept for ' + days + ' days', {
+                variant: 'success',
+                action: { label: 'Undo', onClick: function () { undoKeep(done, original, days); } }
+              });
+            }
           })
           .catch(function (err) {
+            keeping = false;
+            keepTrigger.setAttribute('aria-busy', 'false');
             var msg = MM.api.messageOf(err, "Couldn't keep this. Try again.");
             if (window.UIFeedback) window.UIFeedback.error(msg);
           });
@@ -641,10 +771,17 @@
     scheduleIdle();
   }
 
+  /* Keyboard focus on a control keeps the controls up; mouse focus does not. */
+  function keyboardInChrome() {
+    var a = document.activeElement;
+    if (!a || a === video || !root.contains(a)) return false;
+    try { return a.matches(':focus-visible'); } catch (e) { return false; }
+  }
+
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && !menuOpen() && els.message.hidden) {
+      if (!video.paused && !dragging && !menuOpen() && els.message.hidden && !keyboardInChrome()) {
         root.classList.add('is-idle');
       }
     }, IDLE_MS);
@@ -655,6 +792,8 @@
   root.addEventListener('pointermove', function (e) {
     if (e.pointerType === 'mouse') showControls();
   });
+  /* Keyboard focus must never land on controls that cannot be seen. */
+  root.addEventListener('focusin', showControls);
 
   /* A click on the picture plays or pauses; a tap shows or hides the controls. */
   video.addEventListener('click', function () {
@@ -672,10 +811,19 @@
   /* ---- keyboard ------------------------------------------------------- */
 
   document.addEventListener('keydown', function (e) {
+    showControls();
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
-    if (e.key === 'Escape') { closeMenus(); showControls(); return; }
+    if (e.key === 'Escape') { closeMenus(true); return; }
+    if (menuOpen()) {
+      if (e.key === 'Tab') { closeMenus(true); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        moveInMenu(e.key);
+        return;
+      }
+    }
     if (e.key === ' ' || e.key === 'Spacebar') {
       if (onControl) return;
       e.preventDefault();
@@ -697,16 +845,26 @@
   /* ---- next episode --------------------------------------------------- */
 
   var countdownTimer = null;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
+  /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     clearInterval(countdownTimer);
     countdownTimer = null;
-    if (els.upnext) els.upnext.hidden = true;
+    var card = els.upnext;
+    if (!card || card.hidden || card.classList.contains('is-leaving')) return;
+    card.classList.remove('is-counting');
+    if (card.contains(document.activeElement)) els.play.focus();
+    if (reducedMotion && reducedMotion.matches) card.hidden = true;
+    else card.classList.add('is-leaving');
   }
 
   function startCountdown() {
     var left = COUNTDOWN_S;
     els.countdown.textContent = String(left);
+    els.upnext.classList.remove('is-leaving');
+    els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
+    els.upnext.classList.add('is-counting');
     els.upnext.hidden = false;
     showControls();
     clearInterval(countdownTimer);
@@ -723,6 +881,12 @@
   if (els.upnext) {
     q('[data-upnext-play]').addEventListener('click', function () { window.location.href = next.href; });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
+    els.upnext.addEventListener('animationend', function (e) {
+      if (e.target !== els.upnext || e.animationName !== 'player-drop') return;
+      if (!els.upnext.classList.contains('is-leaving')) return;
+      els.upnext.classList.remove('is-leaving');
+      els.upnext.hidden = true;
+    });
   }
 
   /* ---- leaving the page ----------------------------------------------- */

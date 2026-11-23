@@ -3,10 +3,13 @@
    background inside that box. */
 
 .player {
+  /* Dark enough that pill text keeps 4.5:1 even over a white frame. */
+  --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
+  --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
   position: fixed;
   inset: 0;
   z-index: var(--z-nav);
-  background: #000;
+  background: var(--bg);
   color: var(--t1);
   overflow: hidden;
   user-select: none;
@@ -20,11 +23,12 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--bg);
 }
+.player-hold { pointer-events: none; }
 
 /* Controls fade out while playing and nobody touches anything. */
-.player-chrome { transition: opacity .25s ease; }
+.player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
 .player.is-idle .player-chrome { opacity: 0; pointer-events: none; }
 .player.is-idle { cursor: none; }
 
@@ -37,7 +41,7 @@
   flex-wrap: wrap;
   gap: 12px 18px;
   padding: max(26px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) 40px max(32px, env(safe-area-inset-left));
-  background: linear-gradient(180deg, rgba(0,0,0,.7), rgba(0,0,0,0));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 70%, transparent), transparent);
 }
 .player-back {
   flex: none;
@@ -46,10 +50,13 @@
   width: 44px;
   height: 44px;
   border-radius: var(--r-pill);
-  background: var(--hair-strong);
+  background: var(--player-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   font-size: 18px;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.player-back:hover { background: rgba(255,255,255,.2); }
+.player-back:hover { background: var(--player-glass-hover); }
 .player-titles {
   flex: 1 1 200px;
   min-width: 0;
@@ -75,7 +82,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.player-keep-btn { color: #ffb4ae; }
+.player-keep-btn { color: var(--danger-soft); }
 
 /* Bottom bar: seek row over the control row. */
 .player-bottom {
@@ -85,7 +92,7 @@
   flex-direction: column;
   gap: 4px;
   padding: 48px max(32px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
-  background: linear-gradient(0deg, rgba(0,0,0,.8), rgba(0,0,0,0));
+  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), transparent);
 }
 .player-seek-row {
   display: flex;
@@ -115,7 +122,7 @@
   width: 100%;
   height: 5px;
   border-radius: 3px;
-  background: rgba(255,255,255,.2);
+  background: color-mix(in srgb, var(--t1) 20%, transparent);
 }
 .player-seek-buffered,
 .player-seek-played {
@@ -125,7 +132,7 @@
   width: 0;
   border-radius: 3px;
 }
-.player-seek-buffered { background: rgba(255,255,255,.35); }
+.player-seek-buffered { background: color-mix(in srgb, var(--t1) 35%, transparent); }
 .player-seek-played { background: var(--accent); }
 .player-seek-thumb {
   position: absolute;
@@ -135,8 +142,8 @@
   height: 15px;
   margin: -7.5px 0 0 -7.5px;
   border-radius: 50%;
-  background: #fff;
-  transition: transform .15s ease;
+  background: var(--t1);
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .player-seek:hover .player-seek-thumb,
 .player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
@@ -155,8 +162,19 @@
   display: grid;
   place-items: center;
   font-size: 20px;
+  transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 .player-btn--text { font-size: 14px; padding: 0 6px; }
+
+/* The play button while a stream loads to play. */
+.player-btn-ring {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--t1) 25%, transparent);
+  border-top-color: var(--t1);
+  border-radius: 50%;
+  animation: player-spin .9s linear infinite;
+}
 
 /* A 44 px tall hit area with a 36 px pill drawn inside it. */
 .player-pill {
@@ -172,6 +190,7 @@
   padding: 0 14px;
   font-size: 13px;
   white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .player-pill::before {
   content: '';
@@ -179,13 +198,38 @@
   inset: 4px 0;
   z-index: -1;
   border-radius: var(--r-pill);
-  background: var(--hair-strong);
-  transition: background .15s ease;
+  background: var(--player-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.player-pill:hover::before { background: rgba(255,255,255,.22); }
-.player-pill--primary { color: #000; font-weight: 600; }
+.player-pill:hover::before { background: var(--player-glass-hover); }
+.player-pill--primary { color: var(--bg); font-weight: 600; }
 .player-pill--primary::before,
-.player-pill--primary:hover::before { background: #fff; }
+.player-pill--primary:hover::before { background: var(--t1); }
+
+/* "Play now" fills as the next-episode countdown runs out. The clip keeps
+   the pill's round ends while the bar inside it scales. */
+.player-upnext-fill {
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.player-upnext-fill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 18%, transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.player-upnext.is-counting .player-upnext-fill::before {
+  animation: player-fill linear forwards;
+  animation-duration: inherit;
+}
+@keyframes player-fill { to { transform: scaleX(1); } }
 
 .player-volume { display: flex; align-items: center; }
 .player-volume-slider {
@@ -207,7 +251,7 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--r-lg);
-  background: rgba(29,29,31,.96);
+  background: color-mix(in srgb, var(--s2) 96%, transparent);
   box-shadow: var(--shadow-card);
 }
 .player-menu--up { bottom: calc(100% + 4px); }
@@ -219,6 +263,7 @@
   font-size: 14px;
   border-radius: var(--r-sm);
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
@@ -229,6 +274,39 @@
   color: var(--accent);
 }
 
+/* Pressed: a quick shrink and a tint, since the tap highlight is off. */
+.player-back:active { transform: scale(.94); background: var(--player-glass-hover); }
+.player-btn:active { transform: scale(.9); opacity: .7; }
+.player-pill:active { transform: scale(.96); }
+.player-pill:active::before { background: var(--player-glass-hover); }
+.player-pill--primary:active::before { background: color-mix(in srgb, var(--t1) 80%, transparent); }
+.player-menu-item:active { background: var(--hair-strong); }
+@media (prefers-reduced-motion: reduce) {
+  .player-back:active,
+  .player-btn:active,
+  .player-pill:active { transform: none; }
+}
+
+/* Menus and cards rise in when they open; they are usable at once. Menus
+   hide without delay; the next-episode card sinks away. */
+@keyframes player-pop { from { opacity: 0; translate: 0 var(--pop-y, 8px); } }
+@keyframes player-drop { to { opacity: 0; translate: 0 8px; } }
+.player-menu,
+.player-card { animation: player-pop var(--dur) var(--ease-out); }
+.player-menu--down { --pop-y: -6px; }
+.player-card.is-leaving {
+  animation: player-drop var(--dur) var(--ease-out) forwards;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-menu,
+  .player-card,
+  .player-card.is-leaving { animation: none; }
+  /* No moving fill: the number counts down alone. */
+  .player-upnext-fill { display: none; }
+  .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
+}
+
 /* Spinner while a stream starts or the buffer runs dry. */
 .player-spinner {
   position: absolute;
@@ -236,15 +314,17 @@
   width: 48px;
   height: 48px;
   margin: -24px 0 0 -24px;
-  border: 3px solid rgba(255,255,255,.2);
-  border-top-color: #fff;
+  border: 3px solid color-mix(in srgb, var(--t1) 20%, transparent);
+  border-top-color: var(--t1);
   border-radius: 50%;
   animation: player-spin .9s linear infinite;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s ease;
+  transition: opacity var(--dur) var(--ease-out);
 }
 .player.is-loading .player-spinner { opacity: 1; }
+/* A held frame already has the play button's ring; one spinner is enough. */
+.player.is-held .player-spinner { opacity: 0; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
 /* Cards: the "next episode" countdown and the error message. */
@@ -255,7 +335,7 @@
   gap: 6px;
   padding: 20px 22px 14px;
   border-radius: var(--r-lg);
-  background: rgba(29,29,31,.94);
+  background: color-mix(in srgb, var(--s2) 94%, transparent);
   box-shadow: var(--shadow-card);
   max-width: calc(100% - 32px);
 }

@@ -13,8 +13,11 @@
   <div class="watch-top">
     <div class="watch-search" role="search">
       <i class="fa-solid fa-magnifying-glass watch-search__icon" aria-hidden="true"></i>
+      <span class="search-spinner watch-search__spinner" aria-hidden="true"></span>
       <input id="watch-search" class="watch-search__input" type="search" placeholder="Search films and shows" aria-label="Search films and shows" autocomplete="off" spellcheck="false">
+      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search" hidden><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
+    <p class="sr-only" id="watch-search-status" role="status"></p>
   </div>
 
   <div id="watch-browse">
@@ -49,8 +52,10 @@
       {% if row['items'] %}
       <section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
         <h2 class="watch-row__title">{{ row.title }}</h2>
-        <div class="watch-row__scroll">
-          {% for item in row['items'] %}{{ w.card(item) }}{% endfor %}
+        <div class="watch-row__viewport">
+          <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
+            {% for item in row['items'] %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
+          </div>
         </div>
       </section>
       {% endif %}
@@ -59,7 +64,7 @@
   </div>
 
   <section class="watch-results" id="watch-results" aria-label="Search results" hidden>
-    <p class="watch-results__msg" id="watch-results-msg" role="status"></p>
+    <p class="watch-results__msg" id="watch-results-msg"></p>
     <div class="watch-grid" id="watch-grid"></div>
   </section>
 
@@ -69,4 +74,5 @@
 </div>
 
 <script src="/static/js/watch.js" defer></script>
+<script src="/static/js/watch-rows.js" defer></script>
 {% endblock %}

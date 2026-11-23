@@ -34,8 +34,17 @@
   --success: #30d158;
   --warning: #ffd60a;
   --danger:  #ff453a;
+  --danger-soft: #ffb4ae;   /* danger-toned text on a dark scrim */
   --orange:  #ff9f0a;
   --purple:  #bf5af2;
+
+  /* Overlay ink for scrims and shadows (mix with transparent), the raised
+     surface above --s4, and the Watch banner's backdrop gradient stops. */
+  --scrim:        #000;
+  --s5:           #3a3a3e;
+  --hero-hi:      #3a4a63;
+  --hero-mid:     #1a2233;
+  --hero-lo:      #24324a;
 
   /* Radii */
   --r-xs:   6px;
@@ -52,6 +61,12 @@
   --section: clamp(36px,6vw,72px);
   /* nav-glass height. The compact .nav-topbar hardcodes 48px. */
   --nav-h:   52px;
+
+  /* Motion — quick, ease-out; _base.css switches it off under reduced motion. */
+  --dur-fast: .15s;
+  --dur:      .2s;
+  --dur-slow: .25s;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
 
   /* Z-index scale — single source of truth for app-wide stacking.
      Local stacking contexts inside positioned ancestors stay numeric. */

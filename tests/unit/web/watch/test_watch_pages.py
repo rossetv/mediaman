@@ -678,6 +678,40 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     assert "Can't reach Plex right now." in play.text
 
 
+def _show_html(app_factory, conn, monkeypatch, url: str, *scheduled: tuple[str, int]) -> str:
+    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
+    for media_item_id, days in scheduled:
+        _schedule(conn, media_item_id, days)
+    app = app_factory(
+        pages.router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
+    )
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "aoife"))
+    return client.get(url).text
+
+
+def test_show_page_has_no_leaving_line_when_no_season_is_leaving(
+    app_factory, conn, library, plex, monkeypatch
+):
+    html = _show_html(app_factory, conn, monkeypatch, "/watch/show/500?season=1")
+
+    assert "data-watch-leaving" not in html
+
+
+def test_a_season_that_is_not_leaving_says_quietly_which_one_is(
+    app_factory, conn, library, plex, monkeypatch
+):
+    html = _show_html(app_factory, conn, monkeypatch, "/watch/show/500?season=1", ("502", 3))
+
+    line = html[html.index("data-watch-leaving") : html.index('class="watch-actions"')]
+    assert "Season 2 leaves in 3 days" in line
+    assert "watch-leaving--other" in html
+    assert "data-watch-keep" not in line
+    assert "Leaving in" not in html
+
+
 def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, monkeypatch):
     monkeypatch.setattr(pages, "now_utc", lambda: NOW)
     _schedule(conn, "100", 2)

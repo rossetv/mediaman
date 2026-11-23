@@ -4,8 +4,7 @@
 
 /* Generic inline spinner for use inside buttons — picks up the button's
    text colour via currentColor so it works on any button variant.
-   Relies on `@keyframes spin` defined in _search.css (CSS keyframes
-   are global). */
+   Uses `@keyframes spin` from _base.css. */
 .btn-spinner {
   display: inline-block;
   width: 12px;

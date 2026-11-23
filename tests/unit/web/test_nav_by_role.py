@@ -151,3 +151,10 @@ class TestAccountPage:
         assert "Viewer" in resp.text
         assert re.search(r'href="/account"\s+class="nav-btn on"', resp.text)
         assert 'href="/settings"' not in resp.text
+
+
+def test_more_sheet_is_a_modal_dialog():
+    tag = re.search(r'<div[^>]*id="nav-more-sheet"[^>]*>', _render("admin")).group(0)
+
+    assert 'role="dialog"' in tag
+    assert 'aria-modal="true"' in tag
