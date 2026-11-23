@@ -319,7 +319,7 @@ class TestPartialDeliveryFailure:
         sent_to: list[str] = []
         bad_targets = {"bob@example.com"}
 
-        def fake_send(*, to, subject, html):
+        def fake_send(*, to, subject, html, unsubscribe_url=None):
             if to in bad_targets:
                 raise requests.ConnectionError("Mailgun rejected this recipient")
             sent_to.append(to)
@@ -391,7 +391,7 @@ class TestPartialDeliveryFailure:
         # First pass: Bob fails.
         first_pass_sent: list[str] = []
 
-        def first_send(*, to, subject, html):
+        def first_send(*, to, subject, html, unsubscribe_url=None):
             if to == "bob@example.com":
                 raise requests.ConnectionError("transient")
             first_pass_sent.append(to)

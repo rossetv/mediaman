@@ -217,3 +217,22 @@ def test_row_the_keep_page_would_refuse_is_listed_without_a_keep_button(conn, co
 
     assert "Test Movie" in html
     assert "/keep/" not in html
+
+
+def test_unsubscribe_header_is_the_link_in_the_footer(conn):
+    mailgun = MagicMock()
+    with (
+        patch("mediaman.services.mail.mailgun.MailgunClient", return_value=mailgun),
+        patch("mediaman.services.infra.get_aggregate_disk_usage", return_value=_DISK),
+        patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+        patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=None),
+    ):
+        _schedule(conn, grace_days=7)
+        send_newsletter(conn, _SECRET_KEY)
+
+    kwargs = mailgun.send.call_args.kwargs
+    link = re.search(
+        r'href="(' + re.escape(_BASE_URL) + r'/unsubscribe\?token=[^"]+)"', kwargs["html"]
+    )
+    assert link
+    assert kwargs["unsubscribe_url"] == link.group(1).replace("&amp;", "&")

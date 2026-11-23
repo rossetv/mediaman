@@ -79,7 +79,7 @@ class TestNewsletterFlow:
             def __init__(self, *args, **kwargs):
                 pass
 
-            def send(self, *, to, subject, html):
+            def send(self, *, to, subject, html, unsubscribe_url=None):
                 captured_calls.append({"to": to, "subject": subject})
 
         with (
@@ -122,7 +122,7 @@ class TestNewsletterFlow:
             def __init__(self, *args, **kwargs):
                 pass
 
-            def send(self, *, to, subject, html):
+            def send(self, *, to, subject, html, unsubscribe_url=None):
                 recipients_sent.append(to)
 
         with (
@@ -155,7 +155,7 @@ class TestNewsletterFlow:
             def __init__(self, *args, **kwargs):
                 pass
 
-            def send(self, *, to, subject, html):
+            def send(self, *, to, subject, html, unsubscribe_url=None):
                 send_calls.append(to)
 
         with (
