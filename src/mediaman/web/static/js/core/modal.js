@@ -69,9 +69,36 @@
     var manageBodyOverflow = (opts.manageBodyOverflow !== false);
     var useModalA11y = (opts.useModalA11y !== false);
 
+    /* A .modal-backdrop fades out (see _modal.css) before it is hidden;
+       reopening while it fades cancels the hide. */
+    var _leaving = null;
+
     function _show() {
+      _leaving = null;
+      modalEl.classList.remove('is-leaving');
       if (activeClass) modalEl.classList.add(activeClass);
       else modalEl.style.display = displayValue;
+    }
+    function _hideAfterExit() {
+      var reduce = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce || !modalEl.classList.contains('modal-backdrop') || !_isVisible()) {
+        _hide();
+        return;
+      }
+      var token = {};
+      _leaving = token;
+      function done(e) {
+        if (e && (e.target !== modalEl || e.animationName !== 'modal-backdrop-out')) return;
+        modalEl.removeEventListener('animationend', done);
+        if (_leaving !== token) return;
+        _leaving = null;
+        modalEl.classList.remove('is-leaving');
+        _hide();
+      }
+      modalEl.classList.add('is-leaving');
+      modalEl.addEventListener('animationend', done);
+      /* animationend never comes if the page is hidden mid-way. */
+      setTimeout(done, 400);
     }
     function _hide() {
       if (activeClass) modalEl.classList.remove(activeClass);
@@ -94,7 +121,7 @@
         document.removeEventListener('keydown', _escHandler);
         _escHandler = null;
       }
-      _hide();
+      _hideAfterExit();
       modalEl.setAttribute('aria-hidden', 'true');
       if (manageBodyOverflow) document.body.style.overflow = '';
 

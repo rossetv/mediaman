@@ -16,6 +16,7 @@
   justify-content: center;
   padding: 60px 20px 20px;
   overflow-y: auto;
+  animation: modal-backdrop-in var(--dur) var(--ease-out);
 }
 .modal-sheet {
   background: var(--s2);
@@ -26,6 +27,15 @@
   box-shadow: var(--shadow-card);
   position: relative;
 }
+/* Open and close like the app's confirm dialog: the dim fades, the sheet
+   rises a few pixels into place. Closing is already decided, so clicks pass. */
+.modal-backdrop > .modal-sheet { animation: modal-sheet-in var(--dur) var(--ease-out); }
+.modal-backdrop.is-leaving { animation: modal-backdrop-out var(--dur) var(--ease-out) forwards; pointer-events: none; }
+.modal-backdrop.is-leaving > .modal-sheet { animation: modal-sheet-out var(--dur) var(--ease-out) forwards; }
+@keyframes modal-backdrop-in { from { opacity: 0; } }
+@keyframes modal-backdrop-out { to { opacity: 0; } }
+@keyframes modal-sheet-in { from { transform: translateY(8px) scale(.98); } }
+@keyframes modal-sheet-out { to { transform: translateY(8px) scale(.98); } }
 .modal-close-bar {
   position: absolute;
   top: 16px;
