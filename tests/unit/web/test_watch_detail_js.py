@@ -62,6 +62,10 @@ def test_a_pick_opened_from_its_card_names_its_kind_while_loading() -> None:
     assert out["loaded"] == "TV series"
 
 
+def test_every_open_starts_at_the_top_of_the_title() -> None:
+    assert _run("opensAtTop") == {"afterClose": 0, "overAnother": 0}
+
+
 def test_a_tmdb_title_in_the_library_opens_as_the_library_title() -> None:
     out = _run("libraryMatchSwitches")
     assert out["gets"][:2] == ["/api/watch/title/tmdb-movie-77", "/api/watch/title/movie-120"]

@@ -208,6 +208,8 @@
     closeTrailer(false);
     renderLoading();
     if (!wasOpen) show(cur.origin);
+    // The overlay is the scroller and keeps its offset across closes.
+    root.scrollTop = 0;
     titleEl.focus({ preventScroll: true });
     load(cur);
   }

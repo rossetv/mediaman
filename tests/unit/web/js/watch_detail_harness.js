@@ -297,6 +297,21 @@ const scenarios = {
     return { fromCard, fromColdLink, loaded: cold.text('[data-ttl-part="kind"]') };
   },
 
+  // Scrolled down inside one title, closed, then another opened (and one opened over another).
+  async opensAtTop() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL, '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    p.ttl().scrollTop = 62;
+    click(p.doc, p.q('.ttl__close'));
+    p.tick();
+    await openCard(p, 'show-300');
+    const afterClose = p.ttl().scrollTop;
+    p.ttl().scrollTop = 140;
+    p.ctx.MMWatch.detail.open('tmdb-movie-77', {});
+    return { afterClose, overAnother: p.ttl().scrollTop };
+  },
+
   async libraryMatchSwitches() {
     const p = load({ routes: {
       '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' }),
