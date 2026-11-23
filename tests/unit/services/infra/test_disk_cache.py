@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import os
 import threading
+import weakref
 
 import pytest
 
-from mediaman.services.infra import disk_cache
+from mediaman.services.infra import SafeHTTPError, disk_cache
 
 
 @pytest.fixture(autouse=True)
@@ -207,3 +209,121 @@ def test_without_a_data_dir_nothing_is_stored(monkeypatch):
 
 def _name(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
+
+
+class HeldPool:
+    """An executor that queues work and never runs it."""
+
+    def __init__(self):
+        self.queued = []
+
+    def submit(self, fn):
+        self.queued.append(fn)
+
+
+def test_stale_hits_while_a_refresh_waits_in_the_queue_submit_only_one(monkeypatch):
+    fetch = Fetcher("old", "new")
+    store = disk_cache.meta()
+    store.get_or_fetch("k", 0, 7 * DAY, fetch)
+    pool = HeldPool()
+    monkeypatch.setattr(disk_cache, "sync", False)
+    monkeypatch.setattr(disk_cache, "_executor", lambda: pool)
+
+    for _ in range(3):
+        assert store.get_or_fetch("k", 0, 7 * DAY, fetch) == "old"
+
+    assert len(pool.queued) == 1
+    pool.queued[0]()
+    assert fetch.calls == 2
+    assert store.get_or_fetch("k", DAY, 7 * DAY, fetch) == "new"
+
+
+def test_a_waiter_is_answered_even_when_storing_the_value_fails(monkeypatch):
+    store = disk_cache.meta()
+
+    def broken_encode(value):
+        raise TypeError("not storable")
+
+    monkeypatch.setattr(store, "_encode", broken_encode)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow():
+        started.set()
+        release.wait(5)
+        return "v"
+
+    owner_error = []
+
+    def owner():
+        try:
+            store.get_or_fetch("k", DAY, DAY, slow)
+        except TypeError as exc:
+            owner_error.append(exc)
+
+    waited = []
+    first = threading.Thread(target=owner, daemon=True)
+    first.start()
+    started.wait(5)
+    second = threading.Thread(
+        target=lambda: waited.append(store.get_or_fetch("k", DAY, DAY, slow)), daemon=True
+    )
+    second.start()
+    release.set()
+    first.join(5)
+    second.join(2)
+
+    assert waited == ["v"]
+    assert len(owner_error) == 1
+
+
+def test_a_backed_off_failure_holds_no_frame_of_the_request_that_failed():
+    class Marker:
+        pass
+
+    store = disk_cache.meta()
+    refs = []
+
+    def request():
+        marker = Marker()
+        refs.append(weakref.ref(marker))
+        with pytest.raises(LookupError):
+            store.get_or_fetch("k", DAY, DAY, Fetcher(LookupError("down")))
+
+    request()
+    gc.collect()
+    assert refs[0]() is None
+
+    with pytest.raises(LookupError) as first:
+        store.get_or_fetch("k", DAY, DAY, Fetcher())
+    with pytest.raises(LookupError) as second:
+        store.get_or_fetch("k", DAY, DAY, Fetcher())
+    assert first.value is not second.value
+    assert str(second.value) == "down"
+
+
+def test_a_backed_off_error_keeps_its_attributes():
+    store = disk_cache.meta()
+    error = SafeHTTPError(status_code=404, body_snippet="gone", url="https://x.invalid/a")
+    with pytest.raises(SafeHTTPError):
+        store.get_or_fetch("k", DAY, DAY, Fetcher(error))
+
+    with pytest.raises(SafeHTTPError) as again:
+        store.get_or_fetch("k", DAY, DAY, Fetcher())
+
+    assert again.value.status_code == 404
+
+
+def test_the_sweep_removes_old_temp_files_and_keeps_fresh_ones(cache, monkeypatch):
+    monkeypatch.setattr(disk_cache, "_SWEEP_EVERY", 1)
+    folder = cache / "meta"
+    old = folder / "abandoned.tmp"
+    live = folder / "writing.tmp"
+    old.write_bytes(b"half")
+    live.write_bytes(b"half")
+    os.utime(old, (1000, 1000))
+
+    disk_cache.meta().get_or_fetch("k", DAY, DAY, Fetcher("v"))
+
+    assert not old.exists()
+    assert live.exists()

@@ -20,7 +20,8 @@ Until ``init`` names the data dir (at startup) nothing is stored and every call 
 Set ``sync = True`` (tests) to run the background refresh inline.
 
 Each store is capped; every ``_SWEEP_EVERY`` writes a non-blocking sweep deletes the
-least recently used files (by mtime, which a hit bumps) down to 90% of the cap.
+least recently used files (by mtime, which a hit bumps) down to 90% of the cap, and any
+temp file a crashed write left behind.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ Image = tuple[bytes, dict[str, str]]
 BACKOFF_S = 60.0
 _BACKOFF_MAX_KEYS = 1024
 _SWEEP_EVERY = 50
+_TMP_MAX_AGE_S = 600.0
 _META_MAX_BYTES = 64 * 1024 * 1024
 _IMG_MAX_BYTES = 1024 * 1024 * 1024
 
@@ -110,7 +112,7 @@ class Store[T]:
                 return value
         error = _backoff((self.name, key))
         if error is not None:
-            raise error
+            raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
         return self._fetch_once(key, path, fetch)
@@ -135,49 +137,60 @@ class Store[T]:
 
     def _fetch_once(self, key: str, path: Path, fetch: Callable[[], T]) -> T:
         flight = (self.name, key)
-        with _guard:
-            future = _inflight.get(flight)
-            owner = future is None
-            if owner:
-                future = _inflight[flight] = Future()
-        assert future is not None
+        future, owner = _claim(flight)
         if not owner:
             result: T = future.result()
             return result
+        return self._fill(flight, future, path, fetch)
+
+    def _fill(
+        self, flight: tuple[str, str], future: Future[Any], path: Path, fetch: Callable[[], T]
+    ) -> T:
+        """Fetch into the claimed *future* and store the value; the future is always
+        settled, so no waiter is left blocked."""
         try:
             value = fetch()
         except Exception as exc:
             with _guard:
                 if len(_failed) >= _BACKOFF_MAX_KEYS:
                     _failed.clear()
-                _failed[flight] = (time.monotonic() + BACKOFF_S, exc)
+                _failed[flight] = (time.monotonic() + BACKOFF_S, _bare(exc))
             future.set_exception(exc)
             raise
         except BaseException as exc:
             future.set_exception(exc)
             raise
         else:
-            self._write(path, value)
             future.set_result(value)
+            self._write(path, value)
             return value
         finally:
             with _guard:
                 _inflight.pop(flight, None)
 
     def _refresh(self, key: str, path: Path, fetch: Callable[[], T]) -> None:
-        if (self.name, key) in _inflight:
+        flight = (self.name, key)
+        # Claimed now, not when the pool gets to it, so stale hits while the refresh
+        # waits in the queue do not queue more of them.
+        future, owner = _claim(flight)
+        if not owner:
             return
 
         def run() -> None:
             try:
-                self._fetch_once(key, path, fetch)
+                self._fill(flight, future, path, fetch)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 
         if sync:
             run()
-        else:
+            return
+        try:
             _executor().submit(run)
+        except RuntimeError as exc:  # the pool is shut down (interpreter exit)
+            with _guard:
+                _inflight.pop(flight, None)
+            future.set_exception(exc)
 
     def _write(self, path: Path, value: T) -> None:
         payload, info = self._encode(value)
@@ -207,12 +220,17 @@ class Store[T]:
             return
         try:
             entries: list[tuple[float, int, Path]] = []
+            tmp_cutoff = time.time() - _TMP_MAX_AGE_S
             for entry in directory.iterdir():
-                if entry.suffix == ".tmp":
-                    continue
                 try:
                     st = entry.stat()
                 except OSError:
+                    continue
+                if entry.suffix == ".tmp":
+                    # Left behind by a write a crash cut short; a live one is seconds old.
+                    if st.st_mtime < tmp_cutoff:
+                        with contextlib.suppress(OSError):
+                            entry.unlink()
                     continue
                 entries.append((st.st_mtime, st.st_size, entry))
             total = sum(size for _, size, _ in entries)
@@ -241,6 +259,26 @@ def _backoff(flight: tuple[str, str]) -> BaseException | None:
             return exc
         del _failed[flight]
         return None
+
+
+def _claim(flight: tuple[str, str]) -> tuple[Future[Any], bool]:
+    """The future of *flight* in progress, or a new one; True when the caller made it
+    and so must settle it."""
+    with _guard:
+        future = _inflight.get(flight)
+        if future is not None:
+            return future, False
+        future = _inflight[flight] = Future()
+        return future, True
+
+
+def _bare[E: BaseException](exc: E) -> E:
+    """A copy of *exc* without its traceback, cause or context, so the backoff holds no
+    frames of the request that failed and each raise gets a traceback of its own."""
+    clone = type(exc).__new__(type(exc))
+    clone.args = exc.args
+    clone.__dict__.update(exc.__dict__)
+    return clone
 
 
 def _executor() -> ThreadPoolExecutor:
