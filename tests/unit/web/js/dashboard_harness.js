@@ -81,7 +81,8 @@ class El {
     return '<' + this.tagName + ' ' + a + '>' + this._text + this.children.map((c) => c.serialize()).join('') + '</>';
   }
   /* A control inside a closed menu is hidden, so it cannot take focus. */
-  focus() {
+  focus(opts) {
+    this.doc.focusCalls.push({ id: this.dataset.action, opts });
     const menu = this.closest('.snooze-dropdown');
     if (!this.isConnected || (menu && !menu.parentNode.classList.contains('is-open'))) return;
     this.doc.activeElement = this;
@@ -90,7 +91,7 @@ class El {
 
 function makeDoc() {
   const listeners = {};
-  const doc = { addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
+  const doc = { focusCalls: [], addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
   doc.createElement = (t) => new El(t, doc);
   doc.createTextNode = (t) => { const e = new El('#text', doc); e._text = t; return e; };
   doc.body = new El('body', doc);
@@ -133,19 +134,24 @@ function fragments(doc, tiles) {
 const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 const deferred = () => { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); return { p, resolve, reject }; };
 
-function build(tiles) {
+function build(tiles, opts) {
+  opts = opts || {};
   const doc = makeDoc();
   fragments(doc, tiles).forEach((f) => doc.body.appendChild(f));
   ['scan-btn', 'scan-status', 'scan-live'].forEach((id) => doc.body.appendChild(el(doc, 'span', { id, 'data-action': id === 'scan-btn' ? 'trigger-scan' : '' })));
   const fetches = [];
   const keeps = [];
   const timers = [];
+  const scrolls = [];
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Date, parseFloat, AbortController,
     setTimeout: (fn) => { timers.push(fn); return timers.length; },
     clearTimeout: () => {},
     location: { pathname: '/', href: '/' },
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: !opts.motion }),
+    innerHeight: 800,
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    scrollBy: (o) => scrolls.push(o),
     fetch: () => { const d = deferred(); fetches.push(d); return d.p; },
     DOMParser: class {
       parseFromString(html) {
@@ -185,7 +191,7 @@ function build(tiles) {
     return { id: w ? w.dataset.id : null, tag: a.tagName, text: a.textContent, inPage: a.isConnected };
   };
   const runTimers = () => timers.splice(0).forEach((f) => f());
-  return { doc, ctx, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
+  return { doc, ctx, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };
 }
 
 const scenarios = {
@@ -199,6 +205,26 @@ const scenarios = {
     h.fetches[0].resolve(h.page({ tiles: ['b', 'c'] }));
     await flush();
     return { focused: h.focused(), tiles: h.tilesNow() };
+  },
+
+  // with motion on, focus must not scroll the page mid-slide
+  async focusNoScroll() {
+    const h = build(['a', 'b', 'c'], { motion: true });
+    h.doc.querySelectorAll('.tile').forEach((t) => {
+      t.animate = () => { const a = {}; Promise.resolve().then(() => a.onfinish && a.onfinish()); return a; };
+      t.getBoundingClientRect = () => ({ top: 0, bottom: 10, left: 0, right: 10, height: 10 });
+    });
+    h.doc.querySelectorAll('[data-action="keep-tile"]').forEach((b) => {
+      b.getBoundingClientRect = () => ({ top: 0, bottom: 40, left: 0, right: 10, height: 40 });
+    });
+    h.keepBtn('a').focus();
+    h.doc.focusCalls.length = 0;
+    h.click(h.keepBtn('a'));
+    h.keeps[0].resolve({});
+    await flush();
+    const before = h.scrolls.length;
+    h.runTimers();
+    return { calls: h.doc.focusCalls, focused: h.focused(), scrolledBefore: before, scrolls: h.scrolls };
   },
 
   // keep picked from the menu: closing the menu must not lose the place

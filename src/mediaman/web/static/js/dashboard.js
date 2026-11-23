@@ -489,6 +489,19 @@
     });
   }
 
+  /* After the tiles have slid, bring a button into view only if it sits under
+     the sticky bar or below the fold. Never with reduced motion. */
+  function revealAfterSlide(el, delay) {
+    setTimeout(function () {
+      if (!el.isConnected) return;
+      var bar = document.querySelector('.nav-topbar');
+      var top = (bar ? bar.offsetHeight : 0) + 8;
+      var r = el.getBoundingClientRect();
+      var by = r.top < top ? r.top - top : (r.bottom > window.innerHeight - 8 ? r.bottom - window.innerHeight + 8 : 0);
+      if (by) window.scrollBy({ top: by, behavior: 'smooth' });
+    }, delay + 20);
+  }
+
   /* Submit a keep straight from a tile with the chosen duration; the
      library's keep dialog is more than the dashboard needs. */
   function dashSubmitKeep(btn, duration) {
@@ -524,7 +537,13 @@
           if (moveFocus) {
             var go = next && next.querySelector('[data-action="keep-tile"]');
             if (!go && grid) { go = grid.closest('[data-fragment]'); go = go && go.querySelector('h2'); }
-            if (go) { if (!go.matches('button, a')) go.tabIndex = -1; go.focus(); }
+            if (go) {
+              if (!go.matches('button, a')) go.tabIndex = -1;
+              /* The tiles are still sliding: a plain focus() would scroll to
+                 where the button is now, not where it ends up. */
+              go.focus({ preventScroll: true });
+              if (!reduceMotion()) revealAfterSlide(go, motion().duration);
+            }
           }
           return refreshFragments();
         }).catch(function () {});

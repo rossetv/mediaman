@@ -127,6 +127,15 @@ class TestRefreshInPlace:
         assert out["focused"]["text"] == "Keep 30 days"
         assert out["focused"]["inPage"] is True
 
+    def test_keep_with_motion_focuses_without_scrolling_then_reveals_the_button(self):
+        out = _run("focusNoScroll")
+        assert out["calls"]
+        assert all(c["opts"] == {"preventScroll": True} for c in out["calls"])
+        assert out["focused"]["id"] == "b"
+        assert out["scrolledBefore"] == 0
+        assert [s["behavior"] for s in out["scrolls"]] == ["smooth"]
+        assert out["scrolls"][0]["top"] < 0
+
     def test_failed_keep_moves_focus_only_out_of_the_closed_menu(self):
         out = _run("failedKeep")
         assert out["fromButton"]["id"] == "a"
