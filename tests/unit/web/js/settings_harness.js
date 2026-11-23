@@ -61,7 +61,11 @@ class El {
       contains: (c) => list().includes(c),
       add: (...cs) => cs.forEach((c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); }),
       remove: (...cs) => { el.className = list().filter((x) => !cs.includes(x)).join(' '); },
-      toggle: (c, on) => (on ? el.classList.add(c) : el.classList.remove(c)),
+      toggle: (c, force) => {
+        const on = force === undefined ? !list().includes(c) : !!force;
+        if (on) el.classList.add(c); else el.classList.remove(c);
+        return on;
+      },
     };
   }
   setAttribute(k, v) {
@@ -105,7 +109,7 @@ class El {
     (this.doc.listeners[e.type] || []).forEach((f) => f(e));
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
-  focus() { this.doc.activeElement = this; }
+  focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => matches(e, sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -366,7 +370,11 @@ const scenarios = {
     const whileClosing = { rows: rowsNow(), shut: form.classList.contains('is-shut'), hidden: form.hidden };
     form.fire('transitionend', { propertyName: 'grid-template-rows' });
     await h.flush();
-    return { afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled } };
+    return {
+      afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled },
+      // handing focus back to the button must not scroll the page to it
+      refocus: { onButton: h.doc.activeElement === btnAdd, preventScroll: !!(btnAdd.lastFocusOpts && btnAdd.lastFocusOpts.preventScroll) },
+    };
   },
 
   // A message about what was typed goes once the person types again.
@@ -565,7 +573,54 @@ const scenarios = {
     btn.fire('click');
     await h.flush();
     const badge = item.querySelector('.rail-count');
-    return { pill: pill.className, label: pill.textContent, badge: badge ? badge.textContent : null };
+    return { pill: pill.className, label: pill.textContent, badge: badge ? badge.textContent : null, button: btn.textContent };
+  },
+
+  // A role change that needed the reauth dialog shows the new pill once the dialog has faded out.
+  async roleAfterReauth() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }),
+      patch: () => Promise.resolve({}),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => { h.add('div', { className: 'modal-backdrop reauth-backdrop' }); return f(); } };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = userList.querySelector('.usr-row');
+    row.querySelector('[data-user-action="role"]').fire('click');
+    await h.flush();
+    const pill = () => row.querySelector('.pill');
+    const during = { label: pill().textContent, changed: pill().classList.contains('is-changed') };
+    h.timers.splice(0).forEach((t) => t.fn());
+    return { during, after: { label: pill().textContent, changed: pill().classList.contains('is-changed') } };
+  },
+
+  // Opening an integration card folds its body open instead of popping it.
+  async integrationFold() {
+    const h = build();
+    h.load('settings/rows.js'); h.load('settings/toggles.js');
+    const page = h.add('div', { className: 'setg-pg' });
+    const card = h.add('div', { className: 'intg-card is-collapsed' }, page);
+    const hd = h.add('div', { className: 'intg-card-hd' }, card);
+    hd.setAttribute('data-intg-toggle', ''); hd.setAttribute('aria-controls', 'body1'); hd.setAttribute('aria-expanded', 'false');
+    const body = h.add('div', { id: 'body1', className: 'intg-card-bd', hidden: true }, card);
+    const field = h.add('div', { className: 'fld-row' }, body);
+    h.ctx.addEventListener = () => {}; h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    h.ctx.MM.settings.toggles.init();
+    hd.fire('click');
+    const open = { hidden: body.hidden, shut: body.classList.contains('is-shut'), moving: body.classList.contains('is-moving') };
+    body.fire('transitionend', { propertyName: 'grid-template-rows' });
+    hd.fire('click');
+    const closing = { hidden: body.hidden, shut: body.classList.contains('is-shut') };
+    body.fire('transitionend', { propertyName: 'grid-template-rows' });
+    return {
+      fold: body.classList.contains('setg-fold'), wrapped: field.parentNode.className === 'setg-fold-inner' && field.parentNode.parentNode === body,
+      open, closing, closed: { hidden: body.hidden, expanded: hd.getAttribute('aria-expanded') },
+    };
   },
 };
 

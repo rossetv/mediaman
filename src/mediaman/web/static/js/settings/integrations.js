@@ -105,7 +105,8 @@
           .catch(function (err) {
             // MM.api rejects on ok:false too, so a failed test lands here.
             var label = setFailedStatus(service, err);
-            if (btn) { btn.textContent = 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
+            // A throttled test did not fail; the button says to try again later.
+            if (btn) { btn.textContent = (err && err.status === 429) ? 'Try later' : 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
           })
           .then(function () {
             // .then used as finally (broad browser compat).

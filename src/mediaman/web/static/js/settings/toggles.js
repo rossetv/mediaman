@@ -8,6 +8,7 @@
  *   - Rail scroll-spy (highlights the active section in `.setg-rail`)
  *
  * Cross-module dependencies:
+ *   MM.settings.rows                — folds an integration card's body open and shut
  *   MM.settings.savebar.markDirty   — invoked when a toggle flips so the
  *                                     savebar appears.
  *
@@ -71,10 +72,17 @@
       var isOpen = !expanded;
       hd.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       if (body) {
-        if (isOpen) { body.removeAttribute('hidden'); }
-        else        { body.setAttribute('hidden', ''); }
+        if (isOpen) MM.settings.rows.open(body); else MM.settings.rows.close(body);
       }
     }
+    // Each body folds like the inline forms, which need an inner wrapper to fold into.
+    document.querySelectorAll('.setg-pg .intg-card-bd').forEach(function (body) {
+      var inner = document.createElement('div');
+      inner.className = 'setg-fold-inner';
+      while (body.firstChild) inner.appendChild(body.firstChild);
+      body.appendChild(inner);
+      body.classList.add('setg-fold');
+    });
     document.querySelectorAll('.setg-pg [data-intg-toggle]').forEach(function (hd) {
       hd.addEventListener('click', function (e) {
         if (e.target.closest('.btn-test')) return;

@@ -91,6 +91,8 @@ def test_new_user_row_enters_only_after_the_add_form_has_closed() -> None:
     assert out["afterCreate"] == {"rows": 1, "open": True}
     assert out["whileClosing"] == {"rows": 1, "shut": True, "hidden": False}
     assert out["afterClose"] == {"rows": 2, "hidden": True, "submitDisabled": False}
+    # focus goes back to the button without scrolling the page to it
+    assert out["refocus"] == {"onButton": True, "preventScroll": True}
 
 
 def test_form_message_clears_when_the_person_types_again() -> None:
@@ -129,3 +131,23 @@ def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
         "focused": True,
         "disabled": False,
     }
+
+
+def test_rate_limited_test_button_says_try_later_not_failed() -> None:
+    out = _run("manualRateLimit")
+    assert out["button"] == "Try later"
+    assert out["pill"].split()[-1] == "warn"
+
+
+def test_new_pill_waits_for_the_reauth_dialog_to_fade_out() -> None:
+    out = _run("roleAfterReauth")
+    assert out["during"] == {"label": "Viewer", "changed": False}
+    assert out["after"] == {"label": "Admin", "changed": True}
+
+
+def test_integration_card_body_folds_open_and_shut() -> None:
+    out = _run("integrationFold")
+    assert out["fold"] and out["wrapped"]
+    assert out["open"] == {"hidden": False, "shut": False, "moving": True}
+    assert out["closing"] == {"hidden": False, "shut": True}
+    assert out["closed"] == {"hidden": True, "expanded": "false"}

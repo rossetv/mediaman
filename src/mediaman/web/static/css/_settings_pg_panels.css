@@ -127,14 +127,14 @@
 .setg-pg .intg-card-hd .intg-chev {
   font-size: 14px;
   color: var(--t3);
-  transition: transform .18s ease;
+  transition: transform var(--dur) var(--ease-out);
   flex-shrink: 0;
 }
 .setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .intg-chev {
   transform: rotate(180deg);
 }
 .setg-pg .intg-card-bd { padding: 22px 24px 24px; }
-.setg-pg .intg-card-bd > .fld-row + .fld-row { margin-top: 18px; }
+.setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row { margin-top: 18px; }
 .setg-pg .lib-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .setg-pg .lib-pill-count { font-size: 11.5px; }
 .setg-pg .lib-pill {
@@ -284,7 +284,7 @@
   cursor: pointer; flex: 1; color: var(--t1);
   font-family: var(--font-text);
   letter-spacing: -.005em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .setg-pg .recipient-item input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -343,7 +343,10 @@
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
-.setg-pg .usr-row .usr-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.setg-pg .usr-row .usr-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
+/* Wide enough for the longest label each button shows, so a pending label never moves what sits beside it. */
+.setg-pg .usr-row [data-user-action="role"] { min-width: 8.2em; }
+.setg-pg .usr-row [data-user-action="delete"] { min-width: 6.75em; }
 .setg-pg .usr-row .pill { flex-shrink: 0; }
 .setg-pg .usr-row .you-pill {
   font-size: 10px; font-weight: 600;
@@ -369,15 +372,15 @@
   .setg-pg .inline-form--two .inline-form-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
-.setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; color: var(--t3); min-height: 1em; }
+.setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
 .setg-pg .inline-form-msg.err { color: var(--danger); }
 .setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger); }
-/* On a phone the message takes its own line under the buttons instead of a narrow column beside them. */
+/* On a phone the message takes its own line under the buttons instead of a narrow column beside them.
+   The line stays reserved while the form is open, so a message appearing or clearing moves nothing. */
 @media (max-width: 639.98px) {
   .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
-  .setg-pg .inline-form-actions .inline-form-msg:empty { display: none; }
 }
 
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
@@ -388,7 +391,7 @@
               padding var(--dur) var(--ease-out), border-width var(--dur) var(--ease-out);
 }
 .setg-pg .setg-fold[hidden] { display: none; }
-.setg-pg .setg-fold-inner { min-height: 0; }
+.setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
 /* Clipped only while folding, so focus rings show when it is open. */
 .setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }
 .setg-pg .setg-fold.is-shut {
@@ -460,7 +463,21 @@
 }
 
 @media (max-width: 639.98px) {
+  .setg-pg .btn--sm,
+  .setg-pg .recipient-toggles .btn { min-height: 44px; }
   .setg-pg .link-danger,
   .setg-pg .sub-row .link-danger,
   .setg-pg .usr-actions .btn { min-height: 44px; }
+}
+
+/* Wide enough for "Testing…" and "Select recipients", so the label changing moves nothing. */
+.setg-pg .btn-test[data-test-service] { min-width: 7em; }
+.setg-pg #btn-send-newsletter { min-width: 10.75em; }
+
+@media (max-width: 699.98px) {
+  .setg-pg .savebar .btn { min-height: 44px; }
+  /* A save error is how the person learns what to fix, so it keeps its own line; the standing caption stays hidden. */
+  .setg-pg .savebar:not(.is-error) .sb-sub,
+  .setg-pg .savebar .sb-sub:empty { display: none; }
+  .setg-pg .savebar.is-error .sb-sub { display: block; order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
 }

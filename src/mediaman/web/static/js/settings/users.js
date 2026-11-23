@@ -55,6 +55,9 @@
     }
   }
 
+  // The dialog's fade out (--dur is 200 ms), with a little to spare.
+  var REAUTH_FADE_MS = 220;
+
   MM.settings.users = {
 
     init: function () {
@@ -197,11 +200,16 @@
         MM.reauth.run(function () {
           return MM.api.patch('/api/users/' + user.id + '/role', { role: role });
         }).then(function () {
-          var keepFocus = MM.dom.focusStillIn(btn);
-          user.role = role;
-          btn.disabled = false;
-          changed();
-          if (keepFocus) btn.focus();
+          // The reauth dialog is still fading out; the new pill waits until it has gone.
+          var behind = document.querySelector('.reauth-backdrop');
+          function apply() {
+            var keepFocus = MM.dom.focusStillIn(btn);
+            user.role = role;
+            btn.disabled = false;
+            changed();
+            if (keepFocus) btn.focus();
+          }
+          if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
           var keepFocus = MM.dom.focusStillIn(btn);
@@ -374,7 +382,7 @@
             setTimeout(function () {
               var hadFocus = MM.dom.focusStillIn(addUserForm);
               toggleAddUser(false, resolve);
-              if (hadFocus && btnAddUser) btnAddUser.focus();
+              if (hadFocus && btnAddUser) btnAddUser.focus({ preventScroll: true });
             }, 700);
           });
           Promise.all([listed, closed]).then(function (done) {
@@ -459,7 +467,7 @@
           setTimeout(function () {
             var hadFocus = MM.dom.focusStillIn(pwForm);
             togglePwForm(false, function () { btnSubmitPw.disabled = false; });
-            if (hadFocus && btnChangePw) btnChangePw.focus();
+            if (hadFocus && btnChangePw) btnChangePw.focus({ preventScroll: true });
           }, 900);
         }).catch(function (err) {
           btnSubmitPw.disabled = false;
@@ -629,7 +637,7 @@
             setTimeout(function () {
               var hadFocus = MM.dom.focusStillIn(form);
               hide(function () { submit.disabled = false; });
-              if (hadFocus) btn.focus();
+              if (hadFocus) btn.focus({ preventScroll: true });
             }, 800);
           }).catch(function (err) {
             submit.disabled = false;
