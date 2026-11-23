@@ -11,7 +11,7 @@ class El {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
     this.parentNode = null; this.attrs = {}; this.style = {}; this.listeners = {};
-    this.className = ''; this._text = ''; this.id = '';
+    this.className = ''; this._text = ''; this.id = ''; this.dataset = {};
   }
   get classList() {
     const el = this;
@@ -20,11 +20,16 @@ class El {
       contains: (c) => list().includes(c),
       add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
       remove: (c) => { el.className = list().filter((x) => x !== c).join(' '); },
+      toggle: (c) => { if (list().includes(c)) el.classList.remove(c); else el.classList.add(c); },
     };
   }
   setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') this.id = String(v); }
   getAttribute(k) {
     if (k === 'id') return this.id || null;
+    if (k.startsWith('data-') && !(k in this.attrs)) {
+      const key = k.slice(5).replace(/-(\w)/g, (_, c) => c.toUpperCase());
+      return key in this.dataset ? this.dataset[key] : null;
+    }
     return k in this.attrs ? this.attrs[k] : null;
   }
   set textContent(t) { this.children = []; this._text = String(t); }
@@ -158,7 +163,9 @@ const scenarios = {
   },
 };
 
-scenarios.abandon = async function () {
+// The abandon dialog on fake parts: `post` hands back each request so a test
+// settles it when it likes, `closes` counts the times the dialog shut itself.
+function abandonRig() {
   const h = build(() => Promise.resolve({}));
   const mk = (cls) => { const e = new El('div', h.doc); e.className = cls || ''; return e; };
   const modal = mk(); modal.setAttribute('id', 'abandon-modal');
@@ -169,23 +176,121 @@ scenarios.abandon = async function () {
   const byId = { 'abandon-modal': modal, 'abandon-modal-title': title, 'abandon-modal-copy': copy, 'abandon-season-list': list };
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel) };
-  h.ctx.MM.modal = { setupDetail: () => ({ open() {}, close() {} }) };
-  let fail;
-  h.ctx.MM.api.post = () => new Promise((_, rej) => { fail = rej; });
+  let dismissFn;
+  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0 };
+  h.ctx.MM.modal = {
+    setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
+      open() {},
+      close() { rig.closes += 1; opts.onClose(); },
+      // what the modal does on Escape or the backdrop
+      dismiss() { opts.onClose(); },
+    }),
+  };
+  h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
-  h.ctx.UIFeedback = { error() {} };
-  h.doc.dispatchEvent = () => {};
+  h.ctx.UIFeedback = { error() { rig.errors += 1; } };
+  h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
+  h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
-  const trigger = mk(); trigger.dataset = { dlId: 'm1', kind: 'movie', title: 'Film' };
-  trigger.closest = () => trigger;
-  h.fire('click', { target: trigger });
-  const idle = label.textContent;
-  confirm.listeners.click[0]();
-  const working = label.textContent;
-  const disabled = confirm.getAttribute('aria-disabled');
-  fail(new Error('x'));
-  await new Promise((r) => setImmediate(r));
-  return { idle, working, disabled, after: label.textContent, reenabled: confirm.getAttribute('aria-disabled') };
+  rig.openItem = (dlId, kind, stuck, title) => {
+    const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, stuckSeasons: JSON.stringify(stuck || []) };
+    t.closest = () => t;
+    h.fire('click', { target: t });
+  };
+  rig.dismiss = () => dismissFn();
+  rig.confirmClick = () => confirm.listeners.click[0]();
+  rig.togs = () => list.querySelectorAll('.tog');
+  rig.flip = (i) => rig.togs()[i].listeners.click[0]();
+  rig.settle = () => new Promise((r) => setImmediate(r));
+  return rig;
+}
+const SEASONS = [{ number: 1, missing_episodes: 2 }, { number: 2, missing_episodes: 3 }];
+const status = (r) => ({ label: r.label.textContent, disabled: r.confirm.getAttribute('aria-disabled') });
+
+scenarios.abandon = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  const idle = r.label.textContent;
+  r.confirmClick();
+  const working = r.label.textContent;
+  const disabled = r.confirm.getAttribute('aria-disabled');
+  r.posts[0].reject(new Error('x'));
+  await r.settle();
+  return { idle, working, disabled, after: r.label.textContent, reenabled: r.confirm.getAttribute('aria-disabled') };
+};
+
+scenarios.abandonSuccess = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  r.confirmClick();
+  r.posts[0].resolve({});
+  await r.settle();
+  return { url: r.posts[0].url, closes: r.closes, refreshes: r.refreshes, errors: r.errors };
+};
+
+// A fails after the dialog moved on to B: B's button is left alone
+scenarios.abandonStaleFailure = async function () {
+  const r = abandonRig();
+  r.openItem('a', 'series', SEASONS);
+  r.confirmClick();
+  r.dismiss();
+  r.openItem('b', 'movie');
+  const before = status(r);
+  r.posts[0].reject(new Error('x'));
+  await r.settle();
+  return { before, after: status(r), errors: r.errors };
+};
+
+// A succeeds after the dialog moved on to B: B's dialog stays open
+scenarios.abandonStaleSuccess = async function () {
+  const r = abandonRig();
+  r.openItem('a', 'series', SEASONS);
+  r.confirmClick();
+  r.dismiss();
+  r.openItem('b', 'movie');
+  r.posts[0].resolve({});
+  await r.settle();
+  return { closes: r.closes, refreshes: r.refreshes, b: status(r) };
+};
+
+// reopening A while its request runs shows it busy and sends nothing more
+scenarios.abandonReopen = async function () {
+  const r = abandonRig();
+  r.openItem('a', 'series', SEASONS);
+  r.confirmClick();
+  r.dismiss();
+  r.openItem('a', 'series', SEASONS);
+  const reopened = status(r);
+  r.confirmClick();
+  const switchesLocked = r.togs().map((t) => t.getAttribute('aria-disabled'));
+  r.posts[0].resolve({});
+  await r.settle();
+  return { posts: r.posts.length, reopened, switchesLocked, closes: r.closes };
+};
+
+// season switches do nothing while the request runs; a failure shows the current count
+scenarios.abandonSwitchesLocked = async function () {
+  const r = abandonRig();
+  r.openItem('a', 'series', SEASONS);
+  const picked = r.label.textContent;
+  r.flip(0);
+  const oneLeft = r.label.textContent;
+  r.confirmClick();
+  r.flip(0);
+  const during = { label: r.label.textContent, on: r.togs().map((t) => t.classList.contains('on')) };
+  r.posts[0].reject(new Error('x'));
+  await r.settle();
+  return { picked, oneLeft, during, after: status(r) };
+};
+
+scenarios.hero = async function () {
+  const h = build(() => Promise.resolve({}));
+  ['core/dom.js', 'downloads/build_dom.js'].forEach(h.load);
+  const stats = (it) => h.ctx.MM.downloads.buildDom.buildHero(it).querySelector('.dl-hero-details').children.map((c) => c.textContent);
+  const full = item('h', { progress: 30, size_done: '1 GB', size_total: '3 GB', eta: '5 min' });
+  const noEta = item('h', { progress: 30, size_done: '1 GB', size_total: '3 GB' });
+  const noSize = item('h', { progress: 30, eta: '5 min' });
+  return { full: stats(full), noEta: stats(noEta), noSize: stats(noSize) };
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

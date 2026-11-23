@@ -288,7 +288,13 @@
     var sizeTotal = d.q('[data-v="size-total"]', card);
     if (sizeTotal) d.setText(sizeTotal, item.size_total || '');
     var eta = d.q('[data-v="eta"]', card);
-    if (eta) d.setText(eta, item.eta || '');
+    if (eta) {
+      if (item.eta) d.setText(eta, item.eta);
+      else eta.parentNode.parentNode.removeChild(eta.parentNode);
+    } else if (item.eta) {
+      var stats = d.q('.dl-hero-details', card);
+      if (stats) stats.appendChild(d.buildEtaStat(item.eta));
+    }
 
     /* Episodes — create, refresh, or remove the toggle + list section. */
     syncEpisodes(card, item);

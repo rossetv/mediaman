@@ -392,6 +392,7 @@
 }
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
+.dl-abandon-list .tog[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 
 /* Abandon-search modal body — typography follows the page type hierarchy. */
 .abandon-modal-body { padding: 28px; }

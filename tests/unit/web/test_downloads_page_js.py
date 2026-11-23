@@ -52,3 +52,48 @@ def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     assert out["disabled"] == "true"
     assert out["after"] == "Abandon"
     assert out["reenabled"] == "false"
+
+
+def test_rebuilt_hero_shows_the_same_stats_as_the_server_rendered_one() -> None:
+    out = _run("hero")
+    assert out["full"] == ["30% complete", "1 GB of 3 GB", "ETA 5 min"]
+    assert out["noEta"] == ["30% complete", "1 GB of 3 GB"]
+    assert out["noSize"] == ["30% complete", " of ", "ETA 5 min"]
+
+
+def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None:
+    out = _run("abandonSuccess")
+    assert out["url"] == "/api/downloads/m1/abandon"
+    assert out["closes"] == 1
+    assert out["refreshes"] == 1
+    assert out["errors"] == 0
+
+
+def test_a_failed_abandon_of_one_item_leaves_the_next_dialog_alone() -> None:
+    out = _run("abandonStaleFailure")
+    assert out["before"] == {"label": "Abandon", "disabled": "false"}
+    assert out["after"] == out["before"]
+    assert out["errors"] == 1
+
+
+def test_a_finished_abandon_of_one_item_does_not_close_the_next_dialog() -> None:
+    out = _run("abandonStaleSuccess")
+    assert out["closes"] == 0
+    assert out["refreshes"] == 1
+    assert out["b"] == {"label": "Abandon", "disabled": "false"}
+
+
+def test_an_item_with_a_request_running_cannot_be_abandoned_twice() -> None:
+    out = _run("abandonReopen")
+    assert out["posts"] == 1
+    assert out["reopened"] == {"label": "Abandoning…", "disabled": "true"}
+    assert out["switchesLocked"] == ["true", "true"]
+    assert out["closes"] == 1
+
+
+def test_season_switches_are_locked_while_abandoning_and_failure_shows_the_current_count() -> None:
+    out = _run("abandonSwitchesLocked")
+    assert out["picked"] == "Abandon 2 seasons"
+    assert out["oneLeft"] == "Abandon 1 season"
+    assert out["during"] == {"label": "Abandoning…", "on": [False, True]}
+    assert out["after"] == {"label": "Abandon 1 season", "disabled": "false"}

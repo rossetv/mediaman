@@ -118,6 +118,16 @@
    *   Shape: { id, title, poster_url, state, state_label, progress, eta }
    * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
    */
+  function buildEtaStat(text) {
+    var wrap = document.createElement('span');
+    wrap.appendChild(document.createTextNode('ETA '));
+    var eta = document.createElement('b');
+    eta.setAttribute('data-v', 'eta');
+    eta.textContent = text;
+    wrap.appendChild(eta);
+    return wrap;
+  }
+
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
@@ -192,27 +202,37 @@
     if (state === 'searching') progressWrap.style.display = 'none';
 
     var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar';
+    bar.className = 'dl-hero-bar dl-bar';
     var fill = document.createElement('div');
-    fill.className = 'dl-hero-fill';
+    fill.className = 'dl-hero-fill dl-bar-fill' + (state === 'almost_ready' ? ' green' : '');
     fill.setAttribute('data-v', 'fill');
     fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
     progressWrap.appendChild(bar);
 
+    /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", "ETA x". */
     var details = document.createElement('div');
-    details.className = 'dl-hero-details';
+    details.className = 'dl-hero-details dl-stats';
     var pctWrap = document.createElement('span');
-    var pct = document.createElement('span');
+    var pct = document.createElement('b');
     pct.className = 'dl-hero-pct';
     pct.setAttribute('data-v', 'pct');
     pct.textContent = (item.progress || 0) + '%';
     pctWrap.appendChild(pct);
+    pctWrap.appendChild(document.createTextNode(' complete'));
     details.appendChild(pctWrap);
-    var eta = document.createElement('span');
-    eta.setAttribute('data-v', 'eta');
-    if (item.eta) eta.textContent = item.eta;
-    details.appendChild(eta);
+    var sizeWrap = document.createElement('span');
+    var done = document.createElement('b');
+    done.setAttribute('data-v', 'size-done');
+    done.textContent = item.size_done || '';
+    var total = document.createElement('span');
+    total.setAttribute('data-v', 'size-total');
+    total.textContent = item.size_total || '';
+    sizeWrap.appendChild(done);
+    sizeWrap.appendChild(document.createTextNode(' of '));
+    sizeWrap.appendChild(total);
+    details.appendChild(sizeWrap);
+    if (item.eta) details.appendChild(buildEtaStat(item.eta));
     progressWrap.appendChild(details);
     info.appendChild(progressWrap);
 
@@ -466,6 +486,7 @@
     findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
     findByEp:             findByEp,
     buildHero:            buildHero,
+    buildEtaStat:         buildEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
