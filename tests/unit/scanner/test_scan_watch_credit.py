@@ -157,7 +157,7 @@ def test_credit_is_the_latest_across_people_and_episodes_of_a_season(viewer):
             now=when,
         )
 
-    assert last_credited_by_media_item(viewer) == {SEASON: later}
+    assert last_credited_by_media_item(viewer, [SEASON]) == {SEASON: later}
 
 
 def test_a_short_play_is_not_a_credit(viewer):
@@ -173,4 +173,11 @@ def test_a_short_play_is_not_a_credit(viewer):
         now=datetime.now(UTC),
     )
 
-    assert last_credited_by_media_item(viewer) == {}
+    assert last_credited_by_media_item(viewer, [SEASON]) == {}
+
+
+def test_credit_is_only_read_for_the_asked_media_items(viewer):
+    _credit_episode_play(viewer, days_ago=1)
+
+    assert last_credited_by_media_item(viewer, ["some-other-item"]) == {}
+    assert last_credited_by_media_item(viewer, []) == {}

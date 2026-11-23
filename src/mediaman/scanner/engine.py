@@ -227,7 +227,14 @@ class ScanEngine:
         """
         # Read once per run: the sync's fetch phase is over and plays made
         # while it writes are picked up by the next sync.
-        credited = repository.last_credited_by_media_item(self._conn)
+        credited = repository.last_credited_by_media_item(
+            self._conn,
+            [
+                f.item["plex_rating_key"]
+                for fetched in per_lib_fetches.values()
+                for f in fetched.items
+            ],
+        )
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they

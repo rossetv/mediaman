@@ -103,7 +103,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     return _GuardSets(
         protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
-        credited=repository.last_credited_by_media_item(conn),
+        credited=repository.last_credited_by_media_item(conn, media_ids),
     )
 
 
