@@ -264,3 +264,19 @@ def test_remove_all_keeps_says_removing_on_its_own_button_with_no_note() -> None
         "row": "Removing…",
     }
     assert out["after"] == "Remove all keeps"
+
+
+def test_a_saved_keep_whose_list_refresh_fails_frees_the_row() -> None:
+    out = _run("keepThenRefreshFails")
+    assert out["errors"] == ["Couldn't refresh the list. Reload to see the change."]
+    assert out["busy"] is False
+    assert out["label"] == "Keep"
+    assert (out["triggerDisabled"], out["deleteDisabled"]) == (False, False)
+
+
+def test_removing_a_keep_takes_away_the_undo_of_the_keep_it_removes() -> None:
+    out = _run("removeKeepRetiresUndo")
+    assert (out["before"], out["after"]) == (False, True)
+    assert out["messages"] == ["Kept Copperline for 30 days.", "Removed the keep on Copperline."]
+    # The retired Undo ran nothing: no unkeep request followed.
+    assert out["calls"] == ["/api/watch/keep", "/api/media/m1/unprotect"]

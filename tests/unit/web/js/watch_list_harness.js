@@ -168,7 +168,13 @@ function load(opts = {}) {
       return entry && entry.wait ? entry.wait.promise.then(answer) : answer();
     },
     UIFeedback: {
-      toast: (message, o) => toasts.push({ message, undo: !!(o && o.action), action: o && o.action }),
+      toast: (message, o) => {
+        const entry = { message, undo: !!(o && o.action), action: o && o.action, dismissed: false };
+        toasts.push(entry);
+        // Like the real toast: pressing its button dismisses it, then runs the action.
+        const button = { click() { entry.dismissed = true; o.action.onClick(); } };
+        return { querySelector: (sel) => (sel === '.ui-toast__action' && entry.undo ? button : null) };
+      },
       error: (message) => errors.push(message),
       confirm: (o) => { confirms.push(o); return Promise.resolve(confirmAnswer); },
     },
@@ -532,6 +538,38 @@ const scenarios = {
     await settle();
     const now = p.row('id:m1');
     return { whileReading, busy: now.classList.contains('is-busy'), kept: now.classList.contains('wl-row--kept'), focus: p.doc.activeElement === now.querySelector('.keep-trigger') };
+  },
+
+  // The keep is saved but reading the list again fails: the row is let go, not left busy for ever.
+  async keepThenRefreshFails() {
+    const p = load({ list: true });
+    p.fail('/watch/list');
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    const row = p.row('id:m1');
+    const trigger = row.querySelector('.keep-trigger');
+    const del = row.querySelector('[data-action="confirm-delete"]');
+    return {
+      errors: p.errors, busy: row.classList.contains('is-busy'), label: trigger.textContent,
+      triggerDisabled: !!trigger.disabled, deleteDisabled: !!del.disabled,
+    };
+  },
+
+  // Removing a keep takes away the Undo toast of the keep it removes, and that Undo does nothing if pressed.
+  async removeKeepRetiresUndo() {
+    const p = load({ list: true });
+    const kept = ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r));
+    p.serve('/watch/list', {}, kept);
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    const first = p.toasts[0];
+    const out = { before: first.dismissed };
+    click(p.doc, p.row('id:m1').querySelector('[data-remove-keep-id]'));
+    await settle();
+    out.after = first.dismissed;
+    out.messages = p.toasts.map((t) => t.message);
+    out.calls = p.calls.map((c) => c[1]);
+    return out;
   },
 
   // Undo of a keep and Remove keep both show Removing… on the row's Keep while they run.

@@ -119,6 +119,33 @@
     return duration === 'forever' ? 'Kept ' + name + ' forever.' : 'Kept ' + name + ' for ' + duration + '.';
   }
 
+  /* The Undo toast of each title's last keep, so a later change to that keep
+     can take it away: its Undo would then undo the wrong thing. */
+  var _undoToasts = {};
+
+  function offerUndo(id, message, undo) {
+    retireUndo(id);
+    var entry = { spent: false };
+    entry.node = window.UIFeedback.toast(message, {
+      variant: 'success',
+      action: { label: 'Undo', onClick: function () {
+        if (_undoToasts[id] === entry) delete _undoToasts[id];
+        if (!entry.spent) undoKeep(id, undo);
+      } }
+    });
+    _undoToasts[id] = entry;
+  }
+
+  /* Dismiss the toast the way its own button would, without running its Undo. */
+  function retireUndo(id) {
+    var entry = _undoToasts[id];
+    if (!entry) return;
+    delete _undoToasts[id];
+    entry.spent = true;
+    var btn = entry.node && entry.node.querySelector && entry.node.querySelector('.ui-toast__action');
+    if (btn) btn.click();
+  }
+
   /* ── Keep ── */
 
   /* A movie (or a lone season) is kept at once. An item that was neither kept
@@ -153,6 +180,7 @@
       emit('done', detail);
       if (data && data.deletion_running && data.message) {
         /* Saved, but its files may already be gone: say so, with no undo. */
+        retireUndo(id);
         window.UIFeedback.toast(data.message, { duration: 8000 });
         return true;
       }
@@ -162,10 +190,11 @@
       } else if (!w.kept && !w.deletion) {
         undo = function () { return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect'); };
       }
-      window.UIFeedback.toast(keptMessage(w.title, duration), undo ? {
-        variant: 'success',
-        action: { label: 'Undo', onClick: function () { undoKeep(id, undo); } }
-      } : { variant: 'success' });
+      if (undo) offerUndo(id, keptMessage(w.title, duration), undo);
+      else {
+        retireUndo(id);
+        window.UIFeedback.toast(keptMessage(w.title, duration), { variant: 'success' });
+      }
       return true;
     }, function (err) {
       delete _busy[id];
@@ -210,6 +239,7 @@
     return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect')
       .then(function () {
         delete _busy[id];
+        retireUndo(id);
         emit('done', detail);
         window.UIFeedback.toast('Removed the keep on ' + (w.title || 'it') + '.');
         return true;
@@ -739,6 +769,7 @@
       return MM.api.post('/api/media/' + encodeURIComponent(id) + '/delete')
         .then(function () {
           delete _busy[id];
+          retireUndo(id);
           emit('done', detail);
           window.UIFeedback.toast('Deleted ' + (title || 'the item') + '.', { variant: 'success' });
           return true;
