@@ -176,6 +176,12 @@
   body:has(.setg-rail) .ui-toast-host { --toast-bottom: 90px; }
 }
 
+/* Phones: full-width 44px buttons, stacked so Confirm lands nearest the thumb. */
+@media (max-width: 699.98px) {
+  .ui-confirm-actions { flex-direction: column; }
+  .ui-confirm-actions .btn { width: 100%; min-height: 44px; }
+}
+
 /* Mobile — collapse host to a single column hugging the top edge
    so toasts don't fight the safe-area inset on phones. */
 @media (max-width: 600px) {

@@ -22,6 +22,8 @@
      data-leaving='{{ leaving|tojson }}'>
 
   <video class="player-video" playsinline webkit-playsinline preload="auto"></video>
+  {# The last frame, held over the video while a new stream takes its place. #}
+  <canvas class="player-video player-hold" data-hold aria-hidden="true" hidden></canvas>
 
   <div class="player-spinner" data-spinner aria-hidden="true"></div>
 
@@ -111,7 +113,9 @@
     <p class="player-card-title">Next episode in <span data-countdown>10</span> s</p>
     <p class="player-card-line">{{ next.label }}</p>
     <div class="player-card-actions">
-      <button type="button" class="player-pill player-pill--primary" data-upnext-play>Play now</button>
+      <button type="button" class="player-pill player-pill--primary" data-upnext-play>
+        <span class="player-upnext-fill" data-upnext-fill aria-hidden="true"></span>Play now
+      </button>
       <button type="button" class="player-pill" data-upnext-cancel>Cancel</button>
     </div>
   </div>

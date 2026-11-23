@@ -5,6 +5,10 @@
 (function () {
   'use strict';
 
+  // iOS Safari only applies :active when a touchstart listener exists on the
+  // document or body; this empty one switches the pressed states on.
+  document.addEventListener('touchstart', function () {}, { passive: true });
+
   function sheet() { return document.getElementById('nav-more-sheet'); }
   function trigger() {
     return document.querySelector('[aria-controls="nav-more-sheet"]');

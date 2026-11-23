@@ -30,6 +30,10 @@
   gap: 4px;
   margin-left: 4px;
   flex: 1;
+  /* overflow-x also clips vertically: fill the bar's height so a link's
+     focus ring has room above and below. */
+  align-self: stretch;
+  align-items: center;
   overflow-x: auto;
   scrollbar-width: none;
   list-style: none;
@@ -48,12 +52,19 @@
   border: 0;
   border-radius: var(--r-pill);
   white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
   font-family: var(--font-text);
 }
+/* A 44px link leaves 3.5px of the bar above and below it: keep the ring within. */
+.nav-links a:focus-visible,
+.nav-links button:focus-visible { outline-offset: 1px; }
 .nav-btn:hover,
 .nav-links a:hover,
 .nav-links button:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+.nav-btn:active,
+.nav-links a:active,
+.nav-links button:active { transform: scale(.97); }
 
 .nav-btn.on,
 .nav-btn.active,
@@ -117,13 +128,14 @@
   background: transparent;
   border: 0;
   cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   text-decoration: none;
   letter-spacing: -.005em;
 }
 .nav-tab > .fa-solid { font-size: 20px; }
 .nav-tab:hover,
 .nav-tab.on { color: var(--accent); }
+.nav-tab:active { transform: scale(.94); }
 
 /* Overflow sheet (More) — one step above nav surfaces; sits above
    dropdowns (--z-dropdown: 50) and the nav bar (--z-nav: 60) so the
@@ -196,10 +208,12 @@
 }
 .nav-more-item > .fa-solid { font-size: 18px; flex-shrink: 0; }
 .nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
-.nav-more-item:hover { background: var(--s3); }
+.nav-more-item:hover,
+.nav-more-item:active { background: var(--s3); }
 .nav-more-item.on { background: var(--s3); color: var(--accent); }
 .nav-more-item--danger { color: var(--danger); }
-.nav-more-item--danger:hover { background: var(--rgba-danger-bg); }
+.nav-more-item--danger:hover,
+.nav-more-item--danger:active { background: var(--rgba-danger-bg); }
 .nav-more-divider { height: 1px; background: var(--hair); margin: 6px 12px; }
 
 /* Surface swap at 700 px */

@@ -101,7 +101,7 @@
   border-radius: 50%;
   color: var(--t3);
   font-size: 15px;
-  transition: color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .watch-search__clear:hover { color: var(--t1); }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
@@ -240,18 +240,28 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: box-shadow var(--dur-slow) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out);
 }
-.watch-card__link:hover .watch-card__poster { box-shadow: var(--shadow-card); }
+/* A shadow alone does not show on the black page, so a hovered poster also
+   lifts a little and takes a hairline ring. The row's block padding leaves
+   room for the lift. */
+@media (hover: hover) {
+  .watch-card__link:hover .watch-card__poster { transform: scale(1.03); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); }
+}
+@media (hover: hover) and (prefers-reduced-motion: reduce) {
+  .watch-card__link:hover .watch-card__poster { transform: none; }
+}
 .watch-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* Posters fade in as they arrive; watch-rows.js sets the classes, so without
-   it they simply appear. */
+/* Posters and the banner backdrop fade in as they arrive; watch-rows.js sets
+   the classes, so without it they simply appear. */
 .watch-card__poster > img,
 .watch-hero__poster > img,
 .watch-ep__thumb > img { transition: opacity var(--dur) var(--ease-out); }
+.watch-banner__bg { transition: opacity var(--dur-slow) var(--ease-out); }
 .has-poster-fade .watch-card__poster > img:not(.is-loaded),
 .has-poster-fade .watch-hero__poster > img:not(.is-loaded),
-.has-poster-fade .watch-ep__thumb > img:not(.is-loaded) { opacity: 0; }
+.has-poster-fade .watch-ep__thumb > img:not(.is-loaded),
+.has-poster-fade .watch-banner__bg:not(.is-loaded) { opacity: 0; }
 .watch-card__poster::after {
   content: "";
   position: absolute;
@@ -288,7 +298,8 @@
   text-overflow: ellipsis;
 }
 .watch-badge__short { display: none; }
-.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 85%, transparent); font-weight: 600; }
+/* Opaque and darkened so white text holds 4.5:1 over any poster. */
+.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); font-weight: 600; }
 .watch-badge--watched { right: 8px; background: color-mix(in srgb, var(--scrim) 65%, transparent); color: color-mix(in srgb, var(--t1) 85%, transparent); }
 .watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
 @media (max-width: 1279.98px) {
@@ -318,6 +329,7 @@
   color: var(--success);
   font-size: 12px;
   font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .watch-keep::before {
   content: "";
@@ -365,6 +377,7 @@
   font-size: 14px;
   color: var(--t2);
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .watch-keep-menu__item:hover,
 .watch-keep-menu__item:focus-visible { background: var(--s3); color: var(--t1); outline: none; }
@@ -373,8 +386,25 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
+/* Nothing found, or the search failed: a small centred block, not a bare sentence. */
+.watch-results__msg--empty,
+.watch-results__msg--failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 0 24px;
+  text-align: center;
+}
+.watch-results__icon { font-size: 28px; color: var(--t3); margin-bottom: 8px; }
+.watch-results__line { font-size: 16px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
+.watch-results__hint { font-size: 14px; color: var(--t3); }
+.watch-results__msg--failed .watch-results__icon { color: var(--danger); }
+.watch-results__again { margin-top: 10px; }
 .watch-results__msg--error {
   display: flex;
+  width: fit-content;
+  max-width: min(640px, 100%);
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
@@ -384,6 +414,10 @@
   color: var(--t1);
   font-size: 14px;
 }
+/* The season load error sits outside .watch-results, so it brings the page gutter itself
+   and lines up with the episode list below it. */
+.watch-results__msg--season { margin-inline: var(--pad); max-width: min(640px, calc(100% - 2 * var(--pad))); }
+@media (min-width: 900px) { .watch-results__msg--season { margin-left: calc(260px + var(--pad)); } }
 .watch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--watch-card-w), 1fr));
@@ -407,7 +441,7 @@
   background-size: 100% 620px;
 }
 .watch-detail__top { padding: 20px var(--pad) 0; }
-.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; }
+.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .watch-back:hover { color: var(--accent-hi); }
 .watch-hero {
   display: flex;
@@ -427,7 +461,12 @@
 .watch-hero__title { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.08; overflow-wrap: anywhere; }
 .watch-hero__meta { font-size: 14px; color: var(--t3); }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
-.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--danger); }
+/* The line keeps the Keep button's height when it is kept or empty (a season
+   that is not leaving), so Resume and the season tabs never move under a tap. */
+.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger); }
+.watch-leaving--kept { color: var(--success); }
+/* Another season is leaving, not this one: said quietly, with no Keep. */
+.watch-leaving--other { color: var(--t2); }
 .watch-leaving:focus { outline: none; }
 .watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 
@@ -441,8 +480,9 @@
   background: var(--s4);
   color: var(--t1);
   font-size: 14px;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.watch-pill:hover { background: color-mix(in srgb, var(--t1) 2%, transparent); }
+.watch-pill:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
 
 .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
@@ -455,6 +495,7 @@
   gap: 20px;
   padding: 12px 16px;
   border-radius: var(--r-md);
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .watch-ep:hover { background: var(--s1); }
 .watch-ep--in-progress { background: var(--s1); }
@@ -522,7 +563,34 @@
 
 /* Phones and touch screens: the Keep button grows to 44px, the pill stays. */
 @media (pointer: coarse), (max-width: 599.98px) {
-  .watch-keep { min-height: 44px; }
+  .watch-keep,
+  .watch-leaving { min-height: 44px; }
   .watch-keep::before { inset: 6px 0; }
   .watch-keep::after { content: none; }
+}
+
+/* Pressed: a quick shrink and a tint, so a tap answers on a touch screen where
+   the tap highlight is off. Not inside (hover: hover), and after the hover rules
+   so a pressed card settles back from its lift. */
+.watch-card__link:active .watch-card__poster { transform: scale(.97); filter: brightness(.88); }
+.watch-pill:active { transform: scale(.97); background: color-mix(in srgb, var(--t1) 30%, transparent); }
+.watch-pill.on:active { background: color-mix(in srgb, var(--t1) 82%, transparent); }
+.watch-ep:active { background: var(--s2); transform: scale(.985); }
+.watch-search__clear:active { color: var(--t1); transform: scale(.9); }
+.watch-keep:active { transform: scale(.97); }
+.watch-keep:active::before { background: color-mix(in srgb, var(--success) 30%, transparent); }
+.watch-keep-menu__item:active { background: var(--s4); color: var(--t1); }
+.watch-back:active { opacity: .6; }
+.watch-btn--play:active { background: color-mix(in srgb, var(--t1) 70%, transparent); }
+.watch-btn--grey:active { background: color-mix(in srgb, var(--t1) 30%, transparent); }
+.watch-notice__retry:active,
+.watch-results__retry:active { opacity: .6; }
+@media (prefers-reduced-motion: reduce) {
+  .watch-card__link:active .watch-card__poster,
+  .watch-pill:active,
+  .watch-ep:active,
+  .watch-search__clear:active,
+  .watch-keep:active,
+  .watch-btn--play:active,
+  .watch-btn--grey:active { transform: none; }
 }

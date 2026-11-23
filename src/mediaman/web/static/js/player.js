@@ -17,6 +17,7 @@
  * long pause, a restart): a new one is started at the current position,
  * which is also how a quality change works. If the server refuses the
  * stream of a new quality, the quality that was playing comes back.
+ * While a new stream replaces the old one, the last frame stays on screen.
  */
 (function () {
   'use strict';
@@ -57,7 +58,8 @@
   var showHref = root.getAttribute('data-show-href') || '';
   var startS = parseFloat(root.getAttribute('data-start-s')) || 0;
 
-  var video = root.querySelector('.player-video');
+  var video = root.querySelector('video.player-video');
+  var hold = root.querySelector('[data-hold]');
   var q = function (sel) { return root.querySelector(sel); };
   var els = {
     play: q('[data-play]'),
@@ -75,6 +77,7 @@
     fullscreen: q('[data-fullscreen]'),
     fullscreenLabel: q('[data-fullscreen-label]'),
     upnext: q('[data-upnext]'),
+    upnextFill: q('[data-upnext-fill]'),
     countdown: q('[data-countdown]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
@@ -98,7 +101,7 @@
   var lastTime = null;
   var dragging = false;
   var quality = readQuality();
-  var goodQuality = null;    // the quality of the last stream that played
+  var goodQuality = quality; // the last quality that played, or the one the page started with
   var streamQuality = null;  // the quality of the stream now loading or playing
   var revertNotice = null;   // toast to show once the reverted stream plays
 
@@ -149,6 +152,7 @@
 
   function chooseQuality(value) {
     if (!QUALITIES[value] || value === quality) return;
+    revertNotice = null;
     setQuality(value);
     restartStream(true);
   }
@@ -164,11 +168,31 @@
 
   /* ---- messages and loading ------------------------------------------- */
 
-  function setLoading(on) { root.classList.toggle('is-loading', on); }
+  function setLoading(on) {
+    root.classList.toggle('is-loading', on);
+    showPlayState();
+  }
+
+  /* Draw the frame on screen over the video, so tearing the stream down
+     does not leave the picture black. */
+  function holdFrame() {
+    if (video.readyState < 2 || !video.videoWidth) return;
+    hold.width = video.videoWidth;
+    hold.height = video.videoHeight;
+    try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
+    hold.hidden = false;
+    root.classList.add('is-held');
+  }
+
+  function releaseFrame() {
+    hold.hidden = true;
+    root.classList.remove('is-held');
+  }
 
   function showMessage(text, canRetry) {
-    setLoading(false);
     swapping = false;
+    releaseFrame();
+    setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !canRetry;
     els.message.hidden = false;
@@ -259,6 +283,7 @@
     streamId = null;
     swapping = true;
     hideUpnext();
+    holdFrame();
     if (old) stopOnServer(old);
     destroyHls();
     startStream(pos);
@@ -381,6 +406,12 @@
 
   function togglePlay() {
     if (!els.message.hidden) return;
+    if (swapping) {
+      /* No video to pause yet: the new stream starts the way this leaves it. */
+      wantPlaying = !wantPlaying;
+      showPlayState();
+      return;
+    }
     if (video.paused || video.ended) {
       if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
       play();
@@ -416,11 +447,16 @@
 
   function skip(delta) { seekTo(position() + delta); }
 
+  /* While a stream loads to play, the button shows it working, not a Pause
+     that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
-    var paused = video.paused || video.ended;
+    var busy = wantPlaying && root.classList.contains('is-loading');
+    var paused = (video.paused || video.ended) && !busy;
     els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    if (busy) els.play.setAttribute('aria-busy', 'true');
+    else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('i');
-    icon.className = 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
+    icon.className = busy ? 'player-btn-ring' : 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
     root.classList.toggle('is-paused', paused);
     if (paused) showControls();
     else scheduleIdle();
@@ -440,8 +476,8 @@
     }
     swapping = false;
     pendingStart = null;
+    releaseFrame();
     setLoading(false);
-    showPlayState();
   });
   video.addEventListener('play', function () {
     wantPlaying = true;
@@ -455,7 +491,11 @@
     saveProgress();
   });
   video.addEventListener('waiting', function () { setLoading(true); });
-  video.addEventListener('canplay', function () { if (video.paused) setLoading(false); });
+  video.addEventListener('canplay', function () {
+    if (!video.paused) return;
+    if (!wantPlaying && !swapping) releaseFrame();
+    setLoading(false);
+  });
   video.addEventListener('seeking', function () { lastTime = null; });
   video.addEventListener('seeked', function () {
     settleStart();
@@ -805,16 +845,26 @@
   /* ---- next episode --------------------------------------------------- */
 
   var countdownTimer = null;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
+  /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     clearInterval(countdownTimer);
     countdownTimer = null;
-    if (els.upnext) els.upnext.hidden = true;
+    var card = els.upnext;
+    if (!card || card.hidden || card.classList.contains('is-leaving')) return;
+    card.classList.remove('is-counting');
+    if (card.contains(document.activeElement)) els.play.focus();
+    if (reducedMotion && reducedMotion.matches) card.hidden = true;
+    else card.classList.add('is-leaving');
   }
 
   function startCountdown() {
     var left = COUNTDOWN_S;
     els.countdown.textContent = String(left);
+    els.upnext.classList.remove('is-leaving');
+    els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
+    els.upnext.classList.add('is-counting');
     els.upnext.hidden = false;
     showControls();
     clearInterval(countdownTimer);
@@ -831,6 +881,12 @@
   if (els.upnext) {
     q('[data-upnext-play]').addEventListener('click', function () { window.location.href = next.href; });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
+    els.upnext.addEventListener('animationend', function (e) {
+      if (e.target !== els.upnext || e.animationName !== 'player-drop') return;
+      if (!els.upnext.classList.contains('is-leaving')) return;
+      els.upnext.classList.remove('is-leaving');
+      els.upnext.hidden = true;
+    });
   }
 
   /* ---- leaving the page ----------------------------------------------- */

@@ -76,26 +76,54 @@
     node.classList.add('fade-in');
   }
 
-  /* The frames that shrink a card out of its row (sideways) or a row out of
-     the page (downwards), gap included, so nothing beside it jumps. */
-  function shrinkFrames(node, sideways) {
+  /* How long a kept card takes to leave its row: it fades and shrinks for
+     --dur, and its slot starts closing part-way through that. */
+  function cardExit() {
+    var fade = tokenMs('--dur', 200);
+    var closeAt = Math.round(fade * 0.6);
+    return { fade: fade, closeAt: closeAt, total: fade + tokenMs('--dur-fast', 150) };
+  }
+
+  /* How a card leaves its row (sideways) or a row leaves the page
+     (downwards), gap included, so nothing beside it jumps. A card fades and
+     shrinks in place while its slot closes behind it. */
+  function shrinkMotion(node, sideways) {
     var parentStyle = getComputedStyle(node.parentNode);
+    var ease = token('--ease-out', 'ease-out');
     if (sideways) {
       var w = node.offsetWidth + 'px';
       var gap = parseFloat(parentStyle.columnGap) || 0;
-      return [
-        { flexBasis: w, width: w, marginRight: '0px', opacity: 1 },
-        { flexBasis: '0px', width: '0px', marginRight: -gap + 'px', opacity: 0 }
-      ];
+      var t = cardExit();
+      var open = { flexBasis: w, width: w, marginRight: '0px' };
+      // Each property eases only between the keyframes that name it, so the
+      // fade and the close overlap.
+      return {
+        duration: t.total,
+        frames: [
+          Object.assign({ offset: 0, opacity: 1, transform: 'none', easing: ease }, open),
+          Object.assign({ offset: t.closeAt / t.total, easing: ease }, open),
+          { offset: t.fade / t.total, opacity: 0, transform: 'scale(.92)', easing: ease },
+          { offset: 1, opacity: 0, transform: 'scale(.92)', flexBasis: '0px', width: '0px', marginRight: -gap + 'px', easing: ease }
+        ]
+      };
     }
     var h = node.offsetHeight + 'px';
     var rowGap = parseFloat(parentStyle.rowGap) || 0;
     var side = node.previousElementSibling ? 'marginTop' : 'marginBottom';
-    var from = { height: h, opacity: 1 };
-    var to = { height: '0px', opacity: 0 };
+    var from = { offset: 0, height: h, opacity: 1, easing: ease };
+    var to = { offset: 1, height: '0px', opacity: 0, easing: ease };
     from[side] = '0px';
     to[side] = -rowGap + 'px';
-    return [from, to];
+    return { duration: tokenMs('--dur-slow', 250), frames: [from, to] };
+  }
+
+  /* While a card's slot opens or closes, its poster, title and Keep keep
+     their own widths and are clipped, never squeezed. Returns the undo. */
+  function pinContent(node, sideways) {
+    if (!sideways) return noop;
+    var kids = toArray(node.children);
+    kids.forEach(function (kid) { kid.style.minWidth = kid.offsetWidth + 'px'; });
+    return function () { kids.forEach(function (kid) { kid.style.minWidth = ''; }); };
   }
 
   /* Shrink *node* away, then take it off the page. Returns a cancel function
@@ -105,33 +133,36 @@
       node.remove();
       return function () {};
     }
+    var motion = shrinkMotion(node, sideways);
+    var unpin = pinContent(node, sideways);
     node.style.overflow = 'hidden';
-    var anim = node.animate(shrinkFrames(node, sideways), {
-      duration: tokenMs('--dur-slow', 250),
-      easing: token('--ease-out', 'ease-out'),
-      fill: 'forwards'
-    });
+    var anim = node.animate(motion.frames, { duration: motion.duration, fill: 'forwards' });
     anim.onfinish = function () {
       node.remove();
       anim.cancel();
       node.style.overflow = '';
+      unpin();
     };
     return function () {
       anim.onfinish = null;
       anim.cancel();
       node.style.overflow = '';
+      unpin();
     };
   }
 
-  /* Grow a node that was just put back from nothing to its own size. */
+  /* Grow a node that was just put back from nothing to its own size: the
+     same motion played backwards. */
   function growIn(node, sideways) {
     if (reduceMotion() || !node.animate) return;
-    node.style.overflow = 'hidden';
-    var anim = node.animate(shrinkFrames(node, sideways).reverse(), {
-      duration: tokenMs('--dur-slow', 250),
-      easing: token('--ease-out', 'ease-out')
+    var motion = shrinkMotion(node, sideways);
+    var frames = motion.frames.reverse().map(function (f) {
+      return Object.assign({}, f, { offset: 1 - f.offset });
     });
-    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; };
+    var unpin = pinContent(node, sideways);
+    node.style.overflow = 'hidden';
+    var anim = node.animate(frames, { duration: motion.duration });
+    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; unpin(); };
   }
 
   /* Where a node is: its parent and every node after it, so it can go back
@@ -185,7 +216,7 @@
       if (r.top < area.top) by = r.top - area.top - edge;
       else if (r.bottom > area.bottom) by = Math.min(r.bottom - area.bottom + edge, r.top - area.top - edge);
       if (by) window.scrollBy({ top: by, behavior: reduce ? 'auto' : 'smooth' });
-    }, reduce ? 0 : tokenMs('--dur-slow', 250));
+    }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
   /* ── Try again (Plex) ── */
@@ -241,7 +272,14 @@
     var trigger = openTrigger;
     openTrigger = null;
     trigger.setAttribute('aria-expanded', 'false');
-    if (refocus && document.body.contains(trigger)) trigger.focus();
+    if (refocus && document.body.contains(trigger)) {
+      trigger.focus();
+    } else if (menu.contains(document.activeElement)) {
+      // Closed without a press (scrolled away, season swapped): focus must not stay on a hidden item.
+      var spare = document.body.contains(trigger) ? trigger
+        : document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
+      if (spare) spare.focus({ preventScroll: true }); else document.activeElement.blur();
+    }
     menu.classList.remove('is-open');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(function () { menu.hidden = true; }, reduceMotion() ? 0 : EXIT_FALLBACK_MS);
@@ -407,10 +445,12 @@
       var season = seasonShown();
       parts.forEach(function (n) { n.remove(); });
       line.textContent = 'Kept for ' + days + ' days';
+      line.classList.add('watch-leaving--kept');
       line.tabIndex = -1;
       focus = line;
       undos.push(function () {
         line.textContent = '';
+        line.classList.remove('watch-leaving--kept');
         parts.forEach(function (n) { line.appendChild(n); });
         line.removeAttribute('tabindex');
         putLineBack(line, season);
@@ -446,7 +486,7 @@
       focus: focus,
       undo: function () {
         var back = null;
-        undos.forEach(function (fn) { back = fn() || back; });
+        undos.forEach(function (fn) { var b = fn(); if (!back) back = b; });
         return back;
       }
     };
@@ -460,31 +500,48 @@
       (menu && menu.contains(active)) || !document.body.contains(active);
   }
 
+  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>".
+     A season keep adds the season: from the card's subtitle, or the season tab shown. */
+  function titleOf(button) {
+    var label = button.getAttribute('aria-label');
+    var title = label ? label.replace(/^Keep /, '') : '';
+    if (!title) return '';
+    var season = '';
+    var sub = button.closest('.watch-card') && button.closest('.watch-card').querySelector('.watch-card__sub');
+    if (sub && /^Season \d+$/.test(sub.textContent)) season = sub.textContent;
+    else if (button.closest('[data-watch-leaving]')) {
+      var tab = document.querySelector('.watch-seasons a.watch-pill.on');
+      if (tab) season = tab.textContent.trim();
+    }
+    return season ? title + ', ' + season : title;
+  }
+
   function keep(trigger, days) {
     var id = trigger.getAttribute('data-watch-keep');
     if (busy[id]) return;
+    var name = titleOf(trigger);
     setBusy(id, true);
     MM.api.post(KEEP_URL, { media_item_id: id, days: days }).then(function () {
       var moveFocus = focusLost(trigger);
       var done = applyKept(id, days, trigger);
       if (moveFocus && done.focus) focusSoftly(done.focus);
-      toast('Kept for ' + days + ' days', {
+      toast('Kept ' + (name || 'this') + ' for ' + days + ' days', {
         variant: 'success',
-        action: { label: 'Undo', onClick: function () { undoKeep(id, days, done); } }
+        action: { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } }
       });
       setBusy(id, false);
     }).catch(function (err) {
-      toast(MM.api.messageOf(err, 'Could not keep this. Try again.'), { variant: 'error' });
+      toast(MM.api.messageOf(err, 'Could not keep ' + (name || 'this') + '. Try again.'), { variant: 'error' });
       setBusy(id, false);
     });
   }
 
   /* Undo puts the title back at once and asks the server after; if the
      server says no, the Keep stands and is taken off the page again. */
-  function undoKeep(id, days, done) {
+  function undoKeep(id, days, done, name) {
     // The toast is gone already, so an Undo pressed mid-way waits its turn.
     if (busy[id]) {
-      afterBusy[id] = function () { undoKeep(id, days, done); };
+      afterBusy[id] = function () { undoKeep(id, days, done, name); };
       return;
     }
     var back = done.undo();
@@ -495,14 +552,14 @@
       back.focus();
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
-      toast('Keep undone', { variant: 'info' });
+      toast('Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
       setBusy(id, false);
     }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];
       var moveFocus = trigger ? focusLost(trigger) : false;
       var again = applyKept(id, days, trigger);
       if (moveFocus && again.focus) focusSoftly(again.focus);
-      toast(MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.'), { variant: 'error' });
+      toast(MM.api.messageOf(err, 'Could not undo' + (name ? ' for ' + name : '') + '. It stays kept for ' + days + ' days.'), { variant: 'error' });
       setBusy(id, false);
     });
   }
@@ -653,7 +710,7 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error');
+      msg.classList.remove('watch-results__msg--failed', 'watch-results__msg--empty');
     }
 
     function showResults() {
@@ -667,23 +724,35 @@
       }
       grid.textContent = '';
       msg.textContent = '';
-      msg.classList.remove('watch-results__msg--error');
+      msg.classList.remove('watch-results__msg--failed', 'watch-results__msg--empty');
     }
 
     function showFound(q, items) {
       showResults();
       items.forEach(function (item) { grid.appendChild(buildCard(item)); });
-      if (!items.length) msg.textContent = 'Nothing found for “' + q + '”.';
-      status.textContent = items.length
-        ? (items.length === 1 ? '1 result' : items.length + ' results') + ' for “' + q + '”'
-        : msg.textContent;
+      if (items.length) {
+        status.textContent = (items.length === 1 ? '1 result' : items.length + ' results') + ' for “' + q + '”';
+        return;
+      }
+      var line = 'Nothing found for “' + q + '”.';
+      var icon = el('i', 'fa-solid fa-magnifying-glass watch-results__icon');
+      icon.setAttribute('aria-hidden', 'true');
+      msg.classList.add('watch-results__msg--empty');
+      msg.appendChild(icon);
+      msg.appendChild(el('span', 'watch-results__line', line));
+      msg.appendChild(el('span', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
+      status.textContent = line;
     }
 
+    /* Laid out like the empty state: an icon, the line, and a way on. */
     function showFailed(text) {
       showResults();
-      msg.classList.add('watch-results__msg--error');
-      msg.appendChild(el('span', '', text));
-      var retry = el('button', 'watch-results__retry', 'Try again');
+      var icon = el('i', 'fa-solid fa-triangle-exclamation watch-results__icon');
+      icon.setAttribute('aria-hidden', 'true');
+      msg.classList.add('watch-results__msg--failed');
+      msg.appendChild(icon);
+      msg.appendChild(el('span', 'watch-results__line', text));
+      var retry = el('button', 'btn watch-btn--grey watch-results__again', 'Try again');
       retry.type = 'button';
       retry.addEventListener('click', function () {
         input.focus();
@@ -740,13 +809,15 @@
 
   /* A season tab swaps the episode list in place: no reload, no jump to the
      top, focus stays on the tab. The address changes too, so Back and a
-     shared link work; any trouble falls back to loading the page. */
+     shared link work; when a season will not load, the one showing stays and an error offers a retry. */
   function initSeasons() {
     var nav = document.querySelector('.watch-seasons');
     var list = document.querySelector('.watch-episodes');
     if (!nav || !list || !window.fetch || !window.DOMParser || !window.history.pushState) return;
     var loading = null;
     var current = null;
+    var shown = null; // the season whose episodes are on the page
+    var failure = null;
 
     function pills() { return toArray(nav.querySelectorAll('a.watch-pill')); }
 
@@ -759,17 +830,53 @@
       });
     }
 
+    /* The line's slot keeps its place through a switch, so Resume and the
+       season tabs stay where the next tap expects them: the new season's
+       own line (on one that is not leaving, the quiet one naming the season
+       that is), else an empty slot. The slot is a new node: an Undo still
+       pending refills the old one. */
     function swapLeaving(doc) {
       var oldLine = document.querySelector('.watch-hero__info [data-watch-leaving]');
       var newLine = doc.querySelector('.watch-hero__info [data-watch-leaving]');
-      var fresh = newLine ? document.importNode(newLine, true) : null;
+      var fresh = null;
+      if (newLine) {
+        fresh = document.importNode(newLine, true);
+        fadeIn(fresh);
+      } else if (oldLine) {
+        fresh = el('p', 'watch-leaving');
+        fresh.setAttribute('data-watch-leaving', '');
+      }
       if (oldLine && fresh) oldLine.replaceWith(fresh);
-      else if (oldLine) oldLine.remove();
       else if (fresh) document.querySelector('.watch-hero__info .watch-actions').before(fresh);
+    }
+
+    function clearFailure() {
+      if (failure) failure.remove();
+      failure = null;
+    }
+
+    /* The season stays as it was; the user can try the one they asked for again. */
+    function showFailed(href, push) {
+      select(shown);
+      list.setAttribute('aria-busy', 'false');
+      clearFailure();
+      failure = el('p', 'watch-results__msg watch-results__msg--error watch-results__msg--season');
+      failure.setAttribute('role', 'alert');
+      var asked = pills().filter(function (pill) { return pill.getAttribute('href') === href; })[0];
+      failure.appendChild(el('span', '', 'Could not load ' + (asked ? asked.textContent.trim() : 'that season') + '.'));
+      var retry = el('button', 'watch-results__retry', 'Try again');
+      retry.type = 'button';
+      retry.addEventListener('click', function () {
+        select(href);
+        load(href, push);
+      });
+      failure.appendChild(retry);
+      list.before(failure);
     }
 
     function load(href, push) {
       if (loading) loading.abort();
+      clearFailure();
       var ctrl = new AbortController();
       loading = ctrl;
       list.setAttribute('aria-busy', 'true');
@@ -792,16 +899,19 @@
           list = fresh;
           fadeIn(list);
           select(on.getAttribute('href'));
+          shown = current;
           if (push) window.history.pushState({ watchSeason: href }, '', href);
         })
         .catch(function (err) {
           if (err && err.name === 'AbortError') return;
-          window.location.assign(href);
+          if (loading && loading !== ctrl) return;
+          loading = null;
+          showFailed(href, push);
         });
     }
 
     var first = nav.querySelector('a.watch-pill.on');
-    current = first ? first.getAttribute('href') : null;
+    current = shown = first ? first.getAttribute('href') : null;
 
     nav.addEventListener('click', function (e) {
       var pill = e.target.closest && e.target.closest('a.watch-pill');

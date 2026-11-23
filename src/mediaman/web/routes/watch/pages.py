@@ -642,6 +642,8 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         "primary": None,
         "seasons": [],
         "leaving": None,
+        "season_leaving": False,
+        "other_leaving": None,
         "episodes": [],
     }
     episodes_cache: dict[str, list[PlexEpisode]] = {}
@@ -673,11 +675,27 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         return _render(request, "watch_show.html", ctx)
 
     leaving = None
+    now = now_utc()
+    # Any leaving season reserves the line's slot, so a switch to one never moves the controls.
+    seasons_leaving = [
+        p
+        for p in lib.pending_deletions(conn, libraries, now)
+        if p.show_key == show_key and p.season_number is not None
+    ]
     if selected is not None:
         season_id = lib.season_item_id(conn, libraries, show_key, selected.index)
         if season_id is not None:
-            now = now_utc()
             leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id, now), now)
+    # On a season that is not leaving, the slot names the soonest one that is.
+    other_leaving = None
+    if leaving is None:
+        other = next(
+            (p for p in seasons_leaving if selected is None or p.season_number != selected.index),
+            None,
+        )
+        if other is not None:
+            ends = parse_execute_at(other.execute_at, default=now)
+            other_leaving = {"season": other.season_number, "days": days_left(ends, now)}
     season_origin = f"/watch/show/{show_key}" + (f"?season={selected.index}" if selected else "")
     ctx.update(
         {
@@ -697,6 +715,8 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
                 for s in show.seasons
             ],
             "leaving": leaving,
+            "season_leaving": bool(seasons_leaving),
+            "other_leaving": other_leaving,
             "episodes": [
                 _episode_row(e, progress.get(e.rating_key), season_origin) for e in episodes
             ],
