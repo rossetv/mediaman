@@ -720,4 +720,13 @@ class TestDownloadPageTrailer:
         iframe = re.search(r'<iframe src="([^"]+)"', page)
         assert iframe is not None
         assert iframe.group(1) == "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0"
-        assert 'sandbox="allow-scripts allow-same-origin allow-presentation"' in page
+        sandbox = re.search(r'<iframe[^>]*\ssandbox="([^"]+)"', page)
+        assert sandbox is not None
+        # popups let the player's own "Watch on YouTube" link open, outside the sandbox
+        assert set(sandbox.group(1).split()) == {
+            "allow-scripts",
+            "allow-same-origin",
+            "allow-presentation",
+            "allow-popups",
+            "allow-popups-to-escape-sandbox",
+        }
