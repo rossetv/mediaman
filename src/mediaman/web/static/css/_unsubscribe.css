@@ -59,9 +59,17 @@
 /* Result message */
 .unsub-msg {
   font-size: 15px;
-  color: rgba(255,255,255,0.6); /* literal rgba; intentionally deviates from tokens */
+  color: var(--t3);
   line-height: 1.5;
+  margin: 0;
 }
+.unsub-note {
+  font-size: 13px;
+  color: var(--t4);
+  line-height: 1.5;
+  margin: 20px 0 0;
+}
+.unsub-title { margin-top: 0; }
 
 /* Buttons */
 .unsub-btn-danger {
@@ -74,16 +82,4 @@
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  margin-right: 12px;
-}
-/* Literal rgba values below intentionally deviate from tokens. */
-.unsub-btn-cancel {
-  padding: 12px 24px;
-  border-radius: var(--r-pill);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: rgba(255,255,255,0.6);
-  font-size: 15px;
-  font-weight: 600;
-  text-decoration: none;
-  display: inline-block;
 }

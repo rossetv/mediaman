@@ -10,7 +10,7 @@
 <body class="unsub-body">
   <div class="unsub-card">
     <div class="unsub-brand">media<span class="unsub-brand-accent">man</span></div>
-    <div class="unsub-title">Unsubscribe?</div>
+    <h1 class="unsub-title">Unsubscribe?</h1>
     <div class="unsub-sub">
       You will no longer receive newsletter emails at<br>
       <strong class="text-t1">{{ email }}</strong>
@@ -19,8 +19,8 @@
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="token" value="{{ token }}">
       <button type="submit" class="unsub-btn-danger">Unsubscribe</button>
-      <a href="/" class="unsub-btn-cancel">Cancel</a>
     </form>
+    <p class="unsub-note">Changed your mind? Close this page and nothing changes.</p>
   </div>
 </body>
 </html>
