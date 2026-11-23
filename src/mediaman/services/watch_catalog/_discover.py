@@ -19,6 +19,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from ._arr import ArrView
 from ._dedupe import LibraryIndex
 from ._shape import discover_card, tmdb_id_of, tmdb_image_url, tmdb_kind, tmdb_rating, year_of
+from ._title import tmdb_fields
 
 _MINUTE = 60
 _HOUR = 60 * _MINUTE
@@ -115,18 +116,20 @@ def search(
 def details(
     client: TmdbClient, kind: str, tmdb_id: int, *, allow_fetch: Callable[[], bool] | None = None
 ) -> dict[str, Any]:
-    """TMDB's details of a movie or show ("movie" or "tv"), with videos, credits and
-    the age rating. *allow_fetch* is asked as in ``search``."""
+    """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
+    TMDB's own payload, with its full crew and every country's release dates, is many
+    times larger. *allow_fetch* is asked as in ``search``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
         found = client.details(media_type, tmdb_id)
         if found is None:
             raise TmdbUnavailable("details")
-        return dict(found)
+        return tmdb_fields(found, media_type)
 
+    # "v2": entries before it hold TMDB's whole payload, not these fields.
     result: dict[str, Any] = _cached(
-        f"tmdb:details:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
+        f"tmdb:details:v2:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
     return result
 

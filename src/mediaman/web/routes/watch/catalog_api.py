@@ -228,9 +228,7 @@ def _apply_tmdb(
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
     from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
     when TMDB would be asked and *allow_fetch* says no."""
-    fields = catalog.tmdb_fields(
-        catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch), kind
-    )
+    fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     for name in (
         "year",
         "year_end",

@@ -207,6 +207,34 @@ class TestLibraryRef:
         assert self.index.library_ref("movie", 13, "The Glasshouse", _view()) is None
 
 
+class TestDetails:
+    RAW = {
+        "title": "Glasshouse",
+        "release_date": "2019-03-01",
+        "credits": {
+            "cast": [{"name": "Actor"}],
+            "crew": [{"job": "Director", "name": "A. Director"}]
+            + [{"job": "Grip", "name": f"Crew {n}"} for n in range(200)],
+        },
+        "release_dates": {"results": [{"iso_3166_1": f"C{n}"} for n in range(100)]},
+    }
+
+    def test_only_the_fields_the_title_view_uses_are_cached(self, cache):
+        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+
+        answered = catalog.details(client, "movie", 5)
+
+        (stored,) = cache.store.values()
+        assert stored == answered == catalog.tmdb_fields(self.RAW, "movie")
+        assert answered["director"] == "A. Director"
+
+    def test_a_whole_payload_cached_before_is_not_read_as_the_fields(self, cache):
+        cache.store["tmdb:details:movie:5"] = self.RAW
+        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+
+        assert catalog.details(client, "movie", 5) == catalog.tmdb_fields(self.RAW, "movie")
+
+
 class TestDiscoverShelves:
     def _client(self, trending, movies, tv):
         return SimpleNamespace(
