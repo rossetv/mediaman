@@ -617,8 +617,13 @@
   /* ---- keep ----------------------------------------------------------- */
 
   if (els.keep && leaving) {
+    var keeping = false;
+    var keepTrigger = els.keep.querySelector('[data-menu-trigger]');
     els.keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (keeping) return;
+        keeping = true;
+        keepTrigger.setAttribute('aria-busy', 'true');
         var days = parseInt(btn.getAttribute('data-keep-days'), 10);
         closeMenus(true);
         MM.api.post('/api/watch/keep', { media_item_id: leaving.keep_id, days: days })
@@ -633,6 +638,8 @@
             if (window.UIFeedback) window.UIFeedback.toast('Kept for ' + days + ' days', { variant: 'success' });
           })
           .catch(function (err) {
+            keeping = false;
+            keepTrigger.setAttribute('aria-busy', 'false');
             var msg = MM.api.messageOf(err, "Couldn't keep this. Try again.");
             if (window.UIFeedback) window.UIFeedback.error(msg);
           });
