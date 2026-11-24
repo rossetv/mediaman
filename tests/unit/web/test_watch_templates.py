@@ -598,7 +598,7 @@ def test_banner_details_opens_the_title_overlay() -> None:
     }
     html = _watch(banner=banner)
     actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
-    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>', actions)
+    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>(?=Details</a>)', actions)
     assert details is not None
     assert 'href="/watch#title=show-500"' in details.group(0)
     assert 'data-title="The Long Coast"' in details.group(0)
@@ -615,6 +615,17 @@ def _phone_rules(sheet: str) -> list[tuple[str, str]]:
         for block in blocks
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
     ]
+
+
+def test_banner_episodes_opens_the_title_overlay_at_its_episodes() -> None:
+    html = _watch(
+        banner={**_BANNER, "ref": "show-500", "episodes_href": "/watch/show/500?season=2"}
+    )
+    link = re.search(r"<a [^>]*>Episodes</a>", html)
+    assert link is not None
+    assert 'href="/watch/show/500?season=2"' in link.group(0)
+    assert 'data-title-ref="show-500"' in link.group(0)
+    assert 'data-title-at="episodes"' in link.group(0)
 
 
 def test_the_picks_batch_and_refresh_tools_are_44px_tall_below_700px() -> None:

@@ -1971,6 +1971,26 @@ const scenarios = {
     });
   },
 
+  // Opened by a link to its episodes: where it is scrolled and what has the focus once it has come;
+  // then where the person scrolled it while it loaded, and a film's, which has none.
+  async openAtEpisodes() {
+    const run = async (ref, data, scrolled) => {
+      let answer = null;
+      const p = load({ routes: { ['/api/watch/title/' + ref]: () => new Promise((resolve) => { answer = () => resolve(JSON.parse(JSON.stringify(data))); }) } });
+      const link = p.doc.body.appendChild(build(p.doc, ['a', { 'data-title-ref': ref, 'data-title': 'It', 'data-title-at': 'episodes', href: '/watch/show/300' }, 'Episodes']));
+      p.run();
+      Object.defineProperty(Node.prototype, 'offsetTop', { configurable: true, get() { return this.classList.contains('ttl__seasonsec') ? 900 : this.classList.contains('ttl__sheet') ? 40 : 0; } });
+      Object.defineProperty(p.q('.ttl__bar'), 'offsetHeight', { value: 56 });
+      click(p.doc, link);
+      p.ttl().scrollTop = scrolled;
+      answer();
+      await settle();
+      const a = p.doc.activeElement;
+      return { to: p.ttl().scrolledTo ? p.ttl().scrolledTo.top : null, focus: a.textContent, hash: p.loc.hash };
+    };
+    return { show: await run('show-300', LIB_SHOW, 0), scrolled: await run('show-300', LIB_SHOW, 200), film: await run('movie-120', LIB_MOVIE, 0) };
+  },
+
   async focusTrap() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();

@@ -772,6 +772,13 @@ def test_the_bar_of_close_is_marked_once_the_titles_text_reaches_it() -> None:
     assert _run("scrolledPastHead") == [False, False, True, True, False]
 
 
+def test_a_link_to_a_shows_episodes_opens_it_at_them_unless_the_person_has_moved_on() -> None:
+    out = _run("openAtEpisodes")
+    assert out["show"] == {"to": 876, "focus": "Episodes", "hash": "#title=show-300"}
+    assert (out["scrolled"]["to"], out["scrolled"]["focus"]) == (None, "Brightwater")
+    assert (out["film"]["to"], out["film"]["focus"]) == (None, "Glass Harbour")
+
+
 def test_tab_stays_inside_the_overlay() -> None:
     out = _run("focusTrap")
     assert (out["wrappedToFirst"], out["wrappedToLast"]) == (True, True)

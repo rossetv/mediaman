@@ -218,7 +218,7 @@
 
   /* Open the title *ref*. opts: origin (the card), title (what the card
      already knows), pick (the AI pick it was listed as, when *ref* is the
-     library's), push (add a history entry). */
+     library's), push (add a history entry), atEpisodes (show its episodes). */
   function open(ref, opts) {
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
@@ -241,6 +241,7 @@
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
       pick: null,          // why it is a pick, once known: { reason, because }
       onPick: null,
+      atEpisodes: !!opts.atEpisodes,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
       picks: null,
       season: null,
@@ -513,8 +514,20 @@
     takeDownload(c.ref, data.download, true);
     settleHero();
     renderContent(true);
+    if (c.atEpisodes) toEpisodes();
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
+  }
+
+  /* To the show's episodes, unless the person has scrolled or moved the focus meanwhile. */
+  function toEpisodes() {
+    var sec = body.querySelector('.ttl__seasonsec');
+    if (!sec || root.scrollTop || document.activeElement !== titleEl) return;
+    var heading = sec.querySelector('.ttl__sec-title');
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+    // Not by its box, which is off while the sheet grows.
+    root.scrollTo({ top: sheet.offsetTop + sec.offsetTop - bar.offsetHeight - 8, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
   }
 
   /* A title with no picture has a short head. */
@@ -2315,7 +2328,8 @@
     var ref = card.getAttribute('data-title-ref');
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
-    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'), push: true });
+    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'),
+      atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
   });
 
   /* ── The address ── */
