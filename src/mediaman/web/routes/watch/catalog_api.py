@@ -426,15 +426,10 @@ def _apply_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
-    _username: str,
-    allow_fetch: Callable[[], bool] | None = None,
-    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and the ratings held, as ``_fill_fields``; returns the TMDB
-    fields, asked for unless the caller has them. Raises TmdbUnavailable, and
-    disk_cache.Refused when TMDB would be asked and *allow_fetch* says no."""
-    if fields is None:
-        fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    fields. Raises TmdbUnavailable."""
+    fields = catalog.details(client, kind, tmdb_id)
     _fill_fields(out, request, conn, kind, tmdb_id, fields)
     return fields
 
@@ -530,7 +525,7 @@ def _movie_title(
     out["keep_allowed"] = is_admin or out["leaving"] is not None
     if client is not None and movie.tmdb_id:
         with contextlib.suppress(catalog.TmdbUnavailable):
-            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id, username)
+            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
     return out
 
 
@@ -624,7 +619,7 @@ def _show_title(
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
-            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id, username)
+            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id)
         except catalog.TmdbUnavailable:
             pass
         else:
@@ -660,12 +655,10 @@ def _tmdb_title(
     tmdb_id: int,
     download_url: str | None,
     allow_fetch: Callable[[], bool] | None = None,
-    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A TMDB title (*kind* "movie" or "tv"); *fields* is as in ``_apply_tmdb``. Raises
-    TmdbUnavailable and, as that, disk_cache.Refused."""
-    if fields is None:
-        fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    """A TMDB title (*kind* "movie" or "tv"). Raises TmdbUnavailable, and disk_cache.Refused
+    when TMDB would be asked and *allow_fetch* says no."""
+    fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     return _title_of_fields(
         request, conn, username, client, ref, kind, tmdb_id, download_url, fields
     )

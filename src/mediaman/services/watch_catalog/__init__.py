@@ -9,7 +9,6 @@ from ._dedupe import LibraryIndex, SeenTitles, folder_year, library_ids, normali
 from ._discover import (
     MAX_PAGE,
     MAX_QUERY_LEN,
-    MIN_QUERY_LEN,
     SHELVES,
     TitleNotFound,
     details,
@@ -50,7 +49,6 @@ __all__ = [
     "LIBRARY_PAGE",
     "MAX_PAGE",
     "MAX_QUERY_LEN",
-    "MIN_QUERY_LEN",
     "SHELVES",
     "SORTS",
     "TYPES",

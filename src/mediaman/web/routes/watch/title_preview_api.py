@@ -46,12 +46,12 @@ from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.catalog_api import (
     REF_RE,
-    _apply_tmdb,
     _arr,
+    _fill_fields,
     _OutsideLibraries,
     _payload,
+    _title_of_fields,
     _tmdb_client,
-    _tmdb_title,
     fill_show_leaving,
 )
 from mediaman.web.routes.watch.pages import (
@@ -142,13 +142,11 @@ def _fill_from_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
-    username: str,
     ask: _Ask,
 ) -> None:
     """Fill *out* from TMDB and the ratings held; raises as ``catalog.details``."""
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=ask, brief=True)
-    # Refusing every further ask leaves OMDb unasked.
-    _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, lambda: False, fields)
+    _fill_fields(out, request, conn, kind, tmdb_id, fields)
 
 
 def _library_title(
@@ -181,7 +179,7 @@ def _library_title(
         # Without TMDB, Plex has the words.
         with contextlib.suppress(catalog.TmdbUnavailable):
             media_type = "movie" if movie else "tv"
-            _fill_from_tmdb(out, request, conn, client, media_type, tmdb_id, username, ask)
+            _fill_from_tmdb(out, request, conn, client, media_type, tmdb_id, ask)
             known = True
     if movie:
         _movie_play(out, conn, username, key)
@@ -333,7 +331,7 @@ def _outside_title(
 ) -> dict[str, Any]:
     """The preview of a TMDB title; raises as ``catalog.details``."""
     fields = catalog.details(client, media_type, tmdb_id, allow_fetch=ask, brief=True)
-    return _tmdb_title(
+    return _title_of_fields(
         request,
         conn,
         username,
@@ -342,7 +340,6 @@ def _outside_title(
         media_type,
         tmdb_id,
         download_url,
-        lambda: False,
         fields,
     )
 

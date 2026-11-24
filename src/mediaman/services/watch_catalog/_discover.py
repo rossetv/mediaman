@@ -37,7 +37,6 @@ _DAY = 24 * _HOUR
 # A failure someone waited for is not held longer: they may try again.
 _HOLD_S = 5.0
 
-MIN_QUERY_LEN = 2
 MAX_QUERY_LEN = 100
 
 # (row id, row title, TmdbClient method, media_type to stamp: the popular lists omit it)
