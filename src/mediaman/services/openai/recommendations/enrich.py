@@ -40,8 +40,10 @@ _TMDB_FAILURES_MAX = 2
 # Search results looked through for a pick's title.
 _RESULTS_READ = 5
 
-# Where a subtitle can begin. A hyphen needs its spaces: "Spider" is no "Spider-Man".
-_SUBTITLE_RE = re.compile(r"\s*[:：–—(]|\s+-\s|\s+or\b", re.IGNORECASE)
+# Where a subtitle can begin. A hyphen needs its spaces ("Spider-Man"), and "or" a comma
+# before it or three words after it ("Life or Death").
+_SUBTITLE_RE = re.compile(r"\s*[:：–—(]|\s+-\s|\s*,\s*or\b|\s+or\b(?=(?:\W+\w+){3})", re.IGNORECASE)
+_NO_APOSTROPHES = str.maketrans("", "", "'’ʼ`")
 _COMBINING_RE = re.compile(r"[\u0300-\u036f]")
 
 
@@ -105,73 +107,87 @@ def enrich_recommendations(
         _fill_details(client, s, conn, secret_key, budget)
 
 
-def _spelling(title: object) -> str:
+def _spelling(title: str) -> str:
     """*title* with what two spellings of one title differ in removed: case, accents,
-    punctuation, spaces, "&" for "and" and a year in brackets at its end."""
-    text = re.sub(r"\s*\(\d{4}\)\s*$", "", title) if isinstance(title, str) else ""
+    punctuation, "&" for "and" and a year in brackets at its end."""
+    text = re.sub(r"\s*\(\d{4}\)\s*$", "", title).translate(_NO_APOSTROPHES)
     text = unicodedata.normalize("NFKD", text.replace("&", " and "))
-    squeezed = normalise_title(_COMBINING_RE.sub("", text)).replace(" ", "")
-    return squeezed or text.strip()
+    return normalise_title(_COMBINING_RE.sub("", text)) or text.strip()
 
 
-def _main_titles(title: str) -> set[str]:
-    """The spellings *title* has when it is cut where a subtitle can begin."""
-    return {_spelling(title[: m.start()]) for m in _SUBTITLE_RE.finditer(title)}
+def _names(found: TmdbSearchResult) -> list[str]:
+    names = (found.get(k) for k in ("title", "name", "original_title", "original_name"))
+    return [name for name in names if isinstance(name, str) and name]
 
 
-def _pick_result(
+def _is_of_year(found: TmdbSearchResult, year: int | None) -> bool:
+    released = str(found.get("release_date") or found.get("first_air_date") or "")
+    return bool(year) and released[:4] == str(year)
+
+
+def _exact_result(
     results: Sequence[TmdbSearchResult], title: str, year: int | None
 ) -> TmdbSearchResult | None:
-    """The first of *results* that is *title*, or else that is it but for a subtitle one of
-    the two leaves out, which only a title of the same *year* may: "Alien" is no "Alien:
-    Romulus"."""
+    """The one of *results* that is *title*: of *year* rather than not, then spelled with the
+    same spaces rather than not. Spaces may differ ("Spiderman") only in a title of *year*."""
     wanted = _spelling(title)
-    but_for_subtitle = None
+    ranked: list[tuple[tuple[bool, bool], TmdbSearchResult]] = []
     for found in results[:_RESULTS_READ]:
-        names = [
-            name
-            for k in ("title", "name", "original_title", "original_name")
-            if isinstance(name := found.get(k), str) and name
-        ]
-        if any(_spelling(name) == wanted for name in names):
-            return found
-        released = str(found.get("release_date") or found.get("first_air_date") or "")
-        if (
-            but_for_subtitle is None
-            and year
-            and released[:4] == str(year)
-            and any(
-                wanted in _main_titles(name) or _spelling(name) in _main_titles(title)
-                for name in names
-            )
-        ):
-            but_for_subtitle = found
-    return but_for_subtitle
+        spellings = {_spelling(name) for name in _names(found)}
+        of_year = _is_of_year(found, year)
+        apart = wanted not in spellings
+        together = {s.replace(" ", "") for s in spellings}
+        if not apart or (of_year and wanted.replace(" ", "") in together):
+            ranked.append(((not of_year, apart), found))
+    return min(ranked, key=lambda r: r[0])[1] if ranked else None
+
+
+def _subtitled_result(
+    results: Sequence[TmdbSearchResult], title: str, year: int | None
+) -> TmdbSearchResult | None:
+    """The only one of *results* that is *title* of *year* with a subtitle *title* leaves out;
+    None when there are more. The title asked for is never shortened itself."""
+    wanted = _spelling(title)
+    found = {
+        result.get("id"): result
+        for result in results
+        if _is_of_year(result, year)
+        and any(
+            _spelling(name[: cut.start()]) == wanted
+            for name in _names(result)
+            for cut in _SUBTITLE_RE.finditer(name)
+        )
+    }
+    return next(iter(found.values())) if len(found) == 1 else None
 
 
 def _find_on_tmdb(client: TmdbClient, s: RecommendationItem, budget: _Budget) -> bool:
     """Give *s* its TMDB card; False when TMDB answered that it knows no title of that name."""
-    search_title = s["title"]
-    if not search_title:
+    title, year = s["title"], s.get("year")
+    if not title:
         return True
     if s["media_type"] == "tv":
-        search_title = strip_season_suffix(search_title) or s["title"]
+        title = strip_season_suffix(title) or title
     best = None
+    seen: list[TmdbSearchResult] = []
     # The year first, then without it: a model's year can be wrong.
-    for year in dict.fromkeys((s.get("year"), None)):
+    for asked_year in dict.fromkeys((year, None)):
         if not budget.may_ask_tmdb():
             return True
         try:
             results = client.search_results_or_raise(
-                search_title, year=year, media_type=s["media_type"]
+                title, year=asked_year, media_type=s["media_type"]
             )
         except (SafeHTTPError, requests.RequestException, ValueError):
             logger.warning("recommendations: TMDB did not answer a title search", exc_info=True)
             budget.tmdb_failed()
             return True
-        best = _pick_result(results, search_title, s.get("year"))
+        best = _exact_result(results, title, year)
         if best is not None:
             break
+        seen += results
+    # A wrong title is worse than a lost pick: a subtitle only when no title is exact.
+    best = best or _subtitled_result(seen, title, year)
     if best is None:
         return False
     card = client.shape_card(best)

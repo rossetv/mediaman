@@ -321,8 +321,9 @@ class TestWhichPicksAreKept:
             ("Ocean's Eleven", {"title": "Ocean\u2019s Eleven"}),
             ("Birdman", {"title": "Birdman or (The Unexpected Virtue of Ignorance)"}),
             ("Star Wars", {"title": "Star Wars: Episode IV - A New Hope"}),
-            ("Borat: Cultural Learnings", {"title": "Borat"}),
             ("Borat", {"title": "Borat (Cultural Learnings)"}),
+            ("Dr Strange", {"title": "Dr. Strange, or How He Learned"}),
+            ("Borat", {"title": "Borat or Cultural Learnings of America"}),
             ("Andor", {"name": "Andor \u2013 A Story"}),
         ],
     )
@@ -341,6 +342,11 @@ class TestWhichPicksAreKept:
             ("Star Wars: Rogue One", 2016, {"title": "Star", "release_date": "2016-01-01"}),
             ("Or", 2004, {"title": "Life or Death", "release_date": "2004-01-01"}),
             ("Birdman", 2014, {"title": "Birdman or (The)", "release_date": ""}),
+            ("Life", 2002, {"title": "Life or Death", "release_date": "2002-01-01"}),
+            ("Dead", 2006, {"title": "Dead or Alive Again", "release_date": "2006-01-01"}),
+            ("Barbie: The Sequel", 2023, {"title": "Barbie", "release_date": "2023-07-01"}),
+            ("Nowhere", 2022, {"title": "Now Here", "release_date": "1990-01-01"}),
+            ("Nowhere", None, {"title": "Now Here", "release_date": "1990-01-01"}),
         ],
     )
     def test_a_film_that_only_begins_alike_is_refused(self, enrich, title, year, found):
@@ -355,6 +361,52 @@ class TestWhichPicksAreKept:
         assert enrich(_Tmdb({("Heat", 1995): results}), [{**_rec("Heat"), "year": 1995}]) == [
             ("Heat", 2)
         ]
+
+    @pytest.mark.parametrize(
+        ("title", "year", "longer"),
+        [
+            ("Mad Max", 2015, "Mad Max: Fury Road"),
+            ("Avatar", 2022, "Avatar: The Way of Water"),
+            ("Star Trek", 2017, "Star Trek: Discovery"),
+        ],
+    )
+    def test_an_exact_title_of_another_year_wins_over_a_subtitled_one_of_the_year(
+        self, enrich, title, year, longer
+    ):
+        tmdb = _Tmdb(
+            {
+                (title, year): {"id": 1, "title": longer, "release_date": f"{year}-01-01"},
+                (title, None): {"id": 2, "title": title, "release_date": "1979-01-01"},
+            }
+        )
+        assert enrich(tmdb, [{**_rec(title), "year": year}]) == [(title, 2)]
+
+    def test_a_subtitled_title_is_taken_when_neither_search_has_the_exact_one(self, enrich):
+        found = {"id": 1, "name": "Monster: The Dahmer Story", "first_air_date": "2022-09-01"}
+        other = {"id": 2, "name": "Monsters", "first_air_date": "2022-01-01"}
+        tmdb = _Tmdb({("Monster", 2022): [other, found], ("Monster", None): [found, other]})
+        assert enrich(tmdb, [{**_rec("Monster", "tv"), "year": 2022}]) == [("Monster", 1)]
+
+    def test_more_than_one_subtitled_title_of_the_year_is_refused(self, enrich):
+        first = {"id": 1, "title": "Fear Street: 1994", "release_date": "2021-07-01"}
+        second = {"id": 2, "title": "Fear Street: 1978", "release_date": "2021-07-08"}
+        key = "Fear Street"
+        for answers in (
+            {(key, 2021): [first, second]},
+            {(key, 2021): [first], (key, None): [second]},
+        ):
+            assert enrich(_Tmdb(answers), [{**_rec(key), "year": 2021}]) == []
+
+    def test_of_exact_titles_the_one_of_the_year_then_of_the_same_spaces_is_taken(self, enrich):
+        old = {"id": 1, "title": "Halloween", "release_date": "1978-10-25"}
+        new = {"id": 2, "title": "Halloween", "release_date": "2018-10-18"}
+        recs = [{**_rec("Halloween"), "year": 2018}]
+        assert enrich(_Tmdb({("Halloween", 2018): [old, new]}), recs) == [("Halloween", 2)]
+
+        apart = {"id": 3, "title": "Now Here", "release_date": "2022-01-01"}
+        whole = {"id": 4, "title": "Nowhere", "release_date": "2022-01-01"}
+        recs = [{**_rec("Nowhere"), "year": 2022}]
+        assert enrich(_Tmdb({("Nowhere", 2022): [apart, whole]}), recs) == [("Nowhere", 4)]
 
     def test_the_first_five_results_are_looked_through_and_no_more(self, enrich):
         others = [{"id": n, "title": f"Other {n}"} for n in range(1, 6)]
