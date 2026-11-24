@@ -1,0 +1,454 @@
+// Runs the Watch page's grid (watch/grid.js, with the core, keep and rows-load it needs) against the fake DOM with a
+// small layout, and prints the outcome of one scenario as JSON. Usage: node watch_grid_harness.js <scenario>
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+const { Node, makeDocument, build, click, settle } = require('./fake_dom');
+
+/* The layout: a page 1000 by 800 px under a bar of 50. The rows start at 100, 300 px each, their cards 150 px apart;
+   the layer starts at 100, its header 64 px; the grid has five columns of 200 px and lines of 300 px. */
+const VIEW = { width: 1000, height: 800 };
+const BAR = 50;
+const win = { y: 0, width: VIEW.width };
+
+function shown(node) {
+  for (let a = node; a; a = a.parentNode) if (a.hidden || a.hasAttribute && a.hasAttribute('hidden')) return false;
+  return true;
+}
+
+function boxOf(node) {
+  if (node.classList.contains('nav-glass')) return [0, 0, 1000, BAR];
+  if (node.classList.contains('watch-all')) return [0, 100 - win.y, 1000, 2000];
+  if (node.classList.contains('watch-all__head')) return [0, Math.max(BAR, 100 - win.y), 1000, 64];
+  if (node.classList.contains('watch-all__body') || node.classList.contains('watch-grid')) return [0, 164 - win.y, 1000, 2000];
+  const card = node.closest && node.closest('.watch-card, .watch-card--skel, .grid-group');
+  if (card && card.parentNode && card.parentNode.classList.contains('watch-grid')) {
+    const i = card.parentNode.children.indexOf(card);
+    return [(i % 5) * 200, 164 + Math.floor(i / 5) * 300 - win.y, 190, 280];
+  }
+  const row = node.closest && node.closest('.watch-row');
+  if (row) {
+    const top = 100 + row.parentNode.children.indexOf(row) * 300 - win.y;
+    if (card) {
+      const i = card.parentNode.children.indexOf(card);
+      return [i * 150 - (card.parentNode.scrollLeft || 0), top + 40, 140, 230];
+    }
+    return [0, top, 1000, 280];
+  }
+  return [0, 0, 20, 20];
+}
+
+const rect = (b) => ({ left: b[0], top: b[1], width: b[2], height: b[3], right: b[0] + b[2], bottom: b[1] + b[3] });
+Node.prototype.getBoundingClientRect = function () { return rect(shown(this) && this.ownerDocument.body.contains(this) ? boxOf(this) : [0, 0, 0, 0]); };
+Node.prototype.getClientRects = function () { return shown(this) && this.ownerDocument.body.contains(this) ? [this.getBoundingClientRect()] : []; };
+Node.prototype.replaceChildren = function (...kids) { this.textContent = ''; kids.forEach((k) => this.appendChild(k)); };
+Object.defineProperty(Node.prototype, 'clientWidth', { configurable: true, get() { return shown(this) ? VIEW.width : 0; } });
+Object.defineProperty(Node.prototype, 'offsetHeight', { configurable: true, get() { return this.classList.contains('watch-all__head') ? 64 : 20; } });
+Object.defineProperty(Node.prototype, 'firstElementChild', { get() { return this.children[0] || null; } });
+Object.defineProperty(Node.prototype, 'id', { get() { return this.attrs.id || ''; }, set(v) { this.attrs.id = v; } });
+
+function posterCard(doc, n, extra = {}) {
+  return build(doc, ['article', { class: 'watch-card' },
+    ['a', { class: 'watch-card__link', href: '/watch/movie/' + n, 'data-title-ref': 'movie-' + n },
+      ['span', { class: 'watch-card__poster' }, ['img', { ...(extra.far ? { 'data-far-src': '/p/' + n } : { src: '/p/' + n }), loading: 'lazy' }],
+        ['span', { class: 'watch-card__title' }, 'Film ' + n]], ['span', { class: 'watch-card__sub' }, 'Movie']]]);
+}
+
+const range = (from, to) => Array.from({ length: to - from }, (_, i) => from + i);
+
+/* The page with a row of *cards* called Movies (and another under it). */
+function load(opts = {}) {
+  win.y = 0;
+  win.width = VIEW.width;
+  const doc = makeDocument();
+  const listeners = {};
+  const toasts = [];
+  const anims = [];
+  const timers = [];
+  const row = (title, ns) => ['section', { class: 'watch-row' }, ['h2', { class: 'watch-row__title' }, ['a', { href: '/watch?all=x' }, title]],
+    ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll', tabindex: '0' }]]];
+  doc.body.appendChild(build(doc, ['div', { class: 'nav-glass' }]));
+  const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
+    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
+    ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }]]]] : [];
+  doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' }, ['div', { class: 'watch-top' }],
+    ['div', { id: 'watch-browse' }, row('Movies'), row('TV')], ...server]));
+  const rows = doc.querySelectorAll('.watch-row');
+  (opts.cards || range(1, 13)).forEach((n) => rows[0].querySelector('.watch-row__scroll').appendChild(posterCard(doc, n, { far: opts.far === n })));
+  range(101, 105).forEach((n) => rows[1].querySelector('.watch-row__scroll').appendChild(posterCard(doc, n)));
+  rows.forEach((r) => { r.querySelector('.watch-row__scroll').scrollLeft = 0; });
+  if (opts.server) range(50, 53).forEach((n) => doc.querySelector('.watch-grid').appendChild(posterCard(doc, n)));
+  doc.createRange = () => ({ selectNodeContents(n) { this.n = n; }, getBoundingClientRect() { return this.n.getBoundingClientRect(); } });
+  if (opts.motion) {
+    Node.prototype.animate = function (frames, o) {
+      const a = { node: this, frames, opts: o, cancelled: false, onfinish: null, cancel() { this.cancelled = true; if (this.oncancel) this.oncancel(); } };
+      anims.push(a);
+      return a;
+    };
+  } else {
+    delete Node.prototype.animate;
+  }
+  const fire = (type, event) => (listeners[type] || []).slice().forEach((fn) => fn(event || {}));
+  const scroll = (y) => { win.y = Math.max(0, y); fire('scroll'); };
+  const ctx = {
+    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Map, Set, Error, isNaN, parseFloat, parseInt,
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeout: () => {},
+    getComputedStyle: (n) => ({ getPropertyValue: () => '', display: 'block', visibility: 'visible', paddingLeft: '0', fontSize: '20px', transform: n.mid || 'none', opacity: '0.4',
+      gridTemplateColumns: '200px 200px 200px 200px 200px' }),
+    matchMedia: () => ({ matches: !opts.motion }),
+    requestAnimationFrame: (fn) => fn(),
+    addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
+    scrollTo: (o) => scroll(o.top),
+    scrollBy: (o) => scroll(win.y + o.top),
+    innerHeight: VIEW.height,
+    UIFeedback: { toast: (m) => toasts.push(m) },
+    MM: { dom: { icon: (n) => build(doc, ['svg', { class: n }]) } },
+  };
+  Object.defineProperty(ctx, 'scrollY', { get: () => win.y });
+  Object.defineProperty(ctx, 'innerWidth', { get: () => win.width });
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  ['watch/core.js', 'watch/keep.js', 'watch/rows-load.js', 'watch/grid.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  const grid = ctx.MMWatch.grid;
+  const backs = [];
+  const p = { doc, ctx, grid, rows, toasts, anims, timers, fire, scroll, backs, card: (n) => posterCard(doc, n) };
+  p.opts = (more) => ({ id: 'movies', title: 'Movies', total: 12, row: () => rows[0], next: null, back: () => backs.push('back'), ...more });
+  p.refs = () => doc.querySelectorAll('.watch-all [data-title-ref]').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
+  p.all = () => doc.querySelector('.watch-all');
+  p.browse = doc.querySelector('#watch-browse');
+  p.say = () => doc.querySelectorAll('[role="status"]').map((n) => n.textContent).filter(Boolean).join(' / ');
+  p.focus = () => { const a = doc.activeElement; return a.getAttribute('data-title-ref') || a.id || a.className || a.tagName; };
+  p.key = (k, target) => { const e = { key: k, target: target || doc.activeElement, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    for (let a = e.target; a; a = a.parentNode) (a.listeners.keydown || []).forEach((fn) => fn(e));
+    (doc.listeners.keydown || []).forEach((fn) => fn(e)); fire('keydown', e); return e; };
+  p.finish = () => anims.slice().forEach((a) => { if (!a.cancelled && !a.done) { a.done = true; if (a.onfinish) a.onfinish(); } });
+  p.leftovers = () => doc.querySelectorAll('.is-track, .is-flyer, .is-flown, .is-under, .is-pinned, .watch-ride, .is-ghost, [inert]').length;
+  p.state = () => ({ browse: shown(p.browse), all: !!p.all() && shown(p.all()), moving: grid.moving(), open: grid.isOpen() });
+  return p;
+}
+
+/* A grid alone on the page, as another view holds one. */
+function lone(opts, pages) {
+  const p = load();
+  p.browse.hidden = true;
+  const host = p.doc.querySelector('#watch-page').appendChild(build(p.doc, ['div', { class: 'results' }]));
+  p.asked = [];
+  p.list = p.grid.list(host, {
+    title: 'Action', total: null, next: pages ? 'p0' : null,
+    fetchPage: (next) => { p.asked.push(next); const page = pages.shift(); return page instanceof Promise ? page : page.status ? Promise.reject(Object.assign(new Error('no'), page)) : Promise.resolve({ cards: page.cards.map(make), next: page.next }); },
+    ...opts, cards: (opts.cards || []).map(make),
+  });
+  function make(n) { return typeof n === 'string' ? p.grid.group(n, 'Picks of ' + n) : p.card(n); }
+  p.make = make;
+  p.nums = () => host.querySelectorAll('.watch-card__link').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
+  p.skels = () => host.querySelectorAll('.watch-card--skel').length;
+  p.tail = () => host.querySelector('.grid-tail').textContent;
+  p.host = host;
+  return p;
+}
+
+const pressSort = (p, id) => {
+  click(p.doc, p.doc.querySelector('#watch-all-sort'));
+  click(p.doc, p.doc.querySelectorAll('#watch-all-menu [data-value]').find((i) => i.getAttribute('data-value') === id));
+};
+const sortOf = (choose) => ({ label: 'Sort', value: 'added', options: [{ id: 'added', label: 'Recently added' }, { id: 'az', label: 'A to Z' }, { id: 'year', label: 'Newest release' }], choose });
+const label = (p) => p.doc.querySelector('#watch-all-sort').getAttribute('aria-label');
+
+const scenarios = {
+  async loadsToTheEnd() {
+    let give;
+    const p = lone({ cards: range(1, 8) }, [new Promise((ok) => { give = ok; }), { cards: range(40, 42), next: null }]);
+    const waiting = { skels: p.skels(), busy: p.list.node.getAttribute('aria-busy') };
+    give({ cards: [7, 8, 9].map(p.make), next: 'p1' });
+    await settle();
+    return { waiting, nums: p.nums(), asked: p.asked, left: p.skels(), tail: p.tail(), say: p.say() };
+  },
+
+  async failsAndComesBack() {
+    const p = lone({ cards: range(1, 4) }, [{ status: 500 }, { cards: [4], next: null }]);
+    await settle();
+    const alert = p.host.querySelector('[role="alert"]');
+    const failed = { text: alert.textContent, skels: p.skels(), still: p.list.node.classList.contains('is-static') };
+    const button = alert.querySelector('button');
+    button.focus();
+    button.listeners.click.forEach((fn) => fn({}));
+    await settle();
+    return { failed, nums: p.nums(), skels: p.skels(), still: p.list.node.classList.contains('is-static'), alert: !!p.host.querySelector('[role="alert"]'), focus: p.focus() };
+  },
+
+  async ends() {
+    const tail = (opts) => lone(opts).tail();
+    const empty = lone({ empty: { title: 'Nothing in Action yet', text: 'Try another.', link: 'Back', href: '//evil' } });
+    return { many: tail({ cards: [1, 2], total: 2 }), one: tail({ cards: [1], total: 1 }), endless: tail({ cards: [1] }),
+      empty: empty.tail(), href: empty.host.querySelector('a').getAttribute('href') };
+  },
+
+  async otherContentsDropTheOldPages() {
+    let give;
+    const p = lone({ cards: [1, 2, 3] }, [new Promise((ok) => { give = ok; })]);
+    const kept = p.list.cards()[2];
+    p.list.set({ cards: [3, 9, 1].map(p.make), next: null, total: 3 });
+    give({ cards: [77].map(p.make), next: 'p1' });
+    await settle();
+    return { nums: p.nums(), sameNode: p.list.cards()[0] === kept, tail: p.tail(), skels: p.skels() };
+  },
+
+  async otherContentsTravel() {
+    const p = load({ motion: true });
+    const host = p.doc.querySelector('#watch-page').appendChild(build(p.doc, ['div', {}]));
+    p.browse.hidden = true;
+    const list = p.grid.list(host, { title: 'x', total: 3, cards: [1, 2, 3].map(p.card), next: null });
+    list.set({ cards: [3, 1, 4].map(p.card), next: null }, { move: true });
+    const said = p.anims.map((a) => [a.node.querySelector('[data-title-ref]').getAttribute('data-title-ref'), a.frames[0].transform, a.frames[0].opacity === undefined ? null : a.frames[0].opacity]);
+    const gone = host.querySelectorAll('.is-gone').length;
+    p.finish();
+    return { said, gone, goneAfter: host.querySelectorAll('.is-gone').length, flyers: host.querySelectorAll('.is-flyer').length };
+  },
+
+  async arrowKeys() {
+    const p = lone({ cards: range(1, 13) });
+    const links = p.list.node.querySelectorAll('.watch-card__link');
+    links[1].focus();
+    const path = [];
+    for (const k of ['ArrowRight', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowLeft']) { const e = p.key(k); path.push(p.focus().slice(6) + (e.defaultPrevented ? '' : '!')); }
+    const tab = p.key('Tab').defaultPrevented;
+    // Lines of five, two and five, as dated lines leave them.
+    const all = p.list.cards();
+    const at = [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [0, 1], [1, 1], [0, 2], [1, 2], [2, 2], [3, 2], [4, 2]];
+    all.forEach((c, i) => { c.getBoundingClientRect = () => rect([at[i][0] * 200, 164 + at[i][1] * 300, 190, 280]); });
+    links[4].focus();
+    p.key('ArrowDown');
+    return { path, tab, short: p.focus().slice(6) };
+  },
+
+  async jumpLoadsUntilThere() {
+    const p = lone({ cards: ['a', 1, 2] }, [{ cards: ['b', 3], next: 'p1' }, { cards: ['c', 4], next: 'p2' }, { cards: ['d', 5], next: 'p3' }, { cards: ['e', 6], next: null }]);
+    // The end is far off: only the jump asks for more.
+    p.list.cards().forEach((c) => { c.getBoundingClientRect = () => rect([0, 5000, 190, 280]); });
+    const add = Node.prototype.getBoundingClientRect;
+    Node.prototype.getBoundingClientRect = function () { return this.classList.contains('watch-card') ? rect([0, 5000, 190, 280]) : add.call(this); };
+    await settle();
+    const before = p.asked.length;
+    p.list.jump('c');
+    for (let i = 0; i < 6; i++) { await settle(); p.timers.splice(0).forEach((t) => t.fn()); }
+    const asked = p.asked.length;
+    p.list.jump('zz');
+    p.fire('wheel');
+    for (let i = 0; i < 6; i++) { await settle(); p.timers.splice(0).forEach((t) => t.fn()); }
+    Node.prototype.getBoundingClientRect = add;
+    return { before, asked, taken: p.asked.length, scrolled: win.y > 0 };
+  },
+
+  async opens() {
+    const p = load({ far: 12 });
+    p.rows[0].querySelectorAll('.watch-card__link')[2].focus();
+    p.grid.open(p.opts());
+    const copies = p.doc.querySelectorAll('.watch-all .watch-card');
+    return { ...p.state(), refs: p.refs(), focus: p.focus(), say: p.say(), count: p.doc.querySelector('.watch-all__count').textContent,
+      far: copies[11].querySelector('img').getAttribute('src'), row: p.rows[0].querySelectorAll('.watch-card').length, sort: !!p.doc.querySelector('#watch-all-sort') };
+  },
+
+  async closesWhereItWas() {
+    const p = load();
+    p.scroll(90);
+    const scroller = p.rows[0].querySelector('.watch-row__scroll');
+    scroller.scrollLeft = 300;
+    const link = p.rows[0].querySelectorAll('.watch-card__link')[3];
+    link.focus();
+    p.grid.open(p.opts());
+    p.scroll(500);
+    scroller.scrollLeft = 0;
+    p.grid.close();
+    const same = { y: win.y, left: scroller.scrollLeft, focus: p.focus(), ...p.state(), say: p.say(), cards: p.refs().length };
+    p.grid.open(p.opts());
+    p.doc.querySelectorAll('.watch-all .watch-card__link')[4].focus();
+    p.grid.close();
+    const onCard = p.focus();
+    p.grid.open(p.opts());
+    p.doc.querySelectorAll('.watch-all .watch-card__link')[11].focus();
+    p.grid.close();
+    return { same, onCard, offScreen: p.focus() };
+  },
+
+  async midRowOpensOnItsLine() {
+    const p = load({ cards: range(1, 31) });
+    p.rows[0].querySelector('.watch-row__scroll').scrollLeft = 150 * 17;
+    p.grid.open(p.opts({ total: 30 }));
+    const card = p.doc.querySelectorAll('.watch-all .watch-card')[17].getBoundingClientRect();
+    return { top: card.top };
+  },
+
+  async fromALink() {
+    const p = load();
+    p.grid.open(p.opts({ instant: true, row: () => p.rows[1] }));
+    const opened = p.state();
+    p.grid.close();
+    const r = p.rows[1].getBoundingClientRect();
+    return { opened, mid: r.top + r.height / 2, focus: p.focus(), ...p.state() };
+  },
+
+  async serverDrawn() {
+    const p = load({ server: true });
+    p.browse.hidden = true;
+    p.grid.open(p.opts({ instant: true, total: 3 }));
+    const drawn = p.refs();
+    p.grid.close();
+    p.grid.open(p.opts());
+    return { drawn, after: p.refs() };
+  },
+
+  async movesAndLands() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    const mid = { ...p.state(), pinned: p.browse.classList.contains('is-pinned'), inert: p.browse.hasAttribute('inert') };
+    const first = p.anims.find((a) => a.node === p.doc.querySelectorAll('.watch-all .watch-card')[0]);
+    const one = p.anims[0];
+    one.done = true;
+    one.onfinish();
+    const afterOne = p.grid.moving();
+    const only = new Set(p.anims.flatMap((a) => a.frames.flatMap((f) => Object.keys(f))));
+    p.finish();
+    const landed = { ...p.state(), left: p.leftovers() };
+    p.anims.length = 0;
+    p.grid.close();
+    const closing = { ...p.state(), pinned: p.all().classList.contains('is-pinned') };
+    p.finish();
+    return { mid, afterOne, from: first.frames[0].transform, props: [...only].sort(), landed, closing, closed: { ...p.state(), left: p.leftovers(), cards: p.refs().length } };
+  },
+
+  async turnsRoundFromWhereItIs() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    const opening = p.anims.splice(0);
+    const card = p.doc.querySelectorAll('.watch-all .watch-card')[0];
+    card.mid = 'matrix(0.9, 0, 0, 0.9, 12, 34)';
+    p.grid.close();
+    const closing = p.anims.splice(0);
+    const back = closing.find((a) => a.node === card);
+    // What it was doing may still say it is done.
+    opening.forEach((a) => { if (a.onfinish) a.onfinish(); });
+    const after = p.state();
+    p.grid.open(p.opts());
+    const again = p.anims.find((a) => a.node === card);
+    const cards = p.refs().length;
+    p.finish();
+    return { from: back.frames[0].transform, delays: [...new Set(closing.map((a) => a.opts.delay))], slowest: Math.max(...closing.map((a) => a.opts.duration)),
+      cancelled: opening.every((a) => a.cancelled), after, again: again.frames[1].transform, cards, landed: p.state(), left: p.leftovers() };
+  },
+
+  async resizedMidway() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    win.width = 700;
+    p.fire('resize');
+    return { ...p.state(), left: p.leftovers() };
+  },
+
+  async reducedMotion() {
+    const p = load({ motion: true });
+    p.ctx.matchMedia = () => ({ matches: true });
+    p.grid.open(p.opts({ sort: sortOf(() => Promise.resolve({ cards: [5, 1].map(p.card), next: null, total: 2 })) }));
+    pressSort(p, 'az');
+    await settle();
+    const open = p.state();
+    p.grid.close();
+    return { open, closed: p.state(), anims: p.anims.length };
+  },
+
+  async escape() {
+    const p = load();
+    p.grid.open(p.opts());
+    let top = 'title';
+    p.ctx.MMWatch.address = { top: () => top };
+    p.key('Escape');
+    const under = p.backs.length;
+    top = 'grid';
+    p.doc.addEventListener('keydown', p.other = (e) => { if (p.eat) e.preventDefault(); });
+    p.eat = true;
+    p.key('Escape');
+    const eaten = p.backs.length;
+    p.eat = false;
+    p.key('Escape');
+    const own = p.backs.length;
+    p.grid.close();
+    p.key('Escape');
+    return { under, eaten, own, closed: p.backs.length };
+  },
+
+  async backLink() {
+    const p = load();
+    p.grid.open(p.opts());
+    const back = p.doc.querySelector('.watch-all__back');
+    const press = (more) => { const e = { target: back, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
+      for (let a = back; a; a = a.parentNode) (a.listeners.click || []).forEach((fn) => fn(e)); return [p.backs.length, e.defaultPrevented]; };
+    return { newTab: press({ metaKey: true }), plain: press({}) };
+  },
+
+  async sorts() {
+    const p = load();
+    const gives = {};
+    const chosen = [];
+    p.grid.open(p.opts({ sort: { ...sortOf((id) => new Promise((ok, no) => { gives[id] = { ok, no }; })), chosen: (id) => chosen.push(id) } }));
+    pressSort(p, 'az');
+    const waiting = [label(p), p.doc.querySelector('.watch-all__body').getAttribute('aria-busy')];
+    pressSort(p, 'year');
+    gives.az.ok({ cards: [8].map(p.card), next: null, total: 1 });
+    await settle();
+    const late = p.refs().length;
+    gives.year.ok({ cards: [6, 2].map(p.card), next: null, total: 2 });
+    await settle();
+    const done = { refs: p.refs(), label: label(p), count: p.doc.querySelector('.watch-all__count').textContent, busy: p.doc.querySelector('.watch-all__body').getAttribute('aria-busy'), say: p.say() };
+    pressSort(p, 'az');
+    gives.az.no(new Error('no'));
+    await settle();
+    return { waiting, late, done, chosen, failed: [label(p), p.refs(), p.toasts.length, p.doc.querySelector('.watch-all__body').getAttribute('aria-busy')] };
+  },
+
+  async sortAnswersAfterLeaving() {
+    const p = load({ motion: true });
+    let give;
+    const chosen = [];
+    p.grid.open(p.opts({ sort: { ...sortOf(() => new Promise((ok) => { give = ok; })), chosen: (id) => chosen.push(id) } }));
+    p.finish();
+    pressSort(p, 'az');
+    p.grid.close();
+    give({ cards: [8].map(p.card), next: null, total: 1 });
+    await settle();
+    const during = p.refs().length;
+    const was = label(p);
+    p.finish();
+    return { during, label: was, chosen, ...p.state(), left: p.leftovers() };
+  },
+
+  async leaves() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    p.grid.leave();
+    return { ...p.state(), left: p.leftovers() };
+  },
+
+  async nothingToSort() {
+    const p = load();
+    p.grid.open(p.opts({ cards: [], total: 0, sort: sortOf(() => {}) }));
+    return { sort: !!p.doc.querySelector('#watch-all-sort'), text: p.doc.querySelector('.grid-empty').textContent, count: p.doc.querySelector('.watch-all__count').textContent };
+  },
+
+  async rowThatIsGone() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    p.finish();
+    p.rows[0].remove();
+    p.grid.close();
+    p.finish();
+    return { ...p.state(), left: p.leftovers(), focusInPage: p.doc.body.contains(p.doc.activeElement) };
+  },
+};
+
+const name = process.argv[2];
+if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }
+scenarios[name]().then((out) => console.log(JSON.stringify(out)), (err) => { console.error(err.stack); process.exit(1); });
