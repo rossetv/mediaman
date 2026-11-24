@@ -157,6 +157,7 @@
     chapterBtn: q('[data-chapter-btn]'),
     chapterName: q('[data-chapter-name]'),
     chapterMenu: q('[data-chapter-menu]'),
+    bubbleText: q('[data-bubble-text]'),
     bubbleTitle: q('[data-bubble-title]'),
     bubbleTime: q('[data-bubble-time]'),
     frame: q('[data-frame]'),
@@ -1311,6 +1312,10 @@
     var x = Math.min(frac * rect.width, window.innerWidth - BUBBLE_EDGE - half - rect.left);
     x = Math.max(x, BUBBLE_EDGE + half - rect.left);
     els.bubble.style.transform = 'translateX(' + Math.round(x - half) + 'px)';
+    /* At the ends of the bar the words go on with the pointer, as far as the frame reaches. */
+    var room = half - els.bubbleText.offsetWidth / 2;
+    var ahead = Math.max(-room, Math.min(room, frac * rect.width - x));
+    els.bubbleText.style.transform = 'translateX(' + Math.round(ahead) + 'px)';
     els.seekHover.style.left = frac * 100 + '%';
   }
 
