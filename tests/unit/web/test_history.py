@@ -692,8 +692,16 @@ class TestHistoryPageMarkup:
         buttons = nav.group(2)
         assert 'aria-label="Previous page"' in buttons
         assert 'aria-label="Next page"' in buttons
-        assert re.search(r'aria-current="page"[^>]*>2<', buttons)
+        assert re.search(r'role="link" aria-current="page"[^>]*>2<', buttons)
         assert 'aria-label="Page 1"' in buttons
+
+    def test_a_disabled_arrow_is_a_link_role_so_its_name_and_state_are_read(
+        self, app_factory, authed_client, conn
+    ):
+        for i in range(_PER_PAGE_DEFAULT + 1):
+            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "")
+        assert 'role="link" aria-label="Previous page" aria-disabled="true"' in html
 
     def test_the_last_row_does_not_double_the_card_border(self):
         css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
