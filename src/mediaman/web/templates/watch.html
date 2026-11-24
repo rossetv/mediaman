@@ -90,7 +90,7 @@
         <span class="watch-search__field">
           {# Stands in for the placeholder, which cannot move. #}
           <span class="watch-search__ph" id="watch-search-hint" aria-hidden="true">{{ search_label }}</span>
-          <input id="watch-search" class="watch-search__input" type="search" role="combobox" placeholder="{{ search_label }}" aria-label="{{ search_label }}" aria-autocomplete="list" aria-expanded="false" aria-controls="watch-sheet" autocomplete="off" spellcheck="false"{% if q %} value="{{ q }}"{% endif %}>
+          <input id="watch-search" class="watch-search__input" type="search" role="combobox" placeholder="{{ search_label }}" aria-label="{{ search_label }}" aria-autocomplete="list" aria-expanded="false" aria-controls="watch-sheet" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"{% if q %} value="{{ q }}"{% endif %}>
         </span>
       </div>
       <span class="watch-search__end">

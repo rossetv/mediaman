@@ -542,6 +542,13 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     assert "watch-search-status" not in overlay
 
 
+def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
+    field = re.search(r'<input id="watch-search"[^>]*>', _watch())
+    assert field is not None
+    for attr in ('enterkeyhint="search"', 'autocapitalize="off"', 'autocorrect="off"'):
+        assert attr in field.group(0)
+
+
 @pytest.mark.parametrize(
     "page", [("watch_show.html", _show_ctx()), ("watch_movie.html", _movie_ctx())]
 )
