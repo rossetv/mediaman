@@ -77,6 +77,17 @@ def test_blue_and_purple_text_keep_aa_on_their_tints_over_every_surface_a_pill_s
             assert ratio >= 4.5, f"{selector} over --{surface}"
 
 
+def test_a_button_is_reached_from_44px_on_tablets_and_touch_screens_without_growing() -> None:
+    css = _css("_buttons.css")
+    block = css.split("@media (min-width: 700px) and (max-width: 1023.98px), (pointer: coarse) {")[
+        1
+    ]
+    reach = re.search(r"\.btn::after \{([^}]*)\}", block.split("\n}")[0]).group(1)
+    # half of what the button lacks to 44px, above and below, whatever its size
+    assert "inset: min(0px, calc((100% - 44px) / 2)) 0" in reach
+    assert "min-height" not in block.split("\n}")[0]
+
+
 def test_a_sign_in_button_s_label_has_air_when_it_takes_two_lines() -> None:
     body = _body("_login.css", ".login-btn")
     top = re.search(r"(?<![\w-])padding:\s*(\d+)px", body)

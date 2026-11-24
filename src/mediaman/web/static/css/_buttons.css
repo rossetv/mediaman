@@ -171,6 +171,12 @@
   .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
 }
 
+/* On tablets and touch screens a button keeps its size and is reached from 44px. */
+@media (min-width: 700px) and (max-width: 1023.98px), (pointer: coarse) {
+  .btn { position: relative; }
+  .btn::after { content: ""; position: absolute; inset: min(0px, calc((100% - 44px) / 2)) 0; }
+}
+
 /* The system's colours: an edge where the fill was, and the choice that is on. */
 @media (forced-colors: active) {
   .keep-trigger,
