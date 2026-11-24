@@ -23,6 +23,9 @@
   var COMPOSING_MS = 700;
   var EXAMPLE_MS = 3200;
   var SKELETONS = 6;
+  // The categories the sheet opens on; the rest stand below what else it offers.
+  var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
+  var PEOPLE = 6;
   // TMDB answers nothing for less; do not ask.
   var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
@@ -377,6 +380,12 @@
     head.querySelector('.results-group__count').textContent = typeof count === 'number' ? titleCount(count) : '';
   }
 
+  function times(n, make) {
+    var all = [];
+    while (all.length < n) all.push(make(all.length));
+    return all;
+  }
+
   function skeleton() {
     var card = el('div', 'watch-card watch-card--skel');
     card.setAttribute('aria-hidden', 'true');
@@ -504,7 +513,7 @@
     var live = null; // what the results hold: { kind, node, ... }
     var tokened = false;
     var sheetOn = false;
-    var sheetOf = null; // the categories and people the sheet was drawn from
+    var sheetOf = null; // what the sheet was drawn from: { all, waiting }
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -597,18 +606,13 @@
       return node;
     }
 
-    function tries(list, after) {
-      var row = el('div', 'watch-tries');
-      list.forEach(function (text, i) {
-        var b = el('button', 'watch-try');
-        b.type = 'button';
-        b.appendChild(MM.dom.icon('i-magnifying-glass'));
-        b.appendChild(document.createTextNode(text));
-        b.addEventListener('click', function () { fill(text); });
-        if (after) staged(option(b, 'try-' + i), after + i * 22);
-        row.appendChild(b);
-      });
-      return row;
+    function tryButton(text) {
+      var b = el('button', 'watch-try');
+      b.type = 'button';
+      b.appendChild(MM.dom.icon('i-magnifying-glass'));
+      b.appendChild(document.createTextNode(text));
+      b.addEventListener('click', function () { fill(text); });
+      return b;
     }
 
     function personTile(p, i) {
@@ -622,56 +626,74 @@
       return staged(b, 130 + i * 22);
     }
 
-    function drawSheet(all) {
-      if (sheetOf === all) return;
-      sheetOf = all;
-      if (picked && sheet.contains(picked)) pick(null);
-      var genres = all.genres;
-      var folk = all.people.slice(0, 6);
+    function genreTile(genre, i) {
+      var b = option(el('button', 'watch-tile'), 'genre-' + genre.id);
+      b.type = 'button';
+      var name = el('b', '', genre.name);
+      b.appendChild(name);
+      (genre.poster_urls || []).slice(0, 2).forEach(function (url) { b.appendChild(small(url)); });
+      b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
+      return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);
+    }
+
+    function outline(className, parts) {
+      var node = el('div', className);
+      node.setAttribute('aria-hidden', 'true');
+      parts.forEach(function (part) { node.appendChild(el('span', part)); });
+      return node;
+    }
+
+    function tileOutline() { return outline('watch-tile--skel skel', []); }
+
+    function personOutline() {
+      return outline('watch-person watch-person--skel', ['watch-face skel skel--circle', 'skel skel--line', 'skel skel--line']);
+    }
+
+    /* A heading of the sheet over *nodes*, in the row or grid *className*. */
+    function drawPart(title, className, nodes) {
+      if (!nodes.length) return;
+      var part = el('div', className);
+      part.setAttribute('role', 'group');
+      part.setAttribute('aria-label', title);
+      nodes.forEach(function (node) { part.appendChild(node); });
+      sheet.appendChild(el('p', 'watch-sheet__title', title));
+      sheet.appendChild(part);
+    }
+
+    /* Draw the sheet from the categories and people of *all*; *waiting*: they are
+       on their way, and their place is held. */
+    function drawSheet(all, waiting) {
+      if (sheetOf && sheetOf.all === all && sheetOf.waiting === waiting) return;
+      // Drawn anew under the person's eyes, what stays does not come in again.
+      var again = sheetOn && !!sheetOf;
+      var at = picked && sheet.contains(picked) ? picked.id : null;
+      sheetOf = { all: all, waiting: waiting };
+      var first = FIRST.map(function (id) { return all.genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
+      var more = all.genres.filter(function (g) { return first.indexOf(g) === -1; });
+      var folk = all.people.slice(0, PEOPLE);
       sheet.textContent = '';
-      if (genres.length) {
-        var tiles = el('div', 'watch-tiles');
-        tiles.setAttribute('role', 'group');
-        tiles.setAttribute('aria-label', 'Browse by category');
-        genres.forEach(function (genre, i) {
-          var b = option(el('button', 'watch-tile'), 'genre-' + genre.id);
-          b.type = 'button';
-          var name = el('b', '', genre.name);
-          b.appendChild(name);
-          (genre.poster_urls || []).slice(0, 2).forEach(function (url) { b.appendChild(small(url)); });
-          b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
-          tiles.appendChild(staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24));
-        });
-        sheet.appendChild(el('p', 'watch-sheet__title', 'Browse by category'));
-        sheet.appendChild(tiles);
-      }
-      if (folk.length) {
-        var who = el('div', 'watch-people');
-        who.setAttribute('role', 'group');
-        who.setAttribute('aria-label', 'People in your library');
-        folk.forEach(function (p, i) { who.appendChild(personTile(p, i)); });
-        sheet.appendChild(el('p', 'watch-sheet__title', 'People in your library'));
-        sheet.appendChild(who);
-      }
-      sheet.appendChild(el('p', 'watch-sheet__title', 'Or try'));
-      var row = tries(TRIES, folk.length ? 190 : 130);
-      row.setAttribute('role', 'group');
-      row.setAttribute('aria-label', 'Or try');
-      sheet.appendChild(row);
+      drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
+      drawPart('People in your library', 'watch-people', waiting ? times(PEOPLE, personOutline) : folk.map(personTile));
+      drawPart('Or try', 'watch-tries', TRIES.map(function (text, i) {
+        var b = option(tryButton(text), 'try-' + i);
+        return again ? b : staged(b, (waiting || folk.length ? 190 : 130) + i * 22);
+      }));
+      drawPart('More categories', 'watch-tiles', more.map(genreTile));
+      if (at) pick(byId(at));
     }
 
     function openSheet(on) {
       on = on && canExplore() && !input.value && !tokened;
-      if (on) explore.categories().then(function (all) { if (all.genres.length || !sheetOf) drawSheet(all); });
+      if (on) explore.categories().then(function (all) { drawSheet(all, false); });
       if (on === sheetOn) return;
-      sheetOn = on;
       if (on) {
         var preview = window.MMWatch.preview;
         if (preview && preview.close) preview.close();
-        drawSheet(explore.all());
+        drawSheet(explore.all(), !explore.known());
         sheet.scrollTop = 0;
         setHint('Try “' + EXAMPLES[0] + '”');
       }
+      sheetOn = on;
       page.classList.toggle('is-sheet-on', on);
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
@@ -1008,7 +1030,11 @@
       box.appendChild(el('p', 'watch-results__line', (lone ? 'No matches for “' : 'No title matches “') + q + '”'));
       if (!lone) return box;
       box.appendChild(el('p', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
-      if (canExplore()) box.appendChild(tries(TRIES_EMPTY, 0));
+      if (canExplore()) {
+        var row = el('div', 'watch-tries');
+        TRIES_EMPTY.forEach(function (text) { row.appendChild(tryButton(text)); });
+        box.appendChild(row);
+      }
       box.look = function () {
         if (!moves(lens)) return;
         lens.animate([
@@ -1089,9 +1115,7 @@
     }
 
     function skeletonRows(key) {
-      var rows = [];
-      for (var n = 0; n < SKELETONS; n++) rows.push({ key: 'skel-' + key + n, make: skeleton });
-      return rows;
+      return times(SKELETONS, function (n) { return { key: 'skel-' + key + n, make: skeleton }; });
     }
 
     function cardRows(list) {

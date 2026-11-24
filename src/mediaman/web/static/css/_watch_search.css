@@ -222,6 +222,9 @@
 .watch-person:is(:hover, .is-picked) .watch-face { transform: scale(1.07); }
 .watch-person:active .watch-face { transform: scale(.97); }
 .watch-person.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-tile--skel { height: 60px; border-radius: var(--r-lg); }
+.watch-person--skel .skel--line { width: 70%; height: 10px; margin: 2.5px 0; }
+.watch-person--skel .skel--line:last-child { width: 40%; margin: 4px 0 1.75px; }
 @media (max-width: 599.98px) { .watch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* The page settles back behind it. */

@@ -520,7 +520,7 @@ def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
     assert len(out["sheet"]) == 6
     assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
     assert out["opened"] == ["/watch?person=9001", "Person 1"]
-    assert out["bare"] == ["Browse by category", "Or try"]
+    assert out["bare"] == ["Browse by category", "Or try", "More categories"]
 
 
 def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
@@ -541,14 +541,13 @@ def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None
     assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
 
 
-def test_the_highlight_is_dropped_when_the_sheet_under_it_is_drawn_anew() -> None:
+def test_the_place_of_late_categories_is_held_and_the_highlight_stays_where_it_was() -> None:
     out = _run("redrawnUnderTheHighlight")
-    assert out == {
-        "before": "watch-option-try-0",
-        "after": None,
-        "entered": "",
-        "next": "watch-option-genre-action",
-    }
+    heads = ["Browse by category", "People in your library", "Or try"]
+    assert out["before"] == ["watch-option-try-0", heads, [12, 6, 1]]
+    assert out["after"] == ["watch-option-try-0", True, [0, 0, 1]]
+    assert out["entered"] == "popular action movies"
+    assert out["failed"] == ["watch-sheet__title", "watch-tries"]
 
 
 def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
@@ -617,3 +616,10 @@ def test_a_word_being_composed_is_searched_for_when_it_is_done_or_rested_on() ->
     assert out["paused"] == 2
     assert out["searched"] == 0
     assert out["page"] == ["/watch?genre=action", False]
+
+
+def test_the_people_and_what_to_try_stand_before_the_less_used_categories() -> None:
+    assert _run("libraryPeople")["bareTiles"] == [
+        ["Browse by category", ["action", "science-fiction", "horror"]],
+        ["More categories", ["news"]],
+    ]
