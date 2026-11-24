@@ -440,3 +440,9 @@ def test_a_decade_that_is_not_listed_is_dropped_from_the_link() -> None:
 
 def test_the_sheet_closes_an_open_preview() -> None:
     assert _run("sheetOverPreview") == [1, True]
+
+
+def test_keys_pressed_during_a_composition_are_left_to_it() -> None:
+    untouched = [0, [False, False], "act", 0]
+    page = "/watch?genre=action"
+    assert _run("composing") == [untouched, page, untouched, page]

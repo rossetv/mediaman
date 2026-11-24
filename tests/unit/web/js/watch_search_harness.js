@@ -1003,6 +1003,27 @@ const scenarios = {
     p.doc.listeners.keydown.forEach((fn) => fn({ key: '/', preventDefault() {} }));
     return [closed, p.sheet.classList.contains('is-on')];
   },
+
+  // Keys that belong to a composition: Safari's ends one with keyCode 229 and isComposing false.
+  async composing() {
+    const out = [];
+    for (const own of [{ isComposing: true }, { keyCode: 229 }]) {
+      const p = await ready(ADMIN);
+      p.input.focus();
+      await p.search('act');
+      p.calls.length = 0;
+      p.key('ArrowDown', own);
+      const moved = p.doc.querySelectorAll('.is-picked').length;
+      const held = [p.key('Escape', own), p.key('Enter', own)];
+      await settle();
+      out.push([moved, held, p.input.value, p.calls.length]);
+      const c = await ready(ADMIN, '', '/watch?genre=action');
+      c.fire('keydown', { key: 'Escape', preventDefault() {}, ...own });
+      await settle();
+      out.push(c.url());
+    }
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

@@ -464,6 +464,9 @@
     return (' ' + String(text || '').toLowerCase().replace(/-/g, ' ')).indexOf(' ' + typed.replace(/-/g, ' ')) > -1;
   }
 
+  /* A key of an input method. Safari sends the one that ends it after the end. */
+  function composing(e) { return e.isComposing || e.keyCode === 229; }
+
   function readPageData() {
     var node = byId('watch-page-data');
     try { return JSON.parse(node ? node.textContent : '{}') || {}; } catch (e) { return {}; }
@@ -1298,6 +1301,7 @@
 
     input.addEventListener('input', function () { typed(false); });
     input.addEventListener('keydown', function (e) {
+      if (composing(e)) return;
       if (/^Arrow/.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         if (e.key === 'ArrowDown' && !sheetOn && !options().length) {
           openSheet(true);
@@ -1322,8 +1326,8 @@
         clearSearch();
         return;
       }
-      // An Enter that ends a composition, or one held down, asks for nothing new.
-      if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
+      // An Enter held down asks for nothing new.
+      if (e.key !== 'Enter' || e.repeat) return;
       e.preventDefault();
       if (picked) {
         picked.click();
@@ -1484,5 +1488,5 @@
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, composing: composing };
 })();

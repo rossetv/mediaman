@@ -601,7 +601,7 @@
 
   /* On window, so that a menu or a preview of the page's own has had its Esc first. */
   window.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape' || e.defaultPrevented || !open || address.top() !== 'explore') return;
+    if (e.key !== 'Escape' || e.defaultPrevented || watch.search.composing(e) || !open || address.top() !== 'explore') return;
     e.preventDefault();
     address.back('explore');
   });
