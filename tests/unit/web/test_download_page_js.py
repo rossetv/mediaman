@@ -155,6 +155,15 @@ def test_what_closes_keeps_its_figures_and_gives_its_focus_to_the_heading() -> N
     assert out["left"] == 0 and out["focus"] == "H1"
 
 
+def test_the_links_are_a_finger_s_reach_on_any_touch_screen() -> None:
+    css = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_download_page.css"
+    coarse = re.search(r"@media \(pointer: coarse\) \{(.*?)\n\}", css.read_text(), re.S)
+
+    assert coarse and re.search(
+        r"\.dl-nav \.nav-brand,\s*\.dl-footer a \{[^}]*min-height: 44px", coarse[1]
+    )
+
+
 def test_a_service_that_does_not_answer_leaves_the_last_progress_drawn() -> None:
     assert _run("episodes")["unanswered"] == "Downloading"
 

@@ -285,6 +285,8 @@
 
 /* A finger's width to tap. */
 @media (pointer: coarse) {
+  .dl-nav .nav-brand,
+  .dl-footer a { display: inline-flex; align-items: center; min-height: 44px; }
   .dl-expired-back a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 16px; }
 }
 
@@ -302,6 +304,9 @@
   .dl-expired-icon-wrap { width: 48px; height: 48px; margin-bottom: 0; }
   .dl-expired-icon { font-size: 26px; }
   .dl-expired-back { margin-top: 0; }
+}
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .dl-nav { padding-block: 0; }
 }
 @media (max-height: 360px) and (orientation: landscape) {
   .dl-expired-icon-wrap { display: none; }
