@@ -647,6 +647,12 @@ class TestTmdbTitle:
         assert body["genre_refs"] == [{"name": "Horror", "genre": "horror"}]
         assert [c["person_id"] for c in body["cast"]] == [4]
 
+    def test_the_director_comes_with_their_person_id(self, viewer, tmdb, arr):
+        tmdb.detail[12]["credits"] = {"crew": [{"job": "Director", "id": 9, "name": "A. Director"}]}
+
+        assert viewer.get("/api/watch/title/tmdb-movie-12").json()["director_id"] == 9
+        assert viewer.get("/api/watch/title/tmdb-movie-11").json()["director_id"] is None
+
     def test_detail_carries_director_ratings_and_a_checked_trailer(
         self, viewer, tmdb, arr, monkeypatch
     ):

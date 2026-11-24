@@ -324,6 +324,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "backdrop_url": None,
         "poster_url": None,
         "director": None,
+        "director_id": None,
         "ratings": {"imdb": None, "rt": None, "tmdb": None, "metascore": None},
         "cast": [],
         "trailer_key": None,
@@ -369,6 +370,7 @@ def _apply_tmdb(
         "tagline",
         "backdrop_url",
         "director",
+        "director_id",
         "cast",
     ):
         if fields[name] or out[name] in (None, []):
