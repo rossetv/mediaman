@@ -559,6 +559,77 @@ const scenarios = {
     return { notHere, moved, ghost, gone, refs: p.refs().slice(0, 3), count: p.doc.querySelector('.watch-all__count').textContent, back: back.getAttribute('data-title-ref'), left: p.leftovers() + (card.classList.contains('is-gone') ? 1 : 0) };
   },
 
+  // A card comes back to its row: to the grid too where that was filled without it, once, and to its own place.
+  async bringsBack() {
+    const inOrder = (p, sort) => { const ns = p.rows[0].querySelectorAll('[data-title-ref]').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
+      if (sort === 'az') ns.reverse(); return { cards: ns.map(p.card), next: null, total: ns.length }; };
+    const start = () => { const p = load(); p.filled = 0; p.more = { contents: (s) => { p.filled++; return inOrder(p, s); }, sort: sortOf((s) => inOrder(p, s)), total: 12 }; p.open = () => p.grid.open(p.opts({ ...p.more, ...inOrder(p) })); return p; };
+    const told = (p) => ({ refs: p.refs(), count: p.doc.querySelector('.watch-all__count').textContent, sort: !!p.doc.querySelector('#watch-all-sort') });
+    const out = {};
+    // Taken under the other order, sorted, back.
+    const p = start();
+    p.open();
+    pressSort(p, 'az');
+    await settle();
+    const inRow = p.rows[0].querySelectorAll('.watch-card')[1];
+    const spot = inRow.nextElementSibling;
+    inRow.remove();
+    const took = p.grid.take(p.doc.querySelectorAll('.watch-all .watch-card')[10], '.watch-card__link');
+    pressSort(p, 'added');
+    await settle();
+    const stale = took.undo();
+    spot.before(inRow);
+    p.scroll(400);
+    const brought = p.grid.bring(inRow);
+    out.sorted = { ...told(p), stale, brought: p.all().contains(brought) && p.refs()[1], y: win.y, twice: p.grid.bring(inRow) };
+    // Opened again in between.
+    const q = start();
+    const gone = q.rows[0].querySelectorAll('.watch-card')[3];
+    const next = gone.nextElementSibling;
+    q.open();
+    const late = q.grid.take(q.doc.querySelectorAll('.watch-all .watch-card')[3], '.watch-card__link');
+    gone.remove();
+    q.grid.close();
+    q.open();
+    out.lateUndo = late.undo();
+    next.before(gone);
+    q.grid.bring(gone);
+    out.reopened = told(q);
+    // Emptied, then back; and another row's card brings nothing.
+    const r = start();
+    r.rows[0].querySelectorAll('.watch-card').slice(1).forEach((c) => c.remove());
+    const one = r.rows[0].querySelector('.watch-card');
+    const scroller = one.parentNode;
+    one.remove();
+    r.open();
+    r.grid.bring(r.rows[1].querySelector('.watch-card'));
+    const other = r.filled;
+    const empty = told(r);
+    scroller.appendChild(one);
+    r.grid.bring(one);
+    out.emptied = { empty, other, back: told(r) };
+    return out;
+  },
+
+  // A grid on its way out is not filled again; one on its way in lands and is.
+  async bringsWhileMoving() {
+    const go = (closing) => {
+      const p = load({ motion: true });
+      const cards = () => p.rows[0].querySelectorAll('.watch-card').map(p.grid.copy);
+      Node.prototype.getAnimations = function () { return p.anims.filter((a) => a.node === this && !a.cancelled && !a.done); };
+      const card = p.rows[0].querySelectorAll('.watch-card')[1];
+      const next = card.nextElementSibling;
+      card.remove();
+      p.grid.open(p.opts({ contents: () => ({ cards: cards(), next: null, total: 12 }), cards: cards(), total: 11 }));
+      if (closing) { p.finish(); p.grid.close(); }
+      next.before(card);
+      p.grid.bring(card);
+      p.finish();
+      return { ...p.state(), n: p.refs().length, left: p.leftovers() };
+    };
+    return { opening: go(false), closing: go(true) };
+  },
+
   async rowThatIsGone() {
     const p = load({ motion: true });
     p.grid.open(p.opts());

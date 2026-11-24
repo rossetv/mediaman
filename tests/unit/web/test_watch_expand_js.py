@@ -145,6 +145,21 @@ def test_a_card_kept_or_dismissed_in_the_grid_leaves_it_and_its_row_and_comes_ba
     assert (out["empty"]["focus"], out["empty"]["body"]) == ("watch-all-title", True)
 
 
+def test_a_card_comes_back_to_a_grid_filled_again_since_in_its_place() -> None:
+    out = _run("taken")
+    # The row's undo fills the grid again, and says what is shown of it.
+    assert out["sorted"] == {
+        "things": ["An Apple", "Éclair", "Fig", "Gnu", "Orchard", "The Zebra"],
+        "count": "6 titles",
+        "focus": [None, True],
+    }
+    assert out["reopened"] == {
+        "things": ["Film 51", "Film 52"],
+        "count": "2 titles",
+        "focus": [None, True],
+    }
+
+
 def test_the_undo_of_a_keep_focuses_the_keep_that_is_shown() -> None:
     out = _run("keepUndone")
     both = ["Film 51", "Film 52"]

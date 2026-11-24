@@ -3,6 +3,7 @@
  *   list(host, opts)   a grid that loads as it is scrolled (watch/rows-load.js)
  *   open(opts), close(opts), leave()   the layer a row grows into, which holds one
  *   take(card, control)   a card kept or dismissed in it leaves
+ *   bring(card)   one that is back in its row is back in that row's grid
  *
  * Opening, each poster on the screen travels from the row to its place in the
  * grid; closing takes it back. Both layers are laid out while something moves:
@@ -238,7 +239,8 @@
 
     /* Put *content* ({ cards, next, fetchPage, total }) in place of what stands.
        how.move: what is on the screen before and after travels, from where it
-       is if it was moving; the rest leaves and arrives. A title that was here
+       is if it was moving; the rest leaves and arrives. how.stay: the page does not
+       scroll back to its start. A title that was here
        keeps its node, so its poster never blinks. */
     function set(content, how) {
       var moves = how && how.move && !core.reduceMotion();
@@ -265,7 +267,7 @@
         grid.appendChild(wake(kept || node));
       });
       var by = host.getBoundingClientRect().top - clearTop();
-      if (by < 0) scrollPage(window.scrollY + by);
+      if (by < 0 && !(how && how.stay)) scrollPage(window.scrollY + by);
       begin(content.next);
       if (moves) travel(before, old);
     }
@@ -666,6 +668,7 @@
       // Left meanwhile: the grid on its way out stays as it is.
       if (move) { undo(); return; }
       if (content.total !== undefined) setTotal(content.total);
+      mine.fills++;
       mine.list.set(content, { move: true });
       stuck();
       if (sort.chosen) sort.chosen(id);
@@ -687,6 +690,7 @@
     var all = mine.list.cards();
     var i = all.indexOf(card);
     var next = all[i + 1] || all[i - 1];
+    var fills = mine.fills;
     function count(by) {
       if (now !== mine || typeof mine.opts.total !== 'number') return;
       mine.opts.total += by;
@@ -696,12 +700,32 @@
     count(-1);
     return {
       focus: next ? next.querySelector(control) || linkOf(next) : dom.title,
+      // Filled anew since, there is no place to go back to: bring() fills it again.
       undo: function () {
+        if (now !== mine || mine.fills !== fills) return null;
         back();
         count(1);
         return card.querySelector(control);
       }
     };
+  }
+
+  /* *card* is back in its row, whose grid may be open without it. Returns its card
+     in there when the grid was filled again for it. */
+  function bring(card) {
+    var row = now && now.opts.contents && rowOf(now.opts);
+    if (!row || !row.contains(card)) return null;
+    function twin() { return now.list.cards().filter(function (c) { return keyOf(c) === keyOf(card); })[0] || null; }
+    if (twin()) return null;
+    settle();
+    if (!now) return null; // it was closing
+    var content = now.opts.contents(now.value);
+    var none = !now.opts.total;
+    now.opts.total = content.total;
+    if (none) drawHead(); else setTotal(content.total);
+    now.fills++;
+    now.list.set(content, { move: true, stay: true });
+    return twin();
   }
 
   /* ── The two layers ── */
@@ -1077,7 +1101,7 @@
     }
     // The server draws the first page of a shared link; anything later replaces it.
     if (cards) dom.body.replaceChildren();
-    now = { opts: opts, value: opts.sort ? opts.sort.value : null, list: null, asked: null, shown: null, jumped: false };
+    now = { opts: opts, value: opts.sort ? opts.sort.value : null, list: null, asked: null, shown: null, jumped: false, fills: 0 };
     now.list = list(dom.body, {
       title: opts.title, cards: cards, next: opts.next, fetchPage: opts.fetchPage,
       total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/watch' },
@@ -1259,6 +1283,7 @@
     close: close,
     leave: leave,
     take: take,
+    bring: bring,
     setTotal: function (n) { if (now) setTotal(n); },
     setSort: function (sort) { if (now) setSort(sort); },
     isOpen: function () { return !!now && !(move && move.to === 'rows'); },

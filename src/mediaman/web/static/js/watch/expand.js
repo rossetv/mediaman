@@ -209,10 +209,15 @@
   /* A row that is all on the page. */
   function whole(at) {
     function ordered(sort) { return sort === 'az' ? byTitle(at.cards()) : at.cards(); }
+    function contents(sort) {
+      var cards = ordered(sort);
+      return { cards: cards, next: null, total: cards.length };
+    }
     var made = {
       total: at.drawn ? at.drawn.total : at.cards().length, next: null,
       empty: own(EMPTY, at.id) ? Object.assign({ link: 'Back to all rows', href: '/watch' }, EMPTY[at.id]) : undefined,
-      sort: { label: 'Sort', choose: function (sort) { return { cards: ordered(sort), next: null }; } }
+      contents: contents,
+      sort: { label: 'Sort', choose: contents }
     };
     if (!at.drawn) made.cards = ordered(at.sort);
     return made;

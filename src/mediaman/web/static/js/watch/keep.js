@@ -412,7 +412,8 @@
         } else if (cardBack && card.getClientRects().length) {
           growCard(card, row);
         }
-        return card.querySelector(control);
+        var twin = grid && grid.bring && grid.bring(card);
+        return (twin || card).querySelector(control);
       }
     };
   }

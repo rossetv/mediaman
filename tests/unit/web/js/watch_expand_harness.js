@@ -345,7 +345,19 @@ const scenarios = {
     const q = await load({ url: '/watch?all=leaving' });
     const all = () => q.doc.querySelectorAll('.watch-all .watch-card');
     const last = all().map((c) => keep && q.ctx.MMWatch.keep.fromRow(c, c.closest('[data-watch-leaving-row]'), true, '[data-watch-keep]'));
-    return { gone, back, left, empty: { things: q.grid().things, tail: q.grid().tail, count: q.grid().count, focus: last[1].focus.id, body: q.doc.querySelector('.watch-all__body').hasAttribute('data-watch-leaving-row') } };
+    // Taken and filled again since, by a sort and by closing and opening: both ends still meet.
+    const refilled = async (id, ref, meanwhile) => {
+      const r = await load({ url: '/watch?all=' + id });
+      const all = r.doc.querySelectorAll('.watch-card').filter((c) => c.querySelector('.watch-card__link').getAttribute('href').endsWith('/' + ref));
+      const taken = all.map((c) => r.ctx.MMWatch.keep.fromRow(c, c.closest('.watch-row'), c.getClientRects().length > 0, '[data-watch-more]'));
+      await meanwhile(r);
+      const control = taken.reverse().map((t) => t.undo());
+      return { things: r.grid().things, count: r.grid().count, focus: control.map((c) => c && r.doc.querySelector('.watch-all').contains(c)) };
+    };
+    const reopen = async (r) => { r.press(r.doc.querySelector('.watch-all__back')); await r.settle(); r.tab.entries[0].url = '/watch?all=leaving'; r.fire('popstate'); await r.settle(); };
+    const sorted = await refilled('continue', 42, async (r) => { await r.choose('az'); });
+    const reopened = await refilled('leaving', 51, reopen);
+    return { sorted, reopened, gone, back, left, empty: { things: q.grid().things, tail: q.grid().tail, count: q.grid().count, focus: last[1].focus.id, body: q.doc.querySelector('.watch-all__body').hasAttribute('data-watch-leaving-row') } };
   },
 };
 

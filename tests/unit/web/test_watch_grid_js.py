@@ -253,3 +253,30 @@ def test_a_card_taken_out_lets_the_rest_close_up_and_comes_back_to_its_place() -
     assert out["gone"] == {"inert": True, "count": "11 titles", "focus": "movie-3"}
     assert (out["refs"], out["count"], out["back"]) == ([1, 2, 3], "12 titles", "movie-2")
     assert out["left"] == 0
+
+
+def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it() -> None:
+    out = _run("bringsBack")
+    every = list(range(1, 13))
+    assert out["sorted"] == {
+        "refs": every,
+        "count": "12 titles",
+        "sort": True,
+        "stale": None,
+        "brought": 2,
+        "y": 400,
+        "twice": None,
+    }
+    assert out["lateUndo"] is None
+    assert out["reopened"] == {"refs": every, "count": "12 titles", "sort": True}
+    assert out["emptied"] == {
+        "empty": {"refs": [], "count": "", "sort": False},
+        "other": 0,
+        "back": {"refs": [1], "count": "1 title", "sort": True},
+    }
+
+
+def test_a_card_comes_back_to_a_grid_that_is_opening_and_not_to_one_that_closes() -> None:
+    out = _run("bringsWhileMoving")
+    assert out["opening"] == {**OPEN, "n": 12, "left": 0}
+    assert out["closing"] == {**ROWS, "n": 0, "left": 0}
