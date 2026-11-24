@@ -116,6 +116,10 @@ class StreamGone(Exception):
     """The stream is unknown, belongs to someone else, or was stopped or reaped."""
 
 
+class _Unservable(PlexUnavailable):
+    """Plex answered, and what it answered cannot be played: asking again soon changes nothing."""
+
+
 class TooManyStreams(Exception):
     """The user, or mediaman as a whole, already has as many live streams as allowed."""
 
@@ -234,6 +238,7 @@ class StreamManager:
         with self._lock:
             self._check_room(user)
         deadline = self._clock() + START_DEADLINE_SECONDS
+        refused = False
         for attempt in range(2):
             session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
             with self._lock:
@@ -243,7 +248,8 @@ class StreamManager:
                     base, token, session_id, rating_key, quality, burn_subtitles, deadline
                 )
                 break
-            except PlexUnavailable:
+            except PlexUnavailable as exc:
+                refused = isinstance(exc, _Unservable)
                 self._call_quietly("stop", session_id)
                 if attempt == 1 or self._clock() >= deadline:
                     raise
@@ -257,10 +263,11 @@ class StreamManager:
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
             if quality != asked:
-                until = self._clock() + COPY_VERDICT_KEEP_SECONDS
+                keep = COPY_VERDICT_KEEP_SECONDS if refused else COPY_FAILURE_KEEP_SECONDS
+                until = self._clock() + keep
                 for key in self._copies:
                     if key[0] == rating_key:
-                        self._copies[key] = _CopyVerdict(False, True, until)
+                        self._copies[key] = _CopyVerdict(False, refused, until)
             # A concurrent start of the same item may have stored its stream meanwhile.
             twins = [
                 sid
@@ -575,7 +582,7 @@ class StreamManager:
                 deadline=deadline,
             )
             if action == "decision" and quality == ORIGINAL and not _video_copied(body):
-                raise PlexUnavailable("Plex would not copy the video")
+                raise _Unservable("Plex would not copy the video")
         variant = next(
             (
                 line.strip()
@@ -585,7 +592,7 @@ class StreamManager:
             "",
         )
         if not _VARIANT_RE.fullmatch(variant):
-            raise PlexUnavailable("Plex sent a start playlist without a usable variant")
+            raise _Unservable("Plex sent a start playlist without a usable variant")
         child_path = f"{_TRANSCODE}/{variant}"
         # Plex answers 404 for every segment until the child playlist has been read once.
         playlist = self._get(
@@ -731,7 +738,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
     """
     lines = [line.strip() for line in text.splitlines()]
     if not lines or lines[0] != "#EXTM3U":
-        raise PlexUnavailable("Plex sent something that is not a playlist")
+        raise _Unservable("Plex sent something that is not a playlist")
     out: list[str] = []
     for line in lines:
         if not line:
@@ -745,14 +752,14 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
         if line.startswith("#EXT-X-MAP"):
             map_tag = _MAP_RE.fullmatch(line)
             if map_tag is None:
-                raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+                raise _Unservable("Plex sent a playlist mediaman cannot serve")
             out.append(f'#EXT-X-MAP:URI="{_segment_url(map_tag.group(1), stream_id)}"')
             continue
         if line == "#EXT-X-KEY:METHOD=NONE":
             out.append(line)
             continue
         if "URI=" in line:
-            raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+            raise _Unservable("Plex sent a playlist mediaman cannot serve")
         tag, _, value = line.partition(":")
         if tag in _PLAIN_TAGS and _PLAIN_TAG_VALUE_RE.fullmatch(value):
             out.append(line)
@@ -761,7 +768,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
 
 def _segment_url(name: str, stream_id: str) -> str:
     if not _SEGMENT_NAME_RE.fullmatch(name):
-        raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+        raise _Unservable("Plex sent a playlist mediaman cannot serve")
     return f"{SEGMENT_URL_PREFIX}/{stream_id}/seg/{name}"
 
 

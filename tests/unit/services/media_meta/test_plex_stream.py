@@ -68,6 +68,7 @@ class FakePlex:
         self.child_playlist = CHILD_PLAYLIST
         self.sessions: list[dict] = []
         self.unreachable = False
+        self.variant = None
         self.prefix = ""
         self.on_start = None
         self.on_call = None
@@ -102,9 +103,8 @@ class FakePlex:
                 self.on_start(session)
             if session not in self.decided:
                 return FakeResponse(400)
-            master = (
-                f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000\nsession/{session}/base/index.m3u8\n"
-            )
+            variant = self.variant or f"session/{session}/base/index.m3u8"
+            master = f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000\n{variant}\n"
             return FakeResponse(200, master.encode())
         if path in (f"{TRANSCODE}/ping", f"{TRANSCODE}/stop"):
             return FakeResponse(200)
@@ -882,7 +882,23 @@ def test_a_restart_reuses_the_answer_the_viewing_began_with(manager, plex, clock
     assert len(plex.calls_to("decision")) == 3
 
 
-@pytest.mark.parametrize("failure", [_not_copied, _unservable, _start_fails])
+def _unreadable_start(plex):
+    plex.decision = _decision()
+    plex.variant = "http://elsewhere/index.m3u8"
+    plex.on_call = lambda path: setattr(plex, "variant", None) if path.endswith("/stop") else None
+
+
+def _unreachable(plex):
+    plex.decision = _decision()
+    plex.unreachable = True
+    plex.on_call = lambda path: (
+        setattr(plex, "unreachable", False) if path.endswith("/stop") else None
+    )
+
+
+@pytest.mark.parametrize(
+    "failure", [_not_copied, _unservable, _unreadable_start, _start_fails, _unreachable]
+)
 def test_an_original_that_failed_to_start_is_not_offered_again(manager, plex, failure):
     plex.decision = _decision()
     assert manager.copies_video("123", "file") is True
@@ -892,6 +908,36 @@ def test_an_original_that_failed_to_start_is_not_offered_again(manager, plex, fa
 
     assert manager.copies_video("123", "file") is False
     assert manager.copies_video("456", "file") is True
+
+
+@pytest.mark.parametrize("failure", [_not_copied, _unservable, _unreadable_start])
+def test_an_original_that_cannot_be_played_is_held_off_for_an_hour(manager, plex, clock, failure):
+    plex.decision = _decision()
+    manager.copies_video("123", "file")
+    failure(plex)
+    _start(manager, quality="original", fallback="720p-4000")
+    plex.decision = _decision()
+
+    clock.now += 3599
+    assert manager.copies_video("123", "file") is False
+    clock.now += 2
+    assert manager.copies_video("123", "file") is True
+
+
+@pytest.mark.parametrize("failure", [_start_fails, _unreachable])
+def test_an_original_plex_only_failed_to_start_is_asked_about_again_after_a_minute(
+    manager, plex, clock, failure
+):
+    plex.decision = _decision()
+    manager.copies_video("123", "file")
+    failure(plex)
+    _start(manager, "alice", quality="original", fallback="720p-4000")
+
+    clock.now += 59
+    assert manager.copies_video("123", "file", "alice") is False
+    clock.now += 2
+    # Even for the viewing that met the failure.
+    assert manager.copies_video("123", "file", "alice") is True
 
 
 def test_an_original_is_still_offered_after_plex_could_start_nothing(manager, plex):
