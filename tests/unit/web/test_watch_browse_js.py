@@ -309,6 +309,13 @@ def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
     assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
 
 
+def test_the_narrowest_phones_keep_the_icon_of_the_ai_mark() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    narrow = "".join(re.findall(r"@media \(max-width: 359\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
+    assert ".rec-line > .ai-label" in narrow
+    assert ".ico" not in narrow
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
