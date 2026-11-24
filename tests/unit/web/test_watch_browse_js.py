@@ -332,7 +332,8 @@ def test_focus_moves_into_the_row_that_try_again_brought_back() -> None:
 def test_a_season_line_goes_by_where_each_pill_stands_however_wide() -> None:
     out = _run("unevenSeasonLine")
     # The fourth pill (500-760) is cut off at 700; the seventh (960-1360) at 1200; the line ends at 1460.
-    assert out["arrows"] == [500, 760, 760, 60, 0]
+    # Back from there, the fourth fits whole in a line that starts at the second (100).
+    assert out["arrows"] == [500, 760, 760, 100, 0]
     assert out["keys"] == [100, 400, 100]
 
 
