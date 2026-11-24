@@ -458,7 +458,11 @@
     } else {
       /* Nothing loaded yet: move where the stream will start. */
       pendingStart = t;
-      if (hls) hls.startLoad(t);
+      if (hls) {
+        /* hls.js drops a startLoad that comes before the playlist. */
+        hls.config.startPosition = t;
+        hls.startLoad(t);
+      }
     }
     render();
   }

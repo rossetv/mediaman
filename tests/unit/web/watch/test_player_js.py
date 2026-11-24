@@ -148,3 +148,7 @@ def test_space_presses_the_control_tab_reached(markup):
 
 def test_controls_hide_after_a_mouse_press_and_a_key_but_stay_for_tab(markup):
     assert run(markup, "idle") == {"afterMouse": True, "afterTab": False}
+
+
+def test_a_seek_while_the_playlist_loads_moves_where_the_video_starts(markup):
+    assert run(markup, "early_seek") == {"whilePlaylistLoads": 20, "beforeVideo": 30}
