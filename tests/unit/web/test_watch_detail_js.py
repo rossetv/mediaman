@@ -848,3 +848,7 @@ def test_a_mark_loads_the_title_again_with_the_season_on_show_and_keeps_the_focu
     assert after["tab"] == "Season 1, watched"
     assert after["focus"] == "episode/11"
     assert after["painted"] == [["show/300", False]]
+
+
+def test_a_card_that_is_gone_is_let_go_with_the_page_it_stood_on() -> None:
+    assert _run("cardsThatGo") == {"held": 0}

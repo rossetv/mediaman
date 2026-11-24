@@ -169,3 +169,15 @@ def test_typing_a_search_writes_the_address_once_for_each_change() -> None:
 
 def test_whatever_opens_closes_a_preview_but_the_details_that_grow_out_of_it() -> None:
     assert _run("closesThePreview") == [1, 1, 2]
+
+
+def test_a_page_drawn_anew_each_time_is_let_go_once_it_is_left() -> None:
+    assert _run("pagesThatGo") == {"held": 0}
+
+
+def test_pages_gone_for_good_do_not_push_out_the_scroll_of_those_under_them() -> None:
+    assert _run("entriesThatGo") == {"scroll": 700}
+
+
+def test_the_focus_comes_back_from_under_a_link_the_browser_followed() -> None:
+    assert _run("focusUnderAFollowedLink") == {"at": "/watch?all=movies", "focus": "card"}

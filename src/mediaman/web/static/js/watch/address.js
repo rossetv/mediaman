@@ -27,7 +27,8 @@
   var started = false;
   var leaving = null; // the step asked of the browser and not yet made: { close, timer, then }
   var places = {}; // each entry's scroll, by id
-  var focused = {}; // the node each entry had the focus on, by id
+  var focused = {}; // the node each entry had the focus on, by id, while it is on the page
+  var ats = {}; // how far along each entry seen stands, by id
   var placing = null; // the scroll being put back
 
   /* ── Entries ── */
@@ -49,7 +50,8 @@
 
   /* An entry the page did not push: a fresh load, or a link followed in it. */
   function stamp() {
-    if (!mark()) write('replaceState', { id: newId(), at: 0, entry: null, stack: [] }, currentUrl());
+    if (!mark()) write('replaceState', { id: newId(), at: current ? ats[current] + 1 : 0, entry: null, stack: [] }, currentUrl());
+    ats[mark().id] = mark().at;
   }
 
   function currentUrl() { return window.location.pathname + window.location.search + window.location.hash; }
@@ -148,9 +150,15 @@
     }, to);
     restack();
     stopPlacing();
+    Object.keys(ats).forEach(function (id) {
+      // Back and Forward no longer lead to it.
+      if (ats[id] >= at) { delete ats[id]; delete places[id]; delete focused[id]; }
+    });
     current = mark().id;
+    ats[current] = at;
     places[current] = window.scrollY;
     if (started) route('push', name);
+    letGo();
   }
 
   /* Drop from the entry's stack the layers its address no longer opens. Only
@@ -237,6 +245,7 @@
     if (placed || saved === undefined) stopPlacing();
     else putBack(saved);
     refocus();
+    letGo();
     if (asked && asked.then) asked.then();
   }
 
@@ -291,6 +300,13 @@
   function seen(node) {
     return !!node && node !== document.body && document.body.contains(node) &&
       node.getClientRects().length > 0 && !node.closest('[inert]');
+  }
+
+  /* A node off the page takes no focus, and would keep all it stood in. */
+  function letGo() {
+    Object.keys(focused).forEach(function (id) {
+      if (!document.body.contains(focused[id])) delete focused[id];
+    });
   }
 
   function refocus() {

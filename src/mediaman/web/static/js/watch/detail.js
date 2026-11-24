@@ -222,6 +222,7 @@
     if (!REF_RE.test(ref)) return;
     if (isOpen && cur && cur.ref === ref) return;
     if (leaving) leaving();
+    letGo();
     var wasOpen = isOpen;
     if (wasOpen) keepPlace();
     stopPolling();
@@ -274,6 +275,13 @@
     cur.focus = focusKey();
     cur.ring = !!document.activeElement && document.activeElement.matches(':focus-visible');
     kept[cur.ref] = cur;
+  }
+
+  /* A card off the page takes no focus, and would keep all it stood among. */
+  function letGo() {
+    Object.keys(kept).map(function (ref) { return kept[ref]; }).concat(cur || []).forEach(function (c) {
+      if (c.origin && !document.body.contains(c.origin)) c.origin = null;
+    });
   }
 
   /* Show a title left earlier as it was left, then bring it up to date. */

@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const v8 = require('v8');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const { makeDocument, build, settle } = require('./fake_dom');
@@ -339,6 +340,63 @@ const scenarios = {
     p.ctx.history.replaceState = function (...a) { writes++; return real.apply(this, a); };
     for (const q of ['a', 'am', 'amb']) p.address.replace('search', p.address.url({ q }));
     return { writes, at: p.at() };
+  },
+
+  // What held the focus on a page that is drawn anew each time, round after round.
+  async pagesThatGo() {
+    const p = open(makeTab('/watch'));
+    const held = [];
+    const page = (params) => {
+      const node = p.doc.body.appendChild(build(p.doc, ['a', {}]));
+      node.focus();
+      p.address.push('explore', p.address.url(params));
+      node.remove();
+      held.push(new WeakRef(node));
+      p.doc.activeElement = p.doc.body;
+    };
+    for (let i = 0; i < 5; i++) {
+      page({ genre: 'action', person: null });
+      page({ genre: null, person: String(i) });
+      await p.step(-1);
+      await p.step(-1);
+    }
+    await p.step(1);
+    await settle();
+    v8.setFlagsFromString('--expose-gc');
+    vm.runInNewContext('gc')();
+    return { held: held.filter((r) => r.deref()).length };
+  },
+
+  // Going forward and back again and again leaves what is still under it known after a reload.
+  async entriesThatGo() {
+    const tab = makeTab('/watch');
+    let p = open(tab);
+    p.scroll(700);
+    grid(p, 'movies');
+    for (let i = 0; i < 60; i++) {
+      p.address.push('explore', p.address.url({ genre: 'g' + i }));
+      p.scroll(10);
+      await p.step(-1);
+    }
+    p.fire('pagehide');
+    p = open(tab);
+    await p.step(-1);
+    return { scroll: p.win.scrollY };
+  },
+
+  // Back over a link the browser followed itself: its entry stands after those the page pushed.
+  async focusUnderAFollowedLink() {
+    const p = open(makeTab('/watch'));
+    const card = p.doc.body.appendChild(build(p.doc, ['a', { id: 'card' }]));
+    grid(p, 'movies');
+    card.focus();
+    title(p, 'movie-1');
+    p.tab.entries = p.tab.entries.slice(0, p.tab.index + 1).concat({ url: '/watch?all=movies#storage-deleted', state: null });
+    await p.step(1);
+    p.address.push('explore', '/watch?genre=action');
+    p.doc.activeElement = p.doc.body;
+    await p.step(-3);
+    return { at: p.at(), focus: p.doc.activeElement.id || null };
   },
 };
 

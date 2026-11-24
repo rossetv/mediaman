@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const v8 = require('v8');
 
 const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
@@ -1823,6 +1824,32 @@ const scenarios = {
     (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: outside }));
     return { wrappedToFirst, prevented: [fwd.defaultPrevented, back.defaultPrevented], wrappedToLast,
       pulledBack: p.doc.activeElement === p.q('#ttl-title') };
+  },
+
+  // Titles opened from cards of pages that are gone by the time the next one is opened.
+  async cardsThatGo() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL, '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    const held = [];
+    const open = async (ref) => {
+      const page = p.doc.body.appendChild(build(p.doc, ['a', { 'data-title-ref': ref }, 'A card']));
+      held.push(new WeakRef(page));
+      click(p.doc, page);
+      await settle();
+      click(p.doc, p.q('[data-ttl-close]'));
+      p.tick();
+      page.remove();
+      p.doc.activeElement = p.doc.body;
+    };
+    for (let i = 0; i < 3; i++) {
+      await open('tmdb-movie-77');
+      await open('show-300');
+    }
+    await openCard(p, 'tmdb-movie-77');
+    await settle();
+    v8.setFlagsFromString('--expose-gc');
+    vm.runInNewContext('gc')();
+    return { held: held.filter((r) => r.deref()).length };
   },
 };
 
