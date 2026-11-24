@@ -446,8 +446,8 @@
 
   function change(mark, watched, name, ref) {
     if (busy[mark]) return;
-    // undos puts the page back; rows: Continue watching or the banner changed with it.
-    var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false };
+    // undos puts the page back; rows: Continue watching or the banner changed with it; redraw: it may come back there.
+    var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched };
     ref = refOfMark(mark, ref);
     setBusy(mark, true);
     send(mark, watched).then(function (data) {

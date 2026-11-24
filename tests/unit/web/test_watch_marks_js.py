@@ -314,3 +314,10 @@ def test_a_show_page_follows_only_what_nothing_else_is_changing() -> None:
         "playFocused": [before, ["true", "false", "false"]],
         "followed": [after, ["true", "false", "false"]],
     }
+
+
+def test_a_title_marked_as_not_watched_again_comes_back_to_continue_watching() -> None:
+    out = _run("notWatchedAgain")
+    row = ["movie/1", "episode/22", "movie/3"]
+    assert out["film"] == {"marked": ["episode/22", "movie/3"], "again": row}
+    assert out["show"] == {"marked": ["movie/1", "movie/3"], "again": row}

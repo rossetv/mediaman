@@ -586,6 +586,21 @@ const scenarios = {
     return [p.calls, p.toasts.length];
   },
 
+  // A film, and a show as a whole, marked from a card of the library, then marked as not watched.
+  async notWatchedAgain() {
+    const go = async (lib, at) => {
+      let cont = CONTINUE;
+      const p = load(watchPage([row('cont', cont), row('lib', [lib])]), { next: () => watchPage([row('cont', cont), row('lib', [lib])]) });
+      cont = CONTINUE.filter((c, i) => i !== at);
+      await p.pick(p.cards('lib')[0], 'mark');
+      const marked = p.marks('cont');
+      cont = CONTINUE;
+      await p.pick(p.cards('lib')[0], 'mark');
+      return { marked, again: p.marks('cont') };
+    };
+    return { film: await go(card('movie/1', 'Fieldwork', 'Movie'), 0), show: await go(card('show/2', 'Brightwater', 'TV'), 1) };
+  },
+
   // What a show's page leaves alone when the server's page arrives.
   async leftAlone() {
     const next = episodesPage([21], '/watch/play/22');
