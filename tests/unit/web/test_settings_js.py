@@ -354,6 +354,66 @@ def test_thresholds_stored_as_no_object_do_not_stop_the_page_saving() -> None:
     assert out == {"odd": saved, "5": saved, "true": saved}
 
 
+def test_what_a_failed_save_may_have_stored_stays_unsaved_until_one_is_answered() -> None:
+    out = _run("unanswered")
+    unsaved, refused = [True, True], [False, False]
+    assert out["on"] == {"undefined": unsaved, "0": unsaved, "503": unsaved, "422": refused}
+    assert "may have been stored" in out["says"][0]
+    # with the class by which phones show it
+    assert out["says"][1] is True
+    assert out["refused"] is True
+    assert out["next"] == {"base_url": "a"}
+    assert (out["answered"], out["forgotten"]) == (False, False)
+    # the base has what is to go and lacks what is to come, so the server does both either way
+    assert out["libraries"] == {"sent": ["1", "2"], "base": ["1", "3"]}
+    assert out["limits"]["each"] == {
+        "1": {"path": "/a", "threshold": 80},
+        "2": {"path": "", "threshold": 0},
+    }
+    assert out["limits"]["whole"] == [True, {}, False]
+
+
+def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
+    out = _run("discardUnanswered")
+    assert out["notStored"] == {
+        "on": False,
+        "field": "a",
+        "pills": ["1"],
+        "limit": ["", "0"],
+        "toasts": 0,
+        "puts": 1,
+    }
+    assert out["stored"] == {
+        "on": False,
+        "field": "b",
+        "pills": ["1", "2"],
+        "limit": ["/a", "80"],
+        "toasts": 1,
+        "puts": 1,
+    }
+    for name in ("Base url", "Plex libraries", "Disk thresholds"):
+        assert name in out["told"]
+    assert out["after"] == [True, {"base_url": "a"}]
+    # nothing is thrown away while the server cannot be asked
+    assert out["unknown"] == {
+        "on": True,
+        "field": "b",
+        "pills": ["1", "2"],
+        "limit": ["/a", "80"],
+        "toasts": 0,
+        "puts": 1,
+    }
+    assert out["error"] is True
+
+
+def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
+    out = _run("unansweredSecret")
+    assert len(out["putBack"]) == 1 and "Plex token" in out["putBack"][0]
+    assert out["savedAgain"] == []
+    assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
+    assert out["gone"] == ["", 1]
+
+
 def test_a_save_shows_what_another_page_stored_and_keeps_what_is_being_typed() -> None:
     out = _run("mergedReply")
     assert out["quiet"] == {

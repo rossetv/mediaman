@@ -165,6 +165,8 @@ async function openLibraries(answer, opts) {
   const pills = h.add('div', { id: 'plex-library-pills' }, page);
   const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
   const field = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+  h.add('input', { id: 'plex_token', value: '****', type: 'password' }, page);
+  h.add('button', { className: 'inp-reveal' }, page).setAttribute('data-reveal-target', 'plex_token');
   const bar = h.add('div', { id: 'setg-savebar' });
   const status = h.add('span', { id: 'save-status' }, bar);
   const discard = h.add('button', { id: 'btn-discard' }, bar);
@@ -377,7 +379,7 @@ const scenarios = {
     out.path = [type(path, '/ab'), type(path, '/a')];
     out.pill = [pill(), pill()];
     // a failed save whose edit is put back
-    reply = () => Promise.reject({ status: 500, data: {} });
+    reply = () => Promise.reject({ status: 422, data: {} });
     type(input, 'b');
     save.fire('click');
     await h.flush();
@@ -1403,6 +1405,127 @@ const scenarios = {
     p.type(2, '/b ', '70');
     await p.discard();
     out.discarded = [p.pills(), p.shows(2)];
+    return out;
+  },
+
+  // A save that failed may have been stored all the same, so what it sent stays unsaved until one is answered.
+  async unanswered() {
+    const out = { on: {}, limits: {} };
+    const saved = () => Promise.resolve({ status: 'saved' });
+    const open = (opts) => openLibraries(plexLists(1, 2, 3, 4), Object.assign({ selectedLibs: ['1', '2'], diskThresholds: {} }, opts));
+    const failing = async (p, status) => { p.reply = () => Promise.reject({ status, data: {} }); await p.save(); p.reply = saved; };
+    for (const status of [undefined, 0, 503, 422]) {
+      const p = await open();
+      p.edit('b');
+      await failing(p, status);
+      p.edit('a');
+      out.on[String(status)] = [p.on(), p.h.ctx.MM.settings.savebar.isEdited(p.field)];
+    }
+
+    let p = await open();
+    p.edit('b');
+    await failing(p, 0);
+    p.edit('a');
+    out.says = [p.status.textContent, p.bar.classList.contains('is-partial')];
+    // a refusal settles nothing
+    await failing(p, 429);
+    p.edit('a');
+    out.refused = p.on();
+    out.next = await p.save();
+    out.answered = p.on();
+    p.edit('c');
+    p.edit('a');
+    out.forgotten = p.on();
+
+    // the libraries, whichever way the server has them
+    p = await open();
+    p.pill(3); p.pill(2);
+    await failing(p, 0);
+    p.pill(3); p.pill(2);
+    const libs = await p.save();
+    out.libraries = { sent: libs.plex_libraries, base: libs.plex_libraries_base.sort() };
+
+    // the limits: put back as they were, but a blank is never sent for what could not be read
+    const limit = { path: '/a', threshold: 80 };
+    p = await open({ selectedLibs: ['1', '2', '3', '4'], diskThresholds: { 1: limit, 3: 'odd', 4: { path: '/d', threshold: 'x' } } });
+    [1, 2, 3, 4].forEach((id) => p.type(id, '/typed', '50'));
+    await failing(p, 0);
+    p.type(1, '/a', '80');
+    p.type(2, '', '0'); p.type(3, '', '0'); p.type(4, '/d', '0');
+    out.limits.each = (await p.save()).disk_thresholds;
+    p = await open({ selectedLibs: ['1'], diskThresholds: 'odd' });
+    p.type(1, '/typed', '50');
+    await failing(p, 0);
+    p.type(1, '', '0');
+    out.limits.whole = [p.on(), await p.save(), p.on()];
+    return out;
+  },
+
+  // Discard after a save that failed goes back to what the server has.
+  async discardUnanswered() {
+    const server = { base_url: 'a', plex_libraries: ['1'], disk_thresholds: {} };
+    const open = async () => {
+      const p = await openLibraries(plexLists(1, 2), { selectedLibs: ['1'], diskThresholds: {} });
+      p.toasts = [];
+      p.h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
+      p.reply = () => Promise.reject({ status: 0 });
+      p.edit('b');
+      p.pill(2);
+      p.type(1, '/a', '80');
+      await p.save();
+      p.look = () => ({ on: p.on(), field: p.field.value, pills: p.pills(), limit: p.shows(1), toasts: p.toasts.length, puts: p.sent.length });
+      return p;
+    };
+    const out = {};
+    let p = await open();
+    p.stored = () => Promise.resolve(server);
+    await p.discard();
+    out.notStored = p.look();
+    p = await open();
+    p.stored = () => Promise.resolve({ base_url: 'b', plex_libraries: ['1', '2'], disk_thresholds: { 1: { path: '/a', threshold: 80 } } });
+    p.edit('typed');
+    await p.discard();
+    out.stored = p.look();
+    out.told = p.toasts[0];
+    p.edit('a');
+    out.after = [p.on(), await p.save()];
+    p = await open();
+    await p.discard();
+    out.unknown = p.look();
+    out.error = p.bar.classList.contains('is-error');
+    return out;
+  },
+
+  // The server tells no secret, so whether one was stored is said to be unknown.
+  async unansweredSecret() {
+    const open = async () => {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+      p.toasts = [];
+      p.h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
+      const token = p.page.querySelector('#plex_token');
+      const type = (v) => { token.value = v; token.fire('input'); };
+      p.reply = () => Promise.reject({ status: 0 });
+      type('new');
+      await p.save();
+      p.reply = () => Promise.resolve({ status: 'saved' });
+      return Object.assign(p, { token, type });
+    };
+    const out = {};
+    let p = await open();
+    p.type('****');
+    await p.save();
+    out.putBack = p.toasts;
+    p = await open();
+    await p.save();
+    out.savedAgain = p.toasts;
+    p = await open();
+    p.stored = () => Promise.resolve({ plex_token: '****' });
+    await p.discard();
+    out.discarded = [p.token.value, p.toasts];
+    p = await open();
+    p.stored = () => Promise.resolve({});
+    await p.discard();
+    out.gone = [p.token.value, p.toasts.length];
     return out;
   },
 

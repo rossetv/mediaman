@@ -18,7 +18,7 @@
  *
  * Exposes:
  *   MM.settings.general.init()
- *   MM.settings.general.collectSettings(now, saved) — read by savebar
+ *   MM.settings.general.collectSettings(now, saved, limits) — read by savebar
  *   MM.settings.general.BOOT                     — parsed bootstrap payload
  *   MM.settings.general.SELECTED_LIBS            — live view of selected libs
  *   MM.settings.general.markDirty()              — kept for callers reaching
@@ -45,10 +45,11 @@
   function n(id) { var x = parseInt(v(id), 10); return isFinite(x) ? x : 0; }
 
   // `now` and `saved` are the save bar's snapshots: the libraries and thresholds to send
-  // come from them, as the live ones go on changing while a save is under way.
-  function collectSettings(now, saved) {
+  // come from them, as the live ones go on changing while a save is under way. `limits` holds
+  // the libraries whose threshold is sent though it has not changed.
+  function collectSettings(now, saved, limits) {
     var selectedLibs = now && now.disk ? now.disk.libs : [];
-    var diskMap = now && now.disk ? MM.settings.diskThresholds.changes(saved.disk.disk, now.disk.disk) : null;
+    var diskMap = now && now.disk ? MM.settings.diskThresholds.changes(saved.disk.disk, now.disk.disk, limits) : null;
     var payload = {
       plex_url:              v('plex_url'),
       plex_public_url:       v('plex_public_url'),

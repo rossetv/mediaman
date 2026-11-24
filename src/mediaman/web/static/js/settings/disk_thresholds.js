@@ -18,7 +18,8 @@
  *   MM.settings.diskThresholds.init({ selectedLibs, diskThresholds })
  *   MM.settings.diskThresholds.getSelectedLibs()
  *   MM.settings.diskThresholds.state() / restore(state) — for save and Discard
- *   MM.settings.diskThresholds.changes(from, to)        — for collectSettings
+ *   MM.settings.diskThresholds.changes(from, to, also)  — for collectSettings
+ *   MM.settings.diskThresholds.fromServer(data)         — a state, from what the server has
  *   MM.settings.diskThresholds.adopt(sent, reply)       — takes in what a save stored
  */
 (function () {
@@ -320,13 +321,23 @@
     });
   }
 
-  // The entries that differ, or null. A cleared one is blank, not left out: the
-  // server keeps the threshold of a library it is not sent.
-  function changes(from, to) {
+  // Blank fields sent for an entry the scanner cannot read would have its library scanned.
+  function canBeSentBack(cfg) {
+    if (UNREADABLE) return false;
+    if (!cfg) return true;
+    var limit = shown(cfg).threshold;
+    return isObject(cfg) && (!cfg.path || typeof cfg.path === 'string') &&
+      String(cfg.threshold || 0) === String(limit) && limit >= 0 && limit <= 100;
+  }
+
+  // The entries that differ, and those of `also` (an object by library id), or null. A cleared
+  // one is blank, not left out: the server keeps the threshold of a library it is not sent.
+  function changes(from, to, also) {
     var out = null;
-    Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
+    Object.keys(Object.assign({}, from, to, also)).forEach(function (libId) {
       var now = shown(to[libId]);
-      if (same(shown(from[libId]), now)) return;
+      var sentAnyway = also && also[libId] && canBeSentBack(from[libId]);
+      if (same(shown(from[libId]), now) && !sentAnyway) return;
       out = out || {};
       out[libId] = now;
     });
@@ -370,7 +381,7 @@
   function init(opts) {
     var stored = fromServer({
       plex_libraries: opts && opts.selectedLibs,
-      disk_thresholds: (opts && opts.diskThresholds) || {},
+      disk_thresholds: opts && opts.diskThresholds,
     });
     SELECTED_LIBS = stored.libs;
     DISK_THRESHOLDS = stored.disk;
@@ -398,10 +409,11 @@
   }
 
   function fromServer(data) {
-    UNREADABLE = !isObject(data.disk_thresholds);
+    var thresholds = data.disk_thresholds || {};
+    UNREADABLE = !isObject(thresholds);
     return {
       libs: Array.isArray(data.plex_libraries) ? data.plex_libraries.map(String) : [],
-      disk: UNREADABLE ? {} : copy(data.disk_thresholds),
+      disk: UNREADABLE ? {} : copy(thresholds),
     };
   }
 
@@ -435,6 +447,7 @@
     restore: restore,
     changes: changes,
     adopt: adopt,
+    fromServer: fromServer,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };
 })();
