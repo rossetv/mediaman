@@ -392,7 +392,8 @@ def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
         radarr, sonarr = _build_radarr(conn, secret_key), _build_sonarr(conn, secret_key)
         done = unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
         rescan_unmonitored(done, radarr_client=radarr, sonarr_client=sonarr)
-    except (sqlite3.Error, requests.RequestException, SafeHTTPError, ArrError, ValueError):
+    # rationale: an unreadable setting or a payload of the wrong shape must not stop the sync.
+    except Exception:
         logger.exception("Unmonitoring deleted titles failed — sync unaffected")
 
 

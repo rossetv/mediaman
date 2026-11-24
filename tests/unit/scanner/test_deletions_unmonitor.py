@@ -13,6 +13,7 @@ from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner import deletions, runner
 from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.services.infra import ConfigDecryptError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -80,6 +81,15 @@ def _die_unmonitoring(conn, root):
         DeletionExecutor(conn=conn, radarr_client=radarr).execute()
     conn.rollback()
     assert conn.execute("SELECT 1 FROM audit_log WHERE action = 'deleted'").fetchone()
+
+
+def _skips(conn):
+    return [
+        row[0]
+        for row in conn.execute(
+            "SELECT media_item_id FROM audit_log WHERE action = 'unmonitor_skipped' ORDER BY id"
+        )
+    ]
 
 
 def _sync(conn, monkeypatch, radarr):
@@ -185,6 +195,53 @@ def test_a_title_downloaded_only_before_its_deletion_is_unmonitored(conn, root):
     DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
     assert _unmonitored(radarr) == [1]
+
+
+@pytest.mark.parametrize("error", [KeyError("id"), AttributeError("get"), TypeError("str")])
+def test_a_row_that_fails_unexpectedly_is_audited_and_the_rest_go_on(conn, root, error):
+    files = [_due(conn, root, number) for number in (1, 2)]
+    radarr = _radarr(root)
+    answer = radarr.get_movie_by_id.side_effect
+
+    def fail_first(radarr_id):
+        if radarr_id == 1:
+            raise error
+        return answer(radarr_id)
+
+    radarr.get_movie_by_id.side_effect = fail_first
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert [f.exists() for f in files] == [False, False]
+    assert _unmonitored(radarr) == [2]
+    assert _skips(conn) == ["m1"]
+    assert not conn.execute("SELECT 1 FROM pending_unmonitors").fetchone()
+
+
+def test_a_database_error_while_unmonitoring_leaves_no_due_row_undeleted(conn, root, monkeypatch):
+    files = [_due(conn, root, number) for number in (1, 2)]
+    with monkeypatch.context() as m:
+        m.setattr(deletions, "finish_unmonitor", MagicMock(side_effect=sqlite3.OperationalError))
+        DeletionExecutor(conn=conn, radarr_client=_radarr(root)).execute()
+
+    assert [f.exists() for f in files] == [False, False]
+    assert len(conn.execute("SELECT 1 FROM pending_unmonitors").fetchall()) == 2
+
+
+def test_an_unreadable_radarr_key_does_not_stop_the_library_sync(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    plex = MagicMock(return_value=None)
+    monkeypatch.setattr(
+        runner,
+        "_build_radarr",
+        MagicMock(side_effect=ConfigDecryptError("radarr_api_key", ValueError())),
+    )
+    monkeypatch.setattr(runner, "_build_plex_client", plex)
+
+    runner.run_library_sync(conn, "secret")
+
+    assert plex.called
 
 
 def test_an_older_database_without_the_table_gets_it(conn, db_path, root):

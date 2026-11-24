@@ -579,7 +579,7 @@ def _unmonitor(
     it, there is nothing to unmonitor.
     """
     is_movie = row.media_type == "movie"
-    service = "Radarr" if is_movie else "Sonarr"
+    service = _service(row)
     client = radarr_client if is_movie else sonarr_client
     if client is None:
         return None
@@ -595,10 +595,18 @@ def _unmonitor(
         # Nothing to unmonitor, and nothing it could download again.
         logger.info("engine.delete.unmonitor_none media_id=%s — %s", row.media_item_id, reason)
         return None
+    return _not_unmonitored(row, reason)
+
+
+def _service(row: DeletionRow) -> str:
+    return "Radarr" if row.media_type == "movie" else "Sonarr"
+
+
+def _not_unmonitored(row: DeletionRow, reason: str) -> str:
     logger.warning("engine.delete.unmonitor_skipped media_id=%s — %s", row.media_item_id, reason)
     return (
-        f"Not unmonitored in {service}: {row.title} — {reason}; it was deleted, but "
-        f"{service} may download it again"
+        f"Not unmonitored in {_service(row)}: {row.title} — {reason}; it was deleted, but "
+        f"{_service(row)} may download it again"
     )
 
 
@@ -627,10 +635,19 @@ def unmonitor_deleted(
     unmonitored: set[tuple[str, int]] = set()
     for row in fetch_pending_unmonitors(conn):
         outcome: int | str | None = None
-        if _came_back(conn, row):
-            logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
-        else:
-            outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+        try:
+            if _came_back(conn, row):
+                logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
+            else:
+                outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+        except sqlite3.Error:
+            raise
+        # rationale: the mark of a row that always fails would stop every later pass and sync.
+        except Exception as exc:
+            logger.exception("engine.delete.unmonitor_failed media_id=%s", row.media_item_id)
+            outcome = _not_unmonitored(
+                row, f"an unexpected error stopped it ({exc.__class__.__name__})"
+            )
         with conn:
             if finish_unmonitor(conn, row.id) and isinstance(outcome, str):
                 log_audit(conn, row.media_item_id, "unmonitor_skipped", outcome)
@@ -947,9 +964,14 @@ class DeletionExecutor:
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
 
     def _unmonitor(self) -> None:
-        self._unmonitored |= unmonitor_deleted(
-            self._conn, radarr_client=self._radarr, sonarr_client=self._sonarr
-        )
+        try:
+            self._unmonitored |= unmonitor_deleted(
+                self._conn, radarr_client=self._radarr, sonarr_client=self._sonarr
+            )
+        # rationale: the deletions are committed and the marks stay for the next pass, so
+        # nothing here may leave the rows still due unhandled.
+        except Exception:
+            logger.exception("engine.delete.unmonitor_pass_failed — the next pass tries again")
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
