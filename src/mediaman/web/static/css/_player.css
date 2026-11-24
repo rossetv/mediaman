@@ -516,9 +516,8 @@
 }
 .player.is-loading .player-spinner { opacity: 1; }
 /* A held frame says nothing of the wait: a new quality is mostly quick, another video is not. */
-.player.is-held.is-loading:not(.is-switching) .player-spinner { transition-delay: .6s; }
-@media (prefers-reduced-motion: reduce) {
-  .player.is-held.is-loading:not(.is-switching) .player-spinner { transition-delay: 0s; }
+@media (prefers-reduced-motion: no-preference) {
+  .player.is-held.is-loading:not(.is-switching) .player-spinner { transition-delay: .6s; }
 }
 .player-dim {
   position: absolute;

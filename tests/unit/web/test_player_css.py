@@ -163,10 +163,8 @@ def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_press
 
 def test_under_reduced_motion_the_spinner_over_a_held_frame_comes_at_once() -> None:
     css = _text("_player.css")
-    held = ".player.is-held.is-loading:not(.is-switching) .player-spinner"
-    waits = css.index(held)
-    reduced = re.search(
-        r"@media \(prefers-reduced-motion: reduce\) \{\s*" + re.escape(held) + r" \{([^}]*)\}",
-        css[waits:],
+    moving = "".join(
+        re.findall(r"@media \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}", css, re.S)
     )
-    assert reduced and re.search(r"transition-delay:\s*0s", reduced.group(1))
+    held = ".is-held.is-loading:not(.is-switching) .player-spinner { transition-delay"
+    assert (moving.count(held), css.count(held)) == (1, 1)
