@@ -111,10 +111,16 @@ def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_row() -> N
 def test_the_season_delete_list_can_be_read_again_and_stays_after_a_cancelled_delete() -> None:
     out = _run("seasonDeleteCancelledAndRetried")
     assert (out["failed"], out["retry"], out["focus"]) == (True, "Retry", True)
+    failed, loading, inside, loaded = out["heard"]
+    assert ("load" in failed, "Loading" in loading, inside, loaded) == (True, True, False, "")
     assert out["back"] == ["Delete", True]
     # A browser that does not focus what is clicked has somewhere to go back to.
     assert (out["parked"], out["refocused"]) == (True, True)
     assert out["cancelled"] == {"open": True, "deletes": 1, "posts": 0}
+
+
+def test_the_season_delete_opens_from_a_row_with_no_keep_control() -> None:
+    assert _run("seasonDeleteWithNoKeep") is True
 
 
 def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() -> None:
@@ -624,18 +630,38 @@ def test_a_row_stays_busy_through_a_sort_until_its_last_action_ends() -> None:
     out = _run("busyThroughASort")
     assert (out["during"], out["after"]) == ([True, True], [False, False])
     assert (out["oneLeft"], out["noneLeft"]) == (True, False)
+    assert out["unkeepLeft"] == [["Removing…", True, True], ["Delete", True, False]]
+    assert out["bothFailed"] == [["Keep", False, False], ["Delete", False, False]]
+    assert out["unreadStillBusy"] == [True, True, False]
     # The list that was on its way when the keep was saved is read again.
     assert out["lateListReads"] == 2
+
+
+def test_an_action_done_while_the_rows_show_lets_go_of_its_row() -> None:
+    assert _run("doneOutOfSight") == {"busy": False, "label": "Keep"}
+
+
+def test_a_list_read_before_a_change_is_read_again_though_it_lands_out_of_sight() -> None:
+    assert _run("lateListOutOfSight") == {"mm:watch-admin": 2, "mm:watch-scheduled": 2}
+
+
+def test_a_row_that_could_not_be_read_again_holds_the_keep_that_was_saved() -> None:
+    assert _run("unreadRowHoldsItsKeep") == {"kept": MADE, "removed": None, "undone": None}
+
+
+def test_an_undo_that_came_too_late_reads_its_title_again() -> None:
+    assert _run("undoTooLate") == {"film": ["busy", "done"], "season": ["busy", "done"]}
 
 
 def test_the_search_field_says_what_back_and_forward_lead_to() -> None:
     out = _run("textFollowsBack")
     assert out["otherList"] == ["", [""]]
-    assert (out["rows"], out["forward"]) == ("", "ab")
+    assert (out["rows"], out["forward"]) == ("", ["ab", ["ab"]])
 
 
 def test_a_sort_is_told_to_a_screen_reader_and_a_reload_of_its_own_is_not() -> None:
-    assert _run("listSaid") == ["", "57 titles, Title (A–Z).", "57 titles, Title (A–Z)."]
+    told = "57 titles, Title (A–Z)."
+    assert _run("listSaid") == ["", told, told, ""]
 
 
 def test_a_row_whose_keep_changed_meanwhile_is_left_alone_read_again_and_said_so() -> None:

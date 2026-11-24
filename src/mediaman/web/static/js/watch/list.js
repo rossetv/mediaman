@@ -98,7 +98,7 @@
       fresh = document.importNode(fresh, true);
       Object.keys(_working).forEach(function (key) {
         var row = rowByKey(key, fresh);
-        if (row) setBusy(row, true, _working[key][0]);
+        if (row) showWorking(row);
       });
       return fresh;
     });
@@ -497,10 +497,11 @@
     else if (newPager) block.appendChild(newPager);
   }
 
-  /* Read the list again as it stands and bring the rows named by *keys*
+  /* Read the list again as it stands after the action *d* and bring the rows named by *keys*
      up to date where they are: changed in place, or, after a delete, gone.
      The stats, the summary and the pager follow. */
-  function refresh(keys, action) {
+  function refresh(keys, d) {
+    var action = d.action;
     var r = root();
     if (!r) return Promise.resolve();
     var state = stateOf(r);
@@ -527,7 +528,7 @@
         rowElsewhere(row).then(function (found) {
           if (!current() || !row.parentNode) return;
           if (found) replaceRow(row, found, action);
-          else letGo(row, action);
+          else letGo(row, d);
         });
       });
       /* A page the server moved back (its last row went) is loaded whole once the row has left. */
@@ -535,7 +536,7 @@
     }, function () {
       keys.forEach(function (key) {
         var row = rowByKey(key);
-        if (row) letGo(row, action);
+        if (row) letGo(row, d);
       });
       window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
     });
@@ -543,12 +544,14 @@
 
   /* The change is saved but the row as it now is could not be read: let go
      of it, showing a saved keep as kept, and give focus back to the control. */
-  function letGo(row, action) {
-    if (_working[row.getAttribute('data-row-key')]) return;
+  function letGo(row, d) {
     var refocus = focusBelongsTo(row);
-    setBusy(row, false, action);
-    if (action === 'keep') markKept(row);
-    var btn = actionButton(row, action);
+    showWorking(row);
+    var w = row.querySelector('.keep-wrapper');
+    if (w && d.keep !== undefined) w.setAttribute('data-keep', JSON.stringify(d.keep));
+    if (_working[row.getAttribute('data-row-key')]) return;
+    if (d.action === 'keep') markKept(row);
+    var btn = actionButton(row, d.action);
     if (refocus && btn) btn.focus({ preventScroll: true });
   }
 
@@ -596,18 +599,17 @@
     btn.removeAttribute('aria-busy');
   }
 
-  /* The control the action started from says what it is doing; the
-     row's other one is held until it is done. */
-  function setBusy(row, on, action) {
-    row.classList.toggle('is-busy', on);
-    var main = actionButton(row, action);
+  /* Draw the row for the actions still running on it: the control the first of them started
+     from says what it is doing and the row's other one is held; with none, both are let go. */
+  function showWorking(row) {
+    var running = _working[row.getAttribute('data-row-key')];
+    var main = running && actionButton(row, running[0]);
+    row.classList.toggle('is-busy', !!running);
     [row.querySelector('.keep-trigger'), deleteButton(row)].forEach(function (btn) {
       if (!btn) return;
-      if (btn === main) {
-        busyButton(btn, on, WORKING[action] || 'Saving…');
-      } else {
-        btn.disabled = on;
-      }
+      busyButton(btn, false);
+      if (btn === main) busyButton(btn, true, WORKING[running[0]] || 'Saving…');
+      else btn.disabled = !!running;
     });
   }
 
@@ -626,31 +628,31 @@
     var key = keyFor(d);
     var more = working(key, d);
     var row = rowByKey(key);
+    // The list on its way may have been read before this was saved.
+    if (d.phase === 'done' && _asked) _again = true;
     if (d.phase === 'done' && (_view !== 'list' || !root())) {
       _stale = true;
-      if (row && !more) setBusy(row, false, d.action);
+      if (row) showWorking(row);
       return;
     }
     if (d.phase === 'busy') {
-      if (row) setBusy(row, true, d.action);
+      if (row) showWorking(row);
       return;
     }
     if (d.phase === 'failed') {
-      if (!row || more) return;
-      var refocus = _view === 'list' && focusBelongsTo(row);
-      setBusy(row, false, d.action);
+      if (!row) return;
+      var refocus = _view === 'list' && !more && focusBelongsTo(row);
+      showWorking(row);
       var btn = actionButton(row, d.action);
       if (refocus && btn) btn.focus({ preventScroll: true });
       return;
     }
-    // The list on its way may have been read before this was saved.
-    if (_asked) _again = true;
     if (d.action === 'delete' && !d.showRk) {
       if (row) leave(row);
-      refresh([], 'delete');
+      refresh([], d);
       return;
     }
-    refresh([key], d.action);
+    refresh([key], d);
   });
 
   /* The same control in the list coming in, of the row the focus is in. */
@@ -671,9 +673,9 @@
   }
 
   document.addEventListener('mm:watch-scheduled', function () {
+    if (_asked) _again = true;
     if (_view !== 'list' || !root()) _stale = true;
-    else if (_asked) _again = true;
-    else reload();
+    else if (!_asked) reload();
   });
 
   /* ── Wiring ── */
@@ -753,9 +755,10 @@
       var showTitle;
       try { showTitle = JSON.parse(showDeleteBtn.getAttribute('data-title')); } catch (_) { showTitle = ''; }
       showDeleteBtn.focus({ preventScroll: true }); // as Safari does not on a click, for when the dialog closes
-      var showRow = showDeleteBtn.closest('tr').querySelector('.keep-wrapper');
+      var showRow = showDeleteBtn.closest('tr');
+      var showKeep = showRow && showRow.querySelector('.keep-wrapper');
       admin.pickSeasonDelete(showDeleteBtn.getAttribute('data-show-rk') || '', showTitle,
-        Number(showRow.getAttribute('data-seasons')) || 0);
+        Number(showKeep && showKeep.getAttribute('data-seasons')) || 0);
       return;
     }
     var clear = e.target.closest('[data-list-clear]');

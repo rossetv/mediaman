@@ -4,7 +4,7 @@
  *
  * Nothing here reloads the page. Each action announces itself on the
  * document as an `mm:watch-admin` event, {phase: 'busy'|'done'|'failed',
- * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, showRk}, and whatever shows
+ * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, showRk, keep}, and whatever shows
  * the title (a list row, the detail) updates itself in place.
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
@@ -150,7 +150,13 @@
     return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', { read: readOf(keep) || { action: 'none' } });
   }
 
+  /* Saved: *keep* is the keep there is now, where that is known. */
+  function saved(detail, keep) { emit('done', Object.assign({}, detail, keep === undefined ? null : { keep: keep })); }
+
   function changedMeanwhile(err) { return !!err && err.error === 'keep_changed'; }
+
+  /* The keep an Undo is of is not there to undo. */
+  function notToUndo(err) { return changedMeanwhile(err) || (!!err && err.error === 'too_late'); }
 
   /* The Watch keep refuses what no longer leaves as read. */
   function leavesNoMore(err) { return !!err && (err.status === 404 || err.status === 409); }
@@ -230,7 +236,7 @@
       : keepAsRead(id, duration, w.keep);
     return request.then(function (data) {
       delete _busy[id];
-      emit('done', detail);
+      saved(detail, data && data.keep);
       if (data && data.deletion_running && data.message) {
         /* Saved, but its files may already be gone: say so, with no undo. */
         window.UIFeedback.toast(data.message, { duration: 8000 });
@@ -262,11 +268,11 @@
     emit('busy', detail);
     undo().then(function () {
       delete _busy[id];
-      emit('done', detail);
+      saved(detail, null);
       window.UIFeedback.toast('Keep undone.');
     }, function (err) {
       delete _busy[id];
-      notSaved(detail, changedMeanwhile(err));
+      notSaved(detail, notToUndo(err));
       window.UIFeedback.error("Couldn't undo the keep. " + MM.api.messageOf(err, 'Try again.'));
     });
   }
@@ -290,7 +296,7 @@
     return unprotect(id, w.keep)
       .then(function () {
         delete _busy[id];
-        emit('done', detail);
+        saved(detail, null);
         window.UIFeedback.toast('Removed the keep on ' + (w.title || 'it') + '.');
         return true;
       }, function (err) {
@@ -393,6 +399,18 @@
 
   function dropPageBar() { document.documentElement.style.removeProperty('--page-bar'); }
 
+  /* A dialog's own line for a screen reader, outside its list, which is busy while it loads. */
+  function saySeasons(list, text) {
+    var line = byId(list.id + '-status');
+    if (!line) {
+      line = el('p', 'sr-only');
+      line.id = list.id + '-status';
+      line.setAttribute('role', 'status');
+      list.parentNode.insertBefore(line, list);
+    }
+    line.textContent = text;
+  }
+
   /* Rows where the seasons will be, as many as are expected; the list then keeps their
      height until the seasons are in, whatever it says meanwhile. */
   function seasonSkeleton(list, rows) {
@@ -405,20 +423,21 @@
       row.appendChild(el('span', 'skel skel--line'));
       list.appendChild(row);
     }
-    list.appendChild(el('span', 'sr-only', 'Loading the seasons…'));
+    saySeasons(list, 'Loading the seasons…');
     list.style.minHeight = list.offsetHeight + 'px';
   }
 
   /* The seasons, or what is said in their place. */
   function seasonsIn(list) {
     list.removeAttribute('aria-busy');
+    saySeasons(list, '');
     list.replaceChildren();
   }
 
   function seasonsFailed(list, retry) {
     seasonsIn(list);
     var line = el('p', 'keep-season-note', "Couldn't load the seasons.");
-    line.setAttribute('role', 'status');
+    saySeasons(list, line.textContent);
     list.appendChild(line);
     list.appendChild(retry);
     core.fadeIn(line);
@@ -810,7 +829,7 @@
         emit('busy', detail);
         return c.keeps.reduce(function (chain, s) {
           return chain.then(function () { return undoOne(s); }).catch(function (err) {
-            changed = changed || changedMeanwhile(err);
+            changed = changed || notToUndo(err);
             failed.push(seasonName(s) + ': ' + MM.api.messageOf(err, 'Try again.'));
           });
         }, Promise.resolve());

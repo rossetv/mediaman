@@ -481,10 +481,19 @@ const scenarios = {
     click(p.doc, opener);
     await settle();
     const retry = list().querySelector('button');
-    const out = { parked, failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === retry };
-    p.replies[url] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    const says = () => p.doc.getElementById('season-delete-list-status').textContent;
+    const heard = [says()];
+    const reading = deferred();
+    p.replies[url] = () => reading.promise;
     click(p.doc, retry);
+    heard.push(says(), p.doc.getElementById('season-delete-list').contains(p.doc.getElementById('season-delete-list-status')));
+    reading.reject(new Error('no'));
     await settle();
+    const out = { heard, parked, failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === list().querySelector('button') };
+    p.replies[url] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    click(p.doc, list().querySelector('button'));
+    await settle();
+    heard.push(says());
     const del = list().querySelector('button');
     out.back = [del.textContent, p.doc.activeElement === del];
     del.blur();
@@ -494,6 +503,15 @@ const scenarios = {
     out.refocused = p.doc.activeElement === del;
     out.cancelled = { open: dialog().classList.contains('active'), deletes: list().querySelectorAll('button').length, posts: p.calls.filter((c) => c[0] === 'post').length };
     return out;
+  },
+
+  // Delete in a row with no Keep control.
+  async seasonDeleteWithNoKeep() {
+    const p = load({ list: true });
+    p.row('show:77').querySelector('.keep-wrapper').remove();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    await settle();
+    return p.doc.getElementById('season-delete-overlay').classList.contains('active');
   },
 
   // The Keep dialog before its seasons are in: the second show's, after the first's.
@@ -812,6 +830,76 @@ const scenarios = {
     return { before, busy: row.classList.contains('is-busy'), label: row.querySelector('.keep-trigger').textContent, disabled: !!row.querySelector('.keep-trigger').disabled };
   },
 
+  // A keep saved while the rows show, with a list that cannot be read: its row is let go of.
+  async doneOutOfSight() {
+    const p = load({ list: true });
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    p.fail('/watch/list');
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    await settle();
+    reply.resolve({ ok: true });
+    await settle();
+    const row = p.row('id:m1');
+    return { busy: row.classList.contains('is-busy'), label: row.querySelector('.keep-trigger').textContent };
+  },
+
+  // A list asked for before a change, whose reply lands after it while the rows show.
+  async lateListOutOfSight() {
+    const out = {};
+    for (const type of ['mm:watch-admin', 'mm:watch-scheduled']) {
+      const p = load({ list: true });
+      const wait = deferred();
+      p.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS, wait);
+      click(p.doc, p.doc.querySelector('.th-sort'));
+      click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+      p.doc.dispatchEvent(new p.ctx.CustomEvent(type, { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+      wait.resolve();
+      await settle();
+      await settle();
+      out[type] = p.fetches.length;
+    }
+    return out;
+  },
+
+  // Saved, but the list could not be read: the row holds the keep there is now, so the next press goes through.
+  async unreadRowHoldsItsKeep() {
+    const p = load({ list: true });
+    p.fail('/watch/list');
+    const read = (id) => JSON.parse(p.row('id:' + id).querySelector('.keep-wrapper').getAttribute('data-keep'));
+    click(p.doc, keepOption(p, 'id:m2', 'forever'));
+    await settle();
+    const out = { kept: read('m2') };
+    click(p.doc, p.row('id:m3').querySelector('[data-remove-keep-id]'));
+    await settle();
+    out.removed = read('m3');
+    p.toasts[0].action.onClick();
+    await settle();
+    out.undone = read('m2');
+    return out;
+  },
+
+  // An Undo that came too late, of a film and of a season.
+  async undoTooLate() {
+    const late = () => Promise.reject(Object.assign(new Error('late'), { error: 'too_late', status: 409 }));
+    const run = async (p) => {
+      const phases = [];
+      p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
+      p.replies['post /api/watch/unkeep'] = late;
+      p.toasts[0].action.onClick();
+      await settle();
+      return phases;
+    };
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS);
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    const season = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    await season.confirm();
+    return { film: await run(film), season: await run(season) };
+  },
+
   // A sort while a keep saves; two seasons of one show at once; a list read before the keep was saved.
   async busyThroughASort() {
     const look = (p, key) => {
@@ -839,6 +927,27 @@ const scenarios = {
     say('failed', 's2');
     out.noneLeft = look(two, 'show:77')[0];
 
+    const other = load({ list: true });
+    const act = (phase, action) => other.doc.dispatchEvent(new other.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action, id: 'm1', showRk: '' } }));
+    const controls = () => [other.row('id:m1').querySelector('.keep-trigger'), other.row('id:m1').querySelector('[data-action="confirm-delete"]')]
+      .map((b) => [b.textContent, !!b.disabled, !!b.querySelector('.btn-spinner')]);
+    act('busy', 'delete');
+    act('busy', 'unkeep');
+    act('failed', 'delete');
+    out.unkeepLeft = controls();
+    act('failed', 'unkeep');
+    out.bothFailed = controls();
+
+    // One of two is saved but the list cannot be read: the row is still busy with the other.
+    const unread = load({ list: true });
+    unread.fail('/watch/list');
+    const on = (phase, action) => unread.doc.dispatchEvent(new unread.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action, id: 'm1', showRk: '' } }));
+    on('busy', 'keep');
+    on('busy', 'delete');
+    on('done', 'keep');
+    await settle();
+    out.unreadStillBusy = [...look(unread, 'id:m1'), unread.row('id:m1').classList.contains('wl-row--kept')];
+
     const late = load({ list: true });
     const wait = deferred();
     late.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS, wait);
@@ -865,9 +974,10 @@ const scenarios = {
     p.popstate('');
     await settle();
     out.rows = field.value;
+    p.inputs.length = 0;
     p.popstate('?view=list&q=ab');
     await settle();
-    out.forward = field.value;
+    out.forward = [field.value, p.inputs.slice()];
     return out;
   },
 
@@ -883,6 +993,8 @@ const scenarios = {
     p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', said: '56 titles, Title (A–Z).' }, ROWS);
     p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
     await settle();
+    out.push(status());
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
     out.push(status());
     return out;
   },

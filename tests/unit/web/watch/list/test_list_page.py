@@ -152,6 +152,27 @@ def test_a_row_carries_the_signed_in_persons_own_mark_and_not_the_last_watched_t
     assert [i["last_watched"] for i in mine] == [i["last_watched"] for i in theirs]
 
 
+def _said(client, query: str = "") -> str:
+    found = re.search(r'data-said="([^"]*)"', client.get(f"/watch/list{query}").text)
+    assert found
+    return found[1]
+
+
+def test_the_list_says_how_many_of_what_it_shows_and_in_which_order(client, conn):
+    assert _said(client) == "No titles."
+    _insert_movie(conn, "m1", "Dune")
+    assert _said(client) == "1 title, Recently added."
+    _insert_movie(conn, "m2", "Arrival")
+    _insert_movie(conn, "m3", "Dune & Sons")
+
+    assert _said(client, "?q=dune&type=movie") == "2 movies matching “dune”, Recently added."
+    assert _said(client, "?q=dune %26") == "1 title matching “dune &amp;”, Recently added."
+    assert _said(client, "?type=tv") == "No TV shows."
+    assert _said(client, "?sort=name_asc&per_page=1&page=2") == (
+        "3 titles, Title (A–Z), page 2 of 3."
+    )
+
+
 def _empty(client) -> str:
     html = client.get("/watch/list").text
     return re.sub(r"\s+", " ", html)
