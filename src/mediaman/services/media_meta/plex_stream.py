@@ -132,6 +132,17 @@ class StreamInfo:
     info: Mapping[str, Any]
     #: Seconds since the viewing of this item began; it carries across restarts of the stream.
     elapsed_s: float = 0.0
+    #: The viewing's played time as last saved.
+    saved_played_s: float = 0.0
+
+
+@dataclass
+class _Viewing:
+    """One user's viewing of one item, across restarts of its stream."""
+
+    began: float
+    touched: float
+    saved_played_s: float = 0.0
 
 
 @dataclass
@@ -174,8 +185,8 @@ class StreamManager:
         # Plex session ids handed out and not yet stopped, including ones whose Plex session is
         # still opening and so not yet in ``_streams``; the startup tidy must leave them alone.
         self._issued: set[str] = set()
-        # (user, rating_key) -> (when the viewing began, when it was last touched).
-        self._viewings: dict[tuple[str, str], tuple[float, float]] = {}
+        # (user, rating_key) -> the viewing.
+        self._viewings: dict[tuple[str, str], _Viewing] = {}
         # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
         # (rating_key, file) -> (when Plex was asked, whether it would copy the video).
@@ -248,10 +259,12 @@ class StreamManager:
                 full = False
                 now = self._clock()
                 self._viewings = {
-                    k: v for k, v in self._viewings.items() if now - v[1] <= VIEWING_KEEP_SECONDS
+                    k: v
+                    for k, v in self._viewings.items()
+                    if now - v.touched <= VIEWING_KEEP_SECONDS
                 }
-                began = self._viewings.get((user, rating_key), (now, now))[0]
-                self._viewings[(user, rating_key)] = (began, now)
+                viewing = self._viewings.setdefault((user, rating_key), _Viewing(now, now))
+                viewing.touched = now
                 self._streams[stream_id] = _Stream(
                     user=user,
                     rating_key=rating_key,
@@ -259,7 +272,7 @@ class StreamManager:
                     session_id=session_id,
                     child_path=child_path,
                     last_access=now,
-                    viewing_started=began,
+                    viewing_started=viewing.began,
                     info=dict(info or {}),
                 )
         for old_session in replaced:
@@ -314,12 +327,26 @@ class StreamManager:
 
     def get(self, stream_id: str, user: str) -> StreamInfo:
         stream = self._touch(stream_id, user)
+        with self._lock:
+            return self._info(stream, self._clock())
+
+    def _info(self, stream: _Stream, until: float) -> StreamInfo:
+        """*stream* as callers see it, its time counted to *until*; the lock must be held."""
+        viewing = self._viewings.get((stream.user, stream.rating_key))
         return StreamInfo(
             rating_key=stream.rating_key,
             quality=stream.quality,
             info=dict(stream.info),
-            elapsed_s=self._clock() - stream.viewing_started,
+            elapsed_s=until - stream.viewing_started,
+            saved_played_s=viewing.saved_played_s if viewing else 0.0,
         )
+
+    def note_played(self, user: str, rating_key: str, played_s: float) -> None:
+        """Remember the played time just saved for *user*'s viewing of the item."""
+        with self._lock:
+            viewing = self._viewings.get((user, rating_key))
+            if viewing is not None:
+                viewing.saved_played_s = played_s
 
     def peek(self, stream_id: str, user: str) -> StreamInfo:
         """As ``get``, without counting as use of the stream, so an idle one still ends on time."""
@@ -327,12 +354,7 @@ class StreamManager:
             stream = self._streams.get(stream_id)
             if stream is None or stream.user != user:
                 raise StreamGone("stream is gone")
-            return StreamInfo(
-                rating_key=stream.rating_key,
-                quality=stream.quality,
-                info=dict(stream.info),
-                elapsed_s=stream.last_access - stream.viewing_started,
-            )
+            return self._info(stream, stream.last_access)
 
     def copies_video(self, rating_key: str, file: str) -> bool:
         """Whether Plex would send this item's video as it is, remembered per *file* for a while.
@@ -388,12 +410,7 @@ class StreamManager:
                 )
             ):
                 raise StreamGone("stream is gone")
-            return StreamInfo(
-                rating_key=stream.rating_key,
-                quality=stream.quality,
-                info=dict(stream.info),
-                elapsed_s=stream.last_access - stream.viewing_started,
-            )
+            return self._info(stream, stream.last_access)
 
     def stop(self, stream_id: str, user: str) -> None:
         with self._lock:
@@ -487,7 +504,10 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise StreamGone("stream is gone")
             stream.last_access = self._clock()
-            self._viewings[(user, stream.rating_key)] = (stream.viewing_started, stream.last_access)
+            viewing = self._viewings.setdefault(
+                (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
+            )
+            viewing.touched = stream.last_access
             return stream
 
     def _creds(self) -> tuple[str, str]:

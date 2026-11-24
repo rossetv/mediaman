@@ -51,7 +51,7 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
-from mediaman.web.repository.watch_progress import save_progress
+from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,9 @@ _STREAM_HEADERS = {"Cache-Control": "no-store, no-transform", "X-Accel-Buffering
 
 # The player's played time can run a little ahead of the server's clock for the viewing.
 _PLAYED_SLACK_SECONDS = 30.0
+
+# A place this close to the saved one is the same place; a save is rounded and the video may snap.
+_SAME_PLACE_SECONDS = 0.5
 
 _START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
@@ -279,8 +282,18 @@ def stop_stream(
 
 def _save(stream: StreamInfo, username: str, position_s: float, played_s: float) -> bool:
     info = stream.info
-    return save_progress(
-        get_db(),
+    conn = get_db()
+    row = get_progress(conn, username, [stream.rating_key]).get(stream.rating_key)
+    if (
+        row is not None
+        and played_s <= stream.saved_played_s
+        and abs(position_s - row.position_s) < _SAME_PLACE_SECONDS
+    ):
+        # A paused player left open: saving again would bring a dismissed title back, or undo a
+        # mark made meanwhile.
+        return row.watched
+    watched = save_progress(
+        conn,
         username=username,
         rating_key=stream.rating_key,
         media_item_id=info.get("media_item_id"),
@@ -291,6 +304,8 @@ def _save(stream: StreamInfo, username: str, position_s: float, played_s: float)
         played_s=min(played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
         now=now_utc(),
     )
+    get_stream_manager().note_played(username, stream.rating_key, played_s)
+    return watched
 
 
 async def _progress_body(request: Request) -> _ProgressRequest:
