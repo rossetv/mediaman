@@ -797,6 +797,32 @@ const scenarios = {
     return { started: p.starts().slice(before), message: !p.q('[data-message]').hidden };
   },
 
+  /* The quality of the menu's tick is picked under the message that it failed. */
+  async pick_ticked(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 0);
+    while (p.q('[data-message]').hidden) {
+      p.replies.push(answer('1080p-8000'));
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+      await settle();
+    }
+    const before = p.starts().length;
+    const ticked = p.q('[data-quality][aria-checked="true"]');
+    p.replies.length = 0;
+    p.replies.push(answer('1080p-8000'));
+    click(ticked);
+    await settle();
+    const out = { ticked: ticked.getAttribute('data-quality'), started: p.starts().slice(before), message: !p.q('[data-message]').hidden };
+    /* One that no new try can mend stays. */
+    p.replies.push({ err: { status: 404, error: 'not_found' } });
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', { response: { code: 410 } });
+    await settle();
+    click(p.q('[data-quality][aria-checked="true"]'));
+    await settle();
+    out.final = [p.starts().length - before, !p.q('[data-message]').hidden];
+    return out;
+  },
+
   /* Automatic is picked over a saved choice the server does not know. */
   async pick_over_unknown(p) {
     p.replies[0] = { err: { status: 422 } };

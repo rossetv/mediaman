@@ -408,7 +408,10 @@
     var same = value === quality && !override;
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
-    if (same) return;
+    if (same) {
+      if (!els.message.hidden && tryAgain === retry) retry();
+      return;
+    }
     reverts = 0;
     swapNotice = null;
     override = null;
