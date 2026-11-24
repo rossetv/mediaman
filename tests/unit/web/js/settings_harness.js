@@ -1166,9 +1166,10 @@ const scenarios = {
     const sent = [];
     h.ctx.MM.api = {
       get: () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) }),
-      put: (u, b) => { sent.push(Array.from(b.plex_libraries)); return sent.length === 1 ? Promise.reject({ status: 403 }) : Promise.resolve({ status: 'saved' }); },
+      put: (u, b) => { sent.push(Array.from(b.plex_libraries)); bases.push(Array.from(b.plex_libraries_base || [])); return sent.length === 1 ? Promise.reject({ status: 403 }) : Promise.resolve({ status: 'saved' }); },
       messageOf: () => 'x',
     };
+    const bases = [];
     let accept;
     const password = new Promise((r) => { accept = r; });
     h.ctx.MM.reauth = { run: (f) => f().catch(() => password.then(f)) };
@@ -1188,7 +1189,7 @@ const scenarios = {
     const unsaved = bar.classList.contains('on');
     discard.fire('click');
     await h.flush();
-    return { sent, unsaved, discarded: Array.from(m.diskThresholds.getSelectedLibs()) };
+    return { sent, bases, unsaved, discarded: Array.from(m.diskThresholds.getSelectedLibs()) };
   },
 
   // A library's path and threshold outlive every redraw of the rows, and only what the person cleared is sent as cleared.

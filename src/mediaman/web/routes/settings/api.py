@@ -21,11 +21,13 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable
+from typing import Annotated
 
 import requests as _requests
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 from plexapi.exceptions import PlexApiException
+from pydantic import Field
 from starlette.responses import Response
 
 from mediaman.bootstrap.scan_jobs import SCHEDULE_SETTING_KEYS, reschedule_scan_jobs
@@ -215,8 +217,26 @@ def _persist_settings(
     return respond_ok({"status": "saved", "written": written, "ignored": ignored})
 
 
-#: Held while the thresholds are read, merged and written, so two saves cannot drop each other's.
-_DISK_THRESHOLDS_LOCK = threading.Lock()
+#: Held while the libraries and thresholds are read, merged and written, so two saves cannot undo each other's.
+_LIBRARY_MERGE_LOCK = threading.Lock()
+
+
+class _SettingsPut(SettingsUpdate):
+    """A settings save, with the library selection its ``plex_libraries`` was changed from."""
+
+    plex_libraries_base: Annotated[list[str] | None, Field(max_length=128)] = None
+
+
+def _merge_libraries(conn: sqlite3.Connection, sent: list[str], base: list[str]) -> list[str]:
+    """Return the stored selection with what *sent* adds to and takes from *base* done to it.
+
+    A page opened before another one's save still shows the old selection; sent whole, it
+    would select again, and so scan, a library someone has since taken out.
+    """
+    stored = get_setting(conn, "plex_libraries", default=[])
+    current = [str(v) for v in stored] if isinstance(stored, list) else []
+    kept = [v for v in current if v in sent or v not in base]
+    return kept + [v for v in sent if v not in base and v not in kept]
 
 
 def _merge_disk_thresholds(
@@ -243,7 +263,7 @@ def _merge_disk_thresholds(
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
-    body: SettingsUpdate,
+    body: _SettingsPut,
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
@@ -255,7 +275,9 @@ def api_update_settings(
     one BEGIN IMMEDIATE transaction via security_event_or_raise, so a high-impact change
     never lacks an audit trail.
     """
-    body_dict: dict[str, object] = body.model_dump(exclude_none=True)
+    body_dict: dict[str, object] = body.model_dump(
+        exclude_none=True, exclude={"plex_libraries_base"}
+    )
     conn = get_db()
     throttled = _settings_write_throttled(request, conn, admin, body_dict)
     if throttled is not None:
@@ -270,13 +292,17 @@ def api_update_settings(
         return reauth_err
 
     config = request.app.state.config
-    sent = body_dict.get("disk_thresholds")
-    if not isinstance(sent, dict):
-        return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
-    with _DISK_THRESHOLDS_LOCK:
-        body_dict["disk_thresholds"] = _merge_disk_thresholds(conn, sent)
-        if body_dict["disk_thresholds"] is None:
-            del body_dict["disk_thresholds"]
+    with _LIBRARY_MERGE_LOCK:
+        if body.plex_libraries is not None and body.plex_libraries_base is not None:
+            body_dict["plex_libraries"] = _merge_libraries(
+                conn, body.plex_libraries, body.plex_libraries_base
+            )
+        if body.disk_thresholds is not None:
+            thresholds = _merge_disk_thresholds(conn, body.disk_thresholds)
+            if thresholds is None:
+                del body_dict["disk_thresholds"]
+            else:
+                body_dict["disk_thresholds"] = thresholds
         return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
 
 

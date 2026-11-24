@@ -400,6 +400,30 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("plex_libraries") == ["1", "2", "3"]
 
+    @pytest.mark.parametrize(
+        ("sent", "stored"),
+        [
+            # another page has since taken 1 and 3 out and put 4 in
+            (["1", "2", "3"], ["2", "4"]),
+            (["2", "3"], ["2", "4"]),
+            (["2", "3", "5"], ["2", "4", "5"]),
+            ([], ["4"]),
+        ],
+    )
+    def test_put_does_to_the_stored_libraries_only_what_the_page_changed(
+        self, app_factory, authed_client, conn, sent, stored
+    ):
+        """A selected library is scanned, so an old page may not select one again."""
+        insert_settings(conn, plex_libraries='["2", "4"]')
+        data = self._put_and_get(
+            app_factory,
+            authed_client,
+            conn,
+            {"plex_libraries": sent, "plex_libraries_base": ["1", "2", "3"]},
+        )
+        assert data["plex_libraries"] == stored
+        assert "plex_libraries_base" not in data
+
     def test_put_persists_disk_thresholds(self, app_factory, authed_client, conn):
         """disk_thresholds (nested {lib_id: {path, threshold}}) round-trips."""
         payload = {

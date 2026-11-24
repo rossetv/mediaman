@@ -316,6 +316,8 @@ def test_an_edit_that_is_put_back_leaves_nothing_unsaved() -> None:
 def test_a_retry_after_the_password_sends_what_was_first_sent() -> None:
     out = _run("retryAfterPassword")
     assert out["sent"] == [["1", "2"], ["1", "2"]]
+    # with the selection it was changed from, so the server can tell what was changed
+    assert out["bases"] == [["1"], ["1"]]
     # what was chosen while the dialog was open is still unsaved
     assert out["unsaved"] is True
     assert out["discarded"] == ["1", "2"]

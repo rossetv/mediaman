@@ -285,6 +285,7 @@
       var all = getPayload(sent, saved);
       var payload = {};
       changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
+      if ('plex_libraries' in payload) payload.plex_libraries_base = saved.disk.libs;
       saveBtn.textContent = 'Saving…';
 
       // The button is the way back in, so give it focus again.
