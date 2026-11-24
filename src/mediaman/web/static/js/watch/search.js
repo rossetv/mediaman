@@ -1304,8 +1304,7 @@
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOverGrid) {
         openSheet(false);
         // The grid takes the focus as it opens.
-        window.addEventListener('popstate', function () { input.focus({ preventScroll: true }); }, { once: true });
-        address.back('search');
+        address.back('search', function () { input.focus({ preventScroll: true }); });
         return;
       }
       if (!q || now) {

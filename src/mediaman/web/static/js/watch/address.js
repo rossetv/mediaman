@@ -25,7 +25,7 @@
   var layers = []; // lowest first
   var values = {}; // what each open layer is open at, by name
   var started = false;
-  var leaving = null; // the step asked of the browser and not yet made: { close, timer, then }
+  var leaving = null; // the step asked of the browser and not yet made: { close, timer, then, land }
   var places = {}; // each entry's scroll, by id
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
   var ats = {}; // how far along each entry seen stands, by id
@@ -183,9 +183,10 @@
   /* ── Back ── */
 
   /* Step *by* entries. *close*: a layer that must be shut at the end of it. A
-     step the browser never makes (its history was lost) is done without it. */
-  function step(by, close) {
-    leaving = { close: close, then: null, timer: setTimeout(function () {
+     step the browser never makes (its history was lost) is done without it.
+     *land* is called once the page stands where the step leads. */
+  function step(by, close, land) {
+    leaving = { close: close, then: null, land: land, timer: setTimeout(function () {
       if (!leaving) return;
       leaving = null;
       if (close) shut(close);
@@ -219,11 +220,11 @@
     else step(from - 1 - m.at, name);
   }
 
-  function back(name) {
-    if (leaving) { leaving.then = function () { back(name); }; return; }
+  function back(name, land) {
+    if (leaving) { leaving.then = function () { back(name, land); }; return; }
     if (value(name) === null) return;
     var m = mark();
-    if (m && m.entry === name) step(-1, null);
+    if (m && m.entry === name) step(-1, null, land);
     else close(name);
   }
 
@@ -245,6 +246,7 @@
     if (placed || saved === undefined) stopPlacing();
     else putBack(saved);
     refocus();
+    if (asked && asked.land) asked.land();
     letGo();
     if (asked && asked.then) asked.then();
   }

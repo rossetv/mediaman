@@ -1113,6 +1113,23 @@ const scenarios = {
     return out;
   },
 
+  // The step back from an emptied search is never made: a later Back leaves the focus where it was put since.
+  async emptiedStepLost() {
+    const p = await ready(ADMIN, '', '/watch?all=movies');
+    p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+    const other = p.doc.body.appendChild(p.doc.createElement('button'));
+    p.input.focus();
+    await p.search('orchard');
+    const { go } = p.ctx.history;
+    p.ctx.history.go = () => {};
+    p.type('');
+    p.wait();
+    p.ctx.history.go = go;
+    other.focus();
+    await p.back();
+    return { url: p.url(), other: p.doc.activeElement === other };
+  },
+
   // A person who could not be had is asked for anew by the next try.
   async personAgain() {
     const p = await ready(ADMIN, '', '/watch?person=9001');

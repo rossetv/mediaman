@@ -524,3 +524,7 @@ def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
     ]
     assert out["none"] == 3
     assert out["actor"] == ["/watch?person=9001", "Person 1"]
+
+
+def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None:
+    assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}

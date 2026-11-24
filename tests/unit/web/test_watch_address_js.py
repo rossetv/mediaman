@@ -175,6 +175,10 @@ def test_a_page_drawn_anew_each_time_is_let_go_once_it_is_left() -> None:
     assert _run("pagesThatGo") == {"held": 0}
 
 
+def test_a_page_drawn_anew_is_let_go_while_its_entry_stands() -> None:
+    assert _run("pagesThatGoOn") == {"held": 0}
+
+
 def test_pages_gone_for_good_do_not_push_out_the_scroll_of_those_under_them() -> None:
     assert _run("entriesThatGo") == {"scroll": 700}
 

@@ -367,6 +367,26 @@ const scenarios = {
     return { held: held.filter((r) => r.deref()).length };
   },
 
+  // The same, on and on and never back: every entry stays, and what it had the focus on is gone.
+  async pagesThatGoOn() {
+    const p = open(makeTab('/watch'));
+    const held = [];
+    const page = (person) => {
+      const node = p.doc.body.appendChild(build(p.doc, ['a', {}]));
+      node.focus();
+      p.address.push('explore', p.address.url({ person }));
+      node.remove();
+      held.push(new WeakRef(node));
+      p.doc.activeElement = p.doc.body;
+    };
+    for (let i = 0; i < 5; i++) page(String(i));
+    p.address.push('explore', p.address.url({ person: '9' }));
+    await settle();
+    v8.setFlagsFromString('--expose-gc');
+    vm.runInNewContext('gc')();
+    return { held: held.filter((r) => r.deref()).length };
+  },
+
   // Going forward and back again and again leaves what is still under it known after a reload.
   async entriesThatGo() {
     const tab = makeTab('/watch');
