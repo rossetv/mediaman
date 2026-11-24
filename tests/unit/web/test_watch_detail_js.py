@@ -911,6 +911,10 @@ def test_an_admins_open_keep_menu_closes_when_another_season_comes_in() -> None:
     assert out["menuAfter"] == {"open": False, "focus": "admin-keep", "live": True}
 
 
+def test_removing_the_keep_of_a_show_asks_which_and_takes_no_season_of_its_own() -> None:
+    assert _run("leavingSeasonsAdmin")["removed"] == [["keep", "", None]]
+
+
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",

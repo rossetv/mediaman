@@ -2054,7 +2054,9 @@
         remove.setAttribute('tabindex', '-1');
         remove.addEventListener('click', function () {
           closeAdminMenu(true);
-          api.removeKeep(wrapper);
+          // A show's keeps can sit on several seasons and on the show; the dialog's Remove all clears them.
+          if (wrapper.is_tv) api.keep(Object.assign({}, wrapper, { season_id: '' }));
+          else api.removeKeep(wrapper);
         });
         menu.appendChild(remove);
       }
