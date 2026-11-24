@@ -611,6 +611,15 @@ def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
     assert out["2"] == {"scroll": 530, "room": ""}
 
 
+def test_a_season_whose_leaving_line_goes_or_comes_leaves_its_pill_where_it_was_pressed() -> None:
+    out = _run("leavingLineGoes")
+    for at, scrolled in (("0", 0), ("25", 0), ("300", 260)):
+        assert out[at]["gone"] == {"moved": 0, "line": False, "scroll": scrolled}
+        assert out[at]["loaded"] == 0
+        assert (out[at]["back"]["moved"], out[at]["back"]["line"]) == (0, True)
+        assert out[at]["room"] == 0
+
+
 def test_the_seasons_are_one_line_that_shows_the_picked_one() -> None:
     out = _run("seasonLine")
     assert (out["started"], out["scroller"]) == ([True, True], True)

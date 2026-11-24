@@ -1463,6 +1463,46 @@ const scenarios = {
     return out;
   },
 
+  // The line of a season that leaves goes and comes back above the pills, pressed with the overlay
+  // scrolled less far than the line is tall, then further: how far the pressed pill moved, how far
+  // it is scrolled, and whether a title loaded again moves it.
+  async leavingLineGoes() {
+    const out = {};
+    for (const at of [0, 25, 300]) {
+      const eps = { ok: true, episodes: [] };
+      let keepable = true;
+      const leaving = { days: 3, keep_id: '3020', season: 2 };
+      const show = () => Object.assign({}, LIB_SHOW, { leaving, leaving_seasons: [leaving], keep_allowed: keepable });
+      const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(show()),
+        '/api/watch/title/show-300/season/1': eps, '/api/watch/title/show-300/season/2': eps } });
+      p.run();
+      await openCard(p, 'show-300');
+      const root = p.ttl();
+      let scroll = at;
+      Object.defineProperty(root, 'scrollTop', { get: () => scroll, set: (v) => { scroll = Math.max(0, v); } });
+      const gap = () => parseFloat(p.q('.ttl__seasonsec').style.marginTop) || 0;
+      const top = () => 400 + (p.q('.ttl__leaving') ? 40 : 0) + gap() - scroll;
+      Node.prototype.getBoundingClientRect = function () {
+        return { top: this.classList.contains('watch-pill') ? top() : 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 };
+      };
+      const pick = async (n) => {
+        const was = top();
+        click(p.doc, p.q('.watch-pill[data-season="' + n + '"]'));
+        await settle();
+        return { moved: top() - was, line: !!p.q('.ttl__leaving'), scroll };
+      };
+      out[at] = { gone: await pick(1) };
+      keepable = false;
+      const was = top();
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      await settle();
+      out[at].loaded = top() - was;
+      out[at].back = await pick(2);
+      out[at].room = gap();
+    }
+    return out;
+  },
+
   // The line of seasons of a library show: where it stands when the title opens on its second
   // season, after a press on one wholly in view and one cut off, and after the title is loaded again.
   async seasonLine() {

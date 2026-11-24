@@ -244,6 +244,7 @@
       season: null,
       picked: null,         // the episodes of the season the person picked
       seasonLoading: null,  // the season being loaded: { number }
+      room: 0,              // what is left above the seasons, for them to stay where they were
       shareUrl: null,
       shareMsg: null,
       shareState: null,  // null, 'busy' or 'copied'
@@ -1791,6 +1792,7 @@
 
   function episodesSection(d) {
     var sec = el('section', 'ttl__seasonsec');
+    if (cur.room) sec.style.marginTop = cur.room + 'px';
     var head = el('div', 'ttl__sec-head');
     head.appendChild(el('h3', 'ttl__sec-title', 'Episodes'));
     sec.appendChild(head);
@@ -1861,16 +1863,27 @@
     });
   }
 
-  /* Make a *change* that can shorten the page without *node* moving: where the
-     overlay could not stay scrolled as far as it is, room is left at its end. */
-  function holdStill(node, change) {
-    var from = node.getBoundingClientRect().top;
+  /* Make a *change* without moving what *find* finds before and after it: the overlay
+     scrolls as far as that moved, and where it cannot, room is left at the page's end, or
+     above the seasons. */
+  function holdStill(find, change) {
+    var from = find().getBoundingClientRect().top;
     change();
     body.style.marginBottom = '';
-    var moved = node.getBoundingClientRect().top - from;
-    if (moved <= 0) return;
-    body.style.marginBottom = moved + 'px';
+    leaveRoom(0);
+    var node = find();
+    var moved = node ? node.getBoundingClientRect().top - from : 0;
+    if (!moved) return;
+    if (moved > 0) body.style.marginBottom = moved + 'px';
+    var was = root.scrollTop;
     root.scrollTop += moved;
+    leaveRoom(root.scrollTop - was - moved);
+  }
+
+  function leaveRoom(px) {
+    var sec = body.querySelector('.ttl__seasonsec');
+    cur.room = px >= 1 ? px : 0; // a scroll stops at a whole pixel
+    if (sec) sec.style.marginTop = cur.room ? cur.room + 'px' : '';
   }
 
   /* A season pill swaps the list in place; focus stays on the pill. When the
@@ -1899,7 +1912,8 @@
       s.watched = data.watched;
       var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
       var sec = body.querySelector('.ttl__seasonsec');
-      holdStill(sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec, function () {
+      var pill = sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
+      holdStill(function () { return pill; }, function () {
         sec.querySelector('.watch-episodes').replaceWith(fresh);
         if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
           redrawActions(c.ref);
