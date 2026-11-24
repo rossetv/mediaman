@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
@@ -25,6 +26,8 @@ class _Library:
         self.ids = {}
         self.places = {}
         self.names = {}
+        self.watched = {}
+        self.failing = set()
 
     def file(self, key):
         name = "film.mkv" if self.kind == "film" else "E1.mkv"
@@ -47,6 +50,11 @@ class _Library:
             item |= {"show_title": "Title", "season_number": 1, "show_rating_key": f"show-{key}"}
         return item | self.ids.get(key, {})
 
+    def _history(self, key):
+        if key in self.failing:
+            raise requests.ConnectionError
+        return [{"viewed_at": self.watched[key]}] if key in self.watched else []
+
     def _run(self, run, keys):
         plex = MagicMock()
         items = [self._item(key) for key in keys]
@@ -62,8 +70,8 @@ class _Library:
         ]
         plex.get_movie_items.return_value = others + (items if self.kind == "film" else [])
         plex.get_show_seasons.return_value = items if self.kind == "season" else []
-        plex.get_watch_history.return_value = []
-        plex.get_season_watch_history.return_value = []
+        plex.get_watch_history.side_effect = self._history
+        plex.get_season_watch_history.side_effect = self._history
         engine = ScanEngine(
             conn=self._conn,
             plex_client=plex,
@@ -244,6 +252,24 @@ def test_kept_files_stay_when_plex_corrects_the_match_under_a_new_key(
 
     assert library.file("new").exists()
     assert _actions(conn, "new") == ["protected_forever"]
+
+
+def test_files_watched_lately_stay_when_the_watch_could_not_be_read_at_first(
+    conn, freezer, library
+):
+    library.sync("old")
+    library.failing = {"old"}
+    library.scan("old", "new")
+    library.failing, library.watched = set(), {"old": datetime.now(UTC)}
+    library.scan("old", "new")
+
+    library.scan("new")
+    for days in (15, 1):
+        freezer.tick(timedelta(days=days))
+        library.scan("new")
+
+    assert library.file("new").exists()
+    assert _actions(conn, "new") == []
 
 
 class TestKeyBesideAKeptOne:

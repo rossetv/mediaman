@@ -154,6 +154,8 @@ class ScanEngine:
         self._started_at: str | None = None
         # The keys Plex lists in the current run, as far as it has been read.
         self._listed_keys: set[str] = set()
+        # The path and season of each key whose history the current scan could not fetch.
+        self._skipped_places: set[tuple[object, object]] = set()
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -341,6 +343,7 @@ class ScanEngine:
         """
         self._started_at = now_iso()
         self._listed_keys = set()
+        self._skipped_places = set()
         summary = {
             "scanned": 0,
             "scheduled": 0,

@@ -70,13 +70,13 @@ class FetchedLibrary:
     its ``seen_keys`` set before orphan removal so a history-fetch failure
     is "seen, just not evaluated this scan", never "gone from Plex".
 
-    *skipped_seasons* are the skipped items that are seasons: their path
-    still tells which show they belong to.
+    *skipped_items* are those items: their path still tells which show a
+    season belongs to, and which files nobody knows the last watch of.
     """
 
     items: list[PlexItemFetch]
     skipped_keys: frozenset[str]
-    skipped_seasons: list[PlexSeasonItem] = field(default_factory=list)
+    skipped_items: list[PlexMovieItem | PlexSeasonItem] = field(default_factory=list)
 
     @property
     def listed_keys(self) -> set[str]:
@@ -85,8 +85,8 @@ class FetchedLibrary:
 
     @property
     def seasons(self) -> list[Mapping[str, object]]:
-        """Every item and skipped season Plex lists in the library."""
-        return [*(f.item for f in self.items), *self.skipped_seasons]
+        """Every item Plex lists in the library, skipped or not."""
+        return [*(f.item for f in self.items), *self.skipped_items]
 
 
 class PlexFetcher:
@@ -130,22 +130,22 @@ class PlexFetcher:
         """
         lib_type = self._library_types.get(library_id, "movie")
         out: list[PlexItemFetch] = []
-        skipped: set[str] = set()
-        skipped_seasons: list[PlexSeasonItem] = []
+        skipped: list[PlexMovieItem | PlexSeasonItem] = []
         if lib_type == "show":
-            self._fetch_show_seasons(library_id, out, skipped_seasons)
-            skipped.update(season["plex_rating_key"] for season in skipped_seasons)
+            self._fetch_show_seasons(library_id, out, skipped)
         else:
             self._fetch_movies(library_id, out, skipped)
         return FetchedLibrary(
-            items=out, skipped_keys=frozenset(skipped), skipped_seasons=skipped_seasons
+            items=out,
+            skipped_keys=frozenset(item["plex_rating_key"] for item in skipped),
+            skipped_items=skipped,
         )
 
     def _fetch_show_seasons(
         self,
         library_id: str,
         out: list[PlexItemFetch],
-        skipped: list[PlexSeasonItem],
+        skipped: list[PlexMovieItem | PlexSeasonItem],
     ) -> None:
         """Fetch each season's watch history; record skips on failure."""
         seasons = self._plex.get_show_seasons(library_id)
@@ -179,7 +179,7 @@ class PlexFetcher:
         self,
         library_id: str,
         out: list[PlexItemFetch],
-        skipped: set[str],
+        skipped: list[PlexMovieItem | PlexSeasonItem],
     ) -> None:
         """Fetch each movie's watch history; record skips on failure."""
         items = self._plex.get_movie_items(library_id)
@@ -195,7 +195,7 @@ class PlexFetcher:
                     rating_key,
                     exc_info=True,
                 )
-                skipped.add(rating_key)
+                skipped.append(item)
                 continue
             out.append(
                 PlexItemFetch(

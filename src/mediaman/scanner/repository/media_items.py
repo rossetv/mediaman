@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 
 from mediaman.core.format import ensure_tz as _ensure_tz
@@ -204,6 +204,18 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
         ).fetchall()
         ids.extend(r["id"] for r in rows)
     return ids
+
+
+def fetch_places(conn: sqlite3.Connection, media_ids: Iterable[str]) -> set[tuple[str, int | None]]:
+    """Return the stored path and season of each of *media_ids* in the library."""
+    places = set()
+    for media_id in media_ids:
+        row = conn.execute(
+            "SELECT file_path, season_number FROM media_items WHERE id = ?", (media_id,)
+        ).fetchone()
+        if row is not None:
+            places.add((row["file_path"], row["season_number"]))
+    return places
 
 
 def fetch_ids_touched_since(conn: sqlite3.Connection, since: str) -> set[str]:

@@ -71,11 +71,11 @@ class _Plex:
         return list(self._seasons)
 
     def get_watch_history(self, key):
+        if key in self._no_history:
+            raise requests.ConnectionError
         return [{"viewed_at": self._watched[key]}] if key in self._watched else []
 
     def get_season_watch_history(self, key):
-        if key in self._no_history:
-            raise requests.ConnectionError
         return self.get_watch_history(key)
 
 
@@ -887,6 +887,55 @@ class TestLastWatched:
         _engine(conn, plex, library_types={"1": "movie", "3": "movie"}).run_scan()
 
         assert _scheduled(conn) == set()
+
+    @pytest.mark.parametrize("known", [True, False])
+    def test_a_key_beside_one_whose_history_failed_waits_for_it(self, conn, known):
+        films, seasons = [*_NEW_FILM, *_FILM], [_season("show", 1, prefix="new-"), *_SHOW]
+        if known:
+            _sync(conn, films=_FILM, seasons=_SHOW)
+
+        _scan(conn, films=films, seasons=seasons, no_history=["f1", "show-s1"])
+        assert _scheduled(conn) == set()
+
+        _scan(conn, films=films, seasons=seasons)
+        assert _scheduled(conn) == {"f1", "new-f1", "show-s1", "new-show-s1"}
+
+    def test_a_key_beside_one_whose_history_failed_in_a_later_library_waits_for_it(self, conn):
+        plex = _Plex(no_history=["f1"])
+        listed = {"1": _NEW_FILM, "3": _FILM}
+        plex.get_movie_items = lambda library: listed[library]
+
+        _engine(conn, plex, library_types={"1": "movie", "3": "movie"}).run_scan()
+
+        assert _scheduled(conn) == set()
+
+    def test_a_key_waits_for_one_listed_without_its_path(self, conn):
+        _sync(conn, films=_FILM)
+
+        _scan(conn, films=[*_NEW_FILM, _FILM[0] | {"file_path": ""}], no_history=["f1"])
+
+        assert _scheduled(conn) == set()
+
+    def test_a_history_that_failed_holds_back_no_other_path_or_season(self, conn):
+        first = _season("show", 1)
+        _scan(
+            conn,
+            films=[*_FILM, _film("f2")],
+            seasons=[first, _season("show", 2) | {"file_path": first["file_path"]}],
+            no_history=["f1", "show-s1"],
+        )
+
+        assert _scheduled(conn) == {"f2", "show-s2"}
+
+    def test_a_history_that_failed_in_an_earlier_scan_of_the_engine_holds_back_nothing(self, conn):
+        plex = _Plex(films=[*_NEW_FILM, *_FILM], no_history=["f1"])
+        engine = _engine(conn, plex)
+        engine.run_scan()
+        plex._no_history = []
+
+        engine.run_scan()
+
+        assert _scheduled(conn) == {"f1", "new-f1"}
 
     def test_a_watch_of_the_old_key_cancels_no_deletion_already_scheduled(self, conn):
         _scan(conn, films=[*_FILM, *_NEW_FILM])

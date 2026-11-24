@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, cast
 from mediaman.core.time import now_iso
 from mediaman.scanner import repository
 from mediaman.scanner._eligibility import is_inactive
-from mediaman.scanner.fetch import PlexItemFetch
+from mediaman.scanner.fetch import FetchedLibrary, PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
@@ -244,7 +244,8 @@ def _evaluate_scan_item(
     A mediaman play credited to the item counts in the inactivity check. The
     stored ``last_watched_at`` is a floor for it, so a watch whose play is gone
     (its viewer deleted) or was of another key of the title still keeps the
-    item. It is read only for an item that would else be scheduled.
+    item. It is read only for an item that would else be scheduled. One that
+    shares its place with a key whose history could not be fetched waits for it.
     """
     conn = engine._conn
     item = f.item
@@ -257,6 +258,8 @@ def _evaluate_scan_item(
     f = with_mediaman_play(f, guards.credited)
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
     if evaluate_fn(f, added_at, f.watch_history) != "schedule_deletion":
+        return media_id, ScanDecision.SKIP_EVAL
+    if (item.get("file_path"), item.get("season_number")) in engine._skipped_places:
         return media_id, ScanDecision.SKIP_EVAL
     if repository.is_kept_under_another_key(conn, media_id):
         return media_id, ScanDecision.SKIP_GUARD
@@ -305,6 +308,13 @@ def _apply_scan_decision(
     summary["scheduled"] += 1
 
 
+def _note_skipped(engine: ScanEngine, fetched: FetchedLibrary) -> None:
+    """Note where the items of *fetched* are whose last watch is not known in this run."""
+    for item in fetched.skipped_items:
+        engine._skipped_places.add((item.get("file_path"), item.get("season_number")))
+    engine._skipped_places.update(repository.fetch_places(engine._conn, fetched.skipped_keys))
+
+
 def scan_movie_library(
     engine: ScanEngine,
     library_id: str,
@@ -320,6 +330,7 @@ def scan_movie_library(
     # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
+    _note_skipped(engine, fetched)
 
     def _evaluate(
         f: PlexItemFetch,
@@ -363,6 +374,7 @@ def scan_tv_library(
     # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
+    _note_skipped(engine, fetched)
 
     # Before any season is evaluated: one that shows its show to be a kept one
     # under a new key may come after the others.

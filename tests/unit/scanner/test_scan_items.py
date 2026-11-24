@@ -63,6 +63,7 @@ class _StubEngine:
         self._conn = conn
         self._arr_cache = ArrDateCache()
         self._listed_keys = set()
+        self._skipped_places = set()
         self._dry_run = dry_run  # dry-run avoids needing a real secret_key / HMAC
         self._grace_days = 14
         self._secret_key = "0123456789abcdef" * 4
