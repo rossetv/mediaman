@@ -695,11 +695,18 @@
       }
       sheetOn = on;
       page.classList.toggle('is-sheet-on', on);
+      document.documentElement.classList.toggle('has-sheet', on);
+      clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
       [browse, byId('watch-all')].forEach(function (n) { if (n) n.inert = on; });
       sayList();
       pick(null);
+    }
+
+    function leaveSheet() {
+      openSheet(false);
+      input.blur();
     }
 
     /* The keyboard of a phone covers the bottom of the window, not of the page. */
@@ -1413,10 +1420,8 @@
       if (e.key === 'Escape') {
         if (picked) pick(null);
         else if (input.value) clearSearch();
-        else if (sheetOn) {
-          openSheet(false);
-          input.blur();
-        } else return;
+        else if (sheetOn) leaveSheet();
+        else return;
         e.preventDefault();
         return;
       }
@@ -1477,11 +1482,11 @@
     results.addEventListener('mousedown', function (e) {
       if (e.target.closest('.watch-suggestion')) e.preventDefault();
     });
-    veil.addEventListener('click', function () {
-      openSheet(false);
-      input.blur();
+    veil.addEventListener('click', leaveSheet);
+    clear.addEventListener('click', function () {
+      if (sheetOn) leaveSheet();
+      else clearSearch();
     });
-    clear.addEventListener('click', clearSearch);
 
     function modalOpen() {
       return core.toArray(document.querySelectorAll('[aria-modal="true"]')).some(function (n) { return n.getClientRects().length > 0; });

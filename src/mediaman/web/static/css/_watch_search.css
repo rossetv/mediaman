@@ -141,7 +141,11 @@
 @media (hover: none), (max-width: 599.98px) {
   .watch-search__key { display: none; }
   .watch-search__row { padding-right: 16px; }
-  .watch-search:is(.has-value, .has-token) .watch-search__row { padding-right: 50px; }
+  .watch-search:is(.has-value, .has-token) .watch-search__row,
+  .is-sheet-on .watch-search__row { padding-right: 50px; }
+  /* Nothing else says how to leave the sheet. At once, or Tab would stop on it as it goes. */
+  .watch-search .watch-search__clear { transition: transform var(--dur) var(--ease-spring), color var(--dur-fast) var(--ease-out); }
+  .is-sheet-on .watch-search .watch-search__clear { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 }
 
 /* Where the open bar would cover what stands beside it, that makes room. */
@@ -227,7 +231,8 @@
 .watch-person--skel .skel--line:last-child { width: 40%; margin: 4px 0 1.75px; }
 @media (max-width: 599.98px) { .watch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-/* The page settles back behind it. */
+/* The page settles back behind it, and holds still: where the scrollbar takes room, that stays. */
+html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 #watch-browse { transform-origin: 50% 160px; transition: transform var(--dur-open) var(--ease-out), opacity var(--dur) var(--ease-out); }
 .watch-page.is-sheet-on #watch-browse { transform: scale(.982); }
 #watch-browse.is-off { position: absolute; left: 0; right: 0; opacity: 0; pointer-events: none; transform: scale(.97); transition-duration: var(--dur-fast); }

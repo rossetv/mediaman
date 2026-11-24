@@ -87,7 +87,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
-      ['button', { id: 'watch-search-clear' }]],
+      ['button', { id: 'watch-search-clear', 'aria-label': 'Clear search' }]],
     ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
     ['div', { id: 'watch-sheet' }],
     ['span', { id: 'watch-search-status' }],
@@ -1413,6 +1413,29 @@ const scenarios = {
     q.input.listeners.compositionend.forEach((fn) => fn({}));
     await settle();
     out.page = [q.url(), q.$('watch-search-token').hidden];
+    return out;
+  },
+
+  // Behind the open sheet the page holds still, and the cross shuts it: the field is empty, and what it holds stays.
+  async sheetHolds() {
+    const p = await ready(ADMIN);
+    const html = p.doc.documentElement;
+    const cross = p.$('watch-search-clear');
+    const state = () => [html.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'), cross.getAttribute('aria-label')];
+    const out = [state()];
+    p.press();
+    p.input.focus();
+    out.push(state());
+    click(p.doc, cross);
+    await settle();
+    out.push(state().concat(p.doc.activeElement === p.input));
+    // Opened again by typing and emptying: as any other time.
+    p.press();
+    p.input.focus();
+    p.type('a');
+    out.push(state());
+    click(p.doc, cross);
+    out.push(state());
     return out;
   },
 };

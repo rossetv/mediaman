@@ -623,3 +623,9 @@ def test_the_people_and_what_to_try_stand_before_the_less_used_categories() -> N
         ["Browse by category", ["action", "science-fiction", "horror"]],
         ["More categories", ["news"]],
     ]
+
+
+def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
+    shut, opened = [False, False, "Clear search"], [True, True, "Close search"]
+    # The cross of a search empties it, which opens the sheet again.
+    assert _run("sheetHolds") == [shut, opened, [*shut, False], shut, opened]
