@@ -1247,14 +1247,14 @@ def test_a_seek_to_what_has_not_loaded_keeps_the_frame_until_it_is_there(markup)
 
 def test_a_segment_the_server_is_too_busy_for_is_asked_for_again_when_it_says(markup):
     out = run(markup, "busy", plays="fragLoadError")
-    assert out["early"] == [0, 1]
+    assert (out["early"], out["stopped"]) == ([0, 1], True)
     assert (out["after"]["loads"], out["after"]["streams"]) == ([-1], 1)
     assert (out["starts"], out["stops"], out["message"], out["notice"]) == (1, 0, None, False)
 
 
 def test_a_playlist_the_server_is_too_busy_for_is_asked_for_again_when_it_says(markup):
     out = run(markup, "busy", plays="manifestLoadError")
-    assert out["early"] == [0, 1]
+    assert (out["early"], out["stopped"]) == ([0, 1], True)
     assert (out["after"]["streams"], out["after"]["src"]) == (2, "/p1")
     assert out["after"]["startPosition"] == 100
     assert (out["starts"], out["stops"], out["message"], out["notice"]) == (1, 0, None, False)
@@ -1263,7 +1263,7 @@ def test_a_playlist_the_server_is_too_busy_for_is_asked_for_again_when_it_says(m
 @pytest.mark.parametrize("how", ["offline", "gateway"])
 def test_a_short_drop_keeps_the_stream_and_is_tried_again_with_longer_waits(markup, how):
     out = run(markup, "dropped", plays=how)
-    assert out["triedAt"] == [1, 3, 7, 15, 23, 31, 39]
+    assert (out["stopped"], out["triedAt"]) == (True, [1, 3, 7, 15, 23, 31, 39])
     trying = {"message": None, "destroyed": False, "notice": True, "loading": True}
     assert out["whileTrying"] == trying
     assert out["back"] == {"notice": False, "message": None}

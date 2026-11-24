@@ -702,16 +702,13 @@
      (`trying`) and whether the message is up (`over`). */
   var lost = null;
 
-  function noteLost(again, gaveUp) {
-    if (lost) return;
-    lost = { at: Date.now(), again: again, gaveUp: gaveUp, wait: LOST_FIRST_MS, trying: false, over: false };
-    clearTimeout(stallTimer);
-    countLost();
-    showLost();
-  }
-
   function waitOut(again, gaveUp) {
-    noteLost(again, gaveUp);
+    if (!lost) {
+      lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
+      clearTimeout(stallTimer);
+      countLost();
+      showLost();
+    }
     lost.trying = false;
     if (lost.over) return;
     lost.again = again;
@@ -1070,17 +1067,19 @@
       else streamGone();
       return;
     }
+    /* hls.js would ask for a refused segment again at once, six times over, before it
+       calls the error fatal; for one the network lost, after waits of its own. */
     if (status === 429) {
       reached();
       if (busyTimer === null) countBusy();
-      if (data.fatal) setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
+      h.stopLoad();
+      setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
     }
     /* Leaving the page cancels its requests too, before it says that it is left. */
     if (status === 0 || (fromProxy(status) && !codeOf(data))) {
-      var again = function () { loadAgain(h, data.details); };
-      if (data.fatal) waitOut(again);
-      else noteLost(again);
+      h.stopLoad();
+      waitOut(function () { loadAgain(h, data.details); });
       return;
     }
     /* Also how a connection too slow to start at all shows. */

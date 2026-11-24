@@ -362,7 +362,7 @@ function boot(html, reduced, saved, serverPlays, came) {
 
   const hlsList = [];
   class Hls {
-    constructor(cfg) { this.config = cfg; this.startsAt = null; this.loads = []; this.handlers = {}; this.destroyed = false; hlsList.push(this); }
+    constructor(cfg) { this.config = cfg; this.startsAt = null; this.loads = []; this.stopped = false; this.handlers = {}; this.destroyed = false; hlsList.push(this); }
     static isSupported() { return true; }
     on(name, fn) { this.handlers[name] = fn; }
     emit(name, data) {
@@ -372,7 +372,8 @@ function boot(html, reduced, saved, serverPlays, came) {
     }
     loadSource(src) { this.src = src; }
     attachMedia(v) { this.media = v; }
-    startLoad(t) { this.loads.push(t); if (this.startsAt !== null) this.startsAt = t; }
+    stopLoad() { this.stopped = true; }
+    startLoad(t) { this.stopped = false; this.loads.push(t); if (this.startsAt !== null) this.startsAt = t; }
     /* Like hls.js: the media is let go of and taken again, empty and paused, with nothing
        said of its place. */
     recoverMediaError() {
@@ -520,12 +521,12 @@ function barState(p) {
   return { time: p.q('[data-elapsed]').textContent, now: p.q('[data-seek]').getAttribute('aria-valuenow'), left: p.q('[data-played]').style.width };
 }
 
-/* A failed request, as hls.js tells of it; *body* is what the server answered it with. */
+/* A failed request, as hls.js tells of it, a segment's as no fatal one at first; *body* is what the server answered it with. */
 function loadError(details, code, body, headers) {
   const text = body ? JSON.stringify(body) : '';
   const segment = /^frag/.test(details);
   return {
-    fatal: true, type: 'networkError', details: details, response: { code: code },
+    fatal: !segment, type: 'networkError', details: details, response: { code: code },
     networkDetails: {
       responseType: segment ? 'arraybuffer' : '',
       response: segment ? new TextEncoder().encode(text).buffer : text,
@@ -1199,6 +1200,7 @@ const scenarios = {
     await streamPlays(p, 100);
     const h = p.hlsList[0];
     h.emit('hlsError', loadError(details, 429, { error: 'busy' }, { 'retry-after': '3' }));
+    const stopped = h.stopped;
     p.tick(2900);
     const early = [h.loads.length, p.hlsList.length];
     p.tick(200);
@@ -1210,7 +1212,7 @@ const scenarios = {
       p.tick(5000);
       await settle();
     }
-    return { early: early, after: loading, starts: p.starts().length, stops: p.beacons.length, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
+    return { early: early, stopped: stopped, after: loading, starts: p.starts().length, stops: p.beacons.length, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
   },
 
   /* A short drop in the middle: the segments fail, and then come again. */
@@ -1223,6 +1225,7 @@ const scenarios = {
     const out = { role: p.q('[data-lost]').parentNode.getAttribute('role'), text: p.q('[data-lost]').textContent };
     const at = [];
     h.emit('hlsError', error());
+    out.stopped = h.stopped;
     out.whilePlaying = notice();
     playOn(p, 2);
     fire(p.video, 'waiting');
