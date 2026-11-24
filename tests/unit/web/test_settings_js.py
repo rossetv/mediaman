@@ -181,7 +181,7 @@ def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
 
 def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none() -> None:
     assert _run("newsletterWithoutFocus") == dict.fromkeys(
-        ("open", "close", "add", "remove", "next"), True
+        ("open", "close", "add", "next"), True
     )
 
 

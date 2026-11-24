@@ -787,7 +787,7 @@ const scenarios = {
     h.drain();
     const rm = (i) => names(list, 'sub-row')[i].querySelector('.link-danger');
     const next = rm(1);
-    out.remove = await click(rm(0));
+    await click(rm(0));
     h.drain();
     out.next = h.doc.activeElement === next;
     void email;
