@@ -1254,6 +1254,12 @@ class DeletionExecutor:
         # row. Snooze cleanup below still runs so expired snoozes
         # re-enter the pipeline once roots are configured.
         if not allowed_roots:
+            # Cancelling deletes nothing, so it does not wait for roots either.
+            for row in rows:
+                if not row.library_selected and self._claim(row, now.isoformat()) is not None:
+                    repository.mark_delete_status(self._conn, row.id, "pending")
+                    self._conn.commit()
+            rows = [row for row in rows if row.library_selected]
             if rows:
                 logger.error(
                     "Skipping %d pending deletion(s): no delete folders are configured. "
@@ -1335,6 +1341,31 @@ class DeletionExecutor:
             or bool(fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso))
         )
 
+    def _claim(self, row: DeletionRow, now_iso: str) -> DeletionRow | None:
+        """Claim *row* and return it as it is now, its transaction left open.
+
+        None, committed, when it is no longer due, or was cancelled: its item is
+        kept, or its library is not ticked.
+        """
+        if not claim_due_deletion(self._conn, row.id, now_iso):
+            self._conn.commit()
+            logger.info(
+                "engine.delete.skipped id=%s media_id=%s — no longer a due deletion",
+                row.id,
+                row.media_item_id,
+            )
+            return None
+        # A row that closed with another's removal may hold a newer record.
+        row = fetch_deletion(self._conn, row.id) or row
+        if self._cancel_if_kept(row, now_iso):
+            self._conn.commit()
+            return None
+        if not row.library_selected:
+            self._refuse_unselected(row)
+            self._conn.commit()
+            return None
+        return row
+
     def _delete_one(
         self,
         row: DeletionRow,
@@ -1378,26 +1409,10 @@ class DeletionExecutor:
             else []
         )
         stamps = _stamps([row, *with_it])
-        if not claim_due_deletion(self._conn, row.id, now_iso):
-            self._conn.commit()
-            logger.info(
-                "engine.delete.skipped id=%s media_id=%s — no longer a due deletion",
-                row.id,
-                row.media_item_id,
-            )
+        claimed_row = self._claim(row, now_iso)
+        if claimed_row is None:
             return [], 0
-
-        # A row that closed with another's removal may hold a newer record.
-        row = fetch_deletion(self._conn, row.id) or row
-        if self._cancel_if_kept(row, now_iso):
-            self._conn.commit()
-            return [], 0
-
-        if not row.library_selected:
-            self._refuse_unselected(row)
-            self._conn.commit()
-            return [], 0
-
+        row = claimed_row
         path = row.file_path or ""
 
         if not path.strip():
