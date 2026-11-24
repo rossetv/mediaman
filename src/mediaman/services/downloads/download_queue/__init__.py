@@ -17,7 +17,7 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Collection
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import requests
 
@@ -50,6 +50,9 @@ from mediaman.services.downloads.download_queue.queue import (
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPError
 
+if TYPE_CHECKING:
+    from mediaman.services.arr.fetcher import ArrCard, FetchResult
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -73,14 +76,32 @@ __all__ = [
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
 
+# The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
+_last_cards: list[ArrCard] = []
+
 _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    global _previous_queue, _previous_initialised
+    global _previous_queue, _previous_initialised, _last_cards
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
+        _last_cards = []
+
+
+def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
+    """Keep this poll's cards, and return those of the services that did not answer it."""
+    global _last_cards
+    listed = {card["dl_id"] for card in arr_result.cards}
+    with _state_lock:
+        remembered = [
+            card
+            for card in _last_cards
+            if _service_of(card["dl_id"]) in arr_result.unreachable and card["dl_id"] not in listed
+        ]
+        _last_cards = [*arr_result.cards, *remembered]
+    return remembered
 
 
 def _enrich_with_tmdb_ids(
@@ -285,6 +306,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         download_rate,
         secret_key,
         trigger_search=maybe_trigger_search,
+        remembered=_remembered_cards(arr_result),
     )
 
     matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])

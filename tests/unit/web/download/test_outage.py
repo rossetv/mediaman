@@ -173,3 +173,29 @@ def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finishe
         {"id": 1, "title": "Dune", "monitored": True, "hasFile": True}
     ]
     assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+
+
+@_SERVICES
+def test_a_page_first_loaded_while_a_service_is_down_keeps_the_names_and_art_of_its_downloads(
+    services, client, service, name
+):
+    arr, nzbget = services[service], services[2]
+    arr.get_queue.return_value = [_queued("Dune: Part One", "dune.p1.2021.1080p")]
+    nzbget.get_queue.return_value = [_loading("dune.p1.2021.1080p"), _loading("Manual.2020")]
+    before = _get(client)
+
+    arr.get_queue.side_effect = _DOWN
+    for _ in range(2):
+        data = _get(client)
+        items = [data["hero"], *data["queue"]]
+        assert [(i["id"], i["title"], i["poster_url"]) for i in items] == [
+            (f"{name}:Dune: Part One", "Dune: Part One", _POSTER),
+            ("Manual.2020", "Manual", ""),
+        ]
+        assert data["recent"] == []
+    assert before["hero"]["title"] == "Dune: Part One"
+
+    # what NZBGet no longer holds is not made up from memory
+    nzbget.get_queue.return_value = [_loading("Manual.2020")]
+    data = _get(client)
+    assert (data["hero"]["title"], data["queue"]) == ("Manual", [])
