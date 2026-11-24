@@ -492,9 +492,19 @@ def test_looking_along_the_bar_moves_neither_the_video_nor_what_a_screen_reader_
     assert (out["now"], out["nowAfter"], out["position"]) == ("30", "30", 30)
 
 
-def test_the_controls_stay_while_the_mouse_rests_on_the_bar(markup):
+@pytest.mark.parametrize("way", ["frame_hover", "bar_clicked"])
+def test_a_mouse_that_rests_on_the_bar_hides_preview_and_controls_while_it_plays(markup, way):
+    out = run(markup, way)
+    rested = out["restedOnBar"] if way == "frame_hover" else out
+    shown = {"idle": False, "bubble": True}
+    assert (rested["paused"], rested["atFirst"]) == (shown, shown)
+    assert rested["later"] == {"idle": True, "bubble": False}
+    assert rested["moved"] == shown
+
+
+def test_the_preview_goes_as_the_mouse_leaves_the_bar(markup):
     out = run(markup, "frame_hover")
-    assert (out["idleOnBar"], out["left"]["shown"], out["idleAfter"]) == (False, False, True)
+    assert (out["left"]["shown"], out["idleAfter"]) == (False, True)
 
 
 def test_a_finger_on_the_bar_shows_frames_and_lets_go_at_the_place_shown(markup):

@@ -4,7 +4,7 @@ with no exception for an admin, and the old household picks shown to no one."""
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 import requests
@@ -17,6 +17,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations import prompts, user_picks
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository.recommended import group_into_batches
 from mediaman.web.routes import recommended
 from mediaman.web.routes.recommended import api as recommended_api_module
 from mediaman.web.routes.recommended import own
@@ -127,15 +128,24 @@ class TestRow:
         assert _titles(people["amy"], batch="2099-01-02") == ["Amys", "Shared mid"]
         assert _titles(people["bob"]) == ["Shared new"]
 
-    @pytest.mark.parametrize(("age", "first"), [(28, True), (29, False)])
-    def test_own_picks_over_28_days_old_no_longer_come_first(self, people, conn, age, first):
-        day = (date.today() - timedelta(days=age)).isoformat()
-        insert_suggestion(conn, title="Shared", tmdb_id=1, batch_id=date.today().isoformat())
-        insert_user_pick(conn, "amy", title="Amys", tmdb_id=2, batch_id=day)
+    def test_the_latest_shared_picks_follow_newer_ones_of_the_persons_own(self, people, conn):
+        insert_user_pick(conn, "amy", title="Amys", tmdb_id=2, batch_id="2099-01-03")
+        insert_suggestion(conn, title="Shared", tmdb_id=1, batch_id="2099-01-02")
 
         body = _row(people["amy"])
-        assert [i["title"] for i in body["items"]] == (["Amys"] if first else []) + ["Shared"]
-        assert body["next_batch"] == (None if first else day)
+        assert [i["title"] for i in body["items"]] == ["Amys", "Shared"]
+        assert body["next_batch"] is None
+
+    @pytest.mark.parametrize(
+        ("batch", "titles"), [("2026-04-22", ["Amys", "Shared"]), ("2026-04-21", ["Shared"])]
+    )
+    def test_own_picks_over_28_days_old_no_longer_come_first(self, batch, titles):
+        rows = [
+            {"title": "Shared", "category": "trending", "batch_id": "2026-05-20"},
+            {"title": "Amys", "category": "personal", "batch_id": batch},
+        ]
+        first = group_into_batches(rows, date(2026, 5, 20))[0]
+        assert [i["title"] for i in first["items"]] == titles
 
     def test_the_card_says_it_is_an_ai_pick_and_where_its_detail_is(self, people, conn):
         insert_media_item(conn, id="9", plex_rating_key="9", title="Held")

@@ -1195,7 +1195,6 @@
   function hideBubble() {
     els.bubble.hidden = true;
     els.seekHover.hidden = true;
-    scheduleIdle();
   }
 
   function wantFrame(t) {
@@ -1302,7 +1301,9 @@
     showControls();
   });
   els.seek.addEventListener('pointerleave', function () {
-    if (!dragging) hideBubble();
+    if (dragging) return;
+    hideBubble();
+    scheduleIdle();
   });
   function endDrag(e, commit) {
     if (!dragging) return;
@@ -1313,6 +1314,7 @@
     else els.seekHover.hidden = els.bubble.hidden;
     if (commit) seekTo(seekTimeAt(e.clientX));
     else render();
+    scheduleIdle();
   }
   els.seek.addEventListener('pointerup', function (e) { endDrag(e, true); });
   els.seek.addEventListener('pointercancel', function (e) { endDrag(e, false); });
@@ -1529,10 +1531,15 @@
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && els.bubble.hidden && !menuOpen() && els.message.hidden && !keyboardInChrome()) {
-        root.classList.add('is-idle');
-      }
+      if (!video.paused && !dragging && !menuOpen() && els.message.hidden && !keyboardInChrome()) goIdle();
     }, IDLE_MS);
+  }
+
+  /* A preview goes with the controls, also from under a mouse that rests on the bar. */
+  function goIdle() {
+    clearTimeout(idleTimer);
+    root.classList.add('is-idle');
+    hideBubble();
   }
 
   var lastPointer = 'mouse';
@@ -1574,8 +1581,7 @@
     } else if (root.classList.contains('is-idle')) {
       showControls();
     } else if (!video.paused) {
-      clearTimeout(idleTimer);
-      root.classList.add('is-idle');
+      goIdle();
     }
   });
 

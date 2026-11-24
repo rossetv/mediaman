@@ -535,6 +535,25 @@ async function bubbleState(p) {
   };
 }
 
+/* The controls and the preview while the mouse rests: paused, playing, and moved again. */
+async function restedOnBar(p, move) {
+  const look = async () => ({ idle: p.root.classList.contains('is-idle'), bubble: (await bubbleState(p)).shown });
+  const out = {};
+  p.video.paused = true;
+  move();
+  p.tick(5000);
+  out.paused = await look();
+  p.video.paused = false;
+  move();
+  p.tick(2900);
+  out.atFirst = await look();
+  p.tick(200);
+  out.later = await look();
+  move();
+  out.moved = await look();
+  return out;
+}
+
 /* ---- scenarios ----------------------------------------------------------- */
 
 const scenarios = {
@@ -975,13 +994,24 @@ const scenarios = {
     out.keptAsked = p.frames.asked.length - asked;
     out.nowAfter = now();
     out.position = p.video.currentTime;
-    p.video.paused = false;
-    p.tick(5000);
-    out.idleOnBar = p.root.classList.contains('is-idle');
+    out.restedOnBar = await restedOnBar(p, () => point(p, 'pointermove', 141));
     point(p, 'pointerleave', 140);
     out.left = await bubbleState(p);
     p.tick(5000);
     out.idleAfter = p.root.classList.contains('is-idle');
+    return out;
+  },
+
+  /* A click on the bar with the mouse, which then stays where it is. */
+  async bar_clicked(p) {
+    p.replies[0] = answer('1080p-8000', Object.assign({ markers: MARKERS }, WITH_FRAMES));
+    await streamPlays(p, 30);
+    point(p, 'pointermove', 25);
+    point(p, 'pointerdown', 25);
+    point(p, 'pointerup', 25);
+    fire(p.video, 'timeupdate');
+    const out = await restedOnBar(p, () => point(p, 'pointermove', 26));
+    out.skip = !p.q('[data-skip]').hidden;
     return out;
   },
 
@@ -1020,6 +1050,8 @@ const scenarios = {
     const status = +p.win.serverPlays;
     p.replies[0] = answer('1080p-8000', WITH_FRAMES);
     await streamPlays(p, 30);
+    /* Paused, the preview stays under a mouse that rests. */
+    p.video.paused = true;
     const go = (x) => { point(p, 'pointermove', x); p.tick(300); };
     go(100);
     p.frames.answer(status);
