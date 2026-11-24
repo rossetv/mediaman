@@ -109,8 +109,10 @@
 .wl-skel__row .skel--line { width: 40%; }
 
 /* ── Empty states ── */
-.wl-empty .btn { margin-top: 18px; min-height: 44px; }
-.wl-empty .watch-actions { justify-content: center; margin-top: 0; }
+.wl-empty .btn { min-height: 44px; }
+.wl-empty > .btn,
+.wl-empty .watch-actions { margin-top: 18px; }
+.wl-empty .watch-actions { justify-content: center; }
 
 /* ── Pager ── */
 .wl .pagination { margin-top: 20px; }
