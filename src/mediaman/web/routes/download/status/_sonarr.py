@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 
 from mediaman.core.format import format_bytes
 from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
+from mediaman.services.arr.state import series_ready
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
@@ -138,16 +139,6 @@ def _sonarr_aggregate(
     )
 
 
-def _episode_files(series: SonarrSeries, season_number: int | None) -> int:
-    if season_number is None:
-        return (series.get("statistics") or {}).get("episodeFileCount", 0)
-    return sum(
-        (season.get("statistics") or {}).get("episodeFileCount", 0)
-        for season in series.get("seasons") or []
-        if season.get("seasonNumber") == season_number
-    )
-
-
 def _sonarr_series_fallback(
     client: ArrClient,
     tmdb_id: int,
@@ -161,7 +152,7 @@ def _sonarr_series_fallback(
     )
     if matched:
         s_title = matched.get("title", "")
-        if _episode_files(matched, season_number) > 0:
+        if series_ready(matched, season_number):
             return build_item(
                 dl_id=f"sonarr:{s_title}",
                 title=s_title,

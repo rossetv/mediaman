@@ -368,7 +368,10 @@ def test_season_0_is_answered_and_audited_as_specials(app_factory, authed_client
     sonarr.get_series_by_tvdb.side_effect = [
         None,
         {"id": 3, "seasons": [specials]},
-        {"id": 3, "seasons": [{**specials, "statistics": {"episodeFileCount": 1}}]},
+        {
+            "id": 3,
+            "seasons": [{**specials, "statistics": {"episodeCount": 1, "episodeFileCount": 1}}],
+        },
     ]
     client = _client(app_factory, authed_client, conn)
     asked = {"title": "Severance", "tvdb_id": 999, "season_number": 0}

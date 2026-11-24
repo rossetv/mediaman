@@ -47,6 +47,7 @@ class ArrSeasonStatistics(TypedDict, total=False):
 
     episodeFileCount: int
     episodeCount: int
+    totalEpisodeCount: int
     previousAiring: str
     previousAiringDate: str
     nextAiring: str

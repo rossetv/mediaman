@@ -24,6 +24,7 @@ import requests
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.state import series_ready
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
@@ -74,10 +75,10 @@ def record_download_notification(
     season_number: int | None = None,
     username: str | None = None,
 ) -> None:
-    """Insert a pending notification; the library sync sends it once the item has a file.
+    """Insert a pending notification; the library sync sends it once the item is all there.
 
     Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. With a
-    *season_number* the notification waits for a file of that season. A request that
+    *season_number* the notification waits for that season alone. A request that
     already has an unsent notification gets no second one. *username* is the signed-in
     person asking; an emailed link has none. Does not commit; the caller owns the
     transaction.
@@ -140,7 +141,7 @@ def record_notification_on_its_way(
     ready = (
         bool(cast("RadarrMovie", held).get("hasFile"))
         if service == "radarr"
-        else _series_has_files(cast("SonarrSeries", held), season_number)
+        else series_ready(cast("SonarrSeries", held), season_number)
     )
     if not ready and not (mailed_at and mailed_at >= waiting_since):
         record_download_notification(
@@ -224,31 +225,20 @@ def _build_radarr_index(client: ArrClient) -> dict[int, RadarrMovie]:
     return index
 
 
-def _sonarr_has_files(
+def _sonarr_ready(
     series_index: list[SonarrSeries],
     *,
     tvdb_id: int | None,
     tmdb_id: int | None,
     season_number: int | None = None,
 ) -> bool:
-    """Return True if the series, or its *season_number* when given, has an episode file,
-    matching by TVDB id first and then TMDB id. *series_index* is pre-fetched once per tick.
+    """Return True if the series, or its *season_number* when given, is all there, matching
+    by TVDB id first and then TMDB id. *series_index* is pre-fetched once per tick.
     """
     for s in series_index:
         if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
-            return _series_has_files(s, season_number)
+            return series_ready(s, season_number)
     return False
-
-
-def _series_has_files(series: SonarrSeries, season_number: int | None) -> bool:
-    if season_number is None:
-        stats = series.get("statistics") or {}
-        return int(stats.get("episodeFileCount") or 0) > 0
-    return any(
-        int((season.get("statistics") or {}).get("episodeFileCount") or 0) > 0
-        for season in series.get("seasons") or []
-        if season.get("seasonNumber") == season_number
-    )
 
 
 def _build_mailgun_client(
@@ -438,9 +428,7 @@ def _check_sonarr_series(
             if sonarr_series_index is not None
             else _build_sonarr_index(sonarr_client)
         )
-        ready = _sonarr_has_files(
-            index, tvdb_id=tvdb_id, tmdb_id=tmdb_id, season_number=season_number
-        )
+        ready = _sonarr_ready(index, tvdb_id=tvdb_id, tmdb_id=tmdb_id, season_number=season_number)
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Sonarr lookup failed for notification id=%s",
@@ -624,7 +612,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 
     suggestions_by_tmdb = _fetch_suggestions_batch(conn, runnable)
 
-    # Build the Sonarr series index once per tick so _sonarr_has_files is O(1)
+    # Build the Sonarr series index once per tick so _sonarr_ready is O(1)
     # per row instead of O(N × library).  Fetch only when at least one
     # runnable row needs Sonarr; Radarr rows pay nothing.
     sonarr_series_index: list[SonarrSeries] | None = None

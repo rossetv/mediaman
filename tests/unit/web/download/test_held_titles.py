@@ -668,7 +668,7 @@ class TestAlreadyThereAnswer:
             conn.execute("UPDATE download_notifications SET notified = 1, created_at = ?", (asked,))
 
     @pytest.mark.parametrize("action", ["download", "redownload"])
-    def test_a_show_that_is_part_there_promises_and_sends_nothing(self, client, secret_key, action):
+    def test_a_show_that_is_part_there_mails_the_person_once(self, client, secret_key, action):
         part = {"seasonNumber": 1, "monitored": True}
         part["statistics"] = {
             "episodeCount": 2,
@@ -681,9 +681,9 @@ class TestAlreadyThereAnswer:
             answer = self._answer(
                 client, self._link(secret_key, number, action, "tv"), held, "tv"
             ).json()
-            assert (answer["download_state"], answer["notify_by_email"]) == ("queued", False)
+            assert (answer["download_state"], answer["notify_by_email"]) == ("queued", True)
 
-        assert self._mails(client) == []
+        assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
 
     @pytest.mark.parametrize("action", ["download", "redownload"])
     def test_a_wait_that_was_mailed_about_is_not_mailed_about_again(
@@ -756,7 +756,7 @@ class TestAlreadyThereAnswer:
         assert "be notified by email" in reopened
 
         poll = json.loads(re.search(r'"poll_token": ("[^"]+")', reopened)[1])
-        sonarr.get_series.return_value = [{**held, "statistics": {"episodeFileCount": 2}}]
+        sonarr.get_series.return_value = [{**held, "seasons": [self.WHOLE]}]
         status = "mediaman.web.routes.download.status.build_sonarr_from_db"
         with patch(status, return_value=sonarr):
             polled = client.get(

@@ -33,6 +33,7 @@ from mediaman.services.arr.state import (
     is_series_already_tracked,
     radarr_fetches_movie,
     radarr_holds_movie,
+    season_on_disk,
     sonarr_fetches_series,
     sonarr_tracks_series,
 )
@@ -50,7 +51,6 @@ from ._season import (
     already_there,
     deleted_season,
     season_name,
-    season_on_disk,
     sonarr_media_id,
 )
 from ._tokens import (

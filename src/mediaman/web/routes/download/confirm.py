@@ -30,6 +30,7 @@ from mediaman.services.arr.state import (
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
+    season_on_disk,
     series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
@@ -46,7 +47,7 @@ from mediaman.web.repository.download import (
     fetch_suggestion_enrichment,
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
-from mediaman.web.routes.download._season import deleted_season, season_on_disk, sonarr_media_id
+from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")

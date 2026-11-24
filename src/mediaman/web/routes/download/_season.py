@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from typing import Any
 
 from mediaman.core.deleted_media import DeletedMedia, fetch_deleted_media
 from mediaman.crypto.tokens import DownloadTokenPayload
-from mediaman.services.arr._types import ArrSeason
 
 _SEASON_MEDIA_ID_RE = re.compile(r"sonarr-season:(\d{1,9}):")
 
@@ -51,17 +49,3 @@ def already_there(season_number: int, title: str) -> str:
     """The start of the answer for a season Sonarr has complete."""
     verb = "exist" if season_number == 0 else "exists"
     return f"{season_name(season_number)} of '{title}' already {verb}"
-
-
-def season_on_disk(season: ArrSeason) -> bool:
-    """Whether Sonarr has every episode of *season*.
-
-    ``episodeCount`` leaves out an unmonitored episode with no file, so it says nothing of
-    a season that is not monitored: there only the total does.
-    """
-    stats: dict[str, Any] = {**(season.get("statistics") or {})}
-    wanted: int = stats.get("episodeCount", 0)
-    if not season.get("monitored"):
-        wanted = max(wanted, stats.get("totalEpisodeCount", 0))
-    files: int = stats.get("episodeFileCount", 0)
-    return files > 0 and files >= wanted

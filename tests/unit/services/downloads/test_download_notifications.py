@@ -13,6 +13,7 @@ import re
 from datetime import UTC
 from pathlib import Path
 
+import pytest
 from jinja2 import Environment, FileSystemLoader
 
 from tests.helpers.factories import insert_download_notification, insert_settings
@@ -248,7 +249,7 @@ class TestSonarrSeriesMatching:
                 "tvdbId": 370524,
                 "tmdbId": None,
                 "title": "Severance",
-                "statistics": {"episodeFileCount": 9},
+                "seasons": [self._season(1, 9, 9)],
             }
         ]
         monkeypatch.setattr(
@@ -266,7 +267,14 @@ class TestSonarrSeriesMatching:
         assert row["notified"] == 1
         assert sent, "Mailgun send should have been invoked"
 
-    def _run_with_season_files(self, conn, monkeypatch, files: dict[int, int]) -> None:
+    @staticmethod
+    def _season(number, files, wanted, *, monitored=True, aired=True):
+        stats = {"episodeFileCount": files, "episodeCount": wanted, "totalEpisodeCount": 10}
+        if aired:
+            stats["previousAiring"] = "2020-01-01T00:00:00Z"
+        return {"seasonNumber": number, "monitored": monitored, "statistics": stats}
+
+    def _run_with_seasons(self, conn, monkeypatch, *seasons) -> None:
         from unittest.mock import MagicMock
 
         from mediaman.services.downloads._notification_backoff import _backoff_state
@@ -278,18 +286,17 @@ class TestSonarrSeriesMatching:
             {
                 "tvdbId": 370524,
                 "title": "Severance",
-                "statistics": {"episodeFileCount": sum(files.values())},
-                "seasons": [
-                    {"seasonNumber": n, "statistics": {"episodeFileCount": count}}
-                    for n, count in files.items()
-                ],
+                "statistics": {
+                    "episodeFileCount": sum(s["statistics"]["episodeFileCount"] for s in seasons)
+                },
+                "seasons": list(seasons),
             }
         ]
         monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: sonarr)
         monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: None)
         check_download_notifications(conn, secret_key="x" * 64)
 
-    def test_a_season_is_announced_only_once_that_season_has_a_file(self, tmp_path, monkeypatch):
+    def test_a_season_is_announced_only_once_that_season_is_all_there(self, tmp_path, monkeypatch):
         conn, sent = self._setup(tmp_path, monkeypatch)
         for season in (0, 2):
             insert_download_notification(
@@ -302,11 +309,72 @@ class TestSonarrSeriesMatching:
                 season_number=season,
             )
 
-        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 0})
-        assert sent == []
+        whole = self._season(1, 10, 10)
+        for files in (0, 9):
+            self._run_with_seasons(
+                conn, monkeypatch, self._season(0, 0, 2), whole, self._season(2, files, 10)
+            )
+            assert sent == []
 
-        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 1})
+        self._run_with_seasons(
+            conn, monkeypatch, self._season(0, 0, 2), whole, self._season(2, 10, 10)
+        )
         assert [m["to"] for m in sent] == ["s2@example.com"]
+
+    @pytest.mark.parametrize(
+        ("second", "ready"),
+        [
+            (_season(2, 0, 10), False),
+            (_season(2, 9, 10), False),
+            (_season(2, 0, 0), False),
+            (_season(2, 10, 10), True),
+            (_season(2, 4, 4), True),
+            (_season(2, 0, 0, aired=False), True),
+            (_season(2, 1, 3, monitored=False), True),
+            (_season(0, 0, 5), True),
+        ],
+        ids=[
+            "missing",
+            "in part",
+            "aired a moment ago",
+            "whole",
+            "whole so far",
+            "still to air",
+            "skipped",
+            "specials",
+        ],
+    )
+    def test_a_show_is_announced_only_once_its_aired_monitored_seasons_are_all_there(
+        self, tmp_path, monkeypatch, second, ready
+    ):
+        conn, sent = self._setup(tmp_path, monkeypatch)
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Severance",
+            media_type="tv",
+            tvdb_id=370524,
+            service="sonarr",
+        )
+
+        self._run_with_seasons(conn, monkeypatch, self._season(1, 10, 10), second)
+
+        assert len(sent) == (1 if ready else 0)
+
+    def test_a_show_with_no_season_monitored_is_not_announced(self, tmp_path, monkeypatch):
+        conn, sent = self._setup(tmp_path, monkeypatch)
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Severance",
+            media_type="tv",
+            tvdb_id=370524,
+            service="sonarr",
+        )
+
+        self._run_with_seasons(conn, monkeypatch, self._season(1, 3, 3, monitored=False))
+
+        assert sent == []
 
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""

@@ -13,12 +13,13 @@ if TYPE_CHECKING:
 
 from mediaman.services.arr.add_outcome import series_add_landed
 from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
+from mediaman.services.arr.state import season_on_disk
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.library_api import record_redownload
 from mediaman.web.responses import respond_failure
-from mediaman.web.routes.download._season import already_there, season_name, season_on_disk
+from mediaman.web.routes.download._season import already_there, season_name
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
