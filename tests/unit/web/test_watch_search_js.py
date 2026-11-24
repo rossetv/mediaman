@@ -732,6 +732,13 @@ def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_us
     assert out["next"] == ["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
 
 
+def test_a_search_whose_step_back_is_lost_or_late_takes_nothing_from_what_comes_after() -> None:
+    out = _run("emptiedAndGoneOn")
+    lantern = "/api/watch/search?q=lantern"
+    assert out["category"] == ["/watch?q=lantern", "results", lantern]
+    assert out["typed"] == ["/watch?q=lantern", "lantern", lantern]
+
+
 def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() -> None:
     # Waiting, then shown: failed, not counted yet, none, some, none, none.
     assert _run("placeHeldForPeople") == [

@@ -1730,15 +1730,15 @@
         run();
       },
       close: function (how) {
+        var again = emptied && input.value.trim();
+        emptied = false;
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
-        if (emptied && input.value.trim()) {
-          emptied = false;
+        if (again) {
           clearTimeout(timer);
           timer = setTimeout(run);
           return;
         }
-        emptied = false;
         stop();
         input.value = '';
         sync();

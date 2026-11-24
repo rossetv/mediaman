@@ -21,7 +21,8 @@
 
   var KEY = 'mm:watch:places';
   var KEPT = 50; // entries whose scroll outlives the page
-  var LATE_MS = 1000; // a step through the history this late is not coming
+  var LATE_MS = 1000; // a step through the history this late is not awaited any more
+  var OWED_MS = 3000; // one that comes within this is not the person's
   var GROW_MS = 3000; // how long a page, or a row, may go without growing on its way back to its scroll
   var ROWS_KEY = 'mm:watch:rows';
   var TITLES_KEY = 'mm:watch:titles';
@@ -36,7 +37,10 @@
   var layers = []; // lowest first
   var values = {}; // what each open layer is open at, by name
   var started = false;
-  var leaving = null; // the step asked of the browser and not yet made: { close, timer, then, land }
+  var leaving = null; // the step asked of the browser and not yet made: { id, at, by, name, close, until, timer, then, land }
+  var owed = null; // a step that was not made in time, and may be yet
+  var returning = null; // the entry a step that came too late is undone to
+  var seenAt = {}; // each entry as it was last known, by id: { url, state }
   var places = {}; // each entry's scroll, by id
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
   var openedOn = {}; // the title opened from each entry, as its card had it, by id
@@ -62,6 +66,8 @@
   function write(how, m, url) {
     window.history[how](Object.assign({}, how === 'replaceState' ? window.history.state : null, { mm: m }), '', url);
   }
+
+  function note() { seenAt[mark().id] = { url: currentUrl(), state: window.history.state }; }
 
   /* An entry the page did not push: a fresh load, or a link followed in it. */
   function stamp() {
@@ -150,12 +156,15 @@
   }
 
   function push(name, to) {
+    // A page opened before the step was made stands on what it leads to.
+    if (leaving) stepped();
     var was = mark();
     if (was && was.entry === name && name !== null && to === currentUrl()) return;
     // A title's grows out of the card's preview, which closes itself then.
     var preview = window.MMWatch.preview;
     if (name !== 'title' && preview && preview.close) preview.close();
     keepPlace();
+    if (was) note();
     var ref = /#title=([a-z0-9-]+)$/.exec(to);
     if (was && ref) openedOn[was.id] = ref[1];
     var at = (was ? was.at : 0) + 1;
@@ -169,7 +178,7 @@
     stopPlacing();
     Object.keys(ats).forEach(function (id) {
       // Back and Forward no longer lead to it.
-      if (ats[id] >= at) { delete ats[id]; delete places[id]; delete focused[id]; delete openedOn[id]; }
+      if (ats[id] >= at) { delete ats[id]; delete places[id]; delete focused[id]; delete openedOn[id]; delete seenAt[id]; }
     });
     current = mark().id;
     ats[current] = at;
@@ -186,9 +195,10 @@
     if (left.length !== m.stack.length) write('replaceState', Object.assign({}, m, { stack: left }), currentUrl());
   }
 
-  function moveTo(to) {
-    write('replaceState', mark(), to);
+  function moveTo(to, entry) {
+    write('replaceState', Object.assign({}, mark(), entry === undefined ? null : { entry: entry }), to);
     restack();
+    note();
   }
 
   function replace(name, to) {
@@ -200,15 +210,42 @@
   /* ── Back ── */
 
   /* Step *by* entries, away from the layer *name*. *close*: it must be shut at the
-     end of it. A step the browser never makes (its history was lost) is done
-     without it. *land* is called once the page stands where the step leads. */
+     end of it. *land* is called once the page stands where the step leads. */
   function step(by, name, close, land) {
-    leaving = { close: close ? name : null, then: null, land: land, timer: setTimeout(function () {
-      if (!leaving) return;
-      leaving = null;
-      shut(name);
-    }, LATE_MS) };
+    var m = mark();
+    leaving = {
+      id: m.id, at: m.at, by: by, name: name, close: close, until: Date.now() + OWED_MS, then: null, land: land,
+      timer: setTimeout(function () {
+        if (!leaving) return;
+        var then = leaving.then;
+        stepped();
+        if (then) then();
+      }, LATE_MS)
+    };
     window.history.go(by);
+  }
+
+  /* A step the browser has not made (its history may be lost) is done without it:
+     this entry becomes what the step leads to. */
+  function stepped() {
+    var asked = leaving;
+    leaving = null;
+    clearTimeout(asked.timer);
+    var m = mark();
+    if (!m || m.id !== asked.id) return;
+    owed = asked;
+    var to = Object.keys(ats).filter(function (id) { return ats[id] === asked.at + asked.by && seenAt[id]; })[0];
+    if (!to) { shut(asked.name); return; }
+    var was = seenAt[to];
+    window.history.replaceState(Object.assign({}, was.state, {
+      mm: Object.assign({}, was.state.mm, { id: m.id, at: m.at, twins: (was.state.mm.twins || 0) - asked.by })
+    }), '', was.url);
+    note();
+    [places, focused, openedOn].forEach(function (kept) {
+      if (to in kept) kept[m.id] = kept[to];
+      else delete kept[m.id];
+    });
+    arrive(asked);
   }
 
   /* The address without the layer's own part. */
@@ -218,9 +255,14 @@
     return url(params, l.hash ? '' : undefined);
   }
 
+  /* Off the address; where the entry itself says it is open, off that. */
+  function strip(name) { moveTo(without(named(name)), mark().entry === name ? null : undefined); }
+
   function shut(name) {
     if (value(name) === null) return;
-    replace(null, without(named(name)));
+    stamp();
+    strip(name);
+    route('replace', null);
     refocus();
   }
 
@@ -243,33 +285,54 @@
     if (leaving) { leaving.then = function () { back(name, land); }; return; }
     if (value(name) === null) return;
     var m = mark();
-    if (m && m.entry === name) step(-1, name, false, land);
+    if (m && m.entry === name) step(-1 - (m.twins || 0), name, false, land);
     else close(name);
   }
 
   var current = null; // the id of the entry the page stands at
 
+  /* Whether the step that brought the page here is one that was done without: it
+     came after the person had gone on, and is undone. */
+  function tooLate() {
+    var m = mark();
+    var back = returning;
+    returning = null;
+    if (back && m && m.id === back) return true;
+    if (!owed || Date.now() > owed.until) { owed = null; return false; }
+    if (!m || ats[current] <= owed.at || m.at !== ats[current] + owed.by) return false;
+    returning = current;
+    window.history.go(-owed.by);
+    owed = null;
+    return true;
+  }
+
   function onPop() {
+    if (tooLate()) return;
     var asked = leaving;
     leaving = null;
+    owed = null;
     if (asked) clearTimeout(asked.timer);
     if (current) focused[current] = document.activeElement;
     stamp();
     current = mark().id;
+    arrive(asked);
+    if (asked && asked.land) asked.land();
+    letGo();
+    if (asked && asked.then) asked.then();
+  }
+
+  /* The page comes to stand at its entry, by the step *asked*, if any. */
+  function arrive(asked) {
     // What scrolls from here on is not the person.
     var saved = places[current];
     startPlacing();
-    var shutting = asked && asked.close ? named(asked.close) : null;
-    if (shutting && readNow(shutting) !== null) moveTo(without(shutting));
+    if (asked && asked.close && readNow(named(asked.name)) !== null) strip(asked.name);
     arriving = { y: saved, rows: rowsNow };
     var placed = route('pop', null);
     arriving = null;
     if (placed || saved === undefined) stopPlacing();
     else putBackTo(saved);
     refocus();
-    if (asked && asked.land) asked.land();
-    letGo();
-    if (asked && asked.then) asked.then();
   }
 
   /* ── Scroll and focus ── */

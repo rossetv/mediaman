@@ -1476,6 +1476,34 @@ const scenarios = {
     return out;
   },
 
+  // The step back from an emptied search is lost, or late, and the person has gone on meanwhile.
+  async emptiedAndGoneOn() {
+    const asked = (p) => p.calls.filter((c) => c.url.includes('search?')).pop().url;
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    p.ctx.history.go = () => {};
+    p.type('');
+    p.ctx.MMWatch.explore.openGenre('action', {}, null);
+    p.wait();
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    const out = { category: [p.url(), p.shown(), asked(p)] };
+    const q = await ready(ADMIN);
+    await q.search('orchard');
+    const real = q.ctx.history.go;
+    q.ctx.history.go = () => {};
+    q.type('');
+    q.wait();
+    q.type('lantern');
+    q.key('Enter');
+    q.ctx.history.go = real;
+    await q.back(); // the one asked for, at last
+    await settle();
+    out.typed = [q.url(), q.input.value, asked(q)];
+    return out;
+  },
+
   // The categories come in while the arrows stand on one of the first sheet's options: their place is held, and so is the highlight's.
   async redrawnUnderTheHighlight() {
     const p = load(ADMIN, '', null, null);
