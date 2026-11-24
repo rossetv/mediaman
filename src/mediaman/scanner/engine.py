@@ -457,9 +457,9 @@ class ScanEngine:
         this week's picks rather than last week's stale batch — the
         cards are loaded from the ``suggestions`` and ``user_picks``
         tables that _refresh_recommendations and _refresh_people, which
-        needs the plays _read_plays brings, rewrite. Each call is wrapped in narrow exception handlers because
-        none failing may abort a successful scan. Skipped entirely in dry-run
-        mode.
+        needs the plays _read_plays brings, rewrite. A failure of any step
+        is logged and the next one still runs: none may abort a successful
+        scan. Skipped entirely in dry-run mode.
         """
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
