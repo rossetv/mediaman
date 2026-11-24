@@ -197,12 +197,18 @@ function fire(target, type, extra) {
 function click(el) { fire(el, 'click', { bubbles: true, button: 0 }); }
 
 /* A press of the mouse or a finger: what it lands on takes the focus. */
-function press(el, pointerType) {
+function press(el, pointerType, count) {
   doc.lastInput = 'pointer';
   fire(el, 'pointerdown', { bubbles: true, button: 0, pointerType: pointerType || 'mouse', pointerId: 1, clientX: 0 });
   if (/^(BUTTON|A|INPUT)$/.test(el.tagName)) el.focus();
   else doc.activeElement = doc.body;
-  click(el);
+  fire(el, 'click', { bubbles: true, button: 0, detail: count || 1 });
+}
+
+function doubleClick(el) {
+  press(el, 'mouse', 1);
+  press(el, 'mouse', 2);
+  fire(el, 'dblclick', { bubbles: true });
 }
 
 /* A key, sent to what has the focus; Space and Enter press a button, unless the page says no. */
@@ -1053,6 +1059,35 @@ const scenarios = {
       key(k);
       out[k] = p.video.currentTime - 600;
     }
+    return out;
+  },
+
+  /* A double click on the picture: while it plays, with a menu open, and under an error. */
+  async double_click(p) {
+    p.root.requestFullscreen = () => Promise.resolve();
+    await streamPlays(p, 30);
+    p.video.paused = false;
+    const out = {};
+    doubleClick(p.video);
+    out.playing = p.video.paused;
+    press(p.q('[data-quality-btn]'));
+    doubleClick(p.video);
+    out.menu = { open: p.q('[data-quality-btn]').getAttribute('aria-expanded'), paused: p.video.paused };
+    press(p.video);
+    out.paused = p.video.paused;
+    press(p.video);
+    p.replies.push({ err: { status: 429, error: 'rate_limited' } });
+    p.hlsList[0].emit('hlsError', { response: { code: 410 } });
+    await settle();
+    out.error = !p.q('[data-message]').hidden;
+    const starts = p.starts().length;
+    press(p.video);
+    doubleClick(p.video);
+    await settle();
+    out.retries = p.starts().length - starts;
+    p.replies.push(answer('best'));
+    press(p.q('[data-retry]'));
+    out.wantsToPlay = playState(p);
     return out;
   },
 

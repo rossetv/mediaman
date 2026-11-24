@@ -1412,8 +1412,12 @@
 
   /* A click on the picture plays or pauses; a tap shows or hides the controls.
      With a menu open either only closes it; at the end of the video neither
-     starts it over: only Play and Space do. */
-  video.addEventListener('click', function () {
+     starts it over, and neither tries again after an error: only Play and
+     Space do. The second click of a double one only undoes the first. */
+  var clickToggled = false;
+  video.addEventListener('click', function (e) {
+    var undoes = clickToggled;
+    clickToggled = false;
     if (menuOpen()) {
       closeMenus();
       showControls();
@@ -1421,7 +1425,10 @@
       hideUpnext();
       showControls();
     } else if (lastPointer === 'mouse') {
-      togglePlay();
+      if (els.message.hidden && (undoes || !(e.detail > 1))) {
+        togglePlay();
+        clickToggled = true;
+      }
       showControls();
     } else if (root.classList.contains('is-idle')) {
       showControls();

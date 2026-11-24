@@ -488,3 +488,17 @@ def test_an_error_hides_the_skip_button(markup):
 def test_a_seek_while_a_quality_starts_is_kept_when_the_server_refuses_it(markup):
     out = run(markup, "seek_then_refused")
     assert out == {"starts": ["auto", "low", "auto"], "at": 50}
+
+
+def test_a_double_click_for_full_screen_leaves_the_play_state_alone(markup):
+    out = run(markup, "double_click")
+    assert out["playing"] is False
+    assert out["menu"] == {"open": "false", "paused": False}
+    # The next single click still pauses.
+    assert out["paused"] is True
+
+
+def test_a_click_on_the_picture_under_an_error_does_not_try_again(markup):
+    out = run(markup, "double_click")
+    assert (out["error"], out["retries"]) == (True, 0)
+    assert out["wantsToPlay"]["busy"] == "true"
