@@ -473,8 +473,17 @@
   transition: opacity var(--dur) var(--ease-out);
 }
 .player.is-loading .player-spinner { opacity: 1; }
-/* A held frame already has the play button's ring; one spinner is enough. */
-.player.is-held .player-spinner { opacity: 0; }
+/* A held frame says nothing of the wait: a new quality is mostly quick, another video is not. */
+.player.is-held.is-loading:not(.is-switching) .player-spinner { transition-delay: .6s; }
+.player-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.player.is-held.is-switching .player-dim { opacity: .4; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
 /* Cards: the "next episode" countdown, the error message and "Are you still watching?". */

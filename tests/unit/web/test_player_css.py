@@ -126,3 +126,14 @@ def test_the_skip_button_is_out_of_the_way_of_an_open_menu() -> None:
 def test_nothing_shows_through_a_menu() -> None:
     body = _rule(_text("_player.css"), ".player-menu")
     assert re.search(r"background:\s*var\(--s\d\)", body)
+
+
+def test_the_spinner_over_a_held_frame_waits_for_a_new_quality_alone() -> None:
+    css = _text("_player.css")
+    rules = [
+        (selectors.strip(), body)
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if ".player-spinner" in selectors and ".is-held" in selectors
+    ]
+    assert [s for s, _ in rules] == [".player.is-held.is-loading:not(.is-switching) .player-spinner"]
+    assert re.fullmatch(r"\s*transition-delay:\s*\.6s;\s*", rules[0][1])

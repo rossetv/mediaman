@@ -1809,6 +1809,35 @@ const scenarios = {
     return { start: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body };
   },
 
+  /* What says at once that the next episode was asked for, and what is left of it when it cannot
+     be had, the page is left for it, or another quality is picked. */
+  async next_at_once(p) {
+    const look = () => ({ subtitle: p.q('.player-subtitle').textContent, switching: p.root.classList.contains('is-switching'), held: holdState(p).shown });
+    const out = {};
+    await streamPlays(p, 100);
+    const went = p.pages['/watch/play/502'];
+    p.pages['/watch/play/502'] = 'offline';
+    click(p.q('[data-next-btn]'));
+    out.asked = look();
+    await settle();
+    out.unreached = look();
+    p.pages['/watch/play/502'] = went;
+    click(p.q('[data-next-btn]'));
+    p.leave();
+    out.left = look().subtitle;
+    p.replies.push(answer('1080p-8000'));
+    p.comeBack();
+    await streamPlays(p, 100);
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await streamPlays(p, 0);
+    out.there = look();
+    p.replies.push(answer('480p-1500'));
+    click(p.q('[data-quality="480p-1500"]'));
+    out.quality = look();
+    return out;
+  },
+
   /* The next episode is no longer there. */
   async next_gone(p) {
     await streamPlays(p, 100);

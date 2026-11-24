@@ -577,9 +577,10 @@
   var heldFor = 0;           // bumps as a frame is held or let go; what waits for an older one is dropped
 
   /* Draw the frame on screen over the video, so tearing the stream down
-     does not leave the picture black. */
-  function holdFrame() {
+     does not leave the picture black. It dims where another video follows. */
+  function holdFrame(another) {
     heldFor++;
+    root.classList.toggle('is-switching', !!another);
     if (!shown(hold) && video.readyState >= 2 && video.videoWidth) {
       hold.width = video.videoWidth;
       hold.height = video.videoHeight;
@@ -1859,7 +1860,8 @@
     clickToggled = false;
     hideUpnext();
     hideMessage();
-    holdFrame();
+    holdFrame(true);
+    showSubtitle(next.label);
     var stopped = release(savedAt);
     var gen = generation;
     setLoading(true);
@@ -1883,10 +1885,15 @@
     function nextUnreached(err) {
       if (gen !== generation) return;
       switching = false;
+      showSubtitle(item.subtitle);
       saveSitting(false);
       leaveNative();
       showMessage(MSG_NEXT_UNREACHED, err && err.status === 404 ? null : function () { goNext(false); });
     }
+  }
+
+  function showSubtitle(text) {
+    q('.player-subtitle').textContent = text;
   }
 
   /* Become the page of another video. */
@@ -2091,6 +2098,7 @@
     pendingStart = resumeAt;
     streamId = null;
     generation++;
+    if (switching) showSubtitle(item.subtitle);
     switching = false;
     destroyHls();
   });

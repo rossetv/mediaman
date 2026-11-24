@@ -123,8 +123,8 @@ def test_a_quality_switch_shows_loading_rather_than_pause(markup):
     }
 
 
-def test_the_centre_spinner_is_hidden_while_a_frame_is_held_and_back_after(markup):
-    # The stylesheet hides the spinner under .is-held; the play button's ring stays.
+def test_a_held_frame_is_marked_until_the_new_stream_plays(markup):
+    # The stylesheet keeps the centre spinner back for a moment under .is-held.
     out = run(markup, "quality_switch")
     assert out["whileLoading"]["loading"] is True
     assert out["whileLoading"]["held"] is True
@@ -845,6 +845,16 @@ def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
 
 def test_a_next_episode_that_is_gone_is_not_offered_again(markup):
     assert run(markup, "next_gone") == {"message": True, "retry": False, "back": True}
+
+
+def test_the_next_episode_is_named_at_once_and_this_one_again_where_it_stays(markup, season):
+    out = run(markup, "next_at_once", pages=season)
+    asked = {"subtitle": "S2 · E5 — High Tide", "switching": True, "held": True}
+    assert out["asked"] == asked
+    assert (out["unreached"]["subtitle"], out["left"]) == ("S2 · E4", "S2 · E4")
+    assert (out["there"]["subtitle"], out["there"]["held"]) == ("S2 · E2", False)
+    # A new quality of the same video holds its frame as it is.
+    assert out["quality"] == {"subtitle": "S2 · E2", "switching": False, "held": True}
 
 
 def test_the_new_stream_waits_for_the_old_to_stop_but_not_for_ever(markup, season):
