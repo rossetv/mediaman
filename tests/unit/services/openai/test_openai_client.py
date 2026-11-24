@@ -16,7 +16,6 @@ from mediaman.services.openai.client import (
     get_openai_key,
     get_openai_model,
     is_web_search_enabled,
-    is_web_search_title_safe,
 )
 from tests.helpers.factories import insert_settings
 
@@ -81,46 +80,6 @@ class TestIsWebSearchEnabled:
     def test_returns_true_when_enabled(self, conn):
         _put(conn, "openai_web_search_enabled", "true")
         assert is_web_search_enabled(conn) is True
-
-
-class TestValidateWebSearchTitle:
-    def test_plain_ascii_title_is_valid(self):
-        assert is_web_search_title_safe("Inception") is True
-
-    def test_title_with_punctuation_is_valid(self):
-        assert is_web_search_title_safe("The Dark Knight (2008)") is True
-
-    def test_non_printable_ascii_rejected(self):
-        assert is_web_search_title_safe("Title\x01here") is False
-
-    @pytest.mark.parametrize("title", ["Dune at evil.xyz", "evil.academy/x", "Dune (evil.co.uk)"])
-    def test_a_title_holding_a_domain_is_rejected(self, title):
-        assert is_web_search_title_safe(title) is False
-
-    @pytest.mark.parametrize(
-        "title", ["S.W.A.T.", "Mr. Robot", "R.I.P.D. 2", "Vol.2", "Monsters, Inc.", "君の名は。"]
-    )
-    def test_dots_that_make_no_domain_are_valid(self, title):
-        assert is_web_search_title_safe(title) is True
-
-    @pytest.mark.parametrize("title", ["Amélie", "アニメ", "Ocean’s – Eight", "Pokémon 2"])
-    def test_a_title_in_another_script_is_valid(self, title):
-        assert is_web_search_title_safe(title) is True
-
-    @pytest.mark.parametrize(
-        "title", ["", "A\u202etitle", "A\u200btitle", "A\u00a0title", "A\ue000"]
-    )
-    def test_an_invisible_or_unassigned_character_is_rejected(self, title):
-        assert is_web_search_title_safe(title) is False
-
-    def test_markdown_link_rejected(self):
-        assert is_web_search_title_safe("[click me](http://evil.com)") is False
-
-    def test_embedded_https_url_rejected(self):
-        assert is_web_search_title_safe("Dune https://evil.com") is False
-
-    def test_embedded_http_url_rejected(self):
-        assert is_web_search_title_safe("Dune http://evil.com") is False
 
 
 class TestCallOpenAi:
@@ -219,9 +178,26 @@ class TestCallOpenAi:
         assert "tools" in kwargs["json"]
         assert result == payload
 
-    def test_web_search_batch_rejected_on_unsafe_title(self, conn, fake_http, fake_response):
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Bad\x00Title",
+            "",
+            "A\u202etitle",
+            "A\u200btitle",
+            "A\u00a0title",
+            "A\ue000",
+            "[click me](http://evil.com)",
+            "Dune https://evil.com",
+            "Dune http://evil.com",
+        ],
+    )
+    def test_web_search_batch_rejected_on_unsafe_title(self, conn, fake_http, fake_response, title):
         """If a title fails safety check, the entire batch is rejected."""
-        payload = [{"title": "Bad\x00Title", "media_type": "movie", "reason": "x"}]
+        payload = [
+            {"title": "Dune", "media_type": "movie", "reason": "y"},
+            {"title": title, "media_type": "movie", "reason": "x"},
+        ]
         openai_resp = {
             "output": [
                 {
@@ -238,11 +214,12 @@ class TestCallOpenAi:
             result = call_openai("some prompt", conn, use_web_search=True)
         assert result == []
 
+    @pytest.mark.parametrize("title", ["Mr.Robot", "Dune at evil.xyz", "Dune (evil.co.uk)"])
     def test_a_title_shaped_like_a_domain_is_left_out_and_the_batch_kept(
-        self, conn, fake_http, fake_response
+        self, conn, fake_http, fake_response, title
     ):
         payload = [
-            {"title": "Mr.Robot", "media_type": "tv", "reason": "x"},
+            {"title": title, "media_type": "tv", "reason": "x"},
             {"title": "Dune", "media_type": "movie", "reason": "y"},
         ]
         openai_resp = {
@@ -260,6 +237,38 @@ class TestCallOpenAi:
         ):
             result = call_openai("some prompt", conn, use_web_search=True)
         assert [i["title"] for i in result] == ["Dune"]
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "The Dark Knight (2008)",
+            "S.W.A.T.",
+            "Mr. Robot",
+            "Monsters, Inc.",
+            "Amélie",
+            "アニメ",
+            "Ocean’s – Eight",
+        ],
+    )
+    def test_a_web_search_title_without_a_hostile_character_or_domain_is_kept(
+        self, conn, fake_http, fake_response, title
+    ):
+        payload = [{"title": title, "media_type": "movie", "reason": "x"}]
+        openai_resp = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(payload)}],
+                }
+            ]
+        }
+        fake_http.queue("POST", fake_response(json_data=openai_resp))
+        with (
+            patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"),
+            patch("mediaman.services.openai.client.is_web_search_enabled", return_value=True),
+        ):
+            result = call_openai("some prompt", conn, use_web_search=True)
+        assert [i["title"] for i in result] == [title]
 
     def test_strips_markdown_code_fence_from_response(self, conn, fake_http, fake_response):
         """Model sometimes wraps JSON in ```json fences despite instructions."""

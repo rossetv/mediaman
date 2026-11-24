@@ -116,13 +116,6 @@ def holds_domain(title: str) -> bool:
     return DOMAIN_RE.search(title) is not None
 
 
-def is_web_search_title_safe(title: str) -> bool:
-    """Return True if *title* is safe to persist after a web-search response: nothing
-    ``_title_hostile`` finds in it, and no domain.
-    """
-    return not _title_hostile(title) and not holds_domain(title)
-
-
 def _build_request(
     prompt: str,
     model: str,
