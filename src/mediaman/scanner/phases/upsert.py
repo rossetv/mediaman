@@ -110,7 +110,7 @@ def upsert_item(
     repository.forget_pruned_show_season(conn, media_id, file_path, season)
     repository.update_last_watched(conn, media_id, fetch.watch_history)
     mark_listed_copies(conn, media_id, listed)
-    repository.carry_last_watched(conn, media_id)
+    repository.carry_last_watched(conn, media_id, every_library_read=False)
 
 
 def schedule_deletion(

@@ -9,6 +9,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.scanner.repository import (
     carry_film_keeps,
+    carry_last_watched,
     save_pruned_keeps,
     take_pruned_keeps,
 )
@@ -383,6 +384,26 @@ CREATE TABLE pruned_watches (
 );
 INSERT INTO pruned_watches VALUES ('gone', '/m/a', 1, 'T', 7, 8, '2026');
 """
+
+
+def test_a_watch_an_older_version_set_aside_is_found_by_its_ids(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS + _OLD_PRUNED_KEEPS + _OLD_PRUNED)
+    old.close()
+    init_db(path).close()
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, season_number, plex_library_id,"
+        " plex_rating_key, added_at, file_path, file_size_bytes, tvdb_id)"
+        " VALUES ('new','T','tv_season',1,3,'new','2020','/m/b',5,8)"
+    )
+
+    carry_last_watched(conn, "new")
+
+    row = conn.execute("SELECT last_watched_at FROM media_items").fetchone()
+    assert row["last_watched_at"] == "2026"
+    conn.close()
 
 
 def test_a_kept_season_an_older_version_set_aside_is_given_back_by_its_match(tmp_path):

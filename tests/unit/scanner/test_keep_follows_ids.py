@@ -1,4 +1,4 @@
-"""Tests that keeps follow a title to a new key at a new path, found by its ids."""
+"""Tests that keeps and watches follow a title to a new key at a new path, found by its ids."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import pytest
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.repository import rekeyed
+from mediaman.scanner.repository.watch_credit import carry_last_watched
+from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import insert_kept_show
 from tests.unit.scanner.test_keep_beside_new_key import (
     _NOW,
@@ -583,3 +585,177 @@ class TestBothListed:
 
         assert _is_kept(conn, kept, "new")
         assert not _is_kept(conn, kept, "newer")
+
+
+class TestWatchedLately:
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @_SEQUENCES
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_a_title_is_not_scheduled_after_it_moved(self, conn, freezer, library, lists, run):
+        library.watched = {"old": _NOW - timedelta(days=1)}
+        library.sync("old")
+        for keys in lists:
+            freezer.tick(60)
+            library.sync(*keys)
+
+        freezer.tick(60)
+        getattr(library, run)("new")
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == []
+
+    @_season("season", "film")
+    def test_a_match_plex_lost_still_tells_the_title(self, conn, freezer, library):
+        library.watched = {"old": _NOW - timedelta(days=1)}
+        library.sync("old")
+        library.ids["old"] = {}
+        for keys in (["old"], []):
+            freezer.tick(60)
+            library.sync(*keys)
+
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == []
+
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ({}, {"tmdb_id": 17, "tvdb_id": 18}),
+            ({}, {"season_number": 2}),
+            ({}, {"tmdb_id": None, "tvdb_id": None}),
+            *(
+                ({"tmdb_id": empty, "tvdb_id": empty}, {"tmdb_id": empty, "tvdb_id": empty})
+                for empty in (None, 0, "")
+            ),
+        ],
+    )
+    @_season("season", "season new")
+    def test_another_season_is_scheduled(self, conn, freezer, library, old, new, lists):
+        library.ids["old"] |= old
+        library.ids["new"] |= new
+        library.watched = {"old": _NOW - timedelta(days=1)}
+        library.sync("old")
+        for keys in lists:
+            freezer.tick(60)
+            library.sync(*keys)
+
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @_season("season new", "season old", "film new", "film old")
+    def test_a_copy_listed_beside_it_in_another_library_is_scheduled(
+        self, conn, freezer, library, run
+    ):
+        library.watched = {"old": _NOW - timedelta(days=1)}
+        for _ in range(2):
+            freezer.tick(60)
+            getattr(library, run)("old", "new")
+
+        freezer.tick(60)
+        library.scan("old", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @_season("season new", "film new")
+    def test_a_copy_in_another_library_is_scheduled_once_the_watched_one_is_back(
+        self, conn, freezer, library
+    ):
+        library.watched = {"old": _NOW - timedelta(days=1)}
+        for keys in (["old"], [], ["old"]):
+            freezer.tick(60)
+            library.sync(*keys)
+
+        library.scan("old", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @_season("season")
+    def test_looking_for_it_does_not_read_the_library(self, conn, library):
+        library.sync("old", "new")
+        queries = []
+        conn.set_trace_callback(queries.append)
+        carry_last_watched(conn, "new")
+        conn.set_trace_callback(None)
+
+        plan = [
+            row["detail"]
+            for query in queries
+            if query.startswith("SELECT")
+            for row in conn.execute(f"EXPLAIN QUERY PLAN {query}")
+        ]
+        assert plan
+        assert not [s for s in plan if s.startswith("SCAN") and "subquery" not in s.lower()]
+
+
+class TestProgress:
+    @pytest.fixture
+    def played(self, conn, library):
+        with conn:
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash, created_at) "
+                "VALUES ('amy', 'h', '2020')"
+            )
+        if library.kind == "season":
+            for key, ids in library.ids.items():
+                ids["episodes"] = [
+                    {"key": f"{key}-e{n}", "number": n, "path": f"/{key}/E{n}"} for n in (1, 2)
+                ]
+        library.sync("old")
+        save_progress(
+            conn,
+            username="amy",
+            rating_key="old" if library.kind == "film" else "old-e2",
+            media_item_id="old",
+            show_rating_key=None if library.kind == "film" else "show-old",
+            position_s=600.0,
+            duration_s=6000.0,
+            played_s=600.0,
+            now=_NOW,
+        )
+        return library
+
+    @staticmethod
+    def _progress(conn):
+        return [
+            (r["rating_key"], r["media_item_id"], r["show_rating_key"], r["position_s"])
+            for r in conn.execute("SELECT * FROM watch_progress")
+        ]
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_a_place_follows_the_title(self, conn, freezer, played, lists, run):
+        for keys in lists:
+            freezer.tick(60)
+            played.sync(*keys)
+        freezer.tick(60)
+        getattr(played, run)("new")
+        freezer.tick(60)
+        getattr(played, run)("new")
+
+        key, show = ("new", None) if played.kind == "film" else ("new-e2", "show-new")
+        assert self._progress(conn) == [(key, "new", show, 600.0)]
+
+    @pytest.mark.parametrize("ids", [{"tmdb_id": 17, "tvdb_id": 18}, {"season_number": 2}])
+    @_season("season")
+    def test_a_place_does_not_go_to_another_title(self, conn, freezer, played, ids):
+        played.ids["new"] |= ids
+        freezer.tick(60)
+        played.sync("new")
+
+        assert self._progress(conn) == []
+
+    @_season("season")
+    def test_a_place_waits_when_two_episodes_have_its_number(self, conn, freezer, played):
+        for episode in played.ids["new"]["episodes"]:
+            episode["number"] = 2
+        freezer.tick(60)
+        played.sync("new")
+
+        assert self._progress(conn) == []

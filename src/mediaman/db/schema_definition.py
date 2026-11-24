@@ -216,6 +216,8 @@ CREATE TABLE IF NOT EXISTS pruned_progress (
     episode_path TEXT,
     episode_number INTEGER,
     pruned_at TEXT NOT NULL,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
     PRIMARY KEY (username, rating_key)
 );
 
@@ -227,7 +229,8 @@ CREATE TABLE IF NOT EXISTS pruned_watches (
     show_title TEXT,
     tmdb_id INTEGER,
     tvdb_id INTEGER,
-    last_watched_at TEXT NOT NULL
+    last_watched_at TEXT NOT NULL,
+    last_tmdb_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_watches_file_path ON pruned_watches(file_path);
 

@@ -875,8 +875,8 @@ def save_pruned_progress(conn: sqlite3.Connection, media_ids: Collection[str]) -
         if not rows:
             continue
         title = conn.execute(
-            "SELECT file_path, season_number, media_type, episode_keys "
-            "FROM media_items WHERE id = ?",
+            "SELECT file_path, season_number, media_type, episode_keys, tvdb_id, "
+            "COALESCE(tmdb_id, last_tmdb_id) AS tmdb_id FROM media_items WHERE id = ?",
             (media_id,),
         ).fetchone()
         places = {key: place for place, key in _keys_by_place(title["episode_keys"]).items()}
@@ -891,14 +891,16 @@ def save_pruned_progress(conn: sqlite3.Connection, media_ids: Collection[str]) -
             # rationale: the interpolated column list is a fixed string; every value is bound
             conn.execute(  # nosec B608
                 f"INSERT OR REPLACE INTO pruned_progress ({_PROGRESS_COLUMNS}, "
-                "file_path, season_number, episode_path, episode_number, pruned_at) "
-                f"VALUES ({', '.join('?' * 15)})",
+                "file_path, season_number, episode_path, episode_number, pruned_at, "
+                f"tvdb_id, tmdb_id) VALUES ({', '.join('?' * 17)})",
                 (
                     *(row[column] for column in _PROGRESS_COLUMNS.split(", ")),
                     title["file_path"],
                     title["season_number"],
                     *place,
                     now.isoformat(),
+                    title["tvdb_id"],
+                    title["tmdb_id"],
                 ),
             )
 
@@ -908,7 +910,8 @@ def restore_progress(conn: sqlite3.Connection) -> None:
 
     A title's own comes back by its key. That of a key no longer in the library
     goes to the title at its path, and the episode of its key or its path and
-    number, if there is just one. Run it once a run has stored all Plex lists, so every copy is known.
+    number, if there is just one; where there is none, to the title with its ids,
+    and the episode of its key or number. Run it once a run has stored all Plex lists, so every copy is known.
     """
     for row in conn.execute("SELECT * FROM pruned_progress").fetchall():
         own = conn.execute(
@@ -917,6 +920,14 @@ def restore_progress(conn: sqlite3.Connection) -> None:
         ).fetchone()
         titles = [own] if own else _others_at(conn, row, ())
         found = [(key, title) for title in titles if (key := _restored_key(row, title))]
+        if not found and not own:
+            found = [
+                (key, title)
+                for title in _films_or_seasons_with_ids(
+                    conn, _pruned_ids(row), row["season_number"]
+                )
+                if (key := _restored_key_by_number(row, title))
+            ]
         if len(found) != 1:
             continue
         [(key, title)] = found
@@ -934,6 +945,20 @@ def _restored_key(row: sqlite3.Row, title: sqlite3.Row) -> str | None:
     if row["rating_key"] in _episode_places(title["episode_keys"]):
         return str(row["rating_key"])
     return _keys_by_place(title["episode_keys"]).get((row["episode_path"], row["episode_number"]))
+
+
+def _restored_key_by_number(row: sqlite3.Row, title: sqlite3.Row) -> str | None:
+    """Return the key *row*'s progress has in *title*, whose files are elsewhere."""
+    if row["episode_path"] is None:
+        return str(title["id"])
+    if row["rating_key"] in _episode_places(title["episode_keys"]):
+        return str(row["rating_key"])
+    keys = [
+        key
+        for key, (_, number) in _episode_places(title["episode_keys"]).items()
+        if number is not None and number == row["episode_number"]
+    ]
+    return keys[0] if len(keys) == 1 else None
 
 
 def refresh_progress_keys(
