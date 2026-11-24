@@ -18,6 +18,7 @@
      data-start-s="{{ start_s or 0 }}"
      data-back-href="{{ back_href }}"
      data-next='{{ next|tojson }}'
+     data-next-state="{{ next_state or '' }}"
      data-show-href="{{ show_href or '' }}"
      data-leaving='{{ leaving|tojson }}'>
 
@@ -27,14 +28,16 @@
 
   <div class="player-spinner" data-spinner aria-hidden="true"></div>
 
+  {# Each data-slot is filled again from the next episode's own page when that takes over here. #}
   <div class="player-top player-chrome">
-    <a class="player-back" href="{{ back_href }}" aria-label="Back" title="Back">
+    <a class="player-back" href="{{ back_href }}" data-back aria-label="Back" title="Back">
       {{ icon("i-chevron-left") }}
     </a>
-    <div class="player-titles">
+    <div class="player-titles" data-slot="titles" aria-live="polite">
       <h1 class="player-title">{{ item.title }}</h1>
       {% if item.subtitle %}<p class="player-subtitle">{{ item.subtitle }}</p>{% endif %}
     </div>
+    <div class="player-slot" data-slot="keep">
     {% if leaving %}
     <div class="player-menu-wrap player-keep" data-keep>
       <button type="button" class="player-pill player-keep-btn" data-menu-trigger
@@ -49,6 +52,7 @@
       </div>
     </div>
     {% endif %}
+    </div>
   </div>
 
   <div class="player-bottom player-chrome">
@@ -101,11 +105,13 @@
         <div class="player-menu player-menu--up player-menu--wide" role="menu" aria-label="Chapters" data-chapter-menu hidden></div>
       </div>
 
+      <div class="player-slot" data-slot="next">
       {% if next %}
       <a class="player-btn" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}" title="Next episode: {{ next.label }}">
         {{ icon("i-forward-step") }}
       </a>
       {% endif %}
+      </div>
 
       <div class="player-menu-wrap">
         <button type="button" class="player-pill" data-menu-trigger data-quality-btn
@@ -113,7 +119,7 @@
           <span><span class="player-wide" data-quality-before></span><span data-quality-res></span><span class="player-wide" data-quality-after></span></span>
         </button>
         {# player.js fills it, and again with what each stream's answer offers. #}
-        <div class="player-menu player-menu--up" role="menu" aria-label="Quality" data-quality-menu hidden></div>
+        <div class="player-menu player-menu--up" role="menu" aria-label="{{ 'Quality and autoplay' if show_href else 'Quality' }}" data-quality-menu hidden></div>
       </div>
 
       <button type="button" class="player-btn" data-fullscreen aria-label="Full screen" title="Full screen (F)">
@@ -126,9 +132,10 @@
     <span data-skip-text></span>{{ icon("i-forward-step") }}
   </button>
 
+  <div class="player-slot" data-slot="upnext">
   {% if next %}
   <div class="player-card player-upnext" data-upnext role="dialog" aria-label="Next episode" hidden>
-    <p class="player-card-title">Next episode in <span data-countdown>10</span> s</p>
+    <p class="player-card-title">Next episode<span data-upnext-in> in <span data-countdown>10</span> s</span></p>
     <p class="player-card-line">{{ next.label }}</p>
     <div class="player-card-actions">
       <button type="button" class="player-pill player-pill--primary" data-upnext-play>
@@ -138,12 +145,24 @@
     </div>
   </div>
   {% endif %}
+  </div>
+
+  {% if show_href %}
+  <dialog class="player-card player-ask" data-ask aria-labelledby="player-ask-title" aria-describedby="player-ask-line">
+    <p class="player-card-title" id="player-ask-title">Are you still watching?</p>
+    <p class="player-card-line" id="player-ask-line" data-ask-line></p>
+    <div class="player-card-actions">
+      <button type="button" class="player-pill player-pill--primary" data-ask-continue>Continue watching</button>
+      <a class="player-pill" href="{{ show_href }}" data-ask-back>Back to details</a>
+    </div>
+  </dialog>
+  {% endif %}
 
   <div class="player-card player-message" data-message role="alert" hidden>
     <p class="player-card-title" data-message-text></p>
     <div class="player-card-actions">
       <button type="button" class="player-pill player-pill--primary" data-retry hidden>Try again</button>
-      <a class="player-pill" href="{{ back_href }}">Back</a>
+      <a class="player-pill" href="{{ back_href }}" data-back>Back</a>
     </div>
   </div>
 </div>

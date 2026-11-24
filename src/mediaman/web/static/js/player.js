@@ -22,6 +22,10 @@
  * Automatic steps the quality down when playback keeps stalling, and
  * slowly up again when it no longer does.
  * While a new stream replaces the old one, the last frame stays on screen.
+ *
+ * The next episode takes over in this same page, from what its own page
+ * (GET /watch/play/<key>) says, so that full screen, picture in picture and
+ * sound carry on. Anything unexpected opens that page instead.
  */
 (function () {
   'use strict';
@@ -41,7 +45,16 @@
   var SAVE_EVERY_MS = 10000;
   var SKIP_S = 10;
   var PAGE_S = 60;
+  var AUTOPLAY_KEY = 'mediaman.watch.autoplay';
   var COUNTDOWN_S = 10;
+  /* "Are you still watching?": after this many episodes that began by
+     themselves, or this long without a sign of anybody. */
+  var SITTING_KEY = 'mediaman.watch.sitting';
+  var ASK_AFTER_EPISODES = 3;
+  var ASK_AFTER_MS = 2 * 60 * 60 * 1000;
+  /* How long the next episode waits for its page, and for the old stream to stop. */
+  var PAGE_WAIT_MS = 15000;
+  var STOP_WAIT_MS = 5000;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
@@ -70,6 +83,7 @@
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
+  var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
   var START_ERRORS = {
     unreachable: { text: "Can't reach Plex right now.", retry: true },
@@ -81,16 +95,36 @@
   /* Only a network failure or a server fault is worth one more try. */
   var RETRY_STATUS = { 0: 1, 500: 1, 502: 1, 504: 1 };
 
-  function readJSON(name) {
-    try { return JSON.parse(root.getAttribute(name) || 'null'); } catch (e) { return null; }
+  function readJSON(el, name) {
+    try { return JSON.parse(el.getAttribute(name) || 'null'); } catch (e) { return null; }
   }
 
-  var item = readJSON('data-item') || {};
-  var next = readJSON('data-next');
-  var leaving = readJSON('data-leaving');
-  var backHref = root.getAttribute('data-back-href') || '/watch';
-  var showHref = root.getAttribute('data-show-href') || '';
-  var startS = parseFloat(root.getAttribute('data-start-s')) || 0;
+  /* What a player page says about its video, from its #player element. */
+  var item;
+  var rows;                  // the qualities its menu offers, best first
+  var next;
+  var nextUnknown;           // Plex could not say whether an episode follows
+  var leaving;
+  var backHref;
+  var showHref;
+  var startS;
+
+  function readPage(el) {
+    item = readJSON(el, 'data-item') || {};
+    rows = readJSON(el, 'data-qualities') || [];
+    leaving = readJSON(el, 'data-leaving');
+    backHref = el.getAttribute('data-back-href') || '/watch';
+    showHref = el.getAttribute('data-show-href') || '';
+    startS = parseFloat(el.getAttribute('data-start-s')) || 0;
+    readNext(el);
+  }
+
+  function readNext(el) {
+    next = readJSON(el, 'data-next');
+    nextUnknown = el.getAttribute('data-next-state') === 'unknown';
+  }
+
+  readPage(root);
 
   var video = root.querySelector('video.player-video');
   var hold = root.querySelector('[data-hold]');
@@ -123,13 +157,10 @@
     qualityBtn: q('[data-quality-btn]'),
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
-    upnext: q('[data-upnext]'),
-    upnextFill: q('[data-upnext-fill]'),
-    countdown: q('[data-countdown]'),
+    ask: q('[data-ask]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
     retry: q('[data-retry]'),
-    keep: q('[data-keep]'),
   };
 
   video.playsInline = true;
@@ -140,17 +171,19 @@
   var streamId = null;
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
+  var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
   var countdownTimer = null; // runs while the next-episode card counts down
   var quality = readSetting(QUALITY_KEY) || 'auto';   // the person's choice
-  var rows = readJSON('data-qualities') || [];        // what the menu offers, best first
+  var autoplay = readSetting(AUTOPLAY_KEY) !== 'false';
 
   /* What belongs to the video being watched; resetVideo sets every one. */
   var pendingStart;          // where the stream will start, until the video has loaded
   var wantPlaying;
   var hasPlayed;
   var playedS;
+  var savedAs;               // the last save the server took, to make none twice
   var lastTime;
   var override;              // the quality to ask for in place of the choice, or null
   var good;                  // the choice and override that last played, or the video started with
@@ -182,6 +215,7 @@
     wantPlaying = true;
     hasPlayed = false;
     playedS = 0;
+    savedAs = null;
     lastTime = null;
     override = null;
     good = choice();
@@ -287,8 +321,21 @@
       btn.setAttribute('data-quality', row.id);
       els.qualityMenu.appendChild(btn);
     });
+    if (showHref) addAutoplayRow();
     showQuality();
     if (hadFocus) focusMenu(els.qualityMenu);
+  }
+
+  function addAutoplayRow() {
+    var rule = document.createElement('div');
+    rule.className = 'player-menu-rule';
+    rule.setAttribute('role', 'separator');
+    els.qualityMenu.appendChild(rule);
+    var btn = menuRow('Autoplay next episode', '');
+    btn.setAttribute('role', 'menuitemcheckbox');
+    btn.setAttribute('data-autoplay', '');
+    btn.setAttribute('aria-checked', String(autoplay));
+    els.qualityMenu.appendChild(btn);
   }
 
   /* A choice of a menu: what it is, the detail of it, and its tick. */
@@ -475,18 +522,21 @@
     root.classList.remove('is-held');
   }
 
-  function showMessage(text, canRetry) {
+  /* `again` is what Try again does; without it there is no such button. */
+  var tryAgain = null;
+  function showMessage(text, again) {
+    tryAgain = again;
     swapping = false;
     releaseFrame();
     setLoading(false);
     els.messageText.textContent = text;
-    els.retry.hidden = !canRetry;
-    els.play.disabled = !canRetry;
+    els.retry.hidden = !again;
+    els.play.disabled = !again;
     els.message.hidden = false;
     showSkip();
     swapNotice = null;
     showControls();
-    (canRetry ? els.retry : els.message.querySelector('a')).focus();
+    (again ? els.retry : els.message.querySelector('a')).focus();
   }
 
   function hideMessage() {
@@ -497,8 +547,11 @@
 
   /* ---- streams -------------------------------------------------------- */
 
-  function stopOnServer(id) {
-    MM.api.post('/api/watch/stream/' + encodeURIComponent(id) + '/stop').catch(function () {});
+  function stopUrl(id) { return '/api/watch/stream/' + encodeURIComponent(id) + '/stop'; }
+
+  /* With `body`, the place it holds is saved first. */
+  function stopOnServer(id, body) {
+    return MM.api.post(stopUrl(id), body).catch(function () {});
   }
 
   function destroyHls() {
@@ -555,7 +608,7 @@
             return startStream(position());
           }
           starting = false;
-          showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
+          showMessage(known ? known.text : MSG_FAILED, known && !known.retry ? null : retry);
         });
     }
     return attempt(0);
@@ -585,7 +638,7 @@
      `force` is for a quality change, which may replace a stream that is
      still starting. */
   function restartStream(force) {
-    if (starting && !force) return;
+    if (switching || (starting && !force)) return;
     var pos = position();
     var old = streamId;
     streamId = null;
@@ -639,51 +692,68 @@
     fail();
   }
 
-  function fail() {
+  /* Let go of the stream, its place saved, or `at`. Settles when the server
+     is done with it, or has had long enough. */
+  function release(at) {
+    var old = streamId;
+    var body = unsaved(at);
     pendingStart = position();
-    destroyHls();
-    if (streamId) stopOnServer(streamId);
     streamId = null;
     generation++;
     starting = false;
-    showMessage(MSG_FAILED, true);
+    destroyHls();
+    if (!old) return Promise.resolve();
+    return Promise.race([
+      stopOnServer(old, body),
+      new Promise(function (resolve) { setTimeout(resolve, STOP_WAIT_MS); }),
+    ]);
+  }
+
+  function fail() {
+    release();
+    showMessage(MSG_FAILED, retry);
   }
 
   /* ---- progress ------------------------------------------------------- */
 
-  function progressBody() {
-    return {
-      stream_id: streamId,
-      position_s: Math.round(position() * 10) / 10,
-      played_s: Math.round(playedS),
-    };
+  /* The place to save, or null where the server has it already: saved again
+     later, it could undo what the person has marked since. */
+  function unsaved(at) {
+    if (!streamId || !hasPlayed) return null;
+    var body = { position_s: Math.round((at === undefined ? position() : at) * 10) / 10, played_s: Math.round(playedS) };
+    return JSON.stringify(body) === savedAs ? null : body;
+  }
+
+  function withStream(body) {
+    return { stream_id: streamId, position_s: body.position_s, played_s: body.played_s };
   }
 
   function saveProgress() {
-    if (!streamId || !hasPlayed) return;
+    var body = unsaved();
+    if (!body) return;
     var id = streamId;
-    MM.api.post('/api/watch/progress', progressBody()).catch(function (err) {
+    MM.api.post('/api/watch/progress', withStream(body)).then(function () {
+      if (id === streamId) savedAs = JSON.stringify(body);
+    }).catch(function (err) {
       if (err && err.status === 410 && id === streamId) streamGone();
     });
   }
 
+  function beacon(url, body) {
+    return navigator.sendBeacon(url, body && new Blob([JSON.stringify(body)], { type: 'application/json' }));
+  }
+
   function beaconProgress() {
-    if (!streamId || !hasPlayed || !navigator.sendBeacon) return;
-    var blob = new Blob([JSON.stringify(progressBody())], { type: 'application/json' });
-    navigator.sendBeacon('/api/watch/progress', blob);
+    var body = unsaved();
+    if (!body || !navigator.sendBeacon) return;
+    beacon('/api/watch/progress', withStream(body));
   }
 
   /* On leave one beacon both saves the last position and stops the stream,
      so the stop cannot arrive first and leave the save with a 410. */
   function beaconStop() {
     if (!streamId || !navigator.sendBeacon) return;
-    var body = null;
-    if (hasPlayed) {
-      var p = progressBody();
-      body = new Blob([JSON.stringify({ position_s: p.position_s, played_s: p.played_s })],
-                      { type: 'application/json' });
-    }
-    navigator.sendBeacon('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop', body);
+    beacon(stopUrl(streamId), unsaved());
   }
 
   var seekSaveTimer = null;
@@ -698,8 +768,10 @@
 
   /* ---- playback ------------------------------------------------------- */
 
+  var ownPlay = false;       // the play event to come is the page's own
   function play() {
     wantPlaying = true;
+    ownPlay = video.paused;
     var p = video.play();
     if (p && p.catch) {
       p.catch(function (err) {
@@ -722,7 +794,7 @@
 
   function togglePlay() {
     if (!els.message.hidden) {
-      if (!els.retry.hidden) retry();
+      if (tryAgain) tryAgain();
       return;
     }
     if (countdownTimer !== null) {
@@ -814,6 +886,8 @@
     setLoading(false);
   });
   video.addEventListener('play', function () {
+    if (!ownPlay) noteActivity();
+    ownPlay = false;
     wantPlaying = true;
     showPlayState();
   });
@@ -822,6 +896,7 @@
     stopRolling();
     showPlayState();
     if (video.ended) return;
+    noteActivity();
     wantPlaying = false;
     saveProgress();
   });
@@ -835,8 +910,12 @@
     setLoading(false);
   });
   video.addEventListener('seeking', function () {
+    /* A jump from where it played; hls.js only nudges. */
+    if (lastTime !== null && Math.abs(video.currentTime - lastTime) > 2) noteActivity();
     lastTime = null;
     stopRolling();
+    /* A message over a video that can be played is about its end. */
+    if (streamId && !starting) hideMessage();
   });
   video.addEventListener('seeked', function () {
     settleStart();
@@ -844,6 +923,7 @@
   });
   video.addEventListener('progress', render);
   video.addEventListener('volumechange', function () {
+    if (hasPlayed) noteActivity();
     showVolume();
     saveSetting(VOLUME_KEY, video.volume);
     saveSetting(MUTED_KEY, video.muted);
@@ -870,8 +950,7 @@
   video.addEventListener('ended', function () {
     saveProgress();
     showSkip();
-    if (next) startCountdown();
-    else window.location.href = showHref || backHref;
+    atEnd();
     showPlayState();
   });
 
@@ -1001,7 +1080,8 @@
   var skipTimer;
 
   function showSkip() {
-    var m = els.message.hidden && !video.ended ? markerAt(position()) : null;
+    var over = video.ended || switching || (els.ask && els.ask.open);
+    var m = els.message.hidden && !over ? markerAt(position()) : null;
     if (m !== skipMarker) offerSkip(m);
   }
 
@@ -1027,9 +1107,8 @@
       seekTo(skipMarker.end_s);
       return;
     }
-    /* Left at the end, so that the episode counts as watched. */
-    pendingStart = duration();
-    goNext();
+    /* Saved as at the end, so that the episode counts as watched. */
+    goNext(false, duration());
   }
   els.skip.addEventListener('click', skipOn);
 
@@ -1201,7 +1280,7 @@
   /* ---- buttons -------------------------------------------------------- */
 
   els.play.addEventListener('click', togglePlay);
-  els.retry.addEventListener('click', retry);
+  els.retry.addEventListener('click', function () { tryAgain(); });
   els.back10.addEventListener('click', function () { skip(-SKIP_S); });
   els.fwd10.addEventListener('click', function () { skip(SKIP_S); });
 
@@ -1223,6 +1302,7 @@
   });
 
   els.qualityMenu.addEventListener('click', function (e) {
+    if (e.target.closest('[data-autoplay]')) { toggleAutoplay(); return; }
     var btn = e.target.closest('[data-quality]');
     if (!btn) return;
     closeMenus(true);
@@ -1260,18 +1340,18 @@
     items[to].focus();
   }
 
-  root.querySelectorAll('[data-menu-trigger]').forEach(function (trigger) {
-    trigger.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var open = trigger.getAttribute('aria-expanded') === 'true';
-      closeMenus();
-      if (open) return;
-      trigger.setAttribute('aria-expanded', 'true');
-      var menu = trigger.parentNode.querySelector('.player-menu');
-      menu.hidden = false;
-      focusMenu(menu);
-      showControls();
-    });
+  root.addEventListener('click', function (e) {
+    var trigger = e.target.closest('[data-menu-trigger]');
+    if (!trigger) return;
+    e.stopPropagation();
+    var open = trigger.getAttribute('aria-expanded') === 'true';
+    closeMenus();
+    if (open) return;
+    trigger.setAttribute('aria-expanded', 'true');
+    var menu = trigger.parentNode.querySelector('.player-menu');
+    menu.hidden = false;
+    focusMenu(menu);
+    showControls();
   });
   document.addEventListener('click', function (e) {
     if (!e.target.closest || !e.target.closest('.player-menu-wrap')) closeMenus();
@@ -1279,21 +1359,24 @@
 
   /* ---- keep ----------------------------------------------------------- */
 
-  if (els.keep && leaving) {
+  function setupKeep() {
+    var keep = q('[data-keep]');
+    if (!keep || !leaving) return;
+    var keepId = leaving.keep_id;
     var keeping = false;
-    var keepTrigger = els.keep.querySelector('[data-menu-trigger]');
+    var keepTrigger = keep.querySelector('[data-menu-trigger]');
     var undoing = false;
 
     /* Put the pill back at once; if the server refuses, the keep stands. */
     var undoKeep = function (done, original, days) {
       if (undoing) return;
       undoing = true;
-      MM.api.post('/api/watch/unkeep', { media_item_id: leaving.keep_id }).then(function () {
+      MM.api.post('/api/watch/unkeep', { media_item_id: keepId }).then(function () {
         var active = document.activeElement;
         var moveFocus = !active || active === document.body || done.contains(active) ||
           (active.closest && active.closest('.ui-toast'));
-        els.keep.textContent = '';
-        els.keep.appendChild(original);
+        keep.textContent = '';
+        keep.appendChild(original);
         keeping = false;
         keepTrigger.setAttribute('aria-busy', 'false');
         if (moveFocus) keepTrigger.focus();
@@ -1306,22 +1389,22 @@
       });
     };
 
-    els.keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
+    keep.querySelectorAll('[data-keep-days]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (keeping) return;
         keeping = true;
         keepTrigger.setAttribute('aria-busy', 'true');
         var days = parseInt(btn.getAttribute('data-keep-days'), 10);
         closeMenus(true);
-        MM.api.post('/api/watch/keep', { media_item_id: leaving.keep_id, days: days })
+        MM.api.post('/api/watch/keep', { media_item_id: keepId, days: days })
           .then(function () {
-            var hadFocus = els.keep.contains(document.activeElement);
+            var hadFocus = keep.contains(document.activeElement);
             var original = document.createDocumentFragment();
-            while (els.keep.firstChild) original.appendChild(els.keep.firstChild);
+            while (keep.firstChild) original.appendChild(keep.firstChild);
             var done = document.createElement('span');
             done.className = 'player-pill';
             done.textContent = 'Kept for ' + days + ' days';
-            els.keep.appendChild(done);
+            keep.appendChild(done);
             if (hadFocus) { done.tabIndex = -1; done.focus(); }
             if (window.UIFeedback) {
               window.UIFeedback.toast('Kept for ' + days + ' days', {
@@ -1443,6 +1526,7 @@
   /* ---- keyboard ------------------------------------------------------- */
 
   document.addEventListener('keydown', function (e) {
+    if (els.ask && els.ask.open) return;
     showControls();
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
@@ -1491,15 +1575,137 @@
 
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
-  function goNext() { window.location.href = next.href; }
+  /* What the video's end leads to. */
+  function atEnd() {
+    if (nextUnknown) findNext();
+    else if (!next) window.location.href = showHref || backHref;
+    else if (autoplay) goOrAsk(showUpnext);
+    else showUpnext();
+  }
+
+  /* The document at `href`: not a player's where the video cannot be played. */
+  function fetchPage(href) {
+    var abort = new AbortController();
+    var timer = setTimeout(function () { abort.abort(); }, PAGE_WAIT_MS);
+    return fetch(href, { credentials: 'same-origin', signal: abort.signal })
+      .then(function (resp) {
+        if (resp.redirected) throw new Error('redirected');
+        return resp.text();
+      })
+      .then(function (html) {
+        clearTimeout(timer);
+        return new DOMParser().parseFromString(html, 'text/html');
+      });
+  }
+
+  /* Ask Plex again what follows, through this video's own page. */
+  function findNext() {
+    var gen = generation;
+    hideMessage();
+    setLoading(true);
+    fetchPage(window.location.href)
+      .then(function (page) {
+        if (gen !== generation) return;
+        var el = page.getElementById('player');
+        readNext(el);
+        fillSlot(el, 'next');
+        fillSlot(el, 'upnext');
+        setupNext();
+      })
+      .catch(function () { /* still unknown */ })
+      .then(function () {
+        if (gen !== generation) return;
+        setLoading(false);
+        if (!video.ended) return;
+        if (nextUnknown) {
+          leaveNative();
+          showMessage(MSG_NEXT_UNKNOWN, findNext);
+        } else {
+          atEnd();
+        }
+      });
+  }
+
+  function fillSlot(el, name) {
+    var slot = q('[data-slot="' + name + '"]');
+    var from = el.querySelector('[data-slot="' + name + '"]');
+    var hadFocus = slot.contains(document.activeElement);
+    slot.textContent = '';
+    while (from && from.firstChild) slot.appendChild(from.firstChild);
+    if (hadFocus) (slot.querySelector('a') || els.play).focus();
+  }
+
+  /* Play the next episode here, or open its page when that cannot be done.
+     `savedAt` is the place to save this one at, where that is not where it stands. */
+  function goNext(byItself, savedAt) {
+    if (!next || switching) return;
+    var href = next.href;
+    if (byItself) sitting.count++;
+    switching = true;
+    swapping = true;
+    wantPlaying = true;
+    hideUpnext();
+    hideMessage();
+    holdFrame();
+    var stopped = release(savedAt);
+    var gen = generation;
+    setLoading(true);
+    showSkip();
+    showControls();
+    Promise.all([fetchPage(href), stopped])
+      .then(function (done) {
+        if (gen !== generation) return;
+        takePage(done[0], href);
+        switching = false;
+        startStream(startS);
+      })
+      .catch(function () {
+        if (gen !== generation) return;
+        saveSitting(byItself);
+        window.location.href = href;
+      });
+  }
+
+  /* Become the page of another video. */
+  function takePage(page, href) {
+    var el = page.getElementById('player');
+    var want = wantPlaying;
+    var stepped = quality === 'auto' && override;
+    closeMenus(true);
+    endDrag({ pointerType: 'touch' }, false);
+    hideBubble();
+    readPage(el);
+    resetVideo(startS);
+    wantPlaying = want;
+    if (stepped) {
+      /* The connection is the same: Automatic goes on from where it had got to. */
+      override = rowFor(stepped).id;
+      good = choice();
+      autoTop = rowFor('auto').id;
+    }
+    ['titles', 'keep', 'next', 'upnext'].forEach(function (name) { fillSlot(el, name); });
+    setupKeep();
+    setupNext();
+    root.querySelectorAll('[data-back]').forEach(function (a) { a.setAttribute('href', backHref); });
+    els.seek.setAttribute('aria-valuemax', String(Math.round(item.duration_s || 0)));
+    document.title = page.title;
+    window.history.replaceState(null, '', href);
+    showMedia();
+    buildQualityMenu();
+    drawMarks();
+    render();
+  }
+
+  /* What the system's own media controls call the video. */
+  function showMedia() {
+    if (!navigator.mediaSession || !window.MediaMetadata) return;
+    navigator.mediaSession.metadata = new MediaMetadata(
+      showHref ? { title: item.subtitle, artist: item.title } : { title: item.title });
+  }
 
   /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
-    if (countdownTimer !== null) {
-      clearInterval(countdownTimer);
-      countdownTimer = null;
-      showPlayState();
-    }
+    stopCountdown();
     var card = els.upnext;
     if (!card || card.hidden || card.classList.contains('is-leaving')) return;
     card.classList.remove('is-counting');
@@ -1508,33 +1714,136 @@
     else card.classList.add('is-leaving');
   }
 
-  function startCountdown() {
-    var left = COUNTDOWN_S;
-    els.countdown.textContent = String(left);
-    els.upnext.classList.remove('is-leaving');
-    els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
-    els.upnext.classList.add('is-counting');
-    els.upnext.hidden = false;
-    showControls();
+  function stopCountdown() {
+    if (countdownTimer === null) return;
     clearInterval(countdownTimer);
-    countdownTimer = setInterval(function () {
-      left--;
-      els.countdown.textContent = String(Math.max(left, 0));
-      if (left <= 0) {
-        hideUpnext();
-        goNext();
-      }
-    }, 1000);
+    countdownTimer = null;
+    showPlayState();
   }
 
-  if (els.upnext) {
-    q('[data-upnext-play]').addEventListener('click', goNext);
+  /* The card, counting down where the next episode begins by itself. */
+  function showUpnext() {
+    stopCountdown();
+    els.upnextIn.hidden = !autoplay;
+    els.upnext.classList.remove('is-leaving');
+    els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
+    els.upnext.classList.toggle('is-counting', autoplay);
+    els.upnext.hidden = false;
+    showControls();
+    if (!autoplay) return;
+    var until = Date.now() + COUNTDOWN_S * 1000;
+    var count = function () {
+      var left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      els.countdown.textContent = String(left);
+      if (left > 0) return;
+      hideUpnext();
+      goOrAsk(function () { goNext(true); });
+    };
+    countdownTimer = setInterval(count, 250);
+    count();
+  }
+
+  function toggleAutoplay() {
+    autoplay = !autoplay;
+    saveSetting(AUTOPLAY_KEY, autoplay);
+    q('[data-autoplay]').setAttribute('aria-checked', String(autoplay));
+    if (els.upnext && !els.upnext.hidden && !els.upnext.classList.contains('is-leaving')) {
+      showUpnext();
+      showPlayState();
+    }
+  }
+
+  /* The controls of the next episode, in the page's own slots. */
+  function setupNext() {
+    els.upnext = q('[data-upnext]');
+    if (!els.upnext) return;
+    els.upnextIn = q('[data-upnext-in]');
+    els.upnextFill = q('[data-upnext-fill]');
+    els.countdown = q('[data-countdown]');
+    q('[data-next-btn]').addEventListener('click', function (e) {
+      /* A new tab or window stays the browser's. */
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      goNext(false);
+    });
+    q('[data-upnext-play]').addEventListener('click', function () { goNext(false); });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
     els.upnext.addEventListener('animationend', function (e) {
       if (e.target !== els.upnext || e.animationName !== 'player-drop') return;
       if (!els.upnext.classList.contains('is-leaving')) return;
       els.upnext.classList.remove('is-leaving');
       els.upnext.hidden = true;
+    });
+  }
+
+  /* ---- are you still watching ------------------------------------------ */
+
+  /* The episodes that began by themselves and the last sign of anybody since. */
+  var sitting;
+
+  /* Opening a page is a sign of somebody, unless this one opened by itself
+     because the last could not go on to it in place. */
+  function startSitting() {
+    var held = null;
+    try { held = JSON.parse(window.sessionStorage.getItem(SITTING_KEY)); } catch (e) { /* storage blocked */ }
+    if (held && held.goes_on) {
+      sitting = { count: held.count, lastActivity: held.lastActivity };
+      saveSitting(false);
+    } else {
+      noteActivity();
+    }
+  }
+
+  function saveSitting(goesOn) {
+    var held = { count: sitting.count, lastActivity: sitting.lastActivity, goes_on: !!goesOn };
+    try { window.sessionStorage.setItem(SITTING_KEY, JSON.stringify(held)); } catch (e) { /* storage blocked */ }
+  }
+
+  function noteActivity() {
+    sitting = { count: 0, lastActivity: Date.now() };
+    saveSitting(false);
+  }
+
+  ['pointerdown', 'keydown', 'click'].forEach(function (name) {
+    document.addEventListener(name, function (e) { if (e.isTrusted) noteActivity(); }, true);
+  });
+
+  /* Go on, unless it is time to ask first. */
+  function goOrAsk(go) {
+    var due = sitting.count >= ASK_AFTER_EPISODES || Date.now() - sitting.lastActivity >= ASK_AFTER_MS;
+    if (due) ask();
+    else go();
+  }
+
+  function ask() {
+    leaveNative();
+    swapping = true;
+    holdFrame();
+    release();
+    setLoading(false);
+    q('[data-ask-line]').textContent = 'Next: ' + next.label;
+    q('[data-ask-back]').setAttribute('href', showHref);
+    els.ask.showModal();
+    showSkip();
+  }
+
+  /* A question must not hide behind the system's own player. */
+  function leaveNative() {
+    if (video.webkitPresentationMode && video.webkitPresentationMode !== 'inline') {
+      video.webkitSetPresentationMode('inline');
+    } else if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(function () {});
+    }
+  }
+
+  if (els.ask) {
+    q('[data-ask-continue]').addEventListener('click', function () {
+      els.ask.close();
+      goNext(false);
+    });
+    els.ask.addEventListener('cancel', function (e) {
+      e.preventDefault();
+      window.location.href = showHref;
     });
   }
 
@@ -1550,18 +1859,23 @@
     pendingStart = resumeAt;
     streamId = null;
     generation++;
+    switching = false;
     destroyHls();
   });
 
   /* Back from the browser's page cache: the old stream was stopped. */
   window.addEventListener('pageshow', function (e) {
-    if (!e.persisted) return;
+    if (!e.persisted || (els.ask && els.ask.open)) return;
     wantPlaying = false;
     startStream(pendingStart || 0);
   });
 
   /* ---- start ---------------------------------------------------------- */
 
+  startSitting();
+  setupKeep();
+  setupNext();
+  showMedia();
   buildQualityMenu();
   readVolume();
   showVolume();
@@ -1569,7 +1883,7 @@
   render();
 
   if (typeof Hls === 'undefined' || !Hls.isSupported()) {
-    showMessage(MSG_UNSUPPORTED, false);
+    showMessage(MSG_UNSUPPORTED, null);
     return;
   }
   startStream(startS);

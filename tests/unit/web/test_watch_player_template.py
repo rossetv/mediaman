@@ -111,6 +111,12 @@ def test_data_attributes_carry_the_context(name):
     assert json.loads(root["data-leaving"]) == ctx["leaving"]
 
 
+@pytest.mark.parametrize("state", ["next", "end", "unknown"])
+def test_the_page_says_whether_the_next_episode_is_known(state):
+    _, page = _render({**EPISODE, "next_state": state})
+    assert page.player()["data-next-state"] == state
+
+
 def test_hostile_title_stays_data():
     title = """It's "<script>alert(1)</script>" & more"""
     ctx = {**MOVIE, "item": {**MOVIE["item"], "title": title}}

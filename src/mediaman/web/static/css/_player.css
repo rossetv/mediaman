@@ -20,6 +20,8 @@
   -webkit-user-select: none;
 }
 .player [hidden] { display: none !important; }
+/* Holds what changes with the episode; the layout is its contents' own. */
+.player-slot { display: contents; }
 
 .player-video {
   position: absolute;
@@ -413,6 +415,8 @@
 .player-menu-tick { flex: none; width: 12px; height: 12px; color: var(--accent); visibility: hidden; }
 .player-menu-item[aria-checked="true"] > .player-menu-tick { visibility: visible; }
 
+.player-menu-rule { flex: none; height: 1px; margin: 6px 12px; background: var(--hair-strong); }
+
 .player-menu--wide { width: 340px; }
 .player-chapter-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .player-chapters .player-pill { gap: 8px; }
@@ -445,6 +449,7 @@
   .player-menu,
   .player-card,
   .player-card.is-leaving,
+  .player-ask::backdrop,
   .player-bubble,
   .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
@@ -472,7 +477,7 @@
 .player.is-held .player-spinner { opacity: 0; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
-/* Cards: the "next episode" countdown and the error message. */
+/* Cards: the "next episode" countdown, the error message and "Are you still watching?". */
 .player-card {
   position: absolute;
   display: flex;
@@ -504,6 +509,23 @@
   align-items: center;
 }
 .player-message .player-card-actions { justify-content: center; }
+.player-ask {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: 420px;
+  height: fit-content;
+  padding: 28px 28px 20px;
+  border: 0;
+  color: inherit;
+  text-align: center;
+  align-items: center;
+}
+.player-ask:not([open]) { display: none; }
+.player-ask::backdrop { background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: player-dim var(--dur) var(--ease-out); }
+.player-ask .player-card-title { font-size: 20px; }
+.player-ask .player-card-actions { justify-content: center; gap: 12px; margin-top: 14px; }
+@keyframes player-dim { from { opacity: 0; } }
 
 @media (min-width: 1920px) {
   .player-title { font-size: 22px; }
@@ -574,6 +596,7 @@
   .player-volume-slider::-webkit-slider-thumb { background: CanvasText; }
   .player-volume-slider::-moz-range-thumb { background: CanvasText; }
   .player-gap,
+  .player-menu-rule,
   .player-seek-hover,
   .player-seek-thumb { background: CanvasText; }
   .player-back,

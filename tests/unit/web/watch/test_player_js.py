@@ -7,6 +7,7 @@ Each test renders the real player markup, runs player.js on it through
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,12 @@ HARNESS = Path(__file__).with_name("player_harness.js")
 _ENV = jinja2.Environment(
     loader=jinja2.ChoiceLoader(
         [
-            jinja2.DictLoader({"base.html": "{% block content %}{% endblock %}"}),
+            jinja2.DictLoader(
+                {
+                    "base.html": "<title>{% block title %}{% endblock %}</title>"
+                    "{% block content %}{% endblock %}"
+                }
+            ),
             jinja2.FileSystemLoader(REPO / "src/mediaman/web/templates"),
         ]
     ),
@@ -72,11 +78,14 @@ def run(
     reduced: bool = False,
     saved: dict[str, str] | None = None,
     plays: str | None = None,
+    pages: dict[str, Path] | None = None,
 ) -> Any:
     args = ["node", str(HARNESS), str(markup), scenario] + (["reduced"] if reduced else [])
     args += [json.dumps(saved)] if saved or plays else []
     args += [plays] if plays else []
-    done = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    others = json.dumps({href: str(path) for href, path in (pages or {}).items()})
+    env = {**os.environ, "PLAYER_PAGES": others}
+    done = subprocess.run(args, capture_output=True, text=True, timeout=30, env=env)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 
@@ -473,7 +482,9 @@ def test_the_last_credits_lead_to_the_next_episode_with_this_one_at_its_end(mark
     out = run(markup, "skip")
     assert (out["last"], out["hrefAfter"]) == ("Next episode", "/watch/play/502")
     assert out["sInMenu"] == "/watch/play/1"
-    assert out["saved"] == [3000]
+    # Saved as watched with the stop; the page left after it says nothing of the place,
+    # and coming back to it starts where it was left.
+    assert (out["saved"], out["beacons"], out["backAt"]) == ([3000], 0, 2710)
 
 
 def test_the_last_credits_with_nothing_next_go_to_the_end(last_episode):
@@ -502,3 +513,240 @@ def test_a_click_on_the_picture_under_an_error_does_not_try_again(markup):
     out = run(markup, "double_click")
     assert (out["error"], out["retries"]) == (True, 0)
     assert out["wantsToPlay"]["busy"] == "true"
+
+
+def _episode(n: int, **changes: Any) -> dict[str, Any]:
+    return {
+        **EPISODE,
+        "item": {
+            "rating_key": str(500 + n),
+            "title": "The Long Coast",
+            "subtitle": f"S2 · E{n}",
+            "duration_s": 2700.0 + n,
+        },
+        "next": {"href": f"/watch/play/{501 + n}", "label": f"S2 · E{n + 1}"},
+        "back_href": f"/watch/show/77?season={n}",
+        "show_href": f"/watch/show/77?season={n}",
+        **changes,
+    }
+
+
+@pytest.fixture(scope="module")
+def season(tmp_path_factory) -> dict[str, Path]:
+    """The pages of the episodes that follow the one open, by address."""
+    changes = {3: {"leaving": {"days": 2, "keep_id": "88"}}}
+    return {
+        f"/watch/play/{500 + n}": _markup(tmp_path_factory, _episode(n, **changes.get(n, {})))
+        for n in range(2, 24)
+    }
+
+
+@pytest.fixture(scope="module")
+def unknown_next(tmp_path_factory) -> Path:
+    return _markup(tmp_path_factory, {**EPISODE, "next": None, "next_state": "unknown"})
+
+
+@pytest.fixture(scope="module")
+def in_place(markup, season) -> Any:
+    return run(markup, "next_in_place", saved={"mediaman.watch.quality": "low"}, pages=season)
+
+
+def test_the_next_episode_takes_over_in_the_same_page_and_video(in_place):
+    assert (in_place["href"], in_place["urls"]) == ("/watch/play/1", ["/watch/play/502"])
+    assert (in_place["sameVideo"], in_place["volume"], in_place["oldDestroyed"]) == (
+        True,
+        0.4,
+        True,
+    )
+    assert in_place["start"] == {"rating_key": "502", "quality": "low"}
+
+
+def test_the_old_stream_is_saved_and_stopped_before_the_new_one_starts(in_place):
+    assert in_place["early"] == 0
+    stop, page, start = in_place["order"]
+    assert (stop.endswith("/stop"), page, start) == (
+        True,
+        "/watch/play/502",
+        "/api/watch/stream",
+    )
+    assert in_place["stop"]["position_s"] == 2997
+
+
+def test_the_page_shows_what_the_next_episode_s_own_page_says(in_place):
+    assert (in_place["title"], in_place["heading"], in_place["subtitle"]) == (
+        "The Long Coast · Mediaman",
+        "The Long Coast",
+        "S2 · E2",
+    )
+    assert in_place["media"] == {"title": "S2 · E2", "artist": "The Long Coast"}
+    assert (in_place["nextHref"], in_place["max"]) == ("/watch/play/503", "2702")
+    assert in_place["back"] == "/watch/show/77?season=2"
+
+
+def test_nothing_of_the_old_episode_is_left(in_place):
+    assert in_place["before"] == {"chapters": True, "marks": 0, "menus": 0}
+    assert (in_place["card"], in_place["keep"]) == (True, False)
+
+
+def test_the_last_frame_stays_until_the_next_episode_plays(in_place):
+    assert (in_place["held"]["shown"], in_place["left"]) == (True, False)
+
+
+def test_only_the_new_episode_is_saved_after_the_change_with_its_own_played_time(in_place):
+    saves = in_place["saves"]
+    assert saves
+    assert {s["stream_id"] for s in saves} == {"a2"}
+    assert {s["played_s"] for s in saves} == {2}
+
+
+def test_the_next_link_and_the_card_go_on_in_place_once_each(markup, season):
+    out = run(markup, "next_by_hand", pages=season)
+    assert (out["newTabKept"], out["stays"], out["cardLeaves"]) == (True, True, True)
+    # The link under the keyboard is the new episode's, and still has the focus.
+    assert out["first"] == {
+        "pages": ["/watch/play/502"],
+        "focus": "/watch/play/503",
+        "urls": ["/watch/play/502"],
+    }
+    assert out["urls"] == ["/watch/play/502", "/watch/play/503"]
+
+
+def test_the_next_episode_s_own_keep_works(markup, season):
+    out = run(markup, "next_by_hand", pages=season)
+    assert out["kept"] == [{"media_item_id": "88", "days": 30}]
+
+
+@pytest.mark.parametrize("answer", ["redirect", "refused", "other", "hangs"])
+def test_a_page_that_cannot_take_over_is_opened_with_the_old_stream_stopped(markup, answer):
+    out = run(markup, "next_falls_back", plays=answer)
+    assert out == {"href": "/watch/play/502", "starts": 1, "stops": 1, "beacons": 0}
+
+
+def test_the_new_stream_waits_for_the_old_to_stop_but_not_for_ever(markup, season):
+    out = run(markup, "next_waits", pages=season)
+    assert (out["before"], out["whileWaiting"], out["after"]) == (1, 1, ["auto", "low"])
+    assert out["last"] == 3
+
+
+def test_what_is_pressed_while_the_next_episode_is_on_its_way_holds_for_it(markup, season):
+    out = run(markup, "next_waits", pages=season)
+    assert (out["paused"], out["plays"]) == ("Play", 1)
+
+
+def test_a_page_left_on_the_way_starts_nothing_and_still_works_when_back(markup, season):
+    out = run(markup, "next_left", pages=season)
+    assert (out["left"], out["starts"], out["back"]) == ("/watch/play/1", 1, "501")
+    assert out["again"] == 2
+
+
+def test_nothing_held_on_the_bar_reaches_the_next_episode(markup, season):
+    out = run(markup, "next_over_bar", pages=season)
+    # A frame of the old episode that comes late is not shown as the new one's.
+    assert (out["bubble"], out["asked"]) == (True, 2)
+    assert out["startsAt"] == [0, None]
+
+
+def test_automatic_goes_on_from_the_step_it_had_come_to(markup, season):
+    out = run(markup, "next_stepped", pages=season)
+    # Down for this episode, so down for the next, and up again when that plays well.
+    assert out["starts"] == ["auto", "720p-4000", "medium", "medium", "1080p-8000"]
+    assert (out["ticked"], out["pill"]) == (["auto"], "Auto · 720p")
+
+
+def test_an_original_that_could_not_play_is_tried_anew_for_the_next_episode(markup, season):
+    saved = {"mediaman.watch.quality": "original"}
+    out = run(markup, "next_original", saved=saved, pages=season)
+    assert out["starts"] == ["original", "1080p-10000", "original"]
+
+
+def test_the_next_link_leaves_an_error_behind(markup):
+    assert run(markup, "next_after_error") == {"error": True, "after": False}
+
+
+def test_the_countdown_goes_by_the_clock(markup, season):
+    assert run(markup, "countdown_clock", pages=season) == {"left": "1", "went": True}
+
+
+def test_it_asks_after_three_episodes_that_began_by_themselves(markup, season):
+    out = run(markup, "ask", pages=season)
+    # One more after the six signs of somebody, with two episodes after each: a key, a press,
+    # and from outside the page a pause, play, the volume and a jump.
+    assert out["asked"] == [False] * 18 + [True, False]
+
+
+def test_the_question_lets_go_of_the_stream_and_comes_out_of_the_system_s_player(markup, season):
+    out = run(markup, "ask", pages=season)
+    assert (out["stopped"], out["started"], out["beacons"]) == (1, 0, 0)
+    assert (out["modes"], out["heldBehind"], out["focus"]) == (["inline"], True, True)
+    assert (out["line"], out["fullscreens"], out["skip"]) == ("Next: S2 · E20", 0, True)
+
+
+def test_a_page_come_back_to_with_the_question_open_starts_nothing(markup, season):
+    assert run(markup, "ask", pages=season)["startedByBack"] == 0
+
+
+def test_continue_watching_goes_on_in_place(markup, season):
+    out = run(markup, "ask", pages=season)
+    assert (out["open"], out["urlsAfter"] - out["urls"]) == (False, 1)
+
+
+def test_it_asks_when_nobody_was_there_for_two_hours_and_escape_goes_to_the_details(markup):
+    out = run(markup, "ask_hours")
+    assert (out["atEnd"], out["afterCountdown"]) == (False, True)
+    assert out["href"] == "/watch/show/77"
+
+
+@pytest.mark.parametrize(("goes_on", "asked"), [(True, True), (False, False)])
+def test_only_a_page_opened_by_itself_carries_the_count_on(markup, goes_on, asked):
+    held = json.dumps({"count": 3, "lastActivity": 0, "goes_on": goes_on})
+    out = run(markup, "ask_carried", saved={"mediaman.watch.sitting": held})
+    assert out == {"asked": asked, "goesOn": False}
+
+
+def test_the_count_is_handed_on_to_a_page_opened_by_itself_alone(markup):
+    out = run(markup, "ask_handed_on")
+    assert (out["byItself"], out["byHand"]) == ([1, True], False)
+
+
+def test_autoplay_off_shows_the_next_episode_and_waits(markup):
+    out = run(markup, "autoplay_off")
+    assert (out["start"], out["off"], out["saved"]) == ("true", "false", "false")
+    assert out["menuOpen"] == "true"
+    assert out["card"] == {"hidden": False, "counts": False, "play": "Play"}
+    assert (out["went"], out["wentLater"]) == (False, False)
+
+
+def test_autoplay_turned_on_and_off_over_the_card_starts_and_stops_the_countdown(markup):
+    out = run(markup, "autoplay_off")
+    assert out["on"] == {"hidden": False, "counts": True, "play": "Pause"}
+    assert out["offAgain"] == {"hidden": False, "counts": False, "play": "Play"}
+
+
+def test_the_autoplay_choice_is_kept_and_a_film_has_none(markup, tmp_path_factory):
+    out = run(markup, "autoplay_saved", saved={"mediaman.watch.autoplay": "false"})
+    assert out == {"checked": "false"}
+    film = _markup(tmp_path_factory, {**EPISODE, "next": None, "show_href": None})
+    assert run(film, "autoplay_film") == {"row": False}
+
+
+def test_a_next_episode_that_is_unknown_is_asked_for_again_and_said(unknown_next, markup):
+    pages = {"/watch/play/1": unknown_next, "/found": markup}
+    out = run(unknown_next, "next_unknown", pages=pages)
+    assert (out["link"], out["message"], out["retry"]) == (False, True, True)
+    assert "next episode" in out["text"]
+    # The episode itself still plays: moving within it takes the message away.
+    assert (out["streams"], out["afterSeek"]) == (0, False)
+    assert out["found"] == {
+        "message": False,
+        "card": False,
+        "link": "/watch/play/502",
+        "starts": 1,
+        "href": "/watch/play/1",
+    }
+
+
+def test_a_place_already_saved_is_not_saved_again(markup, season):
+    out = run(markup, "saved_once", pages=season)
+    assert (out["afterPause"], out["afterMore"]) == (0, 1)
+    assert (out["stop"].endswith("/stop"), out["body"]) == (True, None)
+    assert (out["after"], out["same"]) == (1, True)

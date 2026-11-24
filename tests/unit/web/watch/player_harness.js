@@ -3,6 +3,7 @@
 
    Usage: node player_harness.js <markup.html> <scenario> [reduced]
           node player_harness.js <markup.html> <scenario> '<saved settings as JSON>' [<quality the server plays>]
+   PLAYER_PAGES in the environment names the file of each other page, by address.
    Prints the scenario's observations as one JSON object. */
 'use strict';
 
@@ -154,7 +155,14 @@ class Canvas extends Element {
   getContext() { return this.ctx; }
 }
 
+class Dialog extends Element {
+  get open() { return 'open' in this.attrs; }
+  showModal() { this.attrs.open = ''; this.querySelector('button').focus(); }
+  close() { delete this.attrs.open; doc.activeElement = doc.body; }
+}
+
 function make(tag, attrs) {
+  if (tag === 'dialog') return new Dialog(tag, attrs);
   if (tag === 'video') return new Video(tag, attrs);
   if (tag === 'canvas') return new Canvas(tag, attrs);
   return new Element(tag, attrs);
@@ -189,7 +197,7 @@ function parse(html, into) {
 }
 
 function fire(target, type, extra) {
-  const ev = Object.assign({ type: type, bubbles: false, preventDefault() {}, stopPropagation() { this.stopped = true; } }, extra || {});
+  const ev = Object.assign({ type: type, bubbles: false, isTrusted: true, preventDefault() {}, stopPropagation() { this.stopped = true; } }, extra || {});
   target.dispatchEvent(ev);
   return ev;
 }
@@ -260,14 +268,18 @@ function boot(html, reduced, saved, serverPlays) {
     }
     clock.now = end;
   }
+  /* Time passes while no timer runs. */
+  function sleep(ms) { clock.now += ms; }
 
   const calls = [];
   const starts = () => calls.filter((c) => /\/api\/watch\/stream$/.test(c.url)).map((c) => c.body.quality);
   /* The page starts its first stream as soon as it loads; a scenario may still change the reply. */
   const replies = [{ ok: { stream_id: 's1', playlist: '/p1', quality: 'best' } }];
+  const held = { stop: null };   // set to [] to leave stops unanswered
   const api = {
     post(url, body) {
       calls.push({ url: url, body: body });
+      if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       return Promise.resolve().then(() => {
         const reply = replies.shift();
@@ -277,6 +289,30 @@ function boot(html, reduced, saved, serverPlays) {
     },
     messageOf(err, fallback) { return fallback; },
   };
+
+  /* The other pages: what each address answers, or 'hangs'. */
+  const pages = {};
+  function fetchPage(url, opts) {
+    calls.push({ url: url, page: true });
+    const answer = pages[url] || { status: 404, html: '' };
+    if (answer === 'hangs') {
+      return new Promise((r, reject) => opts.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    }
+    return Promise.resolve({
+      ok: !answer.status, status: answer.status || 200, redirected: !!answer.redirected,
+      text: () => Promise.resolve(answer.html),
+    });
+  }
+  class DOMParser {
+    parseFromString(html) {
+      const page = new Node();
+      parse(html, page);
+      page.getElementById = (id) => page.querySelector('#' + id);
+      const title = page.querySelector('title');
+      page.title = title ? title.textContent : '';
+      return page;
+    }
+  }
 
   /* Frame previews: the scenario answers each request. */
   const frames = { asked: [], answer: null, made: 0, freed: 0 };
@@ -321,6 +357,12 @@ function boot(html, reduced, saved, serverPlays) {
   const toasts = [];
   const beacons = [];
   const storage = Object.assign({}, saved);
+  const session = { 'mediaman.watch.sitting': storage['mediaman.watch.sitting'] };
+  delete storage['mediaman.watch.sitting'];
+  const storeOf = (held) => ({
+    getItem: (k) => (k in held ? held[k] : null),
+    setItem: (k, v) => { held[k] = String(v); },
+  });
   const win = {
     document: doc,
     serverPlays: serverPlays,
@@ -330,12 +372,15 @@ function boot(html, reduced, saved, serverPlays) {
       error(text) { toasts.push({ kind: 'error', text: text }); },
       toast(text, opts) { toasts.push({ kind: (opts && opts.variant) || 'toast', text: text }); },
     },
-    localStorage: {
-      getItem: (k) => (k in storage ? storage[k] : null),
-      setItem: (k, v) => { storage[k] = String(v); },
-    },
+    localStorage: storeOf(storage),
+    sessionStorage: storeOf(session),
+    Date: { now: () => clock.now },
+    AbortController: AbortController,
+    DOMParser: DOMParser,
+    history: { urls: [], replaceState(state, title, url) { this.urls.push(url); } },
+    MediaMetadata: function MediaMetadata(init) { Object.assign(this, init); },
     location: { href: '/watch/play/1' },
-    navigator: { sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
+    navigator: { mediaSession: {}, sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
     matchMedia: (q) => ({ matches: !!reduced && /prefers-reduced-motion:\s*reduce/.test(q) }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     clearTimeout: clearTimer,
@@ -343,7 +388,7 @@ function boot(html, reduced, saved, serverPlays) {
     clearInterval: clearTimer,
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
     Blob: function Blob(parts) { this.parts = parts; },
-    fetch: fetchFrame,
+    fetch: (url, opts) => (/\/preview\//.test(url) ? fetchFrame(url) : fetchPage(url, opts)),
     URL: {
       createObjectURL(blob) { frames.made++; return 'blob:' + blob.url; },
       revokeObjectURL() { frames.freed++; },
@@ -370,8 +415,13 @@ function boot(html, reduced, saved, serverPlays) {
     frames: frames,
     toasts: toasts,
     beacons: beacons,
+    pages: pages,
+    held: held,
+    sleep: sleep,
     leave() { win.listeners.pagehide.forEach((fn) => fn({})); },
+    comeBack() { win.listeners.pageshow.forEach((fn) => fn({ persisted: true })); },
     storage: storage,
+    sitting: () => JSON.parse(session['mediaman.watch.sitting']),
     win: win,
     tick: tick,
     q: (sel) => root.querySelector(sel),
@@ -387,6 +437,7 @@ async function streamPlays(p, pos) {
   h.emit('hlsManifestParsed');
   await settle();
   const v = p.video;
+  v.ended = false;
   v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720; v.currentTime = pos || 0;
   fire(v, 'playing');
 }
@@ -456,6 +507,12 @@ function point(p, type, x, pointerType) {
 }
 
 const WITH_FRAMES = { previews: { interval_s: 5, count: 600 } };
+
+/* The video plays to its end. */
+function endsNow(p) {
+  p.video.paused = true; p.video.ended = true; p.video.currentTime = 2997;
+  fire(p.video, 'ended');
+}
 
 async function bubbleState(p) {
   await settle();
@@ -823,9 +880,15 @@ const scenarios = {
     out.sInMenu = p.win.location.href;
     key('Escape');
     press(p.q('[data-skip]'));
+    await settle();
     out.hrefAfter = p.win.location.href;
     p.leave();
-    out.saved = p.beacons.map((b) => b.body && b.body.position_s);
+    out.saved = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body.position_s);
+    out.beacons = p.beacons.length;
+    p.replies.push(answer('1080p-8000'));
+    p.comeBack();
+    await settle();
+    out.backAt = p.hlsList[p.hlsList.length - 1].config.startPosition;
     return out;
   },
 
@@ -1102,6 +1165,411 @@ const scenarios = {
     return { starts: p.starts(), at: p.hlsList[p.hlsList.length - 1].config.startPosition };
   },
 
+  /* The end of an episode leads, after the countdown, to the next in this page. */
+  async next_in_place(p) {
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS, chapters: CHAPTERS });
+    await streamPlays(p, 2900);
+    const video = p.video;
+    video.volume = 0.4;
+    press(p.q('[data-chapter-btn]'));
+    playOn(p, 20);
+    p.tick(1000);
+    endsNow(p);
+    let reply;
+    p.replies.push({ ok: new Promise((r) => { reply = r; }) });
+    const from = p.calls.length;
+    const gone = p.hlsList.length;
+    p.tick(9000);
+    const early = p.calls.length - from;
+    p.tick(1000);
+    const held = holdState(p);
+    await settle();
+    const order = p.calls.slice(from).map((c) => c.url);
+    const before = { chapters: p.q('[data-chapters]').hidden, marks: p.q('[data-marks]').childNodes.length, menus: p.root.querySelectorAll('[aria-expanded="true"]').length };
+    const stop = p.calls.slice(from).filter((c) => /\/stop$/.test(c.url))[0];
+    const start = p.calls.filter((c) => /\/stream$/.test(c.url)).pop();
+    reply(answer('1080p-8000').ok);
+    await streamPlays(p, 0);
+    playOn(p, 3);
+    p.tick(20000);
+    const saves = p.calls.slice(from).filter((c) => /\/progress$/.test(c.url)).map((c) => c.body);
+    return {
+      early: early, order: order, stop: stop.body, start: start.body, held: held,
+      href: p.win.location.href, urls: p.win.history.urls, title: doc.title,
+      heading: p.q('.player-title').textContent, subtitle: p.q('.player-subtitle').textContent,
+      media: p.win.navigator.mediaSession.metadata,
+      nextHref: p.q('[data-next-btn]').getAttribute('href'),
+      max: p.q('[data-seek]').getAttribute('aria-valuemax'),
+      back: p.q('.player-back').getAttribute('href'),
+      before: before,
+      card: p.q('[data-upnext]').hidden, keep: !!p.q('[data-keep]'),
+      oldDestroyed: p.hlsList[gone - 1].destroyed, sameVideo: p.q('video') === video, volume: video.volume,
+      saves: saves, left: holdState(p).shown,
+    };
+  },
+
+  /* The other ways on: the Next link and the card's button take the same path. */
+  async next_by_hand(p) {
+    const out = {};
+    await streamPlays(p, 100);
+    const link = p.q('[data-next-btn]');
+    fire(link, 'click', { bubbles: true, metaKey: true, preventDefault() { out.newTabKept = false; } });
+    out.newTabKept = out.newTabKept !== false && !p.calls.some((c) => c.page);
+    tabTo(link);
+    fire(link, 'click', { bubbles: true, preventDefault() { out.stays = true; } });
+    click(link);
+    p.replies.push(answer('1080p-8000'));
+    await settle();
+    out.first = { pages: p.calls.filter((c) => c.page).map((c) => c.url), focus: doc.activeElement.getAttribute('href'), urls: p.win.history.urls.slice() };
+    await streamPlays(p, 0);
+    endsNow(p);
+    press(p.q('[data-upnext-play]'));
+    out.cardLeaves = p.q('[data-upnext]').classList.contains('is-leaving');
+    p.replies.push(answer('1080p-8000'));
+    await settle();
+    out.urls = p.win.history.urls;
+    out.keep = !!p.q('[data-keep]');
+    press(p.q('[data-keep]').querySelector('[data-menu-trigger]'));
+    press(p.q('[data-keep-days="30"]'));
+    await settle();
+    out.kept = p.calls.filter((c) => /\/keep$/.test(c.url)).map((c) => c.body);
+    return out;
+  },
+
+  /* A page that cannot take over here is opened instead. */
+  async next_falls_back(p) {
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = { redirect: { html: '<div id="player"></div>', redirected: true }, refused: { status: 503 }, other: { html: '<p>Not here</p>' }, hangs: 'hangs' }[p.win.serverPlays];
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(15000);
+    await settle();
+    const starts = p.starts().length;
+    p.leave();
+    return { href: p.win.location.href, starts: starts, stops: p.calls.filter((c) => /\/stop$/.test(c.url)).length, beacons: p.beacons.length };
+  },
+
+  /* The old stream counts against the limit until the server has stopped it. */
+  async next_waits(p) {
+    await streamPlays(p, 100);
+    p.held.stop = [];
+    click(p.q('[data-next-btn]'));
+    await settle();
+    const before = p.starts().length;
+    key(' ');
+    const paused = playState(p).label;
+    press(p.q('[data-quality-btn]'));
+    press(p.q('[data-quality="low"]'));
+    await settle();
+    const whileWaiting = p.starts().length;
+    p.replies.push(answer('480p-1500'));
+    p.held.stop.forEach((r) => r({}));
+    await settle();
+    const after = p.starts();
+    await streamPlays(p, 0);
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(5000);
+    await settle();
+    return { before: before, paused: paused, whileWaiting: whileWaiting, after: after, plays: p.video.plays, last: p.starts().length };
+  },
+
+  /* The pointer is on the bar, or holds it, as the next episode takes over. */
+  async next_over_bar(p) {
+    const out = {};
+    const go = async () => {
+      p.replies.push(answer('1080p-8000', WITH_FRAMES));
+      click(p.q('[data-next-btn]'));
+      await settle();
+    };
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 0);
+    point(p, 'pointermove', 2);
+    p.tick(100);
+    const late = p.frames.answer;
+    await go();
+    out.bubble = p.q('[data-bubble]').hidden;
+    late(200);
+    await settle();
+    await streamPlays(p, 0);
+    point(p, 'pointermove', 2);
+    p.tick(100);
+    out.asked = p.frames.asked.length;
+    point(p, 'pointerleave', 100);
+    point(p, 'pointerdown', 500);
+    await go();
+    point(p, 'pointerup', 500);
+    const h = p.hlsList[p.hlsList.length - 1];
+    out.startsAt = [h.config.startPosition, h.startsAt];
+    return out;
+  },
+
+  /* Automatic has stepped down by the time the next episode takes over. */
+  async next_stepped(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 0);
+    p.replies.push(answer('720p-4000'));
+    playOn(p, 5);
+    fire(p.video, 'waiting');
+    fire(p.video, 'playing');
+    playOn(p, 5);
+    fire(p.video, 'waiting');
+    await settle();
+    await streamPlays(p, 10);
+    click(p.q('[data-next-btn]'));
+    p.replies.push(answer('720p-4000'));
+    await settle();
+    /* A failure restarts the same, not what Automatic would begin with. */
+    p.replies.push(answer('720p-4000'));
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+    await streamPlays(p, 0);
+    const menu = menuState(p);
+    p.replies.push(answer('1080p-8000'));
+    playOn(p, 310);
+    await settle();
+    return { starts: p.starts(), ticked: menu.ticked, pill: menu.pill };
+  },
+
+  /* The original of one episode cannot play here; the next may. */
+  async next_original(p) {
+    p.replies[0] = answer('original');
+    await settle();
+    p.replies.push(answer('1080p-10000'));
+    p.hlsList[0].emit('hlsError', { fatal: true, type: 'mediaError' });
+    await streamPlays(p, 0);
+    click(p.q('[data-next-btn]'));
+    await settle();
+    return { starts: p.starts() };
+  },
+
+  /* On to the next episode from an error. */
+  async next_after_error(p) {
+    p.replies[0] = { err: { status: 404, error: 'not_found' } };
+    await settle();
+    const error = !p.q('[data-message]').hidden;
+    click(p.q('[data-next-btn]'));
+    return { error: error, after: !p.q('[data-message]').hidden };
+  },
+
+  /* The page is left while the next episode is on its way. */
+  async next_left(p) {
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = { redirected: true, html: '' };
+    click(p.q('[data-next-btn]'));
+    p.leave();
+    await settle();
+    const left = p.win.location.href;
+    delete p.pages['/watch/play/502'];
+    const starts = p.starts().length;
+    p.comeBack();
+    await settle();
+    const back = p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body.rating_key;
+    click(p.q('[data-next-btn]'));
+    await settle();
+    return { left: left, starts: starts, back: back, again: p.calls.filter((c) => c.page).length, href: p.win.location.href };
+  },
+
+  /* Timers run late in a hidden tab: the countdown goes by the clock. */
+  async countdown_clock(p) {
+    await streamPlays(p, 100);
+    endsNow(p);
+    p.sleep(9000);
+    p.tick(250);
+    const left = p.q('[data-countdown]').textContent;
+    p.sleep(5000);
+    p.tick(250);
+    await settle();
+    return { left: left, went: p.calls.some((c) => c.page) };
+  },
+
+  /* Episode after episode with nobody there. */
+  async ask(p) {
+    const out = { asked: [] };
+    const ask = p.q('[data-ask]');
+    const auto = async (hook) => {
+      await streamPlays(p, 0);
+      if (hook) hook();
+      endsNow(p);
+      p.replies.push(answer('1080p-8000', { markers: MARKERS }));
+      p.tick(10000);
+      await settle();
+      out.asked.push(ask.open);
+    };
+    const modes = [];
+    let fullscreens = 0;
+    p.root.requestFullscreen = () => { fullscreens++; return Promise.resolve(); };
+    p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; modes.push(m + (ask.open ? ' late' : '')); };
+    const signs = [
+      () => key('Shift'),
+      () => press(p.q('[data-elapsed]')),
+      () => p.video.pause(),
+      () => { p.video.paused = true; p.video.play(); },
+      () => fire(p.video, 'volumechange'),
+      () => { playOn(p, 2); p.video.currentTime = 500; fire(p.video, 'seeking'); },
+    ];
+    for (const sign of signs) {
+      await auto(sign);
+      await auto();
+      await auto();
+    }
+    p.video.webkitPresentationMode = 'picture-in-picture';
+    const stops = p.calls.filter((c) => /\/stop$/.test(c.url)).length;
+    const starts = p.starts().length;
+    await auto();
+    /* The video is gone and no longer ended; its place is still in the last credits. */
+    p.video.ended = false;
+    fire(p.video, 'progress');
+    out.skip = p.q('[data-skip]').hidden;
+    out.urls = p.win.history.urls.length;
+    out.stopped = p.calls.filter((c) => /\/stop$/.test(c.url)).length - stops;
+    out.started = p.starts().length - starts;
+    out.modes = modes;
+    out.line = p.q('[data-ask-line]').textContent;
+    key('ArrowRight');
+    key('f');
+    out.fullscreens = fullscreens;
+    out.focus = doc.activeElement.hasAttribute('data-ask-continue');
+    out.heldBehind = holdState(p).shown;
+    p.leave();
+    out.beacons = p.beacons.length;
+    p.comeBack();
+    await settle();
+    out.startedByBack = p.starts().length - starts - out.started;
+    press(p.q('[data-ask-continue]'));
+    await settle();
+    out.open = ask.open;
+    out.urlsAfter = p.win.history.urls.length;
+    await auto();
+    return out;
+  },
+
+  /* Nobody there for two hours, in one episode. */
+  async ask_hours(p) {
+    const out = {};
+    await streamPlays(p, 0);
+    p.sleep(7190000);
+    endsNow(p);
+    out.atEnd = p.q('[data-ask]').open;
+    p.sleep(11000);
+    p.tick(250);
+    out.afterCountdown = p.q('[data-ask]').open;
+    let prevented = 0;
+    fire(p.q('[data-ask]'), 'cancel', { preventDefault() { prevented++; } });
+    out.href = p.win.location.href;
+    return out;
+  },
+
+  /* The episode ends; is the question there? */
+  async ask_carried(p) {
+    const stored = p.sitting();
+    /* The saved volume, set as the page opens. */
+    fire(p.video, 'volumechange');
+    await streamPlays(p, 0);
+    endsNow(p);
+    return { asked: p.q('[data-ask]').open, goesOn: stored.goes_on };
+  },
+
+  /* A page opened because this one could not go on by itself knows how long nobody was there. */
+  async ask_handed_on(p) {
+    p.pages['/watch/play/502'] = { status: 503 };
+    await streamPlays(p, 0);
+    endsNow(p);
+    p.tick(10000);
+    await settle();
+    const byItself = p.sitting();
+    p.leave();
+    p.comeBack();
+    click(p.q('[data-next-btn]'));
+    await settle();
+    return { href: p.win.location.href, byItself: [byItself.count, byItself.goes_on], byHand: p.sitting().goes_on };
+  },
+
+  /* Autoplay is a choice of the quality menu. */
+  async autoplay_off(p) {
+    const row = () => p.q('[data-autoplay]');
+    const out = { start: row().getAttribute('aria-checked') };
+    await streamPlays(p, 0);
+    press(p.q('[data-quality-btn]'));
+    click(row());
+    out.off = row().getAttribute('aria-checked');
+    out.saved = p.storage['mediaman.watch.autoplay'];
+    out.menuOpen = p.q('[data-quality-btn]').getAttribute('aria-expanded');
+    endsNow(p);
+    const card = () => ({ hidden: p.q('[data-upnext]').hidden, counts: !p.q('[data-upnext-in]').hidden, play: playState(p).label });
+    out.card = card();
+    p.tick(30000);
+    out.went = p.calls.some((c) => c.page);
+    click(row());
+    out.on = card();
+    click(row());
+    out.offAgain = card();
+    p.tick(30000);
+    out.wentLater = p.calls.some((c) => c.page);
+    return out;
+  },
+
+  async autoplay_saved(p) {
+    return { checked: p.q('[data-autoplay]').getAttribute('aria-checked') };
+  },
+
+  async autoplay_film(p) {
+    return { row: !!p.q('[data-autoplay]') };
+  },
+
+  /* Plex could not say what follows; it is asked again at the end, and by Try again. */
+  async next_unknown(p) {
+    const found = p.pages['/found'];
+    const out = { link: !!p.q('[data-next-btn]') };
+    await streamPlays(p, 0);
+    endsNow(p);
+    await settle();
+    out.text = p.q('[data-message-text]').textContent;
+    out.message = !p.q('[data-message]').hidden;
+    out.retry = !p.q('[data-retry]').hidden;
+    out.streams = p.calls.filter((c) => /\/stop$/.test(c.url)).length;
+    p.video.ended = false; p.video.currentTime = 2000;
+    fire(p.video, 'seeking');
+    out.afterSeek = !p.q('[data-message]').hidden;
+    endsNow(p);
+    await settle();
+    p.pages['/watch/play/1'] = found;
+    press(p.q('[data-retry]'));
+    await settle();
+    out.found = { message: !p.q('[data-message]').hidden, card: p.q('[data-upnext]').hidden, link: p.q('[data-next-btn]').getAttribute('href'), starts: p.starts().length, href: p.win.location.href };
+    return out;
+  },
+
+  /* A place the server has is not sent again, whatever is marked meanwhile. */
+  async saved_once(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.video.pause();
+    await settle();
+    const hide = () => { doc.visibilityState = 'hidden'; fire(doc, 'visibilitychange'); };
+    hide();
+    const afterPause = p.beacons.length;
+    p.video.play();
+    playOn(p, 2);
+    hide();
+    const afterMore = p.beacons.length;
+    p.video.pause();
+    await settle();
+    p.leave();
+    const last = p.beacons[p.beacons.length - 1];
+    /* The next episode at the very same place is another matter. */
+    p.comeBack();
+    await settle();
+    const saves = p.calls.filter((c) => /\/progress$/.test(c.url)).length;
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    await streamPlays(p, 100);
+    playOn(p, 7);
+    p.video.pause();
+    const places = p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => [c.body.position_s, c.body.played_s]);
+    return { afterPause: afterPause, afterMore: afterMore, stop: last.url, body: last.body, after: places.length - saves, same: String(places[saves]) === String(places[saves - 1]) };
+  },
+
   /* The full screen button as the state changes, by whatever route. */
   async fullscreen(p) {
     const btn = p.q('[data-fullscreen]');
@@ -1134,6 +1602,9 @@ const scenarios = {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);
   const saved = reduced && reduced[0] === '{' ? JSON.parse(reduced) : null;
   const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays);
+  Object.entries(JSON.parse(process.env.PLAYER_PAGES || '{}')).forEach(([href, f]) => {
+    p.pages[href] = { html: fs.readFileSync(f, 'utf8') };
+  });
   const out = await scenarios[name](p);
   process.stdout.write(JSON.stringify(out));
 })().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });
