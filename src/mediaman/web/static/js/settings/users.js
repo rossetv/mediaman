@@ -67,6 +67,8 @@
         return el;
       }
 
+      var rows = MM.settings.rows;
+      var holdFocus = rows.holdFocus;
       var userList = document.getElementById('user-list');
       var currentUser = '';
 
@@ -191,11 +193,6 @@
         paintRole(user, roleLabel, roleBtn);
         roleLabel.addEventListener('animationend', function () { roleLabel.classList.remove('is-changed'); });
         return row;
-      }
-
-      // Safari focuses no button that is clicked, and a dialog returns the focus to what had it.
-      function holdFocus(btn, within) {
-        if (!(within || btn).contains(document.activeElement)) btn.focus({ preventScroll: true });
       }
 
       function isAdmin(user) { return user.role !== 'viewer'; }
@@ -388,8 +385,6 @@
           });
         });
       }
-
-      var rows = MM.settings.rows;
 
       function clearMsg(target) {
         if (!target) return;

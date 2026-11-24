@@ -763,6 +763,37 @@ const scenarios = {
     return out;
   },
 
+  // Clicks that focus no button, as in Safari, on the newsletter's buttons.
+  async newsletterWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    const list = h.add('div', { id: 'subscriber-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-subscriber' });
+    const email = h.add('input', { id: 'new-subscriber-email', value: 'new@x' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }, { id: 2, email: 'b@x', active: true }] }),
+      postForm: () => Promise.resolve({}), delete: () => Promise.resolve({}), messageOf: () => 'x',
+    };
+    // the dialog gives the focus back to what had it
+    h.ctx.UIFeedback = { success() {}, confirm: () => { const had = h.doc.activeElement; h.body.focus(); return Promise.resolve(true).then((r) => { had.focus(); return r; }); } };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    const click = async (b) => { main.focus(); b.fire('click'); const at = h.doc.activeElement; await h.flush(); return at === b; };
+    const out = { open: await click(toggle), close: await click(toggle), add: await click(add) };
+    h.drain();
+    const rm = (i) => names(list, 'sub-row')[i].querySelector('.link-danger');
+    const next = rm(1);
+    out.remove = await click(rm(0));
+    h.drain();
+    out.next = h.doc.activeElement === next;
+    void email;
+    return out;
+  },
+
   // A field the server refuses is named by its label, in a plain sentence.
   async fieldError() {
     const h = build();

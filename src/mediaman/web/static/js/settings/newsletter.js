@@ -38,6 +38,7 @@
         return el;
       }
 
+      var rows = MM.settings.rows;
       var subList = document.getElementById('subscriber-list');
 
       function showEmpty() {
@@ -110,6 +111,7 @@
       }
 
       function removeSubscriber(s, row, btn) {
+        rows.holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Remove ' + s.email + '?',
           body: 'They stop getting the newsletter. You can add them again later.',
@@ -171,7 +173,10 @@
           });
       }
 
-      if (addSubBtn) addSubBtn.addEventListener('click', submitSubscriber);
+      if (addSubBtn) addSubBtn.addEventListener('click', function () {
+        rows.holdFocus(addSubBtn);
+        submitSubscriber();
+      });
       if (addSubInp) addSubInp.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); submitSubscriber(); }
       });
@@ -181,8 +186,6 @@
       var btnCancelNL       = document.getElementById('btn-cancel-newsletter');
       var btnConfirmNL      = document.getElementById('btn-confirm-newsletter');
       var newsletterStatus  = document.getElementById('newsletter-send-status');
-
-      var rows = MM.settings.rows;
 
       function clearStatus() {
         if (!newsletterStatus) return;
@@ -216,6 +219,7 @@
       function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
       if (btnSendNL) btnSendNL.addEventListener('click', function () {
         if (sending()) return;
+        rows.holdFocus(btnSendNL);
         rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
       if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
@@ -294,8 +298,7 @@
         var list = document.getElementById('newsletter-recipient-list');
         var recipients = [];
         list.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) { recipients.push(cb.value); });
-        // Safari focuses no button that is clicked; this one takes the focus back after the send.
-        if (!newsletterPanel.contains(document.activeElement)) btnConfirmNL.focus({ preventScroll: true });
+        rows.holdFocus(btnConfirmNL, newsletterPanel);
         if (!recipients.length) {
           newsletterStatus.textContent = 'Select at least one recipient';
           newsletterStatus.className = 'inline-form-msg err';

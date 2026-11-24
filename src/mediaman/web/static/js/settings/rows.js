@@ -17,6 +17,7 @@
  *   MM.settings.rows.open(panel)
  *   MM.settings.rows.close(panel, done)
  *   MM.settings.rows.isOpen(panel)
+ *   MM.settings.rows.holdFocus(btn, within)
  */
 (function () {
   'use strict';
@@ -112,5 +113,10 @@
     });
   }
 
-  MM.settings.rows = { enter: enter, leave: leave, open: open, close: close, isOpen: isOpen };
+  // Safari focuses no button that is clicked, and a dialog returns the focus to what had it.
+  function holdFocus(btn, within) {
+    if (!(within || btn).contains(document.activeElement)) btn.focus({ preventScroll: true });
+  }
+
+  MM.settings.rows = { enter: enter, leave: leave, open: open, close: close, isOpen: isOpen, holdFocus: holdFocus };
 })();
