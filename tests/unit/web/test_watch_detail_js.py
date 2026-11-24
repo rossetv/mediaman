@@ -85,9 +85,9 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
     out = _run("escapeOrder")
     playing = out["playing"]
     assert playing["trailer"] is True
-    assert playing["button"] == "Close trailer"
     assert playing["src"] == (
         "https://www.youtube-nocookie.com/embed/abcdefghijk?autoplay=1&rel=0&playsinline=1"
+        "&enablejsapi=1&origin=https%3A%2F%2Fmediaman.test"
     )
     assert playing["sandbox"].split() == [
         "allow-scripts",
@@ -102,9 +102,51 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
         "trailer": False,
         "frame": False,
         "open": True,
-        "button": "Trailer",
+        "button": ["Trailer", False],
+        "focus": True,
+        "tabbable": False,
     }
     assert out["closedSecond"] is True
+
+
+def test_a_playing_trailer_is_left_from_its_bar_and_the_row_of_buttons_stays() -> None:
+    playing = _run("escapeOrder")["playing"]
+    assert playing["back"] == "Back to details"
+    assert (playing["focus"], playing["tabbable"]) == (True, True)
+    assert playing["row"] == ["Download", "Trailer"]
+    assert playing["button"] == ["Trailer", True]
+
+
+def test_back_closes_the_trailer_before_the_title_and_the_x_closes_both() -> None:
+    out = _run("trailerHistory")
+    title = "#title=tmdb-movie-77"
+    details = {"open": True, "trailer": False, "hash": title}
+    gone = {"open": False, "trailer": False, "hash": ""}
+    assert out["back"] == details
+    assert out["forward"] == {**details, "trailer": True}
+    assert out["backTwice"] == gone
+    assert out["button"] == {**details, "asked": 1}
+    assert (out["close"], out["closeLink"]) == (gone, gone)
+    # Loaded again mid-trailer: the title alone, and one Back still leaves it.
+    assert (out["reload"], out["reloadBack"]) == (details, gone)
+
+
+def test_a_trailer_that_ends_gives_way_to_the_artwork() -> None:
+    out = _run("trailerEnds")
+    to = "https://www.youtube-nocookie.com"
+    assert out["ended"]["playing"] is False
+    # Asked to report, then paused, so that it is silent while it fades.
+    assert out["ended"]["sent"] == [["listening", None, to], ["command", "pauseVideo", to]]
+    assert out["ended"]["focus"] == "trailer"
+    assert (out["endedInfo"]["playing"], out["endedInfo"]["focus"]) == (False, "primary")
+    for other in ("paused", "otherOrigin", "otherFrame", "junk"):
+        assert out[other]["playing"] is True, other
+
+
+def test_a_trailer_started_from_further_down_is_brought_into_view() -> None:
+    out = _run("trailerInView")
+    assert out["moving"] == {"top": 0, "behavior": "smooth"}
+    assert out["still"] == {"top": 0, "behavior": "auto"}
 
 
 def test_the_head_eases_between_the_heights_it_really_has_as_its_trailer_comes_and_goes() -> None:

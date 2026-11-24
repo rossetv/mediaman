@@ -9,6 +9,8 @@ html.has-ttl .watch-keep-menu { z-index: var(--z-modal); }
 html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl {
+  --ttl-bar: 56px;  /* holds Close, and Back to details while a trailer plays */
+  --ttl-gap: 16px;  /* between a playing trailer and the buttons under it */
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
@@ -34,6 +36,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
   overflow: hidden;
+  overflow: clip; /* clips without scrolling, so the bar can stick to the overlay */
   box-shadow: var(--shadow-card);
   transform-origin: 50% 0;
 }
@@ -50,11 +53,51 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @keyframes ttl-sheet-up   { from { transform: translateY(100%); } }
 @keyframes ttl-sheet-down { to { transform: translateY(100%); } }
 
-.ttl__close {
+/* Over the hero's top edge, and over a trailer rather than on it. */
+.ttl__bar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  height: var(--ttl-bar);
+  margin-bottom: calc(-1 * var(--ttl-bar));
+  padding: 0 8px;
+  pointer-events: none;
+}
+.ttl__bar::before {
+  content: "";
   position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 4;
+  inset: 0;
+  z-index: -1;
+  background: var(--s1);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.ttl.is-trailer .ttl__bar::before { opacity: 1; }
+.ttl__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(8px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur);
+}
+.ttl.is-trailer .ttl__back { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.ttl__back:hover { background: var(--s3); }
+.ttl__back:active { background: var(--s4); }
+.ttl__back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ttl__close {
+  margin-left: auto;
+  pointer-events: auto;
+  translate: -8px 10px; /* off the corner, until a trailer brings it into the bar */
   display: grid;
   place-items: center;
   width: 44px;
@@ -66,8 +109,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   backdrop-filter: blur(12px) saturate(1.4);
   color: var(--t1);
   font-size: 17px;
-  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), translate var(--dur) var(--ease-out);
 }
+.ttl.is-trailer .ttl__close { translate: none; }
 .ttl__close:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
 .ttl__close:active { transform: scale(.94); }
 .ttl__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -177,21 +221,22 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
-/* The trailer takes the hero's box, so nothing below it moves (a short hero grows first). */
+/* The trailer takes the hero's box under the bar, so nothing below it moves (a hero too small for it grows). */
 .ttl__player {
   position: absolute;
   inset: 0;
   z-index: 3;
-  display: grid;
-  place-items: center;
-  background: var(--scrim);
+  padding: var(--ttl-bar) 0 var(--ttl-gap);
+  background: var(--s1);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
 }
 .ttl.is-trailer .ttl__player { opacity: 1; visibility: visible; transition-delay: 0s; }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
-.ttl__frame { display: block; height: 100%; aspect-ratio: 16 / 9; max-width: 100%; border: 0; background: var(--scrim); }
+.ttl__frame { display: block; width: 100%; height: 100%; border: 0; background: var(--scrim); }
+.ttl__trailer { transition: opacity var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.ttl.is-trailer .ttl__trailer { opacity: .45; }
 
 /* ── Body ── */
 
@@ -382,7 +427,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   /* Too late for the buttons to move, so only its blurred copy shows: beside it a
      title can take another line. */
   .ttl.is-late .ttl__poster { display: none; }
-  .ttl__close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
+  .ttl { --ttl-bar: calc(56px + env(safe-area-inset-top, 0px)); }
+  .ttl__bar { padding-top: env(safe-area-inset-top, 0px); }
+  .ttl__close { translate: -2px 4px; }
   .ttl__head { gap: 6px; }
   .ttl__kind { font-size: 11px; }
   .ttl__title { font-size: 28px; }
@@ -402,9 +449,22 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ttl-cast__avatar { width: 56px; height: 56px; }
   /* Two to a line: the episode count drops under the name. */
-  .season-chip { flex: 1 1 calc(50% - 4px); min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; }
+  .season-chip { flex: 1 1 calc(50% - 4px); min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; align-content: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; }
   .season-chip__box { grid-row: span 2; }
   .season-chip__sub { grid-column: 2; }
+}
+
+/* A phone held sideways: the sheet takes the whole height. */
+@media (max-height: 500px) {
+  .ttl { padding-block: 0; }
+  .ttl__sheet { min-height: 100%; border-block: 0; border-radius: 0; }
+}
+
+/* Phones, either way up: Close stays on screen, and a trailer gets the screen's width
+   or, lying down, its height but for a strip that shows there is more below. */
+@media (max-width: 699.98px), (max-height: 500px) {
+  .ttl__bar { position: sticky; top: 0; }
+  .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 
 /* A small hero: the shade keeps close to the text, so the picture stays clear above it. */

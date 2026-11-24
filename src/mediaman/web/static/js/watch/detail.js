@@ -16,6 +16,7 @@
   var safePath = core.safePath;
 
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$/;
+  var TRAILER_ORIGIN = 'https://www.youtube-nocookie.com';
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var POLL_MS = 5000;
   /* A download that has not moved for this long is polled at POLL_SLOW_MS. */
@@ -43,6 +44,7 @@
   var fill = part('fill');
   var poster = part('poster');
   var player = part('player');
+  var backBtn = part('back');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
   var metaEl = part('meta');
@@ -56,7 +58,7 @@
 
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
-  var closing = false; // a close the browser's Back has not finished yet
+  var going = null;    // what a Back asked for here is to close: 'title' or 'trailer'
   var closedAt = 0;
   var leaving = null;  // the close still animating, finished early by a new open
   var pictures = '';   // the addresses the hero shows or is trying
@@ -258,13 +260,18 @@
     return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
-  /* Close at the person's request: Back undoes the entry the open added;
-     a title opened from a link loses its #title= without a new entry. */
+  /* Close at the person's request: Back undoes the entries the open and its
+     trailer added, one at a time (popstate asks again); a title opened from a
+     link loses its #title= without a new entry. */
   function requestClose() {
-    if (!isOpen || closing) return;
+    if (!isOpen) return;
+    if (going) {
+      going = 'title';
+      return;
+    }
     var state = window.history.state;
     if (state && state.mmTitle === cur.ref && hashRef() === cur.ref) {
-      closing = true;
+      going = 'title';
       window.history.back();
       return;
     }
@@ -275,7 +282,7 @@
   function close() {
     if (!isOpen) return;
     isOpen = false;
-    closing = false;
+    going = null;
     closedAt = Date.now();
     stopPolling();
     closeTrailer(false);
@@ -347,7 +354,7 @@
     fire(c.ref, 'in_library', null);
     c.reason = c.reason || data.reason;
     if (hashRef() === c.ref) {
-      var state = window.history.state && window.history.state.mmTitle ? { mmTitle: data.library_ref } : null;
+      var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: data.library_ref }) : null;
       window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(data.library_ref));
     }
     c.ref = data.library_ref;
@@ -420,7 +427,7 @@
         c.justAdded = true;
         c.reason = c.reason || data.reason;
         if (hashRef() === c.ref) {
-          var state = window.history.state && window.history.state.mmTitle ? { mmTitle: data.library_ref } : null;
+          var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: data.library_ref }) : null;
           window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(data.library_ref));
         }
         c.ref = data.library_ref;
@@ -1295,26 +1302,17 @@
     return d && d.trailer_key && YOUTUBE_KEY_RE.test(d.trailer_key) ? d.trailer_key : null;
   }
 
+  function trailerOn() { return root.classList.contains('is-trailer'); }
+
+  /* It keeps its place in the row while its trailer plays, so nothing moves;
+     the bar over the video is the way back. */
   function trailerButton(d) {
     if (!trailerKey(d)) return null;
-    var on = root.classList.contains('is-trailer');
-    var b = button('btn btn--lg watch-btn--grey ttl__trailer', '', on ? 'i-xmark' : 'i-film');
+    var b = button('btn btn--lg watch-btn--grey ttl__trailer', 'Trailer', 'i-film');
     b.setAttribute('data-ttl-act', 'trailer');
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.appendChild(document.createTextNode(on ? 'Close trailer' : 'Trailer'));
-    b.addEventListener('click', function () {
-      if (root.classList.contains('is-trailer')) closeTrailer(true); else openTrailer();
-    });
+    b.toggleAttribute('inert', trailerOn());
+    b.addEventListener('click', function () { openTrailer(true); });
     return b;
-  }
-
-  function setTrailerButton(on) {
-    var b = root.querySelector('[data-ttl-act="trailer"]');
-    if (!b) return;
-    b.textContent = '';
-    b.appendChild(icon(on ? 'i-xmark' : 'i-film'));
-    b.appendChild(document.createTextNode(on ? 'Close trailer' : 'Trailer'));
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
   /* Make a *change* that alters the hero's height, and ease between the heights
@@ -1331,36 +1329,87 @@
     });
   }
 
-  /* The player takes the hero's box, so nothing below it moves; a short hero
-     grows to full height for it. */
-  function openTrailer() {
+  function tellFrame(frame, message) {
+    if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
+  }
+
+  /* The bar and the player take the hero's box, so nothing below it moves; a
+     hero too small for them grows. *push*: add a history entry, so that Back
+     closes the trailer first. */
+  function openTrailer(push) {
     var key = cur && trailerKey(cur.data);
-    if (!key) return;
+    if (!key || trailerOn()) return;
+    if (push) {
+      window.history.pushState({ mmTitle: cur.ref, mmTrailer: true }, '', base() + '#title=' + encodeURIComponent(cur.ref));
+    }
     player.textContent = '';
     var frame = el('iframe', 'ttl__frame');
-    frame.setAttribute('src', 'https://www.youtube-nocookie.com/embed/' + key + '?autoplay=1&rel=0&playsinline=1');
+    frame.setAttribute('src', TRAILER_ORIGIN + '/embed/' + key + '?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=' +
+      encodeURIComponent(window.location.origin));
     frame.setAttribute('title', 'Trailer: ' + (cur.data.title || cur.title));
     frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox');
     frame.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
     frame.setAttribute('referrerpolicy', 'strict-origin');
     frame.setAttribute('allowfullscreen', '');
+    // YouTube's player reports its state only to a page that has asked.
+    frame.addEventListener('load', function () { tellFrame(frame, { event: 'listening' }); });
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
     setTrailerButton(true);
+    backBtn.removeAttribute('tabindex');
+    backBtn.focus({ preventScroll: true });
+    root.scrollTo({ top: 0, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
   }
 
+  /* Close the trailer and nothing else. *refocus*: move focus from what goes
+     with it to the Trailer button, and let the video fade into the artwork. */
   function closeTrailer(refocus) {
-    if (!root.classList.contains('is-trailer')) return;
+    if (!trailerOn()) return;
+    var active = document.activeElement;
+    var lost = !root.contains(active) || player.contains(active) || active === backBtn;
     easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
+    backBtn.setAttribute('tabindex', '-1');
     var frame = player.querySelector('iframe');
-    // Gone at once stops the sound; the box fades as it empties.
-    if (frame) frame.remove();
+    if (frame) {
+      tellFrame(frame, { event: 'command', func: 'pauseVideo', args: [] });
+      if (refocus && !core.reduceMotion()) setTimeout(function () { frame.remove(); }, core.tokenMs('--dur', 200));
+      else frame.remove();
+    }
     setTrailerButton(false);
     var b = root.querySelector('[data-ttl-act="trailer"]');
-    if (refocus && b) b.focus({ preventScroll: true });
+    if (refocus && lost && b) b.focus({ preventScroll: true });
   }
+
+  function setTrailerButton(on) {
+    var b = root.querySelector('[data-ttl-act="trailer"]');
+    if (b) b.toggleAttribute('inert', on);
+  }
+
+  /* Leave the trailer at the person's request, or at its end. */
+  function leaveTrailer() {
+    if (!trailerOn() || going) return;
+    if (onTrailerEntry()) {
+      going = 'trailer';
+      window.history.back();
+    } else {
+      closeTrailer(true);
+    }
+  }
+
+  backBtn.addEventListener('click', leaveTrailer);
+
+  window.addEventListener('message', function (e) {
+    var frame = player.querySelector('iframe');
+    if (!frame || e.source !== frame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
+    var m;
+    try { m = JSON.parse(e.data); } catch (err) { return; }
+    if (!m) return;
+    var state = m.event === 'onStateChange' ? m.info
+      : m.event === 'infoDelivery' && m.info ? m.info.playerState : null;
+    if (state === 0) leaveTrailer();
+  });
 
   /* ── Share (admins, Recommended picks) ── */
 
@@ -1770,7 +1819,7 @@
       if (e.defaultPrevented || !inside) return;
       e.preventDefault();
       if (adminMenu) closeAdminMenu(true);
-      else if (root.classList.contains('is-trailer')) closeTrailer(true);
+      else if (trailerOn()) leaveTrailer();
       else requestClose();
       return;
     }
@@ -1850,19 +1899,32 @@
 
   window.addEventListener('popstate', function () {
     var ref = hashRef();
-    closing = false;
-    if (ref) {
-      if (!isOpen || !cur || cur.ref !== ref) open(ref, {});
-    } else if (isOpen) {
-      close();
-    }
+    var was = going;
+    going = null;
+    if (!ref) close();
+    else if (was === 'title' && isOpen) requestClose();
+    else if (!isOpen || cur.ref !== ref) openAt(ref);
+    else if (trailerOn() && !onTrailerEntry()) closeTrailer(true);
+    else if (onTrailerEntry()) openTrailer(false);
   });
+
+  function onTrailerEntry() {
+    var state = window.history.state;
+    return !!(state && state.mmTrailer);
+  }
+
+  /* A title the address opens starts without its trailer, so an entry left by
+     one steps back to the title's own. */
+  function openAt(ref) {
+    open(ref, {});
+    if (onTrailerEntry()) window.history.back();
+  }
 
   (function openFromAddress() {
     var old = /^#recommendation-([0-9]{1,10})$/.exec(window.location.hash || '');
     if (old) window.history.replaceState(null, '', base() + '#title=rec-' + old[1]);
     var ref = hashRef();
-    if (ref) open(ref, {});
+    if (ref) openAt(ref);
   })();
 
   window.MMWatch.detail = {

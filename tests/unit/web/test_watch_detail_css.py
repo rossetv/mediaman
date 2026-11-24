@@ -45,3 +45,19 @@ def test_a_long_season_name_wraps_inside_its_chip() -> None:
 def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     body = _of(".ttl-cast__name")
     assert "overflow-wrap: anywhere" in body and "max-width: 100%" in body
+
+
+def test_a_trailer_s_bar_stands_over_the_video_and_not_on_it() -> None:
+    assert "padding: var(--ttl-bar) 0" in _of(".ttl__player")
+    assert "height: var(--ttl-bar)" in _of(".ttl__bar")
+
+
+def test_a_trailer_s_frame_never_stands_taller_than_its_box() -> None:
+    body = _of(".ttl__frame")
+    assert "width: 100%" in body and "height: 100%" in body and "aspect-ratio" not in body
+
+
+def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:
+    assert "position: sticky" in _of(".ttl__bar", "(max-width: 699.98px), (max-height: 500px)")
+    # A scroll container of its own would hold the bar at the sheet's top instead.
+    assert re.search(r"overflow:\s*clip", _of(".ttl__sheet"))
