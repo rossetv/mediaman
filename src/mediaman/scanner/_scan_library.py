@@ -109,12 +109,12 @@ class _GuardSets:
     SELECTs. ``credited`` maps a media item id to the last time anyone
     played it in mediaman long enough to count as a watch, and
     ``last_watched`` to the ``last_watched_at`` stored before this scan.
-    ``already_scheduled`` is mutable: when an item is freshly scheduled mid-loop it is added so
-    a later item sharing the same ``plex_rating_key`` observes it, as the
-    connection's uncommitted view would.
+    ``protected`` and ``already_scheduled`` are mutable: when an item is given its
+    keep back or freshly scheduled mid-loop it is added so a later item sharing the
+    same ``plex_rating_key`` observes it, as the connection's uncommitted view would.
     """
 
-    protected: frozenset[str]
+    protected: set[str]
     already_scheduled: set[str]
     credited: Mapping[str, datetime]
     last_watched: Mapping[str, datetime]
@@ -129,7 +129,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     byte-for-byte.
     """
     return _GuardSets(
-        protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
+        protected=repository.fetch_protected_media_ids(conn, media_ids, now_iso()),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
         credited=repository.last_credited_by_media_item(conn, media_ids),
         last_watched=last_watched_by_media_item(conn, media_ids),
@@ -228,9 +228,10 @@ def _evaluate_scan_item(
     if seen_keys is not None:
         seen_keys.add(media_id)
     f = with_mediaman_play(f, guards.credited)
-    keep_restored = _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
+    if _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f)):
+        guards.protected.add(media_id)
 
-    if keep_restored or media_id in guards.protected:
+    if media_id in guards.protected:
         return media_id, ScanDecision.SKIP_GUARD
     if media_id in guards.already_scheduled:
         return media_id, ScanDecision.SKIP_GUARD

@@ -157,6 +157,13 @@ class TestListShorterThanTheLibrary:
 
         assert _actions(conn, "o0") == ["protected_forever"]
 
+    def test_a_kept_film_the_list_names_twice_is_still_kept(self, conn, kept):
+        _engine(conn, _Plex(_FILMS[1:])).sync_library()
+
+        _engine(conn, _Plex([*_FILMS, "o0"])).run_scan()
+
+        assert _actions(conn, "o0") == ["protected_forever"]
+
     def test_a_film_whose_keep_ran_out_meanwhile_is_scheduled(self, conn, freezer, kept):
         freezer.tick(timedelta(hours=1))
         _engine(conn, _Plex(_FILMS[:-1])).sync_library()
