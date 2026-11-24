@@ -69,6 +69,12 @@
     var card = container.querySelector('.dl-hero');
     if (!card) return;
     d.unmarkHeld(card);
+    var swapped = card.getAttribute('data-dl-id') !== item.id;
+    if (swapped) {
+      /* The controls become another title's, which nobody on one of them asked for. */
+      d.passFocus(card);
+      d.closeEpisodes(card);
+    }
 
     d.syncArt(card, item);
 
@@ -128,7 +134,7 @@
 
     d.syncAbandon(card, item, 'hero');
 
-    if (card.getAttribute('data-dl-id') !== item.id) {
+    if (swapped) {
       card.setAttribute('data-dl-id', item.id);
       /* Another title: its card fades in, from the start when one follows another. */
       card.classList.remove('is-swapped');

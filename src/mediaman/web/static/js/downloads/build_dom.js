@@ -28,6 +28,7 @@
  *   MM.downloads.buildDom.setProgress(fill, percent)  a bar's width and its spoken value
  *   MM.downloads.buildDom.buildEpisodeRow(ep)
  *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
+ *   MM.downloads.buildDom.closeEpisodes(card)
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
  *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
  *   MM.downloads.buildDom.passFocus(el)             move focus on from an element that is about to go
@@ -523,6 +524,14 @@
     return episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
   }
 
+  function closeEpisodes(card) {
+    var toggle = card.querySelector('[data-v="ep-toggle"]');
+    if (!toggle) return;
+    toggle.classList.remove('open');
+    toggle.setAttribute('aria-expanded', 'false');
+    card.querySelector('[data-v="ep-list"]').hidden = true;
+  }
+
   /* The episodes button and list of a hero or queue row exist only while the
      item has episodes. The list is rebuilt when their set has changed and
      patched otherwise, so it stays open as the person left it. */
@@ -800,6 +809,7 @@
     setProgress:          setProgress,
     buildEpisodeRow:      buildEpisodeRow,
     syncEpisodes:         syncEpisodes,
+    closeEpisodes:        closeEpisodes,
     syncAbandon:          syncAbandon,
     focusHeading:         focusHeading,
     passFocus:            passFocus,

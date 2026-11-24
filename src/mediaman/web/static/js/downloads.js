@@ -71,10 +71,13 @@
     var ranks = rows.map(stateRank);
     var order = rows.map(function (_, i) { return i; }).sort(function (a, b) { return ranks[a] - ranks[b] || a - b; });
     var next = list.firstElementChild;
+    var active = document.activeElement;
     order.forEach(function (i) {
       if (rows[i] === next) next = next.nextElementSibling;
       else list.insertBefore(rows[i], next);
     });
+    /* A row loses the focus in it when it moves. */
+    if (active && document.activeElement !== active && list.contains(active)) active.focus({ preventScroll: true });
   }
 
   function shownIn(dom, box, selector) {
