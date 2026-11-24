@@ -769,7 +769,7 @@ class TestDownloadEndpoint:
         )
         assert resp.status_code == 409
         assert resp.json()["ok"] is False
-        assert "already" in resp.json()["error"].lower()
+        assert resp.json()["error"] == "'Dune' is already in Radarr"
         radarr.add_movie.assert_not_called()
         radarr.remonitor_movie.assert_not_called()
 
@@ -883,7 +883,7 @@ class TestDownloadEndpoint:
             },
         )
         assert resp.json()["ok"] is False
-        assert "already tracked" in resp.json()["error"].lower()
+        assert resp.json()["error"] == "'BB' is already tracked by Sonarr — manage it there"
         sonarr.add_series.assert_not_called()
 
 

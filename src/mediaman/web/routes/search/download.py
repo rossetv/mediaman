@@ -186,7 +186,7 @@ def _submit_movie(
             #   search button showed "Queued" and the API rejected
             #   their click with 409.
             if existing_movie.get("monitored"):
-                return respond_failure(f"'{body.title}' is already in your library", status=409)
+                return respond_failure(f"'{body.title}' is already in Radarr", status=409)
             movie_id_raw = existing_movie.get("id")
             if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
                 logger.warning(
@@ -271,7 +271,7 @@ def _submit_tv(
         )
     if already_tracked:
         return respond_failure(
-            f"'{body.title}' is already tracked by Sonarr — manage it from the Library page or Sonarr directly",
+            f"'{body.title}' is already tracked by Sonarr — manage it there",
             status=409,
         )
     if body.search_seasons is not None and not body.search_seasons:
