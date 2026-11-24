@@ -14,6 +14,7 @@ from mediaman.services.arr.fetcher._base import (
     clamp_progress,
     make_arr_card,
 )
+from mediaman.services.arr.state import _sonarr_will_fetch
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
@@ -227,6 +228,9 @@ def _build_still_searching_cards(
         if stats.get("episodeFileCount", 0) > 0:
             continue
         if (s_title, s_year) in queue_series_title_years:
+            continue
+        # Abandon unmonitors seasons and leaves the series monitored.
+        if not _sonarr_will_fetch(series):
             continue
 
         series_id = series.get("id", 0)

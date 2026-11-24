@@ -27,6 +27,19 @@ def _series_payload(series_id=1, title="Breaking Bad", year=2008):
     return {"id": series_id, "title": title, "year": year, "images": []}
 
 
+def _searching_series(**overrides):
+    return {
+        "id": 99,
+        "title": "Andor",
+        "year": 2022,
+        "monitored": True,
+        "statistics": {"episodeFileCount": 0},
+        "images": [],
+        "added": "2024-01-01T00:00:00Z",
+        **overrides,
+    }
+
+
 def _queue_ep(
     series=None,
     ep_season=1,
@@ -254,6 +267,22 @@ class TestFetchSonarrQueueSearching:
         client = _client(queue=[], series=series)
         cards = fetch_sonarr_queue(client)
         assert not any(c["title"] == "Already Got It" for c in cards)
+
+    def test_abandoned_show_is_not_listed(self):
+        """Abandon leaves the series monitored with its seasons off and no files."""
+        client = _client(
+            series=[_searching_series(seasons=[{"seasonNumber": 1, "monitored": False}])]
+        )
+        assert fetch_sonarr_queue(client) == []
+
+    def test_single_monitored_episode_in_an_unmonitored_season_is_listed(self):
+        season = {
+            "seasonNumber": 1,
+            "monitored": False,
+            "statistics": {"episodeCount": 1, "episodeFileCount": 0},
+        }
+        cards = fetch_sonarr_queue(_client(series=[_searching_series(seasons=[season])]))
+        assert [c["title"] for c in cards] == ["Andor"]
 
     def test_get_series_exception_does_not_crash(self):
         """Network error from get_series is swallowed; queue cards returned."""
