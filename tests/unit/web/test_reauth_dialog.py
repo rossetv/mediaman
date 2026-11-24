@@ -69,6 +69,11 @@ def test_pressing_enter_again_sends_the_password_and_the_protected_request_no_se
     assert _run("again") == {"passwords": 1, "runs": 2}
 
 
+def test_an_answer_that_comes_after_the_dialog_was_closed_does_nothing() -> None:
+    quiet = {"keyboardStays": True, "cancels": 1, "said": ""}
+    assert _run("lateAnswer") == {"refused": quiet, "accepted": quiet}
+
+
 def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() -> None:
     out = _run("words")
     assert out["own"] == ["T", "D", "C"]

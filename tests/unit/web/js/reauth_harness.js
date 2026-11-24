@@ -92,6 +92,27 @@ const scenarios = {
     const text = (attr) => (sheet.all().find((e) => e.id && e.id === sheet.attrs[attr]) || {}).textContent || null;
     return { name: text('aria-labelledby'), about: text('aria-describedby') };
   },
+  // the answer to a password comes after the dialog was closed and another opened: refused, then accepted
+  async lateAnswer() {
+    const late = async (answer) => {
+      const asker = new El('button');
+      doc.activeElement = asker;
+      let give;
+      let cancels = 0;
+      ctx.MM.reauth.openModal({ onSubmit: () => new Promise((resolve) => { give = resolve; }), onCancel: () => { cancels += 1; } });
+      const first = doc.body.children[doc.body.children.length - 1].children[0];
+      const input = first.querySelector('.inp');
+      input.value = 'pw';
+      input.emit('keydown', { key: 'Enter' });
+      closers[closers.length - 1]();
+      const second = open({ ok: true }).sheet.querySelector('.inp');
+      second.focus();
+      give(answer);
+      await flush();
+      return { keyboardStays: doc.activeElement === second, cancels, said: first.querySelector('.reauth-msg').textContent };
+    };
+    return { refused: await late({ ok: false, error: 'No' }), accepted: await late({ ok: true }) };
+  },
   // what the dialog of run() says, with the caller's words and without
   async words() {
     const says = async (words) => {

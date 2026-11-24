@@ -110,10 +110,13 @@
     /* The shared modal owns Escape, backdrop clicks and the fade out; its
        onClose runs for every route, so a close that is not a success is a cancel. */
     var done = false;
+    var closed = false;
     var modal = MM.modal.setupDetail(backdrop, {
       manageBodyOverflow: false, /* _ui_feedback.css holds the page */
       useModalA11y: false,
       onClose: function () {
+        if (closed) return;
+        closed = true;
         input.value = '';
         letGo();
         if (opener && opener !== document.body && opener.focus) opener.focus();
@@ -121,7 +124,10 @@
         if (document.activeElement === input) input.blur();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
-        setTimeout(function () { backdrop.remove(); }, 400);
+        setTimeout(function () {
+          if (document.activeElement === input) input.blur();
+          backdrop.remove();
+        }, 400);
         if (!done) {
           done = true;
           if (typeof opts.onCancel === 'function') opts.onCancel();
@@ -153,6 +159,8 @@
       confirmBtn.disabled = true;
       say('');
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
+        /* Closed while the password was checked: the answer is for nobody. */
+        if (closed) return;
         if (res && res.ok) {
           done = true;
           modal.close();
