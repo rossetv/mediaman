@@ -86,6 +86,7 @@ def _redownload_season(
         media_type="tv",
         service="sonarr",
         tvdb_id=tvdb_id,
+        season_number=season_number,
     )
     logger.info(
         "Re-downloaded '%s' season %s (tvdb=%s) via Sonarr by %s",

@@ -367,6 +367,7 @@ def record_redownload(
     service: str,
     tmdb_id: int | None = None,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> None:
     """Persist the audit row and download-notification claim for a redownload.
 
@@ -392,4 +393,5 @@ def record_redownload(
                 tmdb_id=tmdb_id,
                 tvdb_id=tvdb_id,
                 service=service,
+                season_number=season_number,
             )

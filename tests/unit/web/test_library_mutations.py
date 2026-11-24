@@ -1406,6 +1406,16 @@ class TestMediaRedownload:
         )
         assert self._queued_emails(conn) == ["admin@example.com"]
 
+    def test_a_season_ready_notice_waits_for_that_season(self, post, conn):
+        set_user_email(conn, "admin", "admin@example.com")
+        for season in (1, 2):
+            post(
+                {"title": "Severance", "tvdb_id": 999, "season_number": season},
+                sonarr=self._sonarr_without_series(),
+            )
+        rows = conn.execute("SELECT season_number FROM download_notifications ORDER BY id")
+        assert [r[0] for r in rows] == [1, 2]
+
     def test_no_notice_is_queued_when_the_admin_has_no_email(self, post, conn):
         set_user_email(conn, "admin", None)
         radarr_resp = post({"title": "Dune", "tmdb_id": 42}, radarr=self._radarr_without_movie())

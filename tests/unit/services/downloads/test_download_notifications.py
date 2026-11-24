@@ -245,6 +245,48 @@ class TestSonarrSeriesMatching:
         assert row["notified"] == 1
         assert sent, "Mailgun send should have been invoked"
 
+    def _run_with_season_files(self, conn, monkeypatch, files: dict[int, int]) -> None:
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads._notification_backoff import _backoff_state
+        from mediaman.services.downloads.notifications import check_download_notifications
+
+        _backoff_state.clear()
+        sonarr = MagicMock()
+        sonarr.get_series.return_value = [
+            {
+                "tvdbId": 370524,
+                "title": "Severance",
+                "statistics": {"episodeFileCount": sum(files.values())},
+                "seasons": [
+                    {"seasonNumber": n, "statistics": {"episodeFileCount": count}}
+                    for n, count in files.items()
+                ],
+            }
+        ]
+        monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: sonarr)
+        monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: None)
+        check_download_notifications(conn, secret_key="x" * 64)
+
+    def test_a_season_is_announced_only_once_that_season_has_a_file(self, tmp_path, monkeypatch):
+        conn, sent = self._setup(tmp_path, monkeypatch)
+        for season in (0, 2):
+            insert_download_notification(
+                conn,
+                email=f"s{season}@example.com",
+                title="Severance",
+                media_type="tv",
+                tvdb_id=370524,
+                service="sonarr",
+                season_number=season,
+            )
+
+        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 0})
+        assert sent == []
+
+        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 1})
+        assert [m["to"] for m in sent] == ["s2@example.com"]
+
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""
         from unittest.mock import MagicMock

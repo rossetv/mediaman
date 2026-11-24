@@ -70,20 +70,22 @@ def record_download_notification(
     service: str,
     tmdb_id: int | None = None,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> None:
     """Insert a pending notification; the library sync sends it once the item has a file.
 
-    Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. Does not
-    commit; the caller owns the transaction.
+    Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. With a
+    *season_number* the notification waits for a file of that season. Does not commit;
+    the caller owns the transaction.
     """
     from mediaman.core.time import now_iso
 
     now = now_iso()
     conn.execute(
         "INSERT INTO download_notifications "
-        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, tvdb_id, service, now),
+        "(email, title, media_type, tmdb_id, tvdb_id, service, season_number, notified, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+        (email, title, media_type, tmdb_id, tvdb_id, service, season_number, now),
     )
 
 
@@ -131,17 +133,21 @@ def _sonarr_has_files(
     *,
     tvdb_id: int | None,
     tmdb_id: int | None,
+    season_number: int | None = None,
 ) -> bool:
-    """Return True if the series has an episode file, matching by TVDB id first and then
-    TMDB id. *series_index* is pre-fetched once per tick.
+    """Return True if the series, or its *season_number* when given, has an episode file,
+    matching by TVDB id first and then TMDB id. *series_index* is pre-fetched once per tick.
     """
     for s in series_index:
-        if tvdb_id and s.get("tvdbId") == tvdb_id:
-            stats = s.get("statistics") or {}
-            return int(stats.get("episodeFileCount") or 0) > 0
-        if tmdb_id and s.get("tmdbId") == tmdb_id:
-            stats = s.get("statistics") or {}
-            return int(stats.get("episodeFileCount") or 0) > 0
+        if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
+            if season_number is None:
+                stats = s.get("statistics") or {}
+                return int(stats.get("episodeFileCount") or 0) > 0
+            return any(
+                int((season.get("statistics") or {}).get("episodeFileCount") or 0) > 0
+                for season in s.get("seasons") or []
+                if season.get("seasonNumber") == season_number
+            )
     return False
 
 
@@ -310,8 +316,9 @@ def _check_sonarr_series(
     tvdb_id: int | None,
     tmdb_id: int | None,
     sonarr_series_index: list[SonarrSeries] | None,
+    season_number: int | None = None,
 ) -> tuple[bool, bool]:
-    """Probe Sonarr for a series' episode-file availability, returning (ready,
+    """Probe Sonarr for a series' or season's episode-file availability, returning (ready,
     arr_unreachable). *sonarr_series_index* is the library list pre-fetched once per
     tick.
     """
@@ -330,7 +337,9 @@ def _check_sonarr_series(
             if sonarr_series_index is not None
             else _build_sonarr_index(sonarr_client)
         )
-        ready = _sonarr_has_files(index, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+        ready = _sonarr_has_files(
+            index, tvdb_id=tvdb_id, tmdb_id=tmdb_id, season_number=season_number
+        )
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Sonarr lookup failed for notification id=%s",
@@ -367,7 +376,7 @@ def _check_arr_availability(
         ready, movie, arr_unreachable = result.ready, result.movie, result.arr_unreachable
     elif service == "sonarr":
         ready, arr_unreachable = _check_sonarr_series(
-            arr, row_id, row.tvdb_id, row.tmdb_id, sonarr_series_index
+            arr, row_id, row.tvdb_id, row.tmdb_id, sonarr_series_index, row.season_number
         )
         movie = None
     else:

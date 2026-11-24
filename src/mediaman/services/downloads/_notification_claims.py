@@ -34,6 +34,7 @@ class ClaimedNotificationRow:
     tmdb_id: int | None
     tvdb_id: int | None
     service: str
+    season_number: int | None = None
 
 
 def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
@@ -45,6 +46,7 @@ def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
         tmdb_id=int(row["tmdb_id"]) if row["tmdb_id"] is not None else None,
         tvdb_id=int(row["tvdb_id"]) if row["tvdb_id"] is not None else None,
         service=str(row["service"]),
+        season_number=int(row["season_number"]) if row["season_number"] is not None else None,
     )
 
 
@@ -60,7 +62,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         rows = conn.execute(
             "UPDATE download_notifications SET notified=2, claimed_at=? "
             "WHERE notified=0 "
-            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service",
+            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service, season_number",
             (claim_iso,),
         ).fetchall()
         # Build the return value before committing so the rows are safely in a
@@ -84,7 +86,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(
-                "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
+                "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service, season_number "
                 "FROM download_notifications WHERE notified=0"
             ).fetchall()
             if rows:
