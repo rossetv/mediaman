@@ -32,6 +32,12 @@ _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 _AUDIT_TITLE_MAX_INPUT = 256
 
 
+def log_snippet(text: str, limit: int = 200) -> str:
+    """*text* from another server as one line of printable characters for a log message, at
+    most *limit* long."""
+    return " ".join("".join(c if c.isprintable() else " " for c in text).split())[:limit]
+
+
 def title_from_audit_detail(detail: str | None, *, strict: bool = False) -> str:
     """Extract a media title from an ``audit_log.detail`` string.
 

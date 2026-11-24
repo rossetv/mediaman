@@ -26,6 +26,7 @@ import requests
 from fastapi.responses import Response
 
 from mediaman.config import Config
+from mediaman.core.format import log_snippet
 from mediaman.crypto import decrypt_value
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -208,13 +209,10 @@ def load_plex_credentials(
 
 
 def _log_snippet(snippet: str, token: str | None = None, limit: int = 200) -> str:
-    """Make an upstream body snippet safe to log: the token is redacted before the cut, so one
-    straddling the limit cannot leak, and any line break is folded to a space so the body
-    cannot forge log lines.
-    """
+    """An upstream body snippet for the log, its token redacted before the cut to *limit*."""
     if token:
         snippet = snippet.replace(token, "***")
-    return " ".join(snippet.split())[:limit]
+    return log_snippet(snippet, limit)
 
 
 # The safe client reports a transport error as a status-0 SafeHTTPError whose snippet names the
