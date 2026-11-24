@@ -97,6 +97,25 @@ class TestApiDashboardStats:
 
         assert (scheduled["total"], scheduled["unsized_count"]) == (3, 2)
 
+    def test_an_unsized_overdue_title_is_not_counted_among_those_leaving(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        for n, (size, days) in enumerate(((1_000_000, 7), (0, -3))):
+            insert_media_item(
+                conn, id=f"m{n}", title=f"T{n}", plex_rating_key=f"rk{n}", file_size_bytes=size
+            )
+            insert_scheduled_action(
+                conn,
+                media_item_id=f"m{n}",
+                execute_at=(datetime.now(UTC) + timedelta(days=days)).isoformat(),
+                token=f"tok-{n}",
+            )
+
+        scheduled = client.get("/api/dashboard/stats").json()["scheduled"]
+
+        assert (scheduled["leaving"], scheduled["overdue"], scheduled["unsized_count"]) == (1, 1, 0)
+
     def test_storage_spans_the_library_folders_saved_in_settings(
         self, app_factory, authed_client, conn, monkeypatch, tmp_path
     ):
