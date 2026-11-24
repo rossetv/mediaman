@@ -83,6 +83,15 @@ def test_every_listed_episode_seen_is_watched(conn):
     assert _seen(conn).watched is True
 
 
+@pytest.mark.parametrize("season_id", [None, "502"])
+def test_a_listed_episode_saved_without_its_season_or_under_another_counts(conn, season_id):
+    _season(conn, ["200", "201"], 2)
+    _see(conn, "200")
+    mark_watched(conn, "aoife", [MarkTarget("201", season_id, "500", 0)], NOW)
+
+    assert _seen(conn).watched is True
+
+
 def test_what_one_person_has_seen_is_not_seen_for_another(conn):
     insert_admin_user(conn, username="cian", role="viewer")
     _season(conn, ["100", "101"], 2)

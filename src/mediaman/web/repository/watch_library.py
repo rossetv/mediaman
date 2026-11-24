@@ -339,17 +339,19 @@ def show_seen(
     if show_key is not None:
         where.append("mi.show_rating_key = ?")
         params.append(show_key)
+    seen_rows = "FROM watch_progress wp WHERE wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
-        "SELECT mi.show_rating_key, mi.season_number, mi.episode_count, COUNT(wp.rating_key) AS seen"
-        " FROM media_items mi LEFT JOIN watch_progress wp ON wp.media_item_id = mi.id"
-        " AND wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
-        # a row of an episode no longer in the season (replaced under a new key, or removed)
-        # is not one of its episodes; a season with no list yet counts every row
-        " AND (mi.episode_keys IS NULL OR wp.rating_key IN"
-        " (SELECT json_extract(e.value, '$.key') FROM json_each(mi.episode_keys) e))"
-        f" WHERE {' AND '.join(where)} GROUP BY mi.id",
-        (username, *params),
+        "SELECT mi.show_rating_key, mi.season_number, mi.episode_count,"
+        # by its own episodes, whichever season their rows were saved under: a row of one no longer
+        # in it (replaced under a new key, or removed) does not count; a season with no list yet
+        # counts every row of its own
+        " CASE WHEN mi.episode_keys IS NULL THEN"
+        f" (SELECT COUNT(*) {seen_rows} AND wp.media_item_id = mi.id)"
+        f" ELSE (SELECT COUNT(*) {seen_rows} AND wp.rating_key IN"
+        " (SELECT json_extract(e.value, '$.key') FROM json_each(mi.episode_keys) e)) END AS seen"
+        f" FROM media_items mi WHERE {' AND '.join(where)}",
+        (username, username, *params),
     ).fetchall()
     found: dict[str, ShowSeen] = {}
     for r in rows:
