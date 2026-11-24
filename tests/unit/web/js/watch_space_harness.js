@@ -464,6 +464,19 @@ const scenarios = {
     await p.click(p.$('space-tab-scheduled'));
     return { ...out, head: p.one('#space-scheduled .space-list-head small').textContent, row: p.one('#space-scheduled .space-item').textContent, deleted: p.one('#space-deleted .space-item').textContent };
   },
+  async someSizesNotKnown() {
+    const of = async (...rows) => {
+      const p = await page(rows);
+      await p.click(p.$('meter'));
+      const out = { link: p.one('.space-row-link').textContent, after: p.one('.space-after').textContent };
+      await p.click(p.seg('free'));
+      out.said = p.one('.space-layer:not([inert]) .space-say').textContent;
+      await p.click(p.$('space-tab-scheduled'));
+      return { ...out, head: p.one('#space-scheduled .space-list-head small').textContent };
+    };
+    const none = { file_size: '0 B', file_size_bytes: 0 };
+    return { leaving: await of(row('1'), row('2', none)), overdue: await of(row('1'), row('2', { ...none, state: 'overdue' })) };
+  },
   async scaled() {
     const of = async (over) => {
       const p = await page(undefined, (s) => { s.storage = storage(over); });

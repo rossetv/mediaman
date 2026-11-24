@@ -83,7 +83,14 @@
   /* What no scan has given a size yet takes some room all the same. */
   function known(bytes, label) { return bytes ? trim(label) : 'Size not known'; }
 
-  function reclaimable(bytes, label) { return bytes ? trim(label) + ' to reclaim' : 'size not known'; }
+  /* Before what scheduled titles add up to, when a scan has yet to size one of them. *state*: of those alone. */
+  function least(state) {
+    return (scheduled || []).some(function (item) {
+      return !item.file_size_bytes && (!state || item.state === state);
+    }) ? 'at least ' : '';
+  }
+
+  function reclaimable(bytes, label, state) { return bytes ? least(state) + trim(label) + ' to reclaim' : 'size not known'; }
 
   /* The server's "330 days ago" as "11 months ago". */
   function ago(label) {
@@ -718,7 +725,7 @@
       return;
     }
     // The labels, not the bytes: a download moves those all the time.
-    var now = JSON.stringify(stats, function (key, value) { return /_bytes$/.test(key) ? undefined : value; });
+    var now = JSON.stringify([stats, least('leaving')], function (key, value) { return /_bytes$/.test(key) ? undefined : value; });
     if (now === drawn) return;
     drawn = now;
     redraw(pane, drawStorage);
@@ -994,7 +1001,7 @@
     if (leaving() && s.readable) {
       var more = button('space-after', plural(leaving(), 'scheduled title') + 
         (!stats.scheduled.leaving_bytes ? ', size not known'
-          : (deletes() ? ' will' : ' would') + ' free ' + trim(stats.scheduled.leaving_size)),
+          : (deletes() ? ' will' : ' would') + ' free ' + least('leaving') + trim(stats.scheduled.leaving_size)),
         function () { chooseTab('scheduled', true); });
       more.prepend(MM.dom.icon('i-clock-regular'));
       more.append(MM.dom.icon('i-chevron-right'));
@@ -1140,9 +1147,9 @@
         el('span', '', 'Space the disk uses that no title accounts for: unfinished downloads, extra versions, extras, and anything else stored on it.'));
     } else if (leaving()) {
       var sized = stats.scheduled.leaving_bytes;
-      add(s, el('b', '', !sized ? 'Scheduled titles have no size yet' : size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) +
+      add(s, el('b', '', !sized ? 'Scheduled titles have no size yet' : least('leaving').replace('a', 'A') + size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) +
           (deletes() ? ' once the scheduled titles go' : ' if the scheduled titles went')),
-        el('span', '', plural(leaving(), 'title') + ', ' + (sized ? trim(stats.scheduled.leaving_size) : 'size not known') + '. Keep any you want to stay.'),
+        el('span', '', plural(leaving(), 'title') + ', ' + (sized ? least('leaving') + trim(stats.scheduled.leaving_size) : 'size not known') + '. Keep any you want to stay.'),
         button('btn btn--secondary', 'See what is scheduled', function () { chooseTab('scheduled', true); }));
     } else {
       add(s, el('b', '', 'Nothing scheduled, so this stays as it is'), el('span', '', 'The next scan will look again.'));

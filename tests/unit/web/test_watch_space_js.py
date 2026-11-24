@@ -243,6 +243,20 @@ class TestStorage:
             "deleted": "OldDeleted yesterdaySize not known",
         }
 
+    def test_a_sum_that_lacks_a_size_is_said_to_be_the_least_it_can_be(self):
+        out = _run("someSizesNotKnown")
+        assert out["leaving"] == {
+            "link": "2 · at least 10 GB to reclaim",
+            "after": "2 scheduled titles will free at least 10 GB",
+            "said": "At least 1.4 TB once the scheduled titles go2 titles, at least 10 GB. "
+            "Keep any you want to stay.See what is scheduled",
+            "head": "2 titles · at least 10 GB to reclaim",
+        }
+        # Only the list's own sum counts what is no longer leaving.
+        assert out["overdue"]["head"] == "1 title, 1 overdue · at least 10 GB to reclaim"
+        assert out["overdue"]["link"] == "1 · 10 GB to reclaim"
+        assert out["overdue"]["after"] == "1 scheduled title will free 10 GB"
+
     def test_types_scaled_to_fit_what_is_used_claim_no_share_of_the_disk(self):
         out = _run("scaled")
         assert out["fits"]["rows"] == ["47.6%", "23.2%", "0%", "3.4%", "17.5%"]
