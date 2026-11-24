@@ -1441,26 +1441,20 @@ class DeletionExecutor:
         return closed
 
     def _refuse_unselected(self, row: DeletionRow) -> None:
-        """Cancel a claimed row whose library is not ticked; one with files removed keeps its record.
+        """Cancel a claimed row whose library is not ticked, booking what it removed.
 
         Cancelled rather than left pending, so ticking the library again cannot
         fire it with no fresh scan, grace and notice.
         """
         logger.info(
-            "engine.delete.library_unselected id=%s media_id=%s cancelled=%s — its library is "
-            "not selected",
+            "engine.delete.library_unselected id=%s media_id=%s — its library is not selected",
             row.id,
             row.media_item_id,
-            not row.removed_paths,
         )
+        finished = is_fully_removed(row)
         if row.removed_paths:
-            repository.mark_delete_status(self._conn, row.id, "pending")
-            _audit_once(
-                self._conn,
-                row,
-                "delete_refused",
-                f"Not deleted yet: {row.title} — its library is not selected in Settings",
-            )
+            book_deletion(self._conn, row, "Deleted", row.removed_bytes or None, unmonitor=finished)
+        if finished:
             return
         repository.delete_scheduled_action(self._conn, row.id)
         log_audit(

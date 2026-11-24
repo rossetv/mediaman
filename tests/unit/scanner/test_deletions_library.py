@@ -128,19 +128,25 @@ def test_a_library_selected_again_starts_with_a_new_schedule(conn, root):
     assert film.exists()
 
 
-def test_a_part_removed_deletion_of_an_unselected_library_keeps_its_record(conn, root):
+def test_a_part_removed_deletion_of_an_unselected_library_is_booked_and_cancelled(conn, root):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
     removed = json.dumps({"paths": [str(root / "gone.mkv")], "bytes": 4})
     conn.execute("UPDATE scheduled_actions SET removed_files = ?", (removed,))
     _select(conn, "[]")
+    radarr = MagicMock()
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+    _select(conn, '["1"]')
 
-    for _ in range(2):
-        DeletionExecutor(conn=conn).execute()
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
     assert film.exists()
-    row = conn.execute("SELECT delete_status, removed_files FROM scheduled_actions").fetchone()
-    assert tuple(row) == ("pending", removed)
-    assert _audits(conn, "m1") == ["delete_refused"]
+    assert _status(conn, "m1") is None
+    assert _audits(conn, "m1") == ["deleted", "delete_refused"]
+    freed = conn.execute(
+        "SELECT space_reclaimed_bytes FROM audit_log WHERE action = 'deleted'"
+    ).fetchone()[0]
+    assert freed == 4
+    assert radarr.mock_calls == []
 
 
 def test_a_dry_run_does_not_list_a_held_deletion(conn, root):
