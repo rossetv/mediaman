@@ -265,6 +265,7 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space-fig__n small { font-size: 17px; font-weight: 500; letter-spacing: -.01em; color: var(--t2); }
 .space-fig__n .space-dot { align-self: center; width: 11px; height: 11px; }
 .space-fig__line { margin-top: 5px; font-size: 13px; color: var(--t3); }
+.space-fig__line:is(.space-fig__line--warn, .space-fig__line--bad) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .space-fig__line--warn { color: color-mix(in srgb, var(--orange) 65%, var(--t1)); }
 .space-fig__line--bad { color: var(--danger-text); }
 .space-dot { display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }

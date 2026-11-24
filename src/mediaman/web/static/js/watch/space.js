@@ -252,16 +252,18 @@
     return s.total_bytes ? s.used_bytes / s.total_bytes * 100 : 0;
   }
 
-  /* 'bad', 'warn' or '', and what to say of it. */
+  /* 'bad', 'warn' or '', and what to say of it. One disk among several is named,
+     last, as a long path is cut at its end. */
   function pressure() {
     var pct = usedPct();
-    var disk = markedDisk();
-    var over = disk && disk.over_threshold;
-    return {
-      level: pct >= NEARLY_FULL ? 'bad' : over ? 'warn' : '',
-      limit: over ? disk.threshold_pct : null,
-      pct: Math.round(pct)
-    };
+    var disks = stats.storage.disks;
+    var over = disks.filter(function (d) { return d.over_threshold; });
+    var limit = '';
+    if (over.length) {
+      limit = 'above your ' + (over.length > 1 ? 'limits' : over[0].threshold_pct + '% limit');
+      if (disks.length > 1) limit += ' on ' + over.map(function (d) { return d.path; }).join(' and ');
+    }
+    return { level: pct >= NEARLY_FULL ? 'bad' : over.length ? 'warn' : '', limit: limit, pct: Math.round(pct) };
   }
 
   /* ── The meter ── */
@@ -298,7 +300,7 @@
       free.append(el('span', 'space-meter__word', ' free'));
       add(b, bar, free);
       b.setAttribute('aria-label', 'Storage: ' + trim(s.free) + ' free of ' + trim(s.total) +
-        (p.level === 'bad' ? ', nearly full' : p.limit !== null ? ', above your ' + p.limit + '% limit' : '') +
+        (p.level === 'bad' ? ', nearly full' : '') + (p.limit ? ', ' + p.limit : '') +
         marks(b) + leavingLabel());
       if (leaving()) b.append(el('span', 'space-meter__leaving', leaving() + ' leaving'));
     });
@@ -852,11 +854,11 @@
     add(n, document.createTextNode(trim(s.free)), el('small', '', 'free of ' + trim(s.total)));
     var p = pressure();
     var readable = s.disks.filter(function (d) { return d.readable; }).length;
-    var text = p.limit !== null ? p.pct + '% full, above your ' + p.limit + '% limit'
-      : p.level ? p.pct + '% full'
+    var text = p.level ? p.pct + '% full'
       : trim(s.used) + ' used, ' + p.pct + '%' + (readable > 1 ? ' across ' + readable + ' disks' : '');
     var unread = s.disks.length - readable;
     if (unread) text += ', ' + plural(unread, 'disk') + ' can’t be read';
+    if (p.limit) text += ', ' + p.limit;
     return add(box, n, el('p', 'space-fig__line' + (p.level ? ' space-fig__line--' + p.level : ''), text));
   }
 
