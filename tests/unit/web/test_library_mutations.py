@@ -1267,7 +1267,7 @@ class TestMediaKeep:
             r["action"]
             for r in conn.execute("SELECT action FROM audit_log WHERE media_item_id='m1'")
         ]
-        assert audits == ["kept", "deleted"]
+        assert audits == ["kept", "deleted", "unmonitor_skipped"]
 
 
 class TestMediaRedownload:
