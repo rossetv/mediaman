@@ -804,7 +804,7 @@ class TestKeepFormFailurePage:
         resp = self._client(conn).get("/keep/badtoken")
 
         assert "Sign in for more options" in resp.text
-        assert "Go to dashboard" not in resp.text
+        assert "Back to Watch" not in resp.text
 
     def test_an_unknown_error_code_still_renders_a_page(self, conn):
         from starlette.requests import Request
