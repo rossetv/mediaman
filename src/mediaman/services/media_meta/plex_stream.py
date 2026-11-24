@@ -243,6 +243,8 @@ class _Viewing:
     touched: float
     saved_played_s: float = 0.0
     saved_position_s: float | None = None
+    #: The latest start of the item that succeeded.
+    started: int = -1
 
 
 @dataclass
@@ -318,9 +320,11 @@ class StreamManager:
         self._viewings: dict[tuple[str, str], _Viewing] = {}
         # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
-        # stream id -> (when a newer start of its item replaced it, its user), kept as long as a
-        # viewing.
-        self._replaced: dict[str, tuple[float, str]] = {}
+        # stream id -> (when a newer start of its item dropped it, its user and item, that start),
+        # kept as long as a viewing.
+        self._replaced: dict[str, tuple[float, tuple[str, str], int]] = {}
+        # (user and item, start) of each start not yet through.
+        self._opening: set[tuple[tuple[str, str], int]] = set()
         self._starts = itertools.count()
         # (rating_key, file) -> Plex's word on copying its video.
         self._copies: dict[tuple[str, str], _CopyVerdict] = {}
@@ -357,19 +361,17 @@ class StreamManager:
         creds = self._creds()
         with self._lock:
             order = next(self._starts)
-            dropped = self._replace_same_item(user, rating_key)
+            dropped = self._replace_same_item(user, rating_key, order)
+            self._opening.add(((user, rating_key), order))
         try:
             for session_id in dropped.values():
                 self._call_quietly("stop", session_id)
             return self._start_new(
                 creds, user, rating_key, quality, burn_subtitles, info, fallback, order
             )
-        except BaseException:
+        finally:
             with self._lock:
-                if not any(s.item == (user, rating_key) for s in self._streams.values()):
-                    for stream_id in dropped:
-                        self._replaced.pop(stream_id, None)
-            raise
+                self._opening.discard(((user, rating_key), order))
 
     def _start_new(
         self,
@@ -422,9 +424,9 @@ class StreamManager:
                 s.item == (user, rating_key) and s.order > order for s in self._streams.values()
             )
             if beaten:
-                self._replaced[stream_id] = (self._clock(), user)
+                self._replaced[stream_id] = (self._clock(), (user, rating_key), order)
             else:
-                replaced = self._replace_same_item(user, rating_key)
+                replaced = self._replace_same_item(user, rating_key, order)
                 try:
                     self._check_room(user)
                 except TooManyStreams:
@@ -439,6 +441,7 @@ class StreamManager:
                     }
                     viewing = self._viewings.setdefault((user, rating_key), _Viewing(now, now))
                     viewing.touched = now
+                    viewing.started = max(viewing.started, order)
                     self._streams[stream_id] = _Stream(
                         user=user,
                         rating_key=rating_key,
@@ -461,7 +464,7 @@ class StreamManager:
             raise TooManyStreams("too many streams are open")
         return stream_id
 
-    def _replace_same_item(self, user: str, rating_key: str) -> dict[str, str]:
+    def _replace_same_item(self, user: str, rating_key: str, order: int) -> dict[str, str]:
         """Drop the user's streams of the item as replaced; return their Plex session ids by
         stream id. The lock must be held."""
         now = self._clock()
@@ -469,7 +472,7 @@ class StreamManager:
             k: v for k, v in self._replaced.items() if now - v[0] <= VIEWING_KEEP_SECONDS
         }
         ids = [sid for sid, s in self._streams.items() if s.item == (user, rating_key)]
-        self._replaced.update((sid, (now, user)) for sid in ids)
+        self._replaced.update((sid, (now, (user, rating_key), order)) for sid in ids)
         return {sid: self._streams.pop(sid).session_id for sid in ids}
 
     def _check_room(self, user: str) -> None:
@@ -575,7 +578,11 @@ class StreamManager:
 
     def _gone(self, stream_id: str, user: str) -> StreamGone:
         """Why *user* has no such stream; the lock must be held."""
-        if self._replaced.get(stream_id, (0.0, None))[1] == user:
+        _, item, order = self._replaced.get(stream_id, (0.0, ("", ""), 0))
+        viewing = self._viewings.get(item)
+        # A start that fails replaces nothing.
+        taken = viewing is not None and viewing.started >= order
+        if item[0] == user and (taken or any(i == item for i, _ in self._opening)):
             return StreamReplaced("a newer stream of the item replaced this one")
         return StreamGone("stream is gone")
 

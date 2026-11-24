@@ -1122,6 +1122,53 @@ def test_a_failed_start_never_hides_that_another_start_replaced_the_stream(manag
         manager.get(stream_id, "alice")
 
 
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_a_failed_start_leaves_it_to_a_later_one_still_opening_whether_the_stream_is_replaced(
+    manager, succeeds
+):
+    stream_id = _start(manager)
+    real_open = manager._open_session
+    begun, failed = [], threading.Event()
+    outcomes = []
+
+    def later_opens_meanwhile(*args):
+        begun.append(True)
+        if len(begun) == 1:
+            later.start()
+            _wait_until(lambda: len(begun) == 2)
+            raise RuntimeError("failed")
+        assert failed.wait(5)
+        with pytest.raises(StreamReplaced):
+            manager.get(stream_id, "alice")
+        if not succeeds:
+            raise RuntimeError("failed")
+        return real_open(*args)
+
+    def start_later():
+        with contextlib.suppress(RuntimeError):
+            _start(manager)
+        with pytest.raises(StreamGone) as caught:
+            manager.get(stream_id, "alice")
+        outcomes.append(isinstance(caught.value, StreamReplaced))
+
+    later = threading.Thread(target=start_later, daemon=True)
+    manager._open_session = later_opens_meanwhile
+    with pytest.raises(RuntimeError):
+        _start(manager)
+    failed.set()
+    later.join(5)
+
+    assert outcomes == [succeeds]
+
+
+def _wait_until(condition) -> None:
+    for _ in range(1000):
+        if condition():
+            return
+        time.sleep(0.005)
+    pytest.fail("never came true")
+
+
 def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
     stopped, idle = _start(manager), _start(manager, rating_key="7")
     manager.stop(stopped, "alice")
