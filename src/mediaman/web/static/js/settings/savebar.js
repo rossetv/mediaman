@@ -6,7 +6,7 @@
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
  *   - What a save whose answer was lost may have stored stays unsaved until
- *     another is answered, or Discard has asked the server
+ *     Save or Discard has asked the server what it has
  *   - Discard-confirm via UIFeedback, then the last saved values put back
  *     in place
  *
@@ -89,12 +89,11 @@
   // The values Discard goes back to: those on the page at load, then those of the last save.
   var saved = null;
 
-  // What saves that failed may have stored all the same: every key they sent, with the libraries
-  // whose selection and whose limit they changed.
-  function nothingUnsure() { return { keys: {}, libs: {}, limits: {} }; }
-  var unsure = nothingUnsure();
+  // What saves with no answer may have stored: by thing (see `things`), the value before the
+  // first of them and the values they sent.
+  var unsure = {};
 
-  function isUnsure() { return Object.keys(unsure.keys).length > 0; }
+  function isUnsure() { return Object.keys(unsure).length > 0; }
 
   function settingsControls() {
     return Array.prototype.filter.call(
@@ -108,7 +107,7 @@
   }
 
   function isEdited(el) {
-    return !!saved && el.id in saved.values && (el.id in unsure.keys || saved.values[el.id] !== valueOf(el));
+    return !!saved && el.id in saved.values && (el.id in unsure || saved.values[el.id] !== valueOf(el));
   }
 
   // What the server sent for a control, which a browser going back to the page may have put typed text over.
@@ -138,29 +137,54 @@
     return keys;
   }
 
-  // The keys a save has to send.
-  function unsavedKeys(now) {
-    return changedKeys(saved, now).concat(Object.keys(unsure.keys));
+  // Each setting, with each library's selection and limit as one of its own.
+  function things(snap) {
+    return Object.assign({}, snap.values, snap.disk && MM.settings.diskThresholds.things(snap.disk));
   }
 
-  function rememberUnsure(payload, sent) {
-    Object.keys(payload).forEach(function (key) {
-      if (key !== 'plex_libraries_base') unsure.keys[key] = true;
+  function rememberUnsure(sent) {
+    var was = things(saved);
+    var now = things(sent);
+    Object.keys(Object.assign({}, was, now)).forEach(function (key) {
+      if (was[key] === now[key] && !unsure[key]) return;
+      unsure[key] = unsure[key] || { old: was[key], sent: [] };
+      unsure[key].sent.push(now[key]);
     });
-    Object.keys(payload.disk_thresholds || {}).forEach(function (id) { unsure.limits[id] = true; });
-    if (payload.plex_libraries) {
-      saved.disk.libs.concat(sent.disk.libs).forEach(function (id) {
-        if (saved.disk.libs.indexOf(id) === -1 || sent.disk.libs.indexOf(id) === -1) unsure.libs[id] = true;
-      });
-    }
     paintTests();
   }
 
-  // The server does to its selection what the page changed from this one, so a library that may
-  // or may not be selected there counts as changed either way.
-  function librariesBase(libs) {
-    return saved.disk.libs.filter(function (id) { return !unsure.libs[id]; })
-      .concat(Object.keys(unsure.libs).filter(function (id) { return libs.indexOf(id) === -1; }));
+  // `onto`, with the things of `mine` that are kept.
+  function rebase(mine, onto, keep) {
+    var values = {};
+    Object.keys(onto.values).forEach(function (id) { values[id] = (keep(id) ? mine : onto).values[id]; });
+    var disk = mine.disk && onto.disk && MM.settings.diskThresholds.rebase(mine.disk, onto.disk, keep);
+    return { values: values, disk: disk };
+  }
+
+  // Puts `snap` on the page, under what was typed or clicked since `base` was read from it.
+  function show(snap, base) {
+    var page = snapshot();
+    var was = things(base);
+    var now = things(page);
+    var next = rebase(page, snap, function (key) { return now[key] !== was[key]; });
+    put(next.values);
+    if (next.disk) MM.settings.diskThresholds.show(next.disk);
+    paintTests();
+  }
+
+  var DAYS = ['min_age_days', 'inactivity_days', 'grace_days'];
+
+  // A limit with no path or no percentage is none, and the library is always scanned.
+  function limitOf(thing) {
+    var parts = /^(\d+) ./.exec(thing || '');
+    return parts ? Number(parts[1]) : 0;
+  }
+
+  // Whether more may be deleted with one value of a thing than with another.
+  function deletesMore(key, to, from) {
+    if (key.indexOf('lib:') === 0) return !!to && !from;
+    if (key.indexOf('limit:') === 0) return limitOf(to) < limitOf(from);
+    return DAYS.indexOf(key) !== -1 && Number(to) < Number(from);
   }
 
   // The server tells no secret, and keeps the stored one when it is sent a blank or masked field.
@@ -168,23 +192,88 @@
     return !!document.querySelector('.inp-reveal[data-reveal-target="' + key + '"]');
   }
 
+  function thingLabel(key) {
+    var part = /^(lib|limit):(.*)$/.exec(key);
+    if (!part) return fieldLabel(key);
+    var title = MM.settings.diskThresholds.titleOf(part[2]);
+    return part[1] === 'lib' ? 'scanning of ' + title : 'disk threshold of ' + title;
+  }
+
   function askToCheck(keys) {
     if (!keys.length) return;
     window.UIFeedback.toast(
-      'The save that failed may have been stored. Check: ' + keys.map(fieldLabel).join(', ') + '.',
+      'Shown as mediaman has them now. Check: ' + keys.map(thingLabel).join(', ') + '.',
       { duration: 8000 }
     );
   }
 
+  // A value as its control would hold it.
+  function asHeld(el, value) {
+    var was = valueOf(el);
+    el.value = value;
+    var held = valueOf(el);
+    el.value = was;
+    return held;
+  }
+
+  // What is stored, from the server's settings: every library, and the settings not known for sure.
+  function storedFrom(data) {
+    var values = Object.assign({}, saved.values);
+    Object.keys(unsure).forEach(function (key) {
+      if (!(key in values)) return;
+      if (key in data) values[key] = asHeld(document.getElementById(key), String(data[key]));
+      else if (isSecret(key)) values[key] = '';
+    });
+    return { values: values, disk: saved.disk && MM.settings.diskThresholds.fromServer(data) };
+  }
+
+  // Of the things not known for sure, those whose value a person who put them back would not expect.
+  function unexpected(stored, keys) {
+    var has = things(stored);
+    return keys.filter(function (key) {
+      return has[key] !== unsure[key].old || (isSecret(key) && has[key] !== '');
+    });
+  }
+
+  // What to send of `now` once the server has told what is stored: a thing put back is sent only
+  // where a save with no answer did change it and the undo lets no more be deleted. Otherwise it
+  // is taken from the server, where another page may have set it since.
+  function settle(now, data) {
+    var stored = storedFrom(data);
+    var was = things(saved);
+    var mine = things(now);
+    var has = things(stored);
+    function putBack(key) { return !!unsure[key] && mine[key] === unsure[key].old; }
+    function undone(key) {
+      return unsure[key].sent.indexOf(has[key]) !== -1 && !deletesMore(key, mine[key], has[key]);
+    }
+    var sent = rebase(now, stored, function (key) {
+      if (putBack(key)) return undone(key);
+      return !!unsure[key] || mine[key] !== was[key];
+    });
+    askToCheck(unexpected(stored, Object.keys(unsure).filter(function (key) {
+      return putBack(key) && !undone(key);
+    })));
+    saved = stored;
+    var next = things(sent);
+    Object.keys(unsure).forEach(function (key) { if (next[key] === has[key]) delete unsure[key]; });
+    show(sent, now);
+    return sent;
+  }
+
+  function put(values) {
+    settingsControls().forEach(function (el) {
+      if (!(el.id in values) || valueOf(el) === values[el.id]) return;
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = values[el.id];
+      else el.value = values[el.id];
+    });
+    if (MM.settings.toggles && MM.settings.toggles.sync) MM.settings.toggles.sync();
+  }
+
   function restoreSaved() {
     if (!saved) return;
-    settingsControls().forEach(function (el) {
-      if (!(el.id in saved.values)) return;
-      if (el.type === 'checkbox' || el.type === 'radio') el.checked = saved.values[el.id];
-      else el.value = saved.values[el.id];
-    });
+    put(saved.values);
     if (saved.disk && MM.settings.diskThresholds) MM.settings.diskThresholds.restore(saved.disk);
-    if (MM.settings.toggles && MM.settings.toggles.sync) MM.settings.toggles.sync();
     paintTests();
   }
 
@@ -304,7 +393,7 @@
     onEdit = function () {
       if (!savebar || saving) return;
       if (savebar.classList.contains('is-error')) clearSaveError();
-      var clean = !unsavedKeys(snapshot()).length;
+      var clean = !isUnsure() && !changedKeys(saved, snapshot()).length;
       // After a save the bar goes by itself.
       if (clean && successTimers.length) return;
       if (successTimers.length || clean) {
@@ -326,30 +415,51 @@
       if (hadFocus && focusLost()) saveBtn.focus();
     }
 
-    // runSave is a named function so the reauth retry path can re-fire the same
-    // payload without duplicating response-bookkeeping. Routes through
-    // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
-    // flow are applied consistently.
-    function runSave(fromKeyboard) {
-      if (!saveBtn) return;
-      // Disabling the button blurs it, so note now whether focus was in the bar.
+    // Nothing in the bar answers while the server is asked. Returns whether the focus was in it,
+    // since disabling its buttons takes the focus away.
+    function startAsking() {
       var hadFocus = savebar && savebar.contains(document.activeElement);
       saving = true;
       saveBtn.disabled = true;
       // Discard would put back values the server no longer holds.
       if (discardBtn) discardBtn.disabled = true;
       clearSaveError();
-      // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
-      var sent = snapshot();
-      var all = getPayload(sent, saved, unsure.limits);
-      var payload = {};
-      unsavedKeys(sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
-      if ('plex_libraries' in payload) payload.plex_libraries_base = librariesBase(payload.plex_libraries);
-      saveBtn.textContent = 'Saving…';
+      return hadFocus;
+    }
 
-      MM.reauth.run(function () {
+    // What a save with no answer stored is known only to the server.
+    function askStored(hadFocus, not, then) {
+      MM.api.get('/api/settings').then(then, function () {
+        saving = false;
+        setSaveError('Could not check what the last save stored, so nothing was ' + not + '.');
+        reenable(hadFocus);
+      });
+    }
+
+    function runSave(fromKeyboard) {
+      if (!saveBtn) return;
+      var hadFocus = startAsking();
+      saveBtn.textContent = 'Saving…';
+      var now = snapshot();
+      if (!isUnsure()) { send(now, fromKeyboard, hadFocus); return; }
+      askStored(hadFocus, 'saved', function (data) {
+        var sent = settle(now, data);
+        send(sent, fromKeyboard, hadFocus, !changedKeys(saved, sent).length);
+      });
+    }
+
+    // Routes through MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
+    // flow are applied consistently. With `done` the server has it all.
+    function send(sent, fromKeyboard, hadFocus, done) {
+      // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
+      var all = getPayload(sent, saved);
+      var payload = {};
+      changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
+      if ('plex_libraries' in payload) payload.plex_libraries_base = saved.disk.libs;
+
+      (done ? Promise.resolve({ status: 'saved' }) : MM.reauth.run(function () {
         return MM.api.put('/api/settings', payload);
-      })
+      }))
         .then(function (data) {
           saving = false;
           var ignored = (data.ignored || []).filter(function (k) { return k !== 'status'; });
@@ -358,15 +468,11 @@
           // succeeded. Treat any 2xx that lacks data.status==='saved' as a
           // partial success (shouldn't happen, but be defensive).
           if (data.status === 'saved' || data.ok !== false) {
-            askToCheck(Object.keys(unsure.keys).filter(function (key) {
-              return isSecret(key) && (payload[key] === '' || payload[key] === '****');
-            }));
-            unsure = nothingUnsure();
-            saved = sent;
-            if (sent.disk && 'plex_libraries' in data) {
-              saved = { values: sent.values, disk: MM.settings.diskThresholds.adopt(sent.disk, data) };
-            }
-            paintTests();
+            unsure = {};
+            // A save may store more than this page sent, such as another page's choices.
+            var merged = sent.disk && 'plex_libraries' in data;
+            saved = { values: sent.values, disk: merged ? MM.settings.diskThresholds.fromServer(data) : sent.disk };
+            show(saved, sent);
             refreshOverviewHero();
             if (changedKeys(saved, snapshot()).length) {
               saveBtn.textContent = SAVE_LABEL;
@@ -407,7 +513,7 @@
             return;
           }
           // With no answer, or the server's own failure, the settings may be stored all the same.
-          if (!err || !err.status || err.status >= 500) rememberUnsure(payload, sent);
+          if (!err || !err.status || err.status >= 500) rememberUnsure(sent);
           if (err && err.status) {
             // Reconstruct a minimal data envelope so summariseSaveError can
             // read detail / error fields that MM.api.APIError already parsed.
@@ -437,39 +543,16 @@
       settleAfterHide(fromKeyboard);
     }
 
-    // What was last saved is not known here once a save went unanswered.
     function discardUnsure(fromKeyboard) {
-      var hadFocus = savebar.contains(document.activeElement);
-      saving = true;
-      saveBtn.disabled = true;
-      discardBtn.disabled = true;
-      clearSaveError();
-      MM.api.get('/api/settings').then(function (data) {
+      var hadFocus = startAsking();
+      askStored(hadFocus, 'discarded', function (data) {
         saving = false;
         saveBtn.disabled = false;
         discardBtn.disabled = false;
-        var before = saved;
-        var keys = Object.keys(unsure.keys);
-        unsure = nothingUnsure();
-        saved = {
-          values: Object.assign({}, before.values),
-          disk: before.disk && MM.settings.diskThresholds.fromServer(data),
-        };
-        keys.forEach(function (key) {
-          if (!(key in saved.values)) return;
-          if (key in data) saved.values[key] = String(data[key]);
-          else if (isSecret(key)) saved.values[key] = '';
-        });
+        saved = storedFrom(data);
+        askToCheck(unexpected(saved, Object.keys(unsure)));
+        unsure = {};
         putBackSaved(fromKeyboard);
-        // as each field can hold it
-        saved = snapshot();
-        askToCheck(keys.filter(function (key) {
-          return (isSecret(key) && key in data) || changedKeys(before, saved).indexOf(key) !== -1;
-        }));
-      }, function () {
-        saving = false;
-        setSaveError('Could not check what the last save stored, so nothing was discarded.');
-        reenable(hadFocus);
       });
     }
 

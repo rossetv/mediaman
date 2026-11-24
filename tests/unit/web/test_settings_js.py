@@ -364,13 +364,102 @@ def test_what_a_failed_save_may_have_stored_stays_unsaved_until_one_is_answered(
     assert out["refused"] is True
     assert out["next"] == {"base_url": "a"}
     assert (out["answered"], out["forgotten"]) == (False, False)
-    # the base has what is to go and lacks what is to come, so the server does both either way
-    assert out["libraries"] == {"sent": ["1", "2"], "base": ["1", "3"]}
-    assert out["limits"]["each"] == {
-        "1": {"path": "/a", "threshold": 80},
-        "2": {"path": "", "threshold": 0},
+
+
+def test_an_undo_never_overrides_what_another_page_has_set_since() -> None:
+    out = _run("undo")
+    library, limit, higher, days = (
+        out[c] for c in ("otherLibrary", "otherLimit", "otherHigher", "otherDays")
+    )
+    assert (library["sent"], library["pills"]) == ([], ["4"])
+    assert (limit["sent"], limit["limit"]) == ([], ["/a", "90"])
+    # what else was edited is still sent
+    assert (higher["sent"], higher["limit"]) == ([{"base_url": "b"}], ["/a", "95"])
+    assert (days["sent"], days["days"][2]) == ([], "30")
+    for case, name in ((library, "L3"), (limit, "L1"), (higher, "L1"), (days, "Grace days")):
+        assert name in case["told"]
+        assert case["on"] is False
+
+
+def test_an_undo_of_a_save_that_never_arrived_sends_nothing() -> None:
+    out = _run("undo")["notStored"]
+    assert (out["sent"], out["told"], out["on"]) == ([], "", False)
+    assert (out["pills"], out["limit"], out["days"][2], out["url"]) == (
+        ["1"],
+        ["/a", "80"],
+        "14",
+        "a",
+    )
+
+
+def test_an_undo_that_lets_no_more_be_deleted_is_sent_over_what_the_lost_save_stored() -> None:
+    out = _run("undo")["undone"]
+    (sent,) = out["sent"]
+    assert sorted(sent.pop("plex_libraries")) == ["1", "4"]
+    assert sorted(sent.pop("plex_libraries_base")) == ["1", "3", "4"]
+    assert sent == {
+        "grace_days": 14,
+        "base_url": "a",
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 80}},
     }
-    assert out["limits"]["whole"] == [True, {}, False]
+    # 4 was selected by another page
+    assert (out["pills"], out["told"], out["on"]) == (["1", "4"], "", False)
+
+
+def test_an_undo_that_lets_more_be_deleted_is_left_to_the_person() -> None:
+    out = _run("undo")
+    safer = out["safer"]
+    assert (safer["sent"], safer["on"]) == ([], False)
+    assert (safer["pills"], safer["limit"], safer["days"]) == (["1"], ["/a", "85"], ["30"] * 3)
+    for name in ("L3", "L1", "Grace days", "Min age days", "Inactivity days"):
+        assert name in safer["told"]
+    # no limit, or one with no path, lets everything be deleted
+    for case in ("toBlank", "toNoPath", "unreadable"):
+        assert (out[case]["sent"], out[case]["limit"]) == ([], ["/a", "80"]), case
+        assert "L1" in out[case]["told"]
+    assert out["chosenAgain"] == {
+        "plex_libraries": ["4", "3"],
+        "plex_libraries_base": ["4"],
+    }
+    assert out["oldValueChosen"] == {"grace_days": 14}
+
+
+def test_a_stored_value_its_field_cannot_hold_leaves_nothing_unsaved() -> None:
+    out = _run("undo")["held"]
+    assert (out["sent"], out["url"], out["on"]) == ([], "", False)
+
+
+def test_an_edit_a_lost_save_sent_that_is_not_put_back_is_sent_again() -> None:
+    out = _run("undo")["kept"]
+    (sent,) = out["sent"]
+    assert sorted(sent.pop("plex_libraries")) == ["1", "3", "4"]
+    assert sorted(sent.pop("plex_libraries_base")) == ["1", "4"]
+    assert sent == {
+        "grace_days": 20,
+        "base_url": "b",
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 85}},
+    }
+    assert (out["told"], out["on"]) == ("", False)
+
+
+def test_an_undo_whose_own_save_is_lost_still_gives_way_to_another_page() -> None:
+    out = _run("undo")["undoLost"]
+    assert (out["sent"], out["days"][2], out["on"]) == ([], "30", False)
+    assert "Grace days" in out["told"]
+
+
+def test_nothing_is_saved_while_the_server_cannot_be_asked_about_a_lost_save() -> None:
+    out = _run("undo")["unknown"]
+    assert (out["sent"], out["days"][2], out["on"], out["error"]) == ([], "14", True, True)
+    assert "nothing was saved" in out["says"]
+
+
+def test_what_is_typed_while_the_server_is_asked_about_a_lost_save_stays_unsaved() -> None:
+    out = _run("undo")["meanwhile"]
+    assert out["sent"] == [{"base_url": "b"}]
+    assert (out["limit"], out["url"], out["on"]) == (["/mid ", "0"], "typing", True)
+    # beside what the server has
+    assert (out["pills"], out["days"][2]) == (["1", "2"], "30")
 
 
 def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
@@ -391,8 +480,9 @@ def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
         "toasts": 1,
         "puts": 1,
     }
-    for name in ("Base url", "Plex libraries", "Disk thresholds"):
+    for name in ("Base url", "scanning of L2", "disk threshold of L1"):
         assert name in out["told"]
+    assert out["forgotten"] is False
     assert out["after"] == [True, {"base_url": "a"}]
     # nothing is thrown away while the server cannot be asked
     assert out["unknown"] == {
@@ -408,8 +498,9 @@ def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
 
 def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
     out = _run("unansweredSecret")
-    assert len(out["putBack"]) == 1 and "Plex token" in out["putBack"][0]
-    assert out["savedAgain"] == []
+    ((told,), puts) = out["putBack"]
+    assert "Plex token" in told and puts == 0
+    assert out["savedAgain"] == [{"plex_token": "new"}, []]
     assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
     assert out["gone"] == ["", 1]
 

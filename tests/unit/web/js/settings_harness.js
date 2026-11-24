@@ -170,13 +170,15 @@ async function openLibraries(answer, opts) {
   const pills = h.add('div', { id: 'plex-library-pills' }, page);
   const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
   const field = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+  const days = {};
+  ['min_age_days', 'inactivity_days', 'grace_days'].forEach((id) => { days[id] = h.add('input', { id, value: '14', type: 'number' }, page); });
   h.add('input', { id: 'plex_token', value: '****', type: 'password' }, page);
   h.add('button', { className: 'inp-reveal' }, page).setAttribute('data-reveal-target', 'plex_token');
   const bar = h.add('div', { id: 'setg-savebar' });
   const status = h.add('span', { id: 'save-status' }, bar);
   const discard = h.add('button', { id: 'btn-discard' }, bar);
   const save = h.add('button', { id: 'btn-save' }, bar);
-  const p = { h, page, rows, field, bar, status, sent: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
+  const p = { h, page, rows, field, days, bar, status, sent: [], toasts: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
   h.ctx.MM.api = {
     get: (u) => (u === '/api/plex/libraries' ? answer() : u === '/api/settings' ? p.stored() : Promise.reject({})),
     put: (u, b) => { p.sent.push(JSON.parse(JSON.stringify(b))); return p.reply(b); },
@@ -184,6 +186,7 @@ async function openLibraries(answer, opts) {
   };
   h.ctx.MM.reauth = { run: (f) => f() };
   h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+  h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
   ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
   const m = h.ctx.MM.settings;
   m.diskThresholds.init(opts);
@@ -196,6 +199,7 @@ async function openLibraries(answer, opts) {
     on: () => bar.classList.contains('on'),
     type: (id, path, threshold) => { input(id, 'path').value = path; input(id, 'threshold').value = threshold; input(id, 'path').fire('input'); },
     edit: (v) => { field.value = v; field.fire('input'); },
+    day: (v, id) => { const el = days[id || 'grace_days']; el.value = v; el.fire('input'); },
     shows: (id) => card(id) && [input(id, 'path').value, String(input(id, 'threshold').value)],
     pills: () => pills.children.filter((c) => c.classList.contains('on')).map((c) => c.dataset.libId),
     pill: (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click'),
@@ -1415,10 +1419,9 @@ const scenarios = {
 
   // A save that failed may have been stored all the same, so what it sent stays unsaved until one is answered.
   async unanswered() {
-    const out = { on: {}, limits: {} };
-    const saved = () => Promise.resolve({ status: 'saved' });
-    const open = (opts) => openLibraries(plexLists(1, 2, 3, 4), Object.assign({ selectedLibs: ['1', '2'], diskThresholds: {} }, opts));
-    const failing = async (p, status) => { p.reply = () => Promise.reject({ status, data: {} }); await p.save(); p.reply = saved; };
+    const out = { on: {} };
+    const open = () => openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+    const failing = async (p, status) => { p.reply = () => Promise.reject({ status, data: {} }); await p.save(); p.reply = () => Promise.resolve({ status: 'saved' }); };
     for (const status of [undefined, 0, 503, 422]) {
       const p = await open();
       p.edit('b');
@@ -1426,8 +1429,8 @@ const scenarios = {
       p.edit('a');
       out.on[String(status)] = [p.on(), p.h.ctx.MM.settings.savebar.isEdited(p.field)];
     }
-
-    let p = await open();
+    const p = await open();
+    p.stored = () => Promise.resolve({ base_url: 'b', plex_libraries: ['1'] });
     p.edit('b');
     await failing(p, 0);
     p.edit('a');
@@ -1441,28 +1444,115 @@ const scenarios = {
     p.edit('c');
     p.edit('a');
     out.forgotten = p.on();
+    return out;
+  },
 
-    // the libraries, whichever way the server has them
-    p = await open();
-    p.pill(3); p.pill(2);
-    await failing(p, 0);
-    p.pill(3); p.pill(2);
-    const libs = await p.save();
-    out.libraries = { sent: libs.plex_libraries, base: libs.plex_libraries_base.sort() };
+  // A save pressed after one with no answer: what each put-back or kept edit does, by what the server has.
+  async undo() {
+    const limit = (threshold) => ({ path: '/a', threshold });
+    const start = async (opts, lost) => {
+      const p = await openLibraries(plexLists(1, 2, 3, 4), Object.assign({ selectedLibs: ['4'], diskThresholds: {} }, opts));
+      const set = (server) => { p.stored = () => Promise.resolve(Object.assign({ plex_libraries: ['4'], disk_thresholds: {} }, server)); };
+      const lose = async () => { p.reply = () => Promise.reject({ status: 0 }); await p.save(); p.reply = () => Promise.resolve({ status: 'saved' }); p.sent.length = 0; };
+      const look = () => ({ sent: p.sent.slice(), pills: p.pills().sort(), limit: p.shows(1), days: ['min_age_days', 'inactivity_days', 'grace_days'].map((id) => p.days[id].value), url: p.field.value, told: p.toasts.join(), on: p.on() });
+      lost(p);
+      await lose();
+      return Object.assign(p, { set, lose, look });
+    };
+    const run = async (opts, lost, back, server) => {
+      const p = await start(opts, lost);
+      back(p);
+      p.set(server);
+      await p.save();
+      return p.look();
+    };
+    const day = (v) => (p) => p.day(v);
+    const each = (...acts) => (p) => acts.forEach((f) => f(p));
+    const pill = (id) => (p) => p.pill(id);
+    const type = (path, n) => (p) => p.type(1, path, n);
+    const out = {};
 
-    // the limits: put back as they were, but a blank is never sent for what could not be read
-    const limit = { path: '/a', threshold: 80 };
-    p = await open({ selectedLibs: ['1', '2', '3', '4'], diskThresholds: { 1: limit, 3: 'odd', 4: { path: '/d', threshold: 'x' } } });
-    [1, 2, 3, 4].forEach((id) => p.type(id, '/typed', '50'));
-    await failing(p, 0);
-    p.type(1, '/a', '80');
-    p.type(2, '', '0'); p.type(3, '', '0'); p.type(4, '/d', '0');
-    out.limits.each = (await p.save()).disk_thresholds;
-    p = await open({ selectedLibs: ['1'], diskThresholds: 'odd' });
-    p.type(1, '/typed', '50');
-    await failing(p, 0);
-    p.type(1, '', '0');
-    out.limits.whole = [p.on(), await p.save(), p.on()];
+    // another page has set it since
+    const one = { selectedLibs: ['1'] };
+    out.otherLibrary = await run({ selectedLibs: ['3', '4'] }, pill(3), pill(3), {});
+    out.otherLimit = await run(one, type('/a', '80'), type('', '0'), { plex_libraries: ['1'], disk_thresholds: { 1: limit(90) } });
+    out.otherHigher = await run(Object.assign({ diskThresholds: { 1: limit(80) } }, one), type('/a', '85'), each(type('/a', '80'), (p) => p.edit('b')), { plex_libraries: ['1'], disk_thresholds: { 1: limit(95) } });
+    out.otherDays = await run({}, day('3'), day('14'), { grace_days: 30 });
+
+    // the save never arrived
+    const all = each(day('20'), (p) => p.edit('b'), pill(3), type('/a', '85'));
+    const back = each(day('14'), (p) => p.edit('a'), pill(3), type('/a', '80'));
+    const opts = { selectedLibs: ['1'], diskThresholds: { 1: limit(80) } };
+    out.notStored = await run(opts, all, back, { grace_days: 14, base_url: 'a', plex_libraries: ['1'], disk_thresholds: { 1: limit(80) } });
+
+    // it did, and the undo lets no more be deleted
+    out.undone = await run(opts, each(day('3'), (p) => p.edit('b'), pill(3), type('/a', '50')), back, { grace_days: 3, base_url: 'b', plex_libraries: ['1', '3', '4'], disk_thresholds: { 1: limit(50) } });
+
+    // it did, and the undo would let more be deleted
+    const safer = each(day('30'), (p) => p.day('30', 'min_age_days'), (p) => p.day('30', 'inactivity_days'), pill(3), type('/a', '85'));
+    const looser = each(day('14'), (p) => p.day('14', 'min_age_days'), (p) => p.day('14', 'inactivity_days'), pill(3), type('/a', '80'));
+    out.safer = await run({ selectedLibs: ['1', '3'], diskThresholds: { 1: limit(80) } }, safer, looser, { grace_days: 30, min_age_days: 30, inactivity_days: 30, plex_libraries: ['1'], disk_thresholds: { 1: limit(85) } });
+    const toBlank = { plex_libraries: ['1'], disk_thresholds: { 1: limit(80) } };
+    out.toBlank = await run(one, type('/a', '80'), type('', '0'), toBlank);
+    out.toNoPath = await run({ selectedLibs: ['1'], diskThresholds: { 1: { path: '', threshold: 90 } } }, type('/a', '80'), type('', '90'), toBlank);
+    out.unreadable = await run({ selectedLibs: ['1'], diskThresholds: 'odd' }, type('/a', '80'), type('', '0'), toBlank);
+
+    // not put back: an ordinary edit, whatever the server has
+    out.kept = await run(opts, all, () => {}, { grace_days: 30, base_url: 'c', plex_libraries: ['1', '4'], disk_thresholds: { 1: limit(95) } });
+
+    // what the person changes of what was shown is an ordinary edit again
+    let p = await start({ selectedLibs: ['3', '4'] }, pill(3));
+    p.pill(3); p.set({});
+    await p.save();
+    p.pill(3);
+    out.chosenAgain = await p.save();
+
+    // and so is one to the value there was before, also after the rest was refused
+    p = await start({}, day('3'));
+    p.day('14'); p.edit('b'); p.set({ grace_days: 30 });
+    p.reply = () => Promise.reject({ status: 422, data: {} });
+    await p.save();
+    p.day('14'); p.edit('a');
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    out.oldValueChosen = await p.save();
+
+    // the server's value, in the form its field holds it
+    out.held = await (async () => {
+      const time = { set value(v) { this.v = v === '9:00' ? '' : v; }, get value() { return this.v; } };
+      p = await start({}, (q) => {
+        Object.defineProperty(q.field, 'value', Object.getOwnPropertyDescriptor(time, 'value'));
+        q.edit('b');
+      });
+      p.edit('a'); p.set({ base_url: '9:00' });
+      await p.save();
+      return p.look();
+    })();
+
+    // an undo that is lost too is no less an undo
+    p = await start({}, day('3'));
+    p.day('14'); p.set({ grace_days: 3 });
+    await p.lose();
+    p.set({ grace_days: 30 });
+    await p.save();
+    out.undoLost = p.look();
+
+    // the server cannot be asked
+    p = await start({}, day('3'));
+    p.day('14');
+    p.stored = () => Promise.reject({ status: 0 });
+    await p.save();
+    out.unknown = Object.assign(p.look(), { error: p.bar.classList.contains('is-error'), says: p.status.textContent });
+
+    // what is typed while it is asked waits for the next save
+    p = await start(one, day('3'));
+    let tell;
+    p.day('14'); p.edit('b');
+    p.stored = () => new Promise((r) => { tell = r; });
+    p.press();
+    p.type(1, '/mid ', '0'); p.edit('typing');
+    tell({ grace_days: 30, plex_libraries: ['1', '2'], disk_thresholds: {} });
+    await p.h.flush();
+    out.meanwhile = p.look();
     return out;
   },
 
@@ -1471,8 +1561,6 @@ const scenarios = {
     const server = { base_url: 'a', plex_libraries: ['1'], disk_thresholds: {} };
     const open = async () => {
       const p = await openLibraries(plexLists(1, 2), { selectedLibs: ['1'], diskThresholds: {} });
-      p.toasts = [];
-      p.h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
       p.reply = () => Promise.reject({ status: 0 });
       p.edit('b');
       p.pill(2);
@@ -1492,6 +1580,8 @@ const scenarios = {
     await p.discard();
     out.stored = p.look();
     out.told = p.toasts[0];
+    p.edit('x'); p.edit('b');
+    out.forgotten = p.on();
     p.edit('a');
     out.after = [p.on(), await p.save()];
     p = await open();
@@ -1505,8 +1595,7 @@ const scenarios = {
   async unansweredSecret() {
     const open = async () => {
       const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
-      p.toasts = [];
-      p.h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
+      p.stored = () => Promise.resolve({ plex_token: '****', plex_libraries: ['1'] });
       const token = p.page.querySelector('#plex_token');
       const type = (v) => { token.value = v; token.fire('input'); };
       p.reply = () => Promise.reject({ status: 0 });
@@ -1518,13 +1607,12 @@ const scenarios = {
     const out = {};
     let p = await open();
     p.type('****');
+    const puts = p.sent.length;
     await p.save();
-    out.putBack = p.toasts;
+    out.putBack = [p.toasts, p.sent.length - puts];
     p = await open();
-    await p.save();
-    out.savedAgain = p.toasts;
+    out.savedAgain = [(await p.save()), p.toasts];
     p = await open();
-    p.stored = () => Promise.resolve({ plex_token: '****' });
     await p.discard();
     out.discarded = [p.token.value, p.toasts];
     p = await open();

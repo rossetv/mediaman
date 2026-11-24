@@ -18,9 +18,12 @@
  *   MM.settings.diskThresholds.init({ selectedLibs, diskThresholds })
  *   MM.settings.diskThresholds.getSelectedLibs()
  *   MM.settings.diskThresholds.state() / restore(state) — for save and Discard
- *   MM.settings.diskThresholds.changes(from, to, also)  — for collectSettings
+ *   MM.settings.diskThresholds.show(state)              — draws it round what is being typed
+ *   MM.settings.diskThresholds.changes(from, to)        — for collectSettings
  *   MM.settings.diskThresholds.fromServer(data)         — a state, from what the server has
- *   MM.settings.diskThresholds.adopt(sent, reply)       — takes in what a save stored
+ *   MM.settings.diskThresholds.things(state)            — each library's selection and limit by its own key
+ *   MM.settings.diskThresholds.rebase(mine, stored, keep) — `stored` with the kept things of `mine`
+ *   MM.settings.diskThresholds.titleOf(id)
  */
 (function () {
   'use strict';
@@ -321,23 +324,13 @@
     });
   }
 
-  // Blank fields sent for an entry the scanner cannot read would have its library scanned.
-  function canBeSentBack(cfg) {
-    if (UNREADABLE) return false;
-    if (!cfg) return true;
-    var limit = shown(cfg).threshold;
-    return isObject(cfg) && (!cfg.path || typeof cfg.path === 'string') &&
-      String(cfg.threshold || 0) === String(limit) && limit >= 0 && limit <= 100;
-  }
-
-  // The entries that differ, and those of `also` (an object by library id), or null. A cleared
-  // one is blank, not left out: the server keeps the threshold of a library it is not sent.
-  function changes(from, to, also) {
+  // The entries that differ, or null. A cleared one is blank, not left out: the
+  // server keeps the threshold of a library it is not sent.
+  function changes(from, to) {
     var out = null;
-    Object.keys(Object.assign({}, from, to, also)).forEach(function (libId) {
+    Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
       var now = shown(to[libId]);
-      var sentAnyway = also && also[libId] && canBeSentBack(from[libId]);
-      if (same(shown(from[libId]), now) && !sentAnyway) return;
+      if (same(shown(from[libId]), now)) return;
       out = out || {};
       out[libId] = now;
     });
@@ -417,28 +410,41 @@
     };
   }
 
-  // A save may store more than this page sent, such as another page's choices. They are shown
-  // here too, under whatever was clicked or typed since `sent`. Returns what is stored.
-  function adopt(sent, reply) {
-    var stored = fromServer(reply);
-    keepTyped();
-    function has(libs, id) { return libs.indexOf(id) !== -1; }
-    function clicked(id) { return has(sent.libs, id) !== has(SELECTED_LIBS, id); }
-    var mine = SELECTED_LIBS.filter(clicked);
-    SELECTED_LIBS = stored.libs
-      .filter(function (id) { return !clicked(id); })
-      .concat(mine);
-    var typed = DISK_THRESHOLDS;
-    DISK_THRESHOLDS = {};
-    Object.keys(Object.assign({}, typed, stored.disk)).forEach(function (id) {
-      var now = same(shown(typed[id]), shown(sent.disk[id])) ? stored.disk[id] : typed[id];
-      if (now !== undefined) DISK_THRESHOLDS[id] = copy(now);
+  // `lib:<id>` for each library selected and `limit:<id>` for each entry that is not blank.
+  function things(state) {
+    var out = {};
+    state.libs.forEach(function (id) { out['lib:' + id] = true; });
+    Object.keys(state.disk).forEach(function (id) {
+      var cfg = shown(state.disk[id]);
+      if (cfg.path || cfg.threshold) out['limit:' + id] = cfg.threshold + ' ' + cfg.path;
     });
-    if (LOADED) {
-      paintPills();
-      renderDiskRows();
-    }
-    return stored;
+    return out;
+  }
+
+  function rebase(mine, stored, keep) {
+    function kept(id) { return keep('lib:' + id); }
+    var disk = {};
+    Object.keys(Object.assign({}, mine.disk, stored.disk)).forEach(function (id) {
+      var entry = (keep('limit:' + id) ? mine : stored).disk[id];
+      if (entry !== undefined) disk[id] = entry;
+    });
+    return {
+      libs: stored.libs.filter(function (id) { return !kept(id); }).concat(mine.libs.filter(kept)),
+      disk: copy(disk),
+    };
+  }
+
+  function show(state) {
+    SELECTED_LIBS = copy(state.libs);
+    DISK_THRESHOLDS = copy(state.disk);
+    if (!LOADED) return;
+    paintPills();
+    renderDiskRows();
+  }
+
+  function titleOf(id) {
+    var lib = PLEX_LIBRARIES.filter(function (l) { return String(l.id) === id; })[0];
+    return lib ? lib.title : 'library ' + id;
   }
 
   MM.settings.diskThresholds = {
@@ -446,8 +452,11 @@
     state: state,
     restore: restore,
     changes: changes,
-    adopt: adopt,
+    show: show,
+    things: things,
+    rebase: rebase,
     fromServer: fromServer,
+    titleOf: titleOf,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };
 })();
