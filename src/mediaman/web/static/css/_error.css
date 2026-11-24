@@ -3,6 +3,10 @@
 
 .err-card { text-align: center; }
 
+.err-brand { font-size: 20px; margin-bottom: 24px; }
+.err-brand a { border-radius: var(--r-xs); }
+.err-brand a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
 .err-code {
   font-family: var(--font-display);
   font-size: 64px;
@@ -26,7 +30,22 @@
   line-height: 1.5;
   margin: 0 0 28px;
 }
+.err-title,
+.err-msg { text-wrap: balance; }
+
+.err-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 
 @media (max-width: 479.98px) {
   .login-card.err-card { padding: 36px 24px; }
+}
+
+/* A phone held sideways: the card and its buttons on one screen. */
+@media (max-height: 500px) {
+  .login-card.err-card { padding: 24px; }
+  .err-brand { margin-bottom: 10px; }
+  .err-code { font-size: 44px; margin-bottom: 10px; }
+  .err-msg { margin-bottom: 18px; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .login-page:has(> .err-card) { padding-block: 16px; }
 }

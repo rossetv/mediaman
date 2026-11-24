@@ -123,3 +123,22 @@ def test_a_cookie_post_with_no_origin_is_refused_the_same_way(client):
     assert page.status_code == plain.status_code == 403
     assert "Request blocked" in page.text
     assert plain.text == "CSRF: origin required for cookie-authenticated requests"
+
+
+def test_a_crashed_page_offers_to_try_again_and_a_missing_one_does_not(client):
+    assert 'href="">Try again<' in client.get("/boom", headers=_HTML).text
+    assert "Try again" not in client.get("/no/such/page", headers=_HTML).text
+
+
+def test_a_crashed_form_is_not_offered_a_retry_that_would_not_send_it(client):
+    client.app.add_api_route("/crash", lambda: 1 / 0, methods=["POST"])
+
+    resp = client.post("/crash", headers={**_HTML, "Origin": "http://testserver"})
+
+    assert resp.status_code == 500
+    assert "Something went wrong" in resp.text
+    assert "Try again<" not in resp.text
+
+
+def test_an_error_page_carries_the_wordmark(client):
+    assert "media<b>man</b>" in client.get("/no/such/page", headers=_HTML).text

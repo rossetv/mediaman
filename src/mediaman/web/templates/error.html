@@ -7,10 +7,18 @@
 {% block content %}
 <div class="login-page">
   <div class="login-card err-card">
+    <div class="login-brand err-brand"><a href="/">media<b>man</b></a></div>
     <div class="err-code" aria-hidden="true">{{ status }}</div>
     <h1 class="err-title">{{ title }}</h1>
     <p class="err-msg">{{ message }}</p>
-    <a class="btn btn--primary btn--lg" href="/">Back to mediaman</a>
+    <div class="err-actions">
+      {% if status == 500 and request.method == "GET" %}
+      <a class="btn btn--primary btn--lg" href="">Try again</a>
+      <a class="btn btn--ghost btn--lg" href="/">Back to mediaman</a>
+      {% else %}
+      <a class="btn btn--primary btn--lg" href="/">Back to mediaman</a>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endblock %}
