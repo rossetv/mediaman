@@ -9,6 +9,7 @@ import requests
 
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION
 from mediaman.core.time import now_utc
+from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.repository.delete_intents import build_verify_gone
 from mediaman.web.routes.library import router as library_router
@@ -298,6 +299,40 @@ class TestReconcilePendingDeleteIntents:
         assert (
             reconcile_pending_delete_intents(conn, started_before="9999-01-01T00:00:00+00:00") == 1
         )
+
+    def test_a_delete_whose_cleanup_failed_is_booked_though_plex_drops_the_item_first(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+        with (
+            patch(RADARR, return_value=_radarr()),
+            patch(
+                "mediaman.web.routes.library_api.delete.finalise_delete_in_tx",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(sqlite3.OperationalError),
+        ):
+            client.post("/api/media/m1/delete")
+        library = conn.execute("SELECT plex_library_id FROM media_items").fetchone()[0]
+        listed = {f"other-{i}" for i in range(5)}
+
+        remove_orphans(conn, listed, {library})
+        reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True)
+
+        assert "deleted" in _audit_actions(conn, "m1")
+        assert conn.execute("SELECT title FROM deleted_media").fetchone()
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
+
+    def test_an_item_whose_delete_was_closed_goes_when_plex_drops_it(self, conn):
+        _insert_movie(conn)
+        _complete_delete_intent(conn, _record_delete_intent(conn, "m1", "radarr", "42"))
+        library = conn.execute("SELECT plex_library_id FROM media_items").fetchone()[0]
+
+        remove_orphans(conn, {f"other-{i}" for i in range(5)}, {library})
+
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
 
     def test_reconcile_is_idempotent(self, conn):
         """Running reconcile twice is safe; second run resolves nothing new."""
