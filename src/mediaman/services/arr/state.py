@@ -372,7 +372,7 @@ def annotate_download_states(
 
     try:
         radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+    except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
         logger.warning(
             "Radarr cache build failed; search results will not reflect Radarr state",
             exc_info=True,
@@ -381,7 +381,7 @@ def annotate_download_states(
 
     try:
         sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+    except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
         logger.warning(
             "Sonarr cache build failed; search results will not reflect Sonarr state",
             exc_info=True,

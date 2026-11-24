@@ -7,7 +7,10 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.downloads.download_queue import _reset_previous_queue
+from mediaman.services.downloads.nzbget import NzbgetClient
 from mediaman.web.routes.downloads import router as downloads_router
 
 _DOWN = requests.ConnectionError("http://10.0.0.9:7878 refused")
@@ -61,6 +64,32 @@ def test_every_service_down_is_named_without_internals(services, client):
 def test_a_list_radarr_gives_only_in_part_counts_as_unreachable(services, client):
     services[0].get_movies.side_effect = _DOWN
     assert _get(client)["unreachable"] == ["Radarr"]
+
+
+@pytest.mark.parametrize("service", ["Radarr", "Sonarr", "NZBGet"])
+@pytest.mark.parametrize("answer", [{"error": "x"}, ["x"], {"records": ["x"], "totalRecords": 1}])
+def test_a_service_that_answers_with_the_wrong_shape_is_unreachable(
+    client, monkeypatch, services, fake_http, fake_response, service, answer
+):
+    broken = {
+        "Radarr": ("arr.build.build_radarr_from_db", ArrClient(RADARR_SPEC, "http://r", "k")),
+        "Sonarr": ("arr.build.build_sonarr_from_db", ArrClient(SONARR_SPEC, "http://s", "k")),
+        "NZBGet": (
+            "downloads.download_queue.build_nzbget_from_db",
+            NzbgetClient("http://n", "u", "p"),
+        ),
+    }
+    target, real = broken[service]
+    monkeypatch.setattr(f"mediaman.services.{target}", lambda *a: real)
+    if service == "NZBGet":
+        fake_http.queue("POST", fake_response(json_data={"result": {}}))
+        answer = {"result": answer}
+    fake_http.default(fake_response(json_data=answer))
+
+    resp = client.get("/api/downloads")
+
+    assert resp.status_code == 200
+    assert resp.json()["unreachable"] == [service]
 
 
 def test_the_subtitle_names_the_outage_beside_what_is_in_progress(services, client):

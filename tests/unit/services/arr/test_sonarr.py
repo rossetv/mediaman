@@ -326,11 +326,44 @@ class TestArrClientSonarr:
         assert "episode?seriesId=42" in get_call[1]
         assert result[0]["id"] == 1
 
-    def test_get_episodes_returns_empty_list_on_non_list_response(
-        self, client, fake_http, fake_response
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda c: c.get_series(),
+            lambda c: c.get_series_by_tvdb(1),
+            lambda c: c.get_episodes(1),
+            lambda c: c.get_episode_files(1),
+            lambda c: c.lookup_series_by_tmdb(1),
+            lambda c: c.add_series_with_seasons(1, "T", [1]),
+        ],
+        ids=["series", "by_tvdb", "episodes", "files", "lookup", "add_lookup"],
+    )
+    @pytest.mark.parametrize("answer", [{"error": "x"}, ["x"], [None, {"id": 1}], "x"])
+    def test_an_answer_that_is_no_list_of_objects_is_an_error(
+        self, client, fake_http, fake_response, read, answer
     ):
-        fake_http.queue("GET", fake_response(json_data={"error": "unexpected"}))
-        assert client.get_episodes(1) == []
+        client._root_folder_cache, client._quality_profile_cache = "/tv", 1
+        fake_http.default(fake_response(json_data=answer))
+        with pytest.raises(ArrUpstreamError):
+            read(client)
+
+    @pytest.mark.parametrize("read", ["get_queue", "get_missing_series"])
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            [],
+            {"error": "x"},
+            {"records": None, "totalRecords": 0},
+            {"records": ["x"], "totalRecords": 1},
+            {"records": [{"id": 1}], "totalRecords": "1"},
+        ],
+    )
+    def test_a_page_that_is_no_page_of_objects_is_an_error(
+        self, client, fake_http, fake_response, read, answer
+    ):
+        fake_http.default(fake_response(json_data=answer))
+        with pytest.raises(ArrUpstreamError):
+            getattr(client, read)()
 
     def test_add_series_sends_correct_payload(self, client, fake_http, fake_response):
         # GET /rootfolder + GET /qualityprofile (in that order) — both must be present.

@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
-from mediaman.services.arr.base import SeasonsNotListed
+from mediaman.services.arr.base import ArrClient, ArrUpstreamError, SeasonsNotListed
+from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_subscriber
 
@@ -815,6 +816,39 @@ class TestDetailEndpoint:
         assert data["sonarr_tracked"] is True
         by_num = {s["season_number"]: s["in_library"] for s in data["seasons"]}
         assert by_num == {1: True, 2: False}
+
+    @pytest.mark.parametrize(("kind", "service"), [("movie", "radarr"), ("tv", "sonarr")])
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_detail_opens_when_the_arr_answers_with_the_wrong_shape(
+        self, _ratings, authed_client, fake_http, fake_response, kind, service
+    ):
+        payload = _tmdb_movie_payload() if kind == "movie" else _tmdb_tv_payload()
+        fake_http.default(fake_response(json_data=payload))
+        arr = ArrClient(RADARR_SPEC if kind == "movie" else SONARR_SPEC, "http://arr", "k")
+        with patch(f"mediaman.web.routes.search.detail.build_{service}_from_db", return_value=arr):
+            resp = authed_client.get(f"/api/search/detail/{kind}/1")
+        assert resp.status_code == 200
+        assert resp.json()["download_state"] is None
+
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_tv_detail_knows_a_held_show_when_the_lookup_answers_with_the_wrong_shape(
+        self, _ratings, authed_client, fake_http, fake_response
+    ):
+        fake_http.default(fake_response(json_data=_tmdb_tv_payload()))
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = []
+        sonarr.get_series.return_value = [
+            {
+                "tmdbId": 12345,
+                "tvdbId": 9,
+                "seasons": [{"seasonNumber": 1, "statistics": {"episodeFileCount": 9}}],
+            }
+        ]
+        sonarr.lookup_series_by_tmdb.side_effect = ArrUpstreamError("not a list")
+        with patch("mediaman.web.routes.search.detail.build_sonarr_from_db", return_value=sonarr):
+            data = authed_client.get("/api/search/detail/tv/12345").json()
+        assert data["sonarr_tracked"] is True
+        assert [s["in_library"] for s in data["seasons"]] == [True, False]
 
     def test_rejects_invalid_media_type(self, authed_client):
         resp = authed_client.get("/api/search/detail/foo/1")

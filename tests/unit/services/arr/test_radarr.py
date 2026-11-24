@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient, ArrConfigError
+from mediaman.services.arr.base import ArrClient, ArrConfigError, ArrUpstreamError
 from mediaman.services.arr.spec import RADARR_SPEC
+from mediaman.services.arr.state import add_or_remonitor_movie
 
 
 @pytest.fixture
@@ -245,6 +246,27 @@ class TestArrClientRadarr:
         result = client.get_queue()
         assert len(result) == 501
         assert len([c for c in fake_http.calls if c[0] == "GET"]) == 2
+
+    @pytest.mark.parametrize(
+        "read",
+        [lambda c: c.get_movies(), lambda c: c.get_movie_by_tmdb(1)],
+        ids=["movies", "by_tmdb"],
+    )
+    @pytest.mark.parametrize("answer", [{"error": "x"}, ["x"], [None, {"id": 1}], "x"])
+    def test_an_answer_that_is_no_list_of_objects_is_an_error(
+        self, client, fake_http, fake_response, read, answer
+    ):
+        fake_http.default(fake_response(json_data=answer))
+        with pytest.raises(ArrUpstreamError):
+            read(client)
+
+    def test_a_movie_is_not_added_when_radarr_does_not_say_whether_it_holds_it(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.default(fake_response(json_data={"error": "x"}))
+        with pytest.raises(ArrUpstreamError):
+            add_or_remonitor_movie(client, 1, "Dune")
+        assert _find_call(fake_http, "POST") is None
 
     def test_get_queue_empty_returns_empty_list(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"records": [], "totalRecords": 0}))

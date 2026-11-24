@@ -28,8 +28,7 @@ class _RadarrMixin:
 
     def get_movies(self) -> list[RadarrMovie]:
         self._require_movie("get_movies")  # type: ignore[attr-defined]
-        data = self._get("/api/v3/movie")  # type: ignore[attr-defined]
-        return cast(list[RadarrMovie], data) if isinstance(data, list) else []
+        return cast(list[RadarrMovie], self._get_list("/api/v3/movie"))  # type: ignore[attr-defined]
 
     def get_movie_by_id(self, movie_id: int) -> RadarrMovie:
         """Return a single movie by its Radarr ID.
@@ -148,9 +147,8 @@ class _RadarrMixin:
         matching library entries.
         """
         self._require_movie("get_movie_by_tmdb")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/movie?tmdbId={tmdb_id}")  # type: ignore[attr-defined]
-        if not isinstance(data, list) or not data:
+        data = self._get_list(f"/api/v3/movie?tmdbId={tmdb_id}")  # type: ignore[attr-defined]
+        if not data:
             logger.debug("get_movie_by_tmdb: no match for tmdb_id=%s", tmdb_id)
             return None
-        first = data[0]
-        return cast(RadarrMovie, first) if isinstance(first, dict) else None
+        return cast(RadarrMovie, data[0])

@@ -117,6 +117,28 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
+    # Any: entries of an arbitrary *arr list endpoint; callers cast() to the right _types TypedDict.
+    def _get_list(self, path: str) -> list[dict[str, Any]]:
+        """GET a list of objects, raising ``ArrUpstreamError`` for anything else.
+
+        Read as "holds nothing", a wrong answer would add, delete or close what is there.
+        """
+        return self._object_list(self._get(path), path)
+
+    def _get_page(self, path: str) -> tuple[list[dict[str, Any]], int]:
+        """GET one page of a paged endpoint as ``(records, totalRecords)``; raises like ``_get_list``."""
+        data = self._get(path)
+        total = data.get("totalRecords") if isinstance(data, dict) else None
+        if not isinstance(data, dict) or not isinstance(total, int):
+            raise ArrUpstreamError(f"Arr returned no page of records for {path}")
+        return self._object_list(data.get("records"), path), total
+
+    @staticmethod
+    def _object_list(data: object, path: str) -> list[dict[str, Any]]:
+        if not isinstance(data, list) or not all(isinstance(entry, dict) for entry in data):
+            raise ArrUpstreamError(f"Arr did not return a list of objects for {path}")
+        return data
+
     def _put(self, path: str, data: Mapping[str, Any]) -> None:
         """Perform an authenticated PUT.  Sets ``last_error`` on failure."""
         try:

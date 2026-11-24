@@ -10,6 +10,8 @@ from __future__ import annotations
 import sqlite3
 from unittest.mock import MagicMock, patch
 
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.arr.state import annotate_download_states, is_series_already_tracked
 
 
@@ -91,6 +93,33 @@ class TestAnnotateDownloadStates:
             annotate_download_states([result], conn, "secret")
 
         assert result["download_state"] is None
+
+    def test_a_service_that_answers_with_the_wrong_shape_hides_only_its_own_states(
+        self, fake_http, fake_response
+    ):
+        fake_http.default(fake_response(json_data={"error": "x"}))
+        broken = ArrClient(RADARR_SPEC, "http://radarr", "k")
+        sonarr = MagicMock()
+        sonarr.get_series.return_value = [{"tmdbId": 2, "monitored": True}]
+        sonarr.get_queue.return_value = []
+        results = [
+            {"tmdb_id": 1, "media_type": "movie", "download_state": None},
+            {"tmdb_id": 2, "media_type": "tv", "download_state": None},
+        ]
+        with (
+            patch("mediaman.services.arr.build.build_radarr_from_db", return_value=broken),
+            patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=sonarr),
+        ):
+            annotate_download_states(results, self._make_conn(), "secret")
+        assert [r["download_state"] for r in results] == [None, "queued"]
+
+        broken = ArrClient(SONARR_SPEC, "http://sonarr", "k")
+        with (
+            patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+            patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=broken),
+        ):
+            annotate_download_states(results, self._make_conn(), "secret")
+        assert [r["download_state"] for r in results] == [None, None]
 
     def test_radarr_error_leaves_state_none(self):
         """A Radarr cache build failure leaves download_state untouched (=None)."""

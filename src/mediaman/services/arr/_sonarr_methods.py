@@ -85,8 +85,7 @@ class _SonarrMixin:
 
     def get_series(self) -> list[SonarrSeries]:
         self._require_series("get_series")  # type: ignore[attr-defined]
-        data = self._get("/api/v3/series")  # type: ignore[attr-defined]
-        return cast(list[SonarrSeries], data) if isinstance(data, list) else []
+        return cast(list[SonarrSeries], self._get_list("/api/v3/series"))  # type: ignore[attr-defined]
 
     def get_series_by_id(self, series_id: int) -> SonarrSeries:
         """Return a single series by its Sonarr ID.
@@ -108,22 +107,21 @@ class _SonarrMixin:
         which returns a (possibly empty) list of matching library entries.
         """
         self._require_series("get_series_by_tvdb")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/series?tvdbId={tvdb_id}")  # type: ignore[attr-defined]
-        if not isinstance(data, list) or not data:
+        data = self._get_list(f"/api/v3/series?tvdbId={tvdb_id}")  # type: ignore[attr-defined]
+        if not data:
             logger.debug("get_series_by_tvdb: no match for tvdb_id=%s", tvdb_id)
             return None
-        first = data[0]
-        return cast(SonarrSeries, first) if isinstance(first, dict) else None
+        return cast(SonarrSeries, data[0])
 
     def get_episodes(self, series_id: int) -> list[ArrEpisode]:
         self._require_series("get_episodes")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[ArrEpisode], data) if isinstance(data, list) else []
+        data = self._get_list(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
+        return cast(list[ArrEpisode], data)
 
     def get_episode_files(self, series_id: int) -> list[ArrEpisodeFile]:
         self._require_series("get_episode_files")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[ArrEpisodeFile], data) if isinstance(data, list) else []
+        data = self._get_list(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
+        return cast(list[ArrEpisodeFile], data)
 
     def unmonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *season_number* of *series_id*.
@@ -269,13 +267,10 @@ class _SonarrMixin:
         page_size = 250
         max_pages = 100
         for _ in range(max_pages):  # hard cap to prevent runaway paging
-            data = self._get(  # type: ignore[attr-defined]
+            records, total = self._get_page(  # type: ignore[attr-defined]
                 f"/api/v3/wanted/missing?page={page}&pageSize={page_size}"
                 "&includeSeries=true&monitored=true"
             )
-            if not isinstance(data, dict):
-                break
-            records = data.get("records") or []
             if not records:
                 break
             for rec in records:
@@ -284,7 +279,6 @@ class _SonarrMixin:
                 title = series.get("title", "")
                 if sid and sid not in out:
                     out[sid] = title
-            total = data.get("totalRecords") or 0
             if page * page_size >= total:
                 break
             page += 1
@@ -369,7 +363,7 @@ class _SonarrMixin:
 
         lookup = cast(
             list[ArrLookupResult],
-            self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"),  # type: ignore[attr-defined]
+            self._get_list(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"),  # type: ignore[attr-defined]
         )
         if not lookup:
             raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
