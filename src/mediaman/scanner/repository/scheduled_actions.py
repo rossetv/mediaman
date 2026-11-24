@@ -419,10 +419,8 @@ def fetch_unbooked_media_ids(conn: sqlite3.Connection) -> set[str]:
     Includes those deleted through Radarr/Sonarr whose delete intent is open:
     the reconcile books them from their rows.
     """
-    # rationale: the interpolated condition is a fixed string
-    begun = conn.execute(  # nosec B608
-        "SELECT sa.media_item_id FROM scheduled_actions sa "
-        f"WHERE sa.delete_status = 'deleting' OR {_HAS_INTENT} "
+    begun = conn.execute(
+        "SELECT media_item_id FROM scheduled_actions WHERE delete_status = 'deleting' "
         "UNION SELECT media_item_id FROM delete_intents WHERE completed_at IS NULL"
     )
     return {row["media_item_id"] for row in begun} | {

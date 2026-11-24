@@ -146,10 +146,18 @@ def _stamp(path: str) -> list[int] | None:
     return [found.st_ino, found.st_ctime_ns, folder.st_ino]
 
 
-def _in_same_folder(path: str, stamp: list[int]) -> bool:
-    """Return True when the folder *path* was stamped in is there, so not a bare mount point."""
+def _saw_it_go(path: str, stamp: list[int]) -> bool:
+    """Return True when the folder *path* was in is there and no longer holds its file.
+
+    A folder moved away, or the bare mount point of one unmounted, tells nothing; nor
+    does one that holds the file under another name.
+    """
+    inode, _, folder_inode = stamp
+    folder = os.path.dirname(path)
     try:
-        return os.stat(os.path.dirname(path)).st_ino == stamp[-1]
+        with os.scandir(folder) as entries:
+            there = [entry.inode() for entry in entries]
+        return inode not in there and (bool(there) or os.stat(folder).st_ino == folder_inode)
     except OSError:
         return False
 
@@ -168,51 +176,78 @@ def _stamps(rows: list[DeletionRow]) -> dict[str, list[int] | None]:
 
 def _settle_intent(
     conn: sqlite3.Connection, row: DeletionRow, allowed_roots: list[str]
-) -> DeletionRow:
+) -> DeletionRow | None:
     """Return *row* with the files its cut-off removal took recorded as removed.
 
-    Those are the files it was about to remove that are gone, or that another
-    file took the place of since. Their bytes are not credited: nobody counted
-    them. Nothing is recorded while the disk cannot say, so the row still
-    has its intent and is held.
+    Those are the files it was about to remove that are gone from their
+    folder. Their bytes are not credited: nobody counted them. While the disk
+    cannot say what became of one, nothing is recorded, so the row still has
+    its intent and is held until a scan says where its files are.
+
+    Any other file at such a path, or a tracked one that was not there, may be a
+    new copy: nothing proves it is what was due. The deletion is then cancelled,
+    with only the files gone booked, so the item waits for a scan to schedule it
+    afresh, and None returned.
     """
     if not row.removal_intent:
         return row
+    expected = {path: stamp for path, stamp in row.removal_intent.items() if stamp}
     try:
-        taken = {
-            path: stamp
-            for path, stamp in row.removal_intent.items()
-            if stamp and _stamp(path) != stamp
-        }
+        now = {path: _stamp(path) for path in expected}
     except OSError:
         return row
-    absent = [
+    absent = {path for path, stamp in now.items() if stamp is None}
+    taken = {
         path
-        for path, stamp in taken.items()
-        if not os.path.lexists(path) and not _in_same_folder(path, stamp)
-    ]
-    if not all(path_within_delete_roots(path, allowed_roots) for path in taken) or (
-        _first_unavailable(absent, allowed_roots) is not None
-    ):
-        return row
-    if not taken:
-        clear_removal_intent(conn, row.id)
-        return replace(row, removal_intent={})
-    removed = row.removed_paths.union(taken)
-    left = (row.left_paths or frozenset()).union(row.removal_intent) - removed
-    sizes = {**row.removed_sizes, **_tracked_sizes(row)}
-    record_removed_files(conn, row.id, removed, row.removed_bytes, sizes, left)
-    return replace(
-        row, removed_paths=removed, removed_sizes=sizes, left_paths=left, removal_intent={}
+        for path in absent
+        if path_within_delete_roots(path, allowed_roots) and _saw_it_go(path, expected[path])
+    }
+    changed = any(stamp not in (None, expected[path]) for path, stamp in now.items()) or (
+        taken != absent
+        and any(
+            str(Path(path)) not in expected and os.path.lexists(path)
+            for path in tracked_paths(row) or []
+        )
     )
+    if not changed and taken != absent:
+        return row
+    if taken:
+        removed = row.removed_paths | taken
+        left = (row.left_paths or frozenset()).union(row.removal_intent) - removed
+        sizes = {**row.removed_sizes, **_tracked_sizes(row)}
+        record_removed_files(conn, row.id, removed, row.removed_bytes, sizes, left)
+        row = replace(row, removed_paths=removed, removed_sizes=sizes, left_paths=left)
+    else:
+        clear_removal_intent(conn, row.id)
+    row = replace(row, removal_intent={})
+    if not changed or row.action != DELETION_ACTION:
+        return row
+    logger.warning(
+        "engine.delete.files_changed id=%s media_id=%s path=%r — its removal was cut off and "
+        "its files are not those that were due; cancelling its deletion",
+        row.id,
+        row.media_item_id,
+        row.file_path,
+    )
+    if row.removed_paths:
+        book_deletion(conn, row, "Deleted (recovered)", row.removed_bytes or None)
+    repository.delete_scheduled_action(conn, row.id)
+    log_audit(
+        conn,
+        row.media_item_id,
+        "delete_refused",
+        f"Not deleted: {row.title} — its removal was cut off and its files changed since, so "
+        "its scheduled deletion is cancelled",
+    )
+    return None
 
 
 def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> list[DeletionRow]:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
     A row whose removal has no recorded outcome is reconciled too: the files it
-    was about to remove that are gone, or replaced since, count as removed by
-    it (_settle_intent).
+    was about to remove that are gone from their folder count as removed by it,
+    and one whose files are not those that were due is cancelled (_settle_intent).
 
     Called at the start of a *live* DeletionExecutor.execute pass
     (never under dry-run — a preview mutates nothing) and by the
@@ -265,7 +300,11 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
     allowed_roots = repository.read_delete_allowed_roots_setting(conn)
 
     for row in rows:
-        row = _settle_intent(conn, row, allowed_roots)
+        settled = _settle_intent(conn, row, allowed_roots)
+        if settled is None:
+            conn.commit()
+            continue
+        row = settled
         paths = tracked_paths(row)
         # A file this deletion removed is expected to be gone, whatever became of its
         # root since, and the folder walk after it may have emptied the folder above.

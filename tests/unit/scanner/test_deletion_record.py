@@ -245,6 +245,13 @@ class TestRecordWriteFails:
         assert _booked(conn) == [4]
 
 
+def _refused(conn, media_id="m1"):
+    return conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE media_item_id = ? AND action = 'delete_refused'",
+        (media_id,),
+    ).fetchone()[0]
+
+
 def _lose_the_record(conn, monkeypatch):
     """Run a pass that removes files and can record none of it, then let the process die."""
     with monkeypatch.context() as m:
@@ -291,7 +298,10 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert new_copy.exists()
         assert _action(conn) is None
-        assert _booked(conn) == [None]
+        if recovered_at_startup:
+            assert _booked(conn) == [None]
+        elif name == film.name:
+            assert _booked(conn) == []
         assert radarr.mock_calls == []
 
     def test_a_new_copy_put_there_with_the_old_times_is_told_apart(self, conn, film, monkeypatch):
@@ -321,6 +331,83 @@ class TestRemovalWithNoRecordedOutcome:
         assert _booked(conn) == [None]
         assert _action(conn) is None
         radarr.unmonitor_movie.assert_called_once_with(5)
+
+    @pytest.mark.parametrize("change", ["chmod", "hardlink", "inode"])
+    def test_a_file_still_there_is_not_booked_as_deleted(
+        self, conn, film, monkeypatch, tmp_path, change
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        if change == "chmod":
+            film.chmod(0o600)
+        elif change == "hardlink":
+            os.link(film, tmp_path / "seed.mkv")
+        else:
+            conn.execute(
+                "UPDATE scheduled_actions SET removed_files = "
+                "json_set(removed_files, '$.intent.\"' || ? || '\"[0]', 1)",
+                (str(film),),
+            )
+            conn.commit()
+        radarr = MagicMock()
+
+        for _ in range(2):
+            DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert film.exists()
+        assert _booked(conn) == []
+        assert _action(conn) is None
+        assert _refused(conn) == 1
+        assert radarr.mock_calls == []
+
+    @pytest.mark.parametrize("moved", ["folder", "file"])
+    def test_a_file_moved_away_is_not_booked_and_waits_for_a_scan(
+        self, conn, root, film, monkeypatch, moved
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        if moved == "folder":
+            new = film.parent.rename(root / "Film (2020) {tmdb-10}") / film.name
+        else:
+            new = film.rename(film.with_name("Film [1080p].mkv"))
+        radarr = MagicMock()
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert _booked(conn) == []
+        assert _action(conn) == ("scheduled_deletion", "pending")
+
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(new), "size": 4}]),),
+        )
+        conn.commit()
+        for _ in range(2):
+            DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert new.exists()
+        assert _booked(conn) == []
+        assert _action(conn) is None
+        assert radarr.mock_calls == []
+
+    def test_a_file_whose_folder_cannot_be_read_is_not_booked(self, conn, film, monkeypatch):
+        _lose_the_record(conn, monkeypatch)
+        with monkeypatch.context() as m:
+            m.setattr(deletions.os, "scandir", MagicMock(side_effect=PermissionError))
+            recover_stuck_deletions(conn)
+
+        assert _booked(conn) == []
+        assert _action(conn) == ("scheduled_deletion", "pending")
+
+    def test_an_item_plex_drops_goes_though_its_removal_is_unsettled(
+        self, conn, root, film, monkeypatch
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+
+        _scan(conn, root).sync_library()
+
+        assert not conn.execute("SELECT 1 FROM media_items WHERE id = 'm1'").fetchone()
 
     def test_a_removal_that_never_ran_is_carried_out_by_the_next_pass(
         self, conn, film, monkeypatch
