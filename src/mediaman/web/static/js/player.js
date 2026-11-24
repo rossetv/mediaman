@@ -78,7 +78,6 @@
     remaining: q('[data-remaining]'),
     qualityBtn: q('[data-quality-btn]'),
     fullscreen: q('[data-fullscreen]'),
-    fullscreenLabel: q('[data-fullscreen-label]'),
     upnext: q('[data-upnext]'),
     upnextFill: q('[data-upnext-fill]'),
     countdown: q('[data-countdown]'),
@@ -144,6 +143,12 @@
 
   function position() {
     return pendingStart !== null ? pendingStart : video.currentTime;
+  }
+
+  /* An icon control's name, and the same with its key as a tooltip. */
+  function setName(el, label, key) {
+    el.setAttribute('aria-label', label);
+    el.setAttribute('title', key ? label + ' (' + key + ')' : label);
   }
 
   /* ---- saved settings ------------------------------------------------- */
@@ -513,7 +518,7 @@
   function showPlayState() {
     var busy = wantPlaying && root.classList.contains('is-loading');
     var paused = (video.paused || video.ended) && !busy && countdownTimer === null;
-    els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    setName(els.play, paused ? 'Play' : 'Pause', 'Space');
     if (busy) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('.ico');
@@ -675,7 +680,7 @@
 
   function showVolume() {
     var silent = video.muted || video.volume === 0;
-    els.mute.setAttribute('aria-label', silent ? 'Unmute' : 'Mute');
+    setName(els.mute, silent ? 'Unmute' : 'Mute');
     MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
     els.volume.value = video.muted ? 0 : video.volume;
   }
@@ -825,11 +830,14 @@
 
   function showFullscreen() {
     var on = !!fullscreenElement();
-    els.fullscreen.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
-    els.fullscreenLabel.textContent = on ? 'Exit full screen' : 'Full screen';
+    setName(els.fullscreen, on ? 'Exit full screen' : 'Full screen', 'F');
+    MM.dom.setIcon(els.fullscreen.querySelector('.ico'), on ? 'i-compress' : 'i-expand');
   }
 
   els.fullscreen.addEventListener('click', toggleFullscreen);
+  video.addEventListener('dblclick', function () {
+    if (lastPointer === 'mouse') toggleFullscreen();
+  });
   document.addEventListener('fullscreenchange', showFullscreen);
   document.addEventListener('webkitfullscreenchange', showFullscreen);
 

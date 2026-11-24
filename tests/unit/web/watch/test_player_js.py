@@ -205,3 +205,21 @@ def test_the_seek_bar_answers_the_keys_of_a_slider(markup):
         "PageUp": 60,
         "PageDown": -60,
     }
+
+
+def test_full_screen_is_an_icon_that_follows_the_state(markup):
+    out = run(markup, "fullscreen")
+    enter = {"icon": "#i-expand", "label": "Full screen", "title": "Full screen (F)", "text": ""}
+    leave = {
+        "icon": "#i-compress",
+        "label": "Exit full screen",
+        "title": "Exit full screen (F)",
+        "text": "",
+    }
+    assert out["start"] == out["left"] == enter
+    assert out["entered"] == out["enteredWebkit"] == leave
+
+
+def test_the_button_f_and_a_double_click_ask_for_full_screen_but_a_double_tap_does_not(markup):
+    out = run(markup, "fullscreen")
+    assert (out["asked"], out["askedAfterTouch"]) == (3, 3)

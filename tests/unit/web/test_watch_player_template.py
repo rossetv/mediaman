@@ -150,3 +150,17 @@ def test_quality_menu_offers_the_three_choices():
     _, page = _render(EPISODE)
     choices = [a["data-quality"] for t, a in page.elements if "data-quality" in a]
     assert choices == ["best", "medium", "low"]
+
+
+@pytest.mark.parametrize("name", CONTEXTS)
+def test_icon_controls_show_no_words_but_carry_a_name_and_a_tooltip(name):
+    _, page = _render(CONTEXTS[name])
+    icons = [
+        (i, a)
+        for i, (t, a) in enumerate(page.elements)
+        if t in ("button", "a") and {"player-btn", "player-back"} & set(a["class"].split())
+    ]
+    assert any("data-fullscreen" in a for _, a in icons)
+    for i, a in icons:
+        assert page.text.get(i, "").strip() == ""
+        assert a["title"].startswith(a["aria-label"])

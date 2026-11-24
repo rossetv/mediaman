@@ -29,7 +29,7 @@
   <div class="player-spinner" data-spinner aria-hidden="true"></div>
 
   <div class="player-top player-chrome">
-    <a class="player-back" href="{{ back_href }}" aria-label="Back">
+    <a class="player-back" href="{{ back_href }}" aria-label="Back" title="Back">
       {{ icon("i-chevron-left") }}
     </a>
     <div class="player-titles">
@@ -67,13 +67,17 @@
     </div>
 
     <div class="player-controls">
-      <button type="button" class="player-btn" data-play aria-label="Play">
+      <button type="button" class="player-btn" data-play aria-label="Play" title="Play (Space)">
         {{ icon("i-play") }}<span class="player-btn-ring" aria-hidden="true" hidden></span>
       </button>
-      <button type="button" class="player-btn player-btn--text" data-back10 aria-label="Back 10 seconds">↺ 10</button>
-      <button type="button" class="player-btn player-btn--text" data-fwd10 aria-label="Forward 10 seconds">10 ↻</button>
+      <button type="button" class="player-btn player-btn--skip" data-back10 aria-label="Back 10 seconds" title="Back 10 seconds (←)">
+        {{ icon("i-back-10") }}
+      </button>
+      <button type="button" class="player-btn player-btn--skip" data-fwd10 aria-label="Forward 10 seconds" title="Forward 10 seconds (→)">
+        {{ icon("i-forward-10") }}
+      </button>
       <div class="player-volume">
-        <button type="button" class="player-btn" data-mute aria-label="Mute">
+        <button type="button" class="player-btn" data-mute aria-label="Mute" title="Mute">
           {{ icon("i-volume-high") }}
         </button>
         <input type="range" class="player-volume-slider" data-volume min="0" max="1" step="0.05" value="1" aria-label="Volume">
@@ -82,9 +86,8 @@
       <span class="player-spacer"></span>
 
       {% if next %}
-      <a class="player-pill" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}">
-        {{ icon("i-forward-step", "player-narrow") }}
-        <span class="player-wide">Next episode ›</span>
+      <a class="player-btn" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}" title="Next episode: {{ next.label }}">
+        {{ icon("i-forward-step") }}
       </a>
       {% endif %}
 
@@ -102,9 +105,8 @@
         </div>
       </div>
 
-      <button type="button" class="player-pill" data-fullscreen aria-label="Full screen">
-        {{ icon("i-expand", "player-narrow") }}
-        <span class="player-wide" data-fullscreen-label>Full screen</span>
+      <button type="button" class="player-btn" data-fullscreen aria-label="Full screen" title="Full screen (F)">
+        {{ icon("i-expand") }}
       </button>
     </div>
   </div>

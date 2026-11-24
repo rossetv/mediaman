@@ -165,7 +165,7 @@
   transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
 .player-btn:disabled { opacity: .4; cursor: default; }
-.player-btn--text { font-size: 14px; padding: 0 6px; }
+.player-btn--skip { font-size: 26px; }
 
 /* The play button while a stream loads to play. */
 .player-btn-ring {
@@ -238,8 +238,6 @@
   accent-color: var(--accent);
   cursor: pointer;
 }
-
-.player-narrow { display: none; }
 
 /* Small menus: quality (opens up) and keep (opens down). */
 .player-menu-wrap { position: relative; }
@@ -376,6 +374,5 @@
   .player-controls { gap: 2px; }
   .player-pill { padding: 0 10px; }
   .player-wide { display: none; }
-  .player-narrow { display: inline; }
   .player-upnext { left: 12px; right: 12px; width: auto; bottom: 120px; max-width: none; }
 }
