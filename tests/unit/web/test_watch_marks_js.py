@@ -197,3 +197,11 @@ def test_a_late_answer_about_the_show_s_page_never_brings_back_an_undone_mark() 
 
 def test_rows_whose_answer_came_too_late_follow_with_the_next_change() -> None:
     assert _run("lateRows") == ["movie/1", "episode/23", "movie/3"]
+
+
+def test_a_card_s_open_menu_closes_when_the_card_goes_and_another_s_stays() -> None:
+    out = _run("menuOfAGoneCard")
+    assert out["replaced"] == [False, "episode/23"]
+    assert out["undone"] is False
+    assert out["another"] == [True, True]
+    assert out["left"] == [False, "movie/1"]

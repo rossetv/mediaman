@@ -154,12 +154,18 @@
     var active = document.activeElement;
     if (document.documentElement.classList.contains('has-ttl')) return false;
     return !active || active === document.body || active.tagName === 'MAIN' || !document.body.contains(active) ||
-      !!(node && node.contains(active)) ||
-      !!(menuNode && menuNode.contains(active)) || !!active.closest('[inert], .ui-toast');
+      !!(node && node.contains(active)) || !!active.closest('[inert], .ui-toast');
+  }
+
+  /* A card that goes takes its open menu with it. */
+  function closeMenu(card) {
+    var trigger = moreMenu && moreMenu.trigger();
+    if (trigger && card.contains(trigger)) moreMenu.close(false);
   }
 
   function leaveContinue(ref, done) {
     continueCards(document, ref).forEach(function (card) {
+      closeMenu(card);
       var lost = focusLost(card);
       var taken = keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '[data-watch-more]');
       done.undos.push(taken.undo);
@@ -169,11 +175,13 @@
 
   /* The card moves on to what the server now has in its place. */
   function replaceCard(card, fresh, done) {
+    closeMenu(card);
     var lost = focusLost(card);
     card.replaceWith(fresh);
     core.fadeIn(fresh);
     done.undos.push(function () {
       if (!fresh.parentNode) return null;
+      closeMenu(fresh);
       fresh.replaceWith(card);
       core.fadeIn(card);
       return card.querySelector('[data-watch-more]');
@@ -463,6 +471,7 @@
 
   var WHAT = { movie: '', episode: 'episode ', season: 'season ', show: 'show ' };
   var menuNode = null;
+  var moreMenu = null;
 
   function menuItem(act, iconName, label) {
     var item = el('button', 'watch-keep-menu__item');
@@ -499,7 +508,7 @@
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
     page.appendChild(menuNode);
-    keep.menu(menuNode, {
+    moreMenu = keep.menu(menuNode, {
       trigger: '[data-watch-more]',
       canOpen: function (trigger) { return trigger.getAttribute('aria-disabled') !== 'true'; },
       fill: fillMenu,

@@ -109,6 +109,8 @@ function load(page, opts = {}) {
       await settle();
     },
     async undo() { toasts[toasts.length - 1].undo(); await settle(); },
+    // Dismissed from somewhere else than its card, as the hover preview does.
+    dismissed(ref) { click(doc, doc.body.appendChild(build(doc, ['button', { 'data-watch-dismiss': ref, 'data-mark-name': ref }]))); },
     banner: () => doc.querySelectorAll('.watch-banner__title').map((t) => t.textContent),
     focus: () => { const a = doc.activeElement; const c = a.closest('.watch-card'); return c ? c.getAttribute('data-mark') : a.className || a.tagName; },
   };
@@ -365,6 +367,36 @@ const scenarios = {
     first.send(watchPage([row('cont', CONTINUE)]));
     await settle();
     return p.marks('cont');
+  },
+
+  // A card gives way with its menu open: by its mark, by the Undo, and by leaving.
+  async menuOfAGoneCard() {
+    const first = later();
+    let sent = first.answer;
+    const episode = card('episode/23', 'Brightwater', 'S1 · E3', { dismiss: 'show-2' });
+    const p = load(watchPage([row('cont', CONTINUE)]), { next: () => sent });
+    const open = () => p.doc.getElementById('watch-more-menu').classList.contains('is-open');
+    await p.pick(p.cards()[1], 'mark');
+    p.open(p.cards()[1]);
+    first.send(watchPage([row('cont', [CONTINUE[0], episode, CONTINUE[2]])]));
+    await settle();
+    const replaced = [open(), p.focus()];
+    p.open(p.cards()[1]);
+    sent = watchPage([row('cont', CONTINUE)]);
+    await p.undo();
+    const undone = open();
+    p.open(p.cards()[1]);
+    p.dismissed('movie-3');
+    p.open(p.cards()[1]);
+    await settle();
+    const another = [open(), !!p.doc.activeElement.closest('#watch-more-menu')];
+    const last = later();
+    sent = last.answer;
+    await p.pick(p.cards()[1], 'mark');
+    p.open(p.cards()[1]);
+    last.send(watchPage([]));
+    await settle();
+    return { replaced, undone, another, left: [open(), p.focus()] };
   },
 };
 
