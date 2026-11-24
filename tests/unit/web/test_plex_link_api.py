@@ -859,14 +859,14 @@ def test_unlinking_is_the_persons_own_and_needs_no_password(client_for, conn):
 
 def test_an_admin_sees_who_is_linked_and_can_unlink_but_not_which_account(client_for, conn):
     client_for("amy")
-    repository.save_link(conn, "amy", PlexIdentity(555, 555, "secretname"), SERVER_ID, ip="")
+    repository.save_link(conn, "amy", PlexIdentity(3141592653, 3141592653, "secretname"), SERVER_ID, ip="")
     boss = client_for("boss", role="admin")
     repository.save_link(conn, "boss", PlexIdentity(7, 7, "own"), SERVER_ID, ip="")
     resp = boss.get("/api/users/plex-links")
     (entry,) = resp.json()["links"]
     assert entry["username"] == "amy"
     assert "secretname" not in resp.text
-    assert "555" not in resp.text
+    assert "3141592653" not in resp.text
     assert boss.delete(f"/api/users/{entry['id']}/plex-link").status_code == 200
     assert repository.get_link(conn, "amy") is None
     assert any("actor=boss" in line and "amy" in line for line in audit(conn))
