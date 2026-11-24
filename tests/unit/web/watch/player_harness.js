@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const PLAYER_JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/player.js');
+const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const VOID = { input: 1, br: 1, img: 1, meta: 1, link: 1, source: 1 };
 
 /* ---- fake DOM ------------------------------------------------------------ */
@@ -88,6 +88,7 @@ class Element extends Node {
   setAttribute(n, v) { this.attrs[n] = String(v); }
   removeAttribute(n) { delete this.attrs[n]; }
   hasAttribute(n) { return n in this.attrs; }
+  toggleAttribute(n, on) { if (on) this.attrs[n] = ''; else delete this.attrs[n]; }
   get id() { return this.attrs.id || ''; }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
@@ -290,7 +291,7 @@ function boot(html, reduced) {
   win.window = win;
   win.navigator = win.navigator;
   const ctx = vm.createContext(win);
-  vm.runInContext(fs.readFileSync(PLAYER_JS, 'utf8'), ctx, { filename: 'player.js' });
+  ['core/dom.js', 'player.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f }));
 
   const root = doc.getElementById('player');
   return {
@@ -323,7 +324,13 @@ async function streamPlays(p, pos) {
 
 function playState(p) {
   const btn = p.q('[data-play]');
-  return { label: btn.getAttribute('aria-label'), busy: btn.getAttribute('aria-busy'), icon: btn.querySelector('i').className };
+  const icon = btn.querySelector('.ico');
+  return {
+    label: btn.getAttribute('aria-label'),
+    busy: btn.getAttribute('aria-busy'),
+    icon: icon.hasAttribute('hidden') ? null : icon.querySelector('use').getAttribute('href'),
+    ring: !btn.querySelector('.player-btn-ring').hidden,
+  };
 }
 
 function holdState(p) {

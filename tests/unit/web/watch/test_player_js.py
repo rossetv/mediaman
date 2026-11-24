@@ -68,11 +68,13 @@ def test_a_quality_switch_shows_loading_rather_than_pause(markup):
     loading = out["whileLoading"]
     assert loading["loading"] is True
     assert loading["play"]["busy"] == "true"
-    assert "fa-pause" not in loading["play"]["icon"]
+    assert loading["play"]["icon"] is None
+    assert loading["play"]["ring"] is True
     assert out["afterPlaying"]["play"] == {
         "label": "Pause",
         "busy": None,
-        "icon": "fa-solid fa-pause",
+        "icon": "#i-pause",
+        "ring": False,
     }
 
 

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
 
 {% block title %}{{ movie.title if movie else "Watch" }} · Mediaman{% endblock %}
@@ -29,7 +30,7 @@
       {% if movie.summary %}<p class="watch-hero__summary">{{ movie.summary }}</p>{% endif %}
       {% if leaving %}{{ w.leaving_line(leaving, movie.title) }}{% endif %}
       <div class="watch-actions">
-        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ primary.label }}</a>
+        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}">{{ icon("i-play") }}{{ primary.label }}</a>
       </div>
     </div>
   </section>

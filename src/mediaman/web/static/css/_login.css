@@ -210,7 +210,9 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   font-size: 14px;
 }
 .fpc-checklist li.is-ok { color: var(--success); }
-.fpc-checklist li.is-ok::before { content: "✓"; color: var(--success); }
+.fpc-checklist li.is-ok::before { content: none; }
+.fpc-checklist li > .ico { display: none; flex: none; width: 12px; height: 1.47em; font-size: 14px; }
+.fpc-checklist li.is-ok > .ico { display: block; }
 
 .policy-issues {
   background: color-mix(in srgb, var(--danger) 8%, transparent);

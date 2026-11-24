@@ -455,8 +455,10 @@
     els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
     if (busy) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
-    var icon = els.play.querySelector('i');
-    icon.className = busy ? 'player-btn-ring' : 'fa-solid ' + (paused ? 'fa-play' : 'fa-pause');
+    var icon = els.play.querySelector('.ico');
+    MM.dom.setIcon(icon, paused ? 'i-play' : 'i-pause');
+    icon.toggleAttribute('hidden', busy);
+    els.play.querySelector('.player-btn-ring').toggleAttribute('hidden', !busy);
     root.classList.toggle('is-paused', paused);
     if (paused) showControls();
     else scheduleIdle();
@@ -605,7 +607,7 @@
   function showVolume() {
     var silent = video.muted || video.volume === 0;
     els.mute.setAttribute('aria-label', silent ? 'Unmute' : 'Mute');
-    els.mute.querySelector('i').className = 'fa-solid ' + (silent ? 'fa-volume-xmark' : 'fa-volume-high');
+    MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
     els.volume.value = video.muted ? 0 : video.volume;
   }
   els.mute.addEventListener('click', function () {

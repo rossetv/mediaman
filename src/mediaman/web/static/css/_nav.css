@@ -133,7 +133,7 @@
   text-decoration: none;
   letter-spacing: -.005em;
 }
-.nav-tab > .fa-solid { font-size: 20px; }
+.nav-tab > .ico { font-size: 20px; }
 .nav-tab:hover,
 .nav-tab.on { color: var(--accent); }
 .nav-tab:active { transform: scale(.94); }
@@ -206,7 +206,7 @@
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.nav-more-item > .fa-solid { font-size: 18px; flex-shrink: 0; }
+.nav-more-item > .ico { font-size: 18px; flex-shrink: 0; }
 .nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
 .nav-more-item:hover,
 .nav-more-item:active { background: var(--s3); }

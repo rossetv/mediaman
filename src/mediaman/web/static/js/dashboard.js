@@ -277,8 +277,8 @@
   function scanLabel(btn, text, icon) {
     var label = btn.querySelector('.scan-btn-label');
     if (label) label.textContent = text;
-    var i = btn.querySelector('i');
-    if (i) i.className = 'fa-solid fa-' + (icon || 'rotate-right');
+    var svg = btn.querySelector('.ico');
+    if (svg) MM.dom.setIcon(svg, icon || 'i-rotate-right');
   }
 
   /* Say why the scan stopped in the status beside the button, and to screen
@@ -334,7 +334,7 @@
           } else {
             btn.classList.remove('scan-running');
             btn.classList.add('is-success');
-            scanLabel(btn, 'Scan complete', 'check');
+            scanLabel(btn, 'Scan complete', 'i-check');
             var statusEl = document.getElementById('scan-status');
             var liveEl = document.getElementById('scan-live');
             var took = 'Finished in ' + fmtElapsed(_scanElapsed);

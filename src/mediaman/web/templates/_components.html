@@ -13,13 +13,10 @@
    macro that escapes by default. #}
 
 
-{# Font Awesome icon. `name` is the FA glyph slug (e.g. "fa-house"); `style`
-   picks the FA family ("solid", "regular", "brands"). Extra classes via
-   `extra_class`. Icons are decorative by default (aria-hidden="true"); pass
-   aria_hidden=false and an aria_label when the icon carries meaning on its own.
-#}
-{% macro icon(name, style="solid", extra_class="", aria_hidden=true, aria_label="") -%}
-<i class="fa-{{ style }} {{ name }}{% if extra_class %} {{ extra_class }}{% endif %}"{% if aria_hidden %} aria-hidden="true"{% endif %}{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}></i>
+{# Icon. `name` is a symbol id from _icons.html; `extra_class` adds classes to it.
+   Always decorative: the control or the text beside it carries the meaning. #}
+{% macro icon(name, extra_class="") -%}
+<svg class="ico{% if extra_class %} {{ extra_class }}{% endif %}" aria-hidden="true" focusable="false"><use href="#{{ name }}"/></svg>
 {%- endmacro %}
 
 
@@ -37,7 +34,7 @@
    jinja2.select_autoescape() in app_factory.py).  Do NOT add |safe to
    label — that would allow XSS if a caller passes user-supplied text.
    The `icon` parameter uses |safe intentionally; callers must pass only
-   trusted literal strings (FA markup, inline SVG from server constants).
+   trusted literal strings (icon() output, inline SVG from server constants).
 #}
 {% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="", id="", aria_label="", title="", disabled=false, target="", rel="") -%}
   {%- set classes = ["btn", "btn--" ~ variant] -%}
@@ -365,7 +362,7 @@
     <div class="hd-actions">
       {{ conn_pill(service) }}
       {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
-      <i class="fa-solid fa-chevron-down intg-chev" aria-hidden="true"></i>
+      {{ icon("i-chevron-down", "intg-chev") }}
     </div>
   </div>
   {# Outside the role="button" header: a button's children are presentational, so a live region inside may go unannounced. #}
@@ -438,6 +435,6 @@
         data-stuck-seasons='{{ stuck_seasons }}'
         aria-label="{{ label }}"
         title="{{ label }}">
-  <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+  {{ icon("i-xmark") }}
 </button>
 {%- endmacro %}

@@ -126,10 +126,7 @@
     }
     var badge = document.createElement('div');
     badge.className = 'dl-recent-badge';
-    var badgeIcon = document.createElement('i');
-    badgeIcon.className = 'fa-solid fa-check';
-    badgeIcon.setAttribute('aria-hidden', 'true');
-    badge.appendChild(badgeIcon);
+    badge.appendChild(MM.dom.icon('i-check'));
     poster.appendChild(badge);
     item.appendChild(poster);
 
@@ -160,10 +157,7 @@
 
     var icon = document.createElement('div');
     icon.className = 'empty-ico';
-    var iconEl = document.createElement('i');
-    iconEl.className = 'fa-solid ' + (outage ? 'fa-triangle-exclamation' : 'fa-download');
-    iconEl.setAttribute('aria-hidden', 'true');
-    icon.appendChild(iconEl);
+    icon.appendChild(MM.dom.icon(outage ? 'i-triangle-exclamation' : 'i-download'));
     el.appendChild(icon);
 
     var h3 = document.createElement('h3');
@@ -365,9 +359,7 @@
     btn.setAttribute('aria-label', 'Abandon search');
     btn.setAttribute('title', 'Abandon search');
     fillAbandonButton(btn, item);
-    var icon = el('i', 'fa-solid fa-xmark');
-    icon.setAttribute('aria-hidden', 'true');
-    btn.appendChild(icon);
+    btn.appendChild(MM.dom.icon('i-xmark'));
     return btn;
   }
 
@@ -474,9 +466,7 @@
       toggle.type = 'button';
       toggle.setAttribute('data-v', 'ep-toggle');
       toggle.setAttribute('aria-expanded', 'false');
-      var chev = el('i', 'fa-solid fa-chevron-right');
-      chev.setAttribute('aria-hidden', 'true');
-      toggle.appendChild(chev);
+      toggle.appendChild(MM.dom.icon('i-chevron-right'));
       toggle.appendChild(el('span', '', episodes.length + ' episode' +
         (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '')));
       card.appendChild(toggle);
@@ -618,10 +608,7 @@
     btn.setAttribute('data-stuck-seasons', '[]');
     btn.setAttribute('aria-label', 'Stop tracking');
     btn.setAttribute('title', 'Stop tracking');
-    var xIcon = document.createElement('i');
-    xIcon.className = 'fa-solid fa-xmark';
-    xIcon.setAttribute('aria-hidden', 'true');
-    btn.appendChild(xIcon);
+    btn.appendChild(MM.dom.icon('i-xmark'));
     abandonWrap.appendChild(btn);
     row.appendChild(abandonWrap);
 

@@ -13,7 +13,6 @@
        Order: tokens first, then _base.css (reset + layout primitives),
        then concern-specific files. Cascade follows source order, so
        later rules win when specificity is equal. -->
-  <link rel="stylesheet" href="/static/fonts/fontawesome/css/all.min.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tokens.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_base.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_forms.css?v={{ static_v }}">
@@ -48,6 +47,7 @@
   {% block head %}{% endblock %}
 </head>
 <body data-page="{{ nav_active or '' }}">
+  {% include "_icons.html" %}
   <a class="skip-link" href="#main-content">Skip to content</a>
   {% block nav %}{% endblock %}
   <main id="main-content" tabindex="-1">

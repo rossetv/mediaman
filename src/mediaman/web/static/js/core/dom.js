@@ -28,6 +28,14 @@
  *     when e.target.closest(selector) matches inside container.
  *     Returns a cleanup function.
  *
+ *   MM.dom.icon(name, className?)
+ *     A new icon, the markup of the icon macro in _components.html.
+ *     name is a symbol id from _icons.html; a name is always written whole
+ *     in the source, never put together, so tests can match it to its symbol.
+ *
+ *   MM.dom.setIcon(svg, name)
+ *     Shows another symbol in an icon.
+ *
  *   MM.dom.focusStillIn(el)
  *     True while focus is inside el or nowhere in particular. Used after a
  *     slow request so a user who has moved on keeps their place.
@@ -40,11 +48,28 @@
 
   global.MM = global.MM || {};
 
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
   global.MM.dom = {
 
     /** querySelector with optional context element. */
     q: function (selector, ctx) {
       return (ctx || document).querySelector(selector);
+    },
+
+    icon: function (name, className) {
+      var svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('class', className ? 'ico ' + className : 'ico');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('focusable', 'false');
+      var use = document.createElementNS(SVG_NS, 'use');
+      use.setAttribute('href', '#' + name);
+      svg.appendChild(use);
+      return svg;
+    },
+
+    setIcon: function (svg, name) {
+      svg.querySelector('use').setAttribute('href', '#' + name);
     },
 
     /** True while focus is inside el, or on the body (nowhere in particular). */

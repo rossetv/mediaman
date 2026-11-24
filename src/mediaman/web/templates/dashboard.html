@@ -23,7 +23,7 @@
       <div class="u-flex">
         {# The script changes the label and icon apart, so the label has a span of its own. #}
         <button type="button" class="btn btn--ghost scan-btn" id="scan-btn" data-action="trigger-scan">
-          <i class="fa-solid fa-rotate-right" aria-hidden="true"></i><span class="scan-btn-label">Scan now</span>
+          {{ c.icon("i-rotate-right") }}<span class="scan-btn-label">Scan now</span>
         </button>
         <span id="scan-status" class="scan-status"></span>
         <span id="scan-live" class="sr-only" role="status"></span>
@@ -33,7 +33,7 @@
 
   {% if deletions_off %}
   <div class="root-banner" role="status">
-    <i class="fa-solid fa-circle-info root-banner-icon" aria-hidden="true"></i>
+    {{ c.icon("i-circle-info", "root-banner-icon") }}
     <p class="root-banner-list">Deletions are off: set MEDIAMAN_DELETE_ROOTS to the folders mediaman may delete from.</p>
   </div>
   {% endif %}
@@ -41,7 +41,7 @@
   <div data-fragment="roots">
   {% if unavailable_roots %}
   <div class="root-banner" role="alert">
-    <i class="fa-solid fa-triangle-exclamation root-banner-icon" aria-hidden="true"></i>
+    {{ c.icon("i-triangle-exclamation", "root-banner-icon") }}
     <ul class="root-banner-list">
       {% for root, waiting in unavailable_roots %}
       <li><span class="root-banner-path">{{ root }}</span> is empty or not mounted: {{ waiting }} scheduled deletion{{ 's' if waiting != 1 }} {{ 'are' if waiting != 1 else 'is' }} waiting</li>
@@ -110,7 +110,7 @@
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
                   aria-haspopup="menu" aria-expanded="false"
                   aria-label="Keep for a different length of time" title="Keep for a different length of time">
-            <i class="fa-solid fa-ellipsis svg-icon-xs" aria-hidden="true"></i>
+            {{ c.icon("i-ellipsis", "svg-icon-xs") }}
           </button>
           <div class="snooze-dropdown" role="menu">
             <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7 days">7 days</button>

@@ -106,6 +106,7 @@ function makeDoc() {
   const listeners = {};
   const doc = { focusCalls: [], addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
   doc.createElement = (t) => new El(t, doc);
+  doc.createElementNS = (ns, t) => new El(t, doc);
   doc.createTextNode = (t) => { const e = new El('#text', doc); e._text = t; return e; };
   doc.body = new El('body', doc);
   doc.activeElement = doc.body;
@@ -153,7 +154,7 @@ function build(tiles, opts) {
   const doc = makeDoc();
   fragments(doc, tiles).forEach((f) => doc.body.appendChild(f));
   doc.body.appendChild(el(doc, 'button', { id: 'scan-btn', class: 'btn scan-btn', 'data-action': 'trigger-scan' }, [
-    el(doc, 'i', { class: 'fa-solid fa-rotate-right' }),
+    el(doc, 'svg', { class: 'ico' }, [el(doc, 'use', { href: '#i-rotate-right' })]),
     el(doc, 'span', { class: 'scan-btn-label' }, [], 'Scan now'),
   ]));
   ['scan-status', 'scan-live'].forEach((id) => doc.body.appendChild(el(doc, 'span', { id })));
@@ -227,8 +228,8 @@ function build(tiles, opts) {
   const runTimers = () => timers.splice(0).forEach((f) => f());
   const scanBtn = () => {
     const b = doc.getElementById('scan-btn');
-    const i = b.querySelector('i');
-    return { label: b.querySelector('.scan-btn-label') && b.querySelector('.scan-btn-label').textContent, icon: i && i.className };
+    const use = b.querySelector('use');
+    return { label: b.querySelector('.scan-btn-label') && b.querySelector('.scan-btn-label').textContent, icon: use && use.getAttribute('href') };
   };
   const text = (id) => doc.getElementById(id).textContent;
   return { doc, ctx, animations, toasts, scanBtn, text, postCalls, scrolls, fetches, keeps, page, wrapper, keepBtn, click, tilesNow, focused, runTimers };

@@ -47,7 +47,7 @@
 .btn--icon { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0; }
 .btn--sm.btn--icon { width: 32px; height: 32px; }
 .btn--lg.btn--icon { width: 44px; height: 44px; }
-.btn > .fa-solid, .btn > .fa-regular, .btn > .fa-brands { font-size: 13px; }
+.btn > .ico { font-size: 13px; }
 
 .btn.is-error { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn.is-success { background: var(--rgba-success-bg); color: var(--success); }
@@ -123,7 +123,7 @@
 /* The ghost hover is too faint on its own; lift it to the secondary button's
    hover surface. */
 .scan-btn:hover:not(:disabled):not(.is-error) { background: var(--s4); border-color: var(--hair-hover); }
-.scan-btn.scan-running > i { animation: spin 1s linear infinite; }
+.scan-btn.scan-running > .ico { animation: spin 1s linear infinite; }
 .scan-status {
   font-size: 12px; color: var(--t3); margin-left: 8px;
   opacity: 1;

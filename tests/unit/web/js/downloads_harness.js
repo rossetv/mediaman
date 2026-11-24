@@ -79,6 +79,7 @@ function build(pollGet) {
   const doc = {
     hidden: false,
     createElement: (t) => new El(t, doc),
+    createElementNS: (ns, t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },

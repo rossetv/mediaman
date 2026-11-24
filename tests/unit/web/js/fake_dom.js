@@ -133,6 +133,7 @@ function makeDocument() {
   const doc = {
     listeners: {},
     createElement: (t) => new Node(doc, t),
+    createElementNS: (ns, t) => new Node(doc, t),
     createTextNode: (t) => { const n = new Node(doc, '#text'); n._text = t; return n; },
     addEventListener: (t, fn) => { (doc.listeners[t] = doc.listeners[t] || []).push(fn); },
     getElementById: (id) => doc.documentElement.querySelector('#' + id),

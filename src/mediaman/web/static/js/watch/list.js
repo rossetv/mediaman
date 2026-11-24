@@ -475,9 +475,7 @@
       var label = trigger.querySelector('span');
       if (label) label.textContent = 'Kept';
       if (!trigger.querySelector('.keep-trigger__tick')) {
-        var tick = el('i', 'fa-solid fa-check keep-trigger__tick');
-        tick.setAttribute('aria-hidden', 'true');
-        trigger.insertBefore(tick, trigger.firstChild);
+        trigger.insertBefore(MM.dom.icon('i-check', 'keep-trigger__tick'), trigger.firstChild);
       }
       trigger.classList.add('keep-trigger--kept', 'is-just-kept');
       var title = w ? parseJson(w.getAttribute('data-title')) : '';

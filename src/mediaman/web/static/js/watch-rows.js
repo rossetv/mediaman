@@ -121,9 +121,7 @@
     btn.tabIndex = -1;
     btn.setAttribute('aria-hidden', 'true');
     btn.title = label;
-    var icon = document.createElement('i');
-    icon.className = 'fa-solid fa-chevron-' + (direction === 'prev' ? 'left' : 'right');
-    btn.appendChild(icon);
+    btn.appendChild(MM.dom.icon(direction === 'prev' ? 'i-chevron-left' : 'i-chevron-right'));
     // Keep focus where it was: a button that hides at the end must not take it.
     btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
     return btn;

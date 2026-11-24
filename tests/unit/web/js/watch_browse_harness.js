@@ -114,7 +114,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['watch/core.js', 'watch/keep.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
   return { ctx, doc, toasts, timers, calls, routes, replaced, scrolls };
 }

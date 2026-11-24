@@ -44,6 +44,7 @@ async function main() {
   const doc = {
     hidden: false,
     createElement: (t) => new El(t),
+    createElementNS: (ns, t) => new El(t),
     createTextNode: (t) => { const e = new El('#text'); e._text = t; return e; },
     addEventListener() {},
     querySelector: () => null,

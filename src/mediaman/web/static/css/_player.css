@@ -267,12 +267,8 @@
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
-.player-menu-item[aria-checked="true"]::after {
-  content: '✓';
-  float: right;
-  margin-left: 12px;
-  color: var(--accent);
-}
+.player-menu-tick { display: none; float: right; width: 12px; height: 1.47em; margin-left: 12px; color: var(--accent); }
+.player-menu-item[aria-checked="true"] > .player-menu-tick { display: block; }
 
 /* Pressed: a quick shrink and a tint, since the tap highlight is off. */
 .player-back:active { transform: scale(.94); background: var(--player-glass-hover); }

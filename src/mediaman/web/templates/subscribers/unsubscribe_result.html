@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 
 {% block title %}Unsubscribe · Mediaman{% endblock %}
 
@@ -9,9 +10,9 @@
   <div class="login-card unsub-card">
     <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
     {% if success %}
-    <div class="unsub-icon unsub-icon--success"><i class="fa-regular fa-circle-check" aria-hidden="true"></i></div>
+    <div class="unsub-icon unsub-icon--success">{{ icon("i-circle-check-regular") }}</div>
     {% else %}
-    <div class="unsub-icon unsub-icon--error"><i class="fa-regular fa-circle-xmark" aria-hidden="true"></i></div>
+    <div class="unsub-icon unsub-icon--error">{{ icon("i-circle-xmark-regular") }}</div>
     {% endif %}
     <h1 class="unsub-title">{% if success %}Unsubscribed{% else %}Couldn't unsubscribe{% endif %}</h1>
     <p class="unsub-msg">{{ message }}</p>

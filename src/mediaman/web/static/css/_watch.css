@@ -23,7 +23,7 @@
 .watch-back:focus-visible,
 .watch-card__link:focus-visible,
 .watch-ep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.watch-btn--play .fa-play { font-size: 13px; }
+.watch-btn--play .ico { font-size: 13px; }
 
 .watch-actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 
@@ -169,7 +169,7 @@
 .watch-viewtoggle__btn[aria-current="page"] { color: var(--t1); }
 .watch-viewtoggle__btn[aria-current="page"]::before { opacity: 1; transform: none; }
 .watch-viewtoggle__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.watch-viewtoggle__btn > .fa-solid { font-size: 13px; }
+.watch-viewtoggle__btn > .ico { font-size: 13px; }
 @media (max-width: 599.98px) {
   .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .watch-viewtoggle__btn { width: 44px; padding: 0; justify-content: center; }

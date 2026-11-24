@@ -493,10 +493,10 @@ def test_share_holds_one_width_through_sharing_and_copied() -> None:
     assert all(
         s["group"] == "ttl__share-group" and s["inButton"] and s["groups"] == 1 for s in states
     )
-    assert [s["icon"].split()[-1] for s in states] == [
-        "fa-share-nodes",
-        "fa-share-nodes",
-        "fa-check",
+    assert [s["icon"] for s in states] == [
+        "#i-share-nodes",
+        "#i-share-nodes",
+        "#i-check",
     ]
 
 

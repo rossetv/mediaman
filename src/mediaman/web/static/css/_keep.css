@@ -99,7 +99,7 @@
 }
 /* Shown after a poster img only once it has failed to load. */
 img:not([data-broken]) + .item-poster-empty { display: none; }
-.item-poster-empty .fa-image { font-size: 42px; }
+.item-poster-empty .ico { font-size: 42px; }
 
 .item-title {
   font-family: var(--font-display);

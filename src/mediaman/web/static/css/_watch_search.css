@@ -35,7 +35,7 @@
   color: var(--t3);
 }
 .watch-results__msg--empty + .results-hint { margin-top: 12px; margin-inline: auto; }
-.results-hint > .fa-solid { flex: none; font-size: 13px; }
+.results-hint > .ico { flex: none; font-size: 13px; }
 .results-hint a { position: relative; color: var(--accent); font-weight: 500; white-space: nowrap; }
 /* 44px to tap without making the line taller. */
 .results-hint a::after { content: ""; position: absolute; inset: -12px -6px; }
@@ -43,7 +43,7 @@
 
 /* Where a download is in its course, top right of a poster. */
 .watch-badge--state { right: 8px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
-.watch-badge--state > .fa-solid { font-size: 9px; }
+.watch-badge--state > .ico { font-size: 9px; }
 .watch-badge--in { background: color-mix(in srgb, var(--success) 90%, transparent); color: #00210b; }
 .watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
 .watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
