@@ -37,18 +37,18 @@
   /* Closes the dialog that is open, so a second one cancels the first instead of orphaning it. */
   var closeOpen = null;
 
-  /* Enter still down as the dialog goes would press whatever gets the focus next, the
+  /* A key still down as the dialog goes would press whatever gets the focus next, the
      button that asked first of all: its repeats do nothing until it is let go. */
-  var enterDown = false;
-  function quietUntilReleased() {
-    if (enterDown) return;
-    enterDown = true;
+  var held = {};
+  function quietUntilReleased(key) {
+    if (held[key]) return;
+    held[key] = true;
     function down(e) {
       if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
     }
     function up(e) {
-      if (e.key !== 'Enter') return;
-      enterDown = false;
+      if (e.key !== key) return;
+      held[key] = false;
       document.removeEventListener('keydown', down, true);
       document.removeEventListener('keyup', up, true);
     }
@@ -194,9 +194,12 @@
     }
     confirmBtn.addEventListener('click', submit);
     input.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || e.repeat) return;
-      quietUntilReleased();
-      submit();
+      if (e.key === 'Enter' && !e.repeat) submit();
+    });
+    /* Space in the field is typing. */
+    sheet.addEventListener('keydown', function (e) {
+      if (e.repeat) return;
+      if (e.key === 'Enter' || (e.key === ' ' && e.target !== input)) quietUntilReleased(e.key);
     });
   }
 

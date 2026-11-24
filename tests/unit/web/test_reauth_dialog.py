@@ -80,6 +80,16 @@ def test_enter_held_down_presses_nothing_after_the_dialog_until_it_is_let_go() -
     }
 
 
+def test_a_key_held_down_on_a_button_of_the_dialog_presses_nothing_until_it_is_let_go() -> None:
+    stopped_while_held = [True, False, False]
+    assert _run("heldOnAButton") == {
+        "confirmEnter": stopped_while_held,
+        "cancelEnter": stopped_while_held,
+        "confirmSpace": stopped_while_held,
+        "spaceInTheField": [False, False, False],
+    }
+
+
 def test_enter_held_down_after_a_refusal_sends_the_password_no_second_time() -> None:
     assert _run("heldAfterRefusal") == {"held": 1, "pressedAgain": 2}
 

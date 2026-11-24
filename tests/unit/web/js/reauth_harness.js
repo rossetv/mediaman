@@ -26,7 +26,7 @@ class El {
   get textContent() { return this._text; }
   appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
-  emit(t, extra) { (this.listeners[t] || []).forEach((f) => f({ target: this, ...extra })); }
+  emit(t, extra) { for (let el = this; el; el = el.parentNode) (el.listeners[t] || []).forEach((f) => f({ target: this, ...extra })); }
   focus() { doc.activeElement = this; }
   blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
   select() {}
@@ -114,6 +114,27 @@ const scenarios = {
     key('keyup', { key: 'Enter' });
     out.afterRelease = key('keydown', { key: 'Enter', repeat: true });
     return out;
+  },
+  // a key pressed on a button of the dialog, or Space typed in its field: whether its repeats are stopped as
+  // the dialog goes, while a new press is not, and once the key is let go
+  async heldOnAButton() {
+    const pressed = async (sel, k) => {
+      const { sheet } = open({ ok: true });
+      const target = sheet.querySelector(sel);
+      target.emit('keydown', { key: k });
+      if (target.tagName === 'BUTTON') target.emit('click');
+      await flush();
+      const held = key('keydown', { key: k, repeat: true });
+      const aNewPress = key('keydown', { key: k, repeat: false });
+      key('keyup', { key: k });
+      return [held, aNewPress, key('keydown', { key: k, repeat: true })];
+    };
+    return {
+      confirmEnter: await pressed('.btn--primary', 'Enter'),
+      cancelEnter: await pressed('.btn--ghost', 'Enter'),
+      confirmSpace: await pressed('.btn--primary', ' '),
+      spaceInTheField: await pressed('.inp', ' '),
+    };
   },
   // Enter held down after a refusal: how often the password was sent, and after a new press
   async heldAfterRefusal() {
