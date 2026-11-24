@@ -1662,7 +1662,7 @@ const scenarios = {
     m.integrations.init();
     h.drain(); await h.flush();
     const edit = (id, v) => { f[id].value = v; f[id].fire('input'); };
-    const saveNow = async () => { checks = []; save.fire('click'); await h.flush(); h.drain(); await h.flush(); return checks; };
+    const saveNow = async () => { checks = []; save.fire('click'); await h.flush(); h.drain(); await h.flush(); return checks.slice(); };
     const look = (s) => [pills[s].className.split(' ').pop(), pills[s].textContent];
     const out = { atLoad: checks };
 
