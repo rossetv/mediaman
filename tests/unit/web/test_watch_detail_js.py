@@ -516,3 +516,36 @@ def test_safe_path_keeps_only_same_site_paths_and_refuses_ones_with_tabs_or_newl
     for refused in ("/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "/watch\t/x"):
         assert out.pop(refused) == "", refused
     assert set(out.values()) == {""}
+
+
+PLEX_ART = "/api/poster/120?kind=art"
+BACKDROP = "/api/watch/img/tmdb/w1280/a.jpg"
+POSTER = "/api/poster/120"
+
+
+def test_a_library_title_shows_the_banners_picture_then_the_backdrop_then_the_poster() -> None:
+    out = _run("pictures")
+
+    assert {name: run["first"]["art"] for name, run in out.items()} == dict.fromkeys(out, PLEX_ART)
+    assert out["plex"]["end"] == {"art": PLEX_ART, "fill": None, "poster": None, "loaded": True}
+    assert out["tmdb"]["end"] == {"art": BACKDROP, "fill": None, "poster": None, "loaded": True}
+    stand_in = {"art": None, "fill": POSTER, "poster": POSTER, "loaded": False}
+    assert out["poster"]["end"] == stand_in
+
+
+def test_art_that_is_no_wide_picture_gives_way_to_the_poster_as_on_the_banner() -> None:
+    assert _run("pictures")["narrow"]["end"] == {
+        "art": None,
+        "fill": POSTER,
+        "poster": POSTER,
+        "loaded": False,
+    }
+
+
+def test_a_title_outside_the_library_never_stretches_its_poster() -> None:
+    out = _run("picturesOutsideTheLibrary")
+
+    assert out["backdrop"]["art"] == BACKDROP
+    poster = "/api/watch/img/tmdb/w500/p.jpg"
+    assert (out["posterOnly"]["art"], out["posterOnly"]["poster"]) == (None, poster)
+    assert (out["none"]["art"], out["none"]["poster"]) == (None, None)

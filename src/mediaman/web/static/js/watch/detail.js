@@ -34,6 +34,8 @@
   var part = function (name) { return root.querySelector('[data-ttl-part="' + name + '"]'); };
   var heroSkel = part('hero-skel');
   var art = part('art');
+  var fill = part('fill');
+  var poster = part('poster');
   var player = part('player');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
@@ -49,6 +51,7 @@
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
   var leaving = null;  // the close still animating, finished early by a new open
+  var pictures = '';   // the addresses the hero shows or is trying
   var seq = 0;
   var pollTimer = null;
   var shareTimer = null;
@@ -434,9 +437,7 @@
     root.setAttribute('aria-busy', 'true');
     root.classList.remove('ttl--admin');
     hide(heroSkel, false);
-    hide(art, true);
-    art.removeAttribute('src');
-    art.classList.remove('is-loaded');
+    clearPictures();
     kindEl.textContent = cur.kind ? kindLabel({ kind: cur.kind }) : '';
     titleEl.textContent = cur.title;
     if (!cur.title) titleEl.appendChild(skel('skel--line ttl__title-skel'));
@@ -477,6 +478,7 @@
   function renderFailed(err) {
     root.removeAttribute('aria-busy');
     hide(heroSkel, true);
+    clearPictures();
     metaEl.textContent = '';
     if (!cur.title) titleEl.textContent = 'Details';
     body.textContent = '';
@@ -516,9 +518,71 @@
     return parts;
   }
 
+  /* ── The hero's picture ── */
+
+  function clearPictures() {
+    pictures = '';
+    [art, fill, poster].forEach(function (img) {
+      hide(img, true);
+      img.onload = img.onerror = null;
+      img.removeAttribute('src');
+      img.removeAttribute('data-broken');
+      img.classList.remove('is-loaded');
+    });
+  }
+
+  /* Wide pictures to try in turn. For a title in the library the first is the
+     banner's own, so opening the banner's title does not change its picture. */
+  function widePictures(d) {
+    var key = d.in_library && /^(?:movie|show)-([0-9]+)$/.exec(d.library_ref || '');
+    return [key && '/api/poster/' + key[1] + '?kind=art', safePath(d.backdrop_url)].filter(Boolean);
+  }
+
+  /* The first wide picture that loads, else the poster as a poster. */
+  function showPictures(d) {
+    var wide = widePictures(d);
+    var last = safePath(d.poster_url);
+    var wanted = wide.concat(last || '').join(' ');
+    if (wanted === pictures) return;
+    clearPictures();
+    pictures = wanted;
+    hide(heroSkel, false);
+    tryNext();
+
+    function tryNext() {
+      var src = wide.shift();
+      if (!src) { showPoster(last); return; }
+      art.removeAttribute('data-broken');
+      art.onload = function () {
+        // Loaded but marked: no wide picture (broken-poster.js).
+        if (art.hasAttribute('data-broken')) { showPoster(last); return; }
+        hide(heroSkel, true);
+        art.classList.add('is-loaded');
+      };
+      art.onerror = tryNext;
+      hide(art, false);
+      art.setAttribute('src', src);
+    }
+  }
+
+  /* Sharp and whole at its own shape, over a blurred copy that fills the hero. */
+  function showPoster(src) {
+    hide(art, true);
+    hide(heroSkel, true);
+    if (!src) return;
+    [fill, poster].forEach(function (img) {
+      img.onload = function () { img.classList.add('is-loaded'); };
+      img.onerror = function () { hide(img, true); };
+      hide(img, false);
+      img.setAttribute('src', src);
+    });
+  }
+
   function renderHead(d, fresh) {
     kindEl.textContent = kindLabel(d);
-    titleEl.textContent = d.title || cur.title;
+    var name = d.title || cur.title;
+    titleEl.textContent = name;
+    titleEl.classList.toggle('ttl__title--long', name.length > 40);
     taglineEl.textContent = d.tagline || '';
     hide(taglineEl, !d.tagline);
     metaEl.textContent = '';
@@ -528,15 +592,7 @@
       cert.setAttribute('aria-label', 'Rated ' + d.certificate);
       metaEl.appendChild(cert);
     }
-    var src = safePath(d.backdrop_url) || safePath(d.poster_url);
-    hide(heroSkel, true);
-    if (src && art.getAttribute('src') !== src) {
-      art.classList.remove('is-loaded');
-      art.onload = function () { art.classList.add('is-loaded'); };
-      art.onerror = function () { hide(art, true); };
-      art.setAttribute('src', src);
-    }
-    hide(art, !src);
+    showPictures(d);
     if (fresh) [kindEl, metaEl, taglineEl].forEach(core.fadeIn);
   }
 

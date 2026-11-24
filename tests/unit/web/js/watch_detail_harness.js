@@ -101,6 +101,18 @@ const LIB_MOVIE = base({
   ratings: { imdb: '7.6', rt: '91%', tmdb: 7.4, metascore: '74' },
 });
 
+/* A picture the browser finished with; a wide-art image judged unfit is marked first, as
+   broken-poster.js does it. */
+function settlePicture(img, how) {
+  if (how !== 'wide') img.setAttribute('data-broken', '');
+  (how === 'failed' ? img.onerror : img.onload)();
+}
+function hero(p) {
+  const look = (name) => { const n = p.q('[data-ttl-part="' + name + '"]'); return n.hidden ? null : n.getAttribute('src'); };
+  return { art: look('art'), fill: look('fill'), poster: look('poster'),
+    loaded: p.q('[data-ttl-part="art"]').classList.contains('is-loaded') };
+}
+
 const FACTS = {
   ok: true, size: '16.2 GB', size_bytes: 1, added: '2026-02-04T10:00:00+00:00', last_watched: null,
   deletion: { execute_at: '2026-11-27T10:00:00+00:00', days: 3 }, keep: { state: 'none', label: 'Not kept' },
@@ -1055,6 +1067,37 @@ const scenarios = {
     await settle();
     const field = p.q('.ttl-share__input');
     return { value: field && field.value, readOnly: field && field.readOnly, focused: p.doc.activeElement === field, label: p.text('[data-ttl-act="share"]') };
+  },
+
+  async pictures() {
+    const film = Object.assign({}, LIB_MOVIE, { poster_url: '/api/poster/120' });
+    const out = {};
+    for (const [name, steps] of Object.entries({
+      plex: ['wide'], tmdb: ['failed', 'wide'], poster: ['failed', 'failed'], narrow: ['narrow'],
+    })) {
+      const p = load({ routes: { '/api/watch/title/movie-120': film } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const art = p.q('[data-ttl-part="art"]');
+      const first = hero(p);
+      steps.forEach((how) => settlePicture(art, how));
+      out[name] = { first, end: hero(p) };
+    }
+    return out;
+  },
+
+  async picturesOutsideTheLibrary() {
+    const out = {};
+    for (const [name, over] of Object.entries({
+      backdrop: {}, posterOnly: { backdrop_url: null, poster_url: '/api/watch/img/tmdb/w500/p.jpg' }, none: { backdrop_url: null },
+    })) {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, over) } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      out[name] = hero(p);
+    }
+    return out;
   },
 
   async shareRefused() {
