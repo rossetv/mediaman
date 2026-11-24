@@ -186,7 +186,7 @@
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   letter-spacing: -.01em;
 }
-.btn-download-hero:not([aria-disabled="true"]):hover { background: var(--accent-hi); }
+.btn-download-hero:not([aria-disabled="true"]):hover { background: var(--accent-cta-hover); }
 .btn-download-hero:not([aria-disabled="true"]):active { transform: scale(.97); }
 /* Less padding, so the spinner takes no width. */
 .btn-download-hero[aria-disabled="true"] { padding-inline: 12px; opacity: .8; cursor: progress; }
