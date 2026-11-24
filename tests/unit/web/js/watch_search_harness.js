@@ -1440,7 +1440,19 @@ const scenarios = {
     p.ctx.history.go = go;
     other.focus();
     await p.back();
-    return { url: p.url(), other: p.doc.activeElement === other };
+    const out = { url: p.url(), other: p.doc.activeElement === other };
+    // What is typed after one is searched for.
+    const q = await ready(ADMIN);
+    await q.search('orchard');
+    q.ctx.history.go = () => {};
+    q.type('');
+    q.wait();
+    out.left = [q.url(), q.shown()];
+    q.type('lantern');
+    q.key('Enter');
+    await settle();
+    out.next = [q.url(), q.shown(), q.calls.filter((c) => c.url.includes('search?')).pop().url];
+    return out;
   },
 
   // The categories come in while the arrows stand on one of the first sheet's options: their place is held, and so is the highlight's.

@@ -199,14 +199,14 @@
 
   /* ── Back ── */
 
-  /* Step *by* entries. *close*: a layer that must be shut at the end of it. A
-     step the browser never makes (its history was lost) is done without it.
-     *land* is called once the page stands where the step leads. */
-  function step(by, close, land) {
-    leaving = { close: close, then: null, land: land, timer: setTimeout(function () {
+  /* Step *by* entries, away from the layer *name*. *close*: it must be shut at the
+     end of it. A step the browser never makes (its history was lost) is done
+     without it. *land* is called once the page stands where the step leads. */
+  function step(by, name, close, land) {
+    leaving = { close: close ? name : null, then: null, land: land, timer: setTimeout(function () {
       if (!leaving) return;
       leaving = null;
-      if (close) shut(close);
+      shut(name);
     }, LATE_MS) };
     window.history.go(by);
   }
@@ -236,14 +236,14 @@
       return named(s.name).depth > l.depth ? Math.min(least, s.at) : least;
     }, Infinity);
     if (from === Infinity) shut(name);
-    else step(from - 1 - m.at, name);
+    else step(from - 1 - m.at, name, true);
   }
 
   function back(name, land) {
     if (leaving) { leaving.then = function () { back(name, land); }; return; }
     if (value(name) === null) return;
     var m = mark();
-    if (m && m.entry === name) step(-1, null, land);
+    if (m && m.entry === name) step(-1, name, false, land);
     else close(name);
   }
 

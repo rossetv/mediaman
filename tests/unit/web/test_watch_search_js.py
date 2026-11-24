@@ -699,7 +699,14 @@ def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
 
 
 def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None:
-    assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
+    out = _run("emptiedStepLost")
+    assert (out["url"], out["other"]) == ("/watch?all=movies", True)
+
+
+def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_usable() -> None:
+    out = _run("emptiedStepLost")
+    assert out["left"] == ["/watch", "browse"]
+    assert out["next"] == ["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
 
 
 def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() -> None:
