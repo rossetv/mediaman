@@ -1147,3 +1147,67 @@ class TestNoticeWithoutEmailAddress:
             assert call.kwargs["to"] != "alice"
         assert "alice" not in caplog.text
         assert sum("no email address" in r.message for r in caplog.records) == 1
+
+
+class TestOneUnsentNoticePerRequest:
+    """Asking again before the email is sent must not send the email twice."""
+
+    @staticmethod
+    def _record(conn, **fields):
+        from mediaman.services.downloads.notifications import record_download_notification
+
+        row = {
+            "email": "a@example.com",
+            "title": "Dune",
+            "media_type": "movie",
+            "service": "radarr",
+            "tmdb_id": 42,
+            **fields,
+        }
+        record_download_notification(conn, **row)
+
+    @staticmethod
+    def _count(conn) -> int:
+        return conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0]
+
+    def test_a_second_request_for_an_unsent_notice_adds_none(self, conn):
+        self._record(conn)
+        self._record(conn, email="A@Example.com")
+        assert self._count(conn) == 1
+
+    def test_a_second_request_while_the_notice_is_being_checked_adds_none(self, conn):
+        insert_download_notification(conn, email="a@example.com", tmdb_id=42, notified=2)
+        self._record(conn)
+        assert self._count(conn) == 1
+
+    def test_a_series_known_by_either_id_is_the_same_request(self, conn):
+        tv = {"title": "Show", "media_type": "tv", "service": "sonarr"}
+        self._record(conn, **tv, tmdb_id=5, tvdb_id=9)
+        self._record(conn, **tv, tmdb_id=None, tvdb_id=9)
+        assert self._count(conn) == 1
+
+    def test_a_request_after_the_email_was_sent_gets_its_own_notice(self, conn):
+        insert_download_notification(conn, email="a@example.com", tmdb_id=42, notified=1)
+        self._record(conn)
+        assert self._count(conn) == 2
+
+    def test_another_person_title_service_or_season_gets_its_own_notice(self, conn):
+        self._record(conn)
+        self._record(conn, email="b@example.com")
+        self._record(conn, tmdb_id=43)
+        self._record(conn, service="sonarr", media_type="tv")
+        for season in (None, 1, 2):
+            self._record(
+                conn,
+                service="sonarr",
+                media_type="tv",
+                tmdb_id=None,
+                tvdb_id=9,
+                season_number=season,
+            )
+        assert self._count(conn) == 7
+
+    def test_requests_without_any_id_are_never_taken_for_one_another(self, conn):
+        self._record(conn, tmdb_id=None)
+        self._record(conn, tmdb_id=None, title="Heat")
+        assert self._count(conn) == 2

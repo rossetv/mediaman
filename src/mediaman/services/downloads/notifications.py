@@ -75,8 +75,9 @@ def record_download_notification(
     """Insert a pending notification; the library sync sends it once the item has a file.
 
     Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. With a
-    *season_number* the notification waits for a file of that season. Does not commit;
-    the caller owns the transaction.
+    *season_number* the notification waits for a file of that season. A request that
+    already has an unsent notification gets no second one. Does not commit; the caller
+    owns the transaction.
     """
     from mediaman.core.time import now_iso
 
@@ -84,8 +85,14 @@ def record_download_notification(
     conn.execute(
         "INSERT INTO download_notifications "
         "(email, title, media_type, tmdb_id, tvdb_id, service, season_number, notified, "
-        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, tvdb_id, service, season_number, now),
+        "created_at) SELECT ?, ?, ?, ?, ?, ?, ?, 0, ? WHERE NOT EXISTS ("
+        "SELECT 1 FROM download_notifications "
+        "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?))",
+        (
+            *(email, title, media_type, tmdb_id, tvdb_id, service, season_number, now),
+            *(email, service, season_number, tmdb_id, tvdb_id),
+        ),
     )
 
 
