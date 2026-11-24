@@ -1866,6 +1866,25 @@ const scenarios = {
     return out;
   },
 
+  /* What a screen reader hears of the next-episode card. */
+  async upnext_spoken(p) {
+    const status = p.q('[data-upnext-status]');
+    const out = { polite: status.getAttribute('role'), before: status.textContent };
+    await streamPlays(p, 0);
+    endsNow(p);
+    out.counting = status.textContent;
+    p.tick(5000);
+    out.later = status.textContent;
+    key('Escape');
+    out.cancelled = status.textContent;
+    endsNow(p);
+    out.again = status.textContent;
+    press(p.q('[data-quality-btn]'));
+    click(p.q('[data-autoplay]'));
+    out.still = status.textContent;
+    return out;
+  },
+
   async autoplay_saved(p) {
     return { checked: p.q('[data-autoplay]').getAttribute('aria-checked') };
   },

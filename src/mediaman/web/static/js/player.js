@@ -162,6 +162,7 @@
     qualityBtn: q('[data-quality-btn]'),
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
+    upnextStatus: q('[data-upnext-status]'),
     ask: q('[data-ask]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
@@ -1766,6 +1767,7 @@
   /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     stopCountdown();
+    els.upnextStatus.textContent = '';
     var card = els.upnext;
     if (!card || card.hidden || card.classList.contains('is-leaving')) return;
     card.classList.remove('is-counting');
@@ -1789,6 +1791,9 @@
     els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
     els.upnext.classList.toggle('is-counting', autoplay);
     els.upnext.hidden = false;
+    els.upnextStatus.textContent = autoplay
+      ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Escape cancels.'
+      : 'Next episode: ' + next.label;
     showControls();
     if (!autoplay) return;
     var until = Date.now() + COUNTDOWN_S * 1000;

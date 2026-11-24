@@ -859,6 +859,15 @@ def test_the_count_is_handed_on_to_a_page_opened_by_itself_alone(markup):
     assert (out["byItself"], out["byHand"]) == ([1, True], False)
 
 
+def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
+    out = run(markup, "upnext_spoken")
+    said = "Next episode in 10 seconds. Escape cancels."
+    assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
+    assert (out["counting"], out["later"], out["again"]) == (said, said, said)
+    # Nothing begins by itself then, so there is nothing to cancel.
+    assert out["still"] == "Next episode: S2 · E5 — High Tide"
+
+
 def test_autoplay_off_shows_the_next_episode_and_waits(markup):
     out = run(markup, "autoplay_off")
     assert (out["start"], out["off"], out["saved"]) == ("true", "false", "false")
