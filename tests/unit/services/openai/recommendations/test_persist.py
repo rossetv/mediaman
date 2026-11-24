@@ -6,12 +6,11 @@ from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 from mediaman.db import init_db
 from mediaman.services.openai.recommendations import persist
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
-from tests.helpers.factories import insert_media_item, insert_suggestion
+from tests.helpers.factories import insert_suggestion
 
 
 @pytest.fixture
@@ -42,33 +41,12 @@ def _fake_trending():
     ]
 
 
-def _fake_personal():
-    return [
-        {
-            "title": "Severance",
-            "year": None,
-            "media_type": "tv",
-            "category": "personal",
-            "tmdb_id": None,
-            "imdb_id": None,
-            "description": None,
-            "reason": "Matches your history.",
-            "trailer_url": "https://www.youtube.com",
-            "poster_url": None,
-        }
-    ]
-
-
 class TestRefreshRecommendations:
     def test_returns_zero_when_no_recommendations_generated(self, conn):
         """When OpenAI returns nothing, refresh returns 0 and commits nothing."""
         with (
             patch(
                 "mediaman.services.openai.recommendations.persist.generate_trending",
-                return_value=[],
-            ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
                 return_value=[],
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
@@ -97,10 +75,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
             result = refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
@@ -127,10 +101,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
             refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
@@ -145,10 +115,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
             refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
@@ -162,9 +128,9 @@ class TestRefreshRecommendations:
         today = datetime(2026, 5, 1, tzinfo=UTC).strftime("%Y-%m-%d")
         insert_suggestion(
             conn,
+            category="trending",
             title="Old Rec",
             media_type="movie",
-            category="trending",
             reason="old reason",
             batch_id=today,
             created_at="2026-01-01T00:00:00",
@@ -190,10 +156,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
             refresh_recommendations(
@@ -215,6 +177,7 @@ class TestRefreshRecommendations:
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
             conn,
+            category="trending",
             **{
                 "title": "Dune",
                 "batch_id": "2026-05-01",
@@ -233,9 +196,13 @@ class TestRefreshRecommendations:
     def test_same_day_refresh_keeps_downloaded_suggestion_missing_from_new_set(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
-            conn, title="Old Pick", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+            conn,
+            category="trending",
+            title="Old Pick",
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
         )
-        insert_suggestion(conn, title="Not Downloaded", batch_id="2026-05-01")
+        insert_suggestion(conn, category="trending", title="Not Downloaded", batch_id="2026-05-01")
         self._refresh(conn, _fake_trending())
         rows = {
             r["title"]: r["downloaded_at"]
@@ -256,13 +223,19 @@ class TestRefreshRecommendations:
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
             conn,
+            category="trending",
             title="Show \u2014 Season 2",
             media_type="tv",
             tmdb_id=77,
             batch_id="2026-05-01",
             downloaded_at="2026-05-01T08:00:00",
         )
-        rec = {**_fake_personal()[0], "title": "Show \u2014 Season 3", "tmdb_id": 77}
+        rec = {
+            **_fake_trending()[0],
+            "title": "Show \u2014 Season 3",
+            "media_type": "tv",
+            "tmdb_id": 77,
+        }
         self._refresh(conn, [rec])
         assert self._marks(conn) == {
             ("Show \u2014 Season 3", None): None,
@@ -273,6 +246,7 @@ class TestRefreshRecommendations:
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
             conn,
+            category="trending",
             title="Dune",
             year=1984,
             batch_id="2026-05-01",
@@ -285,6 +259,7 @@ class TestRefreshRecommendations:
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
             conn,
+            category="trending",
             title="Dune",
             year=None,
             batch_id="2026-05-01",
@@ -297,6 +272,7 @@ class TestRefreshRecommendations:
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
             conn,
+            category="trending",
             title="Dune",
             tmdb_id=1,
             batch_id="2026-05-01",
@@ -312,7 +288,11 @@ class TestRefreshRecommendations:
     def test_one_downloaded_row_marks_only_one_of_two_identical_new_rows(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
-            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+            conn,
+            category="trending",
+            title="Dune",
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
         )
         rec = _fake_trending()[0]
         self._refresh(conn, [dict(rec), dict(rec)])
@@ -327,7 +307,11 @@ class TestRefreshRecommendations:
 
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
-            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+            conn,
+            category="trending",
+            title="Dune",
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
         )
         conn.commit()
         other = sqlite3.connect(str(db_path), timeout=0)
@@ -351,7 +335,11 @@ class TestRefreshRecommendations:
     def test_download_mark_survives_a_failed_refresh(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
-            conn, title="Dune", batch_id="2026-05-01", downloaded_at="2026-05-01T08:00:00"
+            conn,
+            category="trending",
+            title="Dune",
+            batch_id="2026-05-01",
+            downloaded_at="2026-05-01T08:00:00",
         )
         conn.commit()
         bad = {k: v for k, v in _fake_trending()[0].items() if k != "category"}
@@ -363,9 +351,13 @@ class TestRefreshRecommendations:
     def test_refresh_leaves_yesterdays_batch_and_its_download_mark_alone(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
         insert_suggestion(
-            conn, title="Dune", batch_id="2026-04-30", downloaded_at="2026-04-30T08:00:00"
+            conn,
+            category="trending",
+            title="Dune",
+            batch_id="2026-04-30",
+            downloaded_at="2026-04-30T08:00:00",
         )
-        insert_suggestion(conn, title="Other", batch_id="2026-04-30")
+        insert_suggestion(conn, category="trending", title="Other", batch_id="2026-04-30")
         conn.commit()
         self._refresh(conn, _fake_trending())
         rows = conn.execute(
@@ -384,10 +376,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
             refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
@@ -400,10 +388,6 @@ class TestRefreshRecommendations:
                     "mediaman.services.openai.recommendations.persist.generate_trending",
                     return_value=_fake_trending(),
                 ),
-                patch(
-                    "mediaman.services.openai.recommendations.persist.generate_personal",
-                    return_value=[],
-                ),
                 patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
             ):
                 refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
@@ -411,25 +395,6 @@ class TestRefreshRecommendations:
             "SELECT COUNT(*) FROM suggestions WHERE batch_id = '2026-05-01'"
         ).fetchone()[0]
         assert count == 1
-
-    def test_plex_rating_failure_does_not_crash(self, conn):
-        """If Plex raises during get_user_ratings, refresh must still proceed."""
-        client = MagicMock()
-        client.get_user_ratings.side_effect = requests.ConnectionError("Plex connection error")
-
-        with (
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_trending",
-                return_value=[],
-            ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
-            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
-        ):
-            result = refresh_recommendations(conn, plex_client=client, secret_key="x" * 64)
-        assert result == 0  # no recommendations, but no crash
 
     def test_refresh_recommendations_rolls_back_on_partial_insert_failure(self, conn):
         """If an INSERT fails mid-loop, the DELETE must be rolled back atomically.
@@ -450,9 +415,9 @@ class TestRefreshRecommendations:
         )
         insert_suggestion(
             conn,
+            category="trending",
             title="Pre-existing Rec",
             media_type="movie",
-            category="trending",
             reason="was here before",
             batch_id=yesterday,
             created_at="2026-01-01T00:00:00",
@@ -502,10 +467,6 @@ class TestRefreshRecommendations:
                 "mediaman.services.openai.recommendations.persist.generate_trending",
                 return_value=two_recs,
             ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                return_value=[],
-            ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
             pytest.raises(KeyError),
         ):
@@ -518,83 +479,3 @@ class TestRefreshRecommendations:
         assert "New Rec 1" not in titles, (
             "Partial INSERT state was committed — rollback did not occur"
         )
-
-    def test_anime_media_type_normalised_to_tv(self, conn):
-        """media_type 'anime' in watch history must be normalised to 'tv'.
-
-        The old elif guard preserved 'anime' as-is; the fixed code maps it to
-        'tv' so the prompt only ever sees 'movie' or 'tv'.
-        """
-        insert_media_item(
-            conn,
-            id="id-anime",
-            title="Fullmetal Alchemist",
-            media_type="anime",
-            plex_rating_key="rk-anime",
-            added_at="2026-01-01T00:00:00",
-            file_path="/path/anime.mkv",
-            file_size_bytes=500_000_000,
-            last_watched_at="2026-01-01T00:00:00",
-        )
-
-        captured_history: dict[str, object] = {}
-
-        def fake_generate_personal(
-            conn, watch_history, user_ratings, previous_titles, *, secret_key=""
-        ):
-            captured_history["value"] = watch_history
-            return []
-
-        with (
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_trending",
-                return_value=[],
-            ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                side_effect=fake_generate_personal,
-            ),
-            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
-        ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
-
-        history = captured_history.get("value", [])
-        fma = next((h for h in history if h["title"] == "Fullmetal Alchemist"), None)
-        assert fma is not None, "anime item missing from watch history"
-        assert fma["type"] == "tv", f"expected 'tv', got {fma['type']!r}"
-
-    def test_watch_history_from_db_used(self, conn):
-        """Media items in the DB are picked up and passed as watch history."""
-        insert_media_item(
-            conn,
-            id="id-001",
-            title="Breaking Bad",
-            media_type="tv",
-            plex_rating_key="rk-001",
-            added_at="2026-01-01T00:00:00",
-            file_path="/path/ep.mkv",
-            file_size_bytes=1_000_000_000,
-            last_watched_at="2026-01-01T00:00:00",
-        )
-
-        captured_history = {}
-
-        def fake_generate_personal(
-            conn, watch_history, user_ratings, previous_titles, *, secret_key=""
-        ):
-            captured_history["value"] = watch_history
-            return []
-
-        with (
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_trending",
-                return_value=[],
-            ),
-            patch(
-                "mediaman.services.openai.recommendations.persist.generate_personal",
-                side_effect=fake_generate_personal,
-            ),
-            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
-        ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
-        assert any(h["title"] == "Breaking Bad" for h in captured_history["value"])

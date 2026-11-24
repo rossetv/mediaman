@@ -303,7 +303,7 @@ def insert_suggestion(conn: sqlite3.Connection, **fields) -> int:
         "title": "Test Suggestion",
         "year": None,
         "media_type": "movie",
-        "category": "personal",
+        "category": "trending",
         "tmdb_id": None,
         "imdb_id": None,
         "description": None,
@@ -359,6 +359,24 @@ def insert_suggestion(conn: sqlite3.Connection, **fields) -> int:
             row["downloaded_at"],
             row["created_at"],
         ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_user_pick(conn: sqlite3.Connection, username: str, **fields) -> int:
+    """Persist a ``user_picks`` row of *username*; return the assigned id."""
+    row: dict = {
+        "username": username,
+        "title": "Test Pick",
+        "media_type": "movie",
+        "batch_id": "2026-01-01",
+        "created_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    cursor = conn.execute(
+        f"INSERT INTO user_picks ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+        tuple(row.values()),
     )
     conn.commit()
     return int(cursor.lastrowid)

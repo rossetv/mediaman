@@ -69,6 +69,9 @@ from mediaman.services.mail.newsletter import send_newsletter as _send_newslette
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
 )
+from mediaman.services.openai.recommendations.personal import (
+    refresh_people as _refresh_people,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -445,10 +448,10 @@ class ScanEngine:
 
         Recommendations refresh runs FIRST so the newsletter reflects
         this week's picks rather than last week's stale batch — the
-        cards are loaded from the ``suggestions`` table that
-        _refresh_recommendations rewrites. Both calls are
-        wrapped in narrow exception handlers because either failing
-        must not abort a successful scan. Skipped entirely in dry-run
+        cards are loaded from the ``suggestions`` and ``user_picks``
+        tables that _refresh_recommendations and _refresh_people
+        rewrite. Each call is wrapped in narrow exception handlers because
+        none failing may abort a successful scan. Skipped entirely in dry-run
         mode.
         """
         if self._dry_run:
@@ -465,6 +468,10 @@ class ScanEngine:
             ):
                 # best-effort post-scan followup — must not abort scan summary
                 logger.exception("Recommendation generation failed — scan results unaffected")
+            try:
+                _refresh_people(self._conn, self._plex, secret_key=self._secret_key)
+            except sqlite3.Error:
+                logger.exception("Own picks failed — scan results unaffected")
         try:
             _send_newsletter(
                 conn=self._conn,

@@ -1,70 +1,112 @@
-"""Persistence logic — fetch watch history, generate, enrich, and save recommendations."""
+"""Make and save the shared recommendations, and what saving a person's own shares with it."""
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sqlite3
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-import requests
-from plexapi.exceptions import PlexApiException
-
 from mediaman.core.time import now_utc
 from mediaman.services.downloads.download_format._parsing import normalise_for_match
+from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
-    generate_personal,
     generate_trending,
+    strip_season_suffix,
 )
+from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.watch_catalog import SeenTitles
 
 if TYPE_CHECKING:
-    from mediaman.services.media_meta.plex import PlexClient, PlexRatedItem
+    from mediaman.services.media_meta.plex import PlexClient
 
 logger = logging.getLogger(__name__)
 
-
-def _fetch_watch_history(conn: sqlite3.Connection) -> list[dict[str, object]]:
-    rows = conn.execute("""
-        SELECT DISTINCT mi.title, mi.media_type, mi.last_watched_at
-        FROM media_items mi
-        WHERE mi.last_watched_at IS NOT NULL
-        ORDER BY mi.last_watched_at DESC
-        LIMIT 50
-    """).fetchall()
-
-    watch_history = []
-    for r in rows:
-        media_type = r["media_type"] or "movie"
-        if media_type in ("tv_season", "anime_season", "season", "anime"):
-            media_type = "tv"
-        else:
-            media_type = "movie"
-        watch_history.append({"title": r["title"], "type": media_type})
-    return watch_history
+#: Picks kept of a batch, of the larger number asked for.
+BATCH_SIZE = 14
 
 
-def _fetch_plex_ratings(plex_client: PlexClient | None) -> list[PlexRatedItem]:
-    if plex_client is None:
-        return []
-    try:
-        ratings = plex_client.get_user_ratings()
-        logger.info("Fetched %d user ratings from Plex", len(ratings))
-        return ratings
-    except (PlexApiException, requests.RequestException):
-        logger.warning("Failed to fetch Plex user ratings — proceeding without them", exc_info=True)
-        return []
+def recent_rows(
+    conn: sqlite3.Connection, now: datetime, *, username: str | None = None
+) -> list[sqlite3.Row]:
+    """The shared picks of the last 30 days, or *username*'s own, newest first.
 
-
-def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]:
+    Those of today already downloaded are left out: a second run today may pick them again,
+    which keeps them and their mark.
+    """
+    table, owned = _table_of(username)
+    today = now.strftime("%Y-%m-%d")
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")
-    # batch_id is always a fixed-width "YYYY-MM-DD" string (set by `today`
-    # in refresh_recommendations), so lexical >= equals chronological >= here.
-    prev_rows = conn.execute(
-        "SELECT DISTINCT title FROM suggestions WHERE batch_id >= ?", (cutoff_30d,)
+    # batch_id is always a fixed-width "YYYY-MM-DD" string, so lexical >= equals
+    # chronological >= here.
+    # rationale: only the fixed fragments of _table_of are interpolated; every value is bound
+    return conn.execute(  # nosec B608
+        f"SELECT title, year, media_type, tmdb_id FROM {table} WHERE {owned}"
+        " AND batch_id >= :cutoff AND NOT (batch_id = :today AND downloaded_at IS NOT NULL)"
+        " ORDER BY batch_id DESC, id",
+        {"username": username, "cutoff": cutoff_30d, "today": today},
     ).fetchall()
-    return [r["title"] for r in prev_rows]
+
+
+def _table_of(username: str | None) -> tuple[str, str]:
+    """The table of *username*'s picks, or of the shared ones, and the rows in it that count."""
+    if username is None:
+        return "suggestions", SHARED_ONLY
+    return "user_picks", "username = :username"
+
+
+Title = tuple[str, int | None, str, int | None]
+
+_TRAILING_YEAR_RE = re.compile(r"\s*\((\d{4})\)\s*$")
+
+
+def held_titles(conn: sqlite3.Connection) -> list[Title]:
+    """(media type, TMDB id, title, year) of what the library holds or mediaman deleted."""
+    rows = conn.execute(
+        "SELECT media_type, tmdb_id, COALESCE(show_title, title) AS title FROM media_items"
+        " UNION SELECT media_type, tmdb_id, title FROM deleted_media"
+    )
+    found: list[Title] = []
+    for row in rows:
+        title = row["title"] or ""
+        year = _TRAILING_YEAR_RE.search(title)
+        found.append(
+            (
+                "movie" if row["media_type"] == "movie" else "tv",
+                row["tmdb_id"],
+                title[: year.start()] if year else title,
+                int(year.group(1)) if year else None,
+            )
+        )
+    return found
+
+
+def row_titles(rows: Iterable[sqlite3.Row]) -> list[Title]:
+    return [(r["media_type"], r["tmdb_id"], r["title"], r["year"]) for r in rows]
+
+
+def new_titles(known: Iterable[Title]) -> Callable[[RecommendationItem], bool]:
+    """A test that a pick is none of *known*, nor one it was asked about before."""
+    seen = SeenTitles()
+    # Those with an id first: one without would otherwise keep the id of its namesake out.
+    for kind, tmdb_id, title, year in sorted(known, key=lambda t: t[1] is None):
+        seen.add(kind, tmdb_id, _whole_title(kind, title), year)
+
+    def is_new(item: RecommendationItem) -> bool:
+        kind = item["media_type"]
+        title = _whole_title(kind, item["title"])
+        return seen.add(kind, item.get("tmdb_id"), title, item.get("year"))
+
+    return is_new
+
+
+def _whole_title(kind: str, title: str) -> str:
+    return (strip_season_suffix(title) or title) if kind == "tv" else title
 
 
 def _match_downloaded(
@@ -91,82 +133,96 @@ def _match_downloaded(
     return None
 
 
-def _insert_recommendations(
+_STORED = (
+    "title, media_type, year, tmdb_id, imdb_id, description, reason, poster_url, trailer_url, "
+    "rating, rt_rating, tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, "
+    "metascore, backdrop_url"
+)
+
+
+def store_batch(
     conn: sqlite3.Connection,
-    all_recommendations: list[RecommendationItem],
+    items: list[RecommendationItem],
     now: datetime,
-    today: str,
-    now_iso: str,
-    manual: bool,
+    *,
+    username: str | None = None,
+    uses_plex: bool = False,
+    prune: bool = False,
 ) -> int:
-    """Delete the appropriate batch and insert all recommendations in one transaction. with
-    conn: rolls back on any exception, so the caller must not wrap it in another.
+    """Replace today's batch, *username*'s own or the shared one, with *items* in one
+    transaction; returns how many were stored. A pick of today already downloaded keeps its
+    mark. Rolls back on any exception, so the caller must not wrap it in another.
+
+    Picks made from plays in Plex's apps (*uses_plex*) are not stored once their owner has
+    unlinked their Plex account.
     """
+    table, owned = _table_of(username)
+    today = now.strftime("%Y-%m-%d")
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception
         # Take the write lock before reading the marks so a download click cannot
         # commit between that read and the DELETE and be lost.
         conn.execute("BEGIN IMMEDIATE")
-        downloaded = conn.execute(
-            "SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM suggestions "
-            "WHERE batch_id = ? AND downloaded_at IS NOT NULL",
-            (today,),
+        if (
+            uses_plex
+            and not conn.execute(
+                "SELECT 1 FROM plex_links WHERE username = ?", (username,)
+            ).fetchone()
+        ):
+            return 0
+        # rationale: only the fixed fragments of _table_of are interpolated; every value is bound
+        downloaded = conn.execute(  # nosec B608
+            f"SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM {table} "
+            f"WHERE {owned} AND batch_id = :today AND downloaded_at IS NOT NULL",
+            {"username": username, "today": today},
         ).fetchall()
         marks: list[str | None] = []
         matched_ids: set[int] = set()
-        for s in all_recommendations:
+        for s in items:
             row = _match_downloaded(downloaded, s, matched_ids)
             marks.append(row["downloaded_at"] if row else None)
             if row:
                 matched_ids.add(row["id"])
         # A downloaded suggestion absent from the new set stays in today's list.
-        kept_ids = [r["id"] for r in downloaded if r["id"] not in matched_ids]
-        marker = ",".join("?" * len(kept_ids))
-        conn.execute(
-            f"DELETE FROM suggestions WHERE batch_id = ? AND id NOT IN ({marker})",
-            (today, *kept_ids),
+        kept_ids = {r["id"] for r in downloaded} - matched_ids
+        gone = conn.execute(  # nosec B608
+            f"SELECT id FROM {table} WHERE {owned} AND batch_id = :today",
+            {"username": username, "today": today},
+        ).fetchall()
+        conn.executemany(
+            f"DELETE FROM {table} WHERE id = ?",  # nosec B608
+            [(r["id"],) for r in gone if r["id"] not in kept_ids],
         )
-        if not manual:
+        if prune and username is None:
             cutoff_90d_str = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d_str,))
+        elif prune and username is not None:
+            user_picks.prune(conn, username, now)
 
-        for s, downloaded_at in zip(all_recommendations, marks, strict=True):
-            title = str(s.get("title") or "")
-            reason = str(s.get("reason") or "")
-            conn.execute(
-                "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
-                "description, reason, poster_url, trailer_url, rating, rt_rating, "
-                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore, "
-                "batch_id, created_at, downloaded_at, backdrop_url) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    title,
-                    s.get("year"),
-                    s["media_type"],
-                    s["category"],
-                    s.get("tmdb_id"),
-                    s.get("imdb_id"),
-                    s.get("description"),
-                    reason,
-                    s.get("poster_url"),
-                    s.get("trailer_url"),
-                    s.get("rating"),
-                    s.get("rt_rating"),
-                    s.get("tagline"),
-                    s.get("runtime"),
-                    s.get("genres"),
-                    s.get("cast_json"),
-                    s.get("director"),
-                    s.get("trailer_key"),
-                    s.get("imdb_rating"),
-                    s.get("metascore"),
-                    today,
-                    now_iso,
-                    downloaded_at,
-                    s.get("backdrop_url"),
-                ),
+        for s, downloaded_at in zip(items, marks, strict=True):
+            values: dict[str, object] = {c: s.get(c) for c in _STORED.split(", ")}
+            values |= {
+                "title": str(s.get("title") or ""),
+                "media_type": s["media_type"],
+                "reason": str(s.get("reason") or ""),
+                "batch_id": today,
+                "created_at": now.isoformat(),
+                "downloaded_at": downloaded_at,
+            }
+            if username is None:
+                values["category"] = s["category"]
+            else:
+                values["username"] = username
+                values["because_of"] = json.dumps(s.get("because_of") or [], ensure_ascii=False)
+                values["uses_plex"] = int(uses_plex)
+            # A downloaded pick kept above can be the same title under another spelling.
+            # rationale: the column names are the fixed ones above; every value is bound
+            cursor = conn.execute(  # nosec B608
+                f"INSERT INTO {table} ({', '.join(values)}) "
+                f"VALUES ({', '.join('?' * len(values))}) ON CONFLICT DO NOTHING",
+                tuple(values.values()),
             )
-            inserted += 1
+            inserted += cursor.rowcount
     return inserted
 
 
@@ -177,47 +233,29 @@ def refresh_recommendations(
     *,
     secret_key: str,
 ) -> int:
-    """Fetch watch history and generate trending and personal recommendations; returns the
-    count generated.
+    """Generate the new and popular recommendations everyone sees; returns the count
+    generated. No viewing data goes into them, and *plex_client* is not read.
 
     Every run replaces today's batch; scheduled runs also prune rows older than 90 days.
     """
     now = now_utc()
-    today = now.strftime("%Y-%m-%d")
-
-    watch_history = _fetch_watch_history(conn)
-    user_ratings = _fetch_plex_ratings(plex_client)
-    previous_titles = _fetch_previous_titles(conn, now)
-
-    trending = generate_trending(conn, previous_titles, secret_key=secret_key)
-    personal = (
-        generate_personal(
-            conn,
-            watch_history,
-            user_ratings,
-            previous_titles,
-            secret_key=secret_key,
-        )
-        if watch_history
-        else []
+    earlier = recent_rows(conn, now)
+    trending = generate_trending(
+        conn, list(dict.fromkeys(r["title"] for r in earlier)), secret_key=secret_key
     )
-    all_recommendations = trending + personal
-
-    if not all_recommendations:
+    if not trending:
         return 0
 
-    enrich_recommendations(all_recommendations, conn, secret_key)
-
-    inserted = _insert_recommendations(
-        conn, all_recommendations, now, today, now.isoformat(), manual
+    enrich_recommendations(
+        trending,
+        conn,
+        secret_key,
+        accept=new_titles([*held_titles(conn), *row_titles(earlier)]),
+        limit=BATCH_SIZE,
     )
+    if not trending:
+        return 0
 
-    logger.info(
-        "Generated %d recommendations (%d trending, %d personal); inserted=%d skipped=%d",
-        len(all_recommendations),
-        len(trending),
-        len(personal),
-        inserted,
-        len(all_recommendations) - inserted,
-    )
+    inserted = store_batch(conn, trending, now, prune=not manual)
+    logger.info("Generated %d shared recommendations; inserted=%d", len(trending), inserted)
     return inserted
