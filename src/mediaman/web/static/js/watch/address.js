@@ -476,7 +476,7 @@
     }
     function go() {
       if (!watching || !scroller.clientWidth) return;
-      if (left) scroller.style.scrollSnapType = 'none';
+      scroller.style.scrollSnapType = 'none';
       if (!there()) {
         scroller.scrollTo({ left: left, behavior: 'instant' });
         steps.put();

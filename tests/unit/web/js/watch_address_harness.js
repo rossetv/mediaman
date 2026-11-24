@@ -271,10 +271,17 @@ const scenarios = {
     const p = open(makeTab('/watch'), { unstarted: true });
     const s = rowOf(p, 'recommended', 2000);
     p.address.start();
+    const snap = [s.style.scrollSnapType];
     s.scrollTo({ left: 492 });
     p.frame(4);
     const held = s.scrollLeft;
     p.late(1000);
+    snap.push(s.style.scrollSnapType);
+    const q = open(makeTab('/watch'), { unstarted: true });
+    const other = rowOf(q, 'recommended', 2000);
+    q.address.start();
+    other.drag(60);
+    snap.push(other.style.scrollSnapType);
     const say = (type, e) => (p.doc.listeners[type] || []).forEach((fn) => fn({ type, target: s, ...e }));
     say('wheel', { deltaX: 0, deltaY: 90 });
     say('touchstart', { touches: [{ clientX: 100, clientY: 400 }] });
@@ -291,7 +298,7 @@ const scenarios = {
     const last = open(p.tab, { unstarted: true });
     const theirs = rowOf(last, 'recommended', 2000);
     last.address.start();
-    return { held, alone: again.scrollLeft, theirs: theirs.scrollLeft };
+    return { held, snap, alone: again.scrollLeft, theirs: theirs.scrollLeft };
   },
 
   async aRowTheyScrollWithoutAnEvent() {

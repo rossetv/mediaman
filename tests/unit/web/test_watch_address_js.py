@@ -252,7 +252,12 @@ def test_what_scrolls_frame_after_frame_is_the_persons_and_the_page_is_held_5_s_
 
 
 def test_only_a_row_the_person_scrolled_is_kept_where_it_is() -> None:
-    assert _run("aRowThatScrollsByItself") == {"held": 0, "alone": 0, "theirs": 164}
+    assert _run("aRowThatScrollsByItself") == {
+        "held": 0,
+        "snap": ["none", "", ""],
+        "alone": 0,
+        "theirs": 164,
+    }
 
 
 def test_a_held_row_that_goes_on_moving_is_the_persons() -> None:
