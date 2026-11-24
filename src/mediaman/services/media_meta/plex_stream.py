@@ -198,11 +198,11 @@ class _Stream:
     quality: str
     session_id: str
     child_path: str
-    #: Place of its start among all starts: of two of the same item, the later one plays.
-    order: int
     last_access: float
     viewing_started: float
     info: dict[str, Any] = field(default_factory=dict)
+    #: Place of its start among all starts: of two of the same item, the later one plays.
+    order: int = 0
 
     @property
     def item(self) -> tuple[str, str]:
@@ -382,10 +382,10 @@ class StreamManager:
                         quality=quality,
                         session_id=session_id,
                         child_path=child_path,
-                        order=order,
                         last_access=now,
                         viewing_started=viewing.began,
                         info=dict(info or {}),
+                        order=order,
                     )
         if beaten:
             self._call_quietly("stop", session_id)
