@@ -1367,8 +1367,11 @@
   /* watch/list.js: what is scheduled has changed. */
   function tellList() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
 
+  /* Not those on their way out, of the row (is-kept) or of an open grid. */
   function liveCards(row) {
-    return toArray(row.querySelectorAll('.watch-card[data-keep-id]')).filter(function (card) { return !card.classList.contains('is-kept'); });
+    return toArray(row.querySelectorAll('.watch-card[data-keep-id]')).filter(function (card) {
+      return !card.classList.contains('is-kept') && !card.inert;
+    });
   }
 
   /* The Leaving soon row; one whose last card went is on its way out. */

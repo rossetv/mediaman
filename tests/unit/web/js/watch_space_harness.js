@@ -550,6 +550,34 @@ const scenarios = {
     await p.click(p.one('#watch-keep-menu [data-days="7"]'));
     return { inGrid, inRow: p.cards().length };
   },
+  // Leaving soon's grid is open: its kept card still fades, as watch/grid.js leaves it, when the refresh lands.
+  async gridFades() {
+    const p = await page(undefined, undefined, { motion: true });
+    await p.open();
+    await p.key('Escape');
+    Node.prototype.animate = function () { return { cancel() {} }; };
+    const host = p.$('main').appendChild(build(p.doc, ['div', { 'data-watch-leaving-row': '' }, ['div', { class: 'watch-grid' }, ...['1', '2'].map(card)]]));
+    const grid = host.children[0];
+    const first = grid.children[0];
+    p.ctx.MMWatch.grid = { take: (c, control) => {
+      if (!grid.contains(c)) return null;
+      const next = c.nextElementSibling;
+      host.appendChild(c);
+      c.classList.add('is-gone');
+      c.inert = true;
+      return { focus: null, undo: () => { c.classList.remove('is-gone'); c.inert = false; grid.insertBefore(c, next); return c.querySelector(control); } };
+    } };
+    const keep = async () => {
+      await p.click(first.querySelector('.watch-keep'));
+      await p.click(p.one('#watch-keep-menu [data-days="7"]'));
+    };
+    await keep();
+    p.last().opts.action.onClick();
+    await settle();
+    const undone = { in: first.parentNode === grid, card: first.className, inert: first.inert };
+    await keep();
+    return { undone, again: grid.contains(first) };
+  },
   async secondPress() {
     const p = await page();
     await p.open();

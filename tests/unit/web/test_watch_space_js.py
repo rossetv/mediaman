@@ -335,6 +335,12 @@ class TestScheduled:
         }
         assert out["inRow"] == 0
 
+    def test_a_card_undone_in_an_open_grid_stays_there_and_can_be_kept_again(self):
+        assert _run("gridFades") == {
+            "undone": {"in": True, "card": "watch-card", "inert": False},
+            "again": False,
+        }
+
     def test_a_scan_that_ends_during_a_failed_keep_still_refreshes(self):
         out = _run("scanDuringFailedKeep")
         assert out["during"] == ["1", "2", "3"]
