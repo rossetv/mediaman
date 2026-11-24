@@ -46,6 +46,7 @@ _SCAN_SECONDS = 300.0
 _PERSON_SECONDS = 180.0
 _PRESENT_WITHIN = timedelta(days=30)
 _PICKS_LAST = timedelta(days=28)
+_FAILED_WAITS = timedelta(hours=24)
 
 
 def has_enough_plays(conn: sqlite3.Connection, username: str) -> bool:
@@ -54,7 +55,8 @@ def has_enough_plays(conn: sqlite3.Connection, username: str) -> bool:
 
 def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
     """Who a scan makes picks for, the longest without a try first: people here in the last
-    30 days with enough plays, something new among them, no picks, or picks over 28 days old."""
+    30 days with enough plays, something new among them, no picks, or picks over 28 days old. One whose last run
+    failed waits a day."""
     since = (now - _PRESENT_WITHIN).isoformat()
     # Playing here takes a session, which signing out deletes.
     present = conn.execute(
@@ -67,6 +69,8 @@ def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
     due: list[tuple[str, str]] = []
     for row in present:
         name = row["username"]
+        if user_picks.failed_since(conn, name, now - _FAILED_WAITS):
+            continue
         plays = person_plays(conn, name)
         if len(plays) < MIN_TITLES:
             continue

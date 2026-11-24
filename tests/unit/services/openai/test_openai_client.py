@@ -187,6 +187,12 @@ class TestCallOpenAi:
         fake_http.queue("POST", fake_response(json_data={"output": output}))
         assert call_openai("p", conn) == []
 
+    def test_how_much_a_model_may_write_is_bounded(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data={"output": []}))
+        call_openai("p", conn)
+        assert 8_000 <= fake_http.calls[0][2]["json"]["max_output_tokens"] <= 32_000
+
     def test_returns_empty_on_http_error(self, conn, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=401, text="Unauthorised"))
         with patch("mediaman.services.openai.client.get_openai_key", return_value="sk-bad"):

@@ -181,6 +181,16 @@ def last_status(conn: sqlite3.Connection, username: str) -> str | None:
     return row["status"] if row else None
 
 
+def failed_since(conn: sqlite3.Connection, username: str, since: datetime) -> bool:
+    """True when *username*'s last run, whoever began it, failed and began after *since*."""
+    row = conn.execute(
+        "SELECT status, started_at FROM user_pick_runs WHERE username = ?"
+        " ORDER BY started_at DESC, id DESC LIMIT 1",
+        (username,),
+    ).fetchone()
+    return row is not None and row["status"] == "failed" and row["started_at"] > since.isoformat()
+
+
 def last_started(conn: sqlite3.Connection, username: str, *, done_only: bool) -> str:
     """When *username*'s last run began; with *done_only* the last that made picks. Empty
     when there was none."""

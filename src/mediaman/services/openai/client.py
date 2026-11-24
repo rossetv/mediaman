@@ -40,6 +40,8 @@ _OPENAI_CLIENT = SafeHTTPClient(
 # Twenty reasoned picks, some after a web search, take a model longer than a plain answer.
 # A call that times out may be billed, so it is never sent again (POST does not retry).
 _CALL_TIMEOUT = (5.0, 120.0)
+# Twenty picks are about 3,000 tokens; the rest is for what a model thinks before them.
+_MAX_OUTPUT_TOKENS = 16_000
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,7 @@ def _build_request(
         "model": model,
         "input": prompt,
         "text": {"format": {"type": "json_object"}},
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
     }
     if web_search_active:
         body["instructions"] = (

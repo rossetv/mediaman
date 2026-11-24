@@ -393,11 +393,11 @@ class TestRunsItBelongsTo:
 
 
 class TestEligible:
-    def _done(self, conn, username, when):
+    def _done(self, conn, username, when, status="done"):
         conn.execute(
             "INSERT INTO user_pick_runs (username, requested_by, status, started_at, finished_at)"
-            " VALUES (?, 'scan', 'done', ?, ?)",
-            (username, when, when),
+            " VALUES (?, 'scan', ?, ?, ?)",
+            (username, status, when, when),
         )
         conn.commit()
 
@@ -436,6 +436,16 @@ class TestEligible:
             (_ago(days=40), _ago(days=-1), _ago(days=3)),
         )
         assert personal.eligible_people(conn, NOW) == ["bob"]
+
+    def test_a_scan_leaves_out_a_person_whose_last_run_failed_under_a_day_ago(self, conn):
+        for name in ("amy", "bob"):
+            _plays(conn, name, "A", "B", "C", "D", "E")
+        self._done(conn, "amy", _ago(hours=23), "failed")
+        self._done(conn, "bob", _ago(hours=25), "failed")
+        assert personal.eligible_people(conn, NOW) == ["bob"]
+        self._done(conn, "amy", _ago(hours=22))
+        conn.execute("UPDATE watch_progress SET updated_at = ?", (_ago(hours=1),))
+        assert personal.eligible_people(conn, NOW) == ["bob", "amy"]
 
     def test_the_one_longest_without_a_try_comes_first(self, conn):
         _plays(conn, "amy", "A", "B", "C", "D", "E")
