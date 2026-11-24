@@ -30,6 +30,10 @@ def test_a_confirm_is_named_by_its_title_and_described_by_its_body() -> None:
     assert _run("named") == {"body": ["Delete it?", "For good."], "none": ["Delete it?", None]}
 
 
+def test_a_confirm_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
+    assert _run("bar") == {"held": "15px", "after": None}
+
+
 def test_undo_answers_ctrl_z_unless_a_dialog_on_screen_or_a_text_field_has_the_keyboard() -> None:
     assert _run("pressed") == {
         "nothingOpen": True,

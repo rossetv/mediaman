@@ -100,6 +100,9 @@
     sheet.appendChild(actions);
 
     backdrop.appendChild(sheet);
+    var root = document.documentElement;
+    var bar = window.innerWidth - root.clientWidth;
+    if (bar > 0) root.style.setProperty('--page-bar', bar + 'px');
     document.body.appendChild(backdrop);
     setTimeout(function () { input.focus(); }, 0);
 
@@ -107,10 +110,11 @@
        onClose runs for every route, so a close that is not a success is a cancel. */
     var done = false;
     var modal = MM.modal.setupDetail(backdrop, {
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, /* _ui_feedback.css holds the page */
       useModalA11y: false,
       onClose: function () {
         input.value = '';
+        if (bar > 0) root.style.removeProperty('--page-bar');
         if (opener && opener !== document.body && opener.focus) opener.focus();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */

@@ -38,6 +38,7 @@ const timers = [];
 const closers = [];
 const doc = {
   body: new El('body'),
+  documentElement: new El('html'),
   createElement: (t) => new El(t),
   querySelectorAll: () => [],
   activeElement: null,
@@ -65,6 +66,16 @@ function open(result) {
 }
 
 const scenarios = {
+  // the width of the page's scrollbar is held while the dialog is open
+  async bar() {
+    const root = doc.documentElement;
+    Object.assign(root, { clientWidth: 1265, style: { setProperty(k, v) { this[k] = v; }, removeProperty(k) { delete this[k]; } } });
+    ctx.innerWidth = 1280;
+    open({ ok: true });
+    const held = root.style['--page-bar'];
+    doc.body.children[doc.body.children.length - 1].children[0].querySelector('.btn--ghost').emit('click');
+    return { held, after: root.style['--page-bar'] || null };
+  },
   // what the dialog of run() says, with the caller's words and without
   async words() {
     const says = async (words) => {

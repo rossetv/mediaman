@@ -71,6 +71,18 @@ function named() {
   return { body: says({ title: 'Delete it?', body: 'For good.' }), none: says({ title: 'Delete it?' }) };
 }
 
+/* The width of the page's scrollbar, held while a confirm is open. */
+function bar() {
+  const { doc, ui, win } = page();
+  const root = doc.documentElement;
+  Object.assign(root, { clientWidth: 1265, style: { setProperty(k, v) { this[k] = v; }, removeProperty(k) { delete this[k]; } } });
+  win.innerWidth = 1280;
+  ui.confirm({ title: 'Sure?' });
+  const held = root.style['--page-bar'];
+  ui.dismissConfirm();
+  return { held, after: root.style['--page-bar'] || null };
+}
+
 const open = { attrs: {} };
 const pressed = () => ({
   nothingOpen: press(),
@@ -99,7 +111,7 @@ function page(phone) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
-  return { doc, ui: ctx.UIFeedback };
+  return { doc, ui: ctx.UIFeedback, win: ctx };
 }
 
 /* Toasts while something is full screen, and as that begins and ends. */
@@ -146,5 +158,5 @@ const onPhone = () => ({
   undoStays: stays(['1 Undo', 'a', 'b'], true),
   errorStays: stays(['1 Undo', 'Error', '2 Undo'], true),
 });
-const scenarios = { pressed, named, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+const scenarios = { pressed, named, bar, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

@@ -261,6 +261,9 @@
       if (opts.body) card.appendChild(p);
       card.appendChild(actions);
       overlay.appendChild(card);
+      var root = document.documentElement;
+      var bar = window.innerWidth - root.clientWidth;
+      if (bar > 0) root.style.setProperty('--page-bar', bar + 'px');
       document.body.appendChild(overlay);
 
       var closed = false;
@@ -273,6 +276,7 @@
         resolve(result);
         overlay.classList.add('is-leaving');
         overlay.classList.remove('is-visible');
+        if (bar > 0) root.style.removeProperty('--page-bar');
         removeAfterExit(overlay);
       }
       function cancel() { cleanup(false); }

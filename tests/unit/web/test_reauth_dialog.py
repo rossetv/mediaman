@@ -73,3 +73,7 @@ def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() ->
     out = _run("words")
     assert out["own"] == ["T", "D", "C"]
     assert (out["none"][0], out["none"][2]) == ("Re-authenticate to save", "Confirm & save")
+
+
+def test_the_dialog_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
+    assert _run("bar") == {"held": "15px", "after": None}

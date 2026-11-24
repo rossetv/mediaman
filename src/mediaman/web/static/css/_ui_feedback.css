@@ -122,6 +122,15 @@
 }
 .ui-confirm-overlay.is-visible { opacity: 1; }
 
+/* The page does not scroll behind a confirm or the password dialog, and keeps the width
+   its scrollbar leaves (--page-bar, from the scripts that open them). A rule, not a style
+   set and taken away: one that opens over another lock must leave that lock alone. A
+   title's page and the storage panel hold the html already. */
+html:not(.has-space, .has-ttl) body:has(> .ui-confirm-overlay:not(.is-leaving), > .reauth-backdrop:not([aria-hidden="true"])) {
+  overflow: hidden;
+  padding-right: var(--page-bar, 0);
+}
+
 .ui-confirm-card {
   background: var(--s2);
   border: 1px solid var(--hair-strong);
