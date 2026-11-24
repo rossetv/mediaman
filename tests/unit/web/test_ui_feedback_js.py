@@ -44,3 +44,26 @@ def test_undo_answers_ctrl_z_unless_a_dialog_on_screen_or_a_text_field_has_the_k
         "textField": False,
         "redo": False,
     }
+
+
+def test_toasts_are_inside_whatever_is_full_screen_and_come_back_with_their_focus() -> None:
+    assert _run("fullscreen") == {
+        "shownIn": "player",
+        "after": "body",
+        "focusKept": True,
+        "webkit": "player",
+        "video": "body",
+        "hosts": 1,
+    }
+
+
+def test_at_most_two_toasts_on_a_phone_where_a_new_undo_takes_the_place_of_the_oldest() -> None:
+    assert _run("onPhone") == {
+        "wide": ["b", "c", "d"],
+        # Elsewhere an Undo keeps its time.
+        "wideUndo": ["1 Undo", "2 Undo", "3 Undo", "4 Undo"],
+        "phone": ["b", "c"],
+        "phoneUndo": ["2 Undo", "3 Undo"],
+        "undoStays": ["1 Undo", "b"],
+        "errorStays": ["1 Undo", "2 Undo"],
+    }

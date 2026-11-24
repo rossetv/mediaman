@@ -172,9 +172,11 @@
       btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
       listenForUndo();
     }
-    // At most three at once, and never a stack taller than the host's
-    // height budget. The new toast always stays; the oldest non-error goes
+    // At most three at once, two on a phone, and never a stack taller than the
+    // host's height budget. The new toast always stays; the oldest non-error goes
     // first, an error only (with its normal fade) when all are errors.
+    var phone = window.matchMedia('(max-width: 600px), (max-height: 420px)').matches;
+    var most = phone ? 2 : 3;
     var live = function () {
       return Array.prototype.filter.call(host.children, function (c) {
         return !c.classList.contains('is-leaving');
@@ -192,14 +194,18 @@
       return over;
     };
     var kids = live().filter(function (c) { return c !== node; });
-    while (kids.length > 0 && (kids.length >= 3 || overBudget())) {
-      // A toast with an action is never evicted while its time runs.
+    while (kids.length > 0 && (kids.length >= most || overBudget())) {
+      // A toast with an action is never evicted while its time runs, but on a
+      // phone two of them leave no room: the newer takes the older one's place.
       var plain = kids.filter(function (c) {
         return !c.classList.contains('ui-toast--action');
       });
       var victim = plain.filter(function (c) {
         return !c.classList.contains('ui-toast--error');
       })[0] || plain[0];
+      if (!victim && phone && kids.length >= most) {
+        victim = kids.filter(function (c) { return !c.contains(document.activeElement); })[0];
+      }
       if (!victim) break;
       dismissToast(victim);
       kids = live().filter(function (c) { return c !== node; });
