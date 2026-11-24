@@ -2652,6 +2652,8 @@ const scenarios = {
       slow: press({ referrer: 'http://mm/watch', length: 3 }, { waits: 10000 }),
       slower: press({ referrer: 'http://mm/watch', length: 3 }, { leaves: true }),
       twice: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 500 }),
+      again: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500 }),
+      onItsWay: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500, leaves: true }),
       newTabPress: press({ referrer: 'http://mm/watch', length: 3 }, { metaKey: true }),
     };
   },

@@ -56,6 +56,7 @@
   var ASK_AFTER_MS = 2 * 60 * 60 * 1000;
   /* How long the next episode waits for its page, and for the old stream to stop. */
   var PAGE_WAIT_MS = 15000;
+  var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
@@ -2153,6 +2154,7 @@
   /* ---- back ------------------------------------------------------------ */
 
   var backTimer = null;      // runs while a step back is being made
+  var backAt = 0;            // when it was asked for
   var stepping = false;      // the browser has begun to make it
 
   /* Whether a page that plays things led here, in this tab. */
@@ -2176,9 +2178,13 @@
      lead elsewhere than it did. A step the browser never makes is a link. */
   function goBack() {
     if (cameFrom !== backHref) { window.location.href = backHref; return; }
-    // A second step would lead past the page that is on its way.
-    if (backTimer !== null) return;
+    // A second step would lead past the page that is on its way; one that is not is a link.
+    if (backTimer !== null) {
+      if (!stepping && Date.now() - backAt >= AGAIN_MS) window.location.href = backHref;
+      return;
+    }
     stepping = false;
+    backAt = Date.now();
     window.history.back();
     backTimer = setTimeout(function () {
       backTimer = null;

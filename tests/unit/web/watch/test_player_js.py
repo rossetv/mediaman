@@ -1166,6 +1166,8 @@ def test_back_steps_through_the_history_only_where_the_app_led_here(markup) -> N
         "slow": {**through, "late": "/watch/play/1"},
         "slower": {**through, "late": "/watch/play/1"},
         "twice": {**through, "second": "/watch/play/1"},
+        "again": {**through, "second": "/watch/show/77"},
+        "onItsWay": {**through, "second": "/watch/play/1", "late": "/watch/play/1"},
         "newTabPress": link,
     }
 
