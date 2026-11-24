@@ -695,14 +695,14 @@
 
   /* ---- a lost connection ----------------------------------------------- */
 
-  /* While mediaman cannot be reached: what asks `again`, what tidies up once it
-     `gaveUp`, the next `wait`, whether a try is under way (`trying`) and whether
-     the message is up (`over`). */
+  /* While mediaman cannot be reached: since when (`at`), what asks `again`, what
+     tidies up once it `gaveUp`, the next `wait`, whether a try is under way
+     (`trying`) and whether the message is up (`over`). */
   var lost = null;
 
   function noteLost(again, gaveUp) {
     if (lost) return;
-    lost = { again: again, gaveUp: gaveUp, wait: LOST_FIRST_MS, trying: false, over: false };
+    lost = { at: Date.now(), again: again, gaveUp: gaveUp, wait: LOST_FIRST_MS, trying: false, over: false };
     clearTimeout(stallTimer);
     countLost();
     showLost();
@@ -714,7 +714,7 @@
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);
-    lost.tryTimer = setTimeout(askAgain, lost.wait);
+    lost.tryTimer = setTimeout(tryUnattended, lost.wait);
     lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
   }
 
@@ -722,6 +722,14 @@
     clearTimeout(lost.tryTimer);
     lost.trying = true;
     lost.again();
+  }
+
+  /* Whether nobody may be there any more: timers stand still while a computer sleeps. */
+  function lostLong() { return Date.now() - lost.at >= ASK_AFTER_MS; }
+
+  function tryUnattended() {
+    if (lostLong()) giveUp();
+    else askAgain();
   }
 
   /* What was loaded before may still play for long. */
@@ -735,6 +743,7 @@
 
   function giveUp() {
     clearTimeout(lost.tryTimer);
+    clearTimeout(lost.endTimer);
     lost.over = true;
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
@@ -752,6 +761,7 @@
 
   /* Try again. */
   function tryLost() {
+    lost.at = Date.now();
     wantPlaying = true;
     if (streamId && video.paused && !video.ended) play();
     goOnTrying();
@@ -768,6 +778,10 @@
   function reached() {
     if (!lost) return;
     if (lost.over) hideMessage();
+    if (lostLong()) {
+      wantPlaying = false;
+      video.pause();
+    }
     endLost();
   }
 
@@ -779,8 +793,9 @@
 
   window.addEventListener('online', function () {
     if (!lost) return;
+    if (lost.over && lostLong()) return;
     if (lost.over) goOnTrying();
-    else if (!lost.trying) askAgain();
+    else if (!lost.trying) tryUnattended();
   });
 
   /* Whether a proxy, not mediaman, answered: one in front of it says so with these. */
@@ -1369,8 +1384,12 @@
     stopRolling();
     /* A message over a video that can be played is about its end. */
     if (streamId && !starting) {
-      if (lost && lost.over) goOnTrying();
-      else hideMessage();
+      if (lost && lost.over) {
+        lost.at = Date.now();
+        goOnTrying();
+      } else {
+        hideMessage();
+      }
     }
   });
   video.addEventListener('seeked', function () {
@@ -2235,6 +2254,7 @@
       Promise.all([fetchPage(href), stopped])
         .then(function (done) {
           if (gen !== generation) return;
+          reached();
           takePage(done[0], href);
           switching = false;
           startStream(startS);

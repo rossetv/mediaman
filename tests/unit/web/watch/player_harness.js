@@ -292,7 +292,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     for (;;) {
       const due = clock.timers.filter((t) => t.at <= end).sort((a, b) => a.at - b.at)[0];
       if (!due) break;
-      clock.now = due.at;
+      clock.now = Math.max(clock.now, due.at);
       if (due.every) due.at += due.every; else clearTimer(due.id);
       due.fn();
     }
@@ -1353,6 +1353,52 @@ const scenarios = {
     await settle();
     out.online = { starts: p.starts().length - starts, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
     return out;
+  },
+
+  /* The connection is back only after hours: under the message, after the computer slept through
+     the tries, or with a request under way all that time. */
+  async dropped_hours(p) {
+    const HOURS = 3 * 60 * 60 * 1000;
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    h.emit('hlsError', loadError('fragLoadError', 0));
+    const fail = failingLoads(h, () => loadError('fragLoadError', 0));
+    const way = p.win.serverPlays;
+    if (way === 'message') await failFor(p, 65000, fail);
+    if (way === 'under way') p.tick(1000);
+    p.sleep(HOURS);
+    const loads = h.loads.length;
+    const plays = p.video.plays;
+    if (way === 'asleep') p.tick(1);
+    else if (way !== 'under way') p.online();
+    if (way === 'under way') { p.video.readyState = 4; h.emit('hlsFragLoaded'); }
+    await settle();
+    const out = { tried: h.loads.length - loads, message: messageState(p), paused: p.video.paused, play: playState(p).label };
+    if (way === 'under way') return out;
+    press(p.q('[data-retry]'));
+    out.byPress = { tried: h.loads.length - loads, message: messageState(p), paused: p.video.paused };
+    return Object.assign(out, { plays: p.video.plays - plays });
+  },
+
+  /* The same as the next episode is on its way. */
+  async next_dropped_hours(p) {
+    const good = p.pages['/watch/play/502'];
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = 'offline';
+    click(p.q('[data-next-btn]'));
+    for (let i = 0; i < 130; i++) { await settle(); p.tick(500); }
+    p.sleep(3 * 60 * 60 * 1000);
+    p.pages['/watch/play/502'] = good;
+    p.held.answer = () => answer('1080p-8000');
+    p.online();
+    for (let i = 0; i < 4; i++) { await settle(); p.tick(500); }
+    const out = { starts: p.starts().length, message: messageState(p) };
+    press(p.q('[data-retry]'));
+    await settle();
+    return Object.assign(out, { byPress: p.starts().length });
   },
 
   /* The next episode's page does not come for a while, or for longer than the page waits. */

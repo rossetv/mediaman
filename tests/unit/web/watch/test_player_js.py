@@ -1301,6 +1301,25 @@ def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(mark
     assert (out["plays"], out["paused"]) == (0, True)
 
 
+@pytest.mark.parametrize("way", ["message", "asleep", "awake"])
+def test_a_connection_back_after_hours_waits_for_a_press(markup, way):
+    out = run(markup, "dropped_hours", plays=way)
+    assert (out["tried"], out["message"]) == (0, LOST)
+    assert out["byPress"] == {"tried": 1, "message": None, "paused": False}
+
+
+def test_what_comes_by_itself_after_hours_is_paused(markup):
+    out = run(markup, "dropped_hours", plays="under way")
+    assert out == {"tried": 0, "message": None, "paused": True, "play": "Play"}
+
+
+def test_a_next_episode_never_begins_by_itself_once_the_connection_is_back_after_hours(
+    markup, season
+):
+    out = run(markup, "next_dropped_hours", pages=season)
+    assert out == {"starts": 1, "message": LOST, "byPress": 2}
+
+
 @pytest.mark.parametrize("how", ["offline", "gateway"])
 def test_a_start_that_does_not_reach_mediaman_is_tried_again_where_it_stood(markup, how):
     out = run(markup, "start_dropped", plays=how)
