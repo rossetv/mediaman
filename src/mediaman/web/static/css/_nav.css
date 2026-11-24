@@ -72,10 +72,61 @@
 .nav-links a.active,
 .nav-links li a.active { color: var(--t1); background: var(--s3); }
 
-/* Logout sits at the end of the desktop link rail. */
-.nav-logout-form { display: inline-flex; margin-left: auto; }
-.nav-btn--logout { color: var(--t3); }
-.nav-btn--logout:hover { color: var(--danger-text); background: var(--rgba-danger-bg); }
+/* Profile button: avatar, name and a chevron at the end of the bar. Below 900px
+   only the avatar shows, in a 44px target. */
+.profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+  margin-right: -10px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  color: var(--t2);
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.profile-btn:hover,
+.profile-btn[aria-expanded="true"] { color: var(--t1); }
+.profile-btn:active { transform: scale(.97); }
+.profile-btn:focus-visible { outline-offset: -2px; border-radius: var(--r-pill); }
+.profile-btn-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-btn > .ico { font-size: 10px; transition: transform var(--dur-fast) var(--ease-out); }
+.profile-btn[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+.profile-btn.on .avatar,
+.profile-btn[aria-expanded="true"] .avatar { outline-color: var(--t1); }
+@media (max-width: 899.98px) {
+  .profile-btn { padding: 0; margin-right: -7px; }
+  .profile-btn-name,
+  .profile-btn > .ico { display: none; }
+}
+
+/* Initials on one of six colours, each with at least 4.5:1 under the white letters. */
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid transparent;   /* drawn by the browser in forced colours */
+  outline: 1.5px solid transparent;
+  outline-offset: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--t1);
+  transition: outline-color var(--dur-fast) var(--ease-out);
+}
+.avatar--0 { background: color-mix(in srgb, var(--accent) 60%, var(--scrim)); }
+.avatar--1 { background: color-mix(in srgb, var(--success) 55%, var(--scrim)); }
+.avatar--2 { background: color-mix(in srgb, var(--purple) 60%, var(--scrim)); }
+.avatar--3 { background: color-mix(in srgb, var(--orange) 55%, var(--scrim)); }
+.avatar--4 { background: color-mix(in srgb, var(--warning) 45%, var(--scrim)); }
+.avatar--5 { background: var(--hero-hi); }
 
 /* Mobile top bar (brand + page title) — visible < 700 px */
 .nav-topbar {
@@ -138,83 +189,133 @@
 .nav-tab.on { color: var(--accent); }
 .nav-tab:active { transform: scale(.94); }
 
-/* Overflow sheet (More) — one step above nav surfaces; sits above
-   dropdowns (--z-dropdown: 50) and the nav bar (--z-nav: 60) so the
-   overlay covers the bottom tab bar when the sheet slides up. */
-.nav-more-sheet {
-  display: flex;
+/* Profile menu. Closed: invisible and out of the tab order once the fade-out
+   ends. One step above the nav surfaces and page dropdowns. */
+.profile-menu {
   position: fixed;
-  inset: 0;
   z-index: calc(var(--z-nav) + 1);
-  background: color-mix(in srgb, var(--scrim) 55%, transparent);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  align-items: flex-end;
-  justify-content: center;
-  /* Closed: invisible and out of the tab order once the fade-out ends. */
+  top: calc(var(--nav-h) + 4px);
+  right: var(--pad);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
+  transform: translateY(-6px) scale(.97);
+  transform-origin: 100% 0;
+  transition: opacity var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out),
+              visibility 0s linear var(--dur-fast);
 }
-.nav-more-sheet[open] {
+.profile-menu[open] {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transition: opacity var(--dur) var(--ease-out);
+  transform: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
 }
-
-.nav-more-panel {
-  width: 100%;
-  max-width: 520px;
+.profile-panel {
+  width: 256px;
+  max-height: calc(100vh - var(--nav-h) - 16px);
+  max-height: calc(100dvh - var(--nav-h) - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
   background: var(--s2);
-  border-top-left-radius: var(--r-lg);
-  border-top-right-radius: var(--r-lg);
-  padding: 8px 8px calc(20px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-card);
-  transform: translateY(24px);
-  transition: transform var(--dur) var(--ease-out);
 }
-.nav-more-sheet[open] .nav-more-panel { transform: none; }
-@media (prefers-reduced-motion: reduce) {
-  .nav-more-sheet,
-  .nav-more-sheet[open],
-  .nav-more-panel { transition: none; }
-}
-.nav-more-handle {
-  width: 36px;
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: var(--hair-strong);
-  margin: 4px auto 12px;
-}
+.profile-handle { display: none; }
+.profile-who { display: flex; align-items: center; gap: 12px; padding: 12px 12px 14px; }
+.profile-who .avatar { width: 40px; height: 40px; font-size: 14px; }
+.profile-who-text { min-width: 0; }
+.profile-who-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-who-role { font-size: 12px; color: var(--t3); }
+#profile-menu-items { border-top: 1px solid var(--hair); padding-top: 6px; }
+.profile-sep { height: 1px; background: var(--hair); margin: 6px 0; }
 
-.nav-more-item {
+.profile-item {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
-  padding: 14px 16px;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--t1);
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-md);
-  cursor: pointer;
-  text-decoration: none;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
   text-align: left;
-  transition: background var(--dur-fast) var(--ease-out);
+  color: var(--t2);
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.nav-more-item > .ico { font-size: 18px; flex-shrink: 0; }
-.nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
-.nav-more-item:hover,
-.nav-more-item:active { background: var(--s3); }
-.nav-more-item.on { background: var(--s3); color: var(--accent); }
-.nav-more-item--danger { color: var(--danger-text); }
-.nav-more-item--danger:hover,
-.nav-more-item--danger:active { background: var(--rgba-danger-bg); }
-.nav-more-divider { height: 1px; background: var(--hair); margin: 6px 12px; }
+.profile-item > .ico { font-size: 15px; flex-shrink: 0; }
+.profile-item:hover,
+.profile-item:active,
+.profile-item:focus-visible { color: var(--t1); background: var(--s3); }
+.profile-item:focus-visible { outline-offset: -2px; border-radius: var(--r-sm); }
+.profile-item[aria-current] { color: var(--t1); background: var(--s4); }
+.profile-item--danger,
+.profile-item--danger:hover,
+.profile-item--danger:active,
+.profile-item--danger:focus-visible { color: var(--danger-text); }
+.profile-item--danger:hover,
+.profile-item--danger:active,
+.profile-item--danger:focus-visible { background: var(--rgba-danger-bg); }
+
+/* Phones: a bottom sheet over a dimmed page. */
+@media (max-width: 699.98px) {
+  .profile-menu {
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: color-mix(in srgb, var(--scrim) 55%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    transform: none;
+  }
+  .profile-panel {
+    width: 100%;
+    max-width: 520px;
+    max-height: 85vh;
+    max-height: 85dvh;
+    padding: 8px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+    border-width: 1px 0 0;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    transform: translateY(24px);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .profile-menu[open] .profile-panel { transform: none; transition-duration: var(--dur); }
+  .profile-handle {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: var(--hair-strong);
+    margin: 4px auto 8px;
+  }
+  .profile-item { min-height: 50px; font-size: 16px; gap: 14px; }
+  .profile-item > .ico { font-size: 17px; }
+  .profile-who-name { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-menu,
+  .profile-menu[open],
+  .profile-panel,
+  .profile-btn > .ico { transition: none; }
+  .profile-menu,
+  .profile-panel { transform: none; }
+}
+
+/* Forced colours drop the backgrounds that mark the current page. */
+@media (forced-colors: active) {
+  .nav-btn.on,
+  .nav-tab.on,
+  .profile-item[aria-current] { text-decoration: underline; text-underline-offset: 4px; }
+  .avatar { outline-color: Canvas; }
+  .profile-btn.on .avatar,
+  .profile-btn[aria-expanded="true"] .avatar { outline-color: Highlight; }
+  .profile-sep { background: CanvasText; }
+}
 
 /* Surface swap at 700 px */
 @media (max-width: 699.98px) {
@@ -238,20 +339,4 @@
   .nav-btn,
   .nav-links a,
   .nav-links button { min-height: 44px; }
-}
-
-/* The sheet is a phone surface; hide it if the window outgrows the phone layout. */
-@media (min-width: 700px) {
-  .nav-more-sheet { display: none; }
-}
-
-/* Narrow tablet: tighten the rail so every link shows in full at the
-   page's own 13px, instead of Logout scrolling out of sight. The padding is
-   small enough that a 15px classic scrollbar at 700px still leaves room. */
-@media (min-width: 700px) and (max-width: 899.98px) {
-  .nav-glass { gap: 10px; padding: 0 12px; }
-  .nav-links { gap: 2px; margin-left: 0; }
-  .nav-btn,
-  .nav-links a,
-  .nav-links button { padding: 7px; }
 }

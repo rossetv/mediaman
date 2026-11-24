@@ -1,0 +1,91 @@
+"""nav.js run under node against a fake DOM: the profile menu and its phone sheet."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+HARNESS = Path(__file__).parent / "js" / "nav_harness.js"
+
+
+def _run(scenario: str) -> dict:
+    result = subprocess.run(
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_the_avatar_opens_the_menu_on_its_first_item_and_closes_it_again() -> None:
+    out = _run("toggle")
+    assert out["opened"] == {
+        "open": True,
+        "expanded": "true",
+        "focused": "account",
+        "inert": ["already-inert"],
+    }
+    assert out["closed"] == {"open": False, "expanded": "false", "focused": "desktop"}
+
+
+def test_arrows_home_and_end_move_round_the_menu_and_escape_returns_focus() -> None:
+    out = _run("keys")
+    assert out["trail"] == [
+        "account",
+        "settings",
+        "logout",
+        "account",
+        "logout",
+        "account",
+        "logout",
+    ]
+    assert out["open"] is False
+    assert out["focused"] == "desktop"
+    # the page's own Escape, such as closing a title, must not act as well
+    assert out["escStopped"] is True
+
+
+def test_arrow_up_on_the_avatar_opens_the_menu_at_its_last_item() -> None:
+    assert _run("upOpensAtTheEnd") == {"focused": "logout"}
+
+
+def test_the_space_bar_follows_a_menu_link_instead_of_scrolling_the_page() -> None:
+    assert _run("space") == {"clicks": 1, "prevented": True}
+
+
+def test_tab_closes_the_menu_and_goes_on_from_the_avatar() -> None:
+    assert _run("tab") == {"open": False, "focused": "desktop", "prevented": False}
+
+
+def test_a_press_outside_focus_leaving_back_and_a_followed_link_close_the_menu() -> None:
+    assert _run("leaving") == {
+        "press": False,
+        "focus": False,
+        "inside": True,
+        "back": False,
+        "link": False,
+    }
+
+
+def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes() -> None:
+    out = _run("sheet")
+    assert out["held"] == {
+        "inert": ["top", "phone-top", "main", "already-inert"],
+        "scrolls": False,
+        "focused": "account",
+    }
+    assert out["freed"] == {
+        "open": False,
+        "inert": ["already-inert"],
+        "scrolls": True,
+        "focused": "phone",
+    }
+
+
+def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_avatar() -> None:
+    assert _run("resize") == {
+        "open": False,
+        "inert": ["already-inert"],
+        "scrolls": True,
+        "focused": "desktop",
+    }

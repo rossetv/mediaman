@@ -125,7 +125,7 @@ def test_container_system_present():
 
 def test_three_surface_nav_present():
     """Nav has three surfaces: desktop .nav-glass, mobile .nav-topbar
-    + .nav-tabs (bottom bar), plus the .nav-more-sheet overflow drawer.
+    + .nav-tabs (bottom bar), plus the .profile-menu that the avatar opens.
     The mobile bottom bar was reinstated after the mockup-only horizontal
     pill rail proved unworkable on phones."""
     css = _css()
@@ -135,9 +135,10 @@ def test_three_surface_nav_present():
         ".nav-topbar",
         ".nav-tabs",
         ".nav-tab ",
-        ".nav-more-sheet",
-        ".nav-more-panel",
-        ".nav-more-item",
+        ".profile-btn",
+        ".profile-menu",
+        ".profile-panel",
+        ".profile-item",
     ):
         assert sel in css, f"missing nav selector: {sel}"
 
@@ -240,8 +241,9 @@ def test_nav_template_emits_all_surfaces():
         "nav-topbar",
         "nav-tabs",
         "nav-tab",
-        "nav-more-sheet",
-        "nav-more-item",
+        "profile-btn",
+        "profile-menu",
+        "profile-item",
     ):
         assert cls in nav, f"missing nav surface class: {cls}"
     # Every primary destination still routes from the nav.
@@ -253,8 +255,8 @@ def test_nav_template_emits_all_surfaces():
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
-    # Bottom tabs + More sheet must contain the primary tabs.
-    for label in (">Watch<", ">Dashboard<", ">Downloads<", ">More<"):
+    # Bottom tabs must contain the primary tabs.
+    for label in (">Watch<", ">Dashboard<", ">Downloads<"):
         assert label in nav, f"missing bottom-tab label: {label}"
 
 

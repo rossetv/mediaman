@@ -1,6 +1,7 @@
-/* Mobile "More" sheet behaviour: toggle from the More tab, close on
- * backdrop click or Escape, keep Tab inside while open, and close when
- * the viewport grows past the phone layout. The fade-out is CSS; the
+/* Profile menu: one menu for both profile buttons. A press on either, or an arrow
+ * key on it, opens the menu; arrows, Home and End move in it; Escape, Tab, a press
+ * outside and focus moving away close it. Below 700 px it is a bottom sheet: the
+ * rest of the page is inert and does not scroll under it. The fade is CSS; the
  * open state changes at once. */
 (function () {
   'use strict';
@@ -9,74 +10,114 @@
   // document or body; this empty one switches the pressed states on.
   document.addEventListener('touchstart', function () {}, { passive: true });
 
-  function sheet() { return document.getElementById('nav-more-sheet'); }
-  function trigger() {
-    return document.querySelector('[aria-controls="nav-more-sheet"]');
+  var menu = document.getElementById('profile-menu');
+  if (!menu) return;
+
+  var phone = window.matchMedia('(max-width: 699.98px)');
+  var opener = null;
+  var held = [];
+
+  function items() {
+    return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
+  }
+  function buttons() {
+    return Array.prototype.slice.call(document.querySelectorAll('.profile-btn'));
+  }
+  function buttonOf(target) {
+    return target && target.closest ? target.closest('.profile-btn') : null;
+  }
+  function isOpen() { return menu.hasAttribute('open'); }
+
+  function holdPage() {
+    Array.prototype.forEach.call(document.body.children, function (node) {
+      if (node === menu || node.inert) return;
+      node.inert = true;
+      held.push(node);
+    });
+    document.body.style.overflow = 'hidden';
   }
 
-  function closeSheet(focusTrigger) {
-    var s = sheet();
-    if (!s) return;
-    s.removeAttribute('open');
-    var btn = trigger();
-    if (btn) {
-      btn.setAttribute('aria-expanded', 'false');
-      if (focusTrigger) btn.focus();
-    }
+  function releasePage() {
+    if (!held.length) return;
+    held.forEach(function (node) { node.inert = false; });
+    held = [];
+    document.body.style.overflow = '';
   }
 
-  function toggleSheet() {
-    var s = sheet();
-    if (!s) return;
-    var open = s.toggleAttribute('open');
-    var btn = trigger();
-    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) {
-      var first = s.querySelector('a[href], button:not([disabled])');
-      if (first) first.focus();
-    }
+  function open(button, last) {
+    opener = button;
+    menu.setAttribute('open', '');
+    button.setAttribute('aria-expanded', 'true');
+    if (phone.matches) holdPage();
+    var list = items();
+    list[last ? list.length - 1 : 0].focus();
+  }
+
+  function close(returnFocus) {
+    if (!isOpen()) return;
+    menu.removeAttribute('open');
+    releasePage();
+    opener.setAttribute('aria-expanded', 'false');
+    if (returnFocus) opener.focus();
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[aria-controls="nav-more-sheet"]');
-    if (t) { e.preventDefault(); toggleSheet(); return; }
-    var s = sheet();
-    if (!s || !s.hasAttribute('open')) return;
-    if (e.target === s) closeSheet(true);
-  });
-
-  document.addEventListener('keydown', function (e) {
-    var s = sheet();
-    if (!s || !s.hasAttribute('open')) return;
-    if (e.key === 'Escape') { closeSheet(true); return; }
-    if (e.key !== 'Tab') return;
-    var items = s.querySelectorAll('a[href], button:not([disabled])');
-    if (!items.length) return;
-    var first = items[0];
-    var last = items[items.length - 1];
-    if (!s.contains(document.activeElement)) {
-      e.preventDefault();
-      (e.shiftKey ? last : first).focus();
-    } else if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
+    var button = buttonOf(e.target);
+    if (button) {
+      if (isOpen()) close(true); else open(button, false);
+      return;
     }
+    if (!isOpen()) return;
+    // The sheet's backdrop is the menu's own box around the panel.
+    if (e.target === menu) close(true);
+    else if (e.target.closest && e.target.closest('a[role="menuitem"]')) close(false);
   });
 
-  if (window.matchMedia) {
-    window.matchMedia('(min-width: 700px)').addEventListener('change', function (e) {
-      if (!e.matches) return;
-      var s = sheet();
-      var a = document.activeElement;
-      // The browser may already have dropped focus to <body> when the
-      // sheet went display:none, so an open modal sheet counts as focus in it.
-      var hadFocus = s && s.hasAttribute('open') && (!a || a === document.body || s.contains(a));
-      closeSheet(false);
-      var main = document.getElementById('main-content');
-      if (hadFocus && main) main.focus();
-    });
-  }
+  document.addEventListener('pointerdown', function (e) {
+    if (isOpen() && !menu.contains(e.target) && !buttonOf(e.target)) close(false);
+  }, true);
+
+  document.addEventListener('focusin', function (e) {
+    if (isOpen() && !menu.contains(e.target) && !buttonOf(e.target)) close(false);
+  });
+
+  // Capture, so the page's own shortcuts do not act on a key the menu took.
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!isOpen()) {
+      var button = buttonOf(e.target);
+      if (!button || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      open(button, e.key === 'ArrowUp');
+      return;
+    }
+    // Focus goes on from the button, as if the menu had not been there.
+    if (e.key === 'Tab') { close(true); return; }
+    var list = items();
+    var at = list.indexOf(document.activeElement);
+    var to = null;
+    if (e.key === 'ArrowDown') to = at + 1;
+    else if (e.key === 'ArrowUp') to = at < 0 ? list.length - 1 : at - 1;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = list.length - 1;
+    if (to !== null) list[(to + list.length) % list.length].focus();
+    else if (e.key === 'Escape') close(true);
+    // A link answers Enter by itself, but not the space bar.
+    else if (e.key === ' ' && at >= 0 && list[at].tagName === 'A') list[at].click();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
+  // The button that was pressed goes out of sight with its layout.
+  phone.addEventListener('change', function () {
+    if (!isOpen()) return;
+    close(false);
+    var shown = buttons().filter(function (b) { return b.getClientRects().length; })[0];
+    if (shown) shown.focus();
+  });
+
+  // Back brings the page as it was left, open menu and all.
+  window.addEventListener('pageshow', function () { close(false); });
 })();

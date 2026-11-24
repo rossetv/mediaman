@@ -1,0 +1,16 @@
+{# A person's avatar: initials on a colour that follows the name.
+   Decorative, so the name must stand beside it or name the control it sits in. #}
+{% macro avatar(name) -%}
+{%- set name = name or '' -%}
+{%- set words = (name.split('@') | first).replace('.', ' ').replace('_', ' ').replace('-', ' ').split() -%}
+{%- if words | length > 1 -%}
+  {%- set initials = words[0][:1] ~ words[-1][:1] -%}
+{%- else -%}
+  {%- set initials = (words | first | default(name or '?', true))[:1] -%}
+{%- endif -%}
+{%- set ns = namespace(n=0) -%}
+{%- for ch in name | lower -%}
+  {%- set ns.n = (ns.n * 31 + 'abcdefghijklmnopqrstuvwxyz0123456789._-@'.find(ch) + 2) % 9973 -%}
+{%- endfor -%}
+<span class="avatar avatar--{{ ns.n % 6 }}" aria-hidden="true">{{ initials | upper }}</span>
+{%- endmacro %}

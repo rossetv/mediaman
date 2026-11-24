@@ -1,19 +1,23 @@
-{# Three-surface nav.
-   - .nav-glass    — desktop sticky top, full link rail (>= 700 px)
-   - .nav-topbar   — mobile sticky top, brand + page title only (< 700 px)
+{# Nav surfaces.
+   - .nav-glass    — desktop sticky top, link rail and profile button (>= 700 px)
+   - .nav-topbar   — mobile sticky top, brand, page title and profile button (< 700 px)
    - .nav-tabs     — mobile fixed bottom tab bar (< 700 px)
-   - .nav-more-sheet — overflow drawer opened by the More tab
+   - .profile-menu — what either profile button opens: a menu under it on desktop,
+                     a bottom sheet on phones
 
    Set `nav_active` in template context to one of:
      dashboard | watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
-   The menu follows the role on the request (`request.state.user_role`). A viewer
-   sees only what the viewer role may open; a missing role gets the admin menu.
+   The links follow the role on the request (`request.state.user_role`). A viewer
+   sees only what the viewer role may open; a missing role gets the admin links.
 #}
 {% from "_components.html" import icon %}
+{% from "_avatar.html" import avatar %}
 
-{% set is_viewer = (request.state.user_role if request is defined else none) | default('admin', true) != 'admin' %}
+{% set state = request.state if request is defined else none %}
+{% set is_viewer = (state.user_role if state else none) | default('admin', true) != 'admin' %}
+{% set who = (state.username if state else none) | default('Profile', true) %}
 {% set path = request.url.path if request is defined else '' %}
 {% set active = nav_active or ('watch' if (path == '/watch' or path.startswith('/watch/')) else '') %}
 
@@ -23,86 +27,80 @@
   'downloads':   'Downloads',
   'history':     'History',
   'settings':    'Settings',
-  'account':     'Account',
+  'account':     'Profile',
 } %}
+{% set in_menu = active in ('history', 'settings', 'account') %}
+
+{% macro current(page) %}{% if active == page %} aria-current="page"{% endif %}{% endmacro %}
+
+{% macro profile_button() %}
+<button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
+  {{ avatar(who) }}
+  <span class="profile-btn-name">{{ who }}</span>
+  {{ icon("i-chevron-down") }}
+</button>
+{% endmacro %}
 
 {# Desktop top nav — hidden below 700 px #}
 <header class="nav-glass">
   <a class="brand" href="/">media<b>man</b></a>
   <nav class="nav-links" aria-label="Primary">
-    {% if is_viewer %}
-    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
-    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
-    <a href="/account"     class="nav-btn{% if active == 'account' %} on{% endif %}">Account</a>
-    {% else %}
-    <a href="/"            class="nav-btn{% if active == 'dashboard' %} on{% endif %}">Dashboard</a>
-    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}">Watch</a>
-    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}">Downloads</a>
-    <a href="/history"     class="nav-btn{% if active == 'history' %} on{% endif %}">History</a>
-    <a href="/settings"    class="nav-btn{% if active == 'settings' %} on{% endif %}">Settings</a>
+    {% if not is_viewer %}
+    <a href="/"            class="nav-btn{% if active == 'dashboard' %} on{% endif %}"{{ current('dashboard') }}>Dashboard</a>
     {% endif %}
-    <form method="post" action="/api/auth/logout" class="nav-logout-form">
-      <button type="submit" class="nav-btn nav-btn--logout">Logout</button>
-    </form>
+    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}"{{ current('watch') }}>Watch</a>
+    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}"{{ current('downloads') }}>Downloads</a>
   </nav>
+  {{ profile_button() }}
 </header>
 
-{# Mobile top bar — brand + current page title #}
+{# Mobile top bar — brand, current page title, profile button #}
 <div class="nav-topbar">
   <a class="brand" href="/">media<b>man</b></a>
   <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
+  {{ profile_button() }}
 </div>
 
-{# Mobile bottom tab bar — tabs plus More, for either role #}
+{# Mobile bottom tab bar #}
 <nav class="nav-tabs" aria-label="Primary">
-  <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch">
+  <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch"{{ current('watch') }}>
     {{ icon("i-play") }}
     <span>Watch</span>
   </a>
   {% if not is_viewer %}
-  <a class="nav-tab{% if active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard">
+  <a class="nav-tab{% if active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard"{{ current('dashboard') }}>
     {{ icon("i-house") }}
     <span>Dashboard</span>
   </a>
   {% endif %}
-  <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads">
+  <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads"{{ current('downloads') }}>
     {{ icon("i-download") }}
     <span>Downloads</span>
   </a>
-  <button class="nav-tab" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="nav-more-sheet">
-    {{ icon("i-ellipsis") }}
-    <span>More</span>
-  </button>
 </nav>
 
-{# Overflow sheet opened by the More tab #}
-<div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-modal="true" aria-label="More navigation">
-  <div class="nav-more-panel">
-    <div class="nav-more-handle" aria-hidden="true"></div>
-    {% if is_viewer %}
-    <a class="nav-more-item{% if active == 'account' %} on{% endif %}" href="/account">
-      {{ icon("i-user") }}
-      Account
-      <span class="chev">›</span>
-    </a>
-    {% else %}
-    <a class="nav-more-item{% if active == 'history' %} on{% endif %}" href="/history">
-      {{ icon("i-clock-rotate-left") }}
-      History
-      <span class="chev">›</span>
-    </a>
-    <a class="nav-more-item{% if active == 'settings' %} on{% endif %}" href="/settings">
-      {{ icon("i-gear") }}
-      Settings
-      <span class="chev">›</span>
-    </a>
-    {% endif %}
-    <div class="nav-more-divider"></div>
-    <form method="post" action="/api/auth/logout" class="u-m-0">
-      <button type="submit" class="nav-more-item nav-more-item--danger">
-        {{ icon("i-right-from-bracket") }}
-        Logout
-      </button>
-    </form>
+{# Profile menu — a direct child of <body>, so nav.js can make the rest of the page inert under the sheet #}
+<div class="profile-menu" id="profile-menu">
+  <div class="profile-panel">
+    <div class="profile-handle" aria-hidden="true"></div>
+    <div class="profile-who">
+      {{ avatar(who) }}
+      <div class="profile-who-text">
+        <div class="profile-who-name">{{ who }}</div>
+        <div class="profile-who-role">{{ "Viewer" if is_viewer else "Admin" }}</div>
+      </div>
+    </div>
+    <div id="profile-menu-items" role="menu" aria-label="Profile menu">
+      <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>
+      <a class="profile-item" role="menuitem" tabindex="-1" href="/account#plex">{{ icon("i-plug") }}Plex account</a>
+      {% if not is_viewer %}
+      <a class="profile-item" role="menuitem" tabindex="-1" href="/history"{{ current('history') }}>{{ icon("i-clock-rotate-left") }}History</a>
+      <a class="profile-item" role="menuitem" tabindex="-1" href="/settings"{{ current('settings') }}>{{ icon("i-gear") }}Settings</a>
+      {% endif %}
+      <div class="profile-sep" role="separator"></div>
+      <form role="none" method="post" action="/api/auth/logout">
+        <button class="profile-item profile-item--danger" role="menuitem" tabindex="-1" type="submit">{{ icon("i-right-from-bracket") }}Log out</button>
+      </form>
+    </div>
   </div>
 </div>
