@@ -576,7 +576,7 @@
 /* The narrowest phones: every control keeps its height and its place in the row. */
 @media (max-width: 350px) {
   .player-controls { gap: 0; }
-  .player-controls .player-btn { min-width: 38px; }
+  .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
 
 /* A phone on its side: the next-episode card keeps to the right. */
