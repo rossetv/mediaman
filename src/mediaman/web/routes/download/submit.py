@@ -19,11 +19,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.audit import log_audit
+from mediaman.core.deleted_media import DeletedMedia
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ExistingMovieError,
@@ -37,7 +38,10 @@ from mediaman.services.downloads.notifications import record_download_notificati
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.responses import respond_failure
+from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
+from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
 
+from ._season import deleted_season, sonarr_media_id
 from ._tokens import _mark_token_used, _unmark_token_used
 from .confirm import drop_arr_cache
 
@@ -62,6 +66,7 @@ class DownloadPayload(TypedDict):
     audit_action: str
     audit_detail: str
     secret_key: str
+    season: DeletedMedia | None
 
 
 def _record_and_respond(
@@ -76,6 +81,7 @@ def _record_and_respond(
     audit_detail: str,
     secret_key: str,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> JSONResponse:
     """Audit, notify, commit, mint a poll token and return the success response; the epilogue
     shared by both submitters.
@@ -83,7 +89,12 @@ def _record_and_respond(
     email is None when an admin minted the token with no notification email; the
     notification row is then skipped rather than stored undeliverable.
     """
-    log_audit(conn, title, audit_action, audit_detail)
+    audit_id = title
+    if season_number is not None:
+        audit_id = _redownload_audit_id(
+            media_type=media_type, tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
+        )
+    log_audit(conn, audit_id, audit_action, audit_detail)
     if email:
         record_download_notification(
             conn,
@@ -93,20 +104,24 @@ def _record_and_respond(
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
             service=service,
+            season_number=season_number,
         )
     conn.commit()
 
     poll_token = generate_poll_token(
-        media_item_id=f"{service}:{title}",
+        media_item_id=(
+            sonarr_media_id(title, season_number) if service == "sonarr" else f"radarr:{title}"
+        ),
         service=service,
         tmdb_id=tmdb_id if tmdb_id is not None else 0,
         secret_key=secret_key,
     )
     service_label = "Radarr" if service == "radarr" else "Sonarr"
+    what = f"'{title}'" if season_number is None else f"season {season_number} of '{title}'"
     return JSONResponse(
         {
             "ok": True,
-            "message": f"Added '{title}' to {service_label} — download starting shortly",
+            "message": f"Added {what} to {service_label} — download starting shortly",
             "service": service,
             "tmdb_id": tmdb_id,
             "poll_token": poll_token,
@@ -183,9 +198,36 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
     )
 
 
+def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) -> bool:
+    """Re-monitor and search the season of a series Sonarr holds; False when it holds none.
+
+    Only an add may answer "already there", so an HTTP error here is raised as ArrError.
+    """
+    try:
+        series = client.get_series_by_tvdb(tvdb_id)
+        series_id = series.get("id") if series else None
+        if series is None or series_id is None:
+            return False
+        was_unmonitored = any(
+            s.get("seasonNumber") == season_number and not s.get("monitored")
+            for s in series.get("seasons") or []
+        )
+        try:
+            client.remonitor_season(series_id, season_number)
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            # The monitor may have landed before the search failed. A season already
+            # monitored before this request stays as it was.
+            if was_unmonitored:
+                _put_back_unmonitored(client, series_id, season_number)
+            raise
+    except SafeHTTPError as exc:
+        raise ArrError(f"Sonarr season re-monitor failed: HTTP {exc.status_code}") from exc
+    return True
+
+
 def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
-    """Add a series to Sonarr and return the poll-token response; raises SafeHTTPError on
-    Arr-level failures for the caller to handle. conn is passed explicitly so
+    """Add a series, or the one season asked for, to Sonarr and return the poll-token response;
+    raises SafeHTTPError on Arr-level failures for the caller to handle. conn is passed explicitly so
     DownloadPayload stays serialisable.
     """
     token = payload["token"]
@@ -209,17 +251,24 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         _unmark_token_used(token)
         return respond_failure("Sonarr not configured", status=503)
 
-    results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
-    if not results:
-        _unmark_token_used(token)
-        return respond_failure("Series not found in Sonarr lookup", status=404)
-    tvdb_id = results[0].get("tvdbId")
+    season = payload["season"]
+    season_number = season.season_number if season else None
+    tvdb_id = season.tvdb_id if season else None
     if not tvdb_id:
-        _unmark_token_used(token)
-        return respond_failure("No TVDB ID found for this series", status=422)
+        results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
+        if not results:
+            _unmark_token_used(token)
+            return respond_failure("Series not found in Sonarr lookup", status=404)
+        tvdb_id = results[0].get("tvdbId")
+        if not tvdb_id:
+            _unmark_token_used(token)
+            return respond_failure("No TVDB ID found for this series", status=422)
 
     try:
-        client.add_series(tvdb_id, title)
+        if season_number is None:
+            client.add_series(tvdb_id, title)
+        elif not _remonitor_held_season(client, tvdb_id, season_number):
+            client.add_series_with_seasons(tvdb_id, title, [season_number])
     except SafeHTTPError as exc:
         # Sonarr answers 400, not 409, for a series it tracks: same path.
         if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
@@ -227,7 +276,11 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         if not series_add_landed(exc, client, tvdb_id):
             raise
     logger.info(
-        "Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email
+        "Download token: added series '%s' (tvdb:%s season:%s) to Sonarr for %s",
+        title,
+        tvdb_id,
+        "all" if season_number is None else season_number,
+        email,
     )
 
     return _record_and_respond(
@@ -241,6 +294,7 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         audit_action=payload["audit_action"],
         audit_detail=payload["audit_detail"],
         secret_key=secret_key,
+        season_number=season_number,
     )
 
 
@@ -283,10 +337,10 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
 
 
 def _build_dl_payload(
-    token: str, payload: DownloadTokenPayload, secret_key: str
+    conn: sqlite3.Connection, token: str, payload: DownloadTokenPayload, secret_key: str
 ) -> tuple[DownloadPayload, str, bool]:
     """Build a DownloadPayload from the token payload. Returns (dl_payload, media_type,
-    is_redownload); the connection is left out so the payload stays purely data.
+    is_redownload); the connection is not in it, so the payload stays purely data.
     """
     title = payload.get("title", "")
     media_type = payload.get("mt", "")
@@ -298,8 +352,12 @@ def _build_dl_payload(
     is_redownload = action == "redownload"
     audit_action = "re_downloaded" if is_redownload else "downloaded"
     by_clause = f" by {email}" if email else ""
+    season = deleted_season(conn, payload)
+    season_clause = f" season {season.season_number} of '{title}'" if season else ""
     audit_detail = (
-        f"Re-downloaded{by_clause}" if is_redownload else f"Downloaded '{title}'{by_clause}"
+        f"Re-downloaded{season_clause}{by_clause}"
+        if is_redownload
+        else f"Downloaded '{title}'{by_clause}"
     )
     dl_payload: DownloadPayload = {
         "token": token,
@@ -309,6 +367,7 @@ def _build_dl_payload(
         "audit_action": audit_action,
         "audit_detail": audit_detail,
         "secret_key": secret_key,
+        "season": season,
     }
     return dl_payload, media_type, is_redownload
 
@@ -395,7 +454,9 @@ def download_submit(request: Request, token: str) -> JSONResponse:
     if claim_err is not None:
         return claim_err
 
-    dl_payload, media_type, is_redownload = _build_dl_payload(token, payload, config.secret_key)
+    dl_payload, media_type, is_redownload = _build_dl_payload(
+        conn, token, payload, config.secret_key
+    )
     title = dl_payload["title"]
     tmdb_id = dl_payload["tmdb_id"]
 

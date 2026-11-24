@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from mediaman.core.deleted_media import (
+    DeletedMedia,
     fetch_deleted_media,
     redownload_tokens,
     was_redownloaded_after,
@@ -56,15 +57,13 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
 
 def _format_deleted_card(
     row: sqlite3.Row,
+    stored: DeletedMedia | None,
+    title: str,
     now: datetime,
     base_url: str,
     secret_key: str,
-) -> dict[str, object]:
-    """Build one deleted-item card from a DB row (pure, no DB access). tmdb_id is set to
-    None here and filled in by the batched query in _load_deleted_items.
-    """
-    title = row["title"] or _extract_title_from_detail(row["detail"])
-
+) -> DeletedNewsletterItem:
+    """Build one deleted-item card from a DB row and its identity row (pure, no DB access)."""
     days_ago = _parse_days_ago(row["created_at"], now)
     if days_ago is None:
         deleted_date = ""
@@ -79,16 +78,17 @@ def _format_deleted_card(
     poster_url = (
         f"{base_url}{sign_poster_url(rating_key, secret_key)}" if rating_key and base_url else ""
     )
-    media_type = row["media_type"] or "movie"
+    media_type = stored.media_type if stored else row["media_type"]
 
     return {
         "title": title,
         "poster_url": poster_url,
         "deleted_date": deleted_date,
         "file_size_bytes": row["space_reclaimed_bytes"] or 0,
-        "media_type": media_type,
-        # tmdb_id filled in below via the batched query
-        "tmdb_id": None,
+        "media_type": "movie" if media_type == "movie" else "tv",
+        "tmdb_id": stored.tmdb_id if stored else None,
+        "audit_id": row["audit_id"],
+        "season_number": stored.season_number if stored else None,
     }
 
 
@@ -101,10 +101,9 @@ def _load_deleted_items(
     """Query the recently-deleted cards (last 7 days), excluding items re-downloaded after
     deletion.
 
-    tmdb_id is resolved from the suggestions table; the subscriber loop mints a
-    re-download URL only when it is present, because the public /download submit cannot
-    reliably enqueue by title. media_items has no tmdb_id column, so items downloaded
-    outside the recommendation flow get no button.
+    The type and ids are the ones recorded with the deletion. The subscriber loop mints a
+    re-download URL only when there is a tmdb_id: a title alone could fetch another title
+    of the same name.
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
@@ -120,67 +119,28 @@ def _load_deleted_items(
     redownload_times = _build_redownload_index(conn, week_ago)
     stored_by_audit = fetch_deleted_media(conn, [r["audit_id"] for r in deleted_rows])
 
-    # Build the per-row card list (excluding re-downloaded items) and
-    # collect the (title, media_type) pairs we need to look up.
-    cards: list[dict[str, object]] = []
-    lookup_pairs: list[tuple[str, str]] = []
+    cards: list[DeletedNewsletterItem] = []
     for row in deleted_rows:
-        title = row["title"] or _extract_title_from_detail(row["detail"])
+        stored = stored_by_audit.get(row["audit_id"])
+        title = (
+            row["title"]
+            or (stored.title if stored else None)
+            or _extract_title_from_detail(row["detail"])
+        )
 
         # Look up by plex_rating_key (== media_item_id in audit_log),
         # which is the same key used when building the redownload index.
         plex_key = row["plex_rating_key"] or str(row["media_item_id"] or "")
         keys = [plex_key] if plex_key else []
-        keys += redownload_tokens(stored_by_audit.get(row["audit_id"]))
-        stored = stored_by_audit.get(row["audit_id"])
-        match_title = row["title"] or (stored.title if stored else None) or title
-        if match_title:
-            keys.append(match_title)
+        keys += redownload_tokens(stored)
+        keys.append(title)
         keys = [k.lower() for k in keys]
         if was_redownloaded_after(row["created_at"], keys, redownload_times):
             continue
 
-        card = _format_deleted_card(row, now, base_url, secret_key)
-        cards.append(card)
-        if title is not None:
-            lookup_pairs.append((title, card["media_type"]))  # type: ignore[arg-type]
+        cards.append(_format_deleted_card(row, stored, title, now, base_url, secret_key))
 
-    if not cards:
-        return []
-
-    # Batch-fetch tmdb_ids for all remaining items in a single query.
-    # Issuing one SELECT per deleted row would be an N+1 anti-pattern.
-    # Duplicate (title, media_type) pairs are deduplicated by the dict;
-    # rows with None titles were excluded above and fall through with
-    # tmdb_id=None (template hides the re-download button for those).
-    tmdb_by_title_type: dict[tuple[str, str], int] = {}
-    if lookup_pairs:
-        unique_pairs = list(dict.fromkeys(lookup_pairs))
-        # rationale: placeholder list built from (title, media_type) tuples
-        # collected from DB rows; no raw user input reaches this interpolation.
-        placeholders = ",".join("(?,?)" for _ in unique_pairs)
-        flat_params = [v for pair in unique_pairs for v in pair]
-        sugg_rows = conn.execute(
-            f"SELECT title, media_type, tmdb_id FROM suggestions "
-            f"WHERE (title, media_type) IN ({placeholders}) "
-            f"AND tmdb_id IS NOT NULL "
-            f"ORDER BY created_at DESC",
-            flat_params,
-        ).fetchall()
-        for sr in sugg_rows:
-            key = (sr["title"], sr["media_type"])
-            # Keep the first (most-recent) hit per pair.
-            if key not in tmdb_by_title_type:
-                tmdb_by_title_type[key] = sr["tmdb_id"]
-
-    items: list[DeletedNewsletterItem] = []
-    for card in cards:
-        card["tmdb_id"] = tmdb_by_title_type.get(
-            (card["title"], card["media_type"])  # type: ignore[arg-type]
-        )
-        items.append(card)  # type: ignore[arg-type]
-
-    return items
+    return cards
 
 
 def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSummary:

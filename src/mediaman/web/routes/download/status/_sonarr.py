@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from mediaman.core.format import format_bytes
-from mediaman.services.arr._types import ArrQueueItem
+from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
@@ -38,10 +38,10 @@ class _SonarrEpEntry(TypedDict):
 
 
 def _sonarr_queue_entries(
-    queue: list[ArrQueueItem], tmdb_id: int
+    queue: list[ArrQueueItem], tmdb_id: int, season_number: int | None = None
 ) -> tuple[str, str, list[_SonarrEpEntry]]:
     """Return (series_title, series_poster, ep_entries) from the first matching queue item;
-    ep_entries has one accumulator per matching episode.
+    ep_entries has one accumulator per matching episode, of one season when given.
     """
     series_title = ""
     series_poster = ""
@@ -49,7 +49,9 @@ def _sonarr_queue_entries(
 
     for item in queue:
         item_series = item.get("series") or {}
-        if item_series.get("tmdbId") != tmdb_id:
+        episode = item.get("episode") or {}
+        season_num = episode.get("seasonNumber")
+        if item_series.get("tmdbId") != tmdb_id or season_number not in (None, season_num):
             continue
 
         if not series_title:
@@ -57,11 +59,9 @@ def _sonarr_queue_entries(
         if not series_poster:
             series_poster = extract_poster_url(item_series.get("images"))
 
-        episode = item.get("episode") or {}
         size = _safe_int(item.get("size"))
         sizeleft = _safe_int(item.get("sizeleft"))
         ep_progress = _safe_progress(size, sizeleft) if size else 0
-        season_num = episode.get("seasonNumber")
         ep_num = episode.get("episodeNumber")
         ep_label = format_episode_label(season_num, ep_num)
 
@@ -126,16 +126,27 @@ def _sonarr_aggregate(
     )
 
 
-def _sonarr_series_fallback(client: ArrClient, tmdb_id: int) -> DownloadItem:
+def _episode_files(series: SonarrSeries, season_number: int | None) -> int:
+    if season_number is None:
+        return (series.get("statistics") or {}).get("episodeFileCount", 0)
+    return sum(
+        (season.get("statistics") or {}).get("episodeFileCount", 0)
+        for season in series.get("seasons") or []
+        if season.get("seasonNumber") == season_number
+    )
+
+
+def _sonarr_series_fallback(
+    client: ArrClient, tmdb_id: int, season_number: int | None = None
+) -> DownloadItem:
     all_series = client.get_series()
     matched = next(
         (s for s in all_series if s.get("tmdbId") == tmdb_id),
         None,
     )
     if matched:
-        stats = matched.get("statistics") or {}
         s_title = matched.get("title", "")
-        if stats.get("episodeFileCount", 0) > 0:
+        if _episode_files(matched, season_number) > 0:
             return build_item(
                 dl_id=f"sonarr:{s_title}",
                 title=s_title,

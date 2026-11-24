@@ -24,9 +24,7 @@ class ScheduledNewsletterItem(TypedDict):
 
 
 class DeletedNewsletterItem(TypedDict):
-    """A recently-deleted card; tmdb_id is absent for items that did not come from the
-    recommendation pipeline.
-    """
+    """A recently-deleted card; tmdb_id is None when the deletion recorded none."""
 
     title: str
     poster_url: str
@@ -34,6 +32,8 @@ class DeletedNewsletterItem(TypedDict):
     file_size_bytes: int
     media_type: str
     tmdb_id: int | None
+    audit_id: NotRequired[int]
+    season_number: NotRequired[int | None]
     # Added by the per-recipient render loop
     redownload_url: NotRequired[str]
 

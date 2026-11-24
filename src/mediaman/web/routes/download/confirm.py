@@ -17,9 +17,11 @@ from fastapi.templating import Jinja2Templates
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
+from mediaman.services.arr._types import SonarrSeries
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ACTION_DOWNLOADING,
+    ACTION_IN_LIBRARY,
     ACTION_PARTIAL,
     ACTION_QUEUED,
     ArrCaches,
@@ -38,6 +40,7 @@ from mediaman.web.repository.download import (
     fetch_suggestion_enrichment,
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
+from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -196,6 +199,7 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
         "metascore": None,
         "genres_list": [],
         "cast_list": [],
+        "season_number": None,
     }
 
 
@@ -232,6 +236,10 @@ def _build_item_from_payload(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> dict[str, object]:
+    if payload.get("act") == "redownload":
+        item = _base_download_item(payload)
+        enrich_redownload_item(item, conn, secret_key)
+        return item
     sid = payload.get("sid")
     if sid:
         # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
@@ -248,11 +256,6 @@ def _build_item_from_payload(
                 if enrichment is not None
                 else _base_download_item(payload)
             )
-        return _base_download_item(payload)
-    if payload.get("act") == "redownload":
-        item = _base_download_item(payload)
-        enrich_redownload_item(item, conn, secret_key)
-        return item
     return _base_download_item(payload)
 
 
@@ -273,6 +276,22 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
             item["cast_list"] = _coerce_cast(json.loads(cast_value))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
+
+
+def _season_state(series: SonarrSeries, season_number: int) -> str | None:
+    """Like compute_download_state for one season: None when Sonarr holds the series but is
+    not set to fetch the season.
+    """
+    for season in series.get("seasons") or []:
+        if season.get("seasonNumber") != season_number:
+            continue
+        stats = season.get("statistics") or {}
+        files = stats.get("episodeFileCount", 0)
+        if files > 0 and files >= stats.get("episodeCount", 0):
+            return ACTION_IN_LIBRARY
+        if series.get("monitored", True) and season.get("monitored"):
+            return ACTION_QUEUED
+    return None
 
 
 def _resolve_download_state(
@@ -305,6 +324,11 @@ def _resolve_download_state(
             sonarr_cache = _get_sonarr_cache_cached(conn, secret_key)
             caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
             caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
+        season_number = item["season_number"]
+        if isinstance(season_number, int):
+            held = caches["sonarr_series"].get(tmdb_id)
+            item["download_state"] = _season_state(held, season_number) if held else None
+            return
         state = compute_download_state(mt, tmdb_id, caches)
         series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
         if state == ACTION_PARTIAL and tmdb_id not in caches["sonarr_queue_tmdb_ids"]:
@@ -351,7 +375,11 @@ def _build_hero_context(
     poll_token = None
     if tmdb_id:
         poll_token = generate_poll_token(
-            media_item_id=f"{service}:{hero_title}",
+            media_item_id=(
+                sonarr_media_id(hero_title, cast("int | None", item["season_number"]))
+                if service == "sonarr"
+                else f"radarr:{hero_title}"
+            ),
             service=service,
             tmdb_id=tmdb_id,
             secret_key=secret_key,
@@ -387,6 +415,8 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     item = _build_item_from_payload(payload, conn, config.secret_key)
     _enrich_item_fields(item)
+    season = deleted_season(conn, payload)
+    item["season_number"] = season.season_number if season else None
 
     mt = "movie" if payload.get("mt") == "movie" else "tv"
     tmdb_id_raw = payload.get("tmdb")
