@@ -52,6 +52,12 @@
 }
 .dl-cinema__art:not([data-broken]) ~ .dl-cinema__fill,
 .dl-cinema__art:not([data-broken]) ~ .dl-cinema-info .dl-cinema__poster { display: none; }
+/* With no picture at all: a short head. */
+.dl-cinema:not(:has(img:not([data-broken]))) {
+  min-height: 0;
+  padding-top: 72px;
+  background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
+}
 .dl-cinema-gradient {
   position: absolute;
   inset: 0;
@@ -268,6 +274,13 @@
 /* A finger's width to tap. */
 @media (pointer: coarse) {
   .dl-expired-back a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 16px; }
+}
+
+/* Little height: the hero is no taller than what it holds, but a wide backdrop keeps room to show. */
+@media (max-height: 500px) {
+  .dl-cinema { min-height: 0; padding-block: 16px 20px; }
+  .dl-cinema:has(.dl-cinema__art:not([data-broken])) { min-height: 55vh; }
+  .dl-cinema__poster { width: min(24vw, 34vh); }
 }
 
 /* A phone held sideways: the whole card on one screen. */

@@ -54,3 +54,18 @@ def test_the_rate_limited_page_retry_is_a_fingers_width_and_fits_a_phone_held_si
     assert re.search(r"\.dl-expired-back a \{[^}]*min-height: 44px", coarse)
     sideways = re.search(r"@media \(max-height: 500px\) and[^{]*\{(.*?)\n\}", css, re.S)
     assert sideways and re.search(r"\.dl-expired \{ margin: 12px auto; padding: 14px", sideways[1])
+
+
+def test_a_hero_with_no_picture_is_a_short_head() -> None:
+    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.dl-cinema:not\(:has\(img:not\(\[data-broken\]\)\)\) \{([^}]*)\}", css)
+
+    assert rule and "min-height: 0" in rule[1] and "var(--hero-hi)" in rule[1]
+
+
+def test_the_hero_takes_no_more_height_than_it_needs_on_a_short_screen() -> None:
+    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
+    short = re.search(r"@media \(max-height: 500px\) \{(.*?)\n\}", css, re.S)
+
+    assert short and re.search(r"\.dl-cinema \{[^}]*min-height: 0", short[1])
+    assert re.search(r"\.dl-cinema__poster \{ width: min\([^}]*34vh\)", short[1])
