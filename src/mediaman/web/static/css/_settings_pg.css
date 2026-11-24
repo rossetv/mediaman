@@ -290,9 +290,9 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   transition: background var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
-.setg-pg .conn.ok       .conn-dot { background: var(--success); box-shadow: var(--glow-success); }
-.setg-pg .conn.warn     .conn-dot { background: var(--warning); box-shadow: var(--glow-warning); }
-.setg-pg .conn.err      .conn-dot { background: var(--danger);  box-shadow: var(--glow-danger);  }
+.setg-pg .conn.ok   .conn-dot, .setg-pg .conn-dot.ok   { background: var(--success); box-shadow: var(--glow-success); }
+.setg-pg .conn.warn .conn-dot, .setg-pg .conn-dot.warn { background: var(--warning); box-shadow: var(--glow-warning); }
+.setg-pg .conn.err  .conn-dot, .setg-pg .conn-dot.err  { background: var(--danger);  box-shadow: var(--glow-danger);  }
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
 

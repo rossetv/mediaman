@@ -78,6 +78,17 @@ def test_integration_chevron_uses_the_motion_tokens() -> None:
     assert "var(--dur)" in chev and "var(--ease-out)" in chev
 
 
+def test_overview_dots_take_the_colour_of_their_service() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    coloured = {
+        part.strip(): body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        for part in head.split(",")
+    }
+    for tone, token in (("ok", "success"), ("warn", "warning"), ("err", "danger")):
+        assert f"background: var(--{token})" in coloured[f".setg-pg .conn-dot.{tone}"]
+
+
 def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
     rules = re.findall(r"html:has\(\.setg-pg\)\s*\{([^{}]*)\}", css)
