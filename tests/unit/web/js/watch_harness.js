@@ -21,7 +21,7 @@ function leavingLine(days) {
 
 function heroInfo(season, line) {
   return ['div', { class: 'watch-hero__info' },
-    ['h1', { class: 'watch-hero__title' }, 'Brightwater'],
+    ['h1', { class: 'watch-banner__title' }, 'Brightwater'],
     ...(line ? [line] : []),
     ['div', { class: 'watch-actions' }, ['a', { class: 'btn' }, 'Resume']],
     ['nav', { class: 'watch-seasons' },
@@ -31,7 +31,7 @@ function heroInfo(season, line) {
 
 function showPage(doc, season, line) {
   return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
-    ['section', { class: 'watch-hero' }, heroInfo(season, line)],
+    ['section', { class: 'watch-banner' }, heroInfo(season, line)],
     ['ol', { class: 'watch-episodes' }, ['li', {}, 'Ep ' + season]],
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
