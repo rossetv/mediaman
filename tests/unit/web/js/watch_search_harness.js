@@ -689,9 +689,14 @@ const scenarios = {
     out.waiting = p.doc.querySelector('.watch-search').classList.contains('is-pending');
     await p.answer('/api/watch/explore?', { items: [
       { ...TM, ref: 'tmdb-movie-1', title: 'Orchard Keepers', in_library: true, library_ref: 'movie-1' },
-      { ...TM, ref: 'tmdb-movie-2', title: 'Held', in_library: true, library_ref: 'movie-2' },
+      { ...TM, ref: 'tmdb-movie-2', title: 'Held', in_library: true, library_ref: 'movie-2', keep_id: '8', leaving_days: 3 },
+      { ...TM, ref: 'tmdb-movie-4', title: 'Staying', in_library: true, library_ref: 'movie-4', keep_id: null, leaving_days: null },
       { ...TM, ref: 'tmdb-movie-3', title: 'Not held', download_state: null },
     ] });
+    out.keeps = p.doc.querySelectorAll('.watch-card').map((c) => [c.querySelector('[data-watch-keep]'), c.querySelector('.watch-badge--leaving')]
+      .map((n) => n && (n.getAttribute('data-watch-keep') || n.textContent)).concat(c.getAttribute('data-keep-id')));
+    // On the category's own page they have none: it has its own badge.
+    out.explore = !!p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, keep_id: '8', leaving_days: 3 }, true).querySelector('[data-watch-keep]');
     out.titles = p.titles('.watch-card');
     out.counts = p.doc.querySelectorAll('.results-group__count').map((c) => c.textContent);
     out.status = p.status.textContent;

@@ -239,10 +239,22 @@ def test_a_phrase_that_names_a_category_lists_its_titles_each_once() -> None:
     out = _run("phraseResults")
     assert out["urls"][2] == "/api/watch/explore?genre=action&type=movie"
     assert out["waiting"] is True
-    assert out["titles"] == ["Orchard Keepers", "Held", "Not held"]
-    assert out["counts"] == ["2 titles", "1 title"]
-    assert out["status"].startswith("2 in your library, 1 available to download")
+    assert out["titles"] == ["Orchard Keepers", "Held", "Staying", "Not held"]
+    assert out["counts"] == ["3 titles", "1 title"]
+    assert out["status"].startswith("3 in your library, 1 available to download")
     assert out["failed"] == [1, None]
+
+
+def test_a_held_title_of_a_category_phrase_has_its_keep_as_a_match_by_name_has() -> None:
+    out = _run("phraseResults")
+    leaving = "Leaving in 3 days3 days left"
+    assert out["keeps"] == [
+        ["7", leaving, "7"],
+        ["8", leaving, "8"],
+        [None, None, ""],
+        [None, None, None],
+    ]
+    assert out["explore"] is False
 
 
 def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:

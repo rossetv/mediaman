@@ -19,7 +19,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.watch.catalog_api import _arr, _discover_cards, _tmdb_client
+from mediaman.web.routes.watch.catalog_api import _arr, _discover_cards, _tmdb_client, held_fields
 
 router = APIRouter()
 
@@ -115,7 +115,7 @@ def _held_cards(
 ) -> list[dict[str, object]]:
     """The cards of titles known to be held, and by which library title."""
     arr = _arr(request, conn)
-    seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+    fields = held_fields(conn, username, lib.scanned_library_ids(conn))
     none_held = catalog.LibraryIndex()
     cards = []
     for item in items:
@@ -123,7 +123,7 @@ def _held_cards(
         if card is not None:
             ref = item["library_ref"]
             held = {"in_library": True, "library_ref": ref, "href": catalog.library_href(ref)}
-            cards.append({**card, **held, **lib.mark_fields(ref, seen)})
+            cards.append({**card, **held, **fields(ref)})
     return cards
 
 

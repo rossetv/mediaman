@@ -180,6 +180,30 @@ def api_watch_discover(
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
 
 
+def held_fields(
+    conn: sqlite3.Connection, username: str, libraries: list[str]
+) -> Callable[[str | None], dict[str, object]]:
+    """What a TMDB title's card says of the library title it is, by that title's ref:
+    *username*'s mark, and of a film that is leaving, when and what a Keep of it keeps."""
+    seen = lib.seen_refs(conn, username, libraries)
+    now = now_utc()
+    leaving = {
+        f"movie-{p.media_item_id}": leaving_info(p, now)
+        for p in lib.pending_deletions(conn, libraries, now)
+        if p.season_number is None
+    }
+
+    def fields(ref: str | None) -> dict[str, object]:
+        found = leaving.get(ref or "") or {"days": None, "keep_id": None}
+        return {
+            **lib.mark_fields(ref, seen),
+            "leaving_days": found["days"],
+            "keep_id": found["keep_id"],
+        }
+
+    return fields
+
+
 def _discover_cards(
     request: Request,
     conn: sqlite3.Connection,
@@ -187,16 +211,14 @@ def _discover_cards(
     username: str,
     shelves: Sequence[Sequence[Mapping[str, object]]],
 ) -> list[list[dict[str, object]]]:
-    """The cards of each of *shelves*, marked with what the library holds and *username* has seen."""
+    """The cards of each of *shelves*, marked with what the library holds, when it leaves and
+    what *username* has seen."""
     libraries = lib.scanned_library_ids(conn)
     index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     arr = _arr(request, conn)
-    seen = lib.seen_refs(conn, username, libraries)
+    held = held_fields(conn, username, libraries)
     cards = [[catalog.tmdb_card(item, index, arr) for item in items] for items in shelves]
-    return [
-        [{**c, **lib.mark_fields(cast(str | None, c["library_ref"]), seen)} for c in row if c]
-        for row in cards
-    ]
+    return [[{**c, **held(cast(str | None, c["library_ref"]))} for c in row if c] for row in cards]
 
 
 def _discover_page(

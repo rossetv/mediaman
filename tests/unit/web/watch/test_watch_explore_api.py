@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +17,12 @@ from mediaman.services.watch_catalog import _arr, _explore, _gate, _library, _ti
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, explore_api
-from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 EXPLORE = "/api/watch/explore"
 PERSON = "/api/watch/person/7"
@@ -100,6 +106,46 @@ class TestExplore:
             (None, False, None),
             (None, False, "queued"),
         ]
+
+    def test_a_held_film_that_is_leaving_says_when_and_what_a_keep_of_it_keeps(
+        self, viewer, conn, tmdb
+    ):
+        tmdb["/discover/movie"] = _movies(11, 12)
+        before = viewer.get(EXPLORE, params={"genre": "horror"}).json()["items"]
+        execute_at = (now_utc() + timedelta(days=3)).isoformat()
+        insert_scheduled_action(conn, media_item_id="100", execute_at=execute_at)
+
+        held, other = viewer.get(EXPLORE, params={"genre": "horror"}).json()["items"]
+
+        assert [(c["keep_id"], c["leaving_days"]) for c in before] == [(None, None)] * 2
+        assert (held["keep_id"], held["leaving_days"]) == ("100", 3)
+        assert (other["keep_id"], other["leaving_days"]) == (None, None)
+
+    def test_a_held_show_with_a_season_leaving_offers_no_keep_as_in_a_search(
+        self, viewer, conn, tmdb
+    ):
+        insert_media_item(
+            conn,
+            id="501",
+            plex_rating_key="501",
+            title="Coast",
+            show_title="Coast",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="500",
+        )
+        conn.execute("UPDATE media_items SET tmdb_id = 21 WHERE id = '501'")
+        execute_at = (now_utc() + timedelta(days=3)).isoformat()
+        insert_scheduled_action(conn, media_item_id="501", execute_at=execute_at)
+        tmdb["/discover/tv"] = {
+            "results": [{"id": 21, "name": "Coast", "media_type": "tv"}],
+            "total_pages": 1,
+            "total_results": 1,
+        }
+
+        [show] = viewer.get(EXPLORE, params={"genre": "news", "type": "tv"}).json()["items"]
+
+        assert (show["library_ref"], show["keep_id"]) == ("show-500", None)
 
     def test_it_says_what_is_shown_and_how_to_go_on(self, viewer, tmdb):
         tmdb["/discover/movie"] = _movies(12, pages=2)

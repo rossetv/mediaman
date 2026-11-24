@@ -63,6 +63,14 @@
     return days === 1 ? '1 day left' : days + ' days left';
   }
 
+  function leavingBadge(item) {
+    if (typeof item.leaving_days !== 'number') return null;
+    var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
+    badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
+    badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
+    return badge;
+  }
+
   /* A library title's card; its link carries the ref: it is what takes focus
      back when the detail closes. */
   function libraryCard(item) {
@@ -85,12 +93,8 @@
       poster.appendChild(img);
     }
     poster.appendChild(el('span', 'watch-card__title', item.title));
-    if (typeof item.leaving_days === 'number') {
-      var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
-      badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
-      badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
-      poster.appendChild(badge);
-    }
+    var badge = leavingBadge(item);
+    if (badge) poster.appendChild(badge);
     if (item.progress_pct) {
       var bar = el('progress', 'watch-bar');
       bar.max = 100;
@@ -111,8 +115,9 @@
   }
 
   /* A search result also has its Keep. */
-  function buildCard(item) {
-    var card = libraryCard(item);
+  function buildCard(item) { return addKeep(libraryCard(item), item); }
+
+  function addKeep(card, item) {
     // Only a title that is leaving comes with a keep id, and the server checks it again.
     if (item.keep_id) {
       var btn = el('button', 'watch-keep');
@@ -130,6 +135,15 @@
       card.appendChild(btn);
     }
     return card;
+  }
+
+  /* One found by its category, in the library. */
+  function buildHeldCard(item) {
+    var card = buildTmdbCard(item, true);
+    card.setAttribute('data-keep-id', item.keep_id || '');
+    var badge = leavingBadge(item);
+    if (badge) card.querySelector('.watch-card__title').after(badge);
+    return addKeep(card, item);
   }
 
   /* A title TMDB knows, in the library or not; *plain*: its heading says which. */
@@ -1107,7 +1121,7 @@
         var key = item.library_ref || item.ref;
         if (seen.has(key) || seen.has(item.ref)) return;
         seen.add(key);
-        if (item.in_library) lib.push({ item: item, key: key, build: function (i) { return buildTmdbCard(i, true); } });
+        if (item.in_library) lib.push({ item: item, key: key, build: buildHeldCard });
         else out.push({ item: item, key: key, build: buildTmdbCard });
       });
       return { lib: lib, out: out };
