@@ -29,6 +29,7 @@ from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_
 from mediaman.services.arr.state import (
     ExistingMovieError,
     add_or_remonitor_movie,
+    is_series_already_tracked,
     radarr_fetches_movie,
     radarr_holds_movie,
     sonarr_fetches_series,
@@ -225,6 +226,17 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
     return True
 
 
+def _series_held(client: ArrClient, tvdb_id: int) -> bool:
+    """Whether Sonarr holds the series; an unreadable answer is raised as ArrError.
+
+    Only an add may answer "already there" or have landed unanswered.
+    """
+    try:
+        return is_series_already_tracked(client, tvdb_id)
+    except SafeHTTPError as exc:
+        raise ArrError(f"Sonarr series lookup failed: HTTP {exc.status_code}") from exc
+
+
 def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
     """Add a series, or the one season asked for, to Sonarr and return the poll-token response;
     raises SafeHTTPError on Arr-level failures for the caller to handle. conn is passed explicitly so
@@ -268,7 +280,7 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         if season_number is None:
             # Asked before the add, so a 5xx or timeout for a show held all along is not
             # taken for an add that landed.
-            if sonarr_tracks_series(client, tvdb_id):
+            if _series_held(client, tvdb_id):
                 raise _held_error(
                     SafeHTTPError(409, "already tracked", "sonarr/api/v3/series"),
                     sonarr_fetches_series(client, tvdb_id),

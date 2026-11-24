@@ -344,3 +344,21 @@ class TestSubmitWhoseAddGotNoAnswer:
         sonarr.add_series.assert_not_called()
         mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
         assert mails == []
+
+    def test_a_show_whose_first_read_got_no_answer_is_a_502_and_frees_the_link(
+        self, client, secret_key
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        sonarr.get_series.side_effect = [
+            self.NO_ANSWER,
+            [{"tvdbId": 999, "monitored": True}],
+        ]
+        sonarr.add_series.side_effect = self.NO_ANSWER
+
+        token, resp = self._post(client, secret_key, "tv", sonarr)
+
+        assert resp.status_code == 502
+        assert not _consumed(token)
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert mails == []
