@@ -233,14 +233,15 @@ def _fetch_suggestions_batch(
         placeholders = ",".join("?" * len(tmdb_ids))
         sugg_rows = conn.execute(
             f"SELECT tmdb_id, year, runtime, director, description, rating, "
-            f"imdb_rating, rt_rating, poster_url "
-            f"FROM suggestions WHERE tmdb_id IN ({placeholders})",
+            f"imdb_rating, rt_rating, poster_url, backdrop_url "
+            f"FROM suggestions WHERE tmdb_id IN ({placeholders}) "
+            f"ORDER BY backdrop_url IS NULL, created_at DESC",
             tmdb_ids,
         ).fetchall()
         for sr in sugg_rows:
             # Multiple suggestion rows may exist for the same tmdb_id
-            # across batches — keep the first hit (any row contains the
-            # same metadata aside from rating timing).
+            # across batches — keep the first hit: the newest row that has a backdrop (an
+            # older batch may have none), else the newest row.
             tid = int(sr["tmdb_id"])
             if tid not in suggestions_by_tmdb:
                 suggestions_by_tmdb[tid] = SuggestionsMeta(
@@ -253,6 +254,7 @@ def _fetch_suggestions_batch(
                     imdb_rating=str(sr["imdb_rating"]) if sr["imdb_rating"] else "",
                     rt_rating=str(sr["rt_rating"]) if sr["rt_rating"] else "",
                     poster_url=str(sr["poster_url"]) if sr["poster_url"] else "",
+                    backdrop_url=str(sr["backdrop_url"]) if sr["backdrop_url"] else "",
                 )
     return suggestions_by_tmdb
 
