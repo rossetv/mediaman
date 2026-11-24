@@ -66,6 +66,12 @@ def test_a_service_header_has_room_for_its_chevron_on_a_narrow_phone() -> None:
     assert "padding-left: 0" in _narrow_phone_rule(".setg-pg .intg-card-hd .hd-actions")
 
 
+def test_a_long_user_name_wraps_in_the_password_dialog() -> None:
+    css = (CSS / "_settings_pg.css").read_text()
+    title = re.search(r"\.reauth-title \{([^{}]*)\}", css)
+    assert title and "overflow-wrap: anywhere" in title.group(1)
+
+
 def _phone_block_with(selector: str) -> str:
     """The body of the phone `@media` block that holds a rule for `selector`."""
     for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):

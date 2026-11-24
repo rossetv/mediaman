@@ -370,6 +370,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   font-size: 22px; font-weight: 600; line-height: 1.19;
   letter-spacing: -.011em; color: var(--t1);
   margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 .reauth-sheet .reauth-desc {
   font-size: 14px; line-height: 1.43; letter-spacing: -.224px;
