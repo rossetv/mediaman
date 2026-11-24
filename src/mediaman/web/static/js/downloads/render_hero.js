@@ -35,23 +35,29 @@
       return;
     }
     hint.hidden = false;
-    while (hint.firstChild) hint.removeChild(hint.firstChild);
-    if (item.search_hint) {
-      var text = document.createElement('span');
+    /* The parts are kept from poll to poll, so a link with the focus keeps it. */
+    var text = d.q('[data-v="search-hint-text"]', hint);
+    var sep = d.q('[data-v="search-hint-sep"]', hint);
+    var a = d.q('[data-v="arr-link"]', hint);
+    if (!text) {
+      text = document.createElement('span');
       text.setAttribute('data-v', 'search-hint-text');
-      text.textContent = item.search_hint;
-      hint.appendChild(text);
-    }
-    if (item.arr_link) {
-      if (item.search_hint) hint.appendChild(document.createTextNode(' · '));
-      var a = document.createElement('a');
+      sep = document.createElement('span');
+      sep.setAttribute('data-v', 'search-hint-sep');
+      sep.textContent = ' · ';
+      a = document.createElement('a');
       a.className = 'dl-arr-link';
       a.setAttribute('data-v', 'arr-link');
-      a.href = item.arr_link;
       a.target = '_blank';
       a.rel = 'noopener';
-      a.textContent = 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗';
-      hint.appendChild(a);
+      [text, sep, a].forEach(function (part) { hint.appendChild(part); });
+    }
+    d.setText(text, item.search_hint || '');
+    sep.hidden = !item.search_hint || !item.arr_link;
+    a.hidden = !item.arr_link;
+    if (item.arr_link) {
+      a.href = item.arr_link;
+      d.setText(a, 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗');
     }
   }
 

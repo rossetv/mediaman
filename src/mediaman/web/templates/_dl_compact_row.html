@@ -17,7 +17,7 @@
       </div>
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>
-        {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}{% endif %}
+        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span><span data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>
       </div>
       <div class="dl-compact-bar dl-row-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
         <div class="dl-compact-fill dl-row-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>

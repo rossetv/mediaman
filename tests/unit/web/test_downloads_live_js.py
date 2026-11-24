@@ -183,3 +183,20 @@ def test_a_poster_that_fails_to_load_leaves_no_broken_icon_anywhere_on_the_page(
 def test_what_is_coming_soon_gives_way_to_what_replaces_it() -> None:
     out = _run("upcomingReplaced", hero=_item("h"), upcoming=[_item("u")])
     assert out == {"rows": ["v"]}
+
+
+def test_a_link_to_radarr_keeps_the_focus_while_its_line_changes() -> None:
+    searching = {
+        "state": "searching",
+        "search_hint": "Searched once",
+        "arr_link": "http://arr/a",
+        "arr_source": "Radarr",
+    }
+    out = _run("hintFocus", hero=_item("h", **searching), queue=[_item("q", **searching)])
+    followed = [
+        ["http://arr/b", "Searched 2× · next attempt in 3m · View in Radarr ↗"],
+        ["http://arr/c", "View in Radarr ↗"],
+    ]
+    assert out["hero"] == out["row"] == followed
+    assert out["noLink"] == [True, True]
+    assert out["built"] == "Searched once · View in Radarr ↗"

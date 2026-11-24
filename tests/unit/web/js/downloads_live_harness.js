@@ -39,6 +39,8 @@ Node.prototype.remove = (function (remove) {
 })(Node.prototype.remove);
 Node.prototype.focus = function () { if (this.isConnected && !this.closest('[hidden]')) this.ownerDocument.activeElement = this; };
 
+const shownText = (n) => (n.nodeType === 3 ? n._text : n.hidden ? '' : n.childNodes.map(shownText).join(''));
+
 function page(spec, opts) {
   const doc = makeDocument();
   spec.forEach((s) => doc.body.appendChild(build(doc, s)));
@@ -77,7 +79,7 @@ function page(spec, opts) {
   return {
     ctx, doc, timers, q: (s) => doc.querySelector(s), qa: (s) => doc.querySelectorAll(s),
     upd: (d) => ctx.update({ subtitle: '', hero: null, queue: [], upcoming: [], recent: [], unreachable: [], outage: '', ...d }),
-    text: (s) => { const e = doc.querySelector(s); return e && e.textContent.replace(/\s+/g, ' ').trim(); },
+    text: (s) => { const e = doc.querySelector(s); return e && shownText(e).replace(/\s+/g, ' ').trim(); },
   };
 }
 
@@ -150,6 +152,26 @@ const scenarios = {
     p.upd({ hero: item('b', at(1)), queue: [item('r', at(2))], upcoming: [item('v', at(3))], recent: [{ title: 'S', ...at(4) }] });
     const fresh = p.qa('img').map((img) => img.hasAttribute('data-broken'));
     return { drawn, fresh, polled: fail() };
+  },
+
+  // a person is on "View in ..." of the hero, then of a row, while the polls go on
+  async hintFocus() {
+    const p = page(spec);
+    const searching = (id, hint, link) => item(id, { state: 'searching', search_hint: hint, arr_link: link, arr_source: 'Radarr' });
+    const out = {};
+    for (const [where, card] of [['hero', '.dl-hero'], ['row', '.dl-compact']]) {
+      p.q(card + ' [data-v="arr-link"]').focus();
+      const poll = (hint, link) => {
+        p.upd({ hero: searching('h', hint, link), queue: [searching('q', hint, link)] });
+        const on = p.doc.activeElement;
+        return [on.getAttribute('href'), p.text(card + ' [data-v="search-hint"]')];
+      };
+      out[where] = [poll('Searched 2× · next attempt in 3m', 'http://arr/b'), poll('', 'http://arr/c')];
+    }
+    p.upd({ hero: searching('h', 'Searched once', ''), queue: [searching('n', 'Searched once', 'http://arr/n')] });
+    out.noLink = [p.q('.dl-hero [data-v="arr-link"]').hidden, p.q('.dl-hero [data-v="search-hint-sep"]').hidden];
+    out.built = p.text('.dl-compact [data-v="search-hint"]');
+    return out;
   },
 
   // everything coming soon gives way to something else in one poll
