@@ -35,12 +35,8 @@ from mediaman.web.repository.kept import (
 from mediaman.web.repository.kept import (
     resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — re-exported so tests can import it
 )
-from mediaman.web.repository.library_query import ANIME_SEASON_TYPES, TV_SEASON_TYPES
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.kept_show import router as _kept_show_router
-
-_ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
-
 
 _UNPROTECT_LIMITER = ActionRateLimiter(
     max_in_window=60,
