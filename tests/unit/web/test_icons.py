@@ -47,6 +47,14 @@ def test_an_icon_is_drawn_by_the_name_of_a_symbol(path: Path) -> None:
     assert not re.search(r"""["']i-["']""", text)
 
 
+def test_no_page_links_the_icon_font_or_draws_with_its_classes() -> None:
+    for p in SOURCES + sorted((WEB / "static" / "css").glob("*.css")):
+        text = p.read_text(encoding="utf-8")
+        assert "fontawesome" not in text.lower(), p.name
+        assert not re.search(r"\bfa-[a-z]", text), p.name
+        assert "@font-face" not in text, p.name
+
+
 def test_the_page_carries_the_sprite_once_before_its_first_icon() -> None:
     page = ENV.get_template("watch_player.html").render(
         item={"rating_key": "1", "title": "Film"}, back_href="/watch", next=None, leaving=None
