@@ -104,7 +104,7 @@
     if (item.minutes_left && !/ left$/.test(sub)) {
       sub += ' · ' + dur(item.minutes_left) + ' left';
     }
-    link.appendChild(el('span', 'watch-card__sub', sub));
+    link.appendChild(core.caption(el('span', 'watch-card__sub'), sub));
     card.appendChild(link);
     core.addMarks(card, poster, item);
     return card;

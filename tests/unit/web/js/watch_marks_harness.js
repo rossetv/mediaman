@@ -174,6 +174,14 @@ const scenarios = {
     });
   },
 
+  // The caption of a library card a script builds: what a narrow card draws, and all it says.
+  async builtCaption() {
+    const p = load(watchPage([]));
+    vm.runInContext(fs.readFileSync(path.join(JS, 'watch/search.js'), 'utf8'), p.ctx);
+    const sub = p.ctx.MMWatch.search.card({ title: 'Fieldwork', kind: 'movie', subtitle: 'Movie', minutes_left: 31, href: '/watch/movie/1' }).querySelector('.watch-card__sub');
+    return [sub.textContent, sub.querySelectorAll('.watch-card__wide').map((n) => n.textContent)];
+  },
+
   // A film marked from its card, then Undo.
   async markFilm() {
     const p = load(watchPage([row('lib', [FILM()]), row('rec', [FILM(), card('movie/9', 'Other', 'Movie')])]));

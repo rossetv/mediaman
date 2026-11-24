@@ -241,6 +241,7 @@
       words(' ' + parts[1] + ' · ' + last.slice(0, -5));
       wide(' left');
     } else words(text);
+    return node;
   }
 
   /* The mark on a poster. */

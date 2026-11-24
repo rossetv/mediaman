@@ -66,6 +66,10 @@ def test_a_narrow_card_s_caption_draws_what_fits_on_a_line_and_says_the_rest() -
     assert dict(out) == NARROW
 
 
+def test_a_card_a_script_builds_has_the_same_caption() -> None:
+    assert _run("builtCaption") == ["Movie · 31 min left", ["Movie · "]]
+
+
 @pytest.mark.parametrize("text", NARROW)
 def test_the_page_draws_the_captions_the_script_draws(text: str) -> None:
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
