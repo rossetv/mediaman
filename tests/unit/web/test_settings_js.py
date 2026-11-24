@@ -585,7 +585,12 @@ def test_a_removed_secret_is_not_said_to_be_put_back() -> None:
 def test_a_save_checks_again_only_the_services_it_changed() -> None:
     out = _run("recheck")
     failed = ["err", "Connection failed"]
-    assert out["written"] == [["sonarr?auto=1", "nzbget?auto=1"], ["ok", "Connected"], failed, failed]
+    assert out["written"] == [
+        ["sonarr?auto=1", "nzbget?auto=1"],
+        ["ok", "Connected"],
+        failed,
+        failed,
+    ]
     assert out["elsewhere"] == out["refused"] == []
     assert out["emptied"] == [[], ["off", "Not configured"]]
 
@@ -609,7 +614,8 @@ def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> Non
 
 def test_the_page_loads_each_script_once() -> None:
     pages = [
-        (_TEMPLATE_DIR / name).read_text(encoding="utf-8") for name in ("base.html", "settings.html")
+        (_TEMPLATE_DIR / name).read_text(encoding="utf-8")
+        for name in ("base.html", "settings.html")
     ]
     scripts = re.findall(r'<script src="([^"?]+)', "".join(pages))
     assert "/static/js/settings/savebar.js" in scripts and "/static/js/core/dom.js" in scripts
