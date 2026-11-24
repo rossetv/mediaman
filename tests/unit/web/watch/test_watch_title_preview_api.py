@@ -322,6 +322,10 @@ class TestLibraryShow:
         body = _preview(viewer, "show-500").json()
 
         assert (body["leaving"]["keep_id"], body["keep_allowed"]) == ("502", True)
+        assert body["leaving_seasons"] == [
+            {"days": 3, "keep_id": "502", "season": 2},
+            {"days": 9, "keep_id": "501", "season": 1},
+        ]
 
     def test_another_shows_season_leaving_is_not_its_own(self, viewer, library, tmdb, plex):
         insert_media_item(
@@ -344,6 +348,7 @@ class TestLibraryShow:
         body = _preview(viewer, "show-500").json()
 
         assert (body["leaving"], body["keep_allowed"]) == (None, False)
+        assert body["leaving_seasons"] == []
 
     @pytest.mark.parametrize("through", ["sonarr", "library index"])
     def test_one_known_by_its_tvdb_id_has_tmdbs_words(

@@ -53,6 +53,7 @@ from mediaman.web.routes.watch.catalog_api import (
     _OutsideLibraries,
     _payload,
     _tmdb_title,
+    fill_show_leaving,
 )
 from mediaman.web.routes.watch.pages import (
     _primary_episode,
@@ -83,6 +84,7 @@ _FIELDS = (
     "reason",
     "play",
     "leaving",
+    "leaving_seasons",
     "keep_allowed",
     "seasons",
     "download",
@@ -254,18 +256,11 @@ def _leaving(
     key: str,
     is_admin: bool,
 ) -> None:
+    if kind == "show":
+        fill_show_leaving(out, conn, libraries, key, is_admin)
+        return
     now = now_utc()
-    if kind == "movie":
-        pending = lib.pending_deletion(conn, libraries, key, now)
-    else:
-        pending = next(
-            (
-                p
-                for p in lib.pending_deletions(conn, libraries, now)
-                if p.show_key == key and p.season_number is not None
-            ),
-            None,
-        )
+    pending = lib.pending_deletion(conn, libraries, key, now)
     out["leaving"] = leaving_info(pending, now)
     out["keep_allowed"] = is_admin or pending is not None
 

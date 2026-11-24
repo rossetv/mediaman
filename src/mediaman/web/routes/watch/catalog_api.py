@@ -333,6 +333,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "because_of": [],
         "play": None,
         "leaving": None,
+        "leaving_seasons": [],
         "keep_allowed": False,
         "seasons": [],
         "episodes": [],
@@ -537,17 +538,7 @@ def _show_title(
             ],
             episodes=[_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
         )
-    now = now_utc()
-    leaving = next(
-        (
-            p
-            for p in lib.pending_deletions(conn, libraries, now)
-            if p.show_key == listed.key and p.season_number is not None
-        ),
-        None,
-    )
-    out["leaving"] = leaving_info(leaving, now)
-    out["keep_allowed"] = is_admin or leaving is not None
+    fill_show_leaving(out, conn, libraries, listed.key, is_admin)
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
@@ -560,6 +551,21 @@ def _show_title(
                 if season["episode_count"] is None:
                     season["episode_count"] = counts.get(season["number"])
     return out
+
+
+def fill_show_leaving(
+    out: dict[str, Any], conn: sqlite3.Connection, libraries: list[str], key: str, is_admin: bool
+) -> None:
+    """Each leaving season of the show, soonest first, and the first as what is leaving."""
+    now = now_utc()
+    seasons = [
+        {**(leaving_info(p, now) or {}), "season": p.season_number}
+        for p in lib.pending_deletions(conn, libraries, now)
+        if p.show_key == key and p.season_number is not None
+    ]
+    out["leaving"] = seasons[0] if seasons else None
+    out["leaving_seasons"] = seasons
+    out["keep_allowed"] = is_admin or bool(seasons)
 
 
 def _tmdb_title(
