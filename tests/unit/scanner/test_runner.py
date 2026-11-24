@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.scanner.runner import _filter_libraries_by_disk
 from mediaman.services.infra import SSRFRefused
 
 # Capture the namedtuple type ``shutil.disk_usage`` returns ONCE at import
@@ -215,6 +216,45 @@ class TestDiskThresholdFiltering:
 
         call_kwargs = MockEngine.call_args.kwargs
         assert call_kwargs["library_ids"] == ["1"]
+
+    @pytest.mark.parametrize(
+        "setting",
+        [
+            {"1": "x"},
+            {"1": 5},
+            {"1": ["/movies", 80]},
+            {"1": {"path": 5, "threshold": 80}},
+            {"1": {"path": ["/movies"], "threshold": 80}},
+            {"1": {"path": "/mo\0vies", "threshold": 80}},
+            {"1": {"path": "/movies", "threshold": "x"}},
+            {"1": {"path": "/movies", "threshold": [80]}},
+            {"1": {"path": "/movies", "threshold": float("inf")}},
+        ],
+        ids=str,
+    )
+    def test_a_library_whose_threshold_cannot_be_read_is_not_scanned(self, conn, setting):
+        _set_setting(conn, "disk_thresholds", setting)
+
+        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == ["2"]
+
+    @pytest.mark.parametrize("setting", ['{"1": ', '["1"]', '"x"', "5"])
+    def test_no_library_is_scanned_when_no_threshold_can_be_read(self, conn, setting):
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('disk_thresholds', ?, '2026')",
+            (setting,),
+        )
+
+        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == []
+
+    @pytest.mark.parametrize(
+        "setting",
+        [{}, {"1": None}, {"1": {}}, {"1": {"path": "/movies"}}, {"1": {"threshold": 80}}],
+        ids=str,
+    )
+    def test_a_library_with_no_threshold_is_scanned(self, conn, setting):
+        _set_setting(conn, "disk_thresholds", setting)
+
+        assert _filter_libraries_by_disk(conn, ["1"], {}) == ["1"]
 
     def test_no_thresholds_configured_scans_all(self, conn):
         """When no disk_thresholds setting exists, all libraries are passed through."""
