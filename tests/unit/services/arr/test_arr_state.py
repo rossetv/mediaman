@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.services.arr.base import ArrError, SearchUnanswered
 from mediaman.services.arr.state import (
     ExistingMovieError,
     add_or_remonitor_movie,
@@ -950,6 +951,15 @@ class TestAddOrRemonitorMovieWhenTheSearchFails:
             add_or_remonitor_movie(radarr, 603, "The Matrix")
 
         radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
+
+    def test_a_movie_whose_search_may_be_running_stays_monitored(self):
+        radarr = self._radarr()
+        radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+        with pytest.raises(ArrError):
+            add_or_remonitor_movie(radarr, 603, "The Matrix")
+
+        radarr.unmonitor_movie.assert_not_called()
 
     def test_a_failing_put_back_is_logged_and_does_not_hide_the_error(self, caplog):
         radarr = self._radarr()

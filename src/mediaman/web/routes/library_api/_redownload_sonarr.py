@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.services.arr.add_outcome import series_add_landed
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import get_user_email
@@ -67,6 +67,8 @@ def _redownload_season(
         was_unmonitored = season is not None and not season.get("monitored")
         try:
             client.remonitor_season(int(series_id), season_number)
+        except SearchUnanswered:
+            raise
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             # The monitor may have landed before the search failed. A season already
             # monitored before this request stays as it was.

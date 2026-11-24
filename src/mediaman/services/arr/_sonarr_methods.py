@@ -18,6 +18,7 @@ from mediaman.services.arr._transport import (
     ArrConfigError,
     ArrError,
     ArrUpstreamError,
+    SearchUnanswered,
     SeasonsNotListed,
 )
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
@@ -168,7 +169,8 @@ class _SonarrMixin:
         """Set ``monitored=True`` for *season_number* and its series, and trigger a search.
 
         Sonarr fetches nothing for an unmonitored series, whatever its seasons say. A series
-        monitored here is put back when the search cannot be started.
+        monitored here is put back when the search cannot be started, and left as it is when
+        the search may be running all the same (``SearchUnanswered``).
 
         Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
@@ -208,20 +210,21 @@ class _SonarrMixin:
             if target is not None:
                 target["monitored"] = True
 
-        self._unmonitor_with_retry(  # type: ignore[attr-defined]
-            fetch_entity=fetch_entity,
-            put_url=f"/api/v3/series/{series_id}",
-            is_already_unmonitored=is_already_remonitored,
-            apply_unmonitor=apply_remonitor,
-            log_prefix="sonarr.remonitor_season",
-            log_id=f"series_id={series_id} season={season_number}",
-            max_retries=max_retries,
-        )
         try:
-            self._post(  # type: ignore[attr-defined]
-                "/api/v3/command",
-                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
+            self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                fetch_entity=fetch_entity,
+                put_url=f"/api/v3/series/{series_id}",
+                is_already_unmonitored=is_already_remonitored,
+                apply_unmonitor=apply_remonitor,
+                log_prefix="sonarr.remonitor_season",
+                log_id=f"series_id={series_id} season={season_number}",
+                max_retries=max_retries,
             )
+            self._start_search(  # type: ignore[attr-defined]
+                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number}
+            )
+        except SearchUnanswered:
+            raise
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             if series_was_unmonitored:
                 self._put_series_back_unmonitored(series_id)

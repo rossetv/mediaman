@@ -60,6 +60,10 @@ class ArrUpstreamError(ArrError):
     """
 
 
+class SearchUnanswered(ArrError):
+    """A search command got no answer, and whether it runs could not be read back."""
+
+
 class SeasonsNotListed(ArrError):
     """Seasons asked for that Sonarr's lookup does not list (yet), so none can be added."""
 
@@ -71,6 +75,16 @@ class SeasonsNotListed(ArrError):
         else:
             text = f"Seasons {', '.join(names[:-1])} and {names[-1]} aren't in Sonarr's listing."
         super().__init__(text)
+
+
+def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any]) -> bool:
+    """Whether *entry* of the *arr's command list is *command*, waiting, running or done."""
+    body = entry.get("body") or {}
+    return (
+        entry.get("name") == command["name"]
+        and entry.get("status") in ("queued", "started", "completed")
+        and all(body.get(key) == value for key, value in command.items() if key != "name")
+    )
 
 
 class _TransportMixin:
@@ -169,6 +183,24 @@ class _TransportMixin:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
+
+    def _start_search(self, command: Mapping[str, Any]) -> None:
+        """Post a search command; one that got no answer has started if the *arr lists it.
+
+        Raises ``SearchUnanswered`` when that list cannot be read either.
+        """
+        try:
+            self._post("/api/v3/command", command)
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrUpstreamError) as exc:
+            if isinstance(exc, SafeHTTPError) and 0 < exc.status_code < 500:
+                raise
+            try:
+                listed = self._get_list("/api/v3/command")
+            except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as unread:
+                raise SearchUnanswered(f"{command['name']} got no answer") from unread
+            if not any(_is_command(entry, command) for entry in listed):
+                raise
+            logger.info("%s got no answer but was started", command["name"])
 
     def _delete(self, path: str) -> None:
         """Perform an authenticated DELETE.  Sets ``last_error`` on failure."""

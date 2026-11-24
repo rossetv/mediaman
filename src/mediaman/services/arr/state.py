@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
 import requests
 
-from mediaman.services.arr._transport import ArrError
+from mediaman.services.arr._transport import ArrError, SearchUnanswered
 from mediaman.services.arr._types import (
     ArrSeason,
     ArrSeasonStatistics,
@@ -519,6 +519,8 @@ def add_or_remonitor_movie(
         return "bad_entry"
     try:
         radarr_client.remonitor_movie(movie_id)
+    except SearchUnanswered:
+        raise
     except (SafeHTTPError, requests.RequestException, ArrError) as exc:
         # The monitor may have landed before the search failed. Left monitored the
         # movie would read as already tracked, and the same press could never search it.

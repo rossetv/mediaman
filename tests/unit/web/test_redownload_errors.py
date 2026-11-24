@@ -105,14 +105,22 @@ def test_throttled_redownload_carries_its_reason_under_message(app_factory, auth
 
 
 class _OneTitleArr(ArrClient):
-    """The real client over one in-memory Arr entry; every search command fails."""
+    """The real client over one in-memory Arr entry; every search command fails.
 
-    def __init__(self, spec, entry, error):
+    *commands* is the Arr's own list of them, or the error reading it raises.
+    """
+
+    def __init__(self, spec, entry, error, commands=()):
         super().__init__(spec, "http://arr.local", "k")
         self.entry = entry
         self._error = error
+        self._commands = commands
 
     def _get(self, path):
+        if path == "/api/v3/command":
+            if isinstance(self._commands, Exception):
+                raise self._commands
+            return list(self._commands)
         entry = copy.deepcopy(self.entry)
         return [entry] if "?" in path else entry
 
@@ -163,6 +171,46 @@ def test_a_season_whose_search_fails_is_left_unmonitored_as_it_was(
         )
     assert resp.json()["ok"] is False
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, False]
+
+
+_MOVIE_SEARCH = {"name": "MoviesSearch", "status": "started", "body": {"movieIds": [7]}}
+_SEASON_SEARCH = {
+    "name": "SeasonSearch",
+    "status": "queued",
+    "body": {"seriesId": 3, "seasonNumber": 2},
+}
+
+
+@_SEARCH_ERRORS
+def test_a_search_that_got_no_answer_but_was_started_is_a_success(
+    app_factory, authed_client, conn, error
+):
+    client = _client(app_factory, authed_client, conn)
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [_MOVIE_SEARCH])
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [_SEASON_SEARCH])
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (True, True)
+    assert radarr.entry["monitored"] is True
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
+
+
+@_SEARCH_ERRORS
+def test_a_search_nobody_can_tell_the_state_of_is_a_failure_that_unmonitors_nothing(
+    app_factory, authed_client, conn, error
+):
+    client = _client(app_factory, authed_client, conn)
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, error)
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, error)
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    for resp in (movie, season):
+        assert (resp.status_code, resp.json()["ok"]) == (200, False)
+        assert resp.json()["message"]
+    assert radarr.entry["monitored"] is True
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
 
 
 def test_a_title_monitored_before_a_failed_search_stays_monitored(app_factory, authed_client, conn):

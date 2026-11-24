@@ -18,6 +18,7 @@ from mediaman.main import create_app
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.upsert import upsert_item
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter.subscribers import _mint_deleted_tokens
@@ -268,6 +269,16 @@ class TestSubmit:
 
         assert _post(client, link, sonarr).status_code == 502
         assert sonarr.unmonitor_season.call_count == put_back
+        assert _post(client, link, sonarr).status_code == 200
+
+    def test_a_season_whose_search_may_be_running_stays_monitored_and_the_link_is_free(
+        self, client, link
+    ):
+        sonarr = _sonarr(_series(UNMONITORED))
+        sonarr.remonitor_season.side_effect = [SearchUnanswered("no answer"), None]
+
+        assert _post(client, link, sonarr).status_code == 502
+        sonarr.unmonitor_season.assert_not_called()
         assert _post(client, link, sonarr).status_code == 200
 
     def test_a_held_show_with_no_id_is_a_502_never_added_again_and_frees_the_link(

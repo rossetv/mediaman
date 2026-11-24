@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.services.arr.add_outcome import movie_add_landed
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
 from mediaman.services.arr.state import _put_back_unmonitored
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -43,6 +43,8 @@ def _redownload_movie(
             raise ArrError("Radarr holds the movie with no usable id")
         try:
             client.remonitor_movie(int(movie_id))
+        except SearchUnanswered:
+            raise
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             # The monitor may have landed before the search failed. A movie already
             # monitored before this request stays as it was.
