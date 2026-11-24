@@ -1244,6 +1244,55 @@ class TestClaimFreesStrandedRowsWhileRunning:
         assert _claim_pending_notifications(conn) == []
 
 
+class TestClaimIsRestampedBeforeTheSend:
+    def test_a_row_sent_late_in_a_batch_holds_a_fresh_claim_while_the_email_goes_out(
+        self, conn, monkeypatch
+    ):
+        from datetime import datetime, timedelta
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads import notifications
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            ClaimedNotificationRow,
+        )
+
+        stale = (
+            datetime.now(UTC) - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+        ).isoformat()
+        row_id = insert_download_notification(
+            conn, email="u@example.com", title="T", tmdb_id=1, notified=2, claimed_at=stale
+        )
+        monkeypatch.setattr(notifications, "_check_arr_availability", lambda *a, **k: (True, None))
+        monkeypatch.setattr(notifications, "_build_email_payload", lambda *a, **k: ("s", "h"))
+        seen: list[int] = []
+        mailgun = MagicMock()
+        mailgun.send.side_effect = lambda **_: seen.append(
+            notifications.reconcile_stranded_notifications(conn)
+        )
+        row = ClaimedNotificationRow(
+            id=row_id,
+            email="u@example.com",
+            title="T",
+            media_type="movie",
+            tmdb_id=1,
+            tvdb_id=None,
+            service="radarr",
+        )
+
+        notifications._process_one_notification(
+            conn, row, MagicMock(), mailgun, MagicMock(), {}, datetime.now(UTC)
+        )
+
+        assert seen == [0], "a reconcile during the send must not free the row"
+        assert (
+            conn.execute(
+                "SELECT notified FROM download_notifications WHERE id=?", (row_id,)
+            ).fetchone()[0]
+            == 1
+        )
+
+
 class TestAvailableEmailNamesTheSeason:
     def _payload(self, season_number):
         from mediaman.services.downloads._notification_claims import ClaimedNotificationRow

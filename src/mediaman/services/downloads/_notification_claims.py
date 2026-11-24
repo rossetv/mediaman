@@ -1,6 +1,6 @@
 """Claim/release mechanics for download notification rows.
 
-Provides atomic claim, per-row and bulk release, and a startup reconcile
+Provides atomic claim, per-row and bulk release, a claim re-stamp, and a reconcile
 sweep that resets rows left stuck at ``notified=2`` by a crashed worker; the claim runs
 that sweep first, so a stranded row is freed on the next tick.
 """
@@ -148,6 +148,17 @@ def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
         )
 
 
+def restamp_claim(conn: sqlite3.Connection, row_id: int) -> None:
+    """Refresh a claimed row's claimed_at, so a slow batch does not age a row past the
+    stranded-claim grace before its turn to send comes up.
+    """
+    with conn:
+        conn.execute(
+            "UPDATE download_notifications SET claimed_at=? WHERE id=? AND notified=2",
+            (now_iso(), row_id),
+        )
+
+
 def reconcile_stranded_notifications(
     conn: sqlite3.Connection,
     *,
@@ -156,8 +167,8 @@ def reconcile_stranded_notifications(
     """Reset rows stranded at notified=2 after a crashed worker.
 
     The claim flips notified 0 to 2 before the send, so an OOM, restart or SIGKILL in
-    between pins the row; the in-process release only fires on Python exceptions. Call
-    once on startup. Rows whose claimed_at is older than *grace_seconds* go back to
+    between pins the row; the in-process release only fires on Python exceptions. Runs at
+    the start of every claim, so a stranded row is freed on the next tick. Rows whose claimed_at is older than *grace_seconds* go back to
     notified=0; returns the number reset.
     """
     cutoff = (now_utc() - timedelta(seconds=grace_seconds)).isoformat()

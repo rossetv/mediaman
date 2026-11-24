@@ -47,6 +47,7 @@ from mediaman.services.downloads._notification_claims import (
     _release_claim,
     _release_claims_bulk,
     reconcile_stranded_notifications,
+    restamp_claim,
 )
 from mediaman.services.downloads._notification_email import (
     SuggestionsMeta,
@@ -466,6 +467,9 @@ def _process_one_notification(
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
         subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
+        # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
+        # reconcile does not free a row whose email is going out.
+        restamp_claim(conn, row_id)
         mailgun.send(to=email, subject=subject, html=html)
 
         with conn:
