@@ -1015,6 +1015,25 @@ const scenarios = {
     return out;
   },
 
+  /* F and the arrows with the volume slider in focus: by the mouse, then by Tab. */
+  async slider_keys(p) {
+    let asked = 0;
+    p.root.requestFullscreen = () => { asked++; return Promise.resolve(); };
+    await streamPlays(p, 100);
+    const look = () => {
+      const from = p.video.currentTime;
+      const full = asked;
+      key('ArrowRight');
+      p.tick(300);
+      key('f');
+      return { moved: p.video.currentTime - from, full: asked - full };
+    };
+    press(p.q('[data-volume]'));
+    const byMouse = look();
+    tabTo(p.q('[data-volume]'));
+    return { byMouse: byMouse, byTab: look() };
+  },
+
   /* A browser that leaves the page cancels its requests first, and only then says so. */
   async cancelled(p) {
     await streamPlays(p, 100);

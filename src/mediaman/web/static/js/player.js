@@ -1811,12 +1811,12 @@
       e.preventDefault();
       if (!e.repeat) togglePlay(false);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      if (tag === 'INPUT' || menuOpen()) return;
+      /* The slider's own where the keyboard is on it, not where the mouse left the focus. */
+      if ((tag === 'INPUT' && !focusByPointer) || menuOpen()) return;
       e.preventDefault();
       skip(e.key === 'ArrowLeft' ? -SKIP_S : SKIP_S);
       if (e.target === els.seek) peekBubble();
     } else if (e.key === 'f' || e.key === 'F') {
-      if (tag === 'INPUT') return;
       e.preventDefault();
       toggleFullscreen();
     } else if (e.key === 's' || e.key === 'S') {

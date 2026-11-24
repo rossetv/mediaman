@@ -1197,3 +1197,10 @@ def test_sound_dragged_to_nothing_comes_back_as_loud_as_it_was(markup):
     assert out["saved"]["mediaman.watch.volume"] == "0.7"
     assert out["back"] == {"volume": 0.7, "muted": False, "slider": 0.7, "name": "Mute"}
     assert out["up"] == {"volume": 0.4, "muted": False, "slider": 0.4, "name": "Mute"}
+
+
+def test_f_and_the_arrows_work_after_the_mouse_used_the_volume_slider(markup):
+    out = run(markup, "slider_keys")
+    assert out["byMouse"] == {"moved": 10, "full": 1}
+    # There by Tab the arrows are the slider's own.
+    assert out["byTab"] == {"moved": 0, "full": 1}
