@@ -172,7 +172,8 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 }
 .setg-pg .setg-card + .setg-card { margin-top: 24px; }
 .setg-pg .setg-card-hd {
-  display: flex; align-items: center; gap: 14px;
+  /* A heading left with less than its 130px takes the line, and its button the next. */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--hair);
 }
@@ -181,7 +182,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   font-family: var(--font-text);
 }
 .setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 12px; margin-top: 3px; }
-.setg-pg .setg-card-hd .head-info { flex: 1; min-width: 0; }
+.setg-pg .setg-card-hd .head-info { flex: 1 1 130px; min-width: 0; }
 .setg-pg .setg-card-hd .head-actions { display: flex; gap: 10px; align-items: center; }
 .setg-pg .setg-card-hd .btn { font-size: 12px; padding: 0 14px; }
 .setg-pg .setg-card-bd { padding: 6px 24px; }

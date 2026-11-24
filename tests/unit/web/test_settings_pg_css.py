@@ -118,6 +118,14 @@ def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
         assert "background: Highlight" in rules[f".setg-pg {chosen}"]
 
 
+def test_a_card_heading_is_not_squeezed_by_its_button() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", css))
+    rules = {head.strip(): body for head, body in rules.items()}
+    assert "flex-wrap: wrap" in rules[".setg-pg .setg-card-hd"]
+    assert "flex: 1 1 130px" in rules[".setg-pg .setg-card-hd .head-info"]
+
+
 def test_small_buttons_are_44px_on_phones() -> None:
     phone = _phone_block_with(".setg-pg .btn--sm")
     assert re.search(r"\.setg-pg \.btn--sm,[^{}]*\{[^{}]*min-height:\s*44px", phone)
