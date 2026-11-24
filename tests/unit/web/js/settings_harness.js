@@ -574,6 +574,60 @@ const scenarios = {
     return { whileSending, afterwards: { toggle: toggle.textContent } };
   },
 
+  // The send panel and the add form say whether they are open, and the panel gives its focus back.
+  async panelToggles() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js'); h.load('settings/users.js');
+    h.add('div', { id: 'subscriber-list' });
+    h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    const cancel = h.add('button', { id: 'btn-cancel-newsletter' }, panel);
+    h.add('span', { id: 'newsletter-send-status' }, panel);
+    const add = h.add('button', { id: 'btn-add-user' });
+    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, addForm);
+    let finish;
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [], subscribers: [{ id: 1, email: 'a@x', active: true }] }),
+      post: () => new Promise((r) => { finish = r; }),
+      messageOf: () => 'x',
+    };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.newsletter.init();
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const said = (b) => [b.getAttribute('aria-expanded'), b.getAttribute('aria-controls')];
+    const out = { shut: [said(toggle), said(add)] };
+    add.fire('click'); toggle.fire('click');
+    await h.flush();
+    out.open = [said(toggle), said(add)];
+    add.fire('click');
+    // a click that focuses no button, then the browser drops the focus of a disabled one
+    main.focus();
+    confirm.fire('click');
+    await h.flush();
+    out.taken = h.doc.activeElement === confirm;
+    h.doc.activeElement = h.body;
+    finish({ sent_to: 1 });
+    await h.flush();
+    out.sentFocus = h.doc.activeElement === confirm;
+    confirm.fire('click');
+    await h.flush();
+    main.focus();
+    finish({ sent_to: 1 });
+    await h.flush();
+    out.movedOn = h.doc.activeElement === main;
+    cancel.fire('click');
+    out.cancelFocus = h.doc.activeElement === toggle;
+    h.drain();
+    out.shutAgain = [said(toggle), said(add)];
+    return out;
+  },
+
   // A field the server refuses is named by its label, in a plain sentence.
   async fieldError() {
     const h = build();

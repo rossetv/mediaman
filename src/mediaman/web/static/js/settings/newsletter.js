@@ -188,15 +188,25 @@
         newsletterStatus.className = 'inline-form-msg';
       }
 
+      function paintToggle(open) {
+        if (!btnSendNL) return;
+        btnSendNL.textContent = open ? 'Close' : 'Select recipients';
+        btnSendNL.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      if (btnSendNL && newsletterPanel) {
+        btnSendNL.setAttribute('aria-controls', newsletterPanel.id);
+        paintToggle(false);
+      }
+
       function openNewsletter() {
         if (!newsletterPanel) return;
         rows.open(newsletterPanel);
-        if (btnSendNL) btnSendNL.textContent = 'Close';
+        paintToggle(true);
         renderRecipientCheckboxes();
       }
       function closeNewsletter() {
         if (!newsletterPanel) return;
-        if (btnSendNL) btnSendNL.textContent = 'Select recipients';
+        paintToggle(false);
         rows.close(newsletterPanel, clearStatus);
       }
 
@@ -209,6 +219,7 @@
       if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
         if (sending()) return;
         closeNewsletter();
+        if (btnSendNL) btnSendNL.focus();
       });
       // A changed choice of recipients makes the last message stale, unless a send is under way.
       function clearUnlessSending() { if (!sending()) clearStatus(); }
@@ -270,10 +281,18 @@
           });
       }
 
+      function enableConfirm() {
+        var keepFocus = MM.dom.focusStillIn(newsletterPanel);
+        btnConfirmNL.disabled = false;
+        if (keepFocus) btnConfirmNL.focus({ preventScroll: true });
+      }
+
       if (btnConfirmNL) btnConfirmNL.addEventListener('click', function () {
         var list = document.getElementById('newsletter-recipient-list');
         var recipients = [];
         list.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) { recipients.push(cb.value); });
+        // Safari focuses no button that is clicked; this one takes the focus back after the send.
+        if (!newsletterPanel.contains(document.activeElement)) btnConfirmNL.focus({ preventScroll: true });
         if (!recipients.length) {
           newsletterStatus.textContent = 'Select at least one recipient';
           newsletterStatus.className = 'inline-form-msg err';
@@ -284,7 +303,7 @@
         newsletterStatus.textContent = '';
         MM.api.post('/api/newsletter/send', { recipients: recipients })
           .then(function (data) {
-            btnConfirmNL.disabled = false;
+            enableConfirm();
             if (data.sent_to === 0) {
               btnConfirmNL.textContent = 'Send newsletter';
               newsletterStatus.textContent = data.message || 'Nothing to send';
@@ -301,7 +320,7 @@
             }
           })
           .catch(function (err) {
-            btnConfirmNL.disabled = false;
+            enableConfirm();
             btnConfirmNL.textContent = 'Send newsletter';
             newsletterStatus.textContent = MM.api.messageOf(err, "Couldn't send. Try again.");
             newsletterStatus.className = 'inline-form-msg err';

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -101,6 +102,10 @@ def test_every_setting_on_the_page_is_sent_when_it_is_saved(settings_html):
     on_page = _parse(settings_html).settings - {"new-subscriber-email"}
     assert "base_url" in on_page
     assert on_page - set(json.loads(sent.stdout)) == set()
+
+
+def test_the_newsletter_message_is_announced(settings_html):
+    assert re.search(r'id="newsletter-send-status" role="status"', settings_html)
 
 
 def test_integrations_rail_item_carries_no_fixed_count(settings_html):

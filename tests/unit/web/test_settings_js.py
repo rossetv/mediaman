@@ -155,6 +155,17 @@ def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
     assert out["afterwards"] == {"toggle": "Select recipients"}
 
 
+def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
+    out = _run("panelToggles")
+    ids = ("newsletter-send-panel", "add-user-form")
+    shut = [["false", i] for i in ids]
+    assert out["shut"] == out["shutAgain"] == shut
+    assert out["open"] == [["true", i] for i in ids]
+    assert (out["taken"], out["sentFocus"], out["cancelFocus"]) == (True, True, True)
+    # someone who went elsewhere during the send keeps their place
+    assert out["movedOn"] is True
+
+
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]
     assert "Base URL must start with http:// or https://." in text

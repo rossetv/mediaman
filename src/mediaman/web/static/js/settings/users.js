@@ -438,10 +438,19 @@
         if (b) selectRole(b.dataset.role);
       });
 
+      function paintAddToggle(open) {
+        if (btnAddUser) btnAddUser.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      if (btnAddUser && addUserForm) {
+        btnAddUser.setAttribute('aria-controls', addUserForm.id);
+        paintAddToggle(false);
+      }
+
       // Closing folds the form away first and resets it once it is out of sight.
       function toggleAddUser(open, closed) {
         if (!addUserForm) return;
         var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
+        paintAddToggle(wantOpen);
         if (wantOpen) {
           rows.open(addUserForm);
           document.getElementById('new-username').focus();
