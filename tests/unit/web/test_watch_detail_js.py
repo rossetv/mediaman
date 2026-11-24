@@ -35,7 +35,7 @@ def test_a_card_opens_at_once_with_its_title_and_its_own_address() -> None:
 
 def test_closing_a_title_opened_from_a_card_goes_back_and_returns_focus_to_the_card() -> None:
     out = _run("backCloses")
-    assert out["history"][-1] == ["back"]
+    assert out["history"][-1] == ["go", -1]
     assert (out["leaving"], out["focusOnCard"]) == (True, True)
     assert (out["hidden"], out["unlocked"]) == (True, True)
 
@@ -50,6 +50,63 @@ def test_closing_twice_goes_back_once_and_a_double_click_does_not_reach_what_is_
 
 def test_a_title_opened_again_with_forward_returns_focus_to_its_card() -> None:
     assert _run("forwardThenEscape") == {"closed": True, "focus": "show-300"}
+
+
+def test_a_person_takes_the_place_of_what_is_under_the_title() -> None:
+    out = _run("peopleAndBack")
+    assert out["who"] == [{"person": "9001"}]
+    assert out["person"]["at"] == "?person=9001"
+    # At once scrollable; gone once it has stepped aside.
+    assert (out["aside"], out["unlocked"], out["hidden"]) == (True, True, True)
+
+
+def test_back_from_a_person_finds_each_title_as_it_was_left() -> None:
+    out = _run("peopleAndBack")
+    second, first = out["second"], out["first"]
+    assert (second["at"], second["title"]) == ("?person=9001#title=show-300", "Brightwater")
+    assert out["personAgain"]["at"] == "?person=9001"
+    assert out["personAgain"]["open"] is False
+    assert (first["at"], first["open"], first["title"]) == (
+        "#title=tmdb-movie-77",
+        True,
+        "Meridian",
+    )
+    assert (first["scroll"], first["focus"], first["busy"]) == (420, "cast-0", None)
+    assert out["closed"] == {"open": False, "at": ""}
+
+
+def test_a_title_found_again_is_brought_up_to_date() -> None:
+    out = _run("peopleAndBack")
+    assert out["first"]["overview"] == "As it was."
+    assert out["upToDate"]["overview"] == "As it is now."
+    assert out["gets"] == ["/api/watch/title/show-300", "/api/watch/title/tmdb-movie-77"]
+
+
+def test_back_before_a_title_has_stepped_aside_turns_it_round() -> None:
+    assert _run("backMidway") == {
+        "hidden": False,
+        "aside": False,
+        "title": "Meridian",
+        "cast": "Mara Ellison",
+        "locked": True,
+    }
+
+
+def test_a_title_s_genres_lead_to_explore_and_back_to_them() -> None:
+    out = _run("genreLinks")
+    assert out["meta"].endswith("Drama, Sci-Fi & Fantasy, Noir12A")
+    assert out["hrefs"] == ["/watch?genre=drama", "/watch?genre=science-fiction"]
+    assert out["modified"] == {"prevented": False, "explored": []}
+    assert out["explored"] == [{"genre": "science-fiction"}]
+    assert out["gone"] is True
+    assert (out["focus"], out["at"]) == ("genre-science-fiction", "#title=tmdb-movie-77")
+
+
+def test_escape_closes_a_person_s_card_before_the_title() -> None:
+    shown, card_gone, gone = _run("escapeAndTheCard")
+    assert shown == {"card": True, "title": True}
+    assert card_gone == {"card": False, "title": True}
+    assert gone["title"] is False
 
 
 def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_history() -> None:
@@ -92,8 +149,9 @@ def test_a_pick_the_library_holds_says_why_it_is_one_wherever_it_is_opened_from(
     assert out["held"] is False
     assert out["late"] == {"play": True, "box": "AI pick", "busy": "true"}
     assert "Because you played Salt" in out["then"]["box"] and out["then"]["busy"] is None
-    assert out["forward"] == "AI pick"
+    assert out["forward"].startswith("Because you played Salt")
     assert out["reloaded"].startswith("Because you played Salt")
+    assert out["refused"] == "AI pick"
     # The same title opened from a card that is not a pick.
     assert out["notAPick"] is None
 

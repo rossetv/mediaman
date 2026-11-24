@@ -1,4 +1,4 @@
-"""What the title detail overlay's stylesheet has to hold for its parts to fit, stay reachable
+"""What the title detail overlay's stylesheets have to hold for its parts to fit, stay reachable
 and stay put, read as rules: selectors and declarations, per media query."""
 
 from __future__ import annotations
@@ -6,14 +6,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_detail.css"
+STYLES = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
+SHEETS = ("_watch_detail.css", "_watch_cast.css")
 PHONE = "(max-width: 699.98px)"
 
 
 def _rules(media: str | None = None) -> list[tuple[list[str], str]]:
-    """The (selectors, declarations) of the sheet outside any `@media`, or of those inside every
+    """The (selectors, declarations) of the sheets outside any `@media`, or of those inside every
     `@media` whose query holds *media*."""
-    css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    css = "".join((STYLES / name).read_text(encoding="utf-8") for name in SHEETS)
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     blocks = re.findall(r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
     text = (
         "".join(body for query, body in blocks if media in query)

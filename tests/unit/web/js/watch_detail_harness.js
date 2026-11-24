@@ -1,4 +1,4 @@
-// Runs watch/core.js, watch/keep.js and watch/detail.js against the fake DOM, with the real
+// Runs watch/core.js, watch/address.js, watch/keep.js, watch/cast.js and watch/detail.js against the fake DOM, with the real
 // _watch_detail.html as the overlay, and prints one scenario's outcome as JSON.
 // Usage: node watch_detail_harness.js <scenario>
 'use strict';
@@ -144,14 +144,18 @@ function load(opts = {}) {
   const routes = Object.assign({}, opts.routes);
   const posted = opts.posted || {};
   const loc = { origin: 'https://mediaman.test', pathname: '/watch', search: '', hash: opts.hash || '' };
+  const explored = [];
   const winListeners = {};
-  const entries = (opts.before || []).concat({ state: opts.state || null, hash: loc.hash });
+  const entries = (opts.before || []).concat({ state: opts.state || null, search: '', hash: loc.hash });
   let at = entries.length - 1;
 
   function setUrl(url) {
-    const i = url.indexOf('#');
-    loc.hash = i < 0 ? '' : url.slice(i);
+    const u = new URL(url, loc.origin);
+    loc.search = u.search;
+    loc.hash = u.hash;
   }
+  const url = () => loc.pathname + loc.search + loc.hash;
+  const entry = (state) => ({ state, search: loc.search, hash: loc.hash });
 
   const card = (ref, title) => ['article', { class: 'watch-card', 'data-keep-id': '' },
     ['a', { class: 'watch-card__link', href: '/watch/movie/1', 'data-title-ref': ref },
@@ -203,14 +207,20 @@ function load(opts = {}) {
     location: loc,
     history: {
       state: opts.state || null,
-      pushState(state, _t, url) { history.push(['push', url]); this.state = state; setUrl(url); entries.splice(++at); entries[at] = { state, hash: loc.hash }; },
-      replaceState(state, _t, url) { history.push(['replace', url]); this.state = state; setUrl(url); entries[at] = { state, hash: loc.hash }; },
-      back() { history.push(['back']); this.go(-1); },
+      pushState(state, _t, to) { history.push(['push', to]); this.state = state; setUrl(to); entries.splice(++at); entries[at] = entry(state); },
+      replaceState(state, _t, to) {
+        if (to !== undefined && to !== url()) { history.push(['replace', to]); setUrl(to); }
+        this.state = state;
+        entries[at] = entry(state);
+      },
+      back() { this.go(-1); },
       go(by) {
+        history.push(['go', by]);
         at += by;
         this.state = entries[at].state;
+        loc.search = entries[at].search;
         loc.hash = entries[at].hash;
-        (winListeners.popstate || []).forEach((fn) => fn({}));
+        (winListeners.popstate || []).slice().forEach((fn) => fn({}));
       },
     },
     navigator: { clipboard: opts.clipboard === false ? undefined : { writeText: () => (opts.clipboardFails ? Promise.reject(new Error('denied')) : Promise.resolve()) } },
@@ -235,14 +245,34 @@ function load(opts = {}) {
       messageOf: (e, f) => (e && e.data && e.data.message) || f,
     } },
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { winListeners[t] = (winListeners[t] || []).filter((f) => f !== fn); },
+    URLSearchParams,
+    scrollY: 0,
+    scrollTo: () => {},
+    sessionStorage: { getItem: () => null, setItem: () => {} },
   };
   ctx.window = ctx;
-  if (opts.adminApi) {
-    ctx.MMWatch = { admin: opts.adminApi };
-  }
+  ctx.MMWatch = {};
+  if (opts.adminApi) ctx.MMWatch.admin = opts.adminApi;
   vm.createContext(ctx);
-  const run = () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/detail.js']
-    .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
+  /* A stand-in for Explore: the pages of a person and of a genre, in the address. */
+  const explore = () => {
+    const address = ctx.MMWatch.address;
+    const open = (params) => {
+      address.push('explore', address.url(Object.assign({ person: null, genre: null }, params), ''));
+      explored.push(params);
+    };
+    address.layer({ name: 'explore', depth: 20, params: ['person', 'genre'],
+      read: (here) => here.params.get('person') || here.params.get('genre'), open: () => {}, close: () => {} });
+    ctx.MMWatch.explore = { openPerson: (who) => open({ person: who.person_id }), openGenre: (id) => open({ genre: id }),
+      person: () => new Promise(() => {}) };
+  };
+  const run = () => {
+    ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+      .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
+    explore();
+    ctx.MMWatch.address.start();
+  };
   const ttl = () => doc.getElementById('ttl');
   const q = (sel) => ttl().querySelector(sel);
   const text = (sel) => { const n = q(sel); return n ? n.textContent.trim() : null; };
@@ -255,7 +285,7 @@ function load(opts = {}) {
   };
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { message, ctx, doc, toasts, timers, gets, posts, events, history, loc, routes, clock, run, ttl, q, text, tick, key, popstate };
+  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate };
 }
 
 function primary(p) {
@@ -318,13 +348,13 @@ const scenarios = {
   async doubleClose() {
     const p = load({ clock: true, routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();
-    const pop = p.ctx.history.back;
+    const go = p.ctx.history.go;
     let backs = 0;
-    p.ctx.history.back = function () { backs++; };
+    p.ctx.history.go = function () { backs++; };
     await openCard(p, 'tmdb-movie-77');
     click(p.doc, p.q('.ttl__close'));
     click(p.doc, p.q('.ttl__close'));
-    pop.call(p.ctx.history);
+    go.call(p.ctx.history, -1);
     const press = (detail) => {
       const e = { target: p.doc.querySelector('[data-title-ref="show-300"]'), button: 0, detail, defaultPrevented: false, stopped: false,
         preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; } };
@@ -336,6 +366,98 @@ const scenarios = {
     p.clock.now += 2000;
     const later = press(2);
     return { backs, second, later };
+  },
+
+  // From a title to a person of it, to one of their titles, to a person of that, and all the way
+  // back: what shows, where it stands and what was asked for.
+  async peopleAndBack() {
+    const cast = (id) => [{ name: 'Mara Ellison', character: 'Ines', profile_url: null, person_id: id }];
+    const first = Object.assign({}, MOVIE_DL, { cast: cast(9001) });
+    const second = Object.assign({}, LIB_SHOW, { cast: cast(9002) });
+    let overview = 'As it was.';
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(Object.assign({}, first, { overview })),
+      '/api/watch/title/show-300': second } });
+    p.run();
+    const look = () => ({ at: p.loc.search + p.loc.hash, open: !p.ttl().hidden && !/is-(aside|leaving)/.test(p.ttl().className),
+      title: p.text('#ttl-title'), scroll: p.ttl().scrollTop, focus: p.doc.activeElement.getAttribute('data-ttl-act'),
+      busy: p.ttl().getAttribute('aria-busy'), overview: p.text('.ttl__overview') });
+    const press = () => click(p.doc, p.q('.ttl-cast__item'));
+    await openCard(p, 'tmdb-movie-77');
+    p.ttl().scrollTop = 420;
+    press();
+    const out = { person: look(), aside: p.ttl().classList.contains('is-aside'),
+      unlocked: !p.doc.documentElement.classList.contains('has-ttl'), who: p.explored.slice() };
+    p.tick();
+    out.hidden = p.ttl().hidden;
+    await openCard(p, 'show-300');
+    press();
+    p.tick();
+    p.gets.length = 0;
+    overview = 'As it is now.';
+    p.ctx.history.back();
+    out.second = look();
+    p.ctx.history.back();
+    p.tick();
+    out.personAgain = look();
+    p.ctx.history.back();
+    out.first = look();
+    await settle();
+    out.upToDate = look();
+    out.gets = p.gets.slice();
+    p.key('Escape');
+    p.tick();
+    out.closed = { open: !p.ttl().hidden, at: p.loc.search + p.loc.hash };
+    return out;
+  },
+
+  // Back before the sheet has finished stepping aside.
+  async backMidway() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, {
+      cast: [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }] }) } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('.ttl-cast__item'));
+    p.ctx.history.back();
+    p.tick();
+    return { hidden: p.ttl().hidden, aside: p.ttl().classList.contains('is-aside'), title: p.text('#ttl-title'),
+      cast: p.text('.ttl-cast__name'), locked: p.doc.documentElement.classList.contains('has-ttl') };
+  },
+
+  // Genres: those Explore has are links to it, a press with a modifier is the browser's.
+  async genreLinks() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, {
+      genres: ['Drama', 'Sci-Fi & Fantasy', 'Noir'], genre_refs: [{ name: 'Drama', genre: 'drama' }, { name: 'Sci-Fi & Fantasy', genre: 'science-fiction' }] }) } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const links = p.ttl().querySelectorAll('.ttl__genre');
+    const e = { target: links[0], button: 0, metaKey: true, preventDefault() { this.defaultPrevented = true; } };
+    links[0].listeners.click.forEach((fn) => fn(e));
+    const modified = { prevented: !!e.defaultPrevented, explored: p.explored.slice() };
+    click(p.doc, links[1]);
+    p.tick();
+    const gone = p.ttl().hidden;
+    p.ctx.history.back();
+    return { meta: p.text('[data-ttl-part="meta"]'), hrefs: links.map((a) => a.getAttribute('href')), modified, explored: p.explored, gone,
+      focus: p.doc.activeElement.getAttribute('data-ttl-act'), at: p.loc.search + p.loc.hash };
+  },
+
+  // Escape with a person's card open.
+  async escapeAndTheCard() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, {
+      cast: [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }] }) } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    p.q('.cast-card').style.setProperty = () => {};
+    p.ttl().listeners.pointermove.forEach((fn) => fn({ target: p.q('.ttl-cast__item'), pointerType: 'mouse' }));
+    p.tick();
+    const look = () => ({ card: p.q('.cast-card').classList.contains('is-open'), title: !p.ttl().classList.contains('is-leaving') });
+    const out = [look()];
+    p.key('Escape');
+    out.push(look());
+    p.key('Escape');
+    out.push(look());
+    return out;
   },
 
   async directLink() {
@@ -396,9 +518,7 @@ const scenarios = {
     p.tick();
     p.ctx.history.go(1);
     await settle();
-    known.reject(new APIError(404, 'not_found'));
-    await settle();
-    const forward = p.text('.ttl__reason');
+    const forward = p.text('.ttl__because');
     const q = load({ hash: '#title=movie-120', state: p.ctx.history.state, routes: Object.assign({}, routes, { '/api/watch/title/pick-9': OWN_PICK }) });
     q.run();
     await settle();
@@ -408,7 +528,12 @@ const scenarios = {
     plain.setAttribute('data-title-ref', 'movie-120');
     click(r.doc, plain);
     await settle();
-    return { held, late, then, forward, reloaded: q.text('.ttl__because'), notAPick: r.text('.ttl__reason') };
+    const f = load({ hash: '#title=movie-120', state: p.ctx.history.state, routes });
+    f.run();
+    await settle();
+    known.reject(new APIError(404, 'not_found'));
+    await settle();
+    return { held, late, then, forward, reloaded: q.text('.ttl__because'), refused: f.text('.ttl__reason'), notAPick: r.text('.ttl__reason') };
   },
 
   async oldRecommendationLink() {
@@ -506,21 +631,21 @@ const scenarios = {
     p.ctx.history.back();
     out.backTwice = look(p);
     p = await playing();
-    const back = p.ctx.history.back;
+    const go = p.ctx.history.go;
     let backs = 0;
-    p.ctx.history.back = () => { backs++; };
+    p.ctx.history.go = () => { backs++; };
     click(p.doc, p.q('.ttl__back'));
     click(p.doc, p.q('.ttl__back'));
     out.button = { asked: backs };
-    back.call(p.ctx.history);
+    go.call(p.ctx.history, -1);
     Object.assign(out.button, look(p));
     for (const [name, opts] of Object.entries({ close: {}, closeLink: { hash: '#title=tmdb-movie-77' } })) {
       p = await playing(opts);
       click(p.doc, p.q('.ttl__close'));
       out[name] = look(p);
     }
-    p = load({ routes, hash: '#title=tmdb-movie-77', state: { mmTitle: 'tmdb-movie-77', mmTrailer: true },
-      before: [{ state: null, hash: '' }, { state: { mmTitle: 'tmdb-movie-77' }, hash: '#title=tmdb-movie-77' }] });
+    const last = (await playing()).entries;
+    p = load({ routes, hash: '#title=tmdb-movie-77', state: last[2].state, before: last.slice(0, 2) });
     p.run();
     await settle();
     out.reload = look(p);
@@ -1494,8 +1619,8 @@ const scenarios = {
         const row = p.doc.querySelector('tr[data-row-key="id:120"]');
         if (how === 'animate') row.classList.add('is-leaving'); else row.remove();
       });
-      const back = p.ctx.history.back;
-      p.ctx.history.back = function () { Promise.resolve().then(() => back.call(this)); };
+      const go = p.ctx.history.go;
+      p.ctx.history.go = function (by) { Promise.resolve().then(() => go.call(this, by)); };
       await openCard(p, 'movie-120');
       click(p.doc, p.q('[data-ttl-act="admin-delete"]'));
       await settle();

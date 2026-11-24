@@ -1,7 +1,9 @@
 /* Watch page: the title detail overlay at #title=<ref>, on window.MMWatch.detail.
- * Opens from any [data-title-ref] and from the address; Back closes it.
- * Needs watch/core.js; uses watch/keep.js for a viewer's Keep and
- * MMWatch.admin, when loaded, for the admin facts' Keep and Delete.
+ * Opens from any [data-title-ref] and from the address; Back closes it, and
+ * finds a title left for another page as it was left.
+ * Needs watch/core.js, watch/address.js and watch/cast.js; uses watch/explore.js
+ * for the genres, watch/keep.js for a viewer's Keep and MMWatch.admin, when
+ * loaded, for the admin facts' Keep and Delete.
  */
 (function () {
   'use strict';
@@ -10,6 +12,8 @@
   var root = document.getElementById('ttl');
   if (!core || !root) return;
 
+  var address = window.MMWatch.address;
+  var cast = window.MMWatch.cast;
   var el = core.el;
   var icon = window.MM.dom.icon;
   var toArray = core.toArray;
@@ -60,7 +64,7 @@
 
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
-  var going = null;    // what a Back asked for here is to close: 'title' or 'trailer'
+  var kept = {};       // the titles left, by ref, as they were left
   var closedAt = 0;
   var leaving = null;  // the close still animating, finished early by a new open
   var pictures = '';   // the addresses the hero shows or is trying
@@ -138,8 +142,6 @@
 
   /* ── Address ── */
 
-  function base() { return window.location.pathname + window.location.search; }
-
   function hashRef() {
     var m = /^#title=(.+)$/.exec(window.location.hash || '');
     if (!m) return null;
@@ -148,9 +150,12 @@
     return REF_RE.test(ref) ? ref : null;
   }
 
-  /* What the open title's history entry keeps: opened again from it, a pick is still one. */
-  function entryState(ref) {
-    return cur.pickRef ? { mmTitle: ref, mmPick: cur.pickRef } : { mmTitle: ref };
+  function titleUrl(ref) { return address.url({}, 'title=' + encodeURIComponent(ref)); }
+
+  /* The entry keeps the pick it was opened as: opened again from it, it is still one. */
+  function keepPick() {
+    if (!cur.pickRef || cur.pickRef === cur.ref) return;
+    window.history.replaceState(Object.assign({}, window.history.state, { mmPick: cur.pickRef }), '');
   }
 
   /* ── Motion ── */
@@ -200,7 +205,7 @@
 
   function show(origin) {
     root.hidden = false;
-    root.classList.remove('is-leaving', 'is-trailer');
+    root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
     lockPage(true);
     isOpen = true;
     growFrom(origin);
@@ -218,6 +223,7 @@
     if (isOpen && cur && cur.ref === ref) return;
     if (leaving) leaving();
     var wasOpen = isOpen;
+    if (wasOpen) keepPlace();
     stopPolling();
     cur = {
       ref: ref,
@@ -249,7 +255,8 @@
       seq: ++seq
     };
     if (opts.push) {
-      window.history.pushState(entryState(ref), '', base() + '#title=' + encodeURIComponent(ref));
+      address.push('title', titleUrl(ref));
+      keepPick();
     }
     closeTrailer(false);
     renderLoading();
@@ -258,6 +265,55 @@
     root.scrollTop = 0;
     titleEl.focus({ preventScroll: true });
     load(cur);
+  }
+
+  /* What the title on show needs to be found as it is left. */
+  function keepPlace() {
+    if (!cur || !cur.data) return;
+    cur.at = root.scrollTop;
+    cur.focus = focusKey();
+    cur.ring = !!document.activeElement && document.activeElement.matches(':focus-visible');
+    kept[cur.ref] = cur;
+  }
+
+  /* Show a title left earlier as it was left, then bring it up to date. */
+  function comeBack(c) {
+    var wasOpen = isOpen;
+    isOpen = true;
+    if (leaving) leaving(); // it turns round from where it is
+    if (wasOpen) keepPlace();
+    if (cur && cur.ctrl) cur.ctrl.abort();
+    stopPolling();
+    cur = c;
+    c.ctrl = null;
+    c.seasonLoading = null;
+    closeTrailer(false);
+    root.hidden = false;
+    root.classList.remove('is-entering', 'is-leaving', 'is-trailer', 'ttl--admin');
+    if (!wasOpen) root.classList.add('is-aside');
+    lockPage(true);
+    statusEl.textContent = '';
+    body.style.marginBottom = '';
+    showPictures(c.data);
+    if (trying) {
+      root.classList.remove('is-short', 'is-late');
+      afterPictures(function () { if (c === cur && isOpen) settleHero(); });
+    }
+    renderContent(false);
+    root.scrollTop = c.at;
+    aboutMiddle();
+    void root.offsetWidth; // it comes back from where it went
+    root.classList.remove('is-aside');
+    cast.land(c.focus);
+    if (c.focus) restoreFocus(c.focus, c.ring);
+    else titleEl.focus({ preventScroll: true });
+    refresh(true);
+    if (pollable()) schedulePoll(0);
+  }
+
+  /* What shrinks or grows does it about the middle of what is in sight. */
+  function aboutMiddle() {
+    sheet.style.transformOrigin = '50% ' + Math.round(root.scrollTop + window.innerHeight / 2 - sheet.offsetTop) + 'px';
   }
 
   /* 'movie', 'show' or '' while the title loads: from the ref, else from
@@ -280,50 +336,40 @@
     })[0];
   }
 
-  /* Close at the person's request: Back undoes the entries the open and its
-     trailer added, one at a time (popstate asks again); a title opened from a
-     link loses its #title= without a new entry. */
-  function requestClose() {
-    if (!isOpen) return;
-    if (going) {
-      going = 'title';
-      return;
-    }
-    var state = window.history.state;
-    if (state && state.mmTitle === cur.ref && hashRef() === cur.ref) {
-      going = 'title';
-      window.history.back();
-      return;
-    }
-    if (hashRef()) window.history.replaceState(null, '', base());
-    close();
-  }
+  function requestClose() { address.close('title'); }
 
-  function close() {
+  /* *aside*: another page takes the place of what is under the title, which
+     Back will bring back. */
+  function close(aside) {
     if (!isOpen) return;
+    keepPlace();
     isOpen = false;
-    going = null;
     closedAt = Date.now();
     stopPolling();
     closeTrailer(false);
     closeAdminMenu(false);
+    cast.drop();
     if (cur && cur.ctrl) cur.ctrl.abort();
     if (window.MMWatch.keep) window.MMWatch.keep.closeMenu(false);
     var origin = cur && cur.origin;
     seq++;
     root.classList.remove('is-entering');
-    root.classList.add('is-leaving');
-    leaving = afterAnimation(sheet, core.tokenMs('--dur', 200), function () {
+    if (aside) {
+      aboutMiddle();
+      lockPage(false);
+    }
+    root.classList.add(aside ? 'is-aside' : 'is-leaving');
+    leaving = afterAnimation(sheet, aside ? core.tokenMs('--dur-slow', 250) : core.tokenMs('--dur', 200), function () {
       leaving = null;
       if (isOpen) return;
       root.hidden = true;
-      root.classList.remove('is-leaving', 'ttl--admin');
+      root.classList.remove('is-leaving', 'is-aside', 'ttl--admin');
       root.removeAttribute('aria-busy');
       body.textContent = '';
       lockPage(false);
     });
-    var to = origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
-      : cur && (cur.fallback || cardOf(cur.ref));
+    var to = aside ? null : origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
+      : cur && (cur.fallback || cardOf(cur.ref) || cardOf(cur.openedAs));
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }
@@ -383,10 +429,7 @@
   }
 
   /* The entry the address is at is the same title's, under another ref. */
-  function readdress(ref) {
-    var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, entryState(ref)) : null;
-    window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(ref));
-  }
+  function readdress(ref) { address.replace('title', titleUrl(ref)); }
 
   /* ── Why it is a pick ── */
 
@@ -455,10 +498,15 @@
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
     learn(c.ref, data);
     takeDownload(c.ref, data.download, true);
-    root.classList.toggle('is-short', [heroSkel, art, fill, poster].every(function (n) { return n.hidden; }));
+    settleHero();
     renderContent(true);
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
+  }
+
+  /* A title with no picture has a short head. */
+  function settleHero() {
+    root.classList.toggle('is-short', [heroSkel, art, fill, poster].every(function (n) { return n.hidden; }));
   }
 
   /* What a title reply says of its download, into what this page knows. A
@@ -501,8 +549,9 @@
   }
 
   /* Load the title again without the skeleton (after a Keep or a finished
-     download); what changed is swapped in where it is. */
-  function refresh() {
+     download); what changed is swapped in where it is. *quiet*: nothing is
+     drawn again when the title is as it was. */
+  function refresh(quiet) {
     var c = cur;
     if (!c || !isOpen || !c.data) return;
     get(apiUrl(c.ref)).then(function (data) {
@@ -514,9 +563,10 @@
         refresh();
         return;
       }
+      var same = quiet && JSON.stringify(data) === JSON.stringify(c.data);
       c.data = data;
       if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
-      renderContent(false);
+      if (!same) renderContent(false);
       if (hasFacts(c)) loadFacts(c);
     }).catch(function () {});
   }
@@ -534,7 +584,7 @@
       var gone = !!err && err.status === 404;
       // Deleted from under the overlay: nothing left to show.
       if (gone && c.facts) {
-        close();
+        requestClose();
         return;
       }
       c.factsError = gone ? 'unknown' : 'failed';
@@ -577,9 +627,9 @@
     main.appendChild(lines);
     lead.appendChild(main);
     body.appendChild(lead);
-    var cast = el('section', 'ttl__castsec');
-    cast.setAttribute('aria-hidden', 'true');
-    cast.appendChild(skel('skel--line ttl__sec-skel'));
+    var strip = el('section', 'ttl__castsec');
+    strip.setAttribute('aria-hidden', 'true');
+    strip.appendChild(skel('skel--line ttl__sec-skel'));
     var grid = el('div', 'ttl-cast');
     for (var i = 0; i < 8; i++) {
       var item = el('div', 'ttl-cast__item');
@@ -587,8 +637,8 @@
       item.appendChild(skel('skel--line ttl-cast__name-skel'));
       grid.appendChild(item);
     }
-    cast.appendChild(grid);
-    body.appendChild(cast);
+    strip.appendChild(grid);
+    body.appendChild(strip);
   }
 
   function renderFailed(err) {
@@ -632,8 +682,31 @@
     if (d.year) parts.push(d.year_end && d.year_end !== d.year ? d.year + '–' + d.year_end : String(d.year));
     if (d.kind === 'movie' && d.runtime_min) parts.push(dur(d.runtime_min));
     if (d.kind !== 'movie' && d.season_count) parts.push(plural(d.season_count, 'season', 'seasons'));
-    if (d.genres && d.genres.length) parts.push(d.genres.slice(0, 3).join(', '));
     return parts;
+  }
+
+  /* Those Explore has open there; the rest are words. */
+  function genresPart(d) {
+    var part = el('span');
+    d.genres.slice(0, 3).forEach(function (name, i) {
+      if (i) part.appendChild(document.createTextNode(', '));
+      var ref = (d.genre_refs || []).filter(function (r) { return r.name === name; })[0];
+      part.appendChild(ref ? genreLink(name, ref.genre) : document.createTextNode(name));
+    });
+    return part;
+  }
+
+  function genreLink(name, id) {
+    var a = el('a', 'ttl__genre', name);
+    a.setAttribute('href', '/watch?genre=' + encodeURIComponent(id));
+    a.setAttribute('data-ttl-act', 'genre-' + id);
+    a.addEventListener('click', function (e) {
+      if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !window.MMWatch.explore) return;
+      e.preventDefault();
+      a.focus({ preventScroll: true }); // Safari leaves a pressed link without it
+      window.MMWatch.explore.openGenre(id, null, null);
+    });
+    return a;
   }
 
   /* ── The hero's picture ── */
@@ -738,6 +811,7 @@
     taglineEl.textContent = d.tagline || '';
     metaEl.textContent = '';
     metaParts(d).forEach(function (p) { metaEl.appendChild(el('span', '', p)); });
+    if (d.genres && d.genres.length) metaEl.appendChild(genresPart(d));
     if (d.certificate) {
       var cert = el('span', 'ttl__cert', d.certificate);
       cert.setAttribute('aria-label', 'Rated ' + d.certificate);
@@ -781,7 +855,7 @@
     body.appendChild(lead);
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
-    if (d.cast && d.cast.length) body.appendChild(castSection(d.cast));
+    if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
     if (fresh) {
@@ -820,35 +894,6 @@
     return row;
   }
 
-  function castSection(cast) {
-    var sec = el('section', 'ttl__castsec');
-    var h = el('h3', 'ttl__sec-title', 'Cast');
-    sec.appendChild(h);
-    var grid = el('ul', 'ttl-cast');
-    grid.setAttribute('aria-label', 'Cast');
-    cast.slice(0, 12).forEach(function (c) {
-      var item = el('li', 'ttl-cast__item');
-      var avatar = el('span', 'ttl-cast__avatar');
-      avatar.setAttribute('aria-hidden', 'true');
-      var src = safePath(c.profile_url);
-      if (src) {
-        var img = el('img');
-        img.alt = '';
-        img.loading = 'lazy';
-        img.setAttribute('src', src);
-        avatar.appendChild(img);
-      } else {
-        avatar.textContent = (c.name || '?').split(' ').map(function (w) { return w.charAt(0); }).slice(0, 2).join('');
-      }
-      item.appendChild(avatar);
-      item.appendChild(el('span', 'ttl-cast__name', c.name || ''));
-      if (c.character) item.appendChild(el('span', 'ttl-cast__char', c.character));
-      grid.appendChild(item);
-    });
-    sec.appendChild(grid);
-    return sec;
-  }
-
   /* ── Focus ── */
 
   function focusKey() {
@@ -858,11 +903,12 @@
     return keyed ? keyed.getAttribute('data-ttl-act') : null;
   }
 
-  function restoreFocus(key) {
+  /* *ring*: whether it is shown to have it; left to the browser when not given. */
+  function restoreFocus(key, ring) {
     if (!key) return;
     var target = root.querySelector('[data-ttl-act="' + key + '"]') ||
       root.querySelector('[data-ttl-part="actions"] > *');
-    if (target) target.focus({ preventScroll: true });
+    if (target) target.focus(Object.assign({ preventScroll: true }, ring === undefined ? null : { focusVisible: ring }));
     else titleEl.focus({ preventScroll: true });
   }
 
@@ -1453,7 +1499,12 @@
     var b = button('btn btn--lg watch-btn--grey ttl__trailer', 'Trailer', 'i-film');
     b.setAttribute('data-ttl-act', 'trailer');
     b.toggleAttribute('inert', trailerOn());
-    b.addEventListener('click', function () { openTrailer(true); });
+    b.addEventListener('click', function () {
+      if (trailerOn()) return;
+      address.push('trailer', address.url({}));
+      keepPick();
+      openTrailer();
+    });
     return b;
   }
 
@@ -1476,14 +1527,10 @@
   }
 
   /* The bar and the player take the hero's box, so nothing below it moves; a
-     hero too small for them grows. *push*: add a history entry, so that Back
-     closes the trailer first. */
-  function openTrailer(push) {
+     hero too small for them grows. */
+  function openTrailer() {
     var key = cur && trailerKey(cur.data);
     if (!key || trailerOn()) return;
-    if (push) {
-      window.history.pushState(Object.assign(entryState(cur.ref), { mmTrailer: true }), '', base() + '#title=' + encodeURIComponent(cur.ref));
-    }
     player.textContent = '';
     var frame = el('iframe', 'ttl__frame');
     frame.setAttribute('src', TRAILER_ORIGIN + '/embed/' + key + '?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=' +
@@ -1531,13 +1578,7 @@
 
   /* Leave the trailer at the person's request, or at its end. */
   function leaveTrailer() {
-    if (!trailerOn() || going) return;
-    if (onTrailerEntry()) {
-      going = 'trailer';
-      window.history.back();
-    } else {
-      closeTrailer(true);
-    }
+    if (trailerOn()) address.back('trailer');
   }
 
   backBtn.addEventListener('click', leaveTrailer);
@@ -2059,6 +2100,7 @@
       if (e.defaultPrevented || !inside) return;
       e.preventDefault();
       if (adminMenu) closeAdminMenu(true);
+      else if (cast.dismiss()) return;
       else if (trailerOn()) leaveTrailer();
       else requestClose();
       return;
@@ -2146,46 +2188,46 @@
 
   /* ── The address ── */
 
-  window.addEventListener('popstate', function () {
-    var ref = hashRef();
-    var was = going;
-    going = null;
-    // The title's own entry, left as it was when its trailer's took the library ref.
-    if (ref && isOpen && ref === cur.openedAs && ref !== cur.ref) {
-      readdress(cur.ref);
-      ref = cur.ref;
-    }
-    if (!ref) close();
-    else if (was === 'title' && isOpen) requestClose();
-    else if (!isOpen || cur.ref !== ref) openAt(ref);
-    else if (trailerOn() && !onTrailerEntry()) closeTrailer(true);
-    else if (onTrailerEntry()) openTrailer(false);
+  /* A title the address opens: as it was left when Back leads to it. */
+  function openAt(ref, how) {
+    if (how === 'pop' && kept[ref]) comeBack(kept[ref]);
+    else open(ref, { pick: window.history.state && window.history.state.mmPick });
+  }
+
+  address.layer({
+    name: 'title',
+    depth: 50,
+    params: [],
+    hash: true,
+    read: hashRef,
+    open: function (ref, how) {
+      // The title's own entry, left as it was when its trailer's took the library ref.
+      if (isOpen && ref === cur.openedAs && ref !== cur.ref) readdress(cur.ref);
+      else if (!isOpen || cur.ref !== ref) openAt(ref, how);
+    },
+    close: function (how) { close(how === 'push'); }
   });
 
-  function onTrailerEntry() {
-    var state = window.history.state;
-    return !!(state && state.mmTrailer);
-  }
+  /* In no address: a title opened by a link, or again, starts without it. */
+  address.layer({
+    name: 'trailer',
+    depth: 60,
+    params: [],
+    read: function (here) { return here.entry === 'trailer' && hashRef() ? 'on' : null; },
+    open: function (value, how) {
+      if (how === 'start' || !cur || !cur.data) address.back('trailer');
+      else openTrailer();
+    },
+    close: function (how) { closeTrailer(how === 'pop' && !!hashRef()); }
+  });
 
-  /* A title the address opens starts without its trailer, so an entry left by
-     one steps back to the title's own. */
-  function openAt(ref) {
-    var state = window.history.state;
-    open(ref, { pick: state && state.mmPick });
-    if (onTrailerEntry()) window.history.back();
-  }
-
-  (function openFromAddress() {
-    var old = /^#recommendation-([0-9]{1,10})$/.exec(window.location.hash || '');
-    if (old) window.history.replaceState(null, '', base() + '#title=rec-' + old[1]);
-    var ref = hashRef();
-    if (ref) openAt(ref);
-  })();
+  var old = /^#recommendation-([0-9]{1,10})$/.exec(window.location.hash || '');
+  if (old) address.replace(null, address.url({}, 'title=rec-' + old[1]));
 
   window.MMWatch.detail = {
     open: function (ref, opts) {
       opts = opts || {};
-      open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, pick: opts.pick, push: opts.push !== false });
+      open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, pick: opts.pick, push: true });
     },
     close: requestClose
   };
