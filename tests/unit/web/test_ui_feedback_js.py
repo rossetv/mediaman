@@ -34,6 +34,14 @@ def test_a_confirm_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> 
     assert _run("bar") == {"held": "15px", "after": None}
 
 
+def test_an_error_stays_while_the_pointer_is_on_it_and_goes_once_it_has_left() -> None:
+    assert _run("held") == {
+        "error": [True, False],
+        "errorAfterATap": [False, False],
+        "plain": [False, False],
+    }
+
+
 def test_undo_answers_ctrl_z_unless_a_dialog_on_screen_or_a_text_field_has_the_keyboard() -> None:
     assert _run("pressed") == {
         "nothingOpen": True,

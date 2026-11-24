@@ -83,6 +83,33 @@ function bar() {
   return { held, after: root.style['--page-bar'] || null };
 }
 
+/* Whether a toast is still there as its time runs out, and once the pointer has left it. */
+function underPointer(show, pointer) {
+  const doc = makeDocument();
+  const timers = []; // a toast's own time, not the short wait for its fade
+  const ctx = {
+    document: doc, navigator: { platform: 'Linux' }, setTimeout(fn, ms) { if (ms >= 2000) timers.push(fn); }, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    matchMedia: (q) => ({ matches: /hover/.test(q) && pointer }),
+    getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  const toast = show(ctx.UIFeedback);
+  let over = true;
+  toast.matches = (sel) => sel === ':hover' && over;
+  const timeUp = () => { timers.splice(0).forEach((fn) => fn()); return !toast.classList.contains('is-leaving'); };
+  const held = timeUp();
+  over = false;
+  return [held, timeUp()];
+}
+const held = () => ({
+  error: underPointer((ui) => ui.error('No luck'), true),
+  // a tap leaves :hover on the toast until the next one
+  errorAfterATap: underPointer((ui) => ui.error('No luck'), false),
+  plain: underPointer((ui) => ui.toast('Saved'), true),
+});
+
 const open = { attrs: {} };
 const pressed = () => ({
   nothingOpen: press(),
@@ -158,5 +185,5 @@ const onPhone = () => ({
   undoStays: stays(['1 Undo', 'a', 'b'], true),
   errorStays: stays(['1 Undo', 'Error', '2 Undo'], true),
 });
-const scenarios = { pressed, named, bar, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+const scenarios = { pressed, named, bar, held, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

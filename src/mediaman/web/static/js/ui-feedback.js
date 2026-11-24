@@ -12,7 +12,8 @@
  *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
- *                          auto-dismisses after 4s.
+ *                          auto-dismisses after 4s; an error stays while the
+ *                          pointer is on it.
  *
  *   window.UIFeedback.toast('Removed', {
  *     action: { label: 'Undo', onClick: function () { ... } }
@@ -214,10 +215,11 @@
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || (action ? 8000 : 4000);
     function expire() {
-      // Never take the button away from someone about to press it. A touch
-      // screen's sticky :hover after a tap does not count as a pointer.
+      // Never take the button away from someone about to press it, nor an
+      // error from under the pointer of someone reading it. A touch screen's
+      // sticky :hover after a tap does not count as a pointer.
       var pointerHover = window.matchMedia('(hover: hover)').matches && node.matches(':hover');
-      if (action && (node.contains(document.activeElement) || pointerHover)) {
+      if ((action && node.contains(document.activeElement)) || ((action || variant === 'error') && pointerHover)) {
         setTimeout(expire, 2000);
         return;
       }
