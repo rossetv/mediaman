@@ -43,7 +43,8 @@
     var hung = setTimeout(function () { request.abort(); }, HUNG_MS);
     MM.api.get('/api/downloads', { signal: request.signal })
       .then(function (data) {
-        if (data) onData(data);
+        /* What cannot be drawn is no poll that failed. */
+        try { if (data) onData(data); } catch (err) { console.error(err); }
         consecutiveFailures = 0;
         scheduleNextPoll(POLL_MS);
       })
