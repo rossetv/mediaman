@@ -1035,7 +1035,9 @@ const scenarios = {
     btn.fire('keydown', { key: 'Enter', repeat: true, preventDefault: () => { held = true; } });
     let first = false;
     btn.fire('keydown', { key: 'Enter', repeat: false, preventDefault: () => { first = true; } });
-    return { quiet, later: sent, held, first };
+    let tab = false;
+    btn.fire('keydown', { key: 'Tab', repeat: true, preventDefault: () => { tab = true; } });
+    return { quiet, later: sent, held, first, tab };
   },
 
   // The words of the password dialog when a user is deleted.

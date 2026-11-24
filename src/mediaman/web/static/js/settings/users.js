@@ -173,7 +173,7 @@
           roleBtn.className = 'btn btn--ghost btn--sm';
           roleBtn.dataset.userAction = 'role';
           // A held Enter must not change the role back and forth.
-          roleBtn.addEventListener('keydown', function (e) { if (e.repeat) e.preventDefault(); });
+          roleBtn.addEventListener('keydown', function (e) { if (e.repeat && e.key === 'Enter') e.preventDefault(); });
           roleBtn.addEventListener('click', function () {
             changeRoleFlow(user, isAdmin(user) ? 'viewer' : 'admin', roleBtn, function () {
               paintRole(user, roleLabel, roleBtn);

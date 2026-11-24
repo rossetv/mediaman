@@ -258,7 +258,7 @@ def test_a_press_just_after_a_role_change_does_not_reverse_it() -> None:
     }
     assert out["later"] == ["admin", "viewer"]
     # a held Enter presses the button once
-    assert (out["held"], out["first"]) == (True, False)
+    assert (out["held"], out["first"], out["tab"]) == (True, False, False)
 
 
 def test_the_password_dialog_for_a_delete_names_the_delete() -> None:
