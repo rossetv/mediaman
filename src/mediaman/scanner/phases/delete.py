@@ -154,8 +154,8 @@ def remove_orphans(
     shrunk library (e.g. the last show deleted) reconcile on the next scan
     instead of sticking forever, while still absorbing a one-off glitch.
     Pruning only removes mediaman's tracking rows — never media files — and a
-    later healthy scan re-populates anything Plex still has, so the cost of a
-    wrong prune is bounded.
+    later healthy scan re-populates anything Plex still has, with the keeps
+    set aside here, so a wrong prune leaves nothing unprotected.
 
     An item whose deletion removed files that are not booked yet stays until
     that is done: its rows are the only record of them.
@@ -204,6 +204,7 @@ def remove_orphans(
         unbooked = repository.fetch_unbooked_media_ids(conn)
         repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
         orphan_ids = [i for i in unlisted if i not in unbooked]
+        repository.save_pruned_keeps(conn, orphan_ids)
         repository.delete_actions_for_media_items(conn, orphan_ids)
         repository.delete_media_items(conn, orphan_ids)
     if not orphan_ids:

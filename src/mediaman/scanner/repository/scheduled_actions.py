@@ -36,6 +36,9 @@ from mediaman.scanner.repository._protection import (
     is_protected,
     is_show_kept,
     is_show_kept_pure,
+    restore_keeps,
+    save_pruned_keeps,
+    take_pruned_keeps,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,9 @@ __all__ = [
     "is_show_kept_pure",
     "mark_delete_status",
     "record_removed_files",
+    "restore_keeps",
+    "save_pruned_keeps",
+    "take_pruned_keeps",
     "tracked_paths",
 ]
 

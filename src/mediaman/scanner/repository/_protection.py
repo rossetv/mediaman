@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Collection
 
 from mediaman.core.time import now_iso
 
@@ -280,4 +281,54 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
         "DELETE FROM scheduled_actions "
         "WHERE action = 'snoozed' AND token_used = 0 AND execute_at < ?",
         (now_iso,),
+    )
+
+
+_KEEP_COLUMNS = "action, scheduled_at, execute_at, token_used, snoozed_at, snooze_duration"
+
+
+def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
+    """Set aside the live keeps of items about to be removed, and forget lapsed ones.
+
+    Run it in the transaction that removes the items.
+    """
+    now = now_iso()
+    conn.execute("DELETE FROM pruned_keeps WHERE action = 'snoozed' AND execute_at < ?", (now,))
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    conn.executemany(  # nosec B608
+        f"INSERT INTO pruned_keeps (media_item_id, file_path, season_number, {_KEEP_COLUMNS}) "
+        f"SELECT mi.id, mi.file_path, mi.season_number, {_KEEP_COLUMNS} "
+        "FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
+        "WHERE mi.id = ? AND (sa.action = 'protected_forever' "
+        "  OR (sa.action = 'snoozed' AND sa.execute_at >= ?))",
+        [(media_id, now) for media_id in media_ids],
+    )
+
+
+def take_pruned_keeps(
+    conn: sqlite3.Connection, media_id: str, file_path: str, season_number: object
+) -> list[sqlite3.Row]:
+    """Remove and return the live keeps set aside for this item.
+
+    Plex gives an item it removed and found again a new key, so one that is
+    not in the library yet also takes those of its path and season.
+    """
+    keeps = conn.execute(
+        "SELECT * FROM pruned_keeps "
+        "WHERE (action = 'protected_forever' OR execute_at >= ?) "
+        "  AND (media_item_id = ? OR (file_path != '' AND file_path = ? AND season_number IS ? "
+        "    AND NOT EXISTS (SELECT 1 FROM media_items WHERE id = ?)))",
+        (now_iso(), media_id, file_path, season_number, media_id),
+    ).fetchall()
+    conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(keep["id"],) for keep in keeps])
+    return keeps
+
+
+def restore_keeps(conn: sqlite3.Connection, media_id: str, keeps: list[sqlite3.Row]) -> None:
+    """Put *keeps*, as take_pruned_keeps returns them, back on the item."""
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    conn.executemany(  # nosec B608
+        f"INSERT INTO scheduled_actions (media_item_id, {_KEEP_COLUMNS}) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(media_id, *(keep[c] for c in _KEEP_COLUMNS.split(", "))) for keep in keeps],
     )

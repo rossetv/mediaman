@@ -112,6 +112,20 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     removed_files TEXT
 );
 
+-- Keeps of items Plex stopped listing, given back if Plex lists them again.
+CREATE TABLE IF NOT EXISTS pruned_keeps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    action TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    execute_at TEXT,
+    token_used INTEGER NOT NULL,
+    snoozed_at TEXT,
+    snooze_duration TEXT
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     media_item_id TEXT NOT NULL,

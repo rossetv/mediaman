@@ -42,8 +42,11 @@ def upsert_item(
     fetch: PlexItemFetch,
     arr_cache: ArrDateCache,
     media_type: str,
-) -> None:
+) -> bool:
     """Upsert a single media item and advance its watch timestamp.
+
+    Gives back a keep the item had when Plex stopped listing it; returns True
+    when it did, as the item is then kept.
 
     Delegates to repository.upsert_media_item and
     repository.update_last_watched.  The Radarr/Sonarr id is matched from
@@ -81,6 +84,8 @@ def upsert_item(
                 season_number=season_number,
                 plex_file_path=file_path,
             )
+    media_id = item["plex_rating_key"]
+    keeps = repository.take_pruned_keeps(conn, media_id, file_path, item.get("season_number"))
     repository.upsert_media_item(
         conn,
         item=item,
@@ -92,7 +97,9 @@ def upsert_item(
         set_radarr_id=set_radarr_id,
         set_sonarr_id=set_sonarr_id,
     )
-    repository.update_last_watched(conn, item["plex_rating_key"], fetch.watch_history)
+    repository.restore_keeps(conn, media_id, keeps)
+    repository.update_last_watched(conn, media_id, fetch.watch_history)
+    return bool(keeps)
 
 
 def schedule_deletion(

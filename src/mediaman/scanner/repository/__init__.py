@@ -64,6 +64,9 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_show_kept,
     is_show_kept_pure,
     mark_delete_status,
+    restore_keeps,
+    save_pruned_keeps,
+    take_pruned_keeps,
 )
 from mediaman.scanner.repository.settings import (
     read_delete_allowed_roots_setting,
@@ -101,6 +104,9 @@ __all__ = [
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
     "read_setting",
+    "restore_keeps",
+    "save_pruned_keeps",
+    "take_pruned_keeps",
     "update_last_watched",
     "upsert_media_item",
 ]

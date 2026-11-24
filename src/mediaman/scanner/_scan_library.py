@@ -159,10 +159,8 @@ def scan_items(
     *seen_keys*, when provided, accumulates Plex rating keys so orphan
     detection can exclude them later.
     """
-    # One batched query per guard, built before the loop — the
-    # protection state of an item cannot change under the per-item
-    # ``media_items`` upserts, so a single up-front read gives the
-    # same answer as a read per item.
+    # One batched query per guard, built before the loop: the per-item upserts
+    # change no item's protection but for a keep given back, which they report.
     media_ids = [f.item["plex_rating_key"] for f in fetched]
     guards = _build_guard_sets(engine._conn, media_ids)
     for f in fetched:
@@ -216,8 +214,8 @@ def _evaluate_scan_item(
 
     The protection and already-scheduled guards are answered from the
     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
-    The ``media_items`` upsert below cannot change either guard's answer
-    because neither guard reads ``media_items``.
+    The ``media_items`` upsert below changes neither guard's answer, but for a
+    keep it gives back to an item Plex had stopped listing, which it reports.
 
     A mediaman play credited to the item joins its Plex watch history, so
     both ``last_watched_at`` and the inactivity check count it. The stored
@@ -230,9 +228,9 @@ def _evaluate_scan_item(
     if seen_keys is not None:
         seen_keys.add(media_id)
     f = with_mediaman_play(f, guards.credited)
-    _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
+    keep_restored = _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
 
-    if media_id in guards.protected:
+    if keep_restored or media_id in guards.protected:
         return media_id, ScanDecision.SKIP_GUARD
     if media_id in guards.already_scheduled:
         return media_id, ScanDecision.SKIP_GUARD
