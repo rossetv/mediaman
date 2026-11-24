@@ -306,16 +306,20 @@ def is_seen(progress: Mapping[str, WatchProgress], rating_key: str) -> bool:
 
 def _first_unseen(
     seasons: Sequence[PlexSeason],
-    episodes_of: Callable[[str], list[PlexEpisode]],
+    episodes_of: Callable[[str], list[PlexEpisode] | None],
     progress: Mapping[str, WatchProgress],
     after: tuple[int, int] = (0, 0),
 ) -> tuple[PlexSeason, PlexEpisode] | None:
     """The first episode past *after* (season and episode number) this person has not seen,
-    reading one season's list at a time."""
+    reading one season's list at a time. None too when a season on the way cannot be read (its
+    list is None): it may hold that episode."""
     for season in seasons:
         if season.index < after[0]:
             continue
-        for episode in episodes_of(season.rating_key):
+        episodes = episodes_of(season.rating_key)
+        if episodes is None:
+            return None
+        for episode in episodes:
             past = season.index > after[0] or episode.index > after[1]
             if past and not is_seen(progress, episode.rating_key):
                 return season, episode
@@ -422,11 +426,9 @@ class _OptionalPlex:
             or []
         )
 
-    def season_episodes(self, season_key: str) -> list[PlexEpisode]:
-        return (
-            self._cached(f"season:{season_key}", 1, lambda p: p.get_season_episodes(season_key))
-            or []
-        )
+    def season_episodes(self, season_key: str) -> list[PlexEpisode] | None:
+        """None when they cannot be read now."""
+        return self._cached(f"season:{season_key}", 1, lambda p: p.get_season_episodes(season_key))
 
     def check_reachable(self) -> None:
         """When the page made no Plex call, ping Plex so one that is down is still reported.

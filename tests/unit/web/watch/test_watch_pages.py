@@ -5,6 +5,7 @@ refused."""
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -346,6 +347,32 @@ class TestWatchRows:
                 "keep_id": None,
             }
         ]
+
+    @pytest.mark.parametrize("why", ["unreachable", "budget spent"])
+    def test_a_season_that_cannot_be_read_is_not_jumped_over(
+        self, get, conn, plex, monkeypatch, why
+    ):
+        plex.add_show(
+            "500",
+            "The Long Coast",
+            {1: ("501", ["511", "512"]), 2: ("502", ["521", "522"]), 3: ("503", ["531"])},
+        )
+        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
+        _mark(conn, "521", season="502", show="500")
+        # Season 3 was read a moment ago; season 2, with 522 still unseen, cannot be now.
+        kept = (time.monotonic() + 60, plex.episodes["503"])
+        pages._next_episode_cache["season:503"] = kept
+        if why == "unreachable":
+
+            def fail(_key):
+                raise PlexUnavailable("down")
+
+            monkeypatch.setattr(plex, "get_season_episodes", fail)
+        else:
+            spent = pages._NEXT_EPISODE_COST + pages._SHOW_COST
+            monkeypatch.setattr(pages, "_PLEX_LOOKUP_BUDGET", spent)
+
+        assert "Continue watching" not in _rows(get("/watch").json())
 
     def test_a_long_history_of_finished_shows_makes_a_bounded_number_of_plex_calls(
         self, get, conn, plex, monkeypatch
