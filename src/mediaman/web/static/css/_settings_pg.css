@@ -346,6 +346,9 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   max-width: 60ch;
   line-height: 1.35;
 }
+/* What is scrolled into view stops above the bar while it is up, which a message makes taller. */
+html:has(.setg-pg .savebar.on) { scroll-padding-bottom: 84px; }
+html:has(.setg-pg .savebar.on.is-error) { scroll-padding-bottom: 112px; }
 @media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
@@ -353,12 +356,16 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }
+  html:has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(137px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { scroll-padding-bottom: calc(212px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so
      neither label ("Discard" / "Save Settings") truncates. */
   .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
   .setg-pg .savebar .btn { flex: 1 1 0; }
+  html:has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(184px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { scroll-padding-bottom: calc(272px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Reauth modal — narrow variant of .modal-sheet for the savebar

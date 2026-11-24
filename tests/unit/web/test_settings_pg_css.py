@@ -28,6 +28,34 @@ def test_form_message_line_is_never_hidden_so_nothing_below_jumps() -> None:
     assert "line-height: 1.4" in _declarations(".setg-pg .inline-form-msg")
 
 
+def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
+    margin = re.search(
+        r"scroll-margin-bottom:\s*(\d+)px", _declarations(".setg-pg .inline-form-msg")
+    )
+    # a 44px button centred on one 18px line reaches 13px below it
+    assert margin and int(margin.group(1)) >= 13
+
+
+def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
+    css = (CSS / "_settings_pg.css").read_text()
+
+    def kept(state: str, start: str) -> int:
+        head = f"html:has(.setg-pg .savebar.on{state}) {{ scroll-padding-bottom: "
+        found = re.match(
+            r"(?:calc\()?(\d+)px", css[css.index(head, css.index(start)) + len(head) :]
+        )
+        assert found
+        return int(found.group(1))
+
+    # the bar's height with its tab bar, and with the longest message it shows, 44px buttons included
+    narrow, either = "@media (max-width: 380px)", ":is(.is-error, .is-partial)"
+    assert kept("", ".setg-pg .savebar {") >= 73
+    assert kept(".is-error", ".setg-pg .savebar {") >= 86
+    phone = ".setg-pg .savebar { bottom:"
+    assert (kept("", phone) >= 129, kept(either, phone) >= 196) == (True, True)
+    assert (kept("", narrow) >= 176, kept(either, narrow) >= 259) == (True, True)
+
+
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
     for part in (".usr-name", ".usr-sub"):
         for at in (".usr-row", ".usr-self-head"):
