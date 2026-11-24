@@ -278,3 +278,29 @@ def test_an_undo_gives_the_focus_to_what_came_back_when_it_took_the_focused_butt
 
 def test_a_late_answer_about_a_show_never_brings_back_an_undone_mark() -> None:
     assert _run("lateShow") is False
+
+
+def test_an_undo_waits_for_the_same_title_s_change_on_its_way() -> None:
+    out = _run("undoWaits")
+    assert out["waiting"] == 2
+    assert out["calls"] == [
+        "POST /api/watch/watched/movie/1",
+        "DELETE /api/watch/watched/movie/1",
+        "DELETE /api/watch/watched/movie/1?undo=1",
+    ]
+
+
+def test_a_second_dismiss_before_the_first_is_in_does_nothing() -> None:
+    assert _run("dismissTwice") == [["POST /api/watch/dismissed/movie-1"], 1]
+
+
+def test_a_show_page_follows_only_what_nothing_else_is_changing() -> None:
+    out = _run("leftAlone")
+    before, after = "/watch/play/21", "/watch/play/22"
+    assert out == {
+        "busyMark": [after, ["true", "true", "false"]],
+        "loadingSeason": [before, ["true", "true", "false"]],
+        "signedOut": [before, ["true", "true", "false"]],
+        "playFocused": [before, ["true", "false", "false"]],
+        "followed": [after, ["true", "false", "false"]],
+    }

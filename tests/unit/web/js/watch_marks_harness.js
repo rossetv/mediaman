@@ -552,6 +552,49 @@ const scenarios = {
     await o.undo(1);
     return { replaced, inBanner, redrawn, elsewhere: o.doc.activeElement.id };
   },
+
+  // Undo pressed while a newer change of the same title is on its way, from a mark and from a dismissal.
+  async undoWaits() {
+    const change = later();
+    const p = load(watchPage([row('lib', [FILM()])]), { api: { 'DELETE /api/watch/watched/movie/1': () => change.answer } });
+    await p.pick(p.cards()[0], 'mark');
+    await p.pick(p.cards()[0], 'mark');
+    await p.undo(0);
+    const waiting = p.calls.length;
+    change.send({ ok: true, changed: 1, watched: false });
+    await settle();
+    return { waiting, calls: p.calls };
+  },
+
+  // Dismiss pressed twice before the first is in.
+  async dismissTwice() {
+    const answer = later();
+    const p = load(watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), row('cont', CONTINUE)]), { api: { 'POST /api/watch/dismissed/movie-1': () => answer.answer } });
+    p.dismissed('movie-1');
+    p.dismissed('movie-1');
+    answer.send({ ok: true });
+    await settle();
+    return [p.calls, p.toasts.length];
+  },
+
+  // What a show's page leaves alone when the server's page arrives.
+  async leftAlone() {
+    const next = episodesPage([21], '/watch/play/22');
+    const go = async (before, opts) => {
+      const p = load(episodesPage([22]), { next, ...opts });
+      await before(p);
+      await press(p, 21);
+      return [p.doc.querySelector('.watch-btn--play').getAttribute('href'), pressed(p)];
+    };
+    const nothing = () => {};
+    return {
+      busyMark: await go((p) => press(p, 22), { api: { 'DELETE /api/watch/watched/episode/22': () => later().answer } }),
+      loadingSeason: await go((p) => p.doc.querySelector('.watch-episodes').setAttribute('aria-busy', 'true'), {}),
+      signedOut: await go(nothing, { redirected: true }),
+      playFocused: await go((p) => p.doc.querySelector('.watch-btn--play').focus(), {}),
+      followed: await go(nothing, {}),
+    };
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => process.stdout.write(JSON.stringify(out)), (e) => { console.error(e); process.exit(1); });
