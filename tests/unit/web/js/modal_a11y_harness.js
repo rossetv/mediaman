@@ -140,6 +140,8 @@ const scenarios = {
     p.doc.body.focus();
     out.nowhere = [go(false, null, 1)[0], (p.doc.body.focus(), go(true, null, 1)[0])];
     out.toast = go(false, 'undo', 1);
+    p.$('field').style.visibility = 'hidden';
+    out.unseen = go(false, 'low-no', 1);
     p.doc.body.focus();
     p.$('card').hidden = true;
     out.none = go(false, null, 1);
@@ -163,6 +165,24 @@ const scenarios = {
     const once = shown();
     p.key('Escape');
     return { once, twice: shown() };
+  },
+  // The first focus: what is marked, what is marked but cannot be seen, and nothing that can.
+  first() {
+    const go = (set) => {
+      const p = page();
+      set(p.$);
+      p.setup('low').open();
+      return p.focused();
+    };
+    const mark = (n) => n.setAttribute('data-modal-focus', '');
+    return {
+      marked: go(($) => mark($('heading'))),
+      hidden: go(($) => { mark($('heading')); $('heading').hidden = true; }),
+      invisible: go(($) => { mark($('heading')); $('heading').style.visibility = 'hidden'; }),
+      nextMarked: go(($) => { mark($('low-no')); mark($('low-yes')); $('low-no').hidden = true; }),
+      firstUnseen: go(($) => { $('low-no').style.visibility = 'hidden'; }),
+      nothing: go(($) => { $('card').hidden = true; }),
+    };
   },
 };
 

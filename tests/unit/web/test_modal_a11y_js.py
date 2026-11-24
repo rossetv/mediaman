@@ -71,6 +71,7 @@ def test_tab_goes_round_every_control_in_the_dialog_and_never_by_the_browser_s_o
     assert out["heading"] == ["low-no", "low-yes"]
     assert out["nowhere"] == ["low-no", "low-yes"]
     assert out["toast"] == ["low-no"]
+    assert out["unseen"] == ["low-yes"]
     assert out["none"] == ["low"]
 
 
@@ -80,3 +81,14 @@ def test_tab_stays_in_a_dialog_with_its_own_focus() -> None:
 
 def test_escape_closes_only_the_dialog_on_top() -> None:
     assert _run("escape") == {"once": ["low"], "twice": []}
+
+
+def test_the_first_focus_is_on_something_that_can_be_seen() -> None:
+    assert _run("first") == {
+        "marked": "heading",
+        "hidden": "low-no",
+        "invisible": "low-no",
+        "nextMarked": "low-yes",
+        "firstUnseen": "field",
+        "nothing": "low",
+    }

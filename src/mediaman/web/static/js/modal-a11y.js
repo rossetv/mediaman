@@ -42,6 +42,10 @@
 
   function getModal(id) { return document.getElementById(id); }
 
+  function isVisible(el) {
+    return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  }
+
   function getFocusable(modal) {
     if (!modal) return [];
     return Array.prototype.filter.call(
@@ -49,7 +53,7 @@
       function (el) {
         return !el.hasAttribute('disabled')
           && el.getAttribute('aria-hidden') !== 'true'
-          && el.offsetParent !== null;  // visible
+          && isVisible(el);
       }
     );
   }
@@ -91,7 +95,8 @@
   }
 
   function focusFirst(modal) {
-    var target = modal.querySelector('[data-modal-focus]:not([disabled])') || getFocusable(modal)[0] || modal;
+    var marked = Array.prototype.filter.call(modal.querySelectorAll('[data-modal-focus]:not([disabled])'), isVisible);
+    var target = marked[0] || getFocusable(modal)[0] || modal;
     if (target && typeof target.focus === 'function') {
       // Ensure the modal itself is focusable as a last resort
       if (target === modal && !modal.hasAttribute('tabindex')) {
