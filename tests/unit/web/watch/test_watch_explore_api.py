@@ -179,6 +179,15 @@ class TestExplore:
         assert (len(first), next_page) == (20, None)
         assert len({c["ref"] for c in first + rest}) == 26
         assert end == [None, None]
+        # As long a place as there is.
+        assert viewer.get(
+            EXPLORE,
+            params={
+                "genre": "action",
+                "sort": "newest",
+                "after": "500" + "-9999999999" * 40 + ",500" + "-9999999999" * 40,
+            },
+        ).is_success
         # By page, and where there is no order to keep, as ever.
         assert len(page("newest")[0]) == len(page("popular", after="")[0]) == 26
         assert page("popular", after="")[2] is None
@@ -195,7 +204,7 @@ class TestExplore:
             ({"genre": "action", "sort": "newest", "after": "0-2,1"}, 400),
             ({"genre": "action", "sort": "newest", "after": "1-2,1,1"}, 400),
             ({"genre": "action", "sort": "newest", "after": "１-2,1"}, 400),
-            ({"genre": "action", "sort": "newest", "after": "1" + "-7" * 21 + ",1"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1" + "-7" * 41 + ",1"}, 400),
             ({"genre": "horror", "decade": "1990"}, 400),
             ({"genre": "horror", "decade": "1920s"}, 400),
             ({"genre": "horror", "page": 0}, 422),

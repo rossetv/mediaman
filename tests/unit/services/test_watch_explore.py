@@ -312,6 +312,29 @@ class TestExplorePage:
         titles = [(i["media_type"], i["id"]) for i in got]
         assert len(titles) == len(set(titles)) == 80
 
+    def test_a_title_moved_to_the_page_being_read_between_two_replies_is_not_shown_again(
+        self, tmdb
+    ):
+        films, shows = _ranked(60, 1), _ranked(1, 1)
+        tmdb.pages = _paged(films, shows)
+        genre = catalog.GENRES["action"]
+        got: list[dict] = []
+        after: str | None = ""
+        for _ in range(2):
+            items, _, after = catalog.explore_page(
+                tmdb.client, genre, sort="top_rated", after=after
+            )
+            got += items
+        # All of the first page's films and most of the second's are shown.
+        first = films.pop(0)
+        films.insert(25, first | {"vote_average": films[25]["vote_average"]})
+        tmdb.pages = _paged(films, shows)
+        shutil.rmtree(_discover._cache()._dir())
+
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        assert first["id"] not in [i["id"] for i in rest if i["media_type"] == "movie"]
+
     def test_by_page_each_is_in_order_by_itself(self, tmdb):
         tmdb.pages = _paged(_ranked(40, 1), _ranked(40, 1))
         genre = catalog.GENRES["action"]

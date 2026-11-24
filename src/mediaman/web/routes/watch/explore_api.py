@@ -28,7 +28,7 @@ _PERSON_ID_RE = re.compile(r"[0-9]{1,10}", re.ASCII)
 _PERSON_PAGE = 60
 _WHERE = ("anywhere", "library")
 # As catalog.explore_page writes it, of films and TV and up to its last page.
-_PLACE = r"(?:[1-9][0-9]?|[1-4][0-9]{2}|500)(?:-[0-9]{1,10}){0,20}"
+_PLACE = r"(?:[1-9][0-9]?|[1-4][0-9]{2}|500)(?:-[0-9]{1,10}){0,40}"
 _AFTER_RE = re.compile(f"{_PLACE},{_PLACE}", re.ASCII)
 
 # Apart from the query limit, so looking around does not use up the day's searches. A page

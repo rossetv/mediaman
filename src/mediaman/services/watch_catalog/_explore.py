@@ -40,8 +40,8 @@ _FIRST_DECADE = 1930
 # kind where they come evenly, and some that hold next to nothing.
 _MERGED_PAGE = 20
 _MERGED_READS = 6
-# The titles a place names: all of a page of TMDB's.
-_PLACE_MAX = 20
+# The titles a place names: all of a page of TMDB's and of the one before.
+_PLACE_MAX = 40
 
 # Below these an average is a handful of people's.
 _TOP_RATED_VOTES = {"movie": 300, "tv": 200}
