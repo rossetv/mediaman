@@ -19,6 +19,7 @@ import json
 import logging
 import shutil
 import sqlite3
+import threading
 from collections.abc import Callable
 
 import requests as _requests
@@ -40,6 +41,7 @@ from mediaman.services.infra import (
     disk_usage_allowed_roots,
     resolve_safe_readonly_path,
 )
+from mediaman.services.infra.settings_reader import get_setting
 from mediaman.services.infra.storage.disk_reads import settings_disk_reads
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
@@ -213,6 +215,31 @@ def _persist_settings(
     return respond_ok({"status": "saved", "written": written, "ignored": ignored})
 
 
+#: Held while the thresholds are read, merged and written, so two saves cannot drop each other's.
+_DISK_THRESHOLDS_LOCK = threading.Lock()
+
+
+def _merge_disk_thresholds(
+    conn: sqlite3.Connection, sent: dict[str, object]
+) -> dict[str, object] | None:
+    """Return the stored thresholds with *sent* laid over them, or None when nothing was sent.
+
+    A library without a threshold is always scanned, so one that was not sent keeps its
+    own; only an entry sent with neither a path nor a threshold removes it.
+    """
+    if not sent:
+        return None
+    stored = get_setting(conn, "disk_thresholds", default={})
+    merged: dict[str, object] = dict(stored) if isinstance(stored, dict) else {}
+    for library, cfg in sent.items():
+        if isinstance(cfg, dict) and (cfg.get("path") or cfg.get("threshold")):
+            merged[library] = cfg
+        else:
+            merged.pop(library, None)
+    # A setting the scanner cannot read keeps every library from being scanned; clearing nothing must not mend it.
+    return merged if merged or isinstance(stored, dict) else None
+
+
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
@@ -243,7 +270,14 @@ def api_update_settings(
         return reauth_err
 
     config = request.app.state.config
-    return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
+    sent = body_dict.get("disk_thresholds")
+    if not isinstance(sent, dict):
+        return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
+    with _DISK_THRESHOLDS_LOCK:
+        body_dict["disk_thresholds"] = _merge_disk_thresholds(conn, sent)
+        if body_dict["disk_thresholds"] is None:
+            del body_dict["disk_thresholds"]
+        return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
 
 
 def _resolve_tester_dispatch(

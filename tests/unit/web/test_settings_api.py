@@ -411,6 +411,45 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("disk_thresholds") == payload["disk_thresholds"]
 
+    @staticmethod
+    def _put_thresholds(client):
+        def put(thresholds, **others):
+            resp = client.put("/api/settings", json={"disk_thresholds": thresholds, **others})
+            assert resp.status_code == 200, resp.json()
+            return client.get("/api/settings").json()["disk_thresholds"]
+
+        return put
+
+    def test_put_keeps_the_threshold_of_a_library_it_does_not_name(
+        self, app_factory, authed_client, conn
+    ):
+        """A library without a threshold is always scanned, so a save may not lose one."""
+        movies = {"path": "/media/movies", "threshold": 85}
+        anime = {"path": "/media/anime", "threshold": 90}
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        put({"1": movies})
+        both = put({"2": anime})
+        assert both == {"1": movies, "2": anime}
+        assert put({}) == both
+        assert put(None, grace_days=20) == both
+
+    def test_put_that_clears_nothing_leaves_unreadable_thresholds_alone(
+        self, app_factory, authed_client, conn
+    ):
+        """The scanner scans no library while they cannot be read."""
+        insert_settings(conn, disk_thresholds="[1]")
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        assert put({"1": None}) == [1]
+
+    @pytest.mark.parametrize("cleared", [None, {}, {"path": "", "threshold": 0}])
+    def test_put_removes_a_threshold_that_was_cleared(
+        self, app_factory, authed_client, conn, cleared
+    ):
+        kept = {"path": "/media/anime", "threshold": 90}
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        put({"1": {"path": "/media/movies", "threshold": 85}, "2": kept})
+        assert put({"1": cleared}) == {"2": kept}
+
     def test_put_rejects_unknown_key_with_422(self, app_factory, authed_client, conn):
         """Unknown key must be rejected at the Pydantic layer (HTTP 422)."""
         client = _client(app_factory, authed_client, conn)
