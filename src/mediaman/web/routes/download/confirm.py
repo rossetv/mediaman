@@ -422,6 +422,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             request, "download.html", {"state": "limited", "item": None}
         )
         limited.status_code = 429
+        limited.headers["Retry-After"] = "60"
         return limited
 
     _expired = templates.TemplateResponse(

@@ -361,7 +361,9 @@ def _validate_token_request(
     success or (None, error_response).
     """
     if not _DOWNLOAD_LIMITER_POST.check(get_client_ip(request)):
-        return None, respond_failure("Too many requests", status=429)
+        limited = respond_failure("Too many requests", status=429)
+        limited.headers["Retry-After"] = "60"
+        return None, limited
     if len(token) > 4096:
         return None, respond_failure("Token expired or invalid", status=410)
     payload = validate_download_token(token, secret_key)

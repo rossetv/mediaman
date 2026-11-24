@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token
+from mediaman.web.routes import download as download_routes
 from mediaman.web.routes.download.confirm import (
     _DOWNLOAD_LIMITER_GET,
     _reset_arr_cache_for_tests,
@@ -159,6 +160,25 @@ class TestDownloadPageConfirm:
         ctx = resp.json()
         assert ctx["state"] == "confirm"
         assert "Sci-Fi" in ctx["item"]["genres_list"]
+
+
+@pytest.mark.parametrize(
+    ("limiter", "method", "url"),
+    [
+        ("_DOWNLOAD_LIMITER_GET", "GET", "/download/any-token"),
+        ("_DOWNLOAD_LIMITER_POST", "POST", "/download/any-token"),
+        ("_DOWNLOAD_STATUS_LIMITER", "GET", "/api/download/status?service=radarr&tmdb_id=1"),
+    ],
+)
+def test_too_many_requests_says_when_to_come_back(
+    app_factory, conn, templates_stub, limiter, method, url
+):
+    app = app_factory(download_routes.router, conn=conn, state_extras={"templates": templates_stub})
+    with patch.object(getattr(download_routes, limiter), "check", return_value=False):
+        resp = TestClient(app).request(method, url)
+
+    assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == "60"
 
 
 class TestTrailerKeyValidation:

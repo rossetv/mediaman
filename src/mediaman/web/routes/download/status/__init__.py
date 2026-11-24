@@ -187,7 +187,9 @@ def download_status(
     config = request.app.state.config
 
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
-        return respond_err("too_many_requests", status=429)
+        limited = respond_err("too_many_requests", status=429)
+        limited.headers["Retry-After"] = "60"
+        return limited
 
     poll_payload = None
     if poll_token is not None and len(poll_token) <= 4096:
