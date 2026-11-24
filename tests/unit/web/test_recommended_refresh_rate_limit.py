@@ -342,6 +342,7 @@ class TestDownloadActionRateLimit:
         from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
         )
@@ -504,6 +505,7 @@ class TestDownloadRecommendationSuccess:
         rec_id = self._insert_movie_suggestion(conn)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None  # success — no exception
 
         with patch(
@@ -580,6 +582,7 @@ class TestDownloadRecommendationSuccess:
         rec_id = self._insert_movie_suggestion(conn)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -628,6 +631,7 @@ class TestDownloadRecommendationSuccess:
         rec_id = self._insert_movie_suggestion(conn)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(

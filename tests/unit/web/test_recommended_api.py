@@ -135,6 +135,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
         client = _make_rec_app(conn)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -157,6 +158,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
         client = _make_rec_app(conn)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -259,6 +261,7 @@ class TestDownloadRecommendationAlreadyThere:
         sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
         client = _make_rec_app(conn)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(409, "exists", "radarr/api/v3/movie")
 
         with patch(
@@ -286,3 +289,71 @@ class TestDownloadRecommendationAlreadyThere:
 
         assert resp.status_code == 409
         assert resp.json()["error"] == "'Severance' is already tracked by Sonarr — manage it there"
+
+
+class TestDownloadRecommendationAsksTheArrFirst:
+    """Radarr and Sonarr answer 400, not 409, for a title they hold."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        reset_download_action_limiter()
+
+    @staticmethod
+    def _post(conn, kind, tmdb_id, arr):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        title = "Inception" if kind == "movie" else "Severance"
+        sid = insert_suggestion(conn, title=title, tmdb_id=tmdb_id, media_type=kind)
+        builder = "build_radarr_from_db" if kind == "movie" else "build_sonarr_from_db"
+        with patch(f"mediaman.web.routes.recommended.api.{builder}", return_value=arr):
+            return _make_rec_app(conn).post(f"/api/recommended/{sid}/download")
+
+    def test_a_movie_radarr_holds_is_already_there_without_an_add(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": True}
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+        radarr.add_movie.assert_not_called()
+
+    def test_a_series_sonarr_tracks_is_already_there_without_an_add(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.return_value = [{"tvdbId": 999}]
+
+        resp = self._post(conn, "tv", 136315, sonarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Severance' is already tracked by Sonarr — manage it there"
+        sonarr.add_series.assert_not_called()
+
+    def test_a_movie_add_that_races_with_a_400_ends_as_already_there(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = [None, {"id": 4}]
+        radarr.add_movie.side_effect = SafeHTTPError(400, "has already been added", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+
+    def test_a_series_add_that_races_with_a_400_ends_as_already_there(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.side_effect = [[], [{"tvdbId": 999}]]
+        sonarr.add_series.side_effect = SafeHTTPError(400, "has already been added", "sonarr/s")
+
+        resp = self._post(conn, "tv", 136315, sonarr)
+
+        assert resp.status_code == 409
+
+    def test_a_400_for_a_title_the_arr_does_not_hold_stays_a_failure(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.add_movie.side_effect = SafeHTTPError(400, "Invalid root folder", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to download queue"

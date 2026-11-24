@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
+import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -16,8 +17,9 @@ from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.state import is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
@@ -137,6 +139,29 @@ def _sanitise_title(title: str | None) -> str:
     return cleaned[:256]
 
 
+def _already_there(row: SuggestionDetail) -> JSONResponse:
+    already = (
+        f"'{row.title}' is already in Radarr"
+        if row.media_type == "movie"
+        else f"'{row.title}' is already tracked by Sonarr — manage it there"
+    )
+    return respond_failure(already, status=409)
+
+
+def _radarr_holds(client: ArrClient, tmdb_id: int) -> bool:
+    try:
+        return client.get_movie_by_tmdb(tmdb_id) is not None
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+
+
+def _sonarr_tracks(client: ArrClient, tvdb_id: int) -> bool:
+    try:
+        return is_series_already_tracked(client, tvdb_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+
+
 def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
@@ -157,7 +182,16 @@ def _add_rec_to_radarr(
     if not tmdb_id:
         return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
     safe_title = _sanitise_title(row.title)
-    client.add_movie(tmdb_id, safe_title)
+    if client.get_movie_by_tmdb(tmdb_id) is not None:
+        return _already_there(row)
+    try:
+        client.add_movie(tmdb_id, safe_title)
+    except SafeHTTPError as exc:
+        # Radarr answers 400, not 409, for a movie it holds: an add that raced
+        # the check above ends as already there, any other 400 stays a failure.
+        if exc.status_code == 400 and _radarr_holds(client, tmdb_id):
+            return _already_there(row)
+        raise
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
@@ -224,7 +258,15 @@ def _add_rec_to_sonarr(
         return respond_failure("Invalid TVDB ID for this show", status=200)
     if tvdb_id <= 0:
         return respond_failure("Invalid TVDB ID for this show", status=200)
-    client.add_series(tvdb_id, safe_title)
+    if is_series_already_tracked(client, tvdb_id):
+        return _already_there(row)
+    try:
+        client.add_series(tvdb_id, safe_title)
+    except SafeHTTPError as exc:
+        # Same as Radarr: a 400 for a series Sonarr already tracks.
+        if exc.status_code == 400 and _sonarr_tracks(client, tvdb_id):
+            return _already_there(row)
+        raise
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
@@ -290,12 +332,7 @@ def api_download_recommendation(
 
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
-            already = (
-                f"'{row.title}' is already in Radarr"
-                if row.media_type == "movie"
-                else f"'{row.title}' is already tracked by Sonarr — manage it there"
-            )
-            return respond_failure(already, status=409)
+            return _already_there(row)
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row.title,
