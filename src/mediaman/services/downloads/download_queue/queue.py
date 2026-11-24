@@ -32,6 +32,9 @@ from mediaman.services.downloads.download_queue.items import (
 
 logger = logging.getLogger(__name__)
 
+# A word in the NZBGet category that says the download is TV: NZBGet's and Sonarr's own names.
+_TV_CATEGORY_WORDS = frozenset({"tv", "series", "sonarr"})
+
 
 def _build_unmatched_arr_item_bound(
     arr: ArrCard,
@@ -51,13 +54,21 @@ def parse_nzb_queue(
     """Parse raw NZBGet entries into normalised dicts with a _matched flag (initially
     False), so matching can claim entries without modifying the source list.
     """
-    from mediaman.services.downloads.download_format import looks_like_series_nzb, parse_clean_title
+    from mediaman.services.downloads.download_format import (
+        looks_like_series_nzb,
+        normalise_for_match,
+        parse_clean_title,
+    )
 
     nzb_parsed: list[dict[str, object]] = []
     for nzb in nzb_queue:
         raw_name = nzb.get("NZBName", "")
         nzb_name = raw_name if isinstance(raw_name, str) else ""
         clean = parse_clean_title(nzb_name)
+        looks_like_series = looks_like_series_nzb(nzb_name)
+        raw_category = nzb.get("Category", "")
+        category = normalise_for_match(raw_category if isinstance(raw_category, str) else "")
+        is_tv = looks_like_series or not _TV_CATEGORY_WORDS.isdisjoint(category.split())
         raw_file_mb = nzb.get("FileSizeMB", 0)
         raw_remain_mb = nzb.get("RemainingSizeMB", 0)
         file_mb = raw_file_mb if isinstance(raw_file_mb, int | float) else 0
@@ -74,8 +85,8 @@ def parse_nzb_queue(
                 "remain_mb": remain_mb,
                 "done_mb": done_mb,
                 "poster_url": "",
-                "kind": "movie",
-                "looks_like_series": looks_like_series_nzb(nzb_name),
+                "kind": "series" if is_tv else "movie",
+                "looks_like_series": looks_like_series,
                 "_matched": False,
             }
         )
@@ -231,7 +242,7 @@ def add_unmatched_nzb_items(
         eta = format_eta(remain_mb_val, download_rate)
         if state == "almost_ready":
             eta = "Post-processing…"
-        media_type = "series" if nzb.get("looks_like_series") else "movie"
+        media_type = "series" if nzb["kind"] == "series" else "movie"
         dl_id_val = nzb["dl_id"]
         title_val = nzb["title"]
         progress_val = nzb["progress"]
