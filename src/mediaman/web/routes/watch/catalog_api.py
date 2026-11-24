@@ -26,6 +26,7 @@ from mediaman.core.format import format_bytes
 from mediaman.core.time import now_iso, now_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.plex_watch import (
@@ -39,7 +40,7 @@ from mediaman.services.openai.recommendations.repository import fetch_suggestion
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
-from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.auth.password_hash import get_user_email, get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.library_query import protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
@@ -415,6 +416,7 @@ def _show_title(
 def _tmdb_title(
     request: Request,
     conn: sqlite3.Connection,
+    username: str,
     client: TmdbClient,
     ref: str,
     kind: str,
@@ -453,11 +455,21 @@ def _tmdb_title(
                 "body": {"media_type": kind, "tmdb_id": tmdb_id, "title": out["title"]},
             }
         )
+        service = "radarr" if kind == "movie" else "sonarr"
+        email = get_user_email(conn, username)
         out["download"] = {
             "state": state,
             "pct": pct,
             "answered": arr.answers_for(kind),
-            "service": "radarr" if kind == "movie" else "sonarr",
+            "notify": email is not None
+            and has_unsent_notification(
+                conn,
+                email=email,
+                service=service,
+                tmdb_id=tmdb_id,
+                tvdb_id=(fields["tvdb_id"] or arr.tvdb_id(tmdb_id)) if kind == "tv" else None,
+            ),
+            "service": service,
             "tmdb_id": tmdb_id,
             "request": request_body,
         }
@@ -504,7 +516,17 @@ def api_watch_title(
                 return allowed[0]
 
             return respond_ok(
-                _tmdb_title(request, conn, client, ref, media_type, int(tmdb_id), None, allow_fetch)
+                _tmdb_title(
+                    request,
+                    conn,
+                    username,
+                    client,
+                    ref,
+                    media_type,
+                    int(tmdb_id),
+                    None,
+                    allow_fetch,
+                )
             )
         rec = fetch_suggestion_by_id(conn, int(rest))
         if rec is None or rec.media_type not in ("movie", "tv"):
@@ -513,6 +535,7 @@ def api_watch_title(
             out = _tmdb_title(
                 request,
                 conn,
+                username,
                 client,
                 ref,
                 rec.media_type,

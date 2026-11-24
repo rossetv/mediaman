@@ -692,7 +692,7 @@
   /* ── Download ── */
 
   function stateOf(ref) {
-    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false, refused: false };
+    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false };
     return known[ref];
   }
 
@@ -754,7 +754,7 @@
       words.appendChild(document.createTextNode('.'));
       q.appendChild(words);
       under.appendChild(q);
-      if (rec && !k.refused) under.appendChild(emailHint(d));
+      if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
     if (k.state === 'downloading') {
@@ -771,7 +771,7 @@
       line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
       box.appendChild(line);
       under.appendChild(box);
-      if (rec && !k.refused) under.appendChild(emailHint(d));
+      if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
     if (!d.download) return;
@@ -823,8 +823,8 @@
     if (n) dl.removeAttribute('aria-disabled'); else dl.setAttribute('aria-disabled', 'true');
   }
 
-  /* Only for a pick being downloaded. A download the Arr refused as already
-     there asks for no email, so promises none. */
+  /* Only for a pick being downloaded, and only to a person the server says it
+     will email. */
   function emailHint(d) {
     return note("You can close this — you'll get an email when " +
       (d.kind === 'movie' ? 'the movie' : 'the show') + " is ready.", 'fa-envelope');
@@ -939,7 +939,6 @@
     redrawActions(ref);
     MM.api.post(url, payload).then(function () {
       k.busy = false;
-      k.refused = false;
       k.state = 'queued';
       k.pct = null;
       k.sentAt = Date.now();
@@ -949,6 +948,7 @@
       if (cur && cur.ref === ref && isOpen) {
         cur.movedAt = Date.now();
         schedulePoll(POLL_MS);
+        if (cur.recId) askNotify(cur);
       }
     }).catch(function (err) {
       // 409: the Arr already has it, so trying again can only fail again. The
@@ -957,7 +957,6 @@
       // in Sonarr whatever of it is downloaded, and says so meanwhile.
       if (err && err.status === 409) {
         var movie = d.kind === 'movie';
-        k.refused = true;
         core.toast(MM.api.messageOf(err, title + ' is already in ' + (movie ? 'Radarr.' : 'Sonarr.')));
         if (!movie) {
           k.busy = false;
@@ -971,6 +970,17 @@
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
       redrawActions(ref);
     });
+  }
+
+  /* Whether an accepted download of a pick will be emailed to this person is
+     the title's own reply to say; until it does, nothing is promised. */
+  function askNotify(c) {
+    var ref = c.ref;
+    get(apiUrl(ref)).then(function (data) {
+      if (c !== cur || !isOpen || c.ref !== ref || !data.download || data.download.notify !== true) return;
+      c.data.download.notify = true;
+      redrawActions(ref);
+    }).catch(function () {});
   }
 
   /* A title the Arr already has: what its reply says is the title's state, on

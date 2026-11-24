@@ -293,13 +293,18 @@ def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None
     assert out["share"] is False
 
 
-def test_a_pick_refused_as_already_there_promises_no_email_until_a_download_is_accepted() -> None:
-    out = _run("recRefused")
-    for kind in ("movie", "show"):
-        assert out[kind]["refused"] == {"primary": "Queued", "email": False}, kind
-        assert out[kind]["reopened"] == {"primary": "Queued", "email": False}, kind
-        assert out[kind]["downloading"] == {"primary": "Downloading 40%", "email": False}, kind
-        assert out[kind]["accepted"] == {"primary": "Queued", "email": True}, kind
+def test_a_pick_promises_an_email_only_where_its_reply_says_this_person_gets_one() -> None:
+    out = _run("recEmail")
+    for name in ("movie", "show", "noEmail"):
+        run = out[name]
+        # Refused as already there, or another person's: none, reopened or coming in.
+        assert run["refused"] == {"primary": "Queued", "email": False}, name
+        assert run["reopened"] == {"primary": "Queued", "email": False}, name
+        assert run["downloading"] == {"primary": "Downloading 40%", "email": False}, name
+        assert run["ownDownloading"] == {"primary": "Downloading 40%", "email": True}, name
+        # Accepted: nothing until the reply says so.
+        assert run["beforeReply"] == {"primary": "Queued", "email": False}, name
+        assert run["accepted"] == {"primary": "Queued", "email": name != "noEmail"}, name
 
 
 def test_season_chips_count_the_picked_seasons_and_send_them() -> None:

@@ -20,6 +20,7 @@ from mediaman.web.routes.search import download as search_download
 from mediaman.web.routes.watch import catalog_api, pages
 from tests.helpers.factories import (
     insert_admin_user,
+    insert_download_notification,
     insert_media_item,
     insert_scheduled_action,
     insert_settings,
@@ -612,6 +613,80 @@ class TestTitleDownload:
         assert resp.status_code == 200
         download = resp.json()["download"]
         assert (download["state"], download["pct"], download["answered"]) == (None, None, False)
+
+
+class TestTitleDownloadNotify:
+    """Whether this person, and only this person, is still owed an email for the title."""
+
+    OWN = "viewer@example.com"
+
+    @pytest.fixture
+    def emailed(self, viewer, library, tmdb, arr):
+        library.execute("UPDATE admin_users SET email = ? WHERE username = 'viewer'", (self.OWN,))
+        library.commit()
+        return viewer
+
+    def _notify(self, client, ref):
+        return client.get(f"/api/watch/title/{ref}").json()["download"]["notify"]
+
+    def test_an_own_unsent_notification_of_a_movie(self, emailed, library):
+        insert_download_notification(library, email=self.OWN.upper(), tmdb_id=12)
+
+        assert self._notify(emailed, "tmdb-movie-12") is True
+
+    def test_an_own_unsent_notification_of_a_pick(self, emailed, library):
+        rec_id = insert_suggestion(library, title="Glass Onion", tmdb_id=12)
+        insert_download_notification(library, email=self.OWN, tmdb_id=12)
+
+        assert self._notify(emailed, f"rec-{rec_id}") is True
+
+    def test_one_being_sent_is_still_unsent(self, emailed, library):
+        insert_download_notification(library, email=self.OWN, tmdb_id=12, notified=2)
+
+        assert self._notify(emailed, "tmdb-movie-12") is True
+
+    def test_a_show_recorded_by_its_tvdb_id_alone(self, emailed, library, arr):
+        arr.series = [{"tmdbId": 77, "tvdbId": 7700, "seasons": []}]
+        insert_download_notification(
+            library, email=self.OWN, media_type="tv", service="sonarr", tmdb_id=None, tvdb_id=7700
+        )
+
+        assert self._notify(emailed, "tmdb-tv-77") is True
+
+    def test_another_persons_is_not_told(self, emailed, library):
+        insert_download_notification(library, email="other@example.com", tmdb_id=12)
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+    def test_one_already_sent_is_not_owed(self, emailed, library):
+        insert_download_notification(library, email=self.OWN, tmdb_id=12, notified=1)
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+    def test_a_show_is_not_the_movie_of_the_same_tmdb_id(self, emailed, library):
+        insert_download_notification(
+            library, email=self.OWN, media_type="tv", service="sonarr", tmdb_id=12
+        )
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+    def test_a_person_with_no_email_is_not_looked_up(self, viewer, tmdb, arr, monkeypatch):
+        def looked_up(*_a, **_k):
+            raise AssertionError("looked up")
+
+        monkeypatch.setattr(catalog_api, "has_unsent_notification", looked_up)
+
+        assert self._notify(viewer, "tmdb-movie-12") is False
+
+    def test_a_refused_download_owes_nothing_and_an_accepted_one_does(self, emailed, library, arr):
+        body = {"media_type": "movie", "tmdb_id": 12, "title": "Glass Onion"}
+        arr.get_movie_by_tmdb = lambda _id: {"id": 1, "monitored": True}
+        assert emailed.post("/api/search/download", json=body).status_code == 409
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+        arr.get_movie_by_tmdb = lambda _id: None
+        assert emailed.post("/api/search/download", json=body).status_code == 200
+        assert self._notify(emailed, "tmdb-movie-12") is True
 
 
 class TestDownloadForgetsHeldArrState:

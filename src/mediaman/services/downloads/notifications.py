@@ -87,6 +87,26 @@ def record_download_notification(
     )
 
 
+def has_unsent_notification(
+    conn: sqlite3.Connection,
+    *,
+    email: str,
+    service: str,
+    tmdb_id: int,
+    tvdb_id: int | None = None,
+) -> bool:
+    """Whether a notification for the title is still to be sent to *email*. A Sonarr row
+    may carry only its TVDB id.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM download_notifications "
+        "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
+        "AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
+        (email, service, tmdb_id, tvdb_id),
+    ).fetchone()
+    return row is not None
+
+
 def _build_sonarr_index(client: ArrClient) -> list[SonarrSeries]:
     """Fetch the full Sonarr library once per tick; every pending row reuses it instead of
     making its own HTTP call.
@@ -531,6 +551,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 __all__ = [
     "STRANDED_CLAIM_GRACE_SECONDS",
     "check_download_notifications",
+    "has_unsent_notification",
     "reconcile_stranded_notifications",
     "record_download_notification",
 ]
