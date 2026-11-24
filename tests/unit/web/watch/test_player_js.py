@@ -829,6 +829,14 @@ def test_undoing_a_keep_puts_the_focus_where_it_can_be(markup, season, where, fo
     assert (out["focus"], out["undone"]) == (focus, ["88"])
 
 
+@pytest.mark.parametrize(
+    ("reply", "undo"), [({"undo": True}, True), ({}, True), ({"undo": False}, False)]
+)
+def test_a_keep_offers_undo_unless_the_server_says_there_is_none(season, reply, undo):
+    out = run(season["/watch/play/503"], "keep_offers", plays=json.dumps(reply))
+    assert out == {"pill": "Kept for 7 days", "said": "Kept until", "undo": undo}
+
+
 def test_a_keep_says_for_how_long_on_its_pill_and_until_when_in_the_toast(markup, season):
     pages = {**season, "/plain": season["/watch/play/504"]}
     pill, toast = run(markup, "keep_undone", plays="here", pages=pages)["said"]

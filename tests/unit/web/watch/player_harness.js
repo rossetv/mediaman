@@ -313,6 +313,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       if (held.stopFails && /\/stop$/.test(url)) return Promise.reject({ status: 0 });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (held.progressFails && /\/progress$/.test(url)) return Promise.reject(held.progressFails);
+      if (held.keep && /\/keep$/.test(url)) return Promise.resolve(held.keep);
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       return Promise.resolve().then(() => {
         const reply = replies.shift() || (held.answer && held.answer(body));
@@ -2609,6 +2610,17 @@ const scenarios = {
     await settle();
     out.kept = p.calls.filter((c) => /\/keep$/.test(c.url)).map((c) => c.body);
     return out;
+  },
+
+  /* What the toast of a keep offers, by what the server says of undoing it. */
+  async keep_offers(p) {
+    p.held.keep = JSON.parse(p.win.serverPlays);
+    await streamPlays(p, 0);
+    press(p.q('[data-keep]').querySelector('[data-menu-trigger]'));
+    press(p.q('[data-keep-days="7"]'));
+    await settle();
+    const toast = p.toasts[0];
+    return { pill: p.q('[data-keep]').textContent.trim(), said: toast.text.split(' ').slice(0, 2).join(' '), undo: !!toast.action };
   },
 
   /* A title is kept, and the keep undone: here, or (`serverPlays`) once the next episode took over. */

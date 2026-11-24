@@ -1979,7 +1979,7 @@
         var days = parseInt(btn.getAttribute('data-keep-days'), 10);
         closeMenus(true);
         MM.api.post('/api/watch/keep', { media_item_id: keepId, days: days })
-          .then(function () {
+          .then(function (data) {
             var hadFocus = keep.contains(document.activeElement);
             /* Cut off from the page it could not play its exit out. */
             hide(keep.querySelector('.player-menu'));
@@ -1995,7 +1995,8 @@
                 .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
               window.UIFeedback.toast('Kept until ' + until, {
                 variant: 'success',
-                action: { label: 'Undo', onClick: function () { undoKeep(done, original, days); } }
+                action: data.undo === false ? undefined
+                  : { label: 'Undo', onClick: function () { undoKeep(done, original, days); } }
               });
             }
           })
