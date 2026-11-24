@@ -111,6 +111,20 @@ function leavingRowPage(doc) {
 }
 
 const scenarios = {
+  // Keep one of two seasons of a show, its button named as the server names it.
+  async keptSeason() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    const card = page.doc.querySelector('.watch-card');
+    card.querySelector('.watch-card__link').appendChild(build(page.doc, ['span', { class: 'watch-card__sub' }, 'Season 2']));
+    card.querySelector('[data-watch-keep]').setAttribute('aria-label', 'Keep Glass Coast, Season 2');
+    page.run();
+    click(page.doc, card.querySelector('[data-watch-keep]'));
+    click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+    await settle();
+    return page.toasts.map((t) => t.message);
+  },
+
   // Keep the first card of the Leaving soon row, with motion on.
   async cardExit() {
     const page = load({ motion: true });

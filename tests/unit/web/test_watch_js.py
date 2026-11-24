@@ -97,3 +97,7 @@ def test_flip_slides_only_the_nodes_that_moved_from_where_they_were() -> None:
 
 def test_focus_put_in_the_new_view_during_a_swap_outlives_the_fade() -> None:
     assert _run("swapFocus") == "go"
+
+
+def test_the_toast_of_a_kept_season_names_it_once() -> None:
+    assert _run("keptSeason") == ["Kept Glass Coast, Season 2 for 7 days."]

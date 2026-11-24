@@ -532,16 +532,14 @@
       (menu && menu.contains(active)) || !document.body.contains(active);
   }
 
-  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>".
-     A season keep adds the season: from the card's subtitle, or the season tab shown. */
+  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>", with
+     the season of a season's. The title page's line adds the season of the tab shown. */
   function titleOf(button) {
     var label = button.getAttribute('aria-label');
     var title = label ? label.replace(/^Keep /, '') : '';
     if (!title) return '';
     var season = '';
-    var sub = button.closest('.watch-card') && button.closest('.watch-card').querySelector('.watch-card__sub');
-    if (sub && /^Season \d+$/.test(sub.textContent)) season = sub.textContent;
-    else if (button.closest('[data-watch-leaving]')) {
+    if (button.closest('[data-watch-leaving]')) {
       var tab = document.querySelector('.watch-seasons a.watch-pill.on');
       if (tab) season = tab.textContent.trim();
     }

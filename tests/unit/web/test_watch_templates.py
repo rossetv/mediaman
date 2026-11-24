@@ -495,6 +495,32 @@ def test_keep_shows_only_in_the_leaving_soon_row():
     assert 'data-keep-id="m1"' in other_row
 
 
+def test_the_keeps_of_two_seasons_of_a_show_are_told_apart_by_name():
+    seasons = [
+        _card(
+            kind="season",
+            title="Glass Coast",
+            subtitle=f"Season {n}",
+            leaving_days=3,
+            keep_id=f"s{n}",
+        )
+        for n in (2, 3)
+    ]
+
+    html = _watch(rows=[{"title": "Leaving soon", "items": seasons}])
+
+    labels = re.findall(r'data-watch-keep="(\w+)"[^>]*aria-label="([^"]*)"', html)
+    assert labels == [("s2", "Keep Glass Coast, Season 2"), ("s3", "Keep Glass Coast, Season 3")]
+
+
+def test_a_films_keep_is_named_by_its_title_alone():
+    item = _card(kind="movie", title="Fieldwork", subtitle="Movie", leaving_days=3, keep_id="m1")
+
+    html = _watch(rows=[{"title": "Leaving soon", "items": [item]}])
+
+    assert 'aria-label="Keep Fieldwork"' in html
+
+
 def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     html = _watch()
 

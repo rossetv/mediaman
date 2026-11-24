@@ -97,7 +97,7 @@
     <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and not (item.subtitle or '').endswith(' left') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
   </a>
   {% if item.mark_key %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
-  {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
+  {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title ~ (', ' ~ item.subtitle if item.kind == 'season' else '')) }}{% endif %}
 </article>
 {%- endmacro %}
 
