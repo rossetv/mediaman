@@ -966,7 +966,7 @@ const scenarios = {
   // Films and TV in one order go on from where each stands; one kind alone, and Popular, by the page's number.
   async orderedPages() {
     const out = [];
-    for (const [q, over] of [['&sort=newest', { next_after: '1:5,1:9', next_page: null }], ['&type=movie&sort=newest', { next_after: null, next_page: 2 }], ['', { next_after: null, next_page: 2 }]]) {
+    for (const [q, over] of [['&sort=newest', { next_after: '1-5,1-9', next_page: null }], ['&type=movie&sort=newest', { next_after: null, next_page: 2 }], ['', { next_after: null, next_page: 2 }]]) {
       const p = await ready(ADMIN, '', '/watch?genre=action' + q);
       await p.answer('explore?genre=action', { tmdb_configured: true, genre: GENRES[0], items: [TM], total: 40, ...over });
       const first = p.calls[0].url;

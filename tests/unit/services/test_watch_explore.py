@@ -200,7 +200,7 @@ class TestExplorePage:
         # Each of TMDB's pages once.
         assert len(tmdb.asked) == 4 + 2
 
-    @pytest.mark.parametrize("after", ["499:7,480:9", "500:1,1:0"])
+    @pytest.mark.parametrize("after", ["499-7,480-9", "500-1,1"])
     def test_a_page_reads_few_of_tmdb_s_pages_however_deep_it_is(self, tmdb, after):
         tmdb.pages = {
             f"/discover/{kind}": [_list(*_ranked(20, 1, page * 20), pages=500)] * 500
@@ -271,6 +271,35 @@ class TestExplorePage:
 
         seen = {i["id"] for i in first + rest if i["media_type"] == "movie"}
         assert seen >= {f["id"] for f in _ranked(40, 2)}
+
+    @pytest.mark.parametrize("fell", [(9,), (5, 9)])
+    def test_titles_that_fall_down_their_page_between_two_reads_hide_none(self, tmdb, fell):
+        films = _ranked(20, 2)
+        shows = [{"id": 500 + n, "vote_average": 9.5} for n in range(10)]
+        tmdb.pages = _paged(films, shows)
+        genre = catalog.GENRES["action"]
+        first, _, after = catalog.explore_page(tmdb.client, genre, sort="top_rated", after="")
+        shown = {i["id"] for i in first}
+        assert [i["id"] for i in first[10:]] == list(range(1, 11))
+        films = [f | ({"vote_average": 1.0} if n in fell else {}) for n, f in enumerate(films)]
+        tmdb.pages = _paged(sorted(films, key=lambda f: -f["vote_average"]), shows)
+        shutil.rmtree(_discover._cache()._dir())
+
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        again = [i["id"] for i in rest]
+        assert len(again) == len(set(again)) and not shown & set(again)
+        assert shown | set(again) >= {f["id"] for f in films}
+
+    def test_a_title_moved_to_the_next_page_is_in_a_reply_once(self, tmdb):
+        films = _ranked(40, 1)
+        films[20:20] = films[5:6]
+        tmdb.pages = _paged(films, _ranked(20, 60))
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert len(titles) == len(set(titles)) == 60
 
     def test_by_page_each_is_in_order_by_itself(self, tmdb):
         tmdb.pages = _paged(_ranked(40, 1), _ranked(40, 1))
