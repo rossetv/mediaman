@@ -52,6 +52,7 @@ router = APIRouter()
 
 
 def _is_count(text: str, most: int) -> bool:
+    # The length is checked before int(), which takes only so many digits.
     return (
         len(text) <= len(str(most))
         and text.isascii()
@@ -81,7 +82,6 @@ def library_page(
         params["type"] = type
     if sort in VALID_SORTS:
         params["sort"] = sort
-    # The length test comes first: int() refuses a string of thousands of digits.
     if _is_count(page, 100_000):
         params["page"] = page
     if _is_count(per_page, 100):
