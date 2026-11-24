@@ -740,6 +740,13 @@ const scenarios = {
     film.replies['post /api/media/m1/unprotect'] = () => deferred().promise;
     click(film.doc, film.row('id:m1').querySelector('[data-remove-keep-id]'));
     out.film = film.toasts[0].dismissed;
+    const again = load({ list: true });
+    again.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r)));
+    click(again.doc, keepOption(again, 'id:m1', '30 days'));
+    await settle();
+    again.replies['postForm /api/media/m1/keep'] = () => deferred().promise;
+    click(again.doc, keepOption(again, 'id:m1', '90 days'));
+    out.filmKeptAgain = again.toasts[0].dismissed;
     return out;
   },
 
