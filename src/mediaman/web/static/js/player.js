@@ -702,8 +702,8 @@
   /* ---- a lost connection ----------------------------------------------- */
 
   /* While mediaman cannot be reached: since when (`at`), what asks `again`, what
-     tidies up once it `gaveUp`, the next `wait`, whether a try is under way
-     (`trying`) and whether the message is up (`over`). */
+     tidies up once it `gaveUp`, the next `wait`, and whether the message is up
+     (`over`). What asks again drops a try still under way. */
   var lost = null;
 
   function waitOut(again, gaveUp) {
@@ -714,7 +714,6 @@
       countLost();
       showLost();
     }
-    lost.trying = false;
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);
@@ -724,7 +723,6 @@
 
   function askAgain() {
     clearTimeout(lost.tryTimer);
-    lost.trying = true;
     lost.again();
   }
 
@@ -760,7 +758,7 @@
     countLost();
     hideMessage();
     setLoading(video.ended || video.readyState < 3);
-    if (!lost.trying) askAgain();
+    askAgain();
   }
 
   /* Try again. */
@@ -799,7 +797,7 @@
     if (!lost) return;
     if (lost.over && lostLong()) return;
     if (lost.over) goOnTrying();
-    else if (!lost.trying) tryUnattended();
+    else tryUnattended();
   });
 
   /* The last request was not refused; from now on a wait is the connection's. */
@@ -858,7 +856,10 @@
 
     function gaveUp() { starting = false; }
 
+    var attempts = 0;
     function attempt(tries) {
+      var mine = ++attempts;
+      var dropped = function () { return gen !== generation || mine !== attempts; };
       var again = function () {
         starting = true;
         swapping = true;
@@ -871,7 +872,6 @@
       };
       startsOpen++;
       var open = true;
-      var late = false;
       var answered = function () {
         if (open) startsOpen--;
         open = false;
@@ -879,14 +879,15 @@
       };
       var limit = setTimeout(function () {
         answered();
-        late = true;
-        if (gen === generation) unanswered();
+        if (dropped()) return;
+        attempts++;
+        unanswered();
       }, START_WAIT_MS);
       var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() });
       start.then(answered, answered);
       return start
         .then(function (data) {
-          if (late || gen !== generation) {
+          if (dropped()) {
             if (data && data.stream_id) stopOnServer(data.stream_id);
             return;
           }
@@ -902,7 +903,7 @@
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
-          if (late || gen !== generation) return;
+          if (dropped()) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
           var code = err && err.error;
           if (code === 'network_error' || (fromProxy(status) && code === 'http_' + status)) {
@@ -2215,13 +2216,15 @@
   }
 
   /* Ask Plex again what follows, through this video's own page. */
+  var nextAsked = 0;
   function findNext() {
+    var mine = ++nextAsked;
     var gen = generation;
     hideMessage();
     setLoading(true);
     fetchPage(window.location.href)
       .then(function (page) {
-        if (gen !== generation) return;
+        if (gen !== generation || mine !== nextAsked) return;
         reached();
         var el = page.getElementById('player');
         readNext(el);
@@ -2233,7 +2236,7 @@
         return err.lost; // Otherwise still unknown.
       })
       .then(function (unreached) {
-        if (gen !== generation) return;
+        if (gen !== generation || mine !== nextAsked) return;
         if (unreached && video.ended) {
           waitOut(function () {
             if (video.ended) findNext();

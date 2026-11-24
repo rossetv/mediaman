@@ -1358,6 +1358,11 @@ def test_what_follows_is_asked_again_through_a_drop_and_once_online(unknown_next
     assert out["found"] == {"message": None, "card": True}
 
 
+def test_what_follows_is_gone_on_to_once_however_often_it_was_asked(unknown_next, markup):
+    out = run(unknown_next, "next_unknown_twice", pages={"/found": markup})
+    assert out == {"pages": 2, "asks": 1}
+
+
 def test_moving_back_while_what_follows_is_asked_ends_the_asking(unknown_next):
     out = run(unknown_next, "next_unknown_left")
     assert out == {"message": None, "notice": False, "asked": 1}
@@ -1409,6 +1414,15 @@ def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all
     out = run(markup, "start_unanswered_in_drop")
     assert out["message"] == LOST
     assert out["after"] == {"streams": 0, "stopped": True}
+
+
+@pytest.mark.parametrize("way", ["press", "online", "early"])
+@pytest.mark.parametrize("then", ["answered", "failed"])
+def test_a_press_or_coming_online_drops_a_start_that_hangs_and_tries_afresh(markup, way, then):
+    out = run(markup, "start_hangs_in_drop", plays=f"{way} {then}")
+    assert (out["message"], out["asked"]) == (None if way == "early" else LOST, 1)
+    stopped = then == "answered"
+    assert out["after"] == {"streams": 0, "starts": 1, "stopped": stopped, "message": None}
 
 
 @pytest.mark.parametrize("details", ["fragLoadError", "manifestLoadError"])

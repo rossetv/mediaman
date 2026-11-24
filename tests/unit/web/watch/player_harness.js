@@ -1460,6 +1460,27 @@ const scenarios = {
     return out;
   },
 
+  /* What follows is asked twice, as the browser comes online under a slow answer; both come. */
+  async next_unknown_twice(p) {
+    const found = p.pages['/found'].html;
+    let asks = 0;
+    p.q('[data-ask]').showModal = () => { asks++; };
+    p.pages['/watch/play/1'] = 'offline';
+    await streamPlays(p, 0);
+    p.sleep(3 * 60 * 60 * 1000);
+    endsNow(p);
+    await settle();
+    const reply = [];
+    p.pages['/watch/play/1'] = { get html() { return new Promise((r) => reply.push(r)); } };
+    p.tick(1000);
+    await settle();
+    p.online();
+    await settle();
+    reply.forEach((r) => r(found));
+    await settle();
+    return { pages: reply.length, asks: asks };
+  },
+
   /* The person moves back while what follows is still being asked. */
   async next_unknown_left(p) {
     p.pages['/watch/play/1'] = 'offline';
@@ -1734,6 +1755,34 @@ const scenarios = {
     first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     await settle();
     out.after = { streams: p.hlsList.length - streams, stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') };
+    return out;
+  },
+
+  /* In a drop a try hangs; before or under the message the person, or the browser coming online,
+     has it tried afresh. Then the hung one is answered or fails after all. */
+  async start_hangs_in_drop(p) {
+    const [way, then] = p.win.serverPlays.split(' ');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const hung = {};
+    p.replies.push(NET, { ok: new Promise((r, j) => { hung.reply = r; hung.fail = j; }) });
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    for (let i = 0; i < (way === 'early' ? 20 : 130); i++) { p.tick(500); await settle(); }
+    const out = { message: messageState(p) };
+    const starts = p.starts().length;
+    p.replies.push(answer('1080p-8000'));
+    if (way === 'press') press(p.q('[data-retry]'));
+    else p.online();
+    out.asked = p.starts().length - starts;
+    await streamPlays(p, 105);
+    const streams = p.hlsList.length;
+    if (then === 'answered') hung.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
+    else hung.fail(NET.err);
+    await settle();
+    p.tick(130000);
+    await settle();
+    out.after = { streams: p.hlsList.length - streams, starts: p.starts().length - starts, stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop'), message: messageState(p) };
     return out;
   },
 
