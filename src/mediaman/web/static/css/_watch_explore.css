@@ -26,6 +26,7 @@
 .explore-born { min-height: 1.47em; margin-top: 2px; font-size: 14px; color: var(--t3); }
 .explore-story { grid-area: 2 / 2; max-width: 68ch; }
 .explore-bio { font-size: 15px; line-height: 23px; color: var(--t2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.explore-bio.is-whole { white-space: pre-line; }
 .explore-bio.is-whole,
 .explore-bio:has(> .skel) { display: block; }
 .explore-bio > .skel--line { height: 11px; margin: 6px 0; }
