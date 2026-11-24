@@ -308,10 +308,17 @@ class TestSearchTmdb:
     ):
         assert viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["held"] == []
 
-    def test_a_one_letter_query_asks_tmdb_nothing(self, viewer, tmdb, arr):
+    def test_a_one_character_title_is_found(self, viewer, tmdb, arr):
+        tmdb.search_results = [{"id": 12, "media_type": "movie", "title": "M"}]
+
+        resp = viewer.get("/api/watch/search/tmdb", params={"q": "m"})
+
+        assert [i["title"] for i in resp.json()["items"]] == ["M"]
+
+    def test_a_blank_query_asks_tmdb_nothing(self, viewer, tmdb, arr):
         tmdb.failing = True
 
-        resp = viewer.get("/api/watch/search/tmdb", params={"q": "g"})
+        resp = viewer.get("/api/watch/search/tmdb", params={"q": " "})
 
         assert resp.status_code == 200
         assert resp.json()["items"] == []

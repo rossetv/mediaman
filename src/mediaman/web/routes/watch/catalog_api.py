@@ -134,7 +134,7 @@ def api_watch_search_tmdb(
     client = _tmdb_client(request, conn)
     if client is None:
         return respond_ok({"tmdb_configured": False, "items": [], "held": [], "people": []})
-    if len(term) < catalog.MIN_QUERY_LEN:
+    if not term:
         return respond_ok({"tmdb_configured": True, "items": [], "held": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
