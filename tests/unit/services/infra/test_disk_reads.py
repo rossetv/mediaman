@@ -129,7 +129,7 @@ def test_a_read_that_raises_anything_else_gives_its_slot_back(caplog):
     assert reads.read("b", lambda _: 5) == 5
 
 
-def test_a_read_that_ends_too_late_counts_as_failed_then_is_tried_again(release, clock):
+def test_what_a_read_that_ends_too_late_found_is_given_to_the_next_and_kept_a_while(release, clock):
     reads, calls = DiskReads(2), []
     started = threading.Event()
 
@@ -146,11 +146,32 @@ def test_a_read_that_ends_too_late_counts_as_failed_then_is_tried_again(release,
         release.set()
         assert result.result(5) is None
 
-    assert reads.read("a", slow) is None
+    for seconds in (0, 29):
+        clock[0] += seconds
+        assert reads.read("a", slow) == 1
     assert calls == ["a"]
 
-    clock[0] += 4
+    clock[0] += 2
     assert reads.read("a", lambda _: 5) == 5
+
+
+def test_a_read_that_fails_too_late_is_not_taken_for_an_answer(release, clock):
+    reads = DiskReads(2)
+    started = threading.Event()
+
+    def fail(_path):
+        started.set()
+        release.wait(30)
+        clock[0] += 5
+        raise OSError("stale mount")
+
+    with ThreadPoolExecutor(1) as pool:
+        result = pool.submit(reads.read, "a", fail)
+        started.wait(5)
+        release.set()
+        assert result.result(5) is None
+
+    assert reads.read("a", lambda _: pytest.fail("read again at once")) is None
 
 
 def test_a_hung_read_does_not_hold_the_program_open(release, short):

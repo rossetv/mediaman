@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _DEADLINE_SECONDS = 2.0
 _FAILURE_TTL_SECONDS = 3.0
+# As long as the panel keeps a reading.
+_LATE_TTL_SECONDS = 30.0
 
 
 class _Read[T]:
@@ -27,7 +29,8 @@ class DiskReads[T]:
     """At most one read in flight per path, and *slots* in all, each waited for 2 s at most.
 
     A path whose read failed is not read again for 3 s, and one whose read hangs is not
-    read again, nor waited for, until it ends.
+    read again, nor waited for, until it ends. What it then found answers for 30 s: a disk
+    that is always slow would never answer otherwise.
     """
 
     def __init__(self, slots: int) -> None:
@@ -35,12 +38,14 @@ class DiskReads[T]:
         self._changed = threading.Condition()
         self._running: dict[str, _Read[T]] = {}
         self._failed_until: dict[str, float] = {}
+        self._late: dict[str, tuple[float, _Read[T]]] = {}
 
     def reset(self) -> None:
-        """Forget every failure and leave the reads in flight to themselves."""
+        """Forget every failure and late answer, and leave the reads in flight to themselves."""
         with self._changed:
             self._running.clear()
             self._failed_until.clear()
+            self._late.clear()
 
     def read(self, path: str, reader: Callable[[str], T]) -> T | None:
         """Return ``reader(path)``, or None when it raises or is not back in time."""
@@ -65,6 +70,9 @@ class DiskReads[T]:
                 now = time.monotonic()
                 if self._failed_until.get(path, 0.0) > now:
                     return None
+                late = self._late.get(path)
+                if late is not None and late[0] > now:
+                    return late[1]
                 if running := self._running.get(path):
                     return running
                 if len(self._running) < self._slots:
@@ -100,14 +108,18 @@ class DiskReads[T]:
             now = time.monotonic()
             if self._running.get(path) is read:
                 del self._running[path]
-                # Too slow counts as failed, or every call would wait for it again.
-                if value is None or now - read.started >= _DEADLINE_SECONDS:
+                if value is None:
                     self._failed_until = {
                         p: until for p, until in self._failed_until.items() if until > now
                     }
                     self._failed_until[path] = now + _FAILURE_TTL_SECONDS
-                else:
+                elif now - read.started < _DEADLINE_SECONDS:
                     read.value = value
+                else:
+                    late: _Read[T] = _Read(now)
+                    late.done, late.value = True, value
+                    self._late = {p: kept for p, kept in self._late.items() if kept[0] > now}
+                    self._late[path] = now + _LATE_TTL_SECONDS, late
             read.done = True
             self._changed.notify_all()
 
