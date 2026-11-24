@@ -180,9 +180,7 @@ def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
 
 
 def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none() -> None:
-    assert _run("newsletterWithoutFocus") == dict.fromkeys(
-        ("open", "close", "add", "next"), True
-    )
+    assert _run("newsletterWithoutFocus") == dict.fromkeys(("open", "close", "add", "next"), True)
 
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
