@@ -74,7 +74,7 @@ def test_a_long_user_name_wraps_in_the_password_dialog() -> None:
 
 def _phone_block_with(selector: str) -> str:
     """The body of the phone `@media` block that holds a rule for `selector`."""
-    for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):
+    for m in re.finditer(r"@media \(max-width: 699\.98px\)(?:, \(pointer: coarse\))?\s*\{", PANELS):
         depth, i = 1, m.end()
         while depth:
             depth += {"{": 1, "}": -1}.get(PANELS[i], 0)
@@ -124,6 +124,28 @@ def test_a_card_heading_is_not_squeezed_by_its_button() -> None:
     rules = {head.strip(): body for head, body in rules.items()}
     assert "flex-wrap: wrap" in rules[".setg-pg .setg-card-hd"]
     assert "flex: 1 1 130px" in rules[".setg-pg .setg-card-hd .head-info"]
+
+
+def test_touch_screens_of_any_width_get_the_phone_targets() -> None:
+    for sheet, targets in (
+        ("_settings_pg_panels.css", (".btn--sm", ".link-danger")),
+        (
+            "_settings_pg.css",
+            (".setg-rail-item", ".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
+        ),
+        ("_settings.css", (".btn-test",)),
+    ):
+        css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
+        blocks = re.findall(r"@media [^{]*\(pointer: coarse\)[^{]*\{((?:[^{}]*\{[^{}]*\})*)", css)
+        tall = [
+            part.strip()
+            for block in blocks
+            for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+            if "min-height: 44px" in body
+            for part in head.split(",")
+        ]
+        for target in targets:
+            assert any(part.endswith(target) for part in tall), (sheet, target)
 
 
 def test_small_buttons_are_44px_on_phones() -> None:

@@ -413,10 +413,14 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .disk-badge.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .disk-badge.crit { color: var(--danger-text);  background: var(--rgba-danger-bg); }
 
-/* Phone tap targets: a 44px hit area on the settings controls, with the look
+/* Phone and touch targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */
-@media (max-width: 699.98px) {
-  .setg-pg .setg-rail-item { min-height: 44px; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  .setg-pg .setg-rail-item,
+  .setg-pg .fpill { min-height: 44px; }
+  .setg-pg .tog::before { content: ""; position: absolute; inset: -9px -4px; }
+  .setg-pg .lib-pill { display: inline-flex; align-items: center; min-height: 44px; }
+  .reauth-sheet .reauth-actions .btn { min-height: 44px; }
   .setg-pg .inp { min-height: 44px; }
   .setg-pg .inp-reveal::before,
   .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -9px -4px; }

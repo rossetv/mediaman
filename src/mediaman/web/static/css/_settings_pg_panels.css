@@ -286,6 +286,8 @@
   font-family: var(--font-text);
   letter-spacing: -.005em;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* A tap anywhere along the row reaches the name's box. */
+  padding: 12px 0; margin: -12px 0;
 }
 .setg-pg .recipient-item input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -474,7 +476,7 @@
   .setg-pg .intg-card-hd .hd-actions { padding-left: 0; }
 }
 
-@media (max-width: 699.98px) {
+@media (max-width: 699.98px), (pointer: coarse) {
   .setg-pg .btn--sm,
   .setg-pg .recipient-toggles .btn { min-height: 44px; }
   .setg-pg .link-danger,
