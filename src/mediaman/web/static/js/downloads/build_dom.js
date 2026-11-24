@@ -18,6 +18,7 @@
  *   MM.downloads.buildDom.syncTypePill(info, mediaType)  the Movie or TV pill above a hero's title
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
+ *   MM.downloads.buildDom.recentWords(r)            the line under a recent item's title
  *   MM.downloads.buildDom.buildEmptyState(outage)
  *   MM.downloads.buildDom.held(id, title, data)    the item's service does not answer and nothing stands in for it
  *   MM.downloads.buildDom.markHeld(card)            dim a hero or row of a service that does not answer
@@ -180,6 +181,10 @@
     if (window.DLPoster) window.DLPoster.apply(bg);
   }
 
+  var RECENT_WORDS = { part: 'Some episodes ready', unknown: 'Added' };
+
+  function recentWords(r) { return RECENT_WORDS[r.readiness] || 'Ready to watch'; }
+
   /* Build a recent item element safely. */
   function buildRecentItem(r) {
     var item = document.createElement('div');
@@ -188,7 +193,7 @@
     var poster = document.createElement('div');
     poster.className = 'dl-recent-poster';
     if (r.poster_url) poster.appendChild(buildPoster(r.poster_url));
-    if (!r.partial) {
+    if (!RECENT_WORDS[r.readiness]) {
       var badge = document.createElement('div');
       badge.className = 'dl-recent-badge';
       badge.appendChild(MM.dom.icon('i-check'));
@@ -202,8 +207,8 @@
     item.appendChild(title);
 
     var sub = document.createElement('div');
-    sub.className = 'dl-recent-sub' + (r.partial ? ' dl-recent-sub--partial' : '');
-    sub.textContent = r.partial ? 'Some episodes ready' : 'Ready to watch';
+    sub.className = 'dl-recent-sub' + (RECENT_WORDS[r.readiness] ? ' dl-recent-sub--plain' : '');
+    sub.textContent = recentWords(r);
     item.appendChild(sub);
 
     return item;
@@ -847,6 +852,7 @@
     updateEtaStat:        updateEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
+    recentWords:          recentWords,
     buildEmptyState:      buildEmptyState,
     held:                 held,
     markHeld:             markHeld,

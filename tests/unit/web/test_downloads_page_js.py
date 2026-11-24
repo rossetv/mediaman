@@ -245,10 +245,11 @@ def test_recent_grid_is_rebuilt_only_when_it_changes() -> None:
     assert out["count"] == 3
 
 
-def test_a_show_there_in_part_is_not_called_ready_until_it_is() -> None:
+def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
     out = _run("recent")
     ready = ["Ready to watch", True]
-    assert out["partial"] == [["Some episodes ready", False], ready]
+    assert out["part"] == [["Some episodes ready", False], ready]
+    assert out["unknown"] == [["Added", False], ready]
     assert out["whole"] == [ready, ready]
 
 

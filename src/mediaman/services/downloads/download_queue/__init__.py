@@ -83,10 +83,11 @@ _previous_initialised: bool = False
 # The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
 _last_cards: list[ArrCard] = []
 
-# The titles of the shows that lack an aired episode they should have, as Sonarr last told, and
-# when that was: an open page polls every two seconds, and need not read them each time.
+# The titles of the shows that lack an aired episode they should have, as Sonarr last told (None
+# when it has not), and when it was last asked: an open page polls every two seconds, and need
+# not read them each time.
 _UNREADY_KEPT_SECONDS = 30.0
-_unready_shows: frozenset[str] = frozenset()
+_unready_shows: frozenset[str] | None = None
 _unready_read_at: float | None = None
 
 _state_lock = threading.Lock()
@@ -98,7 +99,7 @@ def _reset_previous_queue() -> None:
         _previous_queue = {}
         _previous_initialised = False
         _last_cards = []
-        _unready_shows = frozenset()
+        _unready_shows = None
         _unready_read_at = None
 
 
@@ -246,9 +247,9 @@ def _maybe_record_completions(
 
 def _read_unready_shows(
     conn: sqlite3.Connection, secret_key: str, unreachable: Collection[str]
-) -> frozenset[str]:
+) -> frozenset[str] | None:
     """Return the titles of the shows that are not all there; those last known while Sonarr
-    does not answer.
+    does not answer, None when it has not since mediaman started.
     """
     from mediaman.services.arr.build import build_sonarr_from_db
 
@@ -256,8 +257,11 @@ def _read_unready_shows(
     now = time.monotonic()
     with _state_lock:
         known, read_at = _unready_shows, _unready_read_at
-    if "Sonarr" in unreachable or (read_at is not None and now - read_at < _UNREADY_KEPT_SECONDS):
-        return known
+        if "Sonarr" in unreachable or (
+            read_at is not None and now - read_at < _UNREADY_KEPT_SECONDS
+        ):
+            return known
+        _unready_read_at = now
     try:
         client = build_sonarr_from_db(conn, secret_key)
         series = client.get_series() if client else []
@@ -270,21 +274,28 @@ def _read_unready_shows(
         if not all(season_on_disk(season) for season in _aired_monitored_seasons(s))
     )
     with _state_lock:
-        _unready_shows, _unready_read_at = unready, now
+        _unready_shows = unready
     return unready
 
 
-def _mark_partial(
+def _mark_readiness(
     conn: sqlite3.Connection,
     recent: list[dict[str, object]],
     secret_key: str,
     unreachable: Collection[str],
 ) -> None:
-    """Say of each recent show whether it is there only in part, so it is not called ready."""
+    """Say of each recent item whether it is "ready", there in "part" (a show lacking episodes)
+    or "unknown" (a show while nothing is known of it).
+    """
     shows = [item for item in recent if item["media_type"] == "series"]
-    unready = _read_unready_shows(conn, secret_key, unreachable) if shows else frozenset()
+    unready = _read_unready_shows(conn, secret_key, unreachable) if shows else None
     for item in recent:
-        item["partial"] = item["media_type"] == "series" and item["title"] in unready
+        item["readiness"] = "ready"
+    for item in shows:
+        if unready is None:
+            item["readiness"] = "unknown"
+        elif item["title"] in unready:
+            item["readiness"] = "part"
 
 
 def _downloads_subtitle(
@@ -401,7 +412,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         list[dict[str, object]],
         fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key),
     )
-    _mark_partial(conn, recent, secret_key, unreachable)
+    _mark_readiness(conn, recent, secret_key, unreachable)
 
     upcoming = cast(list[dict[str, object]], upcoming_items)
     outage = _outage_line(unreachable)

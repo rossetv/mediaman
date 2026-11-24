@@ -292,19 +292,19 @@ def test_a_recent_show_lacking_an_aired_season_is_there_in_part_until_it_is_whol
         )
     sonarr.get_series.return_value = [_show("Half", 8, 0), _show("Whole", 8, 8)]
 
-    def partial() -> dict[str, bool]:
-        return {r["id"]: r["partial"] for r in _get(client)["recent"]}
+    def readiness() -> dict[str, str]:
+        return {r["id"]: r["readiness"] for r in _get(client)["recent"]}
 
-    in_part = {"sonarr:Half": True, "sonarr:Whole": False, "radarr:Half": False}
-    assert partial() == in_part
+    in_part = {"sonarr:Half": "part", "sonarr:Whole": "ready", "radarr:Half": "ready"}
+    assert readiness() == in_part
 
     clock[0] += 3600
     sonarr.get_queue.side_effect = sonarr.get_series.side_effect = _DOWN
-    assert partial() == in_part, "an outage tells nothing new"
+    assert readiness() == in_part, "an outage tells nothing new"
 
     sonarr.get_queue.side_effect = sonarr.get_series.side_effect = None
     sonarr.get_series.return_value = [_show("Half", 8, 8), _show("Whole", 8, 8)]
-    assert set(partial().values()) == {False}
+    assert set(readiness().values()) == {"ready"}
 
 
 @pytest.mark.parametrize("monitored", [True, False])
@@ -317,4 +317,39 @@ def test_a_recent_show_is_there_in_part_only_by_seasons_still_wanted(
             " VALUES ('sonarr:Half', 'Half', 'series')"
         )
     services[1].get_series.return_value = [_show("Half", 8, 0, monitored=monitored)]
-    assert [r["partial"] for r in _get(client)["recent"]] == [monitored]
+    expected = "part" if monitored else "ready"
+    assert [r["readiness"] for r in _get(client)["recent"]] == [expected]
+
+
+def test_a_recent_show_is_not_called_ready_before_sonarr_has_told(
+    services, client, conn, monkeypatch
+):
+    sonarr = services[1]
+    clock = [1000.0]
+    monkeypatch.setattr(
+        "mediaman.services.downloads.download_queue.time.monotonic", lambda: clock[0]
+    )
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type, poster_url)"
+            " VALUES ('sonarr:Half', 'Half', 'series', ?)",
+            (_POSTER,),
+        )
+    sonarr.get_queue.side_effect = _DOWN
+
+    def readiness() -> list[str]:
+        return [r["readiness"] for r in _get(client)["recent"]]
+
+    assert readiness() == ["unknown"]
+
+    # what the queue takes answers, what the shows are read from does not
+    sonarr.get_queue.side_effect = None
+    sonarr.get_series.side_effect = [[], _DOWN, [], [_show("Half", 8, 0)]]
+    assert readiness() == ["unknown"]
+    assert readiness() == ["unknown"]
+    assert sonarr.get_series.call_count == 3, "a read that failed is not asked again at once"
+
+    clock[0] += 31
+    sonarr.get_series.side_effect = None
+    sonarr.get_series.return_value = [_show("Half", 8, 0)]
+    assert readiness() == ["part"]
