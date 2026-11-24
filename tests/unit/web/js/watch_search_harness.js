@@ -450,6 +450,17 @@ const scenarios = {
     return out;
   },
 
+  // An Enter that ends a composition, or one held down, does not search again.
+  async enterNotAsked() {
+    const p = load(ADMIN);
+    p.type('orchard');
+    for (const held of [{ isComposing: true }, { repeat: true }]) {
+      p.input.listeners.keydown.forEach((fn) => fn({ key: 'Enter', preventDefault() {}, ...held }));
+    }
+    await settle();
+    return p.calls.length;
+  },
+
   // A search in the address opens on the results: the rows never show, and a skeleton holds the place.
   async openedOnResults() {
     const p = load(ADMIN, 'orchard');

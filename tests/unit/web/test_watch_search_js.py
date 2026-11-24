@@ -203,3 +203,7 @@ def test_a_later_group_crosses_over_its_skeleton_and_old_results_do_not_fade_in_
     assert out["slotBefore"] is True
     assert out["crossing"] == {"grid": "grid", "parts": 2, "skeletonInert": True, "cards": 1}
     assert out["settled"] == {"children": 1, "skeleton": 0, "cards": 1, "fadeIn": 0}
+
+
+def test_an_enter_held_down_or_ending_a_composition_searches_nothing() -> None:
+    assert _run("enterNotAsked") == 0

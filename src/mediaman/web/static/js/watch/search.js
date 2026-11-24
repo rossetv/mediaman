@@ -584,7 +584,8 @@
     });
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && input.value) { e.preventDefault(); clearSearch(); return; }
-      if (e.key !== 'Enter') return;
+      // An Enter that ends a composition, or one held down, asks for nothing new.
+      if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
       e.preventDefault();
       clearTimeout(timer);
       change();
