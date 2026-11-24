@@ -170,7 +170,10 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
     execute_at TEXT,
     token_used INTEGER NOT NULL,
     snoozed_at TEXT,
-    snooze_duration TEXT
+    snooze_duration TEXT,
+    -- What finds the new key of a film Plex lists with another file.
+    tmdb_id INTEGER,
+    plex_library_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);

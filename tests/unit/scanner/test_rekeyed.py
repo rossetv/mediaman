@@ -15,7 +15,7 @@ from mediaman.scanner.repository.watch_credit import carry_last_watched
 from mediaman.web.auth.password_hash import delete_user
 from mediaman.web.repository.kept import upsert_kept_show
 from mediaman.web.repository.watch_progress import save_progress
-from tests.helpers.factories import insert_kept_show
+from tests.helpers.factories import insert_kept_show, insert_scheduled_action
 
 _OLD = datetime(2020, 1, 1, tzinfo=UTC)
 _NOW = datetime(2026, 11, 24, 12, tzinfo=UTC)
@@ -129,6 +129,20 @@ def _scheduled(conn):
     }
 
 
+def _schedule(conn, *media_ids, **kwargs):
+    for media_id in media_ids:
+        insert_scheduled_action(
+            conn,
+            media_item_id=media_id,
+            action="scheduled_deletion",
+            token=f"due-{media_id}",
+            execute_at=(_NOW + timedelta(days=14)).isoformat(),
+            token_used=False,
+            **kwargs,
+        )
+    conn.commit()
+
+
 def _keep(conn, show, *, action="protected_forever", execute_at=None):
     insert_kept_show(
         conn,
@@ -206,8 +220,8 @@ class TestWholeShowKeep:
     def test_seasons_scheduled_beside_the_old_key_are_not_once_it_goes(self, conn, freezer, run):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")
-        _scan(conn, seasons=[*_SHOW, *_REKEYED])
-        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+        _sync(conn, seasons=[*_SHOW, *_REKEYED])
+        _schedule(conn, "new-show-s1", "new-show-s2")
 
         freezer.tick(60)
         run(conn, seasons=_REKEYED)
@@ -234,9 +248,9 @@ class TestWholeShowKeep:
     ):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show", action="snoozed", execute_at=(_NOW + timedelta(days=9)).isoformat())
-        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+        _sync(conn, seasons=[*_SHOW, *_REKEYED])
         _keep(conn, "new-show")
-        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+        _schedule(conn, "new-show-s1", "new-show-s2")
 
         freezer.tick(60)
         run(conn, seasons=_REKEYED)
@@ -246,12 +260,8 @@ class TestWholeShowKeep:
     def test_a_season_already_being_deleted_keeps_its_row_for_the_pass(self, conn, freezer):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")
-        _scan(conn, seasons=[*_SHOW, *_REKEYED])
-        with conn:
-            conn.execute(
-                "UPDATE scheduled_actions SET delete_status = 'deleting' "
-                "WHERE media_item_id = 'new-show-s2'"
-            )
+        _sync(conn, seasons=[*_SHOW, *_REKEYED])
+        _schedule(conn, "new-show-s2", delete_status="deleting")
 
         freezer.tick(60)
         _sync(conn, seasons=_REKEYED)
@@ -401,13 +411,26 @@ class TestWholeShowKeep:
         assert _kept(conn)["new-show"] == FOREVER
         assert _scheduled(conn) == set()
 
-    def test_a_copy_listed_beside_the_kept_show_is_not_kept(self, conn):
+    @pytest.mark.parametrize("seasons", [[*_SHOW, *_REKEYED], [*_REKEYED, *_SHOW]])
+    def test_another_key_listed_beside_it_is_neither_scheduled_nor_given_the_keep(
+        self, conn, seasons
+    ):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")
 
-        _scan(conn, seasons=[_season("show", 1, prefix="copy-"), *_SHOW])
+        _scan(conn, seasons=seasons)
 
-        assert _scheduled(conn) == {"copy-show-s1"}
+        assert _scheduled(conn) == set()
+        assert "new-show" not in _kept(conn)
+
+    def test_another_key_listed_beside_it_is_scheduled_once_the_keep_ends(self, conn, freezer):
+        _sync(conn, seasons=[*_SHOW, *_REKEYED])
+        _keep(conn, "show", action="snoozed", execute_at=(_NOW + timedelta(days=9)).isoformat())
+        freezer.tick(timedelta(days=10))
+
+        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+
+        assert _scheduled(conn) >= {"new-show-s1", "new-show-s2"}
 
     def test_a_keep_for_a_while_ends_when_it_did(self, conn, freezer):
         until = (_NOW + timedelta(days=30)).isoformat()

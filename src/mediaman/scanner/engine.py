@@ -310,6 +310,13 @@ class ScanEngine:
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
         repository.restore_progress(self._conn)
+        self._settle_keeps()
+
+    def _settle_keeps(self) -> None:
+        """Let every key of a kept title have what its keep means, now that all are stored."""
+        repository.carry_film_keeps(self._conn)
+        if not self._dry_run:
+            repository.cancel_deletions_kept_under_another_key(self._conn)
         self._conn.commit()
 
     def _upsert_item_isolated(self, f: PlexItemFetch) -> bool:
@@ -414,6 +421,7 @@ class ScanEngine:
             scan_library = scan_tv_library if lib_type == "show" else scan_movie_library
             evaluations.append(scan_library(self, lib_id, summary, seen))
             self._conn.commit()
+        self._settle_keeps()
         for evaluate in evaluations:
             evaluate()
             self._conn.commit()
