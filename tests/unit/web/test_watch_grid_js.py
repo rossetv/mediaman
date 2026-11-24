@@ -320,3 +320,11 @@ def test_what_loads_as_a_grid_opens_does_not_cut_off_what_it_says_of_itself() ->
     assert opened == "Movies, 12 titles, as a grid. Press Escape to go back."
     assert early == [opened, opened]
     assert later == "1 more loaded. That is everything."
+
+
+def test_forward_leaves_a_grid_scrolled_on_into_to_grow_back_and_back_puts_its_rows_back() -> None:
+    out = _run("throughTheHistory")
+    assert (out["deep"]["placed"], out["deep"]["moving"]) == (False, False)
+    assert out["shallow"] == {"placed": True, "moving": True, "y": 60}
+    assert out["still"]["placed"] is False
+    assert out["closed"] == {"y": 777, "left": 450}

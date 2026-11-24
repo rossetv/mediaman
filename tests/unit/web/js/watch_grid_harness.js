@@ -292,6 +292,25 @@ const scenarios = {
     return { opened, mid: r.top + r.height / 2, focus: p.focus(), ...p.state() };
   },
 
+  /* Forward into a grid left scrolled, then Back to rows this page never saw before the grid. */
+  async throughTheHistory() {
+    const go = (y, motion) => {
+      const p = load({ motion });
+      p.scroll(90);
+      const step = { y };
+      p.ctx.MMWatch.address = { top: () => 'grid', arriving: () => ({ ...step, rows: { movies: 450 } }) };
+      const placed = p.grid.open(p.opts());
+      return { placed, moving: p.grid.moving(), y: win.y };
+    };
+    const p = load();
+    p.rows[0].setAttribute('data-row-id', 'movies');
+    p.grid.open(p.opts({ instant: true }));
+    p.ctx.MMWatch.address = { top: () => null, arriving: () => ({ y: 777, rows: { movies: 450 } }) };
+    p.grid.close();
+    const closed = { y: win.y, left: p.rows[0].querySelector('.watch-row__scroll').scrollLeft };
+    return { closed, deep: go(5000, true), shallow: go(60, true), still: go(60, false) };
+  },
+
   async serverDrawn() {
     const p = load({ server: true });
     p.browse.hidden = true;

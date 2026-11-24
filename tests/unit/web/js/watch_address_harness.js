@@ -157,6 +157,25 @@ const scenarios = {
     return { movies: movies.scrollLeft, recent: recent.scrollLeft };
   },
 
+  // Scroll that is still growing back is waited for as long as the page grows.
+  async aSlowPageGrowsBack() {
+    const tab = makeTab('/watch');
+    let p = open(tab);
+    p.scroll(5000);
+    p.fire('pagehide');
+    p = open(tab, { tallest: 900 });
+    const waits = () => p.timers.filter((t) => t.on).length;
+    for (const tall of [2000, 4000]) {
+      const old = p.timers.filter((t) => t.on)[0];
+      p.win.tallest = tall;
+      p.observers[0].fn();
+      if (old.on) { old.on = false; old.fn(); }
+    }
+    p.win.tallest = 9000;
+    if (!p.observers[0].off) p.observers[0].fn();
+    return { y: p.win.scrollY, waits: waits() };
+  },
+
   async playLinks() {
     const follow = (url, href, type) => {
       const p = open(makeTab(url));

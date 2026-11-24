@@ -35,6 +35,7 @@
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
   var ats = {}; // how far along each entry seen stands, by id
   var placing = null; // the scroll being put back
+  var arriving = null; // the entry a step through the history leads to, while its layers open and close
   var rowsById = {}; // how far each entry's rows were scrolled when its page was left, by id
   var rowsNow = {}; // how far each row is scrolled, by its id
   var rowsBack = {}; // how far each row not put back yet was scrolled
@@ -250,7 +251,9 @@
     startPlacing();
     var shutting = asked && asked.close ? named(asked.close) : null;
     if (shutting && readNow(shutting) !== null) moveTo(without(shutting));
+    arriving = { y: saved, rows: rowsNow };
     var placed = route('pop', null);
+    arriving = null;
     if (placed || saved === undefined) stopPlacing();
     else putBack(saved);
     refocus();
@@ -292,11 +295,19 @@
       window.addEventListener(type, stopPlacing, { passive: true, capture: true });
       mine.stop.push(function () { window.removeEventListener(type, stopPlacing, { capture: true }); });
     });
-    var timer = setTimeout(stopPlacing, GROW_MS);
+    var timer = null;
+    function wait() {
+      clearTimeout(timer);
+      timer = setTimeout(stopPlacing, GROW_MS);
+    }
+    wait();
     mine.stop.push(function () { clearTimeout(timer); });
     // A page still filling is too short for it yet.
     if ('ResizeObserver' in window) {
-      var grows = new ResizeObserver(go);
+      var grows = new ResizeObserver(function () {
+        if (placing === mine) wait();
+        go();
+      });
       grows.observe(document.body);
       mine.stop.push(function () { grows.disconnect(); });
     }
@@ -458,6 +469,7 @@
     close: close,
     top: top,
     value: value,
-    putRowsBack: putRowsBack
+    putRowsBack: putRowsBack,
+    arriving: function () { return arriving; }
   };
 })();

@@ -815,6 +815,12 @@
     };
   }
 
+  /* The entry Back or Forward leads to, when where it was scrolled is known. */
+  function arriving() {
+    var to = watch.address && watch.address.arriving();
+    return to && to.y !== undefined ? to : null;
+  }
+
   /* Back to it, with the rows laid out. From a link there is none: the row in the middle of the screen. */
   function restoreLefts() {
     (place ? place.lefts : []).forEach(function (l) {
@@ -826,6 +832,13 @@
   }
 
   function placeFromLink(opts) {
+    var back = arriving();
+    if (back) {
+      return { y: back.y, focus: null, lefts: scrollers().map(function (s) {
+        var section = s.closest('[data-row-id]');
+        return { node: s, left: (section && back.rows[section.getAttribute('data-row-id')]) || 0 };
+      }) };
+    }
     var row = rowOf(opts);
     if (!row) return { y: 0, lefts: [], focus: null };
     var keep = window.scrollY;
@@ -1130,39 +1143,43 @@
     return !!now.opts.sort && !!opts.sort && !opts.sort.jump && opts.sort.value !== now.value;
   }
 
+  /* Says whether the page stands where it should: scrolled on into before, the
+     grid grows back to there first. */
   function open(opts) {
     if (!dom) build();
     if (watch.preview && watch.preview.close) watch.preview.close();
     dom.sortMenu.close(false);
     if (move && now && now.opts.id === opts.id && !resorted(opts)) {
-      if (move.to === 'grid') return;
+      if (move.to === 'grid') return true;
       ghost(swapLayers('grid', function () { return move.gridY; }));
       play('grid');
       announce();
-      return;
+      return true;
     }
     settle();
     if (now && now.opts.id === opts.id) {
       if (resorted(opts)) choose(opts.sort.value);
-      return;
+      return true;
     }
     var fromRows = !browse.hidden && !now;
     if (fromRows && !opts.instant) savePlace();
     else if (!now && !opts.again) place = null;
-    var first = fromRows && !opts.instant ? firstSeen(rowOf(opts)) : null;
+    var back = opts.instant ? null : arriving();
+    var deep = !!back && back.y > window.innerHeight / 2;
+    var first = fromRows && !opts.instant && !back ? firstSeen(rowOf(opts)) : null;
     var y = window.scrollY;
     fill(opts);
-    if (!fromRows || opts.instant || core.reduceMotion() || !dom.all.animate) {
+    if (!fromRows || opts.instant || deep || core.reduceMotion() || !dom.all.animate) {
       browse.hidden = true;
       dom.all.hidden = false;
       scrollPage(opts.instant ? y : Math.min(y, headScroll()));
       aim(first);
       announce();
       stuck();
-      return;
+      return !back;
     }
     now.list.hold(true);
-    var bar = swapLayers('grid', function () { return Math.min(y, headScroll()); });
+    var bar = swapLayers('grid', function () { return back ? back.y : Math.min(y, headScroll()); });
     aim(first);
     ghost(bar);
     lastY = window.scrollY;
@@ -1171,6 +1188,7 @@
     move.tracks = measure(opts);
     play('grid');
     announce();
+    return true;
   }
 
   function close(how) {

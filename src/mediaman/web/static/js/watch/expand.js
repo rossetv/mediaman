@@ -250,7 +250,7 @@
       drawn: how.drawn ? drawn : null,
       cards: function () { return cardsIn(rowOf(id)).map(grid.copy); }
     });
-    grid.open(Object.assign({
+    var placed = grid.open(Object.assign({
       id: id, title: titles[id], total: null,
       row: function () { return rowOf(id); },
       back: function () { address.back('grid'); },
@@ -259,6 +259,7 @@
     // A card kept or dismissed in there leaves it as it leaves the row.
     document.querySelector('.watch-all__body').toggleAttribute('data-watch-leaving-row', id === 'leaving');
     if (section) setTimeout(function () { hideOffer(section); }, core.tokenMs('--dur-fast', 150));
+    return placed;
   }
 
   /* ── The address ── */
@@ -291,8 +292,8 @@
         var first = how === 'start';
         var again = !first && away;
         away = false;
-        show(at[0], sortOf(at[0], at[1]), { instant: first || again, again: again, drawn: first && !!drawn && drawn.id === at[0] });
-        return !first && !again;
+        var placed = show(at[0], sortOf(at[0], at[1]), { instant: first || again, again: again, drawn: first && !!drawn && drawn.id === at[0] });
+        return !first && !again && placed;
       },
       close: function () {
         if (!grid.isOpen() && !grid.moving()) return false;
