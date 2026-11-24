@@ -1235,10 +1235,9 @@
     function syncUrl(q) {
       var away = q && (address.value('explore') !== null || address.value('grid') !== null);
       if (away) {
-        var over = address.value('grid') !== null;
         address.push('search', address.url(Object.assign({}, PAGE_PARAMS, { q: q })));
-        // Outlives a reload: emptied, the search gives way to the grid it was typed over.
-        if (over) window.history.replaceState(Object.assign({}, window.history.state, { mmOverGrid: true }), '');
+        // Outlives a reload: emptied, the search gives way to what it was typed over.
+        window.history.replaceState(Object.assign({}, window.history.state, { mmOver: true }), '');
         return;
       }
       var to = address.url({ q: q || null });
@@ -1304,9 +1303,9 @@
         return;
       }
       stop();
-      if (!q && address.value('search') !== null && (window.history.state || {}).mmOverGrid) {
+      if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        // The grid takes the focus as it opens.
+        // What opens there takes the focus.
         address.back('search', function () { input.focus({ preventScroll: true }); });
         return;
       }

@@ -1267,11 +1267,15 @@ const scenarios = {
     choose(p, 'library');
     out.asked = p.calls[p.calls.length - 1].url;
     out.address = [p.url(), p.tab.entries.length];
+    const held = () => p.doc.querySelector('.explore-grid').classList.contains('is-held');
+    out.held = [held()];
     await p.answer('where=library', reply({ where: 'library' }));
+    out.held.push(held());
     out.said = p.doc.querySelector('.explore-facts').textContent;
     choose(p, 'anywhere');
     out.anywhere = [p.calls[p.calls.length - 1].url, p.url()];
     const linked = await ready(ADMIN, '', '/watch?genre=action&where=library', cats(true));
+    out.heldLinked = linked.doc.querySelector('.explore-grid').classList.contains('is-held');
     out.linked = [linked.calls[0].url, seg(linked).querySelectorAll('[aria-pressed="true"]').map((b) => b.textContent)];
     out.bogus = (await ready(ADMIN, '', '/watch?genre=action&where=moon', cats(true))).calls[0].url;
     const unready = await ready(ADMIN, '', '/watch?genre=action', cats(false));
@@ -1350,6 +1354,22 @@ const scenarios = {
     } finally {
       delete Node.prototype.animate;
     }
+  },
+
+  // A search typed over a category or a person, then emptied: their page again, the bar still in use.
+  async emptiedOverPage() {
+    const out = [];
+    for (const [at, how] of [['/watch?genre=action&sort=newest', 'cross'], ['/watch?genre=action&sort=newest', 'typed'], ['/watch?person=9001', 'escape']]) {
+      const p = await ready(ADMIN, '', at);
+      p.input.focus();
+      await p.search('orchard');
+      if (how === 'typed') p.type('');
+      else if (how === 'cross') click(p.doc, p.$('watch-search-clear'));
+      else p.key('Escape');
+      await settle();
+      out.push([p.url(), p.tab.index, p.grids.length, p.doc.querySelector('.explore') !== null, p.doc.activeElement === p.input]);
+    }
+    return out;
   },
 };
 

@@ -579,3 +579,15 @@ def test_tab_goes_on_from_the_field_into_the_rows_behind_the_sheet() -> None:
 
 def test_the_rows_are_gone_though_a_category_opens_while_they_fade() -> None:
     assert _run("pageDuringFade") == ["results", False]
+
+
+def test_a_search_emptied_over_a_category_or_person_returns_to_their_page() -> None:
+    genre = ["/watch?genre=action&sort=newest", 0, 2, True, True]
+    assert _run("emptiedOverPage") == [genre, genre, ["/watch?person=9001", *genre[1:]]]
+
+
+def test_the_cards_of_the_library_alone_do_not_say_they_are_in_the_library() -> None:
+    out = _run("where")
+    # Not before its own cards are there.
+    assert out["held"] == [False, True]
+    assert out["heldLinked"] is True
