@@ -205,3 +205,58 @@ def test_a_card_s_open_menu_closes_when_the_card_goes_and_another_s_stays() -> N
     assert out["undone"] is False
     assert out["another"] == [True, True]
     assert out["left"] == [False, "movie/1"]
+
+
+def test_undoing_an_older_mark_shows_the_server_s_card_once_and_in_its_place() -> None:
+    out = _run("undoOldestMark")
+    row = ["movie/1", "episode/22", "movie/3"]
+    assert out["replaced"] == {
+        "marked": ["movie/1", "episode/24", "movie/3"],
+        "oldest": row,
+        "both": row,
+        "rows": 1,
+        "started": 0,
+    }
+    assert out["left"] == {
+        "marked": ["movie/1", "movie/3"],
+        "oldest": row,
+        "both": row,
+        "rows": 1,
+        "started": 0,
+    }
+    # The row came back with the card, with its arrows.
+    assert out["rowGone"] == {
+        "marked": [],
+        "oldest": ["episode/22"],
+        "both": ["episode/22"],
+        "rows": 1,
+        "started": 1,
+    }
+
+
+def test_an_undone_title_joins_the_row_the_server_s_page_brought_back() -> None:
+    assert _run("undoIntoANewRow") == {
+        "one": ["episode/22"],
+        "both": ["episode/22", "movie/3"],
+        "rows": 1,
+    }
+
+
+def test_banners_undone_oldest_first_show_the_server_s_banner_each_time() -> None:
+    out = _run("undoOldestBanner")
+    assert out["states"] == [[], ["Fieldwork"], ["Fieldwork"], ["Fieldwork"]]
+    assert out["marks"] == ["movie/1", "episode/22", "movie/3"]
+
+
+def test_undoing_an_older_season_s_mark_says_what_is_left_now() -> None:
+    assert _run("undoOldestSeason") == [
+        [False, "TV · 2 seasons · 5 left"],
+        [False, "Season 21"],
+        [True, "Season 22"],
+    ]
+
+
+def test_an_undone_dismissal_stands_while_the_server_cannot_ask_plex() -> None:
+    out = _run("undoWithoutPlex")
+    assert out["gone"] == [["Fieldwork"], ["movie/1", "movie/3"]]
+    assert out["back"] == [["Brightwater"], ["movie/1", "episode/22", "movie/3"]]

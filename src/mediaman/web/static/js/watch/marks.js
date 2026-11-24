@@ -55,9 +55,23 @@
     });
   }
 
+  /* The row of *root* that Continue watching is in. */
+  function continueRow(root) {
+    var card = toArray(root.querySelectorAll('.watch-card[data-dismiss-ref]'))
+      .filter(function (n) { return !n.classList.contains('is-kept'); })[0];
+    return card ? card.closest('.watch-row') : null;
+  }
+
+  /* The banner shown: not one on its way out. */
+  function bannerNow() {
+    return toArray(document.querySelectorAll('.watch-banner')).filter(function (n) { return !n.hasAttribute('inert'); })[0] || null;
+  }
+
+  function isBannerOf(banner, ref) { return !!banner && banner.getAttribute('data-dismiss-ref') === ref; }
+
   function bannerOf(ref) {
-    var banner = document.querySelector('.watch-banner[data-dismiss-ref]');
-    return banner && banner.getAttribute('data-dismiss-ref') === ref ? banner : null;
+    var banner = bannerNow();
+    return isBannerOf(banner, ref) ? banner : null;
   }
 
   /* ── One change at a time ──
@@ -163,12 +177,21 @@
     if (trigger && card.contains(trigger)) moreMenu.close(false);
   }
 
+  /* An Undo puts the old nodes back only where they still belong: what another
+     change has replaced or taken out since is drawn from the server's page. */
+
   function leaveContinue(ref, done) {
     continueCards(document, ref).forEach(function (card) {
       closeMenu(card);
       var lost = focusLost(card);
-      var taken = keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '[data-watch-more]');
-      done.undos.push(taken.undo);
+      var row = card.closest('.watch-row');
+      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '[data-watch-more]');
+      done.rows = true;
+      done.undos.push(function () {
+        var now = continueRow(document);
+        if (continueCards(document, ref).length || (now && now !== row)) return null;
+        return taken.undo();
+      });
       if (lost && taken.focus) core.focusSoftly(taken.focus);
     });
   }
@@ -179,8 +202,9 @@
     var lost = focusLost(card);
     card.replaceWith(fresh);
     core.fadeIn(fresh);
+    done.rows = true;
     done.undos.push(function () {
-      if (!fresh.parentNode) return null;
+      if (!document.body.contains(fresh) || fresh.classList.contains('is-kept')) return null;
       closeMenu(fresh);
       fresh.replaceWith(card);
       core.fadeIn(card);
@@ -189,17 +213,48 @@
     if (lost) fresh.querySelector('[data-watch-more]').focus({ preventScroll: true });
   }
 
+  /* The server's card that the page lacks, in its place in the row, or with its row. */
+  function enterContinue(now) {
+    var row = continueRow(document);
+    var fresh = document.importNode(row ? now : now.closest('.watch-row'), true);
+    if (row) {
+      var next = null;
+      for (var n = now.nextElementSibling; n && !next; n = n.nextElementSibling) {
+        next = continueCards(row, n.getAttribute('data-dismiss-ref'))[0];
+      }
+      row.querySelector('.watch-row__scroll').insertBefore(fresh, next || null);
+    } else {
+      var rows = document.querySelector('.watch-rows');
+      rows.insertBefore(fresh, rows.children[0] || null);
+      window.MMWatch.rows.init(fresh.querySelector('.watch-row__viewport'));
+    }
+    core.fadeIn(fresh);
+  }
+
   function playOf(banner) { return banner.querySelector('.watch-btn--play').getAttribute('href'); }
 
   function replaceBanner(banner, fresh, done) {
-    if (fresh && playOf(fresh) === playOf(banner)) return;
-    var lost = focusLost(banner);
+    if (fresh && banner && playOf(fresh) === playOf(banner)) return;
+    var lost = banner && focusLost(banner);
+    if (fresh) fresh = document.importNode(fresh, true);
+    if (!banner) {
+      var browse = byId('watch-browse');
+      browse.insertBefore(fresh, browse.children[0] || null);
+      core.fadeIn(fresh);
+      return;
+    }
+    done.rows = true;
     if (fresh) {
-      fresh = document.importNode(fresh, true);
       core.swap(banner, fresh);
-      done.undos.push(function () { core.swap(fresh, banner); });
+      done.undos.push(function () { if (bannerNow() === fresh) core.swap(fresh, banner); });
     } else {
-      done.undos.push(keep.foldAway(banner));
+      var unfold = keep.foldAway(banner);
+      banner.setAttribute('inert', '');
+      done.undos.push(function () {
+        if (bannerNow()) return;
+        banner.removeAttribute('inert');
+        unfold();
+      });
     }
     if (!lost) return;
     var to = fresh ? fresh.querySelector('.watch-btn--play') : byId('watch-search');
@@ -221,7 +276,7 @@
   /* The Watch page's cards and banner of the title *ref*, after a change of it, and of any
      other whose page was dropped. */
   function followRows(ref, done) {
-    if (bannerOf(ref) || continueCards(document, ref).length || done.part) owed[ref] = done;
+    if (bannerOf(ref) || continueCards(document, ref).length || done.part || done.redraw) owed[ref] = done;
     if (!Object.keys(owed).length) return;
     var asked = changes;
     fetchPage('/watch').then(function (doc) {
@@ -235,15 +290,22 @@
   }
 
   function followRef(ref, doc, done) {
-    var banner = bannerOf(ref);
     var now = continueCards(doc, ref)[0];
-    continueCards(document, ref).forEach(function (card) {
-      if (!now) leaveContinue(ref, done);
-      else if (now.getAttribute('data-mark') !== card.getAttribute('data-mark')) {
+    var here = continueCards(document, ref);
+    // Without Plex the server's page lacks what it could not ask Plex about.
+    var whole = !doc.querySelector('.watch-notice');
+    here.forEach(function (card) {
+      if (!now) {
+        if (whole) leaveContinue(ref, done);
+      } else if (now.getAttribute('data-mark') !== card.getAttribute('data-mark')) {
         replaceCard(card, document.importNode(now, true), done);
       }
     });
-    if (banner) replaceBanner(banner, doc.querySelector('.watch-banner'), done);
+    if (now && !here.length) enterContinue(now);
+    var banner = bannerNow();
+    var fresh = doc.querySelector('.watch-banner');
+    var own = isBannerOf(banner, ref) && (whole || now || !here.length);
+    if (own || isBannerOf(fresh, ref)) replaceBanner(banner, fresh, done);
     if (done.part) followShow(ref, doc, done);
   }
 
@@ -363,8 +425,8 @@
 
   function change(mark, watched, name, ref) {
     if (busy[mark]) return;
-    // undos puts the page back.
-    var done = { undos: [], part: /^(season|episode)\//.test(mark) };
+    // undos puts the page back; rows: Continue watching or the banner changed with it.
+    var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false };
     ref = refOfMark(mark, ref);
     setBusy(mark, true);
     send(mark, watched).then(function (data) {
@@ -408,7 +470,7 @@
         core.toast('Undone for ' + name + '.', { variant: 'info' });
         setBusy(mark, false);
         announce(ref);
-        if (!byId('watch-browse')) followTitle();
+        follow(ref, { undos: [], part: !/^movie\//.test(mark), redraw: done.rows });
       }, function (err) {
         toastFailed(err, name);
         setBusy(mark, false);
@@ -433,7 +495,7 @@
 
   function dismiss(ref, name) {
     if (busy[ref]) return;
-    var done = { undos: [], part: false };
+    var done = { undos: [], part: false, rows: false };
     setBusy(ref, true);
     MM.api.post(DISMISSED_URL + ref).then(function () {
       changes += 1;
@@ -460,6 +522,7 @@
         if (lost) refocus(back);
         core.toast(name + ' is back in Continue watching.', { variant: 'info' });
         setBusy(ref, false);
+        followRows(ref, { undos: [], part: false, redraw: true });
       }, function (err) {
         core.toast(MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
         setBusy(ref, false);

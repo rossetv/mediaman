@@ -26,7 +26,7 @@ function card(mark, title, sub, over = {}) {
 }
 
 function row(title, cards) {
-  return ['section', { class: 'watch-row', id: title }, ['div', { class: 'watch-row__scroll' }, ...cards]];
+  return ['section', { class: 'watch-row', id: title }, ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...cards]]];
 }
 
 function banner(ref, title, play) {
@@ -96,8 +96,10 @@ function load(page, opts = {}) {
   ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const cards = (id) => doc.querySelectorAll('.watch-card').filter((c) => !id || c.closest('#' + id));
+  const started = [];
+  ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
-    ctx, doc, calls, toasts, events, fetched, cards,
+    ctx, started, doc, calls, toasts, events, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
     marks: (id) => cards(id).map((c) => c.getAttribute('data-mark')),
@@ -108,7 +110,7 @@ function load(page, opts = {}) {
       click(doc, doc.querySelector('#watch-more-menu [data-act="' + act + '"]'));
       await settle();
     },
-    async undo() { toasts[toasts.length - 1].undo(); await settle(); },
+    async undo(n = toasts.length - 1) { toasts[n].undo(); await settle(); },
     // Dismissed from somewhere else than its card, as the hover preview does.
     dismissed(ref) { click(doc, doc.body.appendChild(build(doc, ['button', { 'data-watch-dismiss': ref, 'data-mark-name': ref }]))); },
     banner: () => doc.querySelectorAll('.watch-banner__title').map((t) => t.textContent),
@@ -122,6 +124,12 @@ function later() {
   const answer = new Promise((r) => { send = r; });
   return { answer, send };
 }
+
+/* The Watch page whose Continue watching row holds *cards*, or has no row at all. */
+function continuePage(cards) {
+  return watchPage([['div', { class: 'watch-rows' }, ...(cards.length ? [row('cont', cards)] : []), row('lib', [card('movie/9', 'Other', 'Movie')])]]);
+}
+function episodeCard(key) { return card('episode/' + key, 'Brightwater', 'S1 · E' + (key - 20), { dismiss: 'show-2' }); }
 
 /* A show's own page whose episodes *watched* are watched, of 21, 22 and 23. */
 function episodesPage(watched, play = '/watch/play/21') {
@@ -282,8 +290,7 @@ const scenarios = {
 
   // Undone before the server's page arrives: what it says is dropped.
   async undoneFirst() {
-    let p;
-    p = load(watchPage([row('cont', CONTINUE)]), { next: watchPage([row('cont', [CONTINUE[2]])]), onFetch: () => p.toasts[0].undo() });
+    const p = load(watchPage([row('cont', CONTINUE)]), { next: (n) => { if (n === 1) p.toasts[0].undo(); return watchPage([row('cont', n === 1 ? [CONTINUE[2]] : CONTINUE)]); } });
     await p.pick(p.cards()[1], 'mark');
     return p.marks();
   },
@@ -398,6 +405,98 @@ const scenarios = {
     last.send(watchPage([]));
     await settle();
     return { replaced, undone, another, left: [open(), p.focus()] };
+  },
+
+  // Two episodes marked one after the other, then undone with the oldest first. The card was
+  // replaced twice, or the second mark took it away, or took its row away with it.
+  async undoOldestMark() {
+    const go = async (others, second) => {
+      let keys = [22];
+      const now = () => continuePage([...others.slice(0, 1), ...keys.map(episodeCard), ...others.slice(1)]);
+      const p = load(now(), { next: now });
+      const show = () => p.cards().filter((c) => c.getAttribute('data-dismiss-ref') === 'show-2')[0];
+      const state = () => p.marks('cont');
+      keys = [23];
+      await p.pick(show(), 'mark');
+      keys = second;
+      await p.pick(show(), 'mark');
+      const marked = state();
+      keys = [22];
+      await p.undo(0);
+      const oldest = state();
+      await p.undo(1);
+      return { marked, oldest, both: state(), rows: p.doc.querySelectorAll('#cont').length, started: p.started.length };
+    };
+    return { replaced: await go([CONTINUE[0], CONTINUE[2]], [24]), left: await go([CONTINUE[0], CONTINUE[2]], []), rowGone: await go([], []) };
+  },
+
+  // The row emptied by two titles; the server's page brings it back with one, then the other is undone.
+  async undoIntoANewRow() {
+    let sent = [CONTINUE[1], CONTINUE[2]];
+    const p = load(continuePage(sent), { next: () => continuePage(sent) });
+    sent = [episodeCard(23), CONTINUE[2]];
+    await p.pick(p.cards('cont')[0], 'mark');
+    sent = [CONTINUE[2]];
+    await p.pick(p.cards('cont')[0], 'mark');
+    sent = [];
+    p.dismissed('movie-3');
+    await settle();
+    sent = [CONTINUE[1]];
+    await p.undo(0);
+    const one = p.marks('cont');
+    sent = [CONTINUE[1], CONTINUE[2]];
+    await p.undo(2);
+    return { one, both: p.marks('cont'), rows: p.doc.querySelectorAll('#cont').length };
+  },
+
+  // The banner dismissed until none is left, then every dismissal undone, oldest first.
+  async undoOldestBanner() {
+    const titles = [['movie-1', 'Fieldwork', '/watch/play/1'], ['show-2', 'Brightwater', '/watch/play/22'], ['movie-3', 'Salt', '/watch/play/3']];
+    const gone = new Set();
+    const now = () => {
+      const left = titles.filter((t) => !gone.has(t[0]));
+      return watchPage([...(left.length ? [banner(...left[0])] : []), ['div', { class: 'watch-rows' }, ...(left.length ? [row('cont', CONTINUE.filter((c) => !gone.has(c[1]['data-dismiss-ref'])))] : [])]]);
+    };
+    const p = load(now(), { next: now });
+    const states = [];
+    for (const [ref] of titles) {
+      gone.add(ref);
+      click(p.doc, p.doc.querySelector('[data-watch-dismiss="' + ref + '"]'));
+      await settle();
+    }
+    states.push(p.banner());
+    for (const [i, [ref]] of titles.entries()) {
+      gone.delete(ref);
+      await p.undo(i);
+      states.push(p.banner());
+    }
+    return { states, marks: p.marks() };
+  },
+
+  // Two seasons marked, the first undone: the show's card says what is left now, not before both.
+  async undoOldestSeason() {
+    const seasons = { 21: false, 22: false };
+    const now = () => watchPage([row('lib', [card('show/2', 'Brightwater', 'TV · 2 seasons · ' + ((seasons[21] ? 0 : 5) + (seasons[22] ? 0 : 4)) + ' left')]),
+      row('leave', [21, 22].map((k) => card('season/' + k, 'Brightwater', 'Season ' + k, { ref: 'show-2', watched: seasons[k] })))]);
+    const p = load(now(), { next: now });
+    for (const i of [0, 1]) {
+      seasons[21 + i] = true;
+      await p.pick(p.cards('leave')[i], 'mark');
+    }
+    seasons[21] = false;
+    await p.undo(0);
+    return p.look().map((look) => look.slice(1, 3));
+  },
+
+  // A dismissal undone while the server cannot ask Plex, whose page then lacks the card and its banner.
+  async undoWithoutPlex() {
+    const p = load(watchPage([banner('show-2', 'Brightwater', '/watch/play/22'), row('cont', CONTINUE)]),
+      { next: () => watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), ['p', { class: 'watch-notice' }], row('cont', [CONTINUE[0], CONTINUE[2]])]) });
+    p.dismissed('show-2');
+    await settle();
+    const gone = [p.banner(), p.marks()];
+    await p.undo();
+    return { gone, back: [p.banner(), p.marks()] };
   },
 };
 
