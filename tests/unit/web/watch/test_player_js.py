@@ -1429,6 +1429,11 @@ def test_a_connection_lost_after_a_refusal_is_said_as_lost_and_comes_back(markup
     assert run(markup, "busy_once", plays="lost") == {"message": LOST, "tried": 1}
 
 
+def test_refusals_on_either_side_of_a_drop_are_not_one_long_one(markup):
+    out = run(markup, "busy_once", plays="lost for a while")
+    assert out == {"message": None, "starts": 1}
+
+
 def test_a_refusal_before_a_seek_counts_for_nothing_after_it(markup):
     out = run(markup, "busy_once", plays="back")
     assert (out["message"], out["stops"]) == (None, 0)

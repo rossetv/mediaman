@@ -1636,6 +1636,12 @@ const scenarios = {
     refuse();
     fire(p.video, 'waiting');
     p.tick(2000);
+    if (way === 'lost for a while') {
+      h.emit('hlsError', loadError('fragLoadError', 0));
+      await failFor(p, 50000, failingLoads(h, () => loadError('fragLoadError', 0)));
+      for (let i = 0; i < 10; i++) { refuse(); p.tick(2000); await settle(); }
+      return { message: messageState(p), starts: p.starts().length };
+    }
     if (way === 'lost') {
       p.hlsList[0].emit('hlsError', loadError('fragLoadError', 0));
       const fail = failingLoads(h, () => loadError('fragLoadError', 0));

@@ -804,7 +804,7 @@
 
   /* The last request was not refused; from now on a wait is the connection's. */
   function endBusy() {
-    if (busySince !== null && stalled && quality === 'auto') stallTimer = setTimeout(stepDown, STALL_MS);
+    if (busySince !== null && stalled) stallTimer = setTimeout(stepDown, STALL_MS);
     busySince = null;
   }
 
