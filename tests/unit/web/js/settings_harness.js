@@ -270,6 +270,29 @@ const scenarios = {
     return { discardWhileSending, during, status: status1, keptPlace, discarded, said, after, quiet: now(), discardAfter: discard.disabled };
   },
 
+  // After a failed save any edit, a switch included, puts the bar back to unsaved.
+  async editAfterFailure() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save', className: 'btn btn--primary' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const input = h.add('input', { id: 'plex_url', value: 'a', type: 'text' }, page);
+    h.ctx.MM.api = { put: () => Promise.reject({ status: 429, data: {} }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    const now = () => ({ button: save.textContent, primary: save.classList.contains('btn--primary'), error: bar.classList.contains('is-error'), status: status.textContent });
+    const fail = async () => { save.fire('click'); await h.flush(); return now(); };
+    input.fire('input');
+    const failed = await fail();
+    input.fire('input');
+    const typed = now();
+    await fail();
+    h.ctx.MM.settings.savebar.markDirty();
+    return { failed, typed, switched: now() };
+  },
+
   // A subscriber is removed only after the dialog is confirmed.
   async remove() {
     const h = build();

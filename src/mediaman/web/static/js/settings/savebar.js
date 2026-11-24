@@ -206,7 +206,9 @@
       if (saveBtn) {
         saveBtn.classList.remove('btn--danger');
         saveBtn.classList.add('btn--primary');
+        saveBtn.textContent = SAVE_LABEL;
       }
+      if (statusEl) statusEl.textContent = STANDING_TEXT;
     }
 
     // The success state, until its timers have run or an edit ends it early.
@@ -218,7 +220,9 @@
       saveBtn.textContent = SAVE_LABEL;
       saveBtn.disabled = false;
     }
+    // An edit puts the bar back to unsaved, after a save or a failed one. A save under way keeps its words.
     onEdit = function () {
+      if (savebar && savebar.classList.contains('is-error')) clearSaveError();
       if (!successTimers.length) return;
       endSuccess();
       if (statusEl) statusEl.textContent = STANDING_TEXT;
@@ -314,11 +318,6 @@
       runSave(getPayload(), e.detail === 0);
     });
 
-    // Clear error chrome whenever the user starts typing again.
-    document.addEventListener('input', function () {
-      if (savebar && savebar.classList.contains('is-error')) clearSaveError();
-    }, true);
-
     saved = snapshot();
 
     if (discardBtn) discardBtn.addEventListener('click', function (e) {
@@ -332,8 +331,6 @@
         if (!ok) return;
         restoreSaved();
         clearSaveError();
-        if (saveBtn) saveBtn.textContent = SAVE_LABEL;
-        if (statusEl) statusEl.textContent = STANDING_TEXT;
         refreshOverviewHero();
         settleAfterHide(fromKeyboard);
       });

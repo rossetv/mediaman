@@ -59,6 +59,20 @@ def test_an_edit_made_during_a_save_stays_unsaved() -> None:
     assert out["quiet"] == {"on": False, "button": "Save Settings", "disabled": False}
 
 
+def test_any_edit_after_a_failed_save_puts_the_bar_back_to_unsaved() -> None:
+    out = _run("editAfterFailure")
+    failed = out["failed"]
+    assert (failed["button"], failed["error"]) == ("Try again", True)
+    assert failed["status"] == "Too many saves — slow down for a moment."
+    for edited in ("typed", "switched"):
+        assert out[edited] == {
+            "button": "Save Settings",
+            "primary": True,
+            "error": False,
+            "status": "Edits apply to every section at once.",
+        }
+
+
 def test_subscriber_is_removed_only_after_confirming() -> None:
     out = _run("remove")
     assert out["declined"] == {
