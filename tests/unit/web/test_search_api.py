@@ -500,7 +500,8 @@ class TestEnrichRatingsHelpers:
         return _enrichment._paused_until
 
     def test_one_bad_title_among_answers_does_not_pause(self):
-        assert self._drain([self._done(1, {"imdb": "8.0"}), self._done(2, None)]) == 0.0
+        futs = [self._done(1, {"imdb": "8.0"}), self._done(2, None), self._done(3, None)]
+        assert self._drain(futs) == 0.0
 
     def test_every_lookup_raising_pauses(self):
         from concurrent.futures import Future
@@ -516,7 +517,8 @@ class TestEnrichRatingsHelpers:
         assert self._drain(futs) > 0.0
 
     def test_a_budget_overrun_with_some_answers_does_not_pause(self):
-        assert self._drain([self._done(1, {"imdb": "8.0"})], overrun=True) == 0.0
+        futs = [self._done(1, {"imdb": "8.0"}), self._pending(2), self._pending(3)]
+        assert self._drain(futs, overrun=True) == 0.0
 
     def test_a_budget_overrun_with_no_answer_pauses(self):
         assert self._drain([self._pending(i) for i in range(3)], overrun=True) > 0.0
