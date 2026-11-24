@@ -394,12 +394,14 @@
   }
 
   function chooseQuality(value) {
-    if (value === quality && !override) return;
+    var same = value === quality && !override;
+    /* Even the same one: a saved choice the server does not know may stand in its place. */
+    setQuality(value);
+    if (same) return;
     reverts = 0;
     swapNotice = null;
     override = null;
     stalls = 0;
-    setQuality(value);
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();

@@ -269,6 +269,12 @@ def test_the_quality_that_failed_can_be_picked_to_start_it_again(markup):
     assert out == {"started": ["1080p-8000"], "message": False}
 
 
+def test_automatic_picked_replaces_a_saved_choice_the_server_does_not_know(markup):
+    saved = {"mediaman.watch.quality": "4320p-90000"}
+    out = run(markup, "pick_over_unknown", saved=saved)
+    assert out == {"before": "4320p-90000", "saved": "auto", "starts": 2}
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 
