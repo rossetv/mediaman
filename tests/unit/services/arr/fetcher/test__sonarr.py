@@ -315,8 +315,8 @@ class TestFetchSonarrQueueSearching:
         ]
         (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
         assert card["stuck_seasons"] == [
-            {"number": 1, "missing_episodes": 1, "aired": True},
-            {"number": 2, "missing_episodes": 0, "aired": False},
+            {"number": 1, "missing_episodes": 1, "aired": True, "monitored": False},
+            {"number": 2, "missing_episodes": 0, "aired": False, "monitored": True},
         ]
 
     def test_searching_show_names_every_monitored_season(self):
@@ -332,8 +332,8 @@ class TestFetchSonarrQueueSearching:
         ]
         (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
         assert card["stuck_seasons"] == [
-            {"number": 1, "missing_episodes": 8, "aired": False},
-            {"number": 2, "missing_episodes": 0, "aired": False},
+            {"number": 1, "missing_episodes": 8, "aired": False, "monitored": True},
+            {"number": 2, "missing_episodes": 0, "aired": False, "monitored": True},
         ]
 
     def test_a_season_says_whether_any_of_it_has_aired(self):

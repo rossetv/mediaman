@@ -212,9 +212,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     return items
 
 
-def _searched_seasons(
-    series: SonarrSeries, episodes: Sequence[ArrEpisode]
-) -> list[dict[str, int]]:
+def _searched_seasons(series: SonarrSeries, episodes: Sequence[ArrEpisode]) -> list[dict[str, int]]:
     """Return the seasons searched of a series without files, with the episodes each misses:
     the monitored ones, and any other with an episode monitored by itself.
 
@@ -232,6 +230,7 @@ def _searched_seasons(
             "number": season["seasonNumber"],
             "missing_episodes": missing_episodes(season),
             "aired": _season_has_aired(season) or season["seasonNumber"] in aired,
+            "monitored": bool(season.get("monitored")),
         }
         for season in series.get("seasons") or []
         if (season.get("monitored") or missing_episodes(season) > 0)

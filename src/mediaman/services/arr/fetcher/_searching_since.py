@@ -25,9 +25,10 @@ _SEEN_EVERY = timedelta(minutes=5)
 
 
 def _keys(service: str, card: ArrCard) -> list[str]:
-    """One key per season searched: a season re-monitored today restarts its show's clock."""
+    """One key per season monitored: a season re-monitored today restarts its show's clock."""
     base = f"{service}:{card['arr_id']}"
-    return [f"{base}:{s['number']}" for s in card.get("stuck_seasons", [])] or [base]
+    seasons = [s for s in card.get("stuck_seasons", []) if s.get("monitored", True)]
+    return [f"{base}:{s['number']}" for s in seasons] or [base]
 
 
 def stamp_searching_since(
