@@ -132,7 +132,7 @@
         if (!opening) d.reveal(rowEl);
       }
     }
-    d.dropAbsent(shown, present, data);
+    d.dropAbsent(listEl.querySelectorAll('.dl-upcoming-row'), present, data);
     if (opening) d.reveal(container);
   }
 

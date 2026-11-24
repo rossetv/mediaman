@@ -152,6 +152,13 @@ const scenarios = {
     return { drawn, fresh, polled: fail() };
   },
 
+  // everything coming soon gives way to something else in one poll
+  async upcomingReplaced() {
+    const p = page(spec);
+    p.upd({ upcoming: [item('v')] });
+    return { rows: p.qa('.dl-upcoming-row').map((r) => r.getAttribute('data-dl-id')) };
+  },
+
   // what a screen reader is told of each bar and section
   async spoken() {
     const p = page(spec);

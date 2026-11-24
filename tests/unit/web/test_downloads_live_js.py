@@ -178,3 +178,7 @@ def test_a_poster_that_fails_to_load_leaves_no_broken_icon_anywhere_on_the_page(
         recent=[_item("r", **art)],
     )
     assert out == {"drawn": [True] * 4, "fresh": [False] * 4, "polled": [True] * 4}
+
+
+def test_what_is_coming_soon_gives_way_to_what_replaces_it() -> None:
+    assert _run("upcomingReplaced", upcoming=[_item("u")]) == {"rows": ["v"]}
