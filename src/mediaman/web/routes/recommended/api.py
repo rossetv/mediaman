@@ -19,7 +19,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.state import is_series_already_tracked
+from mediaman.services.arr.state import add_or_remonitor_movie, is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
@@ -149,8 +149,10 @@ def _already_there(row: SuggestionDetail) -> JSONResponse:
 
 
 def _radarr_holds(client: ArrClient, tmdb_id: int) -> bool:
+    # Monitored only: an unmonitored entry means a failed re-monitor, not a raced add.
     try:
-        return client.get_movie_by_tmdb(tmdb_id) is not None
+        existing = client.get_movie_by_tmdb(tmdb_id)
+        return existing is not None and bool(existing.get("monitored"))
     except (SafeHTTPError, requests.RequestException, ArrError):
         return False
 
@@ -182,16 +184,18 @@ def _add_rec_to_radarr(
     if not tmdb_id:
         return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
     safe_title = _sanitise_title(row.title)
-    if client.get_movie_by_tmdb(tmdb_id) is not None:
-        return _already_there(row)
     try:
-        client.add_movie(tmdb_id, safe_title)
+        outcome = add_or_remonitor_movie(client, tmdb_id, safe_title)
     except SafeHTTPError as exc:
         # Radarr answers 400, not 409, for a movie it holds: an add that raced
         # the check above ends as already there, any other 400 stays a failure.
         if exc.status_code == 400 and _radarr_holds(client, tmdb_id):
             return _already_there(row)
         raise
+    if outcome == "already_tracked":
+        return _already_there(row)
+    if outcome == "bad_entry":
+        return respond_failure("Radarr entry is in an unexpected state", status=502)
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())

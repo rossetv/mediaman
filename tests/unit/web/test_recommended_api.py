@@ -300,7 +300,8 @@ class TestDownloadRecommendationAsksTheArrFirst:
 
     @staticmethod
     def _post(conn, kind, tmdb_id, arr):
-        create_user(conn, "admin", "password1234", enforce_policy=False)
+        if not conn.execute("SELECT 1 FROM admin_users WHERE username='admin'").fetchone():
+            create_user(conn, "admin", "password1234", enforce_policy=False)
         title = "Inception" if kind == "movie" else "Severance"
         sid = insert_suggestion(conn, title=title, tmdb_id=tmdb_id, media_type=kind)
         builder = "build_radarr_from_db" if kind == "movie" else "build_sonarr_from_db"
@@ -330,7 +331,7 @@ class TestDownloadRecommendationAsksTheArrFirst:
 
     def test_a_movie_add_that_races_with_a_400_ends_as_already_there(self, conn):
         radarr = MagicMock()
-        radarr.get_movie_by_tmdb.side_effect = [None, {"id": 4}]
+        radarr.get_movie_by_tmdb.side_effect = [None, {"id": 4, "monitored": True}]
         radarr.add_movie.side_effect = SafeHTTPError(400, "has already been added", "radarr/m")
 
         resp = self._post(conn, "movie", 27205, radarr)
@@ -357,3 +358,40 @@ class TestDownloadRecommendationAsksTheArrFirst:
 
         assert resp.status_code == 502
         assert resp.json()["error"] == "Failed to add to download queue"
+
+    def test_a_movie_radarr_holds_unmonitored_is_remonitored_like_search(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        set_user_email(conn, "admin", "admin@example.com")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "message": "Added 'Inception' to Radarr"}
+        radarr.remonitor_movie.assert_called_once_with(4)
+        radarr.add_movie.assert_not_called()
+        row = conn.execute("SELECT downloaded_at FROM suggestions").fetchone()
+        assert row["downloaded_at"] is not None
+        audit = conn.execute("SELECT detail FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
+        assert audit["detail"] == "Added 'Inception' to Radarr by admin"
+        note = conn.execute("SELECT email, service FROM download_notifications").fetchone()
+        assert (note["email"], note["service"]) == ("admin@example.com", "radarr")
+
+    def test_an_unmonitored_movie_with_no_usable_id_is_a_failure_not_a_dead_end_409(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": None, "monitored": False}
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        radarr.remonitor_movie.assert_not_called()
+
+    def test_a_failed_remonitor_400_is_not_read_as_already_there(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(400, "bad", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502

@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Final, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
 from mediaman.services.arr._types import (
     ArrSeason,
@@ -385,6 +385,40 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
         ``True`` when the series is already tracked; ``False`` otherwise.
     """
     return any(s.get("tvdbId") == tvdb_id for s in sonarr_client.get_series())
+
+
+MovieAddOutcome = Literal["added", "remonitored", "already_tracked", "bad_entry"]
+
+
+def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -> MovieAddOutcome:
+    """Get a movie wanted in Radarr: add it, or re-monitor the entry it already holds.
+
+    A monitored entry is genuinely tracked (``"already_tracked"``), so a
+    double-click does not churn it. An unmonitored one is the residue of an
+    abandon: re-monitoring it (which also searches) is what pressing Download
+    again means. An entry with no usable id is ``"bad_entry"``.
+
+    Raises:
+        SafeHTTPError: On a non-2xx response from Radarr.
+        requests.RequestException: On transport failures.
+        ArrError: On configuration failures.
+    """
+    existing = radarr_client.get_movie_by_tmdb(tmdb_id)
+    if existing is None:
+        radarr_client.add_movie(tmdb_id, title)
+        return "added"
+    if existing.get("monitored"):
+        return "already_tracked"
+    movie_id = existing.get("id")
+    if not isinstance(movie_id, int) or movie_id <= 0:
+        logger.warning(
+            "unmonitored radarr entry has bad id=%r for tmdb=%s",
+            movie_id,
+            tmdb_id,
+        )
+        return "bad_entry"
+    radarr_client.remonitor_movie(movie_id)
+    return "remonitored"
 
 
 class LazyArrClients:
