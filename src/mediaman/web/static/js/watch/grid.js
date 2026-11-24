@@ -55,6 +55,8 @@
   function copy(card) {
     var twin = wake(card.cloneNode(true));
     toArray(twin.querySelectorAll('.is-previewed')).forEach(function (n) { n.classList.remove('is-previewed'); });
+    // A row has its own keys (watch-rows.js), the grid the Tab order.
+    toArray(twin.querySelectorAll('[tabindex]')).forEach(function (n) { n.removeAttribute('tabindex'); });
     toArray(twin.querySelectorAll('[aria-expanded]')).forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
     return twin;
   }

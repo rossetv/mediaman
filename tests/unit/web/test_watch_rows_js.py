@@ -1,4 +1,4 @@
-"""The rows' arrows, run under node against a fake DOM with a layout."""
+"""The rows' arrows and keys, run under node against a fake DOM with a layout."""
 
 from __future__ import annotations
 
@@ -9,15 +9,52 @@ from pathlib import Path
 HARNESS = Path(__file__).parent / "js" / "watch_rows_harness.js"
 
 
-def test_paging_a_line_of_seasons_there_and_back_leaves_none_out() -> None:
+def _run(scenario: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), "seasons"], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
-    out = json.loads(result.stdout)
+    return json.loads(result.stdout)
+
+
+def test_paging_a_line_of_seasons_there_and_back_leaves_none_out() -> None:
+    out = _run("seasons")
     for way in ("there", "back"):
         stops = out["phone"][way]
         assert sorted({n for stop in stops for n in stop}) == list(range(1, 11)), way
         # A pill wider than the line is never whole, and is no trap.
         assert {n for stop in out["wide"][way] for n in stop} == {1, 2, 3, 5, 6}, way
     assert out["phone"]["back"][-1][0] == 1
+
+
+def test_a_row_is_one_tab_stop_that_leads_to_the_card_last_on_or_the_first_in_sight() -> None:
+    out = _run("oneStop")
+    assert out["before"] == ["row"]
+    # The row itself steps aside, or Shift+Tab would come back to it.
+    assert (out["inside"]["at"], out["inside"]["stops"]) == ("link 1", [])
+    assert out["after"] == ["row"]
+    assert (out["back"], out["scrolled"]) == ("link 2", "link 3")
+    assert out["skeleton"] == []
+
+
+def test_the_keys_of_a_row_are_said_once_on_the_way_in() -> None:
+    out = _run("oneStop")
+    assert out["inside"]["described"] == "watch-row-keys"
+    assert out["moved"] == {"at": "link 2", "described": None}
+
+
+def test_arrows_home_and_end_move_along_a_row_and_down_goes_to_more_and_keep() -> None:
+    out = _run("keys")
+    assert out["along"] == ["link 2", "link 3", "link 4", "link 3"]
+    assert out["left"] == 108  # card 4 came whole into view, and card 3 was
+    assert out["ends"] == ["link 6", "link 6", "link 1", "link 1"]
+    assert out["down"] == ["more 1", "keep 1", "keep 2", "more 2", "link 2"]
+    # Past the first and the last control, and for Tab, the browser's own.
+    assert out["taken"] == [False, False, False]
+
+
+def test_cards_that_load_or_leave_neither_add_a_tab_stop_nor_lose_the_row() -> None:
+    out = _run("comeAndGo")
+    assert out["loaded"] == {"at": "link 4", "stops": [], "end": "link 8"}
+    assert out["taken"] == ["row"]
+    assert out["again"] == "link 6"

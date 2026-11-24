@@ -106,6 +106,10 @@ def test_opening_shows_copies_of_the_rows_cards_and_focuses_the_heading() -> Non
     assert (out["count"], out["sort"]) == ("12 titles", False)
 
 
+def test_cards_taken_from_a_row_are_in_the_tab_order_of_the_grid() -> None:
+    assert _run("keysOfItsOwn") == {"row": ["-1"], "grid": [None]}
+
+
 def test_closing_puts_scroll_the_rows_place_and_focus_back() -> None:
     out = _run("closesWhereItWas")
     assert _state(out["same"]) == ROWS
