@@ -138,3 +138,12 @@ def test_a_figure_too_long_for_a_phone_wraps():
 def test_a_scheduled_title_s_tap_area_is_its_whole_text_on_a_phone():
     assert "inset: -6px 0" in _rules("a.space-item__title::after")
     assert "position: relative" in _rules(".space-item__text:has(> a)")
+
+
+def test_the_narrowest_phone_keeps_the_bar_beside_the_words_of_a_disk_that_was_read():
+    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
+    hiding = re.findall(r"([^{}]*)\{[^{}]*display: none", css)
+    hidden = [sel.strip() for rule in hiding for sel in rule.split(",") if "meter__bar" in sel]
+
+    assert hidden
+    assert all("__warn" in sel or "__info" in sel for sel in hidden)

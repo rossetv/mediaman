@@ -77,11 +77,12 @@
   .space-meter--phone:has(> :is(.space-meter__warn, .space-meter__info)) > .space-meter__bar { display: none; }
 }
 @media (max-width: 359.98px) {
-  .space-meter--phone > .space-meter__bar,
   .space-meter--off .space-meter__word,
   .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) .space-meter__word { display: none; }
 }
 @media (max-width: 339.98px) {
+  .space-meter--phone { gap: 6px; padding: 0 6px; }
+  .space-meter--phone .space-meter__bar { width: 28px; }
   .space-meter--off > .space-meter__warn ~ .space-meter__info { display: none; }
 }
 
