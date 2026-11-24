@@ -474,6 +474,17 @@ scenarios.outageRows = async function () {
   return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
 };
 
+// a service that answers in part: what the payload lists is drawn from it, once
+scenarios.outagePart = async function () {
+  const p = pageRig(true);
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const ids = (box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
+  p.upd({ hero: item('radarr:h1', { progress: 40 }), queue: [item('sonarr:q2')], upcoming: [item('radarr:u1')] });
+  p.upd({ ...down, hero: item('sonarr:q2', { progress: 60 }), queue: [item('radarr:h1', { progress: 50 }), item('radarr:u1')] });
+  const row = p.byId('dl-queue-list').querySelector('.dl-compact');
+  return { rows: p.rows(), pct: row.querySelector('[data-v="pct"]').textContent, upcoming: ids('dl-upcoming-container', '.dl-upcoming-row') };
+};
+
 // a held download that NZBGet still lists under its own name is shown once
 scenarios.outageNzb = async function () {
   const p = pageRig(true);

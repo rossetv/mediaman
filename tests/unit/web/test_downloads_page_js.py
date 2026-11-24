@@ -110,6 +110,13 @@ def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> Non
     assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
 
 
+def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
+    out = _run("outagePart")
+    assert out["rows"] == ["radarr:h1", "radarr:u1"]
+    assert out["pct"] == "50%"
+    assert out["upcoming"] == []
+
+
 def test_a_held_download_that_nzbget_still_lists_is_shown_once() -> None:
     assert _run("outageNzb")["rows"] == [
         "radarr:q1",

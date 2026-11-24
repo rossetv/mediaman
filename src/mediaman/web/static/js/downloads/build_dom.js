@@ -506,13 +506,14 @@
   }
 
   /* A service that cannot be reached leaves its items out of the payload, which
-     says nothing about them: they are not over. The download of one may still
-     be listed, by NZBGet's name for it, and is then not shown twice. */
+     says nothing about them: they are not over. One it does list, as itself
+     or by NZBGet's name for its download, is not shown twice. */
   function held(id, title, data) {
     if (!id || !data.unreachable || data.unreachable.indexOf(serviceOf(id)) === -1) return false;
     var mine = words(title);
-    var listed = (data.queue || []).concat(data.hero || []);
+    var listed = (data.queue || []).concat(data.hero || [], data.upcoming || []);
     return !listed.some(function (item) {
+      if (item.id === id) return true;
       var its = serviceOf(item.id) === 'NZBGet' ? words(item.title) : '';
       return mine && its && (mine.indexOf(its) !== -1 || its.indexOf(mine) !== -1);
     });
