@@ -264,6 +264,11 @@ def test_a_connection_that_fails_under_an_original_that_played_gets_one_more_try
     assert out["once"] == ["original", "original", "1080p-10000"]
 
 
+def test_the_quality_that_failed_can_be_picked_to_start_it_again(markup):
+    out = run(markup, "pick_after_failure")
+    assert out == {"started": ["1080p-8000"], "message": False}
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 

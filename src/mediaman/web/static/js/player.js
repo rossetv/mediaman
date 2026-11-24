@@ -400,7 +400,7 @@
     override = null;
     stalls = 0;
     setQuality(value);
-    if (value === playing) {
+    if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
       if (streamPlayed) good = streamChoice;

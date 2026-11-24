@@ -754,6 +754,31 @@ const scenarios = {
     return { once: once, twice: p.starts() };
   },
 
+  /* The quality that last played is picked under the message of its failure. */
+  async pick_after_failure(p) {
+    p.held.answer = () => answer('1080p-8000');
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 0);
+    while (p.q('[data-message]').hidden) {
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+      await settle();
+    }
+    const before = p.starts().length;
+    click(p.q('[data-quality="1080p-8000"]'));
+    await settle();
+    return { started: p.starts().slice(before), message: !p.q('[data-message]').hidden };
+  },
+
+  /* Automatic is picked over a saved choice the server does not know. */
+  async pick_over_unknown(p) {
+    p.replies[0] = { err: { status: 422 } };
+    p.replies.push(answer('1080p-8000'));
+    await streamPlays(p, 0);
+    const before = p.storage['mediaman.watch.quality'];
+    click(p.q('[data-quality="auto"]'));
+    return { before: before, saved: p.storage['mediaman.watch.quality'], starts: p.starts().length };
+  },
+
   /* The person tries one quality after another and all are refused. */
   async picks_refused(p) {
     await streamPlays(p, 0);
