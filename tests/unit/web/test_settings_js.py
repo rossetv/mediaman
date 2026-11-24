@@ -539,6 +539,49 @@ def test_a_save_that_left_an_undo_out_says_so_in_the_bar() -> None:
     assert out["still"] is True
 
 
+def test_an_emptied_secret_is_removed_only_after_confirming() -> None:
+    out = _run("clearSecret")
+    removed = out["removed"]
+    assert len(removed["asked"]) == 1 and "Plex Token" in removed["asked"][0]
+    assert removed["atAsk"] == {"button": "Save Settings", "sent": 0}
+    assert removed["sent"] == [{"plex_token": "__CLEAR__"}]
+    assert (removed["field"], removed["on"]) == ("", False)
+    assert out["after"] == {"base_url": "b"}
+    # said no: the field shows the stored secret again
+    assert out["kept"] == {
+        "asked": 1,
+        "sent": 0,
+        "field": "****",
+        "on": False,
+        "disabled": False,
+        "focus": True,
+    }
+    assert out["keptRest"] == {
+        "sent": [],
+        "field": "****",
+        "url": "b",
+        "on": True,
+        "disabled": False,
+    }
+    assert out["then"] == {"base_url": "b"}
+
+
+def test_a_secret_of_only_spaces_counts_as_emptied() -> None:
+    spaces = _run("clearSecret")["spaces"]
+    assert spaces == {"asked": 1, "sent": [{"plex_token": "__CLEAR__"}], "on": False}
+
+
+def test_a_secret_saved_on_this_page_can_be_emptied_and_removed() -> None:
+    typed = _run("clearSecret")["typed"]
+    assert typed == {"asked": 1, "sent": [{"plex_token": "new"}, {"plex_token": "__CLEAR__"}]}
+
+
+def test_a_removed_secret_is_not_said_to_be_put_back() -> None:
+    lost = _run("clearSecret")["lost"]
+    assert (lost["sent"], lost["field"]) == ([], "")
+    assert "Plex Token" in lost["told"]
+
+
 def test_a_save_checks_again_only_the_services_it_changed() -> None:
     out = _run("recheck")
     failed = ["err", "Connection failed"]

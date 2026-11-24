@@ -5,6 +5,7 @@
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
+ *   - A stored secret whose field is emptied is removed only once confirmed
  *   - What a save whose answer was lost may have stored stays unsaved until
  *     Save or Discard has asked the server what it has
  *   - Discard-confirm via UIFeedback, then the last saved values put back
@@ -201,6 +202,34 @@
     return !!document.querySelector('.inp-reveal[data-reveal-target="' + key + '"]');
   }
 
+  // Asks the server to delete a secret: it takes an empty one as unchanged.
+  var CLEAR_SECRET = '__CLEAR__';
+  // Stands for a stored secret, which only the server knows.
+  var MASKED_SECRET = '****';
+
+  // Spaces are no secret, and would be stored in place of one.
+  function emptyBlankSecrets() {
+    settingsControls().forEach(function (el) {
+      if (isSecret(el.id) && !el.value.trim()) el.value = '';
+    });
+  }
+
+  function clearedSecrets(sent) {
+    return changedKeys(saved, sent).filter(function (key) { return isSecret(key) && sent.values[key] === ''; });
+  }
+
+  function confirmClear(keys) {
+    var many = keys.length > 1;
+    var labels = keys.map(fieldLabel);
+    return window.UIFeedback.confirm({
+      title: many ? 'Remove ' + keys.length + ' saved secrets?' : 'Remove the saved ' + labels[0] + '?',
+      body: (many ? labels.join(', ') + '. ' : '') + 'mediaman deletes what it has stored, and what uses it stops working until you enter it again.',
+      confirmLabel: 'Remove and save',
+      confirmVariant: 'danger',
+      cancelLabel: many ? 'Keep them' : 'Keep it',
+    });
+  }
+
   function thingLabel(key) {
     var part = /^(lib|limit):(.*)$/.exec(key);
     if (!part) return fieldLabel(key);
@@ -254,6 +283,7 @@
     var has = things(stored);
     function putBack(key) { return !!unsure[key] && mine[key] === unsure[key].old; }
     function undone(key) {
+      if (isSecret(key) && mine[key] === MASKED_SECRET) return false;
       return unsure[key].sent.indexOf(has[key]) !== -1 && !deletesMore(key, mine[key], has[key]);
     }
     var sent = rebase(now, stored, function (key) {
@@ -455,6 +485,7 @@
       if (!saveBtn) return;
       var hadFocus = startAsking();
       saveBtn.textContent = 'Saving…';
+      emptyBlankSecrets();
       var now = snapshot();
       if (!isUnsure()) { send(now, fromKeyboard, hadFocus); return; }
       askStored(hadFocus, 'saved', function (data) {
@@ -463,14 +494,35 @@
       });
     }
 
+    function send(sent, fromKeyboard, hadFocus, done, kept) {
+      var cleared = clearedSecrets(sent);
+      if (!cleared.length) { deliver(sent, fromKeyboard, hadFocus, done, kept); return; }
+      saveBtn.textContent = SAVE_LABEL;
+      confirmClear(cleared).then(function (ok) {
+        if (ok) {
+          saveBtn.textContent = 'Saving…';
+          deliver(sent, fromKeyboard, hadFocus, done, kept);
+          return;
+        }
+        saving = false;
+        var back = {};
+        cleared.forEach(function (key) { back[key] = saved.values[key]; });
+        put(back);
+        reenable(hadFocus);
+        markDirty();
+        if (!savebar.classList.contains('on')) settleAfterHide(fromKeyboard);
+      });
+    }
+
     // Routes through MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
     // flow are applied consistently. With `done` the server has it all; with `kept` it has what it
     // has of something the person put back.
-    function send(sent, fromKeyboard, hadFocus, done, kept) {
+    function deliver(sent, fromKeyboard, hadFocus, done, kept) {
       // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
       var all = getPayload(sent, saved);
       var payload = {};
       changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
+      clearedSecrets(sent).forEach(function (key) { payload[key] = CLEAR_SECRET; });
       if ('plex_libraries' in payload) payload.plex_libraries_base = saved.disk.libs;
 
       (done ? Promise.resolve({ status: 'saved' }) : MM.reauth.run(function () {

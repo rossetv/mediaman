@@ -1679,6 +1679,65 @@ const scenarios = {
     return out;
   },
 
+  // An emptied secret field: nothing is removed until the person says so.
+  async clearSecret() {
+    const open = async (ok) => {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+      const token = p.page.querySelector('#plex_token');
+      token.setAttribute('aria-label', 'Plex Token');
+      p.asked = [];
+      p.h.ctx.UIFeedback.confirm = (o) => { p.asked.push(o.title); p.atAsk = { button: p.saveBtn.textContent, sent: p.sent.length }; return Promise.resolve(ok); };
+      const type = (v) => { token.value = v; token.fire('input'); };
+      return Object.assign(p, { token, empty: type });
+    };
+    const out = {};
+    let p = await open(true);
+    p.empty('');
+    await p.save();
+    out.removed = { asked: p.asked, atAsk: p.atAsk, sent: p.sent.slice(), field: p.token.value, on: p.on() };
+    // gone from what the page takes as saved too
+    p.edit('b');
+    await p.save();
+    out.after = p.sent[1];
+    p = await open(false);
+    p.empty('');
+    p.saveBtn.focus();
+    p.saveBtn.fire('click', { detail: 0 });
+    await p.h.flush();
+    out.kept = { asked: p.asked.length, sent: p.sent.length, field: p.token.value, on: p.on(), disabled: p.saveBtn.disabled, focus: p.h.doc.activeElement === p.token };
+    // the rest stays to be saved
+    p = await open(false);
+    p.edit('b');
+    p.empty('');
+    await p.save();
+    out.keptRest = { sent: p.sent.slice(), field: p.token.value, url: p.field.value, on: p.on(), disabled: p.saveBtn.disabled };
+    out.then = await p.save();
+    // spaces are no secret
+    p = await open(true);
+    p.empty('   ');
+    await p.save();
+    out.spaces = { asked: p.asked.length, sent: p.sent.slice(), on: p.on() };
+    // one typed and saved here, and then emptied
+    p = await open(true);
+    p.empty('new');
+    await p.save();
+    p.empty('');
+    await p.save();
+    out.typed = { asked: p.asked.length, sent: p.sent.slice() };
+    // a removal whose answer was lost cannot be put back
+    p = await open(true);
+    p.empty('');
+    p.reply = () => Promise.reject({ status: 0 });
+    await p.save();
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    p.stored = () => Promise.resolve({ plex_libraries: ['1'] });
+    p.empty('****');
+    p.sent.length = 0;
+    await p.save();
+    out.lost = { sent: p.sent.slice(), field: p.token.value, told: p.toasts.join() };
+    return out;
+  },
+
   // Which services are checked again after a save, and what their pills end up saying.
   async recheck() {
     const h = build();
