@@ -144,6 +144,12 @@ def api_add_subscriber(
 
     if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
         return respond_err("already_subscribed", status=409, message="Email already subscribed")
+    if outcome is AddSubscriberOutcome.OPTED_OUT:
+        return respond_err(
+            "opted_out",
+            status=409,
+            message="This address has unsubscribed, so it can't be added again.",
+        )
 
     logger.info("Subscriber added: %s by %s", email, _sanitise_log_field(username))
     security_event(
