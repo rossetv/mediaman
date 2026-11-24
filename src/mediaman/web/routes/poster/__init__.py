@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 
 from mediaman.config import Config
 from mediaman.crypto import (
@@ -64,6 +64,7 @@ from mediaman.web.routes.poster.fetch import (
 from mediaman.web.routes.poster.fetch import load_plex_credentials as _load_plex_credentials
 from mediaman.web.routes.poster.fetch import resolve_poster_content as _resolve_poster_content
 from mediaman.web.routes.poster.fetch import safe_mime as _safe_mime  # noqa: F401
+from mediaman.web.routes.poster.title_art import tmdb_backdrop_url
 
 _ART_FALLBACK_MAX_AGE_SECONDS = 300
 
@@ -120,7 +121,8 @@ def proxy_poster(
 ) -> Response:
     """Serve a poster image, fetching from Plex only on cache miss.
 
-    ?kind=art asks for the item's wide backdrop instead; an item with none gets its poster.
+    ?kind=art asks for the item's wide backdrop instead: Plex's, else (with a session) a
+    redirect to TMDB's, else 404. A poster never stands in for it.
 
     Needs an admin session or a valid HMAC signature in ?sig=. The 401 comes before any
     rating_key validity or existence check, so the endpoint is no oracle for enumerating
@@ -143,12 +145,16 @@ def proxy_poster(
         art = _serve_art(config, rating_key)
         if art is not None:
             return art
-        poster = _serve_poster(config, rating_key)
-        # The backdrop may only be missing for now (Plex down, or it has none yet), so the
-        # browser must not keep this stand-in for the week a real poster gets.
-        if poster.status_code == 200:
-            poster.headers["Cache-Control"] = f"public, max-age={_ART_FALLBACK_MAX_AGE_SECONDS}"
-        return poster
+        # The TMDB image proxy needs a session, so a signed-URL caller is not sent there.
+        fallback = (
+            tmdb_backdrop_url(get_db(), config.secret_key, rating_key)
+            if admin is not None
+            else None
+        )
+        answer = RedirectResponse(fallback, 302) if fallback else Response(status_code=404)
+        # Plex's own backdrop may only be missing for now, so this is kept for minutes.
+        answer.headers["Cache-Control"] = f"private, max-age={_ART_FALLBACK_MAX_AGE_SECONDS}"
+        return answer
     return _serve_poster(config, rating_key)
 
 

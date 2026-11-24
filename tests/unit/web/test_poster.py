@@ -1176,7 +1176,7 @@ class TestPlexTransportFailures:
 
 
 class TestPosterBackdrop:
-    """?kind=art serves the wide backdrop from Plex, cached on disk; no backdrop means the poster."""
+    """?kind=art serves the wide backdrop from Plex, cached on disk, else TMDB's, else 404."""
 
     _KEY = "0123456789abcdef" * 4
 
@@ -1241,13 +1241,13 @@ class TestPosterBackdrop:
         assert r.content == b"wide-art"
         assert len(urls) == first
 
-    def test_a_title_with_no_backdrop_gets_its_poster(self, tmp_path):
+    def test_a_title_with_no_backdrop_is_a_404_never_its_poster(self, tmp_path):
         stub, _ = self._plex(has_art=False)
 
         r = self._get(self._client(tmp_path), stub)
 
-        assert r.status_code == 200
-        assert r.content == b"portrait-poster"
+        assert r.status_code == 404
+        assert r.content == b""
 
     def test_without_kind_the_poster_is_served_and_plex_is_not_asked_for_art(self, tmp_path):
         stub, urls = self._plex(has_art=True)
@@ -1257,17 +1257,14 @@ class TestPosterBackdrop:
         assert r.content == b"portrait-poster"
         assert not any("%2Fart" in u for u in urls)
 
-    def test_the_poster_stood_in_for_a_backdrop_is_not_kept_by_the_browser_for_a_week(
-        self, tmp_path
-    ):
+    def test_a_missing_backdrop_is_not_remembered_for_a_week(self, tmp_path):
         stub, _ = self._plex(has_art=False)
         client = self._client(tmp_path)
 
-        fallback = self._get(client, stub)
+        missing = self._get(client, stub)
         plain = self._get(client, stub, query="")
 
-        assert fallback.content == b"portrait-poster"
-        assert fallback.headers["cache-control"] == "public, max-age=300"
+        assert missing.headers["cache-control"] == "private, max-age=300"
         assert plain.headers["cache-control"] == "public, max-age=604800"
 
     def test_a_backdrop_served_from_plex_is_kept_for_the_week(self, tmp_path):
@@ -1277,7 +1274,7 @@ class TestPosterBackdrop:
 
         assert r.headers["cache-control"] == "public, max-age=604800"
 
-    def test_without_plex_credentials_the_backdrop_request_gets_the_cached_poster(self, tmp_path):
+    def test_without_plex_credentials_the_backdrop_is_a_404_not_the_cached_poster(self, tmp_path):
         from mediaman.web.routes.poster import sign_poster_url
 
         client, conn = TestPosterEndpointAuth._build_test_app(self, tmp_path, self._KEY)
@@ -1286,5 +1283,112 @@ class TestPosterBackdrop:
 
         r = client.get(sign_poster_url("12345", self._KEY) + "&kind=art")
 
-        assert r.status_code == 200
-        assert r.content == b"fake-jpg"
+        assert r.status_code == 404
+
+
+class TestPosterTmdbBackdrop:
+    """With no Plex backdrop, a signed-in caller is sent to TMDB's for the same title."""
+
+    _KEY = "0123456789abcdef" * 4
+    _IMAGE = "/api/watch/img/tmdb/w1280/back.jpg"
+
+    @pytest.fixture
+    def ask(self, tmp_path, monkeypatch):
+        """A signed-in GET of ?kind=art with TMDB answering *details*; gives the response and
+        what TMDB was asked."""
+        from mediaman.services import watch_catalog
+        from mediaman.services.media_meta.tmdb import TmdbClient
+        from mediaman.web.auth.session_store import create_session
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = TestPosterEndpointAuth._build_test_app(self, tmp_path, self._KEY)
+        _scan(conn)
+        insert_admin_user(conn, username="admin")
+        token = create_session(conn, "admin")
+
+        def ask(key, *, details, tmdb=True, signed=False):
+            asked = []
+
+            def answer(_client, kind, tmdb_id):
+                asked.append((kind, tmdb_id))
+                if isinstance(details, Exception):
+                    raise details
+                return details
+
+            monkeypatch.setattr(watch_catalog, "details", answer)
+            monkeypatch.setattr(watch_catalog, "tmdb_id_for_tvdb", lambda _c, tvdb: tvdb + 1)
+            monkeypatch.setattr(
+                TmdbClient, "from_db", classmethod(lambda *a, **k: object() if tmdb else None)
+            )
+            if signed:
+                url = sign_poster_url(key, self._KEY) + "&kind=art"
+            else:
+                client.cookies.set("session_token", token)
+                url = f"/api/poster/{key}?kind=art"
+            return client.get(url, follow_redirects=False), asked
+
+        ask.conn = conn
+        return ask
+
+    def _item(self, ask, *, tmdb_id=None, tvdb_id=None, **fields):
+        key = insert_media_item(ask.conn, plex_library_id=1, **fields)
+        ask.conn.execute(
+            "UPDATE media_items SET tmdb_id = ?, tvdb_id = ? WHERE id = ?", (tmdb_id, tvdb_id, key)
+        )
+        ask.conn.commit()
+
+    def test_a_movie_is_redirected_to_its_tmdb_backdrop_for_minutes(self, ask):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+
+        assert (r.status_code, r.headers["location"]) == (302, self._IMAGE)
+        assert r.headers["cache-control"] == "private, max-age=300"
+        assert asked == [("movie", 42)]
+
+    def test_a_show_with_only_a_tvdb_id_finds_its_tmdb_backdrop(self, ask):
+        self._item(
+            ask,
+            id="801",
+            media_type="tv_season",
+            show_rating_key="800",
+            season_number=1,
+            tvdb_id=6,
+        )
+
+        r, asked = ask("800", details={"backdrop_url": self._IMAGE})
+
+        assert r.headers["location"] == self._IMAGE
+        assert asked == [("tv", 7)]
+
+    def test_no_tmdb_key_is_a_404_and_tmdb_is_not_asked(self, ask):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE}, tmdb=False)
+
+        assert r.status_code == 404
+        assert asked == []
+
+    def test_a_tmdb_outage_is_a_404(self, ask):
+        from mediaman.services.watch_catalog import TmdbUnavailable
+
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, _ = ask("700", details=TmdbUnavailable("details"))
+
+        assert r.status_code == 404
+
+    def test_a_title_tmdb_has_no_backdrop_for_is_a_404(self, ask):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, _ = ask("700", details={"backdrop_url": None})
+
+        assert r.status_code == 404
+
+    def test_a_signed_url_caller_makes_no_tmdb_request(self, ask):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE}, signed=True)
+
+        assert r.status_code == 404
+        assert asked == []

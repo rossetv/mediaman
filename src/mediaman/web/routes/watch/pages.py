@@ -49,6 +49,7 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
+from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import list_page
 
 router = APIRouter()
@@ -105,11 +106,6 @@ def is_valid_key(key: str) -> bool:
 
 def poster_url(key: str) -> str:
     return f"/api/poster/{key}"
-
-
-def backdrop_url(key: str) -> str:
-    """The wide image of a title for the banner; the route sends the poster when there is none."""
-    return f"/api/poster/{key}?kind=art"
 
 
 def safe_origin(value: str | None) -> str | None:
@@ -473,7 +469,7 @@ def _banner(
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        "backdrop_url": backdrop_url(key),
+        **title_art(key),
     }
 
 
@@ -549,7 +545,7 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},
             "episodes_href": None,
-            "backdrop_url": backdrop_url(key),
+            **title_art(key),
         }
 
     # (title, cards, under the "Your library" divider); Discover goes between the two groups.

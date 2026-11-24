@@ -241,7 +241,7 @@
 .watch-banner__body {
   position: relative;
   z-index: 1;
-  max-width: 560px;
+  max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -255,6 +255,28 @@
   .watch-banner__line--long { display: none; }
   .watch-banner__line--short { display: block; }
 }
+
+/* With no backdrop (none given, or it failed) the poster stands in: blurred as the fill and
+   sharp at 2:3 on the right. The title keeps clear of that place at every width, so nothing
+   moves when the backdrop fails. Hidden, the lazy images are not fetched. */
+.watch-banner { --banner-poster-w: clamp(150px, 19vw, 320px); }
+.watch-banner__bg--fill { filter: blur(40px) brightness(.7); transform: scale(1.2); object-position: center; }
+.watch-banner__poster {
+  position: absolute;
+  z-index: 2;
+  right: var(--pad);
+  top: 50%;
+  width: var(--banner-poster-w);
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-50%);
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.watch-banner__bg--art:not([data-broken]) ~ .watch-banner__bg--fill,
+.watch-banner__bg--art:not([data-broken]) ~ .watch-banner__poster { display: none; }
+.has-poster-fade .watch-banner__bg--fill:not(.is-loaded) ~ .watch-banner__poster { opacity: 0; }
 
 /* Rows run to the screen edge; at rest the first card lines up with the
    title, and whatever is cut off at either edge fades out across the gutter.
@@ -634,7 +656,9 @@
 @media (max-width: 599.98px) {
   .watch-top { padding-top: 12px; }
   .watch-search { max-width: none; }
-  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 64px var(--pad) 20px; }
+  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
+  /* Above the title, in the room the padding keeps for it. */
+  .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; transform: none; border-radius: var(--r-sm); }
   .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, transparent 60%); }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }

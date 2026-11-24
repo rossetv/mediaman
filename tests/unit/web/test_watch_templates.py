@@ -262,6 +262,31 @@ def test_banner_shows_the_label_it_is_given_and_none_when_it_has_none() -> None:
     assert "watch-banner__kicker" not in _watch(banner={**banner, "kicker": None})
 
 
+def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> None:
+    banner = {
+        "title": "Salt & Iron",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+        "backdrop_url": "/api/poster/1?kind=art",
+        "poster_url": "/api/poster/1",
+    }
+    html = _watch(banner=banner)
+    images = re.findall(r'<img class="watch-banner__[^>]*>', html)
+
+    assert [re.search(r'src="([^"]*)"', i).group(1) for i in images] == [
+        "/api/poster/1?kind=art",
+        "/api/poster/1",
+        "/api/poster/1",
+    ]
+    assert ['loading="lazy"' in i for i in images] == [False, True, True]
+    assert all("data-broken-on-error" in i for i in images)
+    css = (CSS / "_watch.css").read_text()
+    for part in ("bg--fill", "poster"):
+        assert f".watch-banner__bg--art:not([data-broken]) ~ .watch-banner__{part}" in css
+
+
 def test_not_set_up_links_to_settings_for_admins_only() -> None:
     admin = _watch(watch_error="not_set_up", is_admin=True)
     viewer = _watch(watch_error="not_set_up", is_admin=False)
