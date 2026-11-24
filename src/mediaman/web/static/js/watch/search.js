@@ -26,7 +26,7 @@
   // The categories the sheet opens on; the rest stand below what else it offers.
   var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
   var PEOPLE = 6;
-  var NO_PEOPLE = 'mm.watch.no-people'; // stored while the library has none, so no place is held for them
+  var NO_PEOPLE = 'mm.watch.no-people'; // stored while none of the library are known, so no place is held for them
   // TMDB answers nothing for less; do not ask.
   var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
@@ -702,7 +702,7 @@
     }
 
     function rememberPeople(all) {
-      if (!all.people.length && !(all.library && all.library.ready)) return; // not counted yet
+      if (!all.library) return; // could not be had
       try {
         if (all.people.length) window.localStorage.removeItem(NO_PEOPLE);
         else window.localStorage.setItem(NO_PEOPLE, '1');

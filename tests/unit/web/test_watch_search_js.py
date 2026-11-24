@@ -640,7 +640,7 @@ def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() 
     assert _run("placeHeldForPeople") == [
         [True, False],
         [True, False],
-        [True, False],
+        [False, False],
         [False, True],
         [True, False],
         [False, False],
