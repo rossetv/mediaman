@@ -826,8 +826,11 @@ def test_the_decision_says_whether_the_video_is_copied(manager, plex, body, copi
 
     assert manager.copies_video("123", "file") is copied
 
-    assert plex.calls_to("start.m3u8") == []
-    assert [c["method"] for c in plex.calls] == ["GET"]
+    assert plex.paths() == [f"{TRANSCODE}/decision", f"{TRANSCODE}/stop"]
+    decision, stop = plex.calls
+    assert stop["params"]["session"] == decision["params"]["session"]
+    assert {c["method"] for c in plex.calls} == {"GET"}
+    assert stop["timeout"] == plex_stream._QUIET_TIMEOUT
 
 
 def test_the_copy_verdict_is_asked_once_per_file_until_it_is_old(manager, plex, clock):
@@ -842,11 +845,62 @@ def test_the_copy_verdict_is_asked_once_per_file_until_it_is_old(manager, plex, 
     assert manager.copies_video("123", "file") is False
 
 
-def test_a_failed_question_is_no_copy_and_is_asked_again(manager, plex):
+def test_a_failed_question_is_no_copy_and_is_asked_again_after_a_minute(manager, plex, clock):
     plex.decision = _decision()
     plex.fail_decisions = 1
 
     assert manager.copies_video("123", "file") is False
+    clock.now += 59
+    assert manager.copies_video("123", "file") is False
+    assert len(plex.calls_to("decision")) == 1
+    clock.now += 2
+    assert manager.copies_video("123", "file") is True
+
+
+def test_a_failed_question_keeps_the_answer_plex_gave_before(manager, plex, clock):
+    plex.decision = _decision()
+    assert manager.copies_video("123", "file") is True
+    clock.now += 3601
+    plex.fail_decisions = 1
+
+    assert manager.copies_video("123", "file") is True
+    assert manager.copies_video("123", "file") is True
+    assert len(plex.calls_to("decision")) == 2
+
+
+def test_a_restart_reuses_the_answer_the_viewing_began_with(manager, plex, clock):
+    plex.decision = _decision()
+    assert manager.copies_video("123", "file", "alice") is True
+    stream_id = _start(manager)
+    clock.now += 3601
+    manager.playlist(stream_id, "alice")
+    manager.stop(stream_id, "alice")
+
+    assert manager.copies_video("123", "file", "alice") is True
+    assert len(plex.calls_to("decision")) == 2  # the first question and the start's own
+    assert manager.copies_video("123", "file", "bob") is True
+    assert len(plex.calls_to("decision")) == 3
+
+
+@pytest.mark.parametrize("failure", [_not_copied, _unservable, _start_fails])
+def test_an_original_that_failed_to_start_is_not_offered_again(manager, plex, failure):
+    plex.decision = _decision()
+    assert manager.copies_video("123", "file") is True
+    assert manager.copies_video("456", "file") is True
+    failure(plex)
+    _start(manager, quality="original", fallback="720p-4000")
+
+    assert manager.copies_video("123", "file") is False
+    assert manager.copies_video("456", "file") is True
+
+
+def test_an_original_is_still_offered_after_plex_could_start_nothing(manager, plex):
+    plex.decision = _decision()
+    assert manager.copies_video("123", "file") is True
+    plex.fail_decisions = 2
+    with pytest.raises(PlexUnavailable):
+        _start(manager, quality="original", fallback="720p-4000")
+
     assert manager.copies_video("123", "file") is True
 
 

@@ -75,6 +75,8 @@ VIEWING_KEEP_SECONDS = 24 * 3600.0
 REAPED_KEEP_SECONDS = 600.0
 # How long Plex's word on whether it would copy a file's video is kept.
 COPY_VERDICT_KEEP_SECONDS = 3600.0
+# How long a question Plex failed to answer is not asked again.
+COPY_FAILURE_KEEP_SECONDS = 60.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
@@ -146,6 +148,15 @@ class _Viewing:
 
 
 @dataclass
+class _CopyVerdict:
+    """Whether Plex would copy a file's video; *known* is False while Plex has not answered."""
+
+    copied: bool
+    known: bool
+    until: float
+
+
+@dataclass
 class _Stream:
     user: str
     rating_key: str
@@ -189,8 +200,8 @@ class StreamManager:
         self._viewings: dict[tuple[str, str], _Viewing] = {}
         # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
-        # (rating_key, file) -> (when Plex was asked, whether it would copy the video).
-        self._copies: dict[tuple[str, str], tuple[float, bool]] = {}
+        # (rating_key, file) -> Plex's word on copying its video.
+        self._copies: dict[tuple[str, str], _CopyVerdict] = {}
 
     def start(
         self,
@@ -216,6 +227,7 @@ class StreamManager:
             raise ValueError(f"unknown quality {quality!r}")
         if not _RATING_KEY_RE.fullmatch(rating_key):
             raise ValueError("rating key must be numeric")
+        asked = quality
         base, token = self._creds()
         for session_id in self._drop_same_item(user, rating_key):
             self._call_quietly("stop", session_id)
@@ -244,6 +256,11 @@ class StreamManager:
                 raise
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
+            if quality != asked:
+                until = self._clock() + COPY_VERDICT_KEEP_SECONDS
+                for key in self._copies:
+                    if key[0] == rating_key:
+                        self._copies[key] = _CopyVerdict(False, True, until)
             # A concurrent start of the same item may have stored its stream meanwhile.
             twins = [
                 sid
@@ -356,18 +373,23 @@ class StreamManager:
                 raise StreamGone("stream is gone")
             return self._info(stream, stream.last_access)
 
-    def copies_video(self, rating_key: str, file: str) -> bool:
+    def copies_video(self, rating_key: str, file: str, user: str = "") -> bool:
         """Whether Plex would send this item's video as it is, remembered per *file* for a while.
 
-        Only asks Plex for its decision, which opens nothing. False when Plex cannot say.
+        A restart of *user*'s viewing keeps the answer it has, however old. Only asks Plex for
+        its decision, and stops the session the question named. When Plex cannot say, its
+        earlier answer stands; without one, False.
         """
         if not _RATING_KEY_RE.fullmatch(rating_key):
             return False
         now = self._clock()
         with self._lock:
-            asked_at, verdict = self._copies.get((rating_key, file), (0.0, None))
-        if verdict is not None and now - asked_at <= COPY_VERDICT_KEEP_SECONDS:
-            return verdict
+            held = self._copies.get((rating_key, file))
+            viewing = self._viewings.get((user, rating_key))
+        if held is not None:
+            restart = viewing is not None and now - viewing.touched <= IDLE_TIMEOUT_SECONDS
+            if now <= held.until or (held.known and restart):
+                return held.copied
         session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
         try:
             base, token = self._creds()
@@ -382,14 +404,18 @@ class StreamManager:
                 timeout=_QUIET_TIMEOUT,
             )
         except PlexError:
-            return False
-        verdict = _video_copied(body)
+            known = held is not None and held.known
+            until = self._clock() + COPY_FAILURE_KEEP_SECONDS
+            verdict = _CopyVerdict(held is not None and held.copied, known, until)
+        else:
+            self._call_quietly("stop", session_id)
+            verdict = _CopyVerdict(_video_copied(body), True, now + COPY_VERDICT_KEEP_SECONDS)
         with self._lock:
             self._copies = {
-                k: v for k, v in self._copies.items() if now - v[0] <= COPY_VERDICT_KEEP_SECONDS
+                k: v for k, v in self._copies.items() if now - v.until <= VIEWING_KEEP_SECONDS
             }
-            self._copies[(rating_key, file)] = (now, verdict)
-        return verdict
+            self._copies[(rating_key, file)] = verdict
+        return verdict.copied
 
     def reaped(self, stream_id: str, user: str) -> StreamInfo:
         """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.

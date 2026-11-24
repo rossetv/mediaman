@@ -138,11 +138,11 @@ def plex_failure(exc: PlexError) -> Response:
     return respond_err("unreachable", status=502)
 
 
-def _may_play_original(manager: StreamManager, item: PlexItem) -> bool:
+def _may_play_original(manager: StreamManager, item: PlexItem, username: str) -> bool:
     media = item.media
     if media is None or not may_copy(item):
         return False
-    return manager.copies_video(item.rating_key, f"{media.part_id}:{media.part_size}")
+    return manager.copies_video(item.rating_key, f"{media.part_id}:{media.part_size}", username)
 
 
 @router.post("/api/watch/stream")
@@ -185,7 +185,7 @@ def start_stream(
                 "count": item.preview_count,
             }
         manager = get_stream_manager()
-        rows = quality_rows(item, original=_may_play_original(manager, item))
+        rows = quality_rows(item, original=_may_play_original(manager, item, username))
         quality = resolve_quality(rows, body.quality)
         stream_id = manager.start(
             username,
