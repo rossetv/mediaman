@@ -38,7 +38,7 @@ function line(widths, view) {
     getComputedStyle: () => ({ paddingLeft: PAD + 'px', paddingRight: PAD + 'px' }),
     matchMedia: () => ({ matches: true }),
     requestAnimationFrame: (fn) => fn(),
-    MutationObserver: class { observe() {} },
+    MutationObserver: class { observe() {} disconnect() {} },
     addEventListener() {},
     MM: { dom: { icon: () => doc.createElement('svg') } },
   };

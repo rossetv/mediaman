@@ -114,7 +114,7 @@ async function load(opts = {}) {
     getComputedStyle: () => ({ getPropertyValue: () => '', visibility: 'visible', display: 'block', paddingLeft: '0', paddingRight: '0', gridTemplateColumns: '1px 1px 1px' }),
     matchMedia: () => ({ matches: true }),
     requestAnimationFrame: (fn) => fn(),
-    MutationObserver: class { observe() {} },
+    MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: 900, innerWidth: 1280, scrollY: 0, scrollTo() {}, scrollBy() {},
     sessionStorage: { getItem: () => null, setItem() {} },
     history: {

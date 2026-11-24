@@ -131,7 +131,7 @@ function rowOf(p, id, width) {
 function comeBack() {
   const tab = makeTab('/watch');
   let p = open(tab);
-  ['movies', 'recent', 'later'].forEach((id) => rowOf(p, id, 2000).scrollTo({ left: 1148 }));
+  ['movies', 'recent', 'later'].forEach((id) => rowOf(p, id, 2000).drag(1148));
   p.fire('pagehide');
   return open(tab, { unstarted: true });
 }
@@ -145,14 +145,15 @@ const scenarios = {
     hidden.away = true;
     p.address.start();
     const first = [movies, recent, hidden].map((s) => s.scrollLeft);
+    p.frame(4);
     recent.width = 2000; // its next pages are in
     hidden.away = false;
     p.observers.forEach((o) => { if (!o.off) o.fn(); });
     const then = [movies, recent, hidden].map((s) => s.scrollLeft);
     movies.scrollTo({ left: 700 }); // Safari's own doing
-    p.late();
+    p.frame(4);
     const held = movies.scrollLeft;
-    p.late();
+    p.late(1000);
     movies.scrollTo({ left: 10 });
     p.observers.forEach((o) => { if (!o.off) o.fn(); });
     const other = open(makeTab('/watch'), { unstarted: true });
@@ -168,7 +169,8 @@ const scenarios = {
     const movies = rowOf(p, 'movies', 600);
     const recent = rowOf(p, 'recent', 600);
     p.address.putRowsBack(p.doc);
-    movies.parentNode.listeners.wheel.forEach((fn) => fn({}));
+    movies.drag(500);
+    p.frame(4);
     movies.width = recent.width = 2000;
     p.observers.forEach((o) => { if (!o.off) o.fn(); });
     return { movies: movies.scrollLeft, recent: recent.scrollLeft };
@@ -264,6 +266,43 @@ const scenarios = {
     return { run, kept, shaken, bounded: q.win.scrollY };
   },
 
+  // Safari scrolls a row nobody touched; a mouse or a finger passing over it on its way down the page is no touch.
+  async aRowThatScrollsByItself() {
+    const p = open(makeTab('/watch'), { unstarted: true });
+    const s = rowOf(p, 'recommended', 2000);
+    p.address.start();
+    s.scrollTo({ left: 492 });
+    p.frame(4);
+    const held = s.scrollLeft;
+    p.late(1000);
+    const say = (type, e) => (p.doc.listeners[type] || []).forEach((fn) => fn({ type, target: s, ...e }));
+    say('wheel', { deltaX: 0, deltaY: 90 });
+    say('touchstart', { touches: [{ clientX: 100, clientY: 400 }] });
+    say('touchmove', { touches: [{ clientX: 104, clientY: 300 }] });
+    s.scrollTo({ left: 492 });
+    p.fire('pagehide');
+    const back = open(p.tab, { unstarted: true });
+    const again = rowOf(back, 'recommended', 2000);
+    back.address.start();
+    const own = [{ clientX: 40, clientY: 396 }];
+    say('touchmove', { touches: own });
+    s.scrollTo({ left: 164 });
+    p.fire('pagehide');
+    const last = open(p.tab, { unstarted: true });
+    const theirs = rowOf(last, 'recommended', 2000);
+    last.address.start();
+    return { held, alone: again.scrollLeft, theirs: theirs.scrollLeft };
+  },
+
+  async aRowTheyScrollWithoutAnEvent() {
+    const p = comeBack();
+    const s = rowOf(p, 'movies', 2000);
+    p.address.start();
+    [1000, 800, 600].forEach((x) => { s.scrollTo({ left: x }); p.frame(); });
+    p.frame(4);
+    return { left: s.scrollLeft };
+  },
+
   // A row off the screen is still waited for while there is more of it to load.
   async aRowOffTheScreen() {
     const p = comeBack();
@@ -271,6 +310,7 @@ const scenarios = {
     movies.parentNode.setAttribute('data-row-more', '');
     p.address.start();
     p.late();
+    p.frame(4);
     movies.width = 2000;
     p.observers.forEach((o) => { if (!o.off) o.fn(); });
     return { left: movies.scrollLeft };
