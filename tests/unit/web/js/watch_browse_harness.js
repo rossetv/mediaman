@@ -368,6 +368,21 @@ const scenarios = {
     return { refs: refsOf(scrollerOf(p, 'recommended')), asked: p.calls.length, more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
   },
 
+  // Picks of one name, kind and year: another TMDB id is another title, the same or an unknown one is not.
+  async picksOfOneName() {
+    layout();
+    const twin = (ref, id, extra) => pick(ref, { title: 'Twin', tmdb_id: id, ...extra });
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended({ items: [twin('pick-1', 11), twin('rec-1', 12), twin('rec-2', 11, { title: 'Twin renamed' })] }), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended?batch=2026-11-14&start=2026-11-21': () => Promise.resolve({ ...recommended({ batch: '2026-11-14',
+        items: [twin('rec-3', 13), twin('rec-4', 12), twin('rec-5', null), twin('rec-6', 11, { kind: 'show' })] }), next_batch: null }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return refsOf(scrollerOf(p, 'recommended'));
+  },
+
   // New picks arrive while an older batch is on its way: the row starts again without it.
   async refreshedWhileLoading() {
     layout();

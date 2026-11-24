@@ -90,6 +90,7 @@
     link.setAttribute('data-title-ref', ref);
     if (item.kind === 'movie' || item.kind === 'show') link.setAttribute('data-kind', item.kind);
     if (item.in_library) link.setAttribute('data-in-library', '');
+    if (item.tmdb_id > 0) link.setAttribute('data-tmdb-id', String(Number(item.tmdb_id)));
     if (PICK_RE.test(item.pick_ref || '')) link.setAttribute('data-pick-ref', item.pick_ref);
     var poster = el('span', 'watch-card__poster');
     var src = safePath(item.poster_url);

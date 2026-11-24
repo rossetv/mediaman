@@ -87,6 +87,7 @@ def _card(
     return {
         **card,
         **lib.mark_fields(library_ref, seen),
+        "tmdb_id": tmdb_id if isinstance(tmdb_id, int) and tmdb_id > 0 else None,
         "rec_id": None if own else row["id"],
         "pick_ref": pick_ref,
         "own": own,

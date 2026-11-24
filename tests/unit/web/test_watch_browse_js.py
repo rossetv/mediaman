@@ -405,6 +405,10 @@ def test_a_row_whose_older_batches_are_gone_ends() -> None:
     assert out == {"refs": ["rec-7", "rec-8"], "asked": 3, "more": False}
 
 
+def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> None:
+    assert _run("picksOfOneName") == ["pick-1", "rec-1", "rec-3", "rec-6"]
+
+
 def test_an_older_batch_on_its_way_when_the_row_starts_again_is_not_added() -> None:
     assert _run("refreshedWhileLoading") == {"old": ["rec-7", "rec-8"], "now": ["rec-30"]}
 

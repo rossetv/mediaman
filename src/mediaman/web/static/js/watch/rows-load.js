@@ -56,22 +56,33 @@
     return node ? node.textContent.trim().toLowerCase() : '';
   }
 
-  /* A filter that lets each card through once: the same key, or the same
-     title, kind and year where the refs cannot tell. */
+  /* The TMDB title a card says it is of, kind and number; null when it does not say. */
+  function tmdbOf(link) {
+    var ref = /^tmdb-(movie|tv)-([0-9]+)$/.exec(link.getAttribute('data-title-ref'));
+    if (ref) return ref[1] + '-' + ref[2];
+    var id = link.getAttribute('data-tmdb-id');
+    return id ? (link.getAttribute('data-kind') === 'movie' ? 'movie-' : 'tv-') + id : null;
+  }
+
+  /* A filter that lets each card through once: the same key, the same TMDB
+     title, or the same title, kind and year where neither ids nor refs can tell. */
   function onlyNew() {
     var keys = new Set();
+    var ids = new Set();
     var names = new Map();
     return function isNew(card) {
       var link = card.querySelector('[data-title-ref]');
       if (!link) return true;
       var key = keyOf(card);
-      if (keys.has(key)) return false;
+      var id = tmdbOf(link);
+      if (keys.has(key) || (id && ids.has(id))) return false;
       var source = sourceOf(link.getAttribute('data-title-ref'));
       var name = textOf(card, '.watch-card__title') + '\n' + textOf(card, '.watch-card__sub');
-      var sources = names.get(name) || [];
-      if (source === 'rec' ? sources.length : sources.some(function (s) { return s !== source; })) return false;
+      var named = names.get(name) || [];
+      if (named.some(function (n) { return !(id && n.id) && (source === 'rec' || n.source !== source); })) return false;
       keys.add(key);
-      names.set(name, sources.concat(source));
+      if (id) ids.add(id);
+      names.set(name, named.concat({ source: source, id: id }));
       return true;
     };
   }
