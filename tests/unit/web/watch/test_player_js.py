@@ -1358,9 +1358,9 @@ def test_what_follows_is_asked_again_through_a_drop_and_once_online(unknown_next
     assert out["found"] == {"message": None, "card": True}
 
 
-def test_what_follows_is_gone_on_to_once_however_often_it_was_asked(unknown_next, markup):
+def test_a_slow_try_that_fails_once_what_follows_is_known_changes_nothing(unknown_next, markup):
     out = run(unknown_next, "next_unknown_twice", pages={"/found": markup})
-    assert out == {"pages": 2, "asks": 1}
+    assert out == {"card": True, "tries": 2, "left": "6"}
 
 
 def test_moving_back_while_what_follows_is_asked_ends_the_asking(unknown_next):

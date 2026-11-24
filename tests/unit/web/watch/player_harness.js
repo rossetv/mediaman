@@ -1460,25 +1460,27 @@ const scenarios = {
     return out;
   },
 
-  /* What follows is asked twice, as the browser comes online under a slow answer; both come. */
+  /* What follows is asked again as the browser comes online under a slow try, which then fails. */
   async next_unknown_twice(p) {
     const found = p.pages['/found'].html;
-    let asks = 0;
-    p.q('[data-ask]').showModal = () => { asks++; };
     p.pages['/watch/play/1'] = 'offline';
     await streamPlays(p, 0);
-    p.sleep(3 * 60 * 60 * 1000);
     endsNow(p);
     await settle();
-    const reply = [];
-    p.pages['/watch/play/1'] = { get html() { return new Promise((r) => reply.push(r)); } };
+    const tries = [];
+    p.pages['/watch/play/1'] = { get html() { return new Promise((r, fail) => tries.push({ r, fail })); } };
     p.tick(1000);
     await settle();
     p.online();
     await settle();
-    reply.forEach((r) => r(found));
+    tries[1].r(found);
     await settle();
-    return { pages: reply.length, asks: asks };
+    const card = !gone(p.q('[data-upnext]'));
+    tries[0].fail(new TypeError('Failed to fetch'));
+    await settle();
+    p.tick(4000);
+    await settle();
+    return { card: card, tries: tries.length, left: p.q('[data-countdown]').textContent };
   },
 
   /* The person moves back while what follows is still being asked. */
