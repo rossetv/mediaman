@@ -233,6 +233,16 @@ def _monitored_seasons(
     ]
 
 
+def _wanted_episodes(series: SonarrSeries, episodes: Sequence[ArrEpisode]) -> list[ArrEpisode]:
+    """Return the episodes Sonarr is set to fetch; one that does not say follows its season."""
+    unmonitored = {
+        season.get("seasonNumber")
+        for season in series.get("seasons") or []
+        if not season.get("monitored")
+    }
+    return [ep for ep in episodes if ep.get("monitored", ep.get("seasonNumber") not in unmonitored)]
+
+
 def _build_still_searching_cards(
     client: ArrClient,
     queue_series_title_years: set[tuple[str, int | None]],
@@ -279,8 +289,10 @@ def _build_still_searching_cards(
             )
             episodes_raw = []
 
-        is_upcoming, release_label = classify_series_upcoming(series, episodes_raw)
-        released_at = compute_series_released_at(episodes_raw)
+        wanted = _wanted_episodes(series, episodes_raw)
+        is_upcoming, release_label = classify_series_upcoming(series, wanted)
+        # Auto-abandon leaves specials alone, so an old one must not age the season it may abandon.
+        released_at = compute_series_released_at([e for e in wanted if e.get("seasonNumber") != 0])
 
         added_at = 0.0
         added_dt = parse_iso_utc(series.get("added", ""))

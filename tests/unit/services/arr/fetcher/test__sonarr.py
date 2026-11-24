@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
+
+import pytest
 
 # rationale: make_arr_card, fetch_sonarr_queue, and _aggregate_pack_episodes
 # are internal helpers not in __all__; _aggregate_pack_episodes in particular
@@ -320,6 +323,45 @@ class TestFetchSonarrQueueSearching:
             _client(series=[_searching_series(seasons=seasons)], episodes=episodes)
         )
         assert [s["aired"] for s in card["stuck_seasons"]] == [True, True, False]
+
+    _S2_NEXT = {"seasonNumber": 2, "airDateUtc": "2099-01-01T00:00:00Z"}
+
+    def _card(self, monitored, episodes):
+        seasons = [{"seasonNumber": n, "monitored": n in monitored} for n in (0, 1, 2)]
+        (card,) = fetch_sonarr_queue(
+            _client(series=[_searching_series(seasons=seasons)], episodes=episodes)
+        )
+        return card
+
+    def test_show_whose_only_monitored_season_has_not_aired_is_upcoming(self):
+        card = self._card(
+            {2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
+        )
+        assert card["is_upcoming"] is True
+        assert card["release_label"] == "Premieres 1 Jan 2099"
+        assert card["released_at"] == 0.0
+
+    def test_show_with_a_monitored_aired_season_is_searching(self):
+        card = self._card(
+            {1, 2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
+        )
+        assert card["is_upcoming"] is False
+
+    def test_aired_episode_monitored_by_itself_is_being_searched(self):
+        episode = {"seasonNumber": 1, "monitored": True, "airDateUtc": "2015-01-01T00:00:00Z"}
+        assert self._card({2}, [episode, self._S2_NEXT])["is_upcoming"] is False
+
+    @pytest.mark.parametrize("other", [0, 2])
+    def test_release_date_leaves_out_specials_and_unmonitored_seasons(self, other):
+        """A show searched for an old season is not fresh because something else aired since."""
+        card = self._card(
+            {0, 1},
+            [
+                {"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"},
+                {"seasonNumber": other, "airDateUtc": "2020-01-01T00:00:00Z"},
+            ],
+        )
+        assert card["released_at"] == datetime(2015, 1, 1, tzinfo=UTC).timestamp()
 
     def test_get_series_exception_does_not_crash(self):
         """Network error from get_series is swallowed; queue cards returned."""
