@@ -10,6 +10,7 @@ import sqlite3
 from datetime import timedelta
 
 from mediaman.core.format import format_bytes
+from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.core.time import now_utc
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._query import (
@@ -116,21 +117,24 @@ def sum_size_bytes_by_type(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def count_deletions_due(conn: sqlite3.Connection, *, now: str, until: str) -> int:
-    """Return the display items (movies, and shows once each) with a deletion due in the window."""
+    """Return the display items (movies, and shows once each) with a deletion due in the window.
+
+    An item whose library is not selected is not due: the deletion pass leaves it.
+    """
     season_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
-    # rationale: placeholders are purely "?" * len(...) — no user value enters the SQL text
+    # rationale: placeholders are purely "?" * len(...) and the condition a fixed string — no user value enters the SQL text
     row = conn.execute(
         f"""
         SELECT COUNT(*) AS n FROM (
             SELECT mi.id FROM media_items mi
-            WHERE mi.media_type = 'movie' AND EXISTS (
+            WHERE mi.media_type = 'movie' AND {LIBRARY_SELECTED} AND EXISTS (
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
                 AND sa.execute_at >= ? AND sa.execute_at <= ?)
             UNION ALL
             SELECT MIN(mi.id) FROM media_items mi
-            WHERE mi.media_type IN ({season_placeholders}) AND EXISTS (
+            WHERE mi.media_type IN ({season_placeholders}) AND {LIBRARY_SELECTED} AND EXISTS (
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')

@@ -726,6 +726,17 @@ class TestPendingDeletion:
         items, _ = fetch_library(conn)
         assert all(i["deletion_at"] is None for i in items)
 
+    def test_an_item_whose_library_is_not_selected_shows_no_deletion(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _insert_season(conn, "s1", "Show", "k1")
+        _schedule_deletion(conn, "m1", 5.5)
+        _schedule_deletion(conn, "s1", 5.5)
+        conn.execute("UPDATE settings SET value = '[\"2\"]' WHERE key = 'plex_libraries'")
+        items, _ = fetch_library(conn)
+        assert [i["deletion_at"] for i in items] == [None, None]
+
     def test_show_row_takes_its_soonest_season(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
@@ -776,3 +787,13 @@ class TestStatsSizesAndDue:
         stats = fetch_stats(conn)
         assert stats["due_soon"] == 2
         assert stats["due_soon_days"] == 14
+
+    def test_due_soon_leaves_out_items_whose_library_is_not_selected(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _insert_season(conn, "s1", "Show", "k1")
+        _schedule_deletion(conn, "m1", 3)
+        _schedule_deletion(conn, "s1", 3)
+        conn.execute("UPDATE settings SET value = '[\"2\"]' WHERE key = 'plex_libraries'")
+        assert fetch_stats(conn)["due_soon"] == 0
