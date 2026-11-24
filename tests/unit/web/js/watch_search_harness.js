@@ -1019,6 +1019,14 @@ const scenarios = {
     return out;
   },
 
+  // What only Radarr or Sonarr has stands with the library's, under its heading and not under Available to download.
+  async personHeldByArr() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    const item = (n, state) => ({ ...TM, ref: 'tmdb-movie-' + n, title: 'T' + n, in_library: false, download_state: state });
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: MARA, items: [item(1, 'in_library'), item(2, 'partial'), item(3, null)], total: 3, in_library: 2, next_page: null });
+    return p.grids[0].titles;
+  },
+
   // What is said of a person: its room held, then their own, and nothing where there is none.
   async personAbout() {
     const said = (p) => ({

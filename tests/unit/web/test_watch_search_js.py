@@ -390,6 +390,16 @@ def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_r
     assert out["cleared"] == ["/watch", "browse", True]
 
 
+def test_a_person_s_title_that_only_radarr_or_sonarr_has_is_in_the_library() -> None:
+    assert _run("personHeldByArr") == [
+        "In your library2 titles",
+        "T1Movie · 2020",
+        "T2Movie · 2020",
+        "Available to download1 title",
+        "T3Movie · 2020",
+    ]
+
+
 def test_films_and_tv_in_one_order_are_asked_to_go_on_from_where_each_stands() -> None:
     assert _run("orderedPages") == [
         ["&sort=newest&after=", "&sort=newest&after=1%3A5%2C1%3A9"],

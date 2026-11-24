@@ -297,6 +297,18 @@ class TestPerson:
         person = body["person"]
         assert (person["person_id"], person["job"], person["age"]) == (7, "Actor", 70)
 
+    def test_what_only_radarr_has_counts_as_held(self, viewer, tmdb, monkeypatch):
+        radarr = SimpleNamespace(
+            get_movies=lambda: [{"tmdbId": 14, "hasFile": True, "monitored": True}], get_queue=list
+        )
+        monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
+        tmdb["/person/7"] = _person(_credit(21, 900), _credit(14, 5), _credit(11, 4))
+
+        body = viewer.get(PERSON).json()
+
+        assert [c["ref"] for c in body["items"]] == [f"tmdb-movie-{n}" for n in (14, 11, 21)]
+        assert (body["total"], body["in_library"]) == (3, 2)
+
     def test_a_long_career_comes_in_pages_without_a_gap_or_repeat(self, viewer, tmdb):
         tmdb["/person/7"] = _person(*(_credit(n, n) for n in range(100, 230)))
 

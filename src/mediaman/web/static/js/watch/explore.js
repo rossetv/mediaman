@@ -843,9 +843,10 @@
         (reply.items || []).forEach(function (item) {
           if (shown.has(item.ref)) return;
           shown.add(item.ref);
-          var held = item.in_library && !heads.tmdb;
+          var owned = watch.search.isHeld(item);
+          var held = owned && !heads.tmdb;
           if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
-          else if (!item.in_library) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
+          else if (!owned) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
           cards.push(watch.search.tmdbCard(item, held));
         });
         var next = reply.next_page || null;

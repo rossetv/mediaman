@@ -1758,5 +1758,5 @@
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, isHeld: isHeld, composing: composing };
 })();

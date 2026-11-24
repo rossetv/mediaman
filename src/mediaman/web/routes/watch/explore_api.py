@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr.state import ACTION_IN_LIBRARY, ACTION_PARTIAL
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
@@ -203,13 +204,18 @@ def api_watch_person(
     cards = _credit_cards(request, conn, client, username, found["credits"])
     known_for = [card for card, minor in cards if not minor] or [card for card, _ in cards]
     ordered = [card for card, _ in cards]
-    held = [card for card in ordered if card["in_library"]]
+    # What Radarr or Sonarr has and Plex does not yet has nothing to download either.
+    held = [
+        card
+        for card in ordered
+        if card["in_library"] or card["download_state"] in (ACTION_IN_LIBRARY, ACTION_PARTIAL)
+    ]
     # Cut from the order of the credits: one that followed the library would lose a title
     # that came or went between two pages.
     end = page * _PERSON_PAGE
     items = ordered[end - _PERSON_PAGE : end]
     if page == 1:
-        items = held + [card for card in items if not card["in_library"]]
+        items = held + [card for card in items if card not in held]
     return respond_ok(
         {
             "tmdb_configured": True,
