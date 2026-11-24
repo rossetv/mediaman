@@ -370,7 +370,7 @@ def insert_user_pick(conn: sqlite3.Connection, username: str, **fields) -> int:
         "username": username,
         "title": "Test Pick",
         "media_type": "movie",
-        "batch_id": "2026-01-01",
+        "batch_id": datetime.now(UTC).strftime("%Y-%m-%d"),
         "created_at": datetime.now(UTC).isoformat(),
         **fields,
     }

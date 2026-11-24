@@ -236,7 +236,10 @@ class TestRefresh:
         monkeypatch.setattr(prompts, "call_openai", call)
         monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
         monkeypatch.setattr(
-            FakeTmdb, "search_or_raise", lambda *_a, **_k: {"id": 12}, raising=False
+            FakeTmdb,
+            "search_or_raise",
+            lambda *_a, **_k: {"id": 12, "title": "Glass Onion"},
+            raising=False,
         )
         monkeypatch.setattr(
             FakeTmdb, "shape_card", staticmethod(TmdbClient.shape_card), raising=False

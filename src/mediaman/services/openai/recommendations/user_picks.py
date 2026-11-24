@@ -154,6 +154,15 @@ def start_run(
     return cursor.lastrowid
 
 
+def is_unfinished(conn: sqlite3.Connection, username: str, run_id: int | None) -> bool:
+    """True while *run_id* is a run of *username* that has not ended."""
+    row = conn.execute(
+        "SELECT 1 FROM user_pick_runs WHERE id = ? AND username = ? AND finished_at IS NULL",
+        (run_id, username),
+    ).fetchone()
+    return row is not None
+
+
 def finish_run(conn: sqlite3.Connection, run_id: int, status: str, now: datetime) -> None:
     with conn:
         conn.execute(

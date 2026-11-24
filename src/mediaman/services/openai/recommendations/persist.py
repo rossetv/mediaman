@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from mediaman.core.time import now_utc
 from mediaman.services.downloads.download_format._parsing import normalise_for_match
+from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
@@ -142,12 +143,16 @@ def store_batch(
     now: datetime,
     *,
     username: str | None = None,
+    run_id: int | None = None,
     uses_plex: bool = False,
     linked_at: str | None = None,
 ) -> int:
     """Replace today's batch, *username*'s own or the shared one, with *items* in one
     transaction; returns how many were stored. A pick of today already downloaded keeps its
     mark. Rolls back on any exception, so the caller must not wrap it in another.
+
+    A person's picks are stored only while *run_id*, which made them, is their unfinished run:
+    not for someone made anew under the name of a person deleted since.
 
     Picks made from plays in Plex's apps (*uses_plex*) are stored only while the person's Plex
     link is the one made at *linked_at*, when the plays were read: not once they unlinked, nor
@@ -160,6 +165,8 @@ def store_batch(
         # Take the write lock before reading the marks so a download click cannot
         # commit between that read and the DELETE and be lost.
         conn.execute("BEGIN IMMEDIATE")
+        if username is not None and not user_picks.is_unfinished(conn, username, run_id):
+            return 0
         if uses_plex and username is not None:
             link = get_link(conn, username)
             if link is None or link.linked_at != linked_at:

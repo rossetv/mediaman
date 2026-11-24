@@ -15,7 +15,10 @@ from plexapi.exceptions import PlexApiException
 from mediaman.core.time import now_utc
 from mediaman.services.openai.client import get_openai_key
 from mediaman.services.openai.recommendations import user_picks
-from mediaman.services.openai.recommendations.enrich import enrich_recommendations
+from mediaman.services.openai.recommendations.enrich import (
+    ENRICH_SECONDS,
+    enrich_recommendations,
+)
 from mediaman.services.openai.recommendations.persist import (
     BATCH_SIZE,
     held_titles,
@@ -39,6 +42,8 @@ logger = logging.getLogger(__name__)
 MIN_TITLES = 5
 _PEOPLE_PER_SCAN = 10
 _SCAN_SECONDS = 300.0
+# One person's picks: the model's answer and the look-ups after it, which get what is left.
+_PERSON_SECONDS = 180.0
 _PRESENT_WITHIN = timedelta(days=30)
 _PICKS_LAST = timedelta(days=28)
 
@@ -49,7 +54,7 @@ def has_enough_plays(conn: sqlite3.Connection, username: str) -> bool:
 
 def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
     """Who a scan makes picks for, the longest without a try first: people here in the last
-    30 days with enough plays, something new among them or picks over 28 days old."""
+    30 days with enough plays, something new among them, no picks, or picks over 28 days old."""
     since = (now - _PRESENT_WITHIN).isoformat()
     # Playing here takes a session, which signing out deletes.
     present = conn.execute(
@@ -68,7 +73,11 @@ def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
         made = user_picks.last_started(conn, name, done_only=True)
         link = get_link(conn, name)
         newest = max(plays[0].last_played, link.linked_at if link else "")
-        if newest > made or made < (now - _PICKS_LAST).isoformat():
+        if (
+            newest > made
+            or made < (now - _PICKS_LAST).isoformat()
+            or not user_picks.fetch_picks(conn, name, latest_only=True)
+        ):
             due.append((user_picks.last_started(conn, name, done_only=False), name))
     return [name for _, name in sorted(due)]
 
@@ -107,20 +116,27 @@ def make_picks(
     run_id: int,
     *,
     secret_key: str,
+    clock: Callable[[], float] = time.monotonic,
 ) -> int:
     """Make *username*'s picks as run *run_id*, ending it; returns how many. With none, their
     earlier batch stays."""
     count = 0
     try:
-        count = _make(conn, username, plex_client, secret_key)
+        count = _make(conn, username, plex_client, run_id, secret_key, clock)
     finally:
         user_picks.finish_run(conn, run_id, "done" if count else "failed", now_utc())
     return count
 
 
 def _make(
-    conn: sqlite3.Connection, username: str, plex_client: PlexClient | None, secret_key: str
+    conn: sqlite3.Connection,
+    username: str,
+    plex_client: PlexClient | None,
+    run_id: int,
+    secret_key: str,
+    clock: Callable[[], float],
 ) -> int:
+    ends_at = clock() + _PERSON_SECONDS
     now = now_utc()
     # Before the plays, so plays of a link made after it cannot pass for its.
     link = get_link(conn, username)
@@ -147,7 +163,15 @@ def _make(
         *row_titles(own),
         *row_titles(shared),
     ]
-    enrich_recommendations(items, conn, secret_key, accept=new_titles(known), limit=BATCH_SIZE)
+    enrich_recommendations(
+        items,
+        conn,
+        secret_key,
+        accept=new_titles(known),
+        limit=BATCH_SIZE,
+        seconds=min(ENRICH_SECONDS, ends_at - clock()),
+        clock=clock,
+    )
     if not items:
         return 0
     uses_plex = bool(ratings) or any(p.in_plex for p in plays)
@@ -156,6 +180,7 @@ def _make(
         items,
         now,
         username=username,
+        run_id=run_id,
         uses_plex=uses_plex,
         linked_at=link.linked_at if link else None,
     )

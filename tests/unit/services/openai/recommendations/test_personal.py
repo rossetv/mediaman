@@ -347,6 +347,51 @@ class TestMaking:
         assert conn.execute("SELECT uses_plex FROM user_picks").fetchone()[0] == 0
 
 
+class TestRunsItBelongsTo:
+    def test_a_person_made_anew_meanwhile_gets_none_of_the_old_ones_picks(
+        self, conn, openai, monkeypatch
+    ):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        openai.items = [_pick("New")]
+        real = personal.enrich_recommendations
+
+        def replace_then_enrich(*args, **kwargs):
+            conn.execute("DELETE FROM admin_users WHERE username = 'amy'")
+            _person(conn, "amy")
+            assert isinstance(user_picks.start_run(conn, "amy", "person", NOW), int)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(personal, "enrich_recommendations", replace_then_enrich)
+
+        assert _make(conn, "amy") == 0
+        assert _titles(conn, "amy") == []
+        assert conn.execute("SELECT finished_at FROM user_pick_runs").fetchone()[0] is None
+
+    def test_a_run_already_ended_stores_nothing(self, conn, openai):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        openai.items = [_pick("New")]
+        run = user_picks.start_run(conn, "amy", "scan", NOW)
+        user_picks.finish_run(conn, run, "failed", NOW)
+        assert personal.make_picks(conn, "amy", None, run, secret_key=_KEY) == 0
+
+    def test_looking_up_gets_only_what_the_model_left_of_a_persons_time(
+        self, conn, openai, monkeypatch
+    ):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        openai.items = [_pick("New")]
+        given = []
+        monkeypatch.setattr(
+            personal, "enrich_recommendations", lambda *_a, **k: given.append(k["seconds"])
+        )
+        for took in (10.0, 125.0):
+            times = iter([0.0, took])
+            run = user_picks.start_run(conn, "amy", "scan", NOW)
+            personal.make_picks(
+                conn, "amy", None, run, secret_key=_KEY, clock=lambda t=times: next(t)
+            )
+        assert given == [60.0, 55.0]
+
+
 class TestEligible:
     def _done(self, conn, username, when):
         conn.execute(
@@ -366,7 +411,16 @@ class TestEligible:
         _plays(conn, "bob", "A", "B", "C", "D", "E", when=_ago(days=29))
         self._done(conn, "amy", _ago(days=27))
         self._done(conn, "bob", _ago(days=28, hours=1))
+        for name in ("amy", "bob"):
+            insert_user_pick(conn, name, batch_id="2026-04-22")
         assert personal.eligible_people(conn, NOW) == ["bob"]
+
+    def test_a_person_left_without_picks_is_due_at_once(self, conn):
+        for name in ("amy", "bob"):
+            _plays(conn, name, "A", "B", "C", "D", "E", when=_ago(days=9))
+            self._done(conn, name, _ago(days=2))
+        insert_user_pick(conn, "bob", batch_id="2026-05-18")
+        assert personal.eligible_people(conn, NOW) == ["amy"]
 
     def test_a_play_since_the_last_batch_makes_a_new_one_due(self, conn):
         _plays(conn, "amy", "A", "B", "C", "D", "E", when=_ago(days=1))

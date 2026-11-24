@@ -189,7 +189,7 @@ class TestEnrichRecommendations:
         """
         card = _shape_card()
         card["rating"] = 0.0  # TMDB has a valid zero score
-        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "X"}, card_return=card)
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch(
@@ -206,7 +206,7 @@ class TestEnrichRecommendations:
     def test_none_tmdb_rating_uses_imdb_fallback(self, conn):
         card = _shape_card()
         card["rating"] = None
-        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "X"}, card_return=card)
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch(
@@ -231,7 +231,9 @@ class _Tmdb:
         if self.down:
             raise requests.ConnectionError("down")
         found = self.titles.get((title, year))
-        return {"id": found} if found else None
+        if not found:
+            return None
+        return found if isinstance(found, dict) else {"id": found, "title": title}
 
     def shape_card(self, item):
         return {**_shape_card(tmdb_id=item["id"]), "year": 2000}
@@ -258,8 +260,64 @@ class TestWhichPicksAreKept:
         tmdb = _Tmdb({("Real", None): 5})
         assert enrich(tmdb, [_rec("Made up"), _rec("Real")]) == [("Real", 5)]
 
-    def test_an_outage_of_tmdb_drops_nothing(self, enrich):
-        assert enrich(_Tmdb({}, down=True), [_rec("A"), _rec("B")]) == [("A", None), ("B", None)]
+    def test_an_outage_of_tmdb_drops_nothing_and_is_asked_about_twice_at_most(self, enrich):
+        tmdb = _Tmdb({}, down=True)
+        titles = ["A", "B", "C", "D"]
+        assert enrich(tmdb, [_rec(t) for t in titles]) == [(t, None) for t in titles]
+        assert [t for t, _ in tmdb.asked] == ["A", "B"]
+
+    def test_details_tmdb_does_not_give_count_as_failures_too(self, enrich):
+        tmdb = _Tmdb({(t, None): n for n, t in enumerate("ABCD", start=1)})
+        asked = []
+        tmdb.details = lambda _type, tmdb_id: asked.append(tmdb_id)
+        enrich(tmdb, [_rec(t) for t in "ABCD"])
+        assert asked == [1, 2]
+
+    def test_when_the_time_is_up_the_rest_stays_as_it_is(self, enrich):
+        tmdb = _Tmdb({(t, None): n for n, t in enumerate("ABC", start=1)})
+        now = [0.0]
+        real = tmdb.search_or_raise
+
+        def slow(*args, **kwargs):
+            now[0] += 40
+            return real(*args, **kwargs)
+
+        tmdb.search_or_raise = slow
+        kept = enrich(tmdb, [_rec(t) for t in "ABC"], seconds=60, clock=lambda: now[0])
+        assert kept == [("A", 1), ("B", 2), ("C", None)]
+
+    def test_no_rating_is_asked_for_when_the_time_is_up(self, conn):
+        cls, _inst = _mock_tmdb()
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}) as ratings,
+        ):
+            enrich_recommendations([_rec()], conn, _SECRET_KEY, seconds=0)
+        assert ratings.call_count == 0
+
+    @pytest.mark.parametrize(
+        "found",
+        [
+            {"title": "Amélie"},
+            {"title": "The Fabulous Destiny", "original_title": "AMELIE"},
+            {"name": "Amelie (2001)"},
+        ],
+    )
+    def test_the_title_found_may_be_spelled_another_way(self, enrich, found):
+        tmdb = _Tmdb({("Amelie", None): {"id": 4, **found}})
+        assert enrich(tmdb, [_rec("Amelie")]) == [("Amelie", 4)]
+
+    def test_ampersand_and_and_are_one_word(self, enrich):
+        tmdb = _Tmdb({("Fire and Ash", None): {"id": 4, "title": "Fire & Ash"}})
+        assert enrich(tmdb, [_rec("Fire and Ash")]) == [("Fire and Ash", 4)]
+
+    def test_another_title_found_by_the_search_is_not_taken_for_the_pick(self, enrich):
+        tmdb = _Tmdb({("Made up", None): {"id": 4, "title": "Made", "original_title": "Up"}})
+        assert enrich(tmdb, [_rec("Made up")]) == []
+
+    def test_another_title_of_that_year_leaves_the_search_without_it(self, enrich):
+        tmdb = _Tmdb({("Heat", 1990): {"id": 9, "title": "Heatwave"}, ("Heat", None): 3})
+        assert enrich(tmdb, [{**_rec("Heat"), "year": 1990}]) == [("Heat", 3)]
 
     def test_the_year_picks_the_remake_and_a_wrong_year_still_finds_the_title(self, enrich):
         tmdb = _Tmdb({("Dune", 1984): 1, ("Dune", None): 2, ("Heat", None): 3})
