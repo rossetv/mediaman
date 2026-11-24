@@ -5,6 +5,7 @@ TMDB marks adult is kept."""
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 import requests
 
 from mediaman.core.time import now_utc
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient, dicts, vote_of
 
 from . import _discover
@@ -38,6 +39,10 @@ _TOP_RATED_VOTES = {"movie": 300, "tv": 200}
 _NEWEST_VOTES = 10
 
 _TILE_POSTERS = 2
+# A list is asked for no more often than this, also when the cache cannot keep it.
+_TILES_PAUSE_S = 10 * 60.0
+_clock = time.monotonic
+_tiles_asked: dict[str, float] = {}
 
 PEOPLE_LIMIT = 3
 KNOWN_FOR_LIMIT = 4
@@ -184,12 +189,30 @@ def genre_posters(client: TmdbClient) -> dict[str, list[str]]:
         genre_id = genre.tmdb_id(media_type)
         assert genre_id is not None
         key, fetch = _page_entry(client, media_type, genre_id, "popular", None, 1)
-        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, _shaped(fetch))
+        page = _held_page(key, _shaped(fetch))
         urls = [tmdb_image_url(i.get("poster_path"), "w185") for i in page["items"]] if page else []
         picked = [u for u in dict.fromkeys(urls) if u and u not in used][:_TILE_POSTERS]
         used.update(picked)
         found[genre.id] = picked
     return found
+
+
+def _held_page(key: str, fetch: Callable[[], Any]) -> dict[str, Any] | None:
+    now = _clock()
+    page: dict[str, Any] | None
+    if now - _tiles_asked.get(key, -_TILES_PAUSE_S) >= _TILES_PAUSE_S:
+        _tiles_asked[key] = now
+        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, fetch)
+        return page
+    try:
+        page = _cached(key, 7 * _DAY, 7 * _DAY, _not_asked, lambda: False)
+    except (TmdbUnavailable, disk_cache.Refused):
+        return None
+    return page
+
+
+def _not_asked() -> Any:
+    raise TmdbUnavailable("not asked")
 
 
 def people(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

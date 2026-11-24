@@ -12,7 +12,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _library
+from mediaman.services.watch_catalog import _arr, _explore, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, explore_api
@@ -28,6 +28,7 @@ def _fresh_state(monkeypatch, tmp_path):
     catalog.invalidate()
     disk_cache.init(tmp_path)
     monkeypatch.setattr(disk_cache, "sync", True)
+    monkeypatch.setattr(_explore, "_tiles_asked", {})
     monkeypatch.setattr(_library, "_tvdb", {})
     monkeypatch.setattr(_library, "_held", {})
     monkeypatch.setattr(_library, "sync", True)

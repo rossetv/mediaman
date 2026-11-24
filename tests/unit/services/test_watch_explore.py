@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
 
 import pytest
@@ -34,6 +35,7 @@ class Tmdb:
 def tmdb(monkeypatch, tmp_path):
     disk_cache.init(tmp_path)
     monkeypatch.setattr(disk_cache, "sync", True)
+    monkeypatch.setattr(_explore, "_tiles_asked", {})
     monkeypatch.setattr(_explore, "now_utc", lambda: datetime(2026, 6, 15, 12, tzinfo=UTC))
     return Tmdb(monkeypatch)
 
@@ -243,6 +245,45 @@ class TestGenrePosters:
         ]
         flat = [url for urls in posters.values() for url in urls]
         assert len(flat) == len(set(flat)) == 2 * len(catalog.GENRES)
+
+    def test_a_cache_that_cannot_be_written_does_not_ask_for_them_on_every_call(
+        self, tmdb, tmp_path
+    ):
+        shutil.rmtree(tmp_path / "watch_cache")
+        tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list({"id": 2})}
+
+        for _ in range(3):
+            assert not any(catalog.genre_posters(tmdb.client).values())
+
+        assert len(tmdb.asked) == len(catalog.GENRES)
+
+    def test_tiles_are_asked_for_again_later(self, tmdb, monkeypatch):
+        now = [1000.0]
+        monkeypatch.setattr(_explore, "_clock", lambda: now[0])
+        tmdb.pages = {"/discover/movie": _failed(500), "/discover/tv": _failed(500)}
+        catalog.genre_posters(tmdb.client)
+        disk_cache._failed.clear()
+        tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list({"id": 2})}
+        catalog.genre_posters(tmdb.client)
+        asked = len(tmdb.asked)
+
+        now[0] += _explore._TILES_PAUSE_S
+        catalog.genre_posters(tmdb.client)
+
+        assert (asked, len(tmdb.asked)) == (len(catalog.GENRES), 2 * len(catalog.GENRES))
+
+    def test_a_list_that_cannot_be_read_leaves_a_plain_tile_and_fails_as_tmdb_does(
+        self, tmdb, monkeypatch
+    ):
+        def fault(_):
+            raise TypeError("unhashable")
+
+        tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list()}
+        monkeypatch.setattr(_explore, "dicts", fault)
+        catalog.genre_posters(tmdb.client)
+
+        with pytest.raises(catalog.TmdbUnavailable):
+            _explore_ids(tmdb, "horror")
 
     def test_tmdb_down_leaves_plain_tiles(self, tmdb):
         tmdb.pages = {"/discover/movie": _failed(500), "/discover/tv": _failed(500)}
