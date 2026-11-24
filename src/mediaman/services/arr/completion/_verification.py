@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from mediaman.core.time import parse_iso_utc
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.completion._types import CompletedItem
@@ -121,6 +122,18 @@ class _ArrLibraryIndex:
         )
 
 
+def _arrived(movie: RadarrMovie, queued_since: str | None) -> bool:
+    """Whether *movie* has a file, and one added since it was first seen in the queue: an older
+    one says nothing about an upgrade that failed. Since it was last seen would be too late,
+    for Radarr dates a file before it moves it, with the download still in the queue.
+    """
+    if not movie.get("hasFile"):
+        return False
+    since = parse_iso_utc(queued_since)
+    added = parse_iso_utc((movie.get("movieFile") or {}).get("dateAdded"))
+    return since is None or (added is not None and added >= since)
+
+
 def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
     """Return True if the completed item is confirmed by Radarr/Sonarr (or is NZB-only).
 
@@ -142,7 +155,7 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     title,
                 )
             movie = idx.radarr_index_by_title().get(title)
-        return movie is not None and bool(movie.get("hasFile"))
+        return movie is not None and _arrived(movie, c.get("queued_since"))
     if dl_id.startswith("sonarr:"):
         tmdb_id = c.get("tmdb_id")
         series = idx.sonarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None

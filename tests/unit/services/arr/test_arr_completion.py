@@ -20,6 +20,7 @@ from mediaman.db import init_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.completion import (
     _batch_insert_completions,
+    carry_queued_since,
     cleanup_recent_downloads,
     detect_completed,
     fetch_and_sync_recent_downloads,
@@ -475,6 +476,37 @@ class TestSeriesWithOtherEpisodesAlreadyOnDisk:
 
     def test_an_imported_episode_is_recorded(self, conn, monkeypatch):
         assert self._vanish(conn, monkeypatch, second_episode_has_file=True) == ["sonarr:Show"]
+
+
+class TestAFilmThatAlreadyHadAFile:
+    QUEUED = datetime(2026, 5, 1, 12, tzinfo=UTC)
+
+    def _vanish(self, conn, monkeypatch, *, file_added):
+        """A film seen queued on two polls a minute apart is gone at the third."""
+        first = {"radarr:Dune": {"title": "Dune", "kind": "movie", "tmdb_id": 42}}
+        carry_queued_since({}, first, self.QUEUED)
+        second = {"radarr:Dune": {"title": "Dune", "kind": "movie", "tmdb_id": 42}}
+        carry_queued_since(first, second, self.QUEUED + timedelta(minutes=1))
+        radarr = MagicMock()
+        radarr.get_movies.return_value = [
+            {
+                "tmdbId": 42,
+                "title": "Dune",
+                "hasFile": True,
+                "movieFile": {"dateAdded": file_added.isoformat()},
+            }
+        ]
+        monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: radarr)
+        record_verified_completions(conn, detect_completed(second, {}), "secret")
+        return [r["dl_id"] for r in conn.execute("SELECT dl_id FROM recent_downloads")]
+
+    def test_a_failed_upgrade_is_not_recorded(self, conn, monkeypatch):
+        added = self.QUEUED - timedelta(days=90)
+        assert self._vanish(conn, monkeypatch, file_added=added) == []
+
+    def test_a_file_dated_while_its_download_was_still_queued_is_recorded(self, conn, monkeypatch):
+        added = self.QUEUED + timedelta(seconds=30)
+        assert self._vanish(conn, monkeypatch, file_added=added) == ["radarr:Dune"]
 
 
 class TestBatchInsertCompletionsExceptNarrowing:

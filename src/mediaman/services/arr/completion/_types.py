@@ -35,3 +35,5 @@ class CompletedItem(TypedDict):
     tmdb_id: NotRequired[int | None]
     #: Labels (``S01E02``) of the episodes that were in the queue; absent when it named none.
     episodes: NotRequired[list[str]]
+    #: When it was first seen in the queue, as ISO text; see ``carry_queued_since``.
+    queued_since: NotRequired[str]

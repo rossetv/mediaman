@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Mapping
+from datetime import datetime
 from typing import cast
 
 import requests
@@ -62,6 +63,9 @@ def detect_completed(
                     "poster_url": item.get("poster_url", ""),
                 },
             )
+            queued_since = item.get("queued_since")
+            if isinstance(queued_since, str):
+                entry["queued_since"] = queued_since
             tmdb_id = item.get("tmdb_id")
             if isinstance(tmdb_id, int) and tmdb_id:
                 entry["tmdb_id"] = tmdb_id
@@ -72,6 +76,19 @@ def detect_completed(
                 entry["episodes"] = labels
             completed.append(entry)
     return completed
+
+
+def carry_queued_since(
+    previous: Mapping[str, Mapping[str, object]],
+    current: Mapping[str, dict[str, object]],
+    now: datetime,
+) -> None:
+    """Stamp each entry of *current* with when it was first seen: its time in *previous*, or
+    *now* when it was not there.
+    """
+    for dl_id, item in current.items():
+        since = previous.get(dl_id, {}).get("queued_since")
+        item["queued_since"] = since if isinstance(since, str) else now.isoformat()
 
 
 def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
