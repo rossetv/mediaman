@@ -257,3 +257,7 @@ def test_only_a_row_the_person_scrolled_is_kept_where_it_is() -> None:
 
 def test_a_held_row_that_goes_on_moving_is_the_persons() -> None:
     assert _run("aRowTheyScrollWithoutAnEvent") == {"left": 600}
+
+
+def test_a_swap_leaves_the_page_where_the_person_had_it() -> None:
+    assert _run("aSwap") == {"back": 2000, "withTheRow": 1940, "theirs": 1700, "fromTheTop": 90}

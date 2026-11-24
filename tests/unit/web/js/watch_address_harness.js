@@ -303,6 +303,34 @@ const scenarios = {
     return { left: s.scrollLeft };
   },
 
+  // Around a swap the page is put back to what the person saw, unless they scroll on.
+  async aSwap() {
+    const go = (opts, then) => {
+      const p = open(makeTab('/watch'));
+      const slot = p.doc.body.appendChild(build(p.doc, ['div', { id: 'watch-discover-slot' }, ['section', { 'data-row-id': 'trending' }]]));
+      const row = p.doc.body.appendChild(build(p.doc, ['section', { 'data-row-id': 'movies' }]));
+      const at = { row: opts.rowAt };
+      row.getBoundingClientRect = () => ({ top: at.row - p.win.scrollY, bottom: at.row + 300 - p.win.scrollY, height: 300 });
+      p.scroll(2000);
+      p.address.hold(slot);
+      at.row += opts.shifts || 0;
+      p.scroll(1152);
+      p.frame(4);
+      if (then) then(p);
+      return p.win.scrollY;
+    };
+    const top = open(makeTab('/watch'));
+    top.address.hold(top.doc.body);
+    top.scroll(90);
+    top.frame(4);
+    return {
+      back: go({ rowAt: 9000 }),
+      withTheRow: go({ rowAt: 2200, shifts: -60 }),
+      theirs: go({ rowAt: 9000 }, (p) => { p.fire('wheel'); p.scroll(1700); p.frame(4); }),
+      fromTheTop: top.win.scrollY,
+    };
+  },
+
   // A row off the screen is still waited for while there is more of it to load.
   async aRowOffTheScreen() {
     const p = comeBack();

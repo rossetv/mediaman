@@ -386,6 +386,19 @@
     putBack(function () { return y; });
   }
 
+  /* What is in *slot* is about to be swapped: hold what the person sees. */
+  function hold(slot) {
+    if (placing || !started || window.scrollY === 0) return;
+    var y = window.scrollY;
+    var row = Array.prototype.filter.call(document.querySelectorAll('[data-row-id]'), function (n) {
+      var r = n.getBoundingClientRect();
+      return !slot.contains(n) && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    })[0];
+    var top = row ? row.getBoundingClientRect().top : 0;
+    startPlacing();
+    putBack(function () { return row ? Math.max(0, window.scrollY + row.getBoundingClientRect().top - top) : y; });
+  }
+
   function onScroll() {
     if (!placing && current) places[current] = window.scrollY;
   }
@@ -599,6 +612,7 @@
     top: top,
     value: value,
     putRowsBack: putRowsBack,
+    hold: hold,
     arriving: function () { return arriving; }
   };
 })();

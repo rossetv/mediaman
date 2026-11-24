@@ -113,7 +113,7 @@ function load(opts = {}) {
     // Reduced motion unless a scenario asks for motion: swaps are immediate.
     matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) }),
     requestAnimationFrame: (fn) => fn(),
-    MutationObserver: class { observe() {} },
+    MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: opts.innerHeight || 900,
     innerWidth: opts.innerWidth || 1280,
     location: { pathname: '/watch', href: '/watch', search: opts.search || '', hash: opts.hash || '' },
@@ -570,6 +570,17 @@ const scenarios = {
     await tick(p);
     Node.prototype.appendChild = append;
     return { before, after: p.doc.querySelector('.watch-discover-layer') !== null, left };
+  },
+
+  // The page is held before each of the two swaps.
+  async heldAroundTheSwaps() {
+    const p = load({ motion: true });
+    const slot = p.doc.getElementById('watch-discover-slot');
+    const held = [];
+    p.ctx.MMWatch.address.hold = (n) => held.push([n === slot, !!slot.querySelector('.watch-discover-layer'), !!slot.querySelector('.watch-discover-skel')]);
+    await settle();
+    await tick(p);
+    return held;
   },
 
   // Without a key the shared picks cannot be made either.

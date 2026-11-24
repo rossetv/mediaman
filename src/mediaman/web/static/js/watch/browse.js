@@ -955,6 +955,7 @@
       var lefts = content ? toArray(content.querySelectorAll('.watch-row__scroll')).map(function (n) {
         return { node: n, left: n.scrollLeft };
       }) : [];
+      address.hold(slot);
       slot.textContent = '';
       if (content) {
         slot.appendChild(content);
@@ -969,6 +970,7 @@
       return;
     }
     var layer = el('div', 'swap-layer watch-discover-layer');
+    address.hold(slot);
     skel.replaceWith(layer);
     content.classList.add('is-swapping-in');
     layer.appendChild(content);

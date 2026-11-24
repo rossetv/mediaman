@@ -470,3 +470,7 @@ def test_refresh_of_the_shared_picks_is_off_without_a_key_and_says_why() -> None
         assert case["toasts"] == [case["why"]]
     assert "fetch the first ones" not in out["none"]
     assert (out["withKey"]["posts"], out["withKey"]["why"]) == (1, None)
+
+
+def test_the_page_is_held_before_the_discover_rows_fade_in_and_before_they_settle() -> None:
+    assert _run("heldAroundTheSwaps") == [[True, False, True], [True, True, True]]
