@@ -159,3 +159,14 @@ def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_press
     # Forced colours draw outlines, so nothing there may take it away again.
     forced = css[css.index("@media (forced-colors: active)") :]
     assert "outline: none" not in forced
+
+
+def test_under_reduced_motion_the_spinner_over_a_held_frame_comes_at_once() -> None:
+    css = _text("_player.css")
+    held = ".player.is-held.is-loading:not(.is-switching) .player-spinner"
+    waits = css.index(held)
+    reduced = re.search(
+        r"@media \(prefers-reduced-motion: reduce\) \{\s*" + re.escape(held) + r" \{([^}]*)\}",
+        css[waits:],
+    )
+    assert reduced and re.search(r"transition-delay:\s*0s", reduced.group(1))
