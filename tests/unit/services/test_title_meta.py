@@ -40,6 +40,7 @@ def stub(monkeypatch, tmp_path):
     monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(_title_meta, "_failed", {})
     monkeypatch.setattr(_title_meta, "_unreadable_token", None)
+    monkeypatch.setattr(_title_meta, "_down", None)
     monkeypatch.setattr(_title_meta, "_library", {})
     monkeypatch.setattr(_title_meta, "_resume_at", 0.0)
     monkeypatch.setattr(_title_meta, "_clock", lambda: stub.seconds)
@@ -125,30 +126,103 @@ class TestFill:
         assert "/movie/1" not in stub.asked
         assert _coverage(conn)[:2] == (8, 8)
 
-    @pytest.mark.parametrize("status", [500, 429, 401])
-    def test_a_failure_ends_the_run_and_leaves_tmdb_alone_a_while(
-        self, conn, stub, library, status
+    @pytest.mark.parametrize("path", ["movie", "find"])
+    @pytest.mark.parametrize(("status", "asks"), [(500, 2), (429, 1), (401, 1), (403, 1)])
+    def test_an_outage_ends_the_run_and_leaves_tmdb_alone_a_while(
+        self, conn, stub, library, status, asks, path
     ):
-        library(1)
-        library(2)
-        stub.pages = {"/movie/1": status, "/movie/2": status}
+        for n in (1, 2, 3):
+            if path == "movie":
+                library(n)
+            else:
+                library(None, show=True, tvdb_id=n)
+            stub.pages[f"/{path}/{n}"] = status
 
         _run(conn)
         stub.seconds = 14 * 60
         _run(conn)
 
-        assert stub.asked == ["/movie/1"]
+        assert stub.asked == [f"/{path}/{n}" for n in range(1, asks + 1)]
 
-    def test_a_title_tmdb_cannot_answer_for_holds_up_no_other(self, conn, stub, library):
+    def test_tmdb_failing_on_one_title_alone_holds_up_no_other(self, conn, stub, library):
+        for n in (1, 2, 3):
+            library(n)
+        stub.pages["/movie/1"] = 500
+
+        _run(conn)
+
+        assert sorted(_ids(conn)) == [2, 3]
+
+    @pytest.mark.parametrize("between", [200, 404, 400])
+    def test_two_failures_with_an_answer_between_are_no_outage(self, conn, stub, library, between):
+        for n in (1, 2, 3, 4):
+            library(n)
+        stub.pages["/movie/1"] = stub.pages["/movie/3"] = 500
+        if between != 200:
+            stub.pages["/movie/2"] = between
+
+        _run(conn)
+
+        assert 4 in _ids(conn)
+
+    def test_an_outage_goes_on_at_the_next_failure_and_takes_back_no_other_ask(
+        self, conn, stub, library
+    ):
+        library(9)
+        for quarter in (0, 1):
+            stub.pages["/movie/9"] = 400
+            stub.seconds = quarter * 1000
+            _run(conn)
+        for quarter, n in ((2, 1), (3, 2)):
+            library(n)
+            stub.pages[f"/movie/{n}"] = stub.pages["/movie/9"] = 500
+            stub.seconds = quarter * 1000
+            stub.asked.clear()
+            _run(conn)
+        assert stub.asked == ["/movie/2"]
+
+        stub.pages["/movie/1"], stub.pages["/movie/2"] = _page(1), _page(2)
+        stub.pages["/movie/9"] = 400
+        stub.seconds = 4000
+        _run(conn)
+
+        assert _coverage(conn)[:2] == (3, 3)
+
+    def test_a_title_alone_tmdb_fails_on_is_settled_after_three_asks(self, conn, stub, library):
         library(1)
         library(2)
         stub.pages["/movie/1"] = 500
 
-        _run(conn)
-        stub.seconds = 16 * 60
-        _run(conn)
+        for quarter in range(5):
+            stub.seconds = quarter * 1000
+            _run(conn)
 
-        assert _ids(conn) == [2]
+        assert (stub.asked.count("/movie/1"), _coverage(conn)) == (3, (2, 2, True))
+
+    def test_an_outage_settles_no_title(self, conn, stub, library):
+        for n in range(1, 4):
+            library(n)
+            stub.pages[f"/movie/{n}"] = 500
+
+        for quarter in range(12):
+            stub.seconds = quarter * 1000
+            _run(conn)
+
+        assert _coverage(conn)[0] == 0
+        assert len(stub.asked) <= 2 * 12
+
+    def test_asks_met_by_an_outage_neither_count_nor_take_back_those_before(
+        self, conn, stub, library
+    ):
+        library(1)
+        for quarter, status in enumerate((400, 400, 429, 400, 400)):
+            stub.pages["/movie/1"] = status
+            stub.seconds = quarter * 1000
+            _run(conn)
+            if status == 429:
+                assert _title_meta._failed == {("movie", 1): (2, stub.seconds + 900)}
+
+        assert (len(stub.asked), _coverage(conn)[0]) == (4, 1)
 
     def test_a_title_tmdb_has_not_or_marks_adult_is_settled_and_never_listed(
         self, conn, stub, library
@@ -299,16 +373,17 @@ class TestFill:
         with pytest.raises(sqlite3.OperationalError):
             _run(conn)
 
-    def test_a_failure_held_for_someone_else_pauses_nothing(self, conn, stub, library):
-        library(1)
-        library(2)
-        stub.pages["/movie/1"] = 500
-        with pytest.raises(catalog.TmdbUnavailable):
-            catalog.details(TmdbClient("token"), "movie", 1)
+    def test_failures_held_for_someone_else_pause_nothing(self, conn, stub, library):
+        for n in (1, 2, 3):
+            library(n)
+        stub.pages["/movie/1"] = stub.pages["/movie/2"] = 500
+        for n in (1, 2):
+            with pytest.raises(catalog.TmdbUnavailable):
+                catalog.details(TmdbClient("token"), "movie", n)
 
         _run(conn)
 
-        assert _ids(conn) == [2]
+        assert _ids(conn) == [3]
 
     def test_a_title_that_keeps_failing_counts_as_settled_after_three_asks(
         self, conn, stub, library
@@ -341,15 +416,68 @@ class TestFill:
 
         assert (_ids(conn), stub.asked.count("/movie/1")) == ([1], 4)
 
-    def test_every_title_failing_alike_is_taken_for_an_outage(self, conn, stub, library):
-        for n in range(1, 9):
+    @pytest.mark.parametrize("titles", [1, 3, 8])
+    def test_a_run_in_which_every_title_failed_leaves_tmdb_alone_a_while(
+        self, conn, stub, library, titles
+    ):
+        for n in range(1, titles + 1):
             library(n)
-        stub.pages = {f"/movie/{n}": 400 for n in range(1, 9)}
+            stub.pages[f"/movie/{n}"] = 400
+        _run(conn)
+        asked = len(stub.asked)
+        library(9)
+
+        stub.seconds = 14 * 60
+        _run(conn)
+
+        assert (asked, len(stub.asked)) == (min(titles, 6),) * 2
+
+    def test_a_run_with_one_answer_among_failures_is_no_outage(self, conn, stub, library):
+        for n in (1, 2, 3):
+            library(n)
+        stub.pages["/movie/1"] = stub.pages["/movie/2"] = 400
+        _run(conn)
+        library(4)
 
         _run(conn)
+
+        assert sorted(_ids(conn)) == [3, 4]
+
+    def test_a_cached_title_does_not_hide_that_every_ask_failed(self, conn, stub, library):
+        library(1)
+        library(2)
+        catalog.details(TmdbClient("token"), "movie", 1)
+        stub.pages["/movie/2"] = 400
+        _run(conn)
+        library(3)
+
         _run(conn)
 
-        assert len(stub.asked) == 6
+        assert "/movie/3" not in stub.asked
+
+    @pytest.mark.parametrize("held", [False, True])
+    def test_a_title_settled_by_failing_is_tried_again_after_a_day(
+        self, conn, stub, library, monkeypatch, held
+    ):
+        library(1)
+        if held:
+            _run(conn)
+            stub.now += timedelta(days=31)
+            later = disk_cache.time.time() + 31 * 86400
+            monkeypatch.setattr(disk_cache.time, "time", lambda: later)
+        stub.pages["/movie/1"] = 400
+        for quarter in range(4):
+            stub.seconds = quarter * 1000
+            _run(conn)
+        settled = len(stub.asked)
+
+        stub.now += timedelta(hours=23)
+        _run(conn)
+        before = len(stub.asked)
+        stub.now += timedelta(hours=2)
+        _run(conn)
+
+        assert (settled, before, len(stub.asked)) == (3 + held, 3 + held, 4 + held)
 
     def test_asking_for_a_tvdb_id_counts_as_an_ask(self, conn, stub, library):
         for n in range(1, 9):
@@ -388,7 +516,7 @@ class TestFill:
 
         assert conn.execute("SELECT COUNT(*) FROM title_meta").fetchone()[0] == 0
 
-    def test_a_token_that_cannot_be_read_is_tried_once_until_it_changes(
+    def test_a_token_that_cannot_be_read_is_tried_once_an_hour_or_when_it_changes(
         self, conn, stub, library, monkeypatch
     ):
         tried = []
@@ -401,7 +529,14 @@ class TestFill:
         conn.execute("UPDATE settings SET value = 'other' WHERE key = 'tmdb_read_token'")
         _run(conn)
 
-        assert (first, len(tried)) == (1, 2)
+        changed = len(tried)
+        stub.seconds = 59 * 60
+        _run(conn)
+        within = len(tried)
+        stub.seconds = 61 * 60
+        _run(conn)
+
+        assert (first, changed, within, len(tried)) == (1, 2, 2, 3)
 
     def test_details_cached_without_what_the_fill_reads_are_not_used(
         self, conn, stub, library, tmp_path

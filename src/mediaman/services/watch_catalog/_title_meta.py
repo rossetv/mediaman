@@ -38,9 +38,11 @@ _TITLES_PER_RUN = 200
 _PAUSE_S = 15 * 60.0
 _TIMEOUT_S = 5.0
 _TRIES = 3
+_TOKEN_RETRY_S = 60 * 60.0
 _REFRESH = timedelta(days=30)
 # TMDB may have a new show days after the library does.
 _REFRESH_ABSENT = timedelta(days=7)
+_REFRESH_FAILED = timedelta(days=1)
 # A title just added must not take what the rest of the library gives off the page.
 _READY_SHARE = 0.9
 # A share of a small library is less than one title.
@@ -58,7 +60,11 @@ _clock = time.monotonic
 _resume_at = 0.0
 # Titles TMDB failed on: how many asks, and when the next may come.
 _failed: dict[tuple[str, int], tuple[int, float]] = {}
-_unreadable_token: str | None = None
+# The title TMDB was last down for, and whether that counted as an ask of its own; None once
+# TMDB has answered since.
+_down: tuple[tuple[str, int], bool] | None = None
+# (stored value, when it may be tried again).
+_unreadable_token: tuple[str, float] | None = None
 
 _lock = threading.Lock()
 # Held while building, so callers that find nothing held build it once.
@@ -90,7 +96,8 @@ def fill_title_meta(
 ) -> None:
     """One run of the job: drop what the library no longer holds, then fill or refresh what
     is due. The run ends when its asks of TMDB are spent or *stopped* says so; when TMDB is
-    down, busy or refuses the token it is left alone for a while."""
+    down, busy or refuses the token, or every title asked for failed, it is left alone for a
+    while."""
     with conn:
         dropped = conn.execute(
             "DELETE FROM title_meta WHERE (id_type, id) NOT IN"
@@ -106,22 +113,25 @@ def fill_title_meta(
 
 
 def _client(conn: sqlite3.Connection, secret_key: str) -> TmdbClient | None:
-    """None without a token, or with one that cannot be decrypted: asked once for each
-    stored value, since every try logs a warning."""
+    """None without a token, or with one that cannot be decrypted: that is tried
+    once an hour, since every try logs a warning."""
     global _unreadable_token
     row = conn.execute("SELECT value FROM settings WHERE key = 'tmdb_read_token'").fetchone()
     token = row["value"] if row else None
-    if token is not None and token == _unreadable_token:
+    unreadable, until = _unreadable_token or (None, 0.0)
+    if token is not None and token == unreadable and _clock() < until:
         return None
     client = TmdbClient.from_db(conn, secret_key, timeout=_TIMEOUT_S, retry=False)
-    _unreadable_token = token if client is None else None
+    _unreadable_token = None
+    if client is None and token is not None:
+        _unreadable_token = (token, _clock() + _TOKEN_RETRY_S)
     return client
 
 
 def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[], bool]) -> int:
     """How many titles were settled."""
-    global _resume_at
-    asked = settled = failures = 0
+    global _resume_at, _down
+    asked = settled = failures = answered = 0
 
     def allow_fetch() -> bool:
         nonlocal asked
@@ -142,43 +152,66 @@ def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[]
             raise
         # rationale: whatever one title brings up must not end every later run on it.
         except Exception as exc:
-            if asked > before and _is_outage(exc):
+            own = asked > before
+            if own and _is_outage(exc, key):
                 _resume_at = _clock() + _PAUSE_S
                 # Last from now on, should it be this title alone TMDB fails on.
                 _failed[key] = (_failed.get(key, (0, 0.0))[0], _resume_at)
                 break
             logger.info("watch: a library title's details could not be read", exc_info=True)
-            failures += 1
-            settled += _note_failure(conn, key, asked > before)
+            failures += own
+            settled += _note_failure(conn, key, own)
+            if own and not isinstance(exc, TmdbDown):
+                _down = None
         else:
             _failed.pop(key, None)
             settled += 1
-    if failures >= ASKS_PER_RUN and not settled:
+            if asked > before:
+                answered += 1
+                _down = None
+    if failures and not answered:
         # Every title alike is not the titles' fault.
         _resume_at = _clock() + _PAUSE_S
     return settled
 
 
-def _is_outage(exc: Exception) -> bool:
-    if isinstance(exc, TmdbBusy | TmdbDown):
+def _is_outage(exc: Exception, key: tuple[str, int]) -> bool:
+    """Whether TMDB is to be left alone after failing on *key*. Down for one title may be
+    that title's own fault; for another next, it is not."""
+    global _down
+    if isinstance(exc, TmdbBusy):
+        return True
+    if isinstance(exc, TmdbDown):
+        before, _down = _down, (key, True)
+        if before is None or before[0] == key:
+            return False
+        _down = (key, False)
+        other, counted = before
+        if counted and other in _failed:
+            tries, again = _failed[other]
+            _failed[other] = (tries - 1, again)
         return True
     cause = exc.__cause__
     return isinstance(cause, SafeHTTPError) and cause.status_code in (401, 403)
 
 
 def _note_failure(conn: sqlite3.Connection, key: tuple[str, int], asked: bool) -> bool:
-    """Leave the title for a while, and after a few asks of its own as long as one TMDB
-    has not; what is held of it stays. Whether it is settled so."""
+    """Leave the title for a while, and after a few asks of its own for a day;
+    what is held of it stays. Whether it is settled so."""
     tries = _failed.get(key, (0, 0.0))[0] + asked
     if tries < _TRIES:
         _failed[key] = (tries, _clock() + _PAUSE_S)
         return False
     _failed.pop(key, None)
+    # Dated back so far that it is due again in a day.
+    due_again = now_utc() + _REFRESH_FAILED
+    absent, held = (due_again - _REFRESH_ABSENT), (due_again - _REFRESH)
     with conn:
         conn.execute(
             "INSERT INTO title_meta (id_type, id, fetched_at) VALUES (?, ?, ?)"
-            " ON CONFLICT(id_type, id) DO UPDATE SET fetched_at = excluded.fetched_at",
-            (*key, now_utc().isoformat()),
+            " ON CONFLICT(id_type, id) DO UPDATE SET fetched_at ="
+            " CASE WHEN details IS NULL THEN excluded.fetched_at ELSE ? END",
+            (*key, absent.isoformat(), held.isoformat()),
         )
     return True
 
