@@ -697,6 +697,15 @@ def test_a_very_long_banner_title_gets_the_smallest_text_and_lines_enough_to_fit
     assert "--title-lines: 5" in _declarations_in(sideways, very_long)
 
 
+def test_the_shade_on_a_small_title_hero_keeps_close_to_the_text() -> None:
+    small = _declarations_in(
+        _in_media("_watch_detail.css", "(max-width: 639.98px)"), ".ttl__head::before"
+    )
+
+    assert "inset-block: -40px" in small
+    assert "55%, transparent) calc(100% - 40px)" in small
+
+
 def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
 

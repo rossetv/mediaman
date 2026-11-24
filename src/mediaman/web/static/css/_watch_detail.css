@@ -388,6 +388,14 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .season-chip__sub { grid-column: 2; }
 }
 
+/* A small hero: the shade keeps close to the text, so the picture stays clear above it. */
+@media (max-width: 639.98px) {
+  .ttl__head::before {
+    inset-block: -40px -14px;
+    background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--s1) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--s1) 20%, transparent) calc(100% - 16px), transparent);
+  }
+}
+
 @media (forced-colors: active) {
   .ttl__art,
   .ttl__fill,
