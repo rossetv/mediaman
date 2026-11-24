@@ -389,13 +389,12 @@ class TestRemovedKeep:
     def test_nobody_can_remove_it_while_it_is_given(
         self, conn, db_path, freezer, library, monkeypatch
     ):
-        library.ids["new"] = {}
+        ids, library.ids["new"] = library.ids["new"], {}
         library.sync("old")
         _keep(conn, "old")
         freezer.tick(60)
         library.sync("new")
-        with conn:
-            conn.execute("UPDATE media_items SET tvdb_id = 8 WHERE id = 'new'")
+        library.ids["new"] = ids
         other = sqlite3.connect(db_path, timeout=0)
         locked = []
 
@@ -407,7 +406,7 @@ class TestRemovedKeep:
 
         monkeypatch.setattr(rekeyed, "_keep_removed_since", asked)
 
-        rekeyed.carry_film_keeps(conn)
+        library.sync("new")
 
         assert locked
 

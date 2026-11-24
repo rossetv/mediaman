@@ -346,8 +346,6 @@ def cancel_deletions_kept_under_another_key(conn: sqlite3.Connection) -> None:
 
     The deletion pass would when it is due; until then the title would read as leaving.
     """
-    if not conn.in_transaction:
-        conn.execute("BEGIN IMMEDIATE")
     rows = conn.execute(
         "SELECT sa.id, sa.media_item_id, mi.title FROM scheduled_actions sa "
         "JOIN media_items mi ON mi.id = sa.media_item_id "
@@ -450,8 +448,6 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
     library has it, nor one of another library once one there has it. Run it once
     the items set aside are removed, and once a run has stored all Plex lists.
     """
-    if not conn.in_transaction:
-        conn.execute("BEGIN IMMEDIATE")
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
         "SELECT sa.* FROM pruned_keeps sa "
