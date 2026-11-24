@@ -173,6 +173,48 @@ class TestDiskUsageForPaths:
 
         assert get_aggregate_disk_usage(str(tmp_path))["total_bytes"] == 13_000
 
+    def test_equal_sized_drives_with_different_free_space_are_both_counted(self, tmp_path, mocker):
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        readings = {
+            str(tv): usage(13_000, 1_000, 12_000),
+            str(anime): usage(13_000, 8_000, 5_000),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg == {"total_bytes": 26_000, "used_bytes": 9_000, "free_bytes": 17_000}
+
+    def test_one_filesystem_under_two_device_ids_is_counted_once(self, tmp_path, mocker):
+        import os
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        mocker.patch("shutil.disk_usage", return_value=usage(13_000, 209, 12_791))
+        real_stat = os.stat
+
+        def stat_with_own_device(path, *args, **kwargs):
+            st = real_stat(path, *args, **kwargs)
+            if str(path) != str(anime):
+                return st
+            fields = list(st)
+            fields[2] = st.st_dev + 1  # st_dev is index 2
+            return os.stat_result(fields)
+
+        mocker.patch("os.stat", side_effect=stat_with_own_device)
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg["total_bytes"] == 13_000
+
     def test_skips_missing_paths(self, tmp_path, mocker):
         """A non-existent configured path is ignored, not fatal."""
         from collections import namedtuple

@@ -22,31 +22,32 @@ logger = logging.getLogger(__name__)
 def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
     """Sum ``shutil.disk_usage`` across *paths*, counting each disk once.
 
-    Two paths are one disk when they share ``st_dev`` and a total size.
-    ``st_dev`` alone is not enough: OrbStack/Docker present every host bind
-    under a single synthetic device id, so it would merge a movies drive and
-    a TV drive into one; their totals tell them apart.  The *used* and *free*
-    bytes are left out of the key on purpose: they move between two reads of
-    the same live disk, and keying on them counted one disk twice.  The first
-    reading of each disk is the one summed.
+    Two paths are one disk when their totals are equal and their free bytes
+    differ by under 0.1% of the total.  The device id is left out of the
+    comparison on purpose: one filesystem can show several ids (btrfs
+    subvolumes, NFS mounts), and container binds can put two drives behind a
+    single id.  The free bytes get a tolerance because they move between two
+    reads of the same live disk, while two equal-sized drives rarely hold the
+    same free space.  The first reading of each disk is the one summed.
 
     Non-existent or unreadable paths are skipped.
     """
-    seen: set[tuple[int, int]] = set()
+    seen: list[tuple[int, int]] = []
     total = used = free = 0
     for p in paths:
         if not p or not Path(p).exists():
             continue
         try:
             usage = shutil.disk_usage(p)
-            dev = os.stat(p).st_dev
         except OSError:
             logger.debug("disk_usage failed for %s — skipping", p)
             continue
-        key = (dev, usage.total)
-        if key in seen:
+        if any(
+            usage.total == total_seen and abs(usage.free - free_seen) <= usage.total * 0.001
+            for total_seen, free_seen in seen
+        ):
             continue
-        seen.add(key)
+        seen.append((usage.total, usage.free))
         total += usage.total
         used += usage.used
         free += usage.free
