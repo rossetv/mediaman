@@ -22,7 +22,7 @@ from mediaman.core.format import title_from_audit_detail as _extract_title_from_
 from mediaman.crypto import sign_poster_url
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
-from mediaman.services.openai.recommendations.user_picks import fetch_picks
+from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
 
 from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
@@ -302,7 +302,7 @@ def load_own_picks(
     pick's id nor the titles that led to it: the email and its links can be passed on.
     """
     found: dict[str, list[NewsletterRecItem]] = {}
-    oldest = (now - timedelta(days=28)).strftime("%Y-%m-%d")
+    oldest = (now - PICKS_LAST).strftime("%Y-%m-%d")
     for email in emails:
         people = conn.execute(
             "SELECT username FROM admin_users WHERE email = ? COLLATE NOCASE", (email.strip(),)

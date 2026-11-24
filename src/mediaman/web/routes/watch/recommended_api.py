@@ -139,8 +139,8 @@ def api_watch_recommended(
     start: str | None = None,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """The person's own picks and the shared ones of one batch (the latest unless *batch*
-    names another), the list of batches, whether they may have their own made again, and for
+    """The person's own picks and the shared ones of one batch (the latest of both unless
+    *batch* names another), the list of batches, whether they may have their own made again, and for
     an admin the cooldown of the shared ones. No title comes twice: *start* names
     the batch the row began with, and what the batches from it to this one hold is left
     out. ``next_batch`` is the older batch to go on with, or None when the picks are

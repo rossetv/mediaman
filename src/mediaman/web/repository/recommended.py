@@ -5,7 +5,7 @@ from collections import OrderedDict
 from datetime import date, datetime
 
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
-from mediaman.services.openai.recommendations.user_picks import fetch_picks
+from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
 
 _SUGGESTIONS_COLS = (
     "id, title, year, media_type, category, tmdb_id, description, reason, "
@@ -93,13 +93,20 @@ def group_into_batches(
     """Group recommendations by batch, newest first, every batch kept.
 
     A batch is ``{"id", "label", "date_label", "items"}``; its items are the
-    person's own picks followed by the shared ones. A row without a
-    ``batch_id`` falls back to the date of its ``created_at``.
+    person's own picks followed by the shared ones. The first holds the latest of
+    both, unless old, also where one is from an earlier batch, which has them too.
+    A row without a ``batch_id`` falls back to the date of its ``created_at``.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
         group = groups.setdefault(_batch_of(row), {"personal": [], "trending": []})
         group["trending" if row.get("category") == "trending" else "personal"].append(row)
+
+    oldest = (today - PICKS_LAST).isoformat()
+    for latest in list(groups.values())[:1]:
+        for kind in latest:
+            held = (g[kind] for bid, g in groups.items() if bid >= oldest and g[kind])
+            latest[kind] = latest[kind] or next(held, [])
 
     batches: list[dict[str, object]] = []
     for index, (bid, group) in enumerate(groups.items()):

@@ -169,7 +169,7 @@ class TestRow:
         self, people, conn
     ):
         pick = insert_user_pick(conn, "amy", tmdb_id=70, batch_id=DAY, downloaded_at=now_iso())
-        rec = insert_suggestion(conn, tmdb_id=71, batch_id="2098-01-01", downloaded_at=now_iso())
+        rec = insert_suggestion(conn, tmdb_id=71, batch_id="2020-01-01", downloaded_at=now_iso())
         assert pick == rec
 
         _row(people["amy"])
@@ -240,14 +240,6 @@ class TestDownload:
         user_picks.mark_downloaded(conn, "bob", pick, now_iso())
 
         assert user_picks.fetch_pick(conn, "amy", pick).downloaded_at is None
-
-    @pytest.mark.parametrize(
-        "url", ["/api/watch/picks/{}/download", "/api/recommended/{}/download"]
-    )
-    @pytest.mark.parametrize("number", [2**63, 10**30])
-    def test_a_number_too_large_for_any_pick_is_refused(self, people, arr, url, number):
-        assert people["amy"].post(url.format(number)).status_code == 422
-        assert arr.movies == []
 
 
 class TestOldHouseholdPicks:

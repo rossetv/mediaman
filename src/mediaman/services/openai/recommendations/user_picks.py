@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.openai.recommendations.repository import SuggestionDetail
 
+#: How long a person's picks are new enough to come first, and to be emailed.
+PICKS_LAST = timedelta(days=28)
 #: Days a person waits between refreshes of their own picks.
 REFRESH_COOLDOWN_DAYS = 7
 #: Refreshes people may start in 24 hours, all together and each, failed ones included.

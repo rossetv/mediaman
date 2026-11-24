@@ -45,7 +45,6 @@ _SCAN_SECONDS = 300.0
 # One person's picks: the model's answer and the look-ups after it, which get what is left.
 _PERSON_SECONDS = 180.0
 _PRESENT_WITHIN = timedelta(days=30)
-_PICKS_LAST = timedelta(days=28)
 _FAILED_WAITS = timedelta(hours=24)
 
 
@@ -79,7 +78,7 @@ def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
         newest = max(plays[0].last_played, link.linked_at if link else "")
         if (
             newest > made
-            or made < (now - _PICKS_LAST).isoformat()
+            or made < (now - user_picks.PICKS_LAST).isoformat()
             or not user_picks.fetch_picks(conn, name, latest_only=True)
         ):
             due.append((user_picks.last_started(conn, name, done_only=False), name))
