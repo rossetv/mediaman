@@ -213,6 +213,13 @@ class _SonarrMixin:
         self._require_series("search_series")  # type: ignore[attr-defined]
         self._post("/api/v3/command", {"name": "SeriesSearch", "seriesId": series_id})  # type: ignore[attr-defined]
 
+    def rescan_series(self, series_id: int) -> None:
+        """Ask Sonarr to look at the series' files on disk again; it does so in the background."""
+        self._require_series("rescan_series")  # type: ignore[attr-defined]
+        self._post(  # type: ignore[attr-defined]
+            "/api/v3/command", {"name": "RescanSeries", "seriesId": series_id}
+        )
+
     def get_missing_series(self) -> dict[int, str]:
         """Return ``{series_id: series_title}`` for every series with at least
         one monitored missing episode, matching Sonarr's Wanted/Missing view.

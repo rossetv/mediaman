@@ -105,6 +105,13 @@ class _RadarrMixin:
             "/api/v3/command", {"name": "MoviesSearch", "movieIds": [movie_id]}
         )
 
+    def rescan_movie(self, movie_id: int) -> None:
+        """Ask Radarr to look at the movie's files on disk again; it does so in the background."""
+        self._require_movie("rescan_movie")  # type: ignore[attr-defined]
+        self._post(  # type: ignore[attr-defined]
+            "/api/v3/command", {"name": "RescanMovie", "movieId": movie_id}
+        )
+
     def add_movie(
         self, tmdb_id: int, title: str, quality_profile_id: int | None = None
     ) -> RadarrMovie:

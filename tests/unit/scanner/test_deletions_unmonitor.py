@@ -7,6 +7,7 @@ import sqlite3
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
@@ -195,3 +196,75 @@ def test_an_older_database_without_the_table_gets_it(conn, db_path, root):
     DeletionExecutor(conn=init_db(str(db_path)), radarr_client=radarr).execute()
 
     assert _unmonitored(radarr) == [1]
+
+
+def _rescanned(radarr):
+    return [call.args[0] for call in radarr.rescan_movie.call_args_list]
+
+
+def test_radarr_is_asked_to_rescan_every_deleted_title_once_the_deletions_are_done(conn, root):
+    files = [_due(conn, root, number) for number in (1, 2)]
+    radarr = _radarr(root)
+    left = []
+    radarr.rescan_movie.side_effect = lambda _id: left.extend(f for f in files if f.exists())
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert _rescanned(radarr) == [1, 2]
+    assert left == []
+
+
+def test_the_library_sync_that_finishes_a_dead_run_asks_for_the_rescan(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _rescanned(radarr) == [1]
+
+
+def test_sonarr_is_asked_to_rescan_a_show_once_for_two_seasons(conn, root):
+    for number in (1, 2):
+        _due(conn, root, number)
+        conn.execute(
+            "UPDATE media_items SET media_type = 'tv_season', season_number = ?, sonarr_id = 7, "
+            "tvdb_id = 9, tmdb_id = NULL WHERE id = ?",
+            (number, f"m{number}"),
+        )
+    conn.commit()
+    sonarr = MagicMock()
+    sonarr.get_series_by_id.return_value = {
+        "id": 7,
+        "tvdbId": 9,
+        "path": str(root),
+        "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
+    }
+    sonarr.get_episode_files.return_value = []
+
+    DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+    sonarr.rescan_series.assert_called_once_with(7)
+
+
+def test_a_title_left_monitored_is_not_rescanned(conn, root):
+    _due(conn, root, 1)
+    radarr = _radarr(root)
+    radarr.unmonitor_movie.side_effect = requests.ConnectionError("down")
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert _rescanned(radarr) == []
+
+
+def test_a_rescan_that_fails_leaves_the_deletion_booked_and_is_not_repeated(conn, root):
+    for number in (1, 2):
+        _due(conn, root, number)
+    radarr = _radarr(root)
+    radarr.rescan_movie.side_effect = requests.ReadTimeout("slow")
+
+    result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert result["deleted"] == 2
+    assert _rescanned(radarr) == [1]
+    assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 'unmonitor_skipped'").fetchone()

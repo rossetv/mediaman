@@ -386,14 +386,12 @@ def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
     """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
     if not repository.fetch_pending_unmonitors(conn):
         return
-    from mediaman.scanner.deletions import unmonitor_deleted
+    from mediaman.scanner.deletions import rescan_unmonitored, unmonitor_deleted
 
     try:
-        unmonitor_deleted(
-            conn,
-            radarr_client=_build_radarr(conn, secret_key),
-            sonarr_client=_build_sonarr(conn, secret_key),
-        )
+        radarr, sonarr = _build_radarr(conn, secret_key), _build_sonarr(conn, secret_key)
+        done = unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
+        rescan_unmonitored(done, radarr_client=radarr, sonarr_client=sonarr)
     except (sqlite3.Error, requests.RequestException, SafeHTTPError, ArrError, ValueError):
         logger.exception("Unmonitoring deleted titles failed — sync unaffected")
 

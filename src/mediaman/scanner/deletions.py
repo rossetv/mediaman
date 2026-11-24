@@ -487,8 +487,8 @@ def _no_entry(is_movie: bool) -> str:
     return "Radarr has no entry for this movie" if is_movie else "Sonarr has no entry for this show"
 
 
-def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
-    """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
+def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> int | str:
+    """Unmonitor the Radarr entry matching *row*; return its id, or why none matches."""
     tmdb_id = row.tmdb_id
     if not tmdb_id:
         return "Plex has no TMDB id for this movie"
@@ -516,11 +516,11 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         if key is None or key not in _removed_file_keys(row):
             return "Radarr's file for this movie is not one mediaman deleted"
     client.unmonitor_movie(radarr_id)
-    return None
+    return radarr_id
 
 
-def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
-    """Unmonitor the Sonarr season matching *row*; return why not when it does not match."""
+def _unmonitor_season(row: DeletionRow, client: ArrClient) -> int | str:
+    """Unmonitor the Sonarr season matching *row*; return its show's id, or why none matches."""
     tvdb_id = row.tvdb_id
     if not tvdb_id:
         return "Plex has no TVDB id for this show"
@@ -564,15 +564,16 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
         ):
             return "Sonarr has a file in this season that mediaman did not delete"
     client.unmonitor_season(sonarr_id, season)
-    return None
+    return sonarr_id
 
 
 def _unmonitor(
     row: DeletionRow, *, radarr_client: ArrClient | None, sonarr_client: ArrClient | None
-) -> str | None:
-    """Stop Radarr/Sonarr re-downloading a deleted item; return why not, when that must be told.
+) -> int | str | None:
+    """Stop Radarr/Sonarr re-downloading a deleted item.
 
-    Only ever unmonitors, after checking it is the same item: the files are
+    Returns the id of the entry unmonitored, or why none was when that must be
+    told. Only ever unmonitors, after checking it is the same item: the files are
     already gone, so a wrong match could at worst stop a download, never delete
     anything. With no client for the item's kind, or no entry for the item in
     it, there is nothing to unmonitor.
@@ -583,12 +584,13 @@ def _unmonitor(
     if client is None:
         return None
     try:
-        reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
+        outcome = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS:
         logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
-        reason = f"{service} could not be reached or returned an error"
-    if reason is None:
-        return None
+        outcome = f"{service} could not be reached or returned an error"
+    if isinstance(outcome, int):
+        return outcome
+    reason = outcome
     if reason == _no_entry(is_movie):
         # Nothing to unmonitor, and nothing it could download again.
         logger.info("engine.delete.unmonitor_none media_id=%s — %s", row.media_item_id, reason)
@@ -611,8 +613,10 @@ def unmonitor_deleted(
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-) -> None:
+) -> set[tuple[str, int]]:
     """Unmonitor in Radarr/Sonarr every booked deletion still marked for it.
+
+    Returns the entries unmonitored, as rescan_unmonitored takes them.
 
     Runs after the deletion committed, so a slow response never holds the write
     lock, and commits each item's outcome as it goes: one a dead process left
@@ -620,15 +624,42 @@ def unmonitor_deleted(
     ``unmonitor_skipped`` and the deletion stays booked either way. A title
     that came back meanwhile is left monitored.
     """
+    unmonitored: set[tuple[str, int]] = set()
     for row in fetch_pending_unmonitors(conn):
+        outcome: int | str | None = None
         if _came_back(conn, row):
             logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
-            detail = None
         else:
-            detail = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+            outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
         with conn:
-            if finish_unmonitor(conn, row.id) and detail is not None:
-                log_audit(conn, row.media_item_id, "unmonitor_skipped", detail)
+            if finish_unmonitor(conn, row.id) and isinstance(outcome, str):
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", outcome)
+        if isinstance(outcome, int):
+            unmonitored.add(("movie" if row.media_type == "movie" else "series", outcome))
+    return unmonitored
+
+
+def rescan_unmonitored(
+    unmonitored: set[tuple[str, int]],
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+) -> None:
+    """Ask Radarr/Sonarr to look at the disk again for the entries whose files were deleted.
+
+    Until it does it still lists the files, so a title asked for again reads as
+    already there. Best effort, and the first failure of a service ends its
+    turn: its own daily rescan does the same.
+    """
+    for kind, client in (("movie", radarr_client), ("series", sonarr_client)):
+        ids = sorted(entry_id for entry_kind, entry_id in unmonitored if entry_kind == kind)
+        if client is None:
+            continue
+        try:
+            for entry_id in ids:
+                (client.rescan_movie if kind == "movie" else client.rescan_series)(entry_id)
+        except _ARR_ERRORS:
+            logger.warning("Rescan of deleted titles failed (%s)", kind, exc_info=True)
 
 
 def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
@@ -844,6 +875,8 @@ class DeletionExecutor:
         self._radarr = radarr_client
         # Action row id -> the folder found missing or empty that holds it back.
         self._waiting: dict[int, str] = {}
+        # Entries this pass unmonitored, as rescan_unmonitored takes them.
+        self._unmonitored: set[tuple[str, int]] = set()
 
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
@@ -861,13 +894,20 @@ class DeletionExecutor:
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
         4. Live: record which roots or folders held rows back, for the dashboard.
         5. Clean up expired snoozes unless dry-run.
+        6. Live: ask Radarr/Sonarr to rescan what was unmonitored.
         """
         now = now_utc()
+        self._unmonitored = set()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
             self._preview(rows, now)
             return {"deleted": 0, "reclaimed_bytes": 0}
-        return self._execute_live(rows, now)
+        result = self._execute_live(rows, now)
+        # Last, so a slow answer delays no deletion.
+        rescan_unmonitored(
+            self._unmonitored, radarr_client=self._radarr, sonarr_client=self._sonarr
+        )
+        return result
 
     def _preview(self, rows: list[DeletionRow], now: datetime) -> None:
         """Record what *would* be deleted and which folders would hold rows back.
@@ -907,7 +947,9 @@ class DeletionExecutor:
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
 
     def _unmonitor(self) -> None:
-        unmonitor_deleted(self._conn, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        self._unmonitored |= unmonitor_deleted(
+            self._conn, radarr_client=self._radarr, sonarr_client=self._sonarr
+        )
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""

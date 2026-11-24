@@ -170,6 +170,13 @@ class TestArrClientRadarr:
         assert post_call[2]["json"] == {"name": "MoviesSearch", "movieIds": [42]}
         assert "radarr:7878/api/v3/command" in post_call[1]
 
+    def test_rescan_movie_posts_the_rescan_command(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+        client.rescan_movie(42)
+        post_call = _find_call(fake_http, "POST")
+        assert post_call[2]["json"] == {"name": "RescanMovie", "movieId": 42}
+        assert "radarr:7878/api/v3/command" in post_call[1]
+
     def test_add_movie_sends_correct_payload(self, client, fake_http, fake_response):
         # GET /rootfolder + GET /qualityprofile (in that order) — both must be present.
         fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))

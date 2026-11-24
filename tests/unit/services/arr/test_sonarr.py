@@ -41,6 +41,13 @@ class TestArrClientSonarr:
         assert len(series) == 1
         assert series[0]["title"] == "Modern Family"
 
+    def test_rescan_series_posts_the_rescan_command(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+        client.rescan_series(7)
+        post_call = _calls(fake_http, "POST")[0]
+        assert post_call[2]["json"] == {"name": "RescanSeries", "seriesId": 7}
+        assert "/api/v3/command" in post_call[1]
+
     def test_unmonitor_season(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET",
