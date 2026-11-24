@@ -39,7 +39,7 @@ const showOf = (seasons) => ({
 
 function card(id, title, over = {}) {
   return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
-    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}) },
+    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}) },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/api/poster/1' }], ['span', { class: 'watch-card__title' }, title],
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
       ['span', { class: 'watch-card__sub' }, over.sub || 'Movie']],
@@ -53,6 +53,7 @@ const CARDS = [
   card('outside', 'Salt', { ref: 'tmdb-movie-9' }),
   card('show', 'Brightwater', { ref: 'tmdb-tv-7' }),
   card('pick', 'Pick', { ref: 'rec-5' }),
+  card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
 ];
 
@@ -79,6 +80,7 @@ function load(opts = {}) {
   const waiting = {};
   const toasts = [];
   const details = [];
+  const origins = [];
   const answers = { 'movie-1': FILM, 'movie-2': { ...FILM, ref: 'movie-2', library_ref: 'movie-2', title: 'Orbit' }, 'movie-3': FILM, 'tmdb-movie-9': OUTSIDE, ...opts.api };
   const store = { ...opts.store };
   const api = {
@@ -124,11 +126,11 @@ function load(opts = {}) {
   vm.createContext(ctx);
   ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
-    if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); doc.documentElement.classList.add('has-ttl'); } };
+    if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
   });
 
   const h = {
-    doc, ctx, gets, aborted, posts, waiting, toasts, details, store, fire,
+    doc, ctx, gets, aborted, posts, waiting, toasts, details, origins, store, fire,
     winFire: (type, e) => (winListeners[type] || []).forEach((fn) => fn(e || {})),
     /* Let *ms* pass, timers and replies in their order. */
     async pass(ms) {
@@ -517,6 +519,21 @@ const scenarios = {
     h.waiting['rec-5'](reply);
     await h.pass(50);
     return { held, reason: h.text('.pv__reason') };
+  },
+  /* The page moves on, with a preview open and with one about to. */
+  async movedOn() {
+    const h = load();
+    await h.rest('film');
+    const before = h.title();
+    h.ctx.MMWatch.preview.close();
+    const after = [h.title(), h.link('film').classList.contains('is-previewed'), h.doc.querySelector('.pv').classList.contains('is-fading')];
+    await h.pass(1000);
+    const layers = h.doc.querySelectorAll('.pv').length;
+    h.over(h.link('third'));
+    await h.pass(100);
+    h.ctx.MMWatch.preview.close();
+    await h.pass(1500);
+    return { before, after, layers, gets: h.gets };
   },
 };
 

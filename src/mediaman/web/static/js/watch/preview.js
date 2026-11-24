@@ -1100,4 +1100,6 @@
   });
 
   document.addEventListener('mm:watch-marked', function (e) { unkeep(e.detail.ref); });
+
+  watch.preview = { close: fadeLive };
 })();

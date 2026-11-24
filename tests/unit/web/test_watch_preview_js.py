@@ -231,3 +231,12 @@ def test_no_button_can_be_pressed_while_the_preview_grows_under_the_mouse() -> N
     rule = re.search(r"\.pv:not\(\.is-settled\) \.pv__body \{([^}]*)\}", css)
     assert rule is not None
     assert "pointer-events: none" in rule[1]
+
+
+def test_the_page_closes_it_and_calls_off_the_next_when_it_moves_on() -> None:
+    assert _run("movedOn") == {
+        "before": "Fieldwork",
+        "after": [None, False, True],
+        "layers": 0,
+        "gets": ["movie-1"],
+    }
