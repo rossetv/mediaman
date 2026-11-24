@@ -989,7 +989,7 @@
       var all = [];
       [c, last].forEach(function (s) {
         if (!s) return;
-        [s.lib, s.tmdb].forEach(function (part) { all = all.concat((part && part.items) || []); });
+        [s.lib, s.tmdb].forEach(function (part) { if (part) all = all.concat(part.held || [], part.items || []); });
       });
       return all;
     }
@@ -1191,9 +1191,10 @@
     /* The two lists as they are shown. What TMDB knows joins the one it belongs
        to; titles of a category that was named in full come after the matches. */
     function gather(c) {
-      var lib = (c.lib.items || []).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
+      var held = c.tmdb.held || []; // what the library's own search did not find
+      var lib = (c.lib.items || []).concat(held).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
       var out = [];
-      var total = c.lib.total || 0;
+      var total = (c.lib.total || 0) + held.length;
       var seen = new Set(lib.map(function (x) { return x.key; }));
       [c.tmdb.items, c.cat && c.cat.items].forEach(function (items) {
         (items || []).forEach(function (item) {
@@ -1202,8 +1203,8 @@
           seen.add(key).add(item.ref);
           if (isHeld(item)) {
             lib.push({ item: item, key: key, build: buildHeldCard });
-            // One that matches by name too is among those found and not shown.
-            if (folded(item.title).indexOf(folded(c.q)) === -1) total++;
+            // One of the library's that matches by name too is among those found and not shown.
+            if (!item.in_library || folded(item.title).indexOf(folded(c.q)) === -1) total++;
           } else out.push({ item: item, key: key, build: buildTmdbCard });
         });
       });
@@ -1351,7 +1352,7 @@
 
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */
     function ask(c, part, url, read, failed) {
-      c[part] = { state: 'loading', items: c[part] && c[part].items, total: c[part] && c[part].total };
+      c[part] = Object.assign({}, c[part], { state: 'loading' });
       MM.api.get(url, { signal: c.ctrl.signal }).then(function (reply) {
         if (current !== c) return;
         c[part] = read(reply || {});
@@ -1376,7 +1377,7 @@
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });
-        return { state: 'ok', items: reply.items || [], people: found };
+        return { state: 'ok', items: reply.items || [], held: reply.held || [], people: found };
       }, function () { return { state: 'failed' }; });
     }
 
@@ -1444,7 +1445,7 @@
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
-        lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items }, cat: null,
+        lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items, held: known.tmdb.held }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
       };

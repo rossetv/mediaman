@@ -756,16 +756,24 @@ const scenarios = {
     const p = await ready(ADMIN);
     await p.search('orchard');
     await p.answer('/api/watch/search?', { items: [LIB] });
-    const held = { ...TM, in_library: true, library_ref: 'movie-1', title: 'Orchard Keepers' };
-    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true,
-      items: [held, { ...held, ref: 'tmdb-movie-10', library_ref: 'movie-2', title: 'L’Orchard', href: '/watch/movie/2', leaving_days: 3, keep_id: '2' }, { ...TM, ref: 'tmdb-movie-11' }] });
+    const held = { ...LIB, ref: 'movie-2', title: 'Le Verger', href: '/watch/movie/2', keep_id: '2' };
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM], held: [held] });
     const out = { heads: p.heads(), titles: p.titles('.watch-card'), counts: p.doc.querySelectorAll('.results-group__count').map((n) => n.textContent),
       keeps: p.doc.querySelectorAll('[data-watch-keep]').map((n) => n.getAttribute('data-watch-keep')), status: p.status.textContent };
     const q = await ready(ADMIN);
     await q.search('amelie');
     await q.answer('/api/watch/search?', { items: [], total: 0 });
-    await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...held, title: 'Amélie', href: '/watch/movie/1' }] });
-    out.alone = [q.heads(), q.line(), q.doc.querySelector('.watch-card__link').href];
+    await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], held: [{ ...held, title: 'Amélie' }] });
+    out.alone = [q.heads(), q.line(), q.doc.querySelector('.watch-card__link').href, q.suggested()];
+    // Asked again, it stays until the answers are in.
+    await q.search('amelie');
+    out.again = q.titles('.watch-card');
+    // More were found than are shown, and this one with them.
+    const r = await ready(ADMIN);
+    await r.search('orchard');
+    await r.answer('/api/watch/search?', { items: [LIB], total: 80 });
+    await r.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], held: [held] });
+    out.many = r.doc.querySelector('.results-group__count').textContent;
     return out;
   },
 
