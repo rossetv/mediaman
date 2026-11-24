@@ -784,17 +784,15 @@ def test_the_phone_banner_bar_is_as_wide_as_the_text() -> None:
     assert "width: 100%" in _declarations_in(phone, ".watch-bar--banner")
 
 
-def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_buttons_in_a_row() -> (
-    None
-):
-    sideways = _in_media("_watch.css", "(max-width: 599.98px) and (max-height: 500px)")
+def test_a_narrow_phone_held_sideways_puts_the_shade_and_the_buttons_beside_the_text() -> None:
+    sideways = _in_media("_watch.css", "(max-width: 699.98px) and (max-height: 500px)")
 
     assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
     assert "min-height: 0" in _declarations_in(sideways, ".watch-banner")
     assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
-    assert "flex: none" in _declarations_in(
-        sideways, ".watch-banner .watch-actions .watch-btn--play"
-    )
+    # At the top of their own column, so a long title never pushes them off the screen.
+    actions = _declarations_in(sideways, ".watch-banner .watch-actions")
+    assert "grid-column: 2" in actions and "align-self: start" in actions
 
 
 def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:

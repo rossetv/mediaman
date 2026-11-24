@@ -807,16 +807,22 @@
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
 }
-/* One narrower than 600px too: the dark beside the text, not above it, and the buttons in a row. */
-@media (max-width: 599.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  /* Its tab bar leaves little height: no taller than the text and its buttons need. */
-  .watch-banner { --banner-poster-w: 92px; min-height: 0; margin-top: 0; padding-block: 12px 14px; }
-  .watch-banner__poster { --banner-poster-w: 92px; max-height: calc(100% - 24px); }
+/* One that has the tab bar too: the dark beside the text, not above it. */
+@media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  /* Its tab bar leaves little height, so the buttons stand beside the text, at its top, in place of
+     the poster: however long the title, they stay on screen. */
+  .watch-banner { min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner__poster { display: none; }
+  .watch-banner__body { width: 100%; max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 6px 16px; }
+  .watch-banner__body > * { grid-column: 1; }
   .watch-banner__title--longest { font-size: 18px; line-height: 1.1; }
   .watch-banner::after { background: var(--banner-foot), var(--banner-side); }
   .watch-banner__body::before { inset: -100vh -160px -100px calc(-1 * var(--pad)); background: var(--banner-text-side); }
-  .watch-banner .watch-actions .btn,
-  .watch-banner .watch-actions .watch-btn--play { flex: none; padding-inline: 22px; }
+  .watch-banner .watch-actions { grid-column: 2; grid-row: 1 / span 6; align-self: start; align-content: start; gap: 8px; margin: 0; }
+  .watch-banner .watch-actions .btn { flex: 1 1 0; padding-inline: 12px; order: 1; }
+  .watch-banner .watch-actions .watch-btn--play { flex: 1 1 130px; padding-inline: 12px; order: 0; }
+  .watch-banner .watch-actions .watch-banner__dismiss { flex: 0 0 44px; padding: 0; order: 0; }
+  .watch-banner__dismiss > span { display: none; }
   .watch-bar--banner { width: min(320px, 100%); }
 }
 
