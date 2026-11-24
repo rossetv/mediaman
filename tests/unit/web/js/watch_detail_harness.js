@@ -283,6 +283,31 @@ const scenarios = {
     return out;
   },
 
+  // Close pressed twice before the browser's popstate comes, then what the second press of a
+  // double click on it hits: a card's link, at once and after the sheet has gone.
+  async doubleClose() {
+    const p = load({ clock: true, routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    const pop = p.ctx.history.back;
+    let backs = 0;
+    p.ctx.history.back = function () { backs++; };
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('.ttl__close'));
+    click(p.doc, p.q('.ttl__close'));
+    pop.call(p.ctx.history);
+    const press = (detail) => {
+      const e = { target: p.doc.querySelector('[data-title-ref="show-300"]'), button: 0, detail, defaultPrevented: false, stopped: false,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; } };
+      (p.doc.listeners.click || []).forEach((fn) => fn(e));
+      return { open: p.loc.hash !== '', prevented: e.defaultPrevented, stopped: e.stopped };
+    };
+    p.clock.now += 250;
+    const second = press(2);
+    p.clock.now += 2000;
+    const later = press(2);
+    return { backs, second, later };
+  },
+
   async directLink() {
     const p = load({ hash: '#title=movie-120', routes: { '/api/watch/title/movie-120': LIB_MOVIE } });
     p.run();

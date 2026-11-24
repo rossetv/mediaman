@@ -30,6 +30,8 @@
   var COPIED_MS = 2000;
   /* How long a title's buttons wait for its picture, which settles the hero's height. */
   var PICTURE_WAIT_MS = 400;
+  /* How long after a close the next press of a double click can still come. */
+  var DOUBLE_CLICK_MS = 600;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
@@ -54,6 +56,8 @@
 
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
+  var closing = false; // a close the browser's Back has not finished yet
+  var closedAt = 0;
   var leaving = null;  // the close still animating, finished early by a new open
   var pictures = '';   // the addresses the hero shows or is trying
   var trying = false;  // the hero's picture is not known yet
@@ -257,9 +261,10 @@
   /* Close at the person's request: Back undoes the entry the open added;
      a title opened from a link loses its #title= without a new entry. */
   function requestClose() {
-    if (!isOpen) return;
+    if (!isOpen || closing) return;
     var state = window.history.state;
     if (state && state.mmTitle === cur.ref && hashRef() === cur.ref) {
+      closing = true;
       window.history.back();
       return;
     }
@@ -270,6 +275,8 @@
   function close() {
     if (!isOpen) return;
     isOpen = false;
+    closing = false;
+    closedAt = Date.now();
     stopPolling();
     closeTrailer(false);
     closeAdminMenu(false);
@@ -1810,6 +1817,13 @@
     }
   });
 
+  /* The rest of a double click on Close, which would press what is under it. */
+  document.addEventListener('click', function (e) {
+    if (isOpen || !(e.detail > 1) || Date.now() - closedAt > DOUBLE_CLICK_MS) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
   function cardTitle(node) {
     var named = node.getAttribute('data-title') || node.getAttribute('aria-label') || '';
     if (named) return named;
@@ -1836,6 +1850,7 @@
 
   window.addEventListener('popstate', function () {
     var ref = hashRef();
+    closing = false;
     if (ref) {
       if (!isOpen || !cur || cur.ref !== ref) open(ref, {});
     } else if (isOpen) {

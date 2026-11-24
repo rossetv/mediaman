@@ -39,7 +39,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
 .ttl.is-entering .ttl__sheet { animation: ttl-sheet-in var(--dur-slow) var(--ease-out) both; }
-.ttl.is-leaving { pointer-events: none; }
+/* Leaving, it takes presses without answering: a second one on Close must not reach the page. */
+.ttl.is-leaving > * { pointer-events: none; }
 .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) var(--ease-out) both; }
 .ttl.is-leaving .ttl__sheet { animation: ttl-sheet-out var(--dur) var(--ease-out) both; }
 @keyframes ttl-fade-in  { from { opacity: 0; } }

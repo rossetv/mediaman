@@ -40,6 +40,14 @@ def test_closing_a_title_opened_from_a_card_goes_back_and_returns_focus_to_the_c
     assert (out["hidden"], out["unlocked"]) == (True, True)
 
 
+def test_closing_twice_goes_back_once_and_a_double_click_does_not_reach_what_is_under_it() -> None:
+    out = _run("doubleClose")
+    assert out["backs"] == 1
+    assert out["second"] == {"open": False, "prevented": True, "stopped": True}
+    # Long after, a double click on a card is the card's own.
+    assert out["later"]["open"] is True
+
+
 def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_history() -> None:
     out = _run("directLink")
     assert out["opened"]["hidden"] is False
