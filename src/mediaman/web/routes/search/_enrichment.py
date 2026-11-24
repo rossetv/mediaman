@@ -144,6 +144,7 @@ _ENRICH_BUDGET_SECONDS = 6.0
 # asking for this long and show what is stored instead.
 _NO_ANSWER_PAUSE_SECONDS = 60.0
 _paused_until = 0.0
+_OUTAGE_MIN_MISSES = 3
 
 # Type alias for the ``(key, group)`` pairs threaded through the ratings
 # fan-out: a ``(tmdb_id, media_type)`` key and the result dicts sharing it.
@@ -237,8 +238,9 @@ def _drain_futures(
             sum(1 for f in futures if f.done()),
             len(futures),
         )
-    # One bad title, or a slow but answering OMDb, is not an outage: pause only on no answer at all.
-    if unanswered and not answered:
+    # One bad title, a slow but answering OMDb, or a round of fewer than three misses is not
+    # an outage: pause only when three or more misses got no answer at all.
+    if unanswered and not answered and len(futures) >= _OUTAGE_MIN_MISSES:
         _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
     return pending_writes
 

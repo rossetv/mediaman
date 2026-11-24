@@ -481,6 +481,12 @@ class TestEnrichRatingsHelpers:
         return fut
 
     @staticmethod
+    def _pending(tmdb_id):
+        from concurrent.futures import Future
+
+        return Future()
+
+    @staticmethod
     def _drain(futures, *, overrun=False):
         from mediaman.web.routes.search import _enrichment
 
@@ -501,19 +507,26 @@ class TestEnrichRatingsHelpers:
 
         from mediaman.services.infra import SafeHTTPError
 
-        fut: Future = Future()
-        fut.set_exception(SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"))
+        futs: list[Future] = []
+        for _ in range(3):
+            fut: Future = Future()
+            fut.set_exception(SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"))
+            futs.append(fut)
 
-        assert self._drain([fut]) > 0.0
+        assert self._drain(futs) > 0.0
 
     def test_a_budget_overrun_with_some_answers_does_not_pause(self):
         assert self._drain([self._done(1, {"imdb": "8.0"})], overrun=True) == 0.0
 
     def test_a_budget_overrun_with_no_answer_pauses(self):
-        assert self._drain([], overrun=True) > 0.0
+        assert self._drain([self._pending(i) for i in range(3)], overrun=True) > 0.0
+
+    def test_fewer_than_three_misses_without_an_answer_do_not_pause(self):
+        assert self._drain([self._done(1, None), self._done(2, None)]) == 0.0
+        assert self._drain([self._pending(1)], overrun=True) == 0.0
 
     def test_every_lookup_giving_no_answer_pauses(self):
-        assert self._drain([self._done(1, None), self._done(2, None)]) > 0.0
+        assert self._drain([self._done(i, None) for i in range(3)]) > 0.0
 
     def _row(self, tmdb_id, media_type, *, fetched_at, rt="80%", imdb="7.5"):
         from mediaman.web.repository.search import RatingsCacheRow
@@ -613,19 +626,22 @@ class TestEnrichRatingsHelpers:
         monkeypatch.setattr(_enrichment, "get_db", lambda: conn)
         monkeypatch.setattr(_enrichment, "get_omdb_key", lambda *_a: "k")
         monkeypatch.setattr(_enrichment, "lookup_ratings", lookup)
-        conn.execute(
+        conn.executemany(
             "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
-            " fetched_at) VALUES (1, 'movie', '7.5', '80%', '74', ?)",
-            ((now_utc() - timedelta(days=90)).isoformat(),),
+            " fetched_at) VALUES (?, 'movie', '7.5', '80%', '74', ?)",
+            [(i, (now_utc() - timedelta(days=90)).isoformat()) for i in (1, 2, 3)],
         )
         conn.commit()
         request = MagicMock()
         request.app.state.config.secret_key = "s"
 
         def search():
-            item = {"tmdb_id": 1, "media_type": "movie", "title": "Dune", "year": 2021}
-            _enrichment._stamp_omdb_ratings([item], request)
-            return item
+            items = [
+                {"tmdb_id": i, "media_type": "movie", "title": "Dune", "year": 2021}
+                for i in (1, 2, 3)
+            ]
+            _enrichment._stamp_omdb_ratings(items, request)
+            return items[0]
 
         return search
 
@@ -652,7 +668,7 @@ class TestEnrichRatingsHelpers:
         search()
         second = search()
 
-        assert len(asked) == 1
+        assert len(asked) == 3
         assert second["imdb_rating"] == "7.5"
 
     def test_the_pause_after_no_answer_ends(self, conn, monkeypatch):
@@ -664,7 +680,7 @@ class TestEnrichRatingsHelpers:
         monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
         search()
 
-        assert len(asked) == 2
+        assert len(asked) == 6
 
     def test_drain_futures_writes_nothing_for_a_lookup_that_got_no_answer(self):
         from concurrent.futures import Future
