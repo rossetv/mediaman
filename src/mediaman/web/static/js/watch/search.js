@@ -565,6 +565,7 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
+    var emptied = false; // the field, and the step back to what the search was typed over is on its way
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -1408,13 +1409,12 @@
 
     /* ── Searching ── */
 
-    /* Keep ?q= in the address, in the same entry so Back is not spammed; leaving
-       a category, a person or a grid is a new one, so Back returns to it. */
-    function syncUrl(q) {
-      var away = q && (address.value('explore') !== null || address.value('grid') !== null);
-      if (away) {
+    /* Keep ?q= in the address: a search is an entry, so Back returns to what it was
+       typed over, and what is typed next stays in it. *inPlace*: nobody typed it. */
+    function syncUrl(q, inPlace) {
+      if (q && !inPlace && address.value('search') === null) {
         address.push('search', address.url(Object.assign({}, PAGE_PARAMS, { q: q })));
-        // Outlives a reload: emptied, the search gives way to what it was typed over.
+        // Outlives a reload: emptied, the search gives way to that.
         window.history.replaceState(Object.assign({}, window.history.state, { mmOver: true }), '');
         return;
       }
@@ -1422,16 +1422,26 @@
       if (to !== window.location.pathname + window.location.search + window.location.hash) address.replace('search', to);
     }
 
-    function run() {
+    function showResults(q, inPlace) {
+      // Where the rows stood is kept with the entry they are left in.
+      var rows = view === 'browse' && !browse.hidden;
+      if (rows) syncUrl(q, inPlace);
+      show('results');
+      if (!rows) syncUrl(q, inPlace);
+    }
+
+    function run(inPlace) {
       var q = input.value.trim();
+      // What was typed since waits for the step to be made.
+      if (q && emptied) return;
       stop();
-      if (q) show('results');
-      syncUrl(q);
       if (!q) {
+        syncUrl(q);
         status.textContent = '';
         show('browse');
         return;
       }
+      showResults(q, inPlace);
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
@@ -1464,8 +1474,8 @@
       }));
     }
 
-    function change() {
-      if (listView) announceList(); else run();
+    function change(inPlace) {
+      if (listView) announceList(); else run(inPlace);
     }
 
     /* Every key: the bar and the suggestions answer at once, the server is asked
@@ -1479,14 +1489,19 @@
       sync();
       if (listView) {
         if (!q) change();
-        else timer = setTimeout(change, inWord ? COMPOSING_MS : LIST_DELAY_MS);
+        else timer = setTimeout(announceList, inWord ? COMPOSING_MS : LIST_DELAY_MS);
         return;
       }
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        // What opens there takes the focus.
-        address.back('search', function () { input.focus({ preventScroll: true }); });
+        emptied = true;
+        address.back('search', function () {
+          emptied = false;
+          // What opens there takes the focus.
+          input.focus({ preventScroll: true });
+          openSheet(address.top() === null);
+        });
         return;
       }
       if (!q || now) {
@@ -1496,8 +1511,8 @@
         return;
       }
       openSheet(false);
-      show('results');
-      if (address.value('explore') !== null || address.value('grid') !== null) syncUrl(q);
+      if (address.value('search') === null) showResults(q);
+      else show('results');
       holdResults();
       draw(q, null, live.rows, false);
       if (canExplore() && !explore.known()) {
@@ -1506,7 +1521,7 @@
         });
       }
       setPending(true);
-      timer = setTimeout(change, inWord ? COMPOSING_MS : SEARCH_DELAY_MS);
+      timer = setTimeout(run, inWord ? COMPOSING_MS : SEARCH_DELAY_MS);
     }
 
     function fill(text) {
@@ -1655,7 +1670,7 @@
       input.setAttribute('aria-label', label());
       restHint();
       // Text goes along, unless Back led to something the address opens itself.
-      if (input.value.trim() && (listView || !addressed())) change();
+      if (input.value.trim() && (listView || !addressed())) change(true);
     });
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
@@ -1713,6 +1728,13 @@
       close: function (how) {
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
+        if (emptied && input.value.trim()) {
+          emptied = false;
+          clearTimeout(timer);
+          timer = setTimeout(run);
+          return;
+        }
+        emptied = false;
         stop();
         input.value = '';
         sync();
@@ -1727,7 +1749,7 @@
     showExamples();
     if (canExplore()) explore.categories();
     // A value the browser put back (going back to the page) gets its results.
-    if (input.value.trim() && !listView) run();
+    if (input.value.trim() && !listView) run(true);
     // Nothing the address names after all: the rows.
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }

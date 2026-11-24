@@ -107,7 +107,32 @@ def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -
     assert out["url"] == "/watch?foo=1#title=movie-2"
     assert (out["value"], out["focus"], out["browse"], out["results"]) == ("", True, True, True)
     assert (out["status"], out["groups"]) == ("", 0)
-    assert out["length"] == 1  # typing and clearing add nothing for Back to undo
+    assert out["index"] == 0  # typing and clearing leave nothing for Back to undo
+
+
+def test_a_search_is_one_entry_back_is_the_rows_and_forward_the_search() -> None:
+    out = _run("searchEntry")
+    assert out["typed"] == ["/watch?q=o", 2, 0]
+    assert out["more"] == ["/watch?q=orchard+road", 2]
+    assert out["back"] == ["/watch", "", "browse", 700]
+    assert out["forward"] == [
+        "/watch?q=orchard+road",
+        "orchard road",
+        "results",
+        "/api/watch/search?q=orchard%20road",
+    ]
+    assert out["linked"] == ["/watch", 1]
+    assert out["restored"] == ["/watch?q=orchard", 1]
+
+
+def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
+    assert _run("emptiedAndTyped") == [
+        "/watch?q=lantern",
+        "lantern",
+        "results",
+        2,
+        ["orchard", "lantern"],
+    ]
 
 
 def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
@@ -323,7 +348,7 @@ def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:
 
 def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
     out = _run("categoryAndBack")
-    assert (out["url"], out["entries"]) == ("/watch?genre=action", 2)
+    assert (out["url"], out["entries"]) == ("/watch?genre=action", 3)
     assert (out["value"], out["token"], out["title"]) == ("", "Action", "Action")
     assert out["shown"] == "results"
     assert out["cards"] == []  # nothing of the search is left beside it

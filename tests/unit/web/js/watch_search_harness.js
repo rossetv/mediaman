@@ -459,6 +459,7 @@ const scenarios = {
       p.timers.filter((t) => t.on && t.ms === 150).forEach((t) => { t.on = false; t.fn(); });
       out.after = state();
       p.type('');
+      await settle();
       out.back = state();
       // Cleared before the rows are gone: nothing hides them later.
       p.type('orchard');
@@ -538,16 +539,58 @@ const scenarios = {
   async clear() {
     const p = load(ADMIN, '', '/watch?foo=1#title=movie-2');
     await p.search('orchard');
-    const withQ = p.urls[p.urls.length - 1];
+    const withQ = p.url();
     await p.answer('/api/watch/search?', { items: [LIB] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
     click(p.doc, p.$('watch-search-clear'));
     await settle();
     return {
-      withQ, url: p.urls[p.urls.length - 1], value: p.input.value, focus: p.doc.activeElement === p.input,
+      withQ, url: p.url(), index: p.tab.index, value: p.input.value, focus: p.doc.activeElement === p.input,
       browse: p.browse.hidden === false, results: p.results.hidden, status: p.status.textContent,
       groups: p.heads().length, length: p.tab.entries.length,
     };
+  },
+
+  // A search is one entry whatever is typed in it: Back is the rows where they were left, Forward the search again.
+  async searchEntry() {
+    const p = await ready(ADMIN);
+    p.ctx.scrollY = 700;
+    p.fire('scroll');
+    p.type('o');
+    const out = { typed: [p.url(), p.tab.entries.length, p.ctx.scrollY] };
+    await p.search('orchard');
+    await p.search('orchard road');
+    out.more = [p.url(), p.tab.entries.length];
+    await p.back();
+    out.back = [p.url(), p.input.value, p.shown(), p.ctx.scrollY];
+    p.ctx.history.go(1);
+    await settle();
+    out.forward = [p.url(), p.input.value, p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url];
+    // A link to a search was typed over nothing.
+    const linked = load(ADMIN, 'orchard');
+    await linked.search('lantern');
+    linked.type('');
+    await settle();
+    out.linked = [linked.url(), linked.tab.entries.length];
+    // Nor was what the browser put back in the field.
+    const restored = load(ADMIN);
+    restored.input.value = 'orchard';
+    restored.ctx.MMWatch.search.init();
+    await settle();
+    out.restored = [restored.url(), restored.tab.entries.length];
+    return out;
+  },
+
+  // Emptied and typed in again before the step back was made: what was typed last is searched for, in its own entry.
+  async emptiedAndTyped() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    p.type('');
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    await settle();
+    return [p.url(), p.input.value, p.shown(), p.tab.entries.length, p.calls.filter((c) => c.url.includes('search?')).map((c) => c.url.split('=')[1])];
   },
 
   // Enter searches at once, and on a phone puts the keyboard away.
@@ -788,6 +831,7 @@ const scenarios = {
     p.key('ArrowUp');
     out.none = marked();
     p.key('Escape');
+    await settle();
     out.cleared = [p.input.value, p.shown(), p.doc.activeElement === p.input];
     await p.search('act');
     p.key('ArrowDown');
@@ -1686,6 +1730,7 @@ const scenarios = {
     p.type('a');
     out.push(state());
     click(p.doc, cross);
+    await settle();
     out.push(state());
     return out;
   },
