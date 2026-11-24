@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import re
 import sqlite3
+import threading
 import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
@@ -18,7 +19,7 @@ import requests
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
-    from mediaman.services.media_meta.tmdb import TmdbDetail
+    from mediaman.services.media_meta.tmdb import TmdbClient, TmdbDetail
 
 _BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
 _BACKDROP_RE = re.compile(
@@ -52,6 +53,11 @@ _FACTS = (
     "metascore",
 )
 _clock = time.monotonic
+# One lookup per title at a time: the ones that wait for it find its answer held.
+_flights: dict[tuple[object, object, object], threading.Lock] = {}
+_flights_lock = threading.Lock()
+# Short, and not retried: the emailed page is public and holds a thread while TMDB is asked.
+_PAGE_TMDB_TIMEOUT_S = 3.0
 
 # A stored summary cut by a limit of this many characters ends mid-sentence.
 _OLD_SUMMARY_CUT = 250
@@ -117,12 +123,14 @@ def fill_backdrop(item: dict[str, object], conn: sqlite3.Connection, secret_key:
         item["backdrop_url"] = hit[1]
         return
     from mediaman.services.media_meta.tmdb import TmdbClient
+    from mediaman.services.watch_catalog import TmdbUnavailable, gate
 
     details: object = None
-    with contextlib.suppress(requests.RequestException, SafeHTTPError, ValueError):
-        client = TmdbClient.from_db(conn, secret_key, timeout=_BACKDROP_TMDB_TIMEOUT_S)
+    with contextlib.suppress(requests.RequestException, SafeHTTPError, ValueError, TmdbUnavailable):
+        client = TmdbClient.from_db(conn, secret_key, timeout=_BACKDROP_TMDB_TIMEOUT_S, retry=False)
         if client is not None:
-            details = client.details(media_type, tmdb_id)
+            with gate.asking(client.token):
+                details = client.details(media_type, tmdb_id)
     backdrop = tmdb_backdrop(details)
     if len(_backdrop_cache) >= _BACKDROP_CACHE_MAX:
         _backdrop_cache.clear()
@@ -147,6 +155,51 @@ def apply_tmdb_detail(item: dict[str, object], detail: TmdbDetail) -> None:
         item["trailer_key"] = detail["trailer_key"]
 
 
+def _ask_tmdb(client: TmdbClient, item: dict[str, object], title: str, media_type: str) -> bool:
+    """Search and details of TMDB into *item*; True when TMDB gave the title's details."""
+    from mediaman.services.media_meta.tmdb import TmdbClient
+
+    found = False
+    # Search → populate tmdb_id / year / description / rating / poster
+    tmdb_id = cast("int | None", item.get("tmdb_id"))
+    if not tmdb_id:
+        best = client.search(title, media_type=media_type)
+        if best:
+            card = TmdbClient.shape_card(best)
+            tmdb_id = card["tmdb_id"]
+            item["tmdb_id"] = tmdb_id
+            if card["year"]:
+                item["year"] = card["year"]
+            item["description"] = card["description"]
+            if card["rating"]:
+                item["rating"] = card["rating"]
+            if card["poster_url"]:
+                item["poster_url"] = card["poster_url"]
+
+    # Details → tagline/runtime/genres/cast/director/trailer + fill gaps
+    if tmdb_id:
+        data = client.details(media_type, tmdb_id)
+        found = data is not None
+        if data:
+            apply_tmdb_detail(item, TmdbClient.shape_detail(data, media_type=media_type))
+            backdrop = tmdb_backdrop(data)
+            if backdrop:
+                item["backdrop_url"] = backdrop
+
+            # Fill gaps from details payload (search may have returned
+            # nothing, or the caller supplied only a tmdb_id)
+            card = TmdbClient.shape_card(data)
+            if not item.get("poster_url") and card["poster_url"]:
+                item["poster_url"] = card["poster_url"]
+            if not item.get("year") and card["year"]:
+                item["year"] = card["year"]
+            if not item.get("description"):
+                item["description"] = card["description"]
+            if not item.get("rating") and card["rating"]:
+                item["rating"] = card["rating"]
+    return found
+
+
 def enrich_item_with_tmdb(
     item: dict[str, object], conn: sqlite3.Connection, secret_key: str
 ) -> bool:
@@ -155,52 +208,19 @@ def enrich_item_with_tmdb(
     """
     from mediaman.services.media_meta.omdb import fetch_ratings
     from mediaman.services.media_meta.tmdb import TmdbClient
+    from mediaman.services.watch_catalog import TmdbUnavailable, gate
 
-    # Preserve the 5s timeout this code path used before consolidation —
-    # the guest download page is interactive and should stay snappy.
-    client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
+    client = TmdbClient.from_db(conn, secret_key, timeout=_PAGE_TMDB_TIMEOUT_S, retry=False)
     title = cast(str, item["title"])
     media_type = cast(str, item.get("media_type", "movie"))
     found = False
 
     if client is not None:
-        # Search → populate tmdb_id / year / description / rating / poster
-        tmdb_id = cast("int | None", item.get("tmdb_id"))
-        if not tmdb_id:
-            best = client.search(title, media_type=media_type)
-            if best:
-                card = TmdbClient.shape_card(best)
-                tmdb_id = card["tmdb_id"]
-                item["tmdb_id"] = tmdb_id
-                if card["year"]:
-                    item["year"] = card["year"]
-                item["description"] = card["description"]
-                if card["rating"]:
-                    item["rating"] = card["rating"]
-                if card["poster_url"]:
-                    item["poster_url"] = card["poster_url"]
-
-        # Details → tagline/runtime/genres/cast/director/trailer + fill gaps
-        if tmdb_id:
-            data = client.details(media_type, tmdb_id)
-            found = data is not None
-            if data:
-                apply_tmdb_detail(item, TmdbClient.shape_detail(data, media_type=media_type))
-                backdrop = tmdb_backdrop(data)
-                if backdrop:
-                    item["backdrop_url"] = backdrop
-
-                # Fill gaps from details payload (search may have returned
-                # nothing, or the caller supplied only a tmdb_id)
-                card = TmdbClient.shape_card(data)
-                if not item.get("poster_url") and card["poster_url"]:
-                    item["poster_url"] = card["poster_url"]
-                if not item.get("year") and card["year"]:
-                    item["year"] = card["year"]
-                if not item.get("description"):
-                    item["description"] = card["description"]
-                if not item.get("rating") and card["rating"]:
-                    item["rating"] = card["rating"]
+        try:
+            with gate.asking(client.token):
+                found = _ask_tmdb(client, item, title, media_type)
+        except TmdbUnavailable:
+            pass
 
     # OMDB ratings
     year = cast("int | None", item.get("year"))
@@ -267,8 +287,19 @@ def enrich_redownload_item(
     if hit and now < hit[0]:
         item.update(hit[1])
         return
-    found = enrich_item_with_tmdb(item, conn, secret_key)
-    if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
-        _facts_cache.clear()
-    held_s = _BACKDROP_TTL_S if found else _FAILURE_TTL_S
-    _facts_cache[key] = (now + held_s, {k: item[k] for k in _FACTS if k in item})
+    with _flights_lock:
+        flight = _flights.setdefault(key, threading.Lock())
+    try:
+        with flight:
+            hit = _facts_cache.get(key)
+            if hit and _clock() < hit[0]:
+                item.update(hit[1])
+                return
+            found = enrich_item_with_tmdb(item, conn, secret_key)
+            if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
+                _facts_cache.clear()
+            held_s = _BACKDROP_TTL_S if found else _FAILURE_TTL_S
+            _facts_cache[key] = (_clock() + held_s, {k: item[k] for k in _FACTS if k in item})
+    finally:
+        with _flights_lock:
+            _flights.pop(key, None)

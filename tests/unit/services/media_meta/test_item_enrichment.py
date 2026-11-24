@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -456,3 +458,79 @@ class TestTidySummary:
         assert tidy_summary(short) == short
         assert tidy_summary(whole) == whole
         assert tidy_summary(None) is None
+
+
+class TestAHungTmdbOnAPublicPage:
+    @pytest.fixture(autouse=True)
+    def _open_gate(self):
+        from mediaman.services.watch_catalog import gate
+
+        gate.reset()
+        yield
+        gate.reset()
+
+    def test_the_page_asks_tmdb_briefly_and_once(self, conn):
+        tmdb = MagicMock(token="t", **{"details.return_value": None, "search.return_value": None})
+        with (
+            patch(
+                "mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb
+            ) as from_db,
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            enrich_redownload_item({"title": "Dune", "media_type": "movie"}, conn, SECRET)
+            fill_backdrop({"media_type": "movie", "tmdb_id": 5}, conn, SECRET)
+
+        assert from_db.call_count == 2
+        for call in from_db.call_args_list:
+            assert call.kwargs["retry"] is False
+            assert call.kwargs["timeout"] <= 3.0
+
+    def test_a_paused_tmdb_is_not_asked_by_the_page(self, conn):
+        from mediaman.services.watch_catalog import TmdbDown, gate
+
+        tmdb = MagicMock(token="t")
+        with gate.asking("t"):
+            pass
+        gate.note("t", TmdbDown("x"))
+        gate.note("t", TmdbDown("x"))
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            item: dict = {"title": "Dune", "media_type": "movie"}
+            enrich_redownload_item(item, conn, SECRET)
+
+        tmdb.search.assert_not_called()
+        tmdb.details.assert_not_called()
+
+    def test_two_visitors_of_one_title_cost_one_lookup(self, conn):
+        entered = threading.Event()
+
+        def slow_search(*_a, **_k):
+            entered.set()
+            time.sleep(0.3)
+
+        tmdb = MagicMock(token="t", **{"details.return_value": None})
+        tmdb.search.side_effect = slow_search
+
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+        def visit():
+            own = sqlite3.connect(db_path)
+            own.row_factory = sqlite3.Row
+            enrich_redownload_item({"title": "Dune", "media_type": "movie"}, own, SECRET)
+            own.close()
+
+        threads = [threading.Thread(target=visit) for _ in range(3)]
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            threads[0].start()
+            assert entered.wait(5)
+            for t in threads[1:]:
+                t.start()
+            for t in threads:
+                t.join(10)
+
+        assert tmdb.search.call_count == 1
