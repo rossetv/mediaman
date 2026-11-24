@@ -525,6 +525,36 @@ def test_an_admin_sees_the_facts_and_keeps_or_deletes_through_the_admin_actions(
     assert "Metascore 74" in out["ratings"]
 
 
+def test_the_admin_s_facts_have_their_place_before_they_come_and_say_so_when_they_fail() -> None:
+    out = _run("factsLate")
+    labels = ["Size on disk", "Added", "Last watched", "Deletion", "Keep"]
+    known = {
+        "columns": True,
+        "labels": labels,
+        "busy": False,
+        "buttons": ["admin-keep", "admin-delete"],
+        "error": None,
+    }
+    assert out["pending"] == {**known, "busy": True, "buttons": []}
+    assert out["known"] == known
+    failed = {**known, "labels": [], "buttons": ["facts-retry"], "error": "alert"}
+    assert out["failed"] == failed
+    assert (out["retried"], out["focus"]) == (known, "admin-keep")
+    # What was known stays, said to be old.
+    assert (out["stale"]["labels"], out["stale"]["error"]) == (labels, "alert")
+    assert "facts-retry" in out["stale"]["buttons"]
+    # A title no scan has seen yet: trying again cannot help.
+    assert out["unknown"] == {**failed, "buttons": []}
+
+
+def test_a_title_that_arrives_moves_neither_its_name_nor_its_buttons() -> None:
+    out = _run("arrival")
+    held = {"tagline": "held", "first": "ttl__actions"}
+    for run in (out["tagline"], out["without"]):
+        assert (run["loading"], run["loaded"]) == (held, held)
+        assert "Leaving in 3 days" in run["leaving"]
+
+
 def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
     out = _run("deleteFromListRow")
     assert out["next"] == {

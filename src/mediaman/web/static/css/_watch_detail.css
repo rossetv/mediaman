@@ -199,6 +199,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__title-skel { width: min(320px, 70%); height: .8em; }
 .ttl__tagline {
   max-width: 60ch;
+  min-height: 1lh;
   font-size: 15px;
   font-style: italic;
   color: var(--t2);
@@ -207,6 +208,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* A title without one: its line's space stays, under the meta line, so the title stays put. */
+.ttl__tagline:empty { order: 1; }
+.ttl__tagline-skel { width: min(260px, 60%); height: .8em; margin-block: calc((1lh - .8em) / 2); }
 /* Each part carries its dot in front; the dot that starts a line falls in the clipped margin. */
 .ttl__meta { --dot: 17px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-height: 22px; margin-left: calc(-1 * var(--dot)); clip-path: inset(0 -20px 0 var(--dot)); font-size: 15px; color: var(--t2); }
 .ttl__meta > span { position: relative; padding-left: var(--dot); }
@@ -361,6 +365,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-facts .is-danger { color: var(--danger-text); }
 .ttl-facts .is-success { color: var(--success); }
 .ttl-facts .is-warning { color: var(--warning); }
+.ttl-facts .is-pending { display: flex; flex-direction: column; align-items: flex-end; min-height: 1lh; }
+.ttl-facts .skel { background: var(--s4); }
+.ttl-facts__skel { width: 72px; height: .8em; margin-block: calc((1lh - .8em) / 2); }
+.ttl-facts__foot > .skel--pill { width: 100%; height: 44px; }
+.ttl-facts__error { flex-wrap: wrap; font-size: 13px; }
 .ttl-facts__foot { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--hair); }
 .ttl-facts__btn { flex: 1 1 0; min-height: 44px; font-size: 14px; padding-inline: 12px; }
 .ttl-facts__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

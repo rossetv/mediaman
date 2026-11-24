@@ -1136,6 +1136,68 @@ const scenarios = {
     return { gets: p.gets, facts: !!p.q('.ttl-facts'), keep: !!p.q('[data-watch-keep="120"]') };
   },
 
+  // The admin's facts arrive after the title: the panel's place is taken from the start. Then they
+  // fail, at first, on the retry and after a Keep, or the title is in no scan yet.
+  async factsLate() {
+    let answer = null;
+    const reply = () => new Promise((resolve, reject) => { answer = { resolve, reject }; });
+    const open = async () => {
+      const p = load({ admin: true, adminApi: { keep: () => {}, confirmDelete: () => {} },
+        routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': reply } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      return p;
+    };
+    const look = (p) => {
+      const panel = p.q('.ttl-facts');
+      const err = panel && panel.querySelector('.ttl__error');
+      return { columns: p.ttl().classList.contains('ttl--admin'), labels: panel ? panel.querySelectorAll('dt').map((n) => n.textContent) : null,
+        busy: !!panel && panel.getAttribute('aria-busy') === 'true', buttons: panel ? panel.querySelectorAll('[data-ttl-act]').map((n) => n.getAttribute('data-ttl-act')) : [],
+        error: err ? err.getAttribute('role') : null };
+    };
+    const out = {};
+    let p = await open();
+    out.pending = look(p);
+    answer.resolve(FACTS);
+    await settle();
+    out.known = look(p);
+    p = await open();
+    answer.reject(new APIError(500, 'x'));
+    await settle();
+    out.failed = look(p);
+    p.q('[data-ttl-act="facts-retry"]').focus();
+    click(p.doc, p.q('[data-ttl-act="facts-retry"]'));
+    answer.resolve(FACTS);
+    await settle();
+    out.retried = look(p);
+    out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: '120', showRk: '' } }));
+    await settle();
+    answer.reject(new APIError(500, 'x'));
+    await settle();
+    out.stale = look(p);
+    p = await open();
+    answer.reject(new APIError(404, 'not_found'));
+    await settle();
+    out.unknown = look(p);
+    return out;
+  },
+
+  // What stands where before and after a title arrives.
+  async arrival() {
+    const run = async (over) => {
+      const p = load({ routes: { '/api/watch/title/movie-120': Object.assign({}, LIB_MOVIE, over) } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      const look = () => ({ tagline: p.q('[data-ttl-part="tagline"]').hidden ? 'none' : 'held', first: p.q('.ttl__main').children[0].className.split(' ')[0] });
+      const loading = look();
+      await settle();
+      return { loading, loaded: look(), leaving: p.text('[data-ttl-part="under"] .ttl__leaving') };
+    };
+    return { tagline: await run({}), without: await run({ tagline: null }) };
+  },
+
   async adminFacts() {
     const calls = [];
     let announce = null;

@@ -61,3 +61,9 @@ def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:
     assert "position: sticky" in _of(".ttl__bar", "(max-width: 699.98px), (max-height: 500px)")
     # A scroll container of its own would hold the bar at the sheet's top instead.
     assert re.search(r"overflow:\s*clip", _of(".ttl__sheet"))
+
+
+def test_the_space_of_a_tagline_a_title_lacks_goes_under_its_meta_line() -> None:
+    body = _of(".ttl__tagline:empty")
+    assert "order: 1" in body
+    assert "min-height" in _of(".ttl__tagline")

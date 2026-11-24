@@ -218,6 +218,7 @@
       kind: kindOf(ref, opts.kind),
       data: null,
       facts: null,
+      factsError: null,  // 'failed', or 'unknown' for a title no scan has seen
       keepId: null,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
       reason: null,
@@ -370,7 +371,7 @@
     takeDownload(c.ref, data.download, true);
     root.classList.toggle('is-short', [heroSkel, art, fill, poster].every(function (n) { return n.hidden; }));
     renderContent(true);
-    if (isAdmin && /^(movie|show)-/.test(c.ref)) loadFacts(c);
+    if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
   }
 
@@ -438,18 +439,28 @@
       c.data = data;
       if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
       renderContent(false);
-      if (isAdmin && /^(movie|show)-/.test(c.ref)) loadFacts(c);
+      if (hasFacts(c)) loadFacts(c);
     }).catch(function () {});
   }
+
+  function hasFacts(c) { return isAdmin && /^(movie|show)-/.test(c.ref); }
 
   function loadFacts(c) {
     get('/api/watch/admin/title/' + encodeURIComponent(c.ref)).then(function (facts) {
       if (c !== cur || !isOpen) return;
       c.facts = facts;
+      c.factsError = null;
       renderFacts(true);
     }).catch(function (err) {
+      if (c !== cur || !isOpen) return;
+      var gone = !!err && err.status === 404;
       // Deleted from under the overlay: nothing left to show.
-      if (err && err.status === 404 && c === cur && c.facts) close();
+      if (gone && c.facts) {
+        close();
+        return;
+      }
+      c.factsError = gone ? 'unknown' : 'failed';
+      renderFacts(false);
     });
   }
 
@@ -464,7 +475,9 @@
     kindEl.textContent = cur.kind ? kindLabel({ kind: cur.kind }) : '';
     titleEl.textContent = cur.title;
     if (!cur.title) titleEl.appendChild(skel('skel--line ttl__title-skel'));
-    hide(taglineEl, true);
+    hide(taglineEl, false);
+    taglineEl.textContent = '';
+    taglineEl.appendChild(skel('skel--line ttl__tagline-skel'));
     metaEl.textContent = '';
     metaEl.appendChild(skel('skel--line ttl__meta-skel'));
     player.textContent = '';
@@ -503,6 +516,7 @@
     hide(heroSkel, true);
     clearPictures();
     root.classList.add('is-short');
+    hide(taglineEl, true);
     metaEl.textContent = '';
     if (!cur.title) titleEl.textContent = 'Details';
     body.textContent = '';
@@ -642,7 +656,6 @@
     titleEl.textContent = name;
     titleEl.classList.toggle('ttl__title--long', name.length > 40);
     taglineEl.textContent = d.tagline || '';
-    hide(taglineEl, !d.tagline);
     metaEl.textContent = '';
     metaParts(d).forEach(function (p) { metaEl.appendChild(el('span', '', p)); });
     if (d.certificate) {
@@ -665,12 +678,6 @@
     var lead = el('div', 'ttl__lead');
     var main = el('div', 'ttl__main');
     lead.appendChild(main);
-    if (d.leaving && cur.keepId) {
-      var line = el('p', 'ttl__leaving');
-      line.appendChild(icon('i-clock'));
-      line.appendChild(document.createTextNode(leavingText(d.leaving.days) + ' Keep it to stop the deletion.'));
-      main.appendChild(line);
-    }
     var actions = el('div', 'ttl__actions');
     actions.setAttribute('data-ttl-part', 'actions');
     var under = el('div', 'ttl__under');
@@ -698,7 +705,7 @@
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
     if (d.cast && d.cast.length) body.appendChild(castSection(d.cast));
-    if (cur.facts) renderFacts(false);
+    if (hasFacts(cur)) renderFacts(false);
     if (fresh) {
       toArray(main.children).concat(toArray(body.children).slice(1)).forEach(function (n) {
         n.classList.add('is-swapping-in');
@@ -799,6 +806,12 @@
       }
     } else if (!d.in_library || cur.justAdded) {
       downloadPart(actions, under);
+    }
+    if (d.leaving && cur.keepId) {
+      var line = el('p', 'ttl__leaving');
+      line.appendChild(icon('i-clock'));
+      line.appendChild(document.createTextNode(leavingText(d.leaving.days) + ' Keep it to stop the deletion.'));
+      under.appendChild(line);
     }
     var trailer = trailerButton(d);
     if (trailer) actions.appendChild(trailer);
@@ -1631,8 +1644,9 @@
 
   function renderFacts(fresh) {
     var f = cur.facts;
+    var pending = !f && !cur.factsError;
     var lead = body.querySelector('.ttl__lead');
-    if (!f || !lead) return;
+    if (!lead) return;
     var key = focusKey();
     var old = lead.querySelector('.ttl-facts');
     var aside = el('aside', 'ttl-facts');
@@ -1647,26 +1661,67 @@
       var dd = el('dd', cls || '', value);
       if (sub) dd.appendChild(el('span', 'ttl-facts__sub', sub));
       dl.appendChild(dd);
+      return dd;
     }
-    row('Size on disk', f.size || '—');
-    row('Added', f.added ? day(f.added) : '—');
-    row('Last watched', f.last_watched ? day(f.last_watched) : 'Never', f.last_watched ? '' : 'is-warning');
-    if (f.deletion) {
-      var days = f.deletion.days;
-      row('Deletion', day(f.deletion.execute_at), days <= 7 ? 'is-danger' : '',
-        days <= 0 ? 'today' : 'in ' + plural(days, 'day', 'days'));
-    } else {
-      row('Deletion', 'Not scheduled');
+    if (pending) {
+      aside.setAttribute('aria-busy', 'true');
+      // The same rows as the facts have, so that nothing below moves when they come.
+      ['Size on disk', 'Added', 'Last watched', 'Deletion', 'Keep'].forEach(function (label) {
+        var dd = row(label, '', 'is-pending');
+        dd.appendChild(skel('skel--line ttl-facts__skel'));
+        if (label === 'Deletion' && cur.data.leaving) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
+      });
+      aside.appendChild(dl);
+      if (window.MMWatch.admin) {
+        var wait = el('div', 'ttl-facts__foot');
+        wait.appendChild(skel('skel--pill'));
+        wait.appendChild(skel('skel--pill'));
+        aside.appendChild(wait);
+      }
     }
-    var keep = f.keep || { state: 'none', label: 'Not kept' };
-    row('Keep', keep.label, keep.state !== 'none' ? 'is-success' : '');
-    aside.appendChild(dl);
-    var foot = factsFooter(f);
+    if (f) {
+      row('Size on disk', f.size || '—');
+      row('Added', f.added ? day(f.added) : '—');
+      row('Last watched', f.last_watched ? day(f.last_watched) : 'Never', f.last_watched ? '' : 'is-warning');
+      if (f.deletion) {
+        var days = f.deletion.days;
+        row('Deletion', day(f.deletion.execute_at), days <= 7 ? 'is-danger' : '',
+          days <= 0 ? 'today' : 'in ' + plural(days, 'day', 'days'));
+      } else {
+        row('Deletion', 'Not scheduled');
+      }
+      var keep = f.keep || { state: 'none', label: 'Not kept' };
+      row('Keep', keep.label, keep.state !== 'none' ? 'is-success' : '');
+      aside.appendChild(dl);
+    }
+    if (cur.factsError) aside.appendChild(factsErrorLine());
+    var foot = f && factsFooter(f);
     if (foot) aside.appendChild(foot);
     if (old) old.replaceWith(aside); else lead.appendChild(aside);
     root.classList.add('ttl--admin');
     if (fresh) aside.classList.add('is-swapping-in');
+    if (key === 'facts-retry' && !cur.factsError) key = 'admin-keep';
     restoreFocus(key);
+  }
+
+  /* What an admin sees in place of the facts, or under ones that may be old. */
+  function factsErrorLine() {
+    var line = el('p', 'ttl__error ttl-facts__error');
+    line.setAttribute('role', 'alert');
+    if (cur.factsError === 'unknown') {
+      line.appendChild(el('span', '', 'No scan has seen this title yet.'));
+      return line;
+    }
+    line.appendChild(el('span', '', cur.facts ? "Couldn't load the facts again; these may be old." : "Couldn't load the library facts."));
+    var again = button('ttl__retry', 'Try again');
+    again.setAttribute('data-ttl-act', 'facts-retry');
+    again.addEventListener('click', function () {
+      if (again.getAttribute('aria-disabled') === 'true') return;
+      again.setAttribute('aria-disabled', 'true');
+      loadFacts(cur);
+    });
+    line.appendChild(again);
+    return line;
   }
 
   function factsFooter(f) {
