@@ -135,6 +135,53 @@ class TestConfirmPage:
 
         assert f'"download_state": "{state}"' in resp.text
 
+    @pytest.mark.parametrize(
+        ("seasons", "files", "state"),
+        [
+            pytest.param(
+                [
+                    (False, {"episodeFileCount": 8, "episodeCount": 8, "previousAiring": "2026"}),
+                    (True, {"totalEpisodeCount": 8, "nextAiring": "2027"}),
+                ],
+                8,
+                "in_library",
+                id="all-aired-there",
+            ),
+            pytest.param(
+                [(True, {"totalEpisodeCount": 8, "nextAiring": "2027"})],
+                0,
+                "tracked",
+                id="nothing-aired",
+            ),
+            pytest.param(
+                [
+                    (True, {"totalEpisodeCount": 8, "nextAiring": "2027"}),
+                    (False, {"episodeFileCount": 2, "episodeCount": 3, "previousAiring": "2026"}),
+                ],
+                2,
+                "queued",
+                id="one-aired-episode-missing",
+            ),
+            pytest.param([(True, {})], 0, "queued", id="just-added"),
+        ],
+    )
+    def test_a_monitored_show_is_on_its_way_only_when_an_aired_episode_is_missing(
+        self, client, secret_key, seasons, files, state
+    ):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "statistics": {"episodeFileCount": files},
+            "seasons": [
+                {"seasonNumber": n, "monitored": monitored, "statistics": stats}
+                for n, (monitored, stats) in enumerate(seasons, 1)
+            ],
+        }
+
+        resp = self._page(client, secret_key, "tv", series=series)
+
+        assert f'"download_state": "{state}"' in resp.text
+
 
 class TestReopeningAUsedLink:
     """The page keeps the Arr list for half a minute; a request must not be hidden by it."""

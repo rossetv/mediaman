@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 import requests
 from fastapi import APIRouter, Request
@@ -30,6 +30,7 @@ from mediaman.services.arr.state import (
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
+    series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.infra import SafeHTTPError
@@ -292,6 +293,22 @@ def _season_state(series: SonarrSeries, season_number: int) -> str | None:
     return None
 
 
+def _aired_missing(series: SonarrSeries) -> bool:
+    """Whether Sonarr reports an aired episode it wants and lacks; a show just added, whose
+    episodes it has yet to list, counts as lacking them.
+    """
+    reported = False
+    for season in series.get("seasons") or []:
+        stats: dict[str, Any] = {**(season.get("statistics") or {})}
+        if stats.get("episodeCount", 0) > stats.get("episodeFileCount", 0):
+            return True
+        reported = reported or any(
+            stats.get(k)
+            for k in ("episodeCount", "totalEpisodeCount", "previousAiring", "nextAiring")
+        )
+    return not reported
+
+
 def _resolve_download_state(
     item: dict[str, object],
     conn: sqlite3.Connection,
@@ -329,13 +346,22 @@ def _resolve_download_state(
             return
         state = compute_download_state(mt, tmdb_id, caches)
         series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
-        if state == ACTION_PARTIAL and tmdb_id not in caches["sonarr_queue_tmdb_ids"]:
-            # Part of the show is there; the rest comes only if Sonarr monitors the series.
-            state = ACTION_QUEUED if series and series.get("monitored", True) else None
+        if (
+            series is not None
+            and state in (ACTION_PARTIAL, ACTION_QUEUED)
+            and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
+        ):
+            # What is not downloading is on its way only if Sonarr has something to look for.
+            if not series.get("monitored", True):
+                state = None
+            elif _aired_missing(series):
+                state = ACTION_QUEUED
+            else:
+                state = ACTION_IN_LIBRARY if series_has_files(series) else None
         # The page shows one "on its way" view, whose progress polling fills in.
         if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
             state = ACTION_QUEUED
-        # A show Sonarr holds but will not fetch has no state: say it is tracked, not queued.
+        # A show Sonarr holds but has nothing to fetch for has no state: say it is tracked, not queued.
         if state is None and series is not None:
             state = "tracked"
         if state is not None:
