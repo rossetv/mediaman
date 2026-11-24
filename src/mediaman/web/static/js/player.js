@@ -64,7 +64,9 @@
   var PAGE_WAIT_MS = 15000;
   var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
-  var START_WAIT_MS = 60000; // how long a start may go without an answer
+  /* How long a start may go without an answer: on the server, with each of its calls to
+     a slow Plex at its limit, one takes up to 110 s. */
+  var START_WAIT_MS = 120000;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;

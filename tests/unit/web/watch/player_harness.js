@@ -1574,7 +1574,7 @@ const scenarios = {
       p.video.pause();
       await settle();
     } else {
-      if (way === 'never') p.tick(60000);
+      if (way === 'never') p.tick(120000);
       h.emit('hlsFragLoaded');
       h.emit('hlsFragLoading');
       h.emit('hlsFragLoaded');
@@ -1593,10 +1593,10 @@ const scenarios = {
     const first = {};
     p.replies.push({ ok: new Promise((r) => { first.reply = r; }) }, answer('1080p-8000'));
     p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
-    p.tick(59000);
+    p.tick(115000);
     await settle();
     const out = { early: messageState(p) };
-    p.tick(2000);
+    p.tick(6000);
     await settle();
     out.message = messageState(p);
     out.loading = p.root.classList.contains('is-loading');
@@ -1718,7 +1718,7 @@ const scenarios = {
     p.replies.push(NET, { ok: new Promise((r) => { first.reply = r; }) });
     p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
     await settle();
-    for (let i = 0; i < 130; i++) { p.tick(500); await settle(); }
+    for (let i = 0; i < 250; i++) { p.tick(500); await settle(); }
     const out = { message: messageState(p) };
     p.replies.push(answer('1080p-8000'));
     press(p.q('[data-retry]'));
