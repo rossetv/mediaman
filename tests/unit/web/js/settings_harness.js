@@ -331,6 +331,17 @@ const scenarios = {
     return { declined, working, deletes: calls.deletes, rows: rowsNow(), toasts: calls.toasts, idleAria: declined.label };
   },
 
+  // What the list says of someone who has unsubscribed.
+  async subscriberStates() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    const list = h.add('div', { id: 'subscriber-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }, { id: 2, email: 'b@x', active: false }] }) };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    return list.querySelectorAll('.sub-stat').map((s) => s.textContent);
+  },
+
   // The avatar each name gets in the Team list.
   async avatars() {
     const h = build();

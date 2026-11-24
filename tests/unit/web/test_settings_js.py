@@ -87,6 +87,10 @@ def test_subscriber_is_removed_only_after_confirming() -> None:
     assert out["toasts"] == ["Removed a@x"]
 
 
+def test_a_subscriber_who_opted_out_is_called_unsubscribed() -> None:
+    assert _run("subscriberStates") == ["Active", "Unsubscribed"]
+
+
 def test_new_rows_land_where_the_server_lists_them() -> None:
     out = _run("insertOrder")
     assert out["subs"] == ["1", "2", "3", "4"]

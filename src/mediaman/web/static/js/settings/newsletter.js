@@ -93,8 +93,8 @@
         row.appendChild(em);
 
         var stat = document.createElement('span');
-        stat.className = 'sub-stat' + (s.active ? ' active' : ' bounced');
-        stat.textContent = s.active ? 'Active' : 'Bounced';
+        stat.className = 'sub-stat' + (s.active ? ' active' : '');
+        stat.textContent = s.active ? 'Active' : 'Unsubscribed';
         row.appendChild(stat);
 
         var rm = document.createElement('button');

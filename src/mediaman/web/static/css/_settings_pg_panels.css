@@ -250,7 +250,6 @@
   flex-shrink: 0; white-space: nowrap;
 }
 .setg-pg .sub-row .sub-stat.active  { color: var(--success); background: var(--rgba-success-bg); }
-.setg-pg .sub-row .sub-stat.bounced { color: var(--danger-text);  background: var(--rgba-danger-bg-soft); }
 .setg-pg .sub-row .link-danger {
   font-size: 11px; color: var(--danger-text); padding: 0 8px;
   border-radius: var(--r-pill); background: transparent;
