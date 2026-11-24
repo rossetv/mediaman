@@ -227,8 +227,8 @@
       place(fresh, !!tile && !view);
       if (view) view.took(fresh, next === null);
       if (refocus) {
-        var target = fresh.length ? fresh[0].querySelector('.watch-card__link') : scroller;
-        target.focus({ preventScroll: true });
+        var links = fresh.map(function (c) { return c.querySelector('.watch-card__link'); }).filter(Boolean);
+        (links[0] || scroller).focus({ preventScroll: true });
       }
       settle(next === null ? 'done' : 'idle');
       if (next !== null && shown() && near()) load();

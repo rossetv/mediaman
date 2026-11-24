@@ -34,7 +34,8 @@ function load(first, pages) {
   vm.createContext(ctx);
   ['watch/core.js', 'watch/rows-load.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // A number is a film; 'show mark' a card of that show with that mark.
-  const card = (n) => build(doc, ['article', { class: 'watch-card', ...(/ /.test(n) ? { 'data-mark': n.split(' ')[1] } : {}) },
+  // '# text' is a heading among the cards.
+  const card = (n) => /^#/.test(n) ? build(doc, ['h3', {}, n.slice(2)]) : build(doc, ['article', { class: 'watch-card', ...(/ /.test(n) ? { 'data-mark': n.split(' ')[1] } : {}) },
     ['a', { class: 'watch-card__link', 'data-title-ref': / /.test(n) ? n.split(' ')[0] : 'movie-' + n },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/p/' + n }], ['span', { class: 'watch-card__title' }, 'Film ' + n]]]]);
   const host = doc.body.appendChild(build(doc, ['div', {}, ['div', { class: 'watch-grid', tabindex: '-1' }]]));
@@ -102,6 +103,24 @@ const scenarios = {
     press(button);
     await settle();
     return { failed, again, refs: refs(p), left: placeholders(p), focus: p.doc.activeElement.getAttribute('data-title-ref') };
+  },
+
+  // What comes after Try again may start with a heading, or hold nothing to focus.
+  async tryAgainPastHeadings() {
+    const p = load([1], [{ status: 500 }, { cards: ['# Films'], next: 'p1' }, { cards: [3], next: null }]);
+    await settle();
+    const button = p.failedAt.querySelector('button');
+    button.focus();
+    press(button);
+    await settle();
+    const bare = { refs: refs(p), focusInGrid: p.doc.activeElement === p.grid };
+    const q = load([1], [{ status: 500 }, { cards: ['# Films', 2], next: 'p1' }, { cards: [3], next: null }]);
+    await settle();
+    const again = q.failedAt.querySelector('button');
+    again.focus();
+    press(again);
+    await settle();
+    return { bare, led: { refs: refs(q), focus: q.doc.activeElement.getAttribute('data-title-ref'), busy: q.grid.getAttribute('aria-busy') } };
   },
 
   async loadsOnlyNear() {

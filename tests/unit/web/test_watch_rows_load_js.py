@@ -46,6 +46,12 @@ def test_a_failure_holds_the_place_until_try_again_brings_the_cards() -> None:
     assert (out["refs"], out["left"], out["focus"]) == ([1, 2, 3], 0, "movie-2")
 
 
+def test_try_again_goes_on_where_the_new_page_starts_with_a_heading() -> None:
+    out = _run("tryAgainPastHeadings")
+    assert out["bare"] == {"refs": [1, 3], "focusInGrid": True}
+    assert out["led"] == {"refs": [1, 2, 3], "focus": "movie-2", "busy": None}
+
+
 def test_pages_come_only_near_the_end_or_when_asked_and_far_posters_are_unloaded() -> None:
     out = _run("loadsOnlyNear")
     assert (out["first"], out["still"], out["asked"]) == ([1, 2], [1, 2], [1, 2, 3])
