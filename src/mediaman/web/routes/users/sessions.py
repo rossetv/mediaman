@@ -69,7 +69,8 @@ def api_revoke_other_sessions(
     # so a thief who held a ticket cannot perform one last privileged
     # action between the destroy and the new-session create.
     revoke_all_reauth_for(conn, admin)
-    destroyed = destroy_all_sessions_for(conn, admin)
+    # The caller's own session is destroyed too, but replaced below.
+    ended = max(destroy_all_sessions_for(conn, admin) - 1, 0)
     client_ip = get_client_ip(request)
 
     new_token = create_session(
@@ -81,18 +82,18 @@ def api_revoke_other_sessions(
 
     response = respond_ok(
         {
-            "revoked": destroyed,
+            "revoked": ended,
             "message": "Other sessions revoked. You are now logged in with a fresh token.",
         }
     )
     set_session_cookie(response, new_token, secure=is_request_secure(request))
-    logger.info("session.revoke_all user=%s revoked=%d", _sanitise_log_field(admin), destroyed)
+    logger.info("session.revoke_all user=%s revoked=%d", _sanitise_log_field(admin), ended)
     security_event(
         conn,
         event="session.revoke_all",
         actor=admin,
         ip=client_ip,
-        detail={"revoked": destroyed},
+        detail={"revoked": ended},
     )
     # Belt-and-braces: drop any ticket that may have been re-granted for
     # the freshly issued token (none should exist, but it costs us nothing

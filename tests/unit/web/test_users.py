@@ -357,7 +357,12 @@ class TestRevokeOtherSessions:
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
-        assert body["revoked"] >= 1
+        # the caller's own session is replaced, not ended
+        assert body["revoked"] == 1
+        event = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:session.revoke_all'"
+        ).fetchone()
+        assert '"revoked": 1' in event["detail"] or '"revoked":1' in event["detail"]
         # A fresh session was issued; exactly one session now remains
         remaining = conn.execute(
             "SELECT COUNT(*) FROM admin_sessions WHERE username='admin'"
