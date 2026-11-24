@@ -110,6 +110,7 @@
 
 /* ── Empty states ── */
 .wl-empty .btn { margin-top: 18px; min-height: 44px; }
+.wl-empty .watch-actions { justify-content: center; margin-top: 0; }
 
 /* ── Pager ── */
 .wl .pagination { margin-top: 20px; }
@@ -128,8 +129,8 @@
 @keyframes wl-dialog-scrim { from { opacity: 0; } }
 @keyframes wl-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 
-/* ── Tablet: last watched folds into the title's sub-line, and the
-   actions column gives the title what Keep and Delete do not need ── */
+/* ── Tablet and phone: last watched folds into the title's sub-line, and on a tablet
+   the actions column gives the title what Keep and Delete do not need ── */
 @media (max-width: 1023.98px) {
   .wl-sub-watched { display: inline; }
   .wl-table thead th,

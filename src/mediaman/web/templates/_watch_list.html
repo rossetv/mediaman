@@ -211,7 +211,11 @@
   {% else %}
     <div class="empty wl-empty">
       <h3>Your library is empty</h3>
-      <p>Run a scan to pull in media from Plex.</p>
+      <p>Run a scan from Storage to pull in media from Plex.</p>
+      <div class="watch-actions">
+        <a class="btn btn--primary" href="/watch#storage">Open Storage</a>
+        <a class="btn btn--secondary" href="/settings">Open Settings</a>
+      </div>
     </div>
   {% endif %}
   </div>

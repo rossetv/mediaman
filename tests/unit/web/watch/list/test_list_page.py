@@ -174,6 +174,8 @@ def test_an_empty_library_with_plex_set_up_says_so(client, conn):
 
     assert "Your library is empty" in html
     assert "Connect Plex" not in html
+    assert 'href="/watch#storage">Open Storage</a>' in html
+    assert 'href="/settings">Open Settings</a>' in html
 
 
 class TestBulkKeepResponseOk:
