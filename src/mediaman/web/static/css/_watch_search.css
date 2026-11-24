@@ -221,7 +221,7 @@
   .watch-tile > .watch-mini { top: 18px; right: 2px; width: 28px; height: 42px; }
   .watch-tile > .watch-mini + .watch-mini { top: 23px; right: 9px; }
 }
-@container (max-width: 110px) {
+@container (max-width: 118px) {
   .watch-tile > b { margin-left: -3px; font-size: 12.5px; }
   .watch-tile > .watch-mini { right: -8px; width: 26px; height: 39px; }
   .watch-tile > .watch-mini + .watch-mini { display: none; }
