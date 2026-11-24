@@ -19,6 +19,7 @@ from mediaman.web.routes.library_api import (
     _record_delete_intent,
     reconcile_pending_delete_intents,
 )
+from mediaman.web.routes.library_api import delete as delete_route
 from mediaman.web.routes.library_api import router as library_api_router
 from tests.helpers.factories import insert_scheduled_action
 from tests.helpers.library_index import library_movies
@@ -324,6 +325,43 @@ class TestReconcilePendingDeleteIntents:
         assert "deleted" in _audit_actions(conn, "m1")
         assert conn.execute("SELECT title FROM deleted_media").fetchone()
         assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
+
+    def test_a_delete_whose_intent_cannot_be_completed_is_booked_once(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        conn.execute(
+            "CREATE TRIGGER busy BEFORE UPDATE OF completed_at ON delete_intents "
+            "BEGIN SELECT RAISE(ABORT, 'busy'); END"
+        )
+        with patch(RADARR, return_value=_radarr()), pytest.raises(sqlite3.IntegrityError):
+            client.post("/api/media/m1/delete")
+        conn.execute("DROP TRIGGER busy")
+        # Plex lists the title again before the intent is closed.
+        conn.execute("DELETE FROM media_items WHERE id = 'm1'")
+        _insert_movie(conn)
+
+        reconcile_pending_delete_intents(conn)
+
+        assert _audit_actions(conn, "m1").count("deleted") == 1
+
+    def test_a_delete_the_reconcile_books_first_is_not_booked_again(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        real = delete_route._confirm_delete_intent
+
+        def confirm_then_reconcile(conn, intent_id):
+            real(conn, intent_id)
+            reconcile_pending_delete_intents(conn)
+
+        monkeypatch.setattr(delete_route, "_confirm_delete_intent", confirm_then_reconcile)
+        with patch(RADARR, return_value=_radarr()):
+            assert client.post("/api/media/m1/delete").status_code == 200
+
+        assert _audit_actions(conn, "m1").count("deleted") == 1
 
     def _delete_season_with_failing_cleanup(self, app_factory, authed_client, conn):
         client = authed_client(_app(app_factory, conn), conn)
@@ -754,7 +792,12 @@ def test_finishing_a_season_delete_drops_its_episodes_progress(conn):
     )
 
     finalise_delete_in_tx(
-        conn, snapshot, media_id="s1", audit_detail="Deleted: The Show", actor="admin"
+        conn,
+        snapshot,
+        media_id="s1",
+        intent_id=_record_delete_intent(conn, "s1", "sonarr", "202"),
+        audit_detail="Deleted: The Show",
+        actor="admin",
     )
 
     assert _progress_keys(conn) == ["other-ep"]

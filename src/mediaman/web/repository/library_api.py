@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import record_deleted_media
+from mediaman.core.time import now_utc
 from mediaman.scanner.repository import book_removed_files, is_protected, is_show_kept_pure
 from mediaman.services import watch_catalog
 from mediaman.services.downloads.notifications import record_download_notification
@@ -319,21 +320,30 @@ def finalise_delete_in_tx(
     snapshot: MediaDeleteSnapshot,
     *,
     media_id: str,
+    intent_id: int,
     audit_detail: str,
     actor: str,
 ) -> None:
     """Run the cleanup transaction: audit, deleted-media identity, prune scheduled_actions,
-    drop row.
+    drop row, complete the delete intent.
 
     Called after the external Radarr/Sonarr delete succeeds (or is detected
     as already-gone), so the files are gone and the row must go too. All
     writes land in the same commit so a SQLite failure rolls the lot back.
+    A delete the intent reconcile already booked is not booked again.
     """
     # Cleanup transaction: ``with conn:`` commits on normal exit and
     # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
     # semantics.
     with conn:
         conn.execute("BEGIN IMMEDIATE")
+        booked = conn.execute(
+            "SELECT 1 FROM delete_intents "
+            "WHERE id = ? AND completed_at IS NOT NULL AND last_error IS NULL",
+            (intent_id,),
+        ).fetchone()
+        if booked is not None:
+            return
         audit_id = log_audit(
             conn,
             media_id,
@@ -354,6 +364,10 @@ def finalise_delete_in_tx(
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
+        conn.execute(
+            "UPDATE delete_intents SET completed_at = ?, last_error = NULL WHERE id = ?",
+            (now_utc().isoformat(), intent_id),
+        )
     watch_catalog.clear_library_index()
 
 

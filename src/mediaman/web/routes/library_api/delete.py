@@ -29,7 +29,6 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.delete_intents import (
-    _complete_delete_intent,
     _confirm_delete_intent,
     _fail_delete_intent,
     _is_not_found,
@@ -467,17 +466,23 @@ def _finalise_delete(
     intent_id: int,
     username: str,
 ) -> None:
-    """Cleanup transaction: audit, deleted-media identity, scheduled_actions prune and row
-    drop, wrapped in BEGIN IMMEDIATE so a SQLite failure rolls everything back (no
-    half-deleted row). The pending delete-intent is marked complete after the commit.
+    """Cleanup transaction: audit, deleted-media identity, scheduled_actions prune, row drop
+    and the delete intent's completion, wrapped in BEGIN IMMEDIATE so a SQLite failure rolls
+    everything back (no half-deleted row).
     """
     title = snapshot.title
     rk = snapshot.plex_rating_key or ""
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    finalise_delete_in_tx(conn, snapshot, media_id=media_id, audit_detail=detail, actor=username)
-    _complete_delete_intent(conn, intent_id)
+    finalise_delete_in_tx(
+        conn,
+        snapshot,
+        media_id=media_id,
+        intent_id=intent_id,
+        audit_detail=detail,
+        actor=username,
+    )
     logger.info("Deleted %s (%s) by %s", media_id, title, _sanitise_log_field(username))
 
 
