@@ -62,6 +62,10 @@ def test_the_longest_subscriber_state_leaves_remove_on_its_line_on_a_narrow_phon
     assert "margin-left: 0" in _narrow_phone_rule(".setg-pg .sub-row .sub-stat")
 
 
+def test_a_service_header_has_room_for_its_chevron_on_a_narrow_phone() -> None:
+    assert "padding-left: 0" in _narrow_phone_rule(".setg-pg .intg-card-hd .hd-actions")
+
+
 def _phone_block_with(selector: str) -> str:
     """The body of the phone `@media` block that holds a rule for `selector`."""
     for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):

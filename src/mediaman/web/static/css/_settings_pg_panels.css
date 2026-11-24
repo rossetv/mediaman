@@ -467,6 +467,8 @@
 @media (max-width: 359.98px) {
   /* "Unsubscribed" gives up its indent, so Remove stays on its line. */
   .setg-pg .sub-row .sub-stat { margin-left: 0; }
+  /* The Test button and the chevron need the indent's room. */
+  .setg-pg .intg-card-hd .hd-actions { padding-left: 0; }
 }
 
 @media (max-width: 699.98px) {
