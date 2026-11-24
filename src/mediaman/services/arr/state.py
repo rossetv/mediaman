@@ -438,6 +438,24 @@ def sonarr_tracks_series(sonarr_client: ArrClient, tvdb_id: int) -> bool:
         return False
 
 
+def radarr_fetches_movie(radarr_client: ArrClient, tmdb_id: int) -> bool:
+    """Whether Radarr holds *tmdb_id* and will have it: monitored, or already with a file."""
+    try:
+        movie = radarr_client.get_movie_by_tmdb(tmdb_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+    return movie is not None and bool(movie.get("monitored") or movie.get("hasFile"))
+
+
+def sonarr_fetches_series(sonarr_client: ArrClient, tvdb_id: int) -> bool:
+    """Whether Sonarr tracks *tvdb_id* and is going to fetch something for it."""
+    try:
+        series = next((s for s in sonarr_client.get_series() if s.get("tvdbId") == tvdb_id), None)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+    return series is not None and _sonarr_will_fetch(series)
+
+
 MovieAddOutcome = Literal["added", "remonitored", "already_tracked", "bad_entry"]
 
 

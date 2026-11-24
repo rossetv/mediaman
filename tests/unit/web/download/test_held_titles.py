@@ -100,19 +100,53 @@ class TestSubmitRefusedForAHeldTitle:
         with patch(f"{_SUBMIT}.{builder}", return_value=arr):
             return token, client.post(f"/download/{token}")
 
-    def test_a_400_for_a_movie_radarr_holds_is_already_exists_and_the_token_stays_used(
+    def test_an_abandoned_movie_is_re_monitored_and_the_link_is_used(self, client, secret_key):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 200
+        radarr.remonitor_movie.assert_called_once_with(7)
+        radarr.add_movie.assert_not_called()
+        assert _consumed(token)
+
+    def test_a_movie_radarr_holds_monitored_is_already_exists_and_the_link_is_used(
         self, client, secret_key
     ):
         radarr = MagicMock()
-        radarr.add_movie.side_effect = SafeHTTPError(400, "already been added", "radarr/m")
-        radarr.get_movie_by_tmdb.return_value = {"id": 1, "monitored": False}
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": True}
 
         token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
 
         assert resp.status_code == 409
         assert "already exists" in resp.json()["error"]
         assert "poll_token" in resp.json()
+        radarr.add_movie.assert_not_called()
         assert _consumed(token)
+
+    def test_a_movie_add_that_raced_a_400_is_already_exists_and_the_link_is_used(
+        self, client, secret_key
+    ):
+        radarr = MagicMock()
+        held = {"id": 7, "monitored": True}
+        radarr.get_movie_by_tmdb.side_effect = [None, held, held]
+        radarr.add_movie.side_effect = SafeHTTPError(400, "already been added", "radarr/m")
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 409
+        assert _consumed(token)
+
+    def test_a_failed_re_monitor_is_a_502_and_frees_the_link(self, client, secret_key):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(409, "refused", "radarr/m")
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 502
+        assert not _consumed(token)
 
     def test_a_400_for_a_series_sonarr_tracks_is_already_exists_and_the_token_stays_used(
         self, client, secret_key
@@ -127,6 +161,20 @@ class TestSubmitRefusedForAHeldTitle:
         assert resp.status_code == 409
         assert "already exists" in resp.json()["error"]
         assert _consumed(token)
+
+    def test_a_400_for_a_series_sonarr_holds_but_will_not_fetch_is_already_exists_and_frees_the_link(
+        self, client, secret_key
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        sonarr.add_series.side_effect = SafeHTTPError(400, "already been added", "sonarr/s")
+        sonarr.get_series.return_value = [{"tvdbId": 999, "monitored": False, "seasons": []}]
+
+        token, resp = self._post(client, secret_key, "tv", sonarr, "build_sonarr_from_db")
+
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["error"]
+        assert not _consumed(token)
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])
     def test_a_400_for_a_title_the_arr_does_not_hold_stays_a_502_and_frees_the_token(

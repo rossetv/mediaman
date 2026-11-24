@@ -93,6 +93,7 @@ class TestDownloadSubmitValidation:
         token = _make_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
         mock_radarr.get_queue.return_value = []
 
@@ -120,6 +121,7 @@ class TestDownloadSubmitMovie:
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -140,6 +142,7 @@ class TestDownloadSubmitMovie:
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -182,6 +185,7 @@ class TestDownloadSubmitMovie:
         token = _make_token(secret_key, media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -204,6 +208,7 @@ class TestDownloadSubmitMovie:
         token = _make_token(secret_key, media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=500, body_snippet="internal error", url="http://radarr/api/v3/movie"
         )
@@ -227,6 +232,7 @@ class TestDownloadSubmitMovie:
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -256,6 +262,7 @@ class TestDownloadSubmitMovie:
         )
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -288,6 +295,7 @@ class TestDownloadSubmitMovie:
         )
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         with patch(
             "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr
         ):
@@ -376,6 +384,7 @@ class TestDownloadSubmitRefusesMissingTmdbId:
         token = _make_token(secret_key, title="Ambiguous Title", media_type="movie", tmdb_id=None)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
 
         with patch(
             "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr

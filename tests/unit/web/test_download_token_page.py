@@ -90,6 +90,7 @@ class TestDownloadPageGet:
 
         token = _valid_token(secret_key)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.get_movies.return_value = [{"tmdbId": 42, "hasFile": True, "title": "Dune"}]
         mock_radarr.get_queue.return_value = []
 
@@ -149,6 +150,7 @@ class TestDownloadPagePost:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -192,6 +194,7 @@ class TestDownloadPagePost:
         token = _valid_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -229,6 +232,7 @@ class TestDownloadPagePost:
         cap = _download_submit._DOWNLOAD_LIMITER_POST._max_attempts
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         try:
@@ -288,6 +292,7 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         # Use a transport-shaped exception — the submit handler narrows
         # its broad ``except Exception`` to network/DB errors so unrelated
         # control exceptions (CancelledError, KeyboardInterrupt) propagate.
@@ -303,6 +308,7 @@ class TestTwoPhaseConsumption:
 
         # Token must have been released; a second attempt must not return 409
         mock_radarr2 = MagicMock()
+        mock_radarr2.get_movie_by_tmdb.return_value = None
         mock_radarr2.add_movie.return_value = None
 
         with patch(
@@ -357,6 +363,7 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -402,6 +409,7 @@ class TestTwoPhaseConsumption:
         # First: Radarr says 409 (already exists). Redownload semantics say
         # "release the token so the page can re-issue the click".
         mock_radarr_409 = MagicMock()
+        mock_radarr_409.get_movie_by_tmdb.return_value = None
         mock_radarr_409.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -416,6 +424,7 @@ class TestTwoPhaseConsumption:
         # Second click on the same redownload link must succeed because
         # the token was released — the user is allowed to retry.
         mock_radarr_ok = MagicMock()
+        mock_radarr_ok.get_movie_by_tmdb.return_value = None
         mock_radarr_ok.add_movie.return_value = None
         with patch(
             "mediaman.web.routes.download.submit.build_radarr_from_db",
@@ -444,6 +453,7 @@ class TestPollingCapability:
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -470,6 +480,7 @@ class TestPollingCapability:
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -494,6 +505,7 @@ class TestPollingCapability:
         # Mint a poll_token via a download
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -532,6 +544,7 @@ class TestPollingCapability:
         # Mint token for tmdb_id=99
         token99 = _valid_token(secret_key, title="Other", media_type="movie", tmdb_id=99)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
