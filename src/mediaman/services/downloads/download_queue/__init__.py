@@ -18,6 +18,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Collection
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 import requests
@@ -79,6 +80,10 @@ __all__ = [
 # All fields here are guarded by _state_lock below.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
+
+# How long before it is first seen a download's file may be dated: an *arr dates a file before a
+# slow import ends, and its clock may be behind. A file this new has only just arrived anyway.
+_DATED_BEFORE_SEEN = timedelta(minutes=15)
 
 # The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
 _last_cards: list[ArrCard] = []
@@ -228,7 +233,7 @@ def _maybe_record_completions(
         previously_initialised = _previous_initialised
         carried = {k: v for k, v in previous_snapshot.items() if _service_of(k) in unreachable}
         stored = {**carried, **current_map}
-        carry_queued_since(previous_snapshot, stored, now_utc())
+        carry_queued_since(previous_snapshot, stored, now_utc() - _DATED_BEFORE_SEEN)
         for dl_id, item in stored.items():
             tmdb_id = previous_snapshot.get(dl_id, {}).get("tmdb_id")
             if tmdb_id and "tmdb_id" not in item:

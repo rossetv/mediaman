@@ -211,9 +211,13 @@ def test_a_page_first_loaded_while_a_service_is_down_keeps_the_names_and_art_of_
 
 @pytest.mark.parametrize(
     ("added", "recorded"),
-    [("2026-05-01T11:59:00Z", []), ("2026-05-01T12:30:00Z", ["radarr:Dune"])],
+    [
+        ("2026-05-01T11:44:00Z", []),
+        ("2026-05-01T11:46:00Z", ["radarr:Dune"]),
+        ("2026-05-01T12:30:00Z", ["radarr:Dune"]),
+    ],
 )
-def test_a_film_is_recorded_for_a_file_added_since_it_was_first_seen_queued(
+def test_a_film_is_recorded_for_a_file_no_older_than_its_download(
     services, client, monkeypatch, added, recorded
 ):
     noon = datetime(2026, 5, 1, 12, tzinfo=UTC)
