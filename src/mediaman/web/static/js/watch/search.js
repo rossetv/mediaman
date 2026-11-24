@@ -883,6 +883,8 @@
         live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
         glide(live.list, list);
         sayList();
+        // While the person types they are not read out.
+        if (c && !settled && !status.textContent) status.textContent = suggestionCount();
         pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
       });
     }
@@ -894,8 +896,20 @@
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
     }
 
+    /* In the list view the field has no list of its own. */
+    function sayRole() {
+      if (listView) {
+        ['role', 'aria-autocomplete', 'aria-expanded', 'aria-controls'].forEach(function (name) { input.removeAttribute(name); });
+        return;
+      }
+      input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-autocomplete', 'list');
+      sayList();
+    }
+
     /* Tell the field's readers of the list that shows, if one does. */
     function sayList() {
+      if (listView) return;
       var open = options().length > 0;
       input.setAttribute('aria-expanded', open ? 'true' : 'false');
       input.setAttribute('aria-controls', open && !sheetOn ? 'watch-suggestions' : 'watch-sheet');
@@ -1046,13 +1060,18 @@
       return { lib: lib, out: out };
     }
 
+    function suggestionCount() {
+      var n = sheetOn ? 0 : options().length;
+      return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
+    }
+
     function readOut(c, all) {
       var parts = [];
       if (c.lib.state === 'ok' && all.lib.length) parts.push(all.lib.length + ' in your library');
       if (all.out.length) parts.push(all.out.length + ' available to download');
-      status.textContent = parts.length
+      status.textContent = [parts.length
         ? parts.join(', ') + ' for “' + c.q + '”'
-        : 'No matches in your library for “' + c.q + '”';
+        : 'No matches in your library for “' + c.q + '”', suggestionCount()].filter(Boolean).join('. ');
     }
 
     function headRow(key, title, count) {
@@ -1463,7 +1482,7 @@
       browse.classList.remove('is-off');
       if (live) live.node.remove();
       live = null;
-      sayList();
+      sayRole();
       view = 'browse';
       results.hidden = true;
       status.textContent = '';
@@ -1536,6 +1555,7 @@
     });
 
     sync();
+    sayRole();
     showExamples();
     if (canExplore()) explore.categories();
     // A value the browser put back (going back to the page) gets its results.

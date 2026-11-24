@@ -86,7 +86,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['div', { class: 'watch-search' },
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
-        ['input', { id: 'watch-search', class: 'watch-search__input', value: opened }]],
+        ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
       ['button', { id: 'watch-search-clear' }]],
     ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
     ['div', { id: 'watch-sheet' }],
@@ -624,6 +624,7 @@ const scenarios = {
     await p.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-8', title: 'Marrow' }] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], people: [MARA] });
     out.named = p.suggested();
+    out.status = p.status.textContent;
     p.type('mara');
     out.known = p.suggested();
     // A phrase that asks for a kind and an order.
@@ -924,7 +925,9 @@ const scenarios = {
 
   // In the list view the field only announces what was typed; no search runs.
   async listView() {
+    const roles = (page) => ['role', 'aria-autocomplete', 'aria-expanded', 'aria-controls'].map((a) => page.input.getAttribute(a));
     const p = load({ ...ADMIN, view: 'list' });
+    const l = { roles: roles(p) };
     p.type('lantern');
     const delay = p.timers[p.timers.length - 1].ms;
     p.timers[p.timers.length - 1].fn();
@@ -936,6 +939,7 @@ const scenarios = {
     const r = load({ ...ADMIN, view: 'list' });
     r.fire('mm:watch-view', { detail: { view: 'rows' } });
     await r.search('lantern');
+    out.role = [l.roles, roles(r)];
     out.afterSwitch = { events: r.events.length, calls: r.calls.length, placeholder: r.input.placeholder };
     return out;
   },
@@ -945,7 +949,7 @@ const scenarios = {
     const p = load(ADMIN, 'popular action movies', null, null);
     await p.answer('/api/watch/search?', { items: [] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
-    const out = { waiting: [p.line(), p.doc.querySelector('.watch-search').classList.contains('is-pending')] };
+    const out = { waiting: [p.line(), p.doc.querySelector('.watch-search').classList.contains('is-pending')], status: [p.status.textContent] };
     const all = { tmdb_configured: true, genres: GENRES, decades: DECADES };
     const asked = p.calls.filter((c) => c.url === '/api/watch/explore')[0];
     asked.done = true;
@@ -953,8 +957,10 @@ const scenarios = {
     await settle();
     out.asked = p.calls.filter((c) => c.url.includes('explore?')).map((c) => c.url);
     out.suggested = p.suggested()[0];
+    out.status.push(p.status.textContent);
     await p.answer('/api/watch/explore?', { items: [{ ...TM, title: 'Held' }] });
     out.titles = p.titles('.watch-card');
+    out.status.push(p.status.textContent);
     // Typed and not yet searched for: suggested as they come in.
     const q = load(ADMIN, '', null, null);
     q.type('act');

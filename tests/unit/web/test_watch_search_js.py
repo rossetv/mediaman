@@ -35,7 +35,9 @@ def test_the_library_group_shows_before_tmdb_answers_and_tmdb_fills_its_own_plac
     assert late["href"] == "#title=tmdb-movie-9"
     assert late["badge"] is True
     assert late["sub"] == "Movie · 2020"
-    assert late["status"] == "1 in your library, 1 available to download for “orchard”"
+    assert late["status"] == (
+        "1 in your library, 1 available to download for “orchard”. 2 suggestions"
+    )
 
 
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
@@ -591,3 +593,17 @@ def test_the_cards_of_the_library_alone_do_not_say_they_are_in_the_library() -> 
     # Not before its own cards are there.
     assert out["held"] == [False, True]
     assert out["heldLinked"] is True
+
+
+def test_how_many_suggestions_there_are_is_said_at_once_and_with_the_results() -> None:
+    assert _run("suggestions")["status"] == "1 in your library for “mar”. 2 suggestions"
+    waiting, early, done = _run("lateCategories")["status"]
+    assert (waiting, early) == ("", "3 suggestions")
+    assert done == "1 available to download for “popular action movies”. 3 suggestions"
+
+
+def test_the_field_is_a_plain_search_box_in_the_list_view() -> None:
+    assert _run("listView")["role"] == [
+        [None, None, None, None],
+        ["combobox", "list", "false", "watch-sheet"],
+    ]
