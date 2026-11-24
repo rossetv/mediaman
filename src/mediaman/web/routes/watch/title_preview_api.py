@@ -151,7 +151,7 @@ def _details(client: TmdbClient, kind: str, tmdb_id: int, ask: _Ask) -> dict[str
         return asked
 
     try:
-        return catalog.details(client, kind, tmdb_id, allow_fetch=may_ask)
+        return catalog.details(client, kind, tmdb_id, allow_fetch=may_ask, brief=True)
     except catalog.TitleNotFound:
         raise
     except catalog.TmdbUnavailable as exc:

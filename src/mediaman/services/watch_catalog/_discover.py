@@ -88,8 +88,11 @@ def _cached(
     stale_s: float,
     fetch: Callable[[], Any],
     allow_fetch: Callable[[], bool] | None = None,
+    brief: bool = False,
 ) -> Any:
-    return _cache().get_or_fetch(key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch)
+    return _cache().get_or_fetch(
+        key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch, brief=brief
+    )
 
 
 def _shaped(fetch: Callable[[], Any]) -> Callable[[], Any]:
@@ -210,12 +213,18 @@ def search(
 
 
 def details(
-    client: TmdbClient, kind: str, tmdb_id: int, *, allow_fetch: Callable[[], bool] | None = None
+    client: TmdbClient,
+    kind: str,
+    tmdb_id: int,
+    *,
+    allow_fetch: Callable[[], bool] | None = None,
+    brief: bool = False,
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
     TMDB's own payload, with its full crew and every country's release dates, is many
     times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
-    asked as in ``search``."""
+    asked as in ``search``, and *brief* says that *client* gives up early, so that its
+    failure is not held against the next caller."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
@@ -234,7 +243,7 @@ def details(
 
     # "v4": entries before it may be an adult title's.
     result: dict[str, Any] = _cached(
-        f"tmdb:details:v4:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
+        f"tmdb:details:v4:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch, brief
     )
     if result.get("adult"):
         raise TitleNotFound("details")

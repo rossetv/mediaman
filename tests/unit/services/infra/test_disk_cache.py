@@ -438,3 +438,81 @@ def test_a_peek_does_not_ask_again_for_a_key_that_just_failed():
     assert store.peek("k", DAY, DAY, fetch) is None
     assert store.peek("k", DAY, DAY, fetch) is None
     assert fetch.calls == 1
+
+
+def test_a_brief_fetch_that_failed_holds_nobody_back():
+    store = disk_cache.meta()
+    with pytest.raises(OSError):
+        store.get_or_fetch("k", DAY, DAY, Fetcher(OSError("slow")), brief=True)
+
+    assert store.get_or_fetch("k", DAY, DAY, Fetcher("v")) == "v"
+
+
+def test_a_brief_fetch_obeys_the_hold_of_one_that_was_not():
+    store = disk_cache.meta()
+    with pytest.raises(OSError):
+        store.get_or_fetch("k", DAY, DAY, Fetcher(OSError("down")))
+    fetch = Fetcher("v")
+
+    with pytest.raises(OSError, match="down"):
+        store.get_or_fetch("k", DAY, DAY, fetch, brief=True)
+    assert fetch.calls == 0
+
+
+def test_those_waiting_on_a_brief_fetch_that_fails_share_one_of_their_own(monkeypatch):
+    joined = threading.Semaphore(0)
+    claim = disk_cache._claim
+
+    def noting_claim(flight):
+        future, owner = claim(flight)
+        if not owner:
+            joined.release()
+        return future, owner
+
+    monkeypatch.setattr(disk_cache, "_claim", noting_claim)
+    started, release = threading.Event(), threading.Event()
+    full_started, full_release = threading.Event(), threading.Event()
+    full_calls = []
+
+    def brief():
+        started.set()
+        release.wait(5)
+        raise OSError("slow")
+
+    def full():
+        full_calls.append(1)
+        full_started.set()
+        full_release.wait(5)
+        return "v"
+
+    store = disk_cache.meta()
+    answers, errors = [], []
+
+    def ask_briefly():
+        try:
+            store.get_or_fetch("k", DAY, DAY, brief, brief=True)
+        except OSError as exc:
+            errors.append(str(exc))
+
+    def ask():
+        answers.append(store.get_or_fetch("k", DAY, DAY, full))
+
+    def run(target):
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        return thread
+
+    first = run(ask_briefly)
+    assert started.wait(5)
+    others = [run(ask_briefly), run(ask), run(ask)]
+    for _ in others:
+        assert joined.acquire(timeout=5)
+    release.set()
+    assert full_started.wait(5)
+    assert joined.acquire(timeout=5)
+    full_release.set()
+    for thread in (first, *others):
+        thread.join(5)
+
+    assert (answers, errors) == (["v", "v"], ["slow", "slow"])
+    assert len(full_calls) == 1

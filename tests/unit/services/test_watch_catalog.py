@@ -21,7 +21,7 @@ class DictCache:
     def __init__(self) -> None:
         self.store: dict[str, object] = {}
 
-    def get_or_fetch(self, key, fresh_s, stale_s, fetch, *, allow_fetch=None):
+    def get_or_fetch(self, key, fresh_s, stale_s, fetch, *, allow_fetch=None, brief=False):
         if key in self.store:
             return self.store[key]
         if allow_fetch is not None and not allow_fetch():

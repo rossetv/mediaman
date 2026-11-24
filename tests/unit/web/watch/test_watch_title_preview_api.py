@@ -499,11 +499,22 @@ class TestTmdbPause:
 
     def test_a_failure_the_cache_repeats_does_not_lengthen_it(self, viewer, tmdb, plex, clock):
         tmdb["/movie/12"] = 500
-        _preview(viewer, "tmdb-movie-12")
-        clock[0] += title_preview_api._TMDB_PAUSE_S
-        _preview(viewer, "tmdb-movie-12")
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(TmdbClient("token"), "movie", 12)
 
+        assert _preview(viewer, "tmdb-movie-12").status_code == 502
         assert _preview(viewer, "tmdb-movie-13").status_code == 200
+
+    def test_a_preview_that_failed_does_not_hold_back_the_title_page(
+        self, viewer, tmdb, plex, clock
+    ):
+        tmdb["/movie/12"] = 500
+        assert _preview(viewer, "tmdb-movie-12").status_code == 502
+        tmdb["/movie/12"] = {**FILM, "id": 12, "title": "Glass Onion"}
+
+        found = catalog.details(TmdbClient("token"), "movie", 12)
+
+        assert found["title"] == "Glass Onion"
 
     def test_a_title_tmdb_has_not_starts_none(self, viewer, tmdb, plex, clock):
         _preview(viewer, "tmdb-movie-404")

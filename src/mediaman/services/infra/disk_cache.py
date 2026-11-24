@@ -10,7 +10,9 @@ a temp file and moved into place so a reader never sees half an entry.
 ``stale_s``) it still answers with the old value and refreshes it once in the background,
 on a pool of two threads. On a miss it fetches inline, one fetch per key at a time; a
 second caller waits for the first. A failed fetch is never stored: its exception is
-re-raised for that key for ``BACKOFF_S`` seconds instead of asking upstream again.
+re-raised for that key for ``BACKOFF_S`` seconds instead of asking upstream again. A
+``brief`` fetch, one that gives up early, is not held that way when it fails, and a caller
+waiting on it whose own fetch is not brief then makes that.
 
 The ``fetch`` callable may run on a pool thread, so it must not hold the request's
 SQLite connection: build any client from the connection first, then close over the
@@ -68,6 +70,14 @@ class Refused(Exception):
     """A miss was not fetched because ``allow_fetch`` said no (the caller's rate limit)."""
 
 
+class _BriefFailure(Exception):
+    """What a brief fetch failed with, for those waiting on it."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(error)
+        self.error = error
+
+
 class Store[T]:
     def __init__(
         self,
@@ -91,6 +101,7 @@ class Store[T]:
         fetch: Callable[[], T],
         *,
         allow_fetch: Callable[[], bool] | None = None,
+        brief: bool = False,
     ) -> T:
         """The value for *key*: cached while younger than *fresh_s*, cached and refreshed in
         the background while younger than *stale_s*, else fetched now.
@@ -110,7 +121,7 @@ class Store[T]:
             raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
-        return self._fetch_once(key, path, fetch)
+        return self._fetch_once(key, path, fetch, brief)
 
     def peek(self, key: str, fresh_s: float, stale_s: float, fetch: Callable[[], T]) -> T | None:
         """The value for *key* when cached, as ``get_or_fetch`` answers it; on a miss None
@@ -164,22 +175,33 @@ class Store[T]:
                 path.unlink()
             return None
 
-    def _fetch_once(self, key: str, path: Path, fetch: Callable[[], T]) -> T:
+    def _fetch_once(self, key: str, path: Path, fetch: Callable[[], T], brief: bool) -> T:
         flight = (self.name, key)
-        future, owner = _claim(flight)
-        if owner:
-            return self._fill(flight, future, path, fetch)
-        try:
-            result: T = future.result()
-        except Exception as exc:
-            error = exc
-        else:
-            return result
+        while True:
+            future, owner = _claim(flight)
+            if owner:
+                return self._fill(flight, future, path, fetch, brief)
+            try:
+                result: T = future.result()
+            except _BriefFailure as exc:
+                if not brief:
+                    continue
+                error = exc.error
+            except Exception as exc:
+                error = exc
+            else:
+                return result
+            break
         # Raised outside the except block so the copy carries no context either.
         raise _bare(error)
 
     def _fill(
-        self, flight: tuple[str, str], future: Future[Any], path: Path, fetch: Callable[[], T]
+        self,
+        flight: tuple[str, str],
+        future: Future[Any],
+        path: Path,
+        fetch: Callable[[], T],
+        brief: bool = False,
     ) -> T:
         """Fetch into the claimed *future* and store the value; the future is always
         settled, so no waiter is left blocked."""
@@ -187,10 +209,13 @@ class Store[T]:
             value = fetch()
         except Exception as exc:
             with _guard:
-                if len(_failed) >= _BACKOFF_MAX_KEYS:
-                    _failed.clear()
-                _failed[flight] = (time.monotonic() + BACKOFF_S, _bare(exc))
-            future.set_exception(exc)
+                # Before the waiters wake: one that fetches anew must not join this again.
+                _inflight.pop(flight, None)
+                if not brief:
+                    if len(_failed) >= _BACKOFF_MAX_KEYS:
+                        _failed.clear()
+                    _failed[flight] = (time.monotonic() + BACKOFF_S, _bare(exc))
+            future.set_exception(_BriefFailure(exc) if brief else exc)
             raise
         except BaseException as exc:
             future.set_exception(exc)
@@ -201,7 +226,8 @@ class Store[T]:
             return value
         finally:
             with _guard:
-                _inflight.pop(flight, None)
+                if _inflight.get(flight) is future:
+                    del _inflight[flight]
 
     def _refresh(self, key: str, path: Path, fetch: Callable[[], T]) -> None:
         flight = (self.name, key)
