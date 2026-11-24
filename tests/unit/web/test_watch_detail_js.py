@@ -227,6 +227,21 @@ def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again(
     assert out["events"] == []
 
 
+def test_a_download_error_goes_when_the_picked_seasons_change_and_keeps_its_space() -> None:
+    out = _run("downloadErrorThenPicks")
+    gone = {"before": "shown", "after": "held", "focusKept": True, "reopened": "none"}
+    assert out["chip"] == {**gone, "download": "Download 1 season"}
+    assert out["clear"] == {**gone, "download": "Pick seasons"}
+    # Select all with all already picked changes nothing.
+    assert out["unchanged"] == {
+        "before": "shown",
+        "after": "shown",
+        "focusKept": True,
+        "download": "Download 2 seasons",
+        "reopened": "shown",
+    }
+
+
 def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_that_says() -> None:
     out = _run("downloadAlreadyThere")
     for name in ("queued", "downloading", "none", "noneYet", "failed", "inLibrary"):

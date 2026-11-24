@@ -193,6 +193,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }
 .ttl__note-ok { color: var(--success); }
 .ttl__error { display: flex; align-items: baseline; gap: 10px; font-size: 14px; color: var(--danger-text); }
+.ttl__error[inert] { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .ttl__error > .fa-solid { flex: none; }
 .ttl__error > span { min-width: 0; overflow-wrap: anywhere; }
 .ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }

@@ -764,6 +764,37 @@ const scenarios = {
     };
   },
 
+  // A show's download fails; its picked seasons are then changed (or not), and it is redrawn.
+  async downloadErrorThenPicks() {
+    const run = async (press) => {
+      const p = load({
+        routes: { '/api/watch/title/tmdb-tv-90': TV_DL, '/api/watch/title/show-300': LIB_SHOW },
+        posted: { '/api/search/download': new APIError(422, 'not_listed', "Season 2 isn't in Sonarr's listing.") },
+      });
+      p.run();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await settle();
+      const shown = () => { const e = p.q('[data-ttl-part="under"] .ttl__error'); return e ? (e.hasAttribute('inert') ? 'held' : 'shown') : 'none'; };
+      const before = shown();
+      const button = p.q(press);
+      button.focus();
+      click(p.doc, button);
+      const out = { before, after: shown(), focusKept: p.doc.activeElement === button, download: primary(p).text };
+      p.ctx.MMWatch.detail.open('show-300', {});
+      await settle();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      return Object.assign(out, { reopened: shown() });
+    };
+    return {
+      chip: await run('[data-ttl-act="season-2"]'),
+      clear: await run('[data-ttl-act="pick-none"]'),
+      unchanged: await run('[data-ttl-act="pick-all"]'),
+    };
+  },
+
   async recDownload() {
     const emailed = Object.assign({}, REC_DL, { download: Object.assign({}, REC_DL.download, { state: 'queued', notify: true }) });
     let asked = 0;

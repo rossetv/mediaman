@@ -924,13 +924,17 @@
     return wrap;
   }
 
-  /* Picking changes the chips, the summary and the button's count in place. */
+  /* Picking changes the chips, the summary and the button's count in place. An
+     error about the picks before goes, its space kept so nothing moves. */
   function syncPicks(wrap, d, first) {
     var picks = picksOf(d);
+    var changed = false;
     toArray(wrap.querySelectorAll('.season-chip')).forEach(function (chip) {
       var n = Number(chip.getAttribute('data-season'));
       if (chip.getAttribute('aria-disabled') === 'true') return;
-      chip.setAttribute('aria-checked', picks[n] ? 'true' : 'false');
+      var on = picks[n] ? 'true' : 'false';
+      if (chip.getAttribute('aria-checked') !== on) changed = true;
+      chip.setAttribute('aria-checked', on);
     });
     var ticked = pickedSeasons(d).length;
     var already = d.seasons.filter(function (s) { return s.in_library; }).length;
@@ -949,6 +953,10 @@
     if (first) return;
     var dl = root.querySelector('.ttl__download');
     if (dl) labelDownload(dl, d);
+    if (!changed) return;
+    stateOf(cur.ref).error = null;
+    var err = root.querySelector('[data-ttl-part="under"] .ttl__error');
+    if (err) err.setAttribute('inert', '');
   }
 
   function submitDownload() {
