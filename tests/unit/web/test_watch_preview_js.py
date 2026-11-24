@@ -442,3 +442,17 @@ def test_a_preview_stays_under_the_header_of_an_open_grid() -> None:
     assert out["clear"] == "translate(275px,124px)"
     assert out["justOver"] == "translate(275px,124px)"
     assert out["mostlyUnder"] is None
+
+
+def test_what_the_keyboard_opens_over_the_cards_closes_a_preview_and_its_trailer() -> None:
+    assert _run("keyboardCovers") == {
+        "details": [None, False],
+        "dialog": [None, False],
+        "menu": [None, False],
+        "ownMenu": ["Fieldwork", True],
+        "nothing": ["Fieldwork", True],
+    }
+
+
+def test_a_card_pressed_still_hands_its_preview_over_when_the_page_is_told_first() -> None:
+    assert _run("pressedThenTold") is True

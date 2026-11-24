@@ -327,8 +327,16 @@
 
   function there(p) { return document.body.contains(p.link) && p.link.getClientRects().length > 0; }
 
-  /* The card of the preview that is open may go, with the mouse at rest. */
-  var watcher = new MutationObserver(function () { if (live && !there(live)) close(live, 'fade'); });
+  /* With the mouse at rest, the card of the preview that is open may go, or the keyboard open something over it. */
+  var watcher = new MutationObserver(function () {
+    if (!live) return;
+    if (!there(live)) close(live, 'fade');
+    else if (covered()) setTimeout(closeUnder); // a press on its card hands it over first
+  });
+
+  function closeUnder() {
+    if (live && covered() && !pinned(live)) fadeLive();
+  }
 
   function setLive(p) {
     live = p;

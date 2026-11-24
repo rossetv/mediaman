@@ -933,6 +933,33 @@ const scenarios = {
     }
     return out;
   },
+  /* What opens over the cards from the keyboard, with a trailer playing in a preview. */
+  async keyboardCovers() {
+    const out = {};
+    const ways = {
+      details: (h) => h.ctx.MMWatch.detail.open('movie-9', {}),
+      dialog: (h) => h.doc.body.appendChild(build(h.doc, ['div', { class: 'modal-backdrop' }])),
+      menu: (h) => h.doc.body.appendChild(build(h.doc, ['div', { class: 'watch-keep-menu is-open' }])),
+      ownMenu: (h) => h.pv().querySelector('[data-preview-more]').click(),
+      nothing: () => {},
+    };
+    for (const how of Object.keys(ways)) {
+      const h = await trailer();
+      ways[how](h);
+      h.changed();
+      await h.pass(500);
+      out[how] = [h.title(), !!h.frame()];
+    }
+    return out;
+  },
+  /* A press on the card, told of by the page before the preview has heard it. */
+  async pressedThenTold() {
+    const h = load();
+    await h.rest('film');
+    h.link('film').addEventListener('click', () => { h.ctx.MMWatch.detail.open('movie-1', {}); h.changed(); });
+    h.link('film').click();
+    return h.doc.querySelector('.pv').classList.contains('is-handed');
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
