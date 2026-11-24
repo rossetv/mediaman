@@ -302,7 +302,7 @@ def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins()
     assert out["address"] == ["/watch?genre=action&type=movie&sort=top_rated", 1]
     assert out["set"][0] == [1, 2, True]
     assert out["said"] == "Top rated movies · 7 titles"  # not the late answer's 9
-    assert out["pressed"] == ["Movies", "Top rated"]
+    assert out["pressed"] == ["Movies", "Top rated", "Anywhere"]
     # After a failure the grid asks for that page itself, and says what is wrong.
     assert out["failed"] == [0, 1, False]
     assert out["again"] == 4
@@ -478,3 +478,26 @@ def test_a_search_emptied_over_a_grid_returns_to_that_grid() -> None:
 
 def test_a_person_who_could_not_be_had_is_asked_for_again() -> None:
     assert _run("personAgain") == [2, True, "Mara Ellison"]
+
+
+def test_a_category_is_narrowed_to_the_library_in_the_address() -> None:
+    out = _run("where")
+    assert out["shown"] is True
+    assert out["asked"] == "/api/watch/explore?genre=action&where=library"
+    assert out["address"] == ["/watch?genre=action&where=library", 1]
+    assert out["said"] == "Popular movies and TV in your library · 12 titles"
+    assert out["anywhere"] == ["/api/watch/explore?genre=action", "/watch?genre=action"]
+
+
+def test_a_link_to_the_librarys_part_of_a_category_opens_on_it() -> None:
+    out = _run("where")
+    assert out["linked"] == ["/api/watch/explore?genre=action&where=library", ["In library"]]
+    assert out["bogus"] == "/api/watch/explore?genre=action"
+    assert out["left"] == "/watch?q=o"
+
+
+def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so() -> None:
+    out = _run("where")
+    assert out["hidden"] == [True, 0]
+    assert out["early"] == [True, True]
+    assert out["out"] == ["/watch?genre=action", "/api/watch/explore?genre=action", True]

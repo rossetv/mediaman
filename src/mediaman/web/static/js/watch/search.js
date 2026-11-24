@@ -32,7 +32,7 @@
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
   var TRIES_EMPTY = ['popular action movies', 'popular comedy movies', 'something scary'];
   var LENS = 'M10.5 4a6.5 6.5 0 100 13 6.5 6.5 0 000-13M15.5 15.5L20 20';
-  var PAGE_PARAMS = { genre: null, type: null, sort: null, decade: null, person: null, all: null };
+  var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null };
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
     in_library: ['i-check', 'In library'],

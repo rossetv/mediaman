@@ -17,8 +17,9 @@
   var PERSON_URL = '/api/watch/person/';
   var SORTS = [['popular', 'Popular'], ['top_rated', 'Top rated'], ['newest', 'Newest']];
   var TYPES = [['all', 'All'], ['movie', 'Movies'], ['tv', 'TV']];
+  var WHERES = [['anywhere', 'Anywhere'], ['library', 'In library']];
   var TYPE_WORDS = { all: 'movies and TV', movie: 'movies', tv: 'TV' };
-  var OWN = { q: null, view: null, all: null, page: null, per_page: null, genre: null, type: null, sort: null, decade: null, person: null };
+  var OWN = { q: null, view: null, all: null, page: null, per_page: null, genre: null, type: null, sort: null, where: null, decade: null, person: null };
   var NO_FIT = { title: 'Nothing fits these choices', text: 'Widen one of them to see more.' };
   var ALIAS_CHARS = 4;
   var SVG = 'http://www.w3.org/2000/svg';
@@ -70,7 +71,7 @@
 
   /* ── The categories ── */
 
-  var held = { genres: [], decades: [] };
+  var held = { genres: [], decades: [], people: [], library: null };
   var arrived = false; // whether they are in
   var asking = null;
 
@@ -78,7 +79,8 @@
   function categories() {
     if (!asking) {
       asking = window.MM.api.get(EXPLORE_URL).then(function (reply) {
-        held = { genres: (reply && reply.genres) || [], decades: (reply && reply.decades) || [] };
+        reply = reply || {};
+        held = { genres: reply.genres || [], decades: reply.decades || [], people: reply.people || [], library: reply.library || null };
         arrived = true;
         return held;
       }, function () {
@@ -156,6 +158,7 @@
     var q = new URLSearchParams({ genre: id });
     if (f.type && f.type !== 'all') q.set('type', f.type);
     if (f.sort && f.sort !== 'popular') q.set('sort', f.sort);
+    if (f.where === 'library') q.set('where', f.where);
     if (f.decade) q.set('decade', f.decade);
     if (page > 1) q.set('page', page);
     return EXPLORE_URL + '?' + q.toString();
@@ -211,6 +214,7 @@
         kind: 'genre', id: id,
         type: choice(params.get('type'), TYPES),
         sort: choice(params.get('sort'), SORTS),
+        where: choice(params.get('where'), WHERES),
         decade: /^(19|20)\d0s$/.test(params.get('decade') || '') ? params.get('decade') : ''
       };
     }
@@ -223,6 +227,7 @@
       genre: f.id,
       type: f.type === 'all' ? null : f.type,
       sort: f.sort === 'popular' ? null : f.sort,
+      where: f.where === 'library' ? f.where : null,
       decade: f.decade || null
     };
   }
@@ -276,8 +281,7 @@
     f.node.classList.remove('is-unknown');
     f.title.textContent = title;
     f.facts.textContent = '';
-    var filters = f.node.querySelector('.explore-filters');
-    if (filters) filters.remove();
+    core.toArray(f.node.querySelectorAll('.explore-filters, .explore-gathering')).forEach(function (n) { n.remove(); });
     var box = el('div', 'grid-empty');
     box.appendChild(window.MM.dom.icon('i-film'));
     box.appendChild(el('p', 'grid-empty__title', text));
@@ -303,15 +307,17 @@
     var known = genre(want.id);
     var name = nameOf(want.id);
     var mine = { kind: 'genre', id: want.id };
-    var filter = { id: want.id, type: want.type, sort: want.sort, decade: want.decade };
+    var filter = { id: want.id, type: want.type, sort: want.sort, where: want.where, decade: want.decade };
     var bars = {};
     var say = speaker();
+    var gathering = null; // the line that says so
     var asked = 0;
     f.title.textContent = name;
 
     function words(total) {
       var kind = known && known.types.length === 1 ? known.types[0] : filter.type;
       return sortName(filter.sort) + ' ' + TYPE_WORDS[kind] + (filter.decade ? ' of the ' + filter.decade : '') +
+        (filter.where === 'library' ? ' in your library' : '') +
         (typeof total === 'number' ? ' · ' + plural(total) : '');
     }
 
@@ -359,6 +365,7 @@
         stage().token({ icon: icon(want.id), name: reply.genre.name });
       }
       if (reply.genre) settleTypes(reply.genre);
+      settleWhere(reply.library);
       f.facts.textContent = words(reply.total);
       say.page(f.title.textContent + ', ' + f.facts.textContent);
     }
@@ -371,10 +378,38 @@
       if (filter.type !== 'all' && g.types.indexOf(filter.type) === -1) change('type', 'all');
     }
 
+    /* Offered once the library's own genres are known. A link may come before that. */
+    function settleWhere(library) {
+      if (!library) return;
+      bars.where.classList.remove('is-unknown');
+      bars.where.hidden = !library.ready;
+      var early = !library.ready && filter.where === 'library';
+      if (early && !gathering) {
+        gathering = el('p', 'results-hint explore-gathering');
+        gathering.appendChild(window.MM.dom.icon('i-circle-info'));
+        var text = el('span', '', 'What is in your library is still being gathered, so some of it may be missing. ');
+        var button = el('button', 'explore-gathering__out', 'Look anywhere');
+        button.type = 'button';
+        button.addEventListener('click', function () {
+          bars.where.querySelector('[data-value="anywhere"]').click();
+          f.title.focus({ preventScroll: true });
+        });
+        text.appendChild(button);
+        gathering.appendChild(text);
+        f.host.before(gathering);
+        stage().rise(gathering);
+      }
+      if (!early && gathering) {
+        gathering.remove();
+        gathering = null;
+      }
+    }
+
     function change(key, value) {
       filter[key] = value;
       address.replace('explore', address.url(query(filter)));
       f.facts.textContent = words();
+      if (gathering) settleWhere(held.library || { ready: false });
       load();
     }
 
@@ -396,8 +431,12 @@
     var filters = el('div', 'explore-filters');
     bars.type = segments('Type', TYPES, filter.type, function (v) { change('type', v); });
     bars.sort = segments('Order', SORTS, filter.sort, function (v) { change('sort', v); });
+    bars.where = segments('Where', WHERES, filter.where, function (v) { change('where', v); });
+    // Its place is held until it is known whether it is offered.
+    bars.where.classList.add('is-unknown');
     filters.appendChild(bars.type);
     filters.appendChild(bars.sort);
+    filters.appendChild(bars.where);
     var years = yearsMenu(filter.decade, function (v) { change('decade', v); });
     filters.appendChild(years.node);
     f.node.appendChild(filters);
@@ -412,10 +451,12 @@
       title: name, cards: [], next: 1, fetchPage: pages(Object.assign({}, filter)), empty: NO_FIT, say: say.grid
     });
     f.title.focus({ preventScroll: true });
+    if (arrived) settleWhere(held.library || { ready: false });
     if (known) settleTypes(known);
     else categories().then(function (all) {
       if (open !== mine) return;
       years.fill(all.decades);
+      if (arrived) settleWhere(all.library || { ready: false });
       if (genre(want.id)) settleTypes(genre(want.id));
     });
   }
@@ -590,7 +631,7 @@
     var rect = from ? from.getBoundingClientRect() : null;
     var want = {
       kind: 'genre', id: id, type: choice(facts && facts.type, TYPES),
-      sort: choice(facts && facts.sort, SORTS), decade: (facts && facts.decade) || ''
+      sort: choice(facts && facts.sort, SORTS), where: 'anywhere', decade: (facts && facts.decade) || ''
     };
     address.push('explore', address.url(Object.assign({}, OWN, query(want)), ''));
     showGenre(want, rect);
@@ -605,7 +646,7 @@
   address.layer({
     name: 'explore',
     depth: 20,
-    params: ['genre', 'type', 'sort', 'decade', 'person'],
+    params: ['genre', 'type', 'sort', 'where', 'decade', 'person'],
     read: function (here) {
       var at = readAddress(here.params);
       return at ? new URLSearchParams(Object.entries(at)).toString() : null;

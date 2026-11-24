@@ -20,6 +20,7 @@ const GENRES = [
 const DECADES = ['2020s', '2010s', '1990s'];
 
 Node.prototype.scrollIntoView = function () {};
+Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
 function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }) {
@@ -1120,6 +1121,43 @@ const scenarios = {
     const again = p.grids[0].opts.fetchPage(1).catch(() => ({ cards: [] }));
     await p.answer('person/9001', { tmdb_configured: true, person: MARA, items: [TM], total: 1, in_library: 0, next_page: null });
     return [p.calls.length, (await again).cards.length > 0, p.doc.querySelector('.explore-title').textContent];
+  },
+
+  // Anywhere or in the library: in the address like the other choices, offered once the library is known, and what a link to it
+  // says before.
+  async where() {
+    const cats = (ready) => ({ tmdb_configured: true, genres: GENRES, decades: DECADES, library: { ready, known: 40, total: 42 }, people: [] });
+    const seg = (p) => p.doc.querySelectorAll('.explore-seg').filter((n) => n.getAttribute('aria-label') === 'Where')[0];
+    const choose = (p, v) => click(p.doc, p.doc.querySelectorAll('.explore-seg__item').filter((b) => b.getAttribute('data-value') === v)[0]);
+    const reply = (over) => ({ tmdb_configured: true, genre: GENRES[0], items: [TM], total: 12, next_page: null, library: { ready: true, titles: 12 }, ...over });
+    const p = await ready(ADMIN, '', '/watch?genre=action', cats(true));
+    const out = { shown: !seg(p).hidden && !seg(p).classList.contains('is-unknown') };
+    choose(p, 'library');
+    out.asked = p.calls[p.calls.length - 1].url;
+    out.address = [p.url(), p.tab.entries.length];
+    await p.answer('where=library', reply({ where: 'library' }));
+    out.said = p.doc.querySelector('.explore-facts').textContent;
+    choose(p, 'anywhere');
+    out.anywhere = [p.calls[p.calls.length - 1].url, p.url()];
+    const linked = await ready(ADMIN, '', '/watch?genre=action&where=library', cats(true));
+    out.linked = [linked.calls[0].url, seg(linked).querySelectorAll('[aria-pressed="true"]').map((b) => b.textContent)];
+    out.bogus = (await ready(ADMIN, '', '/watch?genre=action&where=moon', cats(true))).calls[0].url;
+    const unready = await ready(ADMIN, '', '/watch?genre=action', cats(false));
+    await unready.answer('explore?genre=action', reply({ library: { ready: false, titles: 0 } }));
+    out.hidden = [seg(unready).hidden, unready.doc.querySelectorAll('.explore-gathering').length];
+    const early = await ready(ADMIN, '', '/watch?genre=action&where=library', cats(false));
+    await early.answer('where=library', reply({ where: 'library', library: { ready: false, titles: 3 } }));
+    const note = early.doc.querySelector('.explore-gathering');
+    out.early = [seg(early).hidden, !!note];
+    click(early.doc, note.querySelector('button'));
+    await settle();
+    out.out = [early.url(), early.calls[early.calls.length - 1].url, early.doc.querySelector('.explore-gathering') === null || early.doc.querySelector('.explore-gathering').hidden];
+    // Another search leaves it behind.
+    p.type('o');
+    const left = await ready(ADMIN, '', '/watch?genre=action&where=library', cats(true));
+    left.type('o');
+    out.left = left.url();
+    return out;
   },
 };
 
