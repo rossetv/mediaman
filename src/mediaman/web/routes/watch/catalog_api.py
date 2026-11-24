@@ -30,6 +30,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
+from mediaman.services.media_meta.item_enrichment import tidy_summary
 from mediaman.services.media_meta.omdb import get_omdb_key, is_key_refused, lookup_ratings
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
@@ -658,7 +659,7 @@ def api_watch_title(
             out.update(
                 title=rec.title,
                 year=rec.year,
-                overview=rec.description or "",
+                overview=tidy_summary(rec.description) or "",
                 poster_url=catalog.tmdb_image_url(rec.poster_url, "w500"),
             )
             out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)

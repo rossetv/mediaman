@@ -650,6 +650,15 @@ class TestTmdbTitle:
 
         assert (body["title"], body["overview"]) == (title, description)
 
+    def test_a_pick_stored_cut_mid_sentence_ends_at_its_last_full_one(
+        self, viewer, library, tmdb, arr
+    ):
+        whole = "A lighthouse keeper finds a door in the sea wall. "
+        cut = (whole + "She goes through it " * 20)[:250]
+        rec_id = insert_suggestion(library, title="Door", description=cut, tmdb_id=None)
+
+        assert viewer.get(f"/api/watch/title/rec-{rec_id}").json()["overview"] == whole.strip()
+
     def test_past_the_limit_only_a_title_tmdb_must_answer_is_refused(
         self, viewer, tmdb, arr, monkeypatch
     ):
