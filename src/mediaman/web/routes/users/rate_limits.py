@@ -22,6 +22,9 @@ anywhere and a per-actor bucket alone does not cover that fan-out.
 
 _SESSIONS_LIST_LIMITER: per-actor cap (30/min) on GET /api/users/sessions, so a cookie thief
 cannot poll it to detect the moment the legitimate user signs in.
+
+_SESSIONS_REVOKE_LIMITER: per-actor cap (10/min) on POST /api/users/sessions/revoke-others,
+which writes sessions and an audit row on each call.
 """
 
 from __future__ import annotations
@@ -36,3 +39,4 @@ _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
     max_in_window=10, window_seconds=60, max_per_day=200
 )
 _SESSIONS_LIST_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+_SESSIONS_REVOKE_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60, max_per_day=100)

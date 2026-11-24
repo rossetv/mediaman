@@ -9,7 +9,11 @@ from mediaman.main import create_app
 from mediaman.web.auth.password_hash import get_user_email, set_user_email
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
-from mediaman.web.routes.users import _SESSIONS_LIST_LIMITER, _USER_MGMT_LIMITER
+from mediaman.web.routes.users import (
+    _SESSIONS_LIST_LIMITER,
+    _SESSIONS_REVOKE_LIMITER,
+    _USER_MGMT_LIMITER,
+)
 from tests.helpers.factories import insert_admin_user
 
 _ORIGIN = {"origin": "http://testserver"}
@@ -19,6 +23,7 @@ _ORIGIN = {"origin": "http://testserver"}
 def client(conn, viewer_client):
     _USER_MGMT_LIMITER.reset()
     _SESSIONS_LIST_LIMITER.reset()
+    _SESSIONS_REVOKE_LIMITER.reset()
     set_connection(conn)
     insert_admin_user(conn, username="boss")
     set_user_email(conn, "boss", "boss@example.com")
@@ -66,3 +71,15 @@ def test_a_viewer_signs_out_their_other_devices_and_nobody_else_s(client, conn):
     assert validate_session(conn, mine) is None
     assert len(list_sessions_for(conn, "viewer")) == 1
     assert validate_session(conn, theirs) == "boss"
+
+
+def test_signing_out_other_devices_is_limited_for_each_person(client, conn):
+    other = create_session(conn, "viewer")
+    while _SESSIONS_REVOKE_LIMITER.check("viewer"):
+        pass
+
+    resp = client.post("/api/users/sessions/revoke-others")
+
+    assert resp.status_code == 429
+    assert validate_session(conn, other) == "viewer"
+    assert _SESSIONS_REVOKE_LIMITER.check("boss")

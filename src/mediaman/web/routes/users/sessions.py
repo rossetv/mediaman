@@ -20,7 +20,7 @@ from mediaman.web.auth.session_store import (
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
-from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER
+from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER, _SESSIONS_REVOKE_LIMITER
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ def api_list_sessions(request: Request, admin: str = Depends(get_current_user)) 
 
 
 @router.post("/api/users/sessions/revoke-others")
+@rate_limit(_SESSIONS_REVOKE_LIMITER, key="actor")
 def api_revoke_other_sessions(
     request: Request,
     admin: str = Depends(get_current_user),
