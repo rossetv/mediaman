@@ -200,3 +200,35 @@ def test_a_failed_re_download_still_drops_the_emailed_pages_arr_lists(
     with patch(SONARR, return_value=sonarr):
         _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 1})
     assert confirm._RADARR_CACHE == {} and confirm._SONARR_CACHE == {}
+
+
+@pytest.mark.parametrize("status", [0, 504])
+def test_a_movie_add_that_timed_out_but_landed_is_a_success(
+    app_factory, authed_client, conn, status
+):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.side_effect = [None, {"id": 7, "monitored": True}]
+    radarr.add_movie.side_effect = _err(status)
+    with patch(RADARR, return_value=radarr):
+        resp = _post(_client(app_factory, authed_client, conn), {"title": "Dune", "tmdb_id": 42})
+    assert resp.json() == {"ok": True, "message": "Added 'Dune' to Radarr"}
+    assert (
+        conn.execute("SELECT COUNT(*) FROM audit_log WHERE action = 're_downloaded'").fetchone()[0]
+        == 1
+    )
+
+
+@pytest.mark.parametrize("status", [0, 504])
+def test_a_season_add_that_timed_out_but_landed_is_a_success(
+    app_factory, authed_client, conn, status
+):
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.return_value = None
+    sonarr.get_series.return_value = [{"tvdbId": 999, "monitored": True}]
+    sonarr.add_series_with_seasons.side_effect = _err(status)
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json() == {"ok": True, "message": "Added season 2 of 'Severance' to Sonarr"}

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.services.arr.add_outcome import movie_add_landed
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.state import _put_back_unmonitored
 from mediaman.services.infra import SafeHTTPError
@@ -51,7 +52,9 @@ def _redownload_movie(
         try:
             client.add_movie(tmdb_id, title)
         except SafeHTTPError as exc:
-            raise AddRefused(exc) from exc
+            # A slow Radarr can add the movie after the request gave up waiting.
+            if not movie_add_landed(exc, client, tmdb_id):
+                raise AddRefused(exc) from exc
         message = f"Added '{title}' to Radarr"
     email = get_user_email(conn, username)
     if email is None:

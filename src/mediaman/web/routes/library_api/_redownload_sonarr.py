@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.services.arr.add_outcome import series_add_landed
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -69,7 +70,9 @@ def _redownload_season(
         try:
             client.add_series_with_seasons(tvdb_id, title, [season_number])
         except SafeHTTPError as exc:
-            raise AddRefused(exc) from exc
+            # A slow Sonarr can add the series after the request gave up waiting.
+            if not series_add_landed(exc, client, tvdb_id):
+                raise AddRefused(exc) from exc
         message = f"Added season {season_number} of '{title}' to Sonarr"
     email = get_user_email(conn, username)
     if email is None:
