@@ -78,6 +78,11 @@ const scenarios = {
     await settle();
     return { first, posts, whileSending, after: { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, focused: p.focused(), say: p.say('account-revoke-result'), why: !p.$('account-revoke-why').hidden } };
   },
+  async thisDevice() {
+    const p = page({ get: () => Promise.resolve({ sessions: [session(9), { ...session(5), current: true }] }) });
+    await settle();
+    return p.rows();
+  },
   async onlySession() {
     const p = page({ get: () => Promise.resolve({ sessions: [session(9)] }) });
     await settle();

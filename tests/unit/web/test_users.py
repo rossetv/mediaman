@@ -337,8 +337,8 @@ class TestListSessions:
             assert "fingerprint" not in row, (
                 "fingerprint leaks the SHA-256/24-prefix material — must be stripped"
             )
-        # The safe key set is exactly what the route exposes today.
-        assert set(sessions[0].keys()) == {"created_at", "expires_at", "last_used_at"}
+        # Nothing but these may be added, least of all a token or its hash.
+        assert set(sessions[0].keys()) == {"created_at", "expires_at", "last_used_at", "current"}
 
     def test_sessions_rate_limited_after_cap(self, app_factory, authed_client, conn):
         """Per-actor cap stops a cookie thief from

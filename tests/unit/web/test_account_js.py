@@ -27,6 +27,11 @@ def test_live_sign_ins_are_listed_and_the_others_can_be_signed_out() -> None:
     assert out["after"]["say"][0].endswith(" ok")
 
 
+def test_the_sign_in_of_this_device_is_told_from_the_others() -> None:
+    marked = [("This device" in row) for row in _run("thisDevice")]
+    assert marked == [False, True]
+
+
 def test_why_the_others_cannot_be_signed_out_is_said_while_there_are_none() -> None:
     assert _run("onlySession") == {"disabled": True, "why": True}
     out = _run("sessions")

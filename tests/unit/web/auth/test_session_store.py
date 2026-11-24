@@ -891,6 +891,7 @@ class TestListSessionsExplicitConstruction:
             "last_used_at",
             "issued_ip",
             "fingerprint",
+            "current",
         }
 
 

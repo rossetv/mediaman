@@ -61,6 +61,17 @@ def test_a_viewer_lists_only_their_own_sign_ins(client, conn):
     assert len(resp.json()["sessions"]) == 2
 
 
+def test_a_person_s_list_of_sign_ins_marks_the_one_they_are_on(client, conn):
+    mine = list_sessions_for(conn, "viewer")[0]["created_at"]
+    create_session(conn, "viewer")
+    create_session(conn, "viewer")
+
+    sessions = client.get("/api/users/sessions").json()["sessions"]
+
+    assert [s["created_at"] for s in sessions if s["current"]] == [mine]
+    assert len(sessions) == 3
+
+
 def test_a_viewer_signs_out_their_other_devices_and_nobody_else_s(client, conn):
     theirs = create_session(conn, "boss")
     other = create_session(conn, "viewer")

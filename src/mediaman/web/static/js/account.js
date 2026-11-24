@@ -187,7 +187,15 @@
         list.textContent = '';
         live.forEach(function (s) {
           var li = document.createElement('li');
-          li.appendChild(line('profile-session-when', 'Signed in ' + when(s.created_at)));
+          var signedIn = line('profile-session-when', 'Signed in ' + when(s.created_at));
+          if (s.current) {
+            signedIn.appendChild(document.createTextNode(' '));
+            var here = document.createElement('span');
+            here.className = 'profile-session-here';
+            here.textContent = 'This device';
+            signedIn.appendChild(here);
+          }
+          li.appendChild(signedIn);
           li.appendChild(line('profile-session-used', 'Last active ' + when(s.last_used_at || s.created_at)));
           list.appendChild(li);
         });

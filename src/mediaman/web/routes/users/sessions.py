@@ -34,23 +34,28 @@ router = APIRouter()
 #: the issuing IP, which is exactly the material an attacker holding a
 #: stolen cookie would need to forge a matching fingerprint header on
 #: another device. ``issued_ip`` is the legitimate user's IP and useful
-#: for nothing but reconnaissance / doxxing. Timestamps are enough for
-#: the UI to render "this is your current session" without leaking either.
-_SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
+#: for nothing but reconnaissance / doxxing. Timestamps, and whether the
+#: session is the caller's own, are enough to tell one from another.
+_SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at", "current")
 
 
 @router.get("/api/users/sessions")
 @rate_limit(_SESSIONS_LIST_LIMITER, key="actor")
-def api_list_sessions(request: Request, admin: str = Depends(get_current_user)) -> Response:
+def api_list_sessions(
+    request: Request,
+    admin: str = Depends(get_current_user),
+    session_token: str | None = Cookie(default=None),
+) -> Response:
     """List active sessions for the signed-in user.
 
-    Returns timestamp metadata only, never raw tokens, IPs or fingerprints: a cookie thief
+    Returns timestamps and which session is the caller's, never raw tokens, IPs or fingerprints: a cookie thief
     could use a fingerprint to detect the legitimate user logging in or to forge a match on
     a third device. Rate limited per actor (_SESSIONS_LIST_LIMITER) for the same reason.
     """
     conn = get_db()
     safe = [
-        {key: row.get(key) for key in _SESSION_SAFE_KEYS} for row in list_sessions_for(conn, admin)
+        {key: row.get(key) for key in _SESSION_SAFE_KEYS}
+        for row in list_sessions_for(conn, admin, current_token=session_token)
     ]
     return JSONResponse({"sessions": safe})
 
