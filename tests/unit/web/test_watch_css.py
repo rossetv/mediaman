@@ -5,13 +5,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 SHEET = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch.css"
 FORCED = "(forced-colors: active)"
 
 
-def _of(selector: str, media: str | None = None) -> str:
+def _of(selector: str, media: str | None = None, sheet: Path = SHEET) -> str:
     """The declarations of *selector* outside any `@media`, or inside those asking for *media*."""
-    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
+    css = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
     blocks = r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}"
     text = (
         "".join(body for query, body in re.findall(blocks, css) if media in query)

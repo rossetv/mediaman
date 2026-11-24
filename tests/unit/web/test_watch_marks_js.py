@@ -4,15 +4,20 @@ DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+import jinja2
+import pytest
+
+TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 HARNESS = Path(__file__).parent / "js" / "watch_marks_harness.js"
 
 
-def _run(scenario: str):
+def _run(scenario: str, *args: str):
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario, *args], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
