@@ -202,6 +202,10 @@ def _set_carried_up_to(conn: sqlite3.Connection) -> None:
 
 # --- Whole-show keeps ---------------------------------------------------------
 
+_KEPT_SEASON = (
+    "mi.id AS season_id, mi.file_path, mi.season_number, mi.tmdb_id, mi.tvdb_id, "
+    "mi.show_title AS season_show_title"
+)
 _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 
 
@@ -244,8 +248,20 @@ def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) 
             "kept_show",
             f"Show '{keep['show_title']}' kept: Plex lists it under a new key",
         )
-    # The scan skips a season still scheduled, so one left here would go under the keep.
+    # The deletion pass cancels these when they are due; until then a kept show reads as leaving.
     delete_show_scheduled_deletions(conn, show_key)
+
+
+def _is_another_show(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, object]) -> bool:
+    """Return True if the season *new* is not of the show of *old*, at its path and season.
+
+    A folder may hold the seasons of two shows. Their ids tell them apart, or
+    their titles where the ids do not; *old* has no title when none is sure.
+    """
+    for column in ("tmdb_id", "tvdb_id"):
+        if old[column] is not None and new[column] is not None:
+            return bool(old[column] != new[column])
+    return old["season_show_title"] is not None and old["season_show_title"] != new["show_title"]
 
 
 def carry_show_keeps(
@@ -254,19 +270,22 @@ def carry_show_keeps(
     """Keep each show that *seasons*, as Plex lists them now, show to be a kept one under a new key.
 
     A season not in the library yet belongs to the show of the one it replaces:
-    of the same path and season, and not in *listed*, the keys Plex lists now. A
-    season that is, belongs to the show it was stored under. The keep stays on
-    the old key too. Run it before the seasons are stored or evaluated.
+    of the same path and season, not surely of another show, and not in *listed*,
+    the keys Plex lists now. A season that is, belongs to the show it was stored
+    under. The keep stays on the old key too. Run it before the seasons are
+    stored or evaluated.
     """
     now = now_iso()
     # rationale: the interpolated condition is a fixed string; every value is bound
     kept = conn.execute(  # nosec B608
-        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number "
+        f"SELECT ks.*, {_KEPT_SEASON} "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP} "
         "UNION ALL "
-        "SELECT ks.*, ps.media_item_id, ps.file_path, ps.season_number "
+        "SELECT ks.*, ps.media_item_id, ps.file_path, ps.season_number, "
+        "  pw.tmdb_id, pw.tvdb_id, NULL "
         "FROM kept_shows ks JOIN pruned_show_seasons ps USING (show_rating_key) "
+        "LEFT JOIN pruned_watches pw USING (media_item_id) "
         f"WHERE {_LIVE_KEEP}",
         (now, now),
     ).fetchall()
@@ -284,7 +303,9 @@ def carry_show_keeps(
             continue
         old = by_id.get(season_id, [])
         if not conn.execute("SELECT 1 FROM media_items WHERE id = ?", (season_id,)).fetchone():
-            old = old + by_place.get((season.get("file_path"), season.get("season_number")), [])
+            there = by_place.get((season.get("file_path"), season.get("season_number")), [])
+            ids = {key: season.get(key) for key in ("tmdb_id", "tvdb_id", "show_title")}
+            old = old + [keep for keep in there if not _is_another_show(keep, ids)]
         for keep in old:
             if keep["show_rating_key"] != show_key:
                 _give_show_keep(conn, keep, show_key)
@@ -304,7 +325,7 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
         (now,),
     )
     seasons = conn.execute(  # nosec B608
-        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number "
+        f"SELECT ks.*, {_KEPT_SEASON} "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP}",
         (now,),
@@ -312,7 +333,11 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
     for season in seasons:
         if season["season_id"] not in media_ids or not season["file_path"]:
             continue
-        shows = {other["show_rating_key"] for other in _others_at(conn, season, media_ids)}
+        shows = {
+            other["show_rating_key"]
+            for other in _others_at(conn, season, media_ids)
+            if not _is_another_show(season, other)
+        }
         for show_key in shows - {None, "", season["show_rating_key"]}:
             _give_show_keep(conn, season, show_key)
         if not shows - {None, ""}:
@@ -329,12 +354,20 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
 
 
 def forget_pruned_show_season(
-    conn: sqlite3.Connection, file_path: str, season_number: object
+    conn: sqlite3.Connection, media_id: str, file_path: str, season_number: object
 ) -> None:
-    """Forget where a kept show's season was, now that it is in the library again."""
+    """Forget where a kept show's season was, now that *media_id* is it in the library again.
+
+    It is when its show has the keep, or lost it since; else it may be of
+    another show in the same folder.
+    """
     conn.execute(
-        "DELETE FROM pruned_show_seasons WHERE file_path = ? AND season_number IS ?",
-        (file_path, season_number),
+        "DELETE FROM pruned_show_seasons WHERE file_path = ? AND season_number IS ? "
+        "AND EXISTS (SELECT 1 FROM media_items mi WHERE mi.id = ? AND ("
+        "  EXISTS (SELECT 1 FROM kept_shows ks WHERE ks.show_rating_key = mi.show_rating_key) "
+        "  OR EXISTS (SELECT 1 FROM audit_log a WHERE a.media_item_id = mi.show_rating_key "
+        "    AND a.action = 'removed_show_keep')))",
+        (file_path, season_number, media_id),
     )
 
 
@@ -343,7 +376,7 @@ def _others_at(
 ) -> list[sqlite3.Row]:
     """Return the library's titles at the path and season of *title* that are not in *removed*."""
     rows = conn.execute(
-        "SELECT id, show_rating_key, episode_keys FROM media_items "
+        "SELECT id, show_rating_key, show_title, tmdb_id, tvdb_id, episode_keys FROM media_items "
         "WHERE file_path = ? AND file_path != '' AND season_number IS ?",
         (title["file_path"], title["season_number"]),
     )

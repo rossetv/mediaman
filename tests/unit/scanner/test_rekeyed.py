@@ -147,6 +147,21 @@ _SHOW = [_season("show", 1)]
 # A season nobody had before comes first, so it is evaluated before the one that is known.
 _REKEYED = [_season("show", 2, prefix="new-"), _season("show", 1, prefix="new-")]
 
+# What a season of a kept show and one of another show in its folder say they are.
+_SHARED_FOLDER = pytest.mark.parametrize(
+    ("kept", "other"),
+    [
+        ({}, {}),
+        ({"tmdb_id": 1}, {"tmdb_id": 2, "show_title": "show"}),
+        ({"tvdb_id": 1}, {"tvdb_id": 2, "show_title": "show"}),
+    ],
+)
+
+
+def _keys_of(season):
+    return {key: season[key] for key in ("plex_rating_key", "show_rating_key", "episodes")}
+
+
 _RUNS = pytest.mark.parametrize("run", [_sync, _scan], ids=["sync", "scan"])
 
 
@@ -285,6 +300,77 @@ class TestWholeShowKeep:
 
         assert _scheduled(conn) == {"other-s1", "x-show-s3"}
 
+    @_RUNS
+    @_SHARED_FOLDER
+    def test_another_show_in_its_folder_is_not_kept_as_it_goes(
+        self, conn, freezer, run, kept, other
+    ):
+        kept, other = _season("show", 1) | kept, _season("other", 1, folder="show") | other
+        _sync(conn, seasons=[kept])
+        _keep(conn, "show")
+        _scan(conn, seasons=[kept, other])
+        assert _scheduled(conn) == {"other-s1"}
+
+        freezer.tick(60)
+        run(conn, seasons=[other])
+
+        assert "other" not in _kept(conn)
+        assert _scheduled(conn) == {"other-s1"}
+
+    @_SHARED_FOLDER
+    def test_another_show_new_in_its_folder_is_not_kept(self, conn, kept, other):
+        _sync(conn, seasons=[_season("show", 1) | kept])
+        _keep(conn, "show")
+
+        _scan(conn, seasons=[_season("other", 1, folder="show") | other])
+
+        assert "other" not in _kept(conn)
+        assert _scheduled(conn) == {"other-s1"}
+
+    def test_another_show_new_in_its_folder_after_it_went_is_not_kept(self, conn, freezer):
+        _sync(conn, seasons=[_season("show", 1) | {"tmdb_id": 1}])
+        _set_watched(conn, "show-s1", _NOW)
+        _keep(conn, "show")
+        for _ in range(2):
+            freezer.tick(60)
+            _sync(conn)
+
+        _scan(conn, seasons=[_season("other", 1, folder="show") | {"tmdb_id": 2}])
+
+        assert "other" not in _kept(conn)
+
+    @_SHARED_FOLDER
+    def test_a_show_in_its_folder_does_not_lose_it_the_keep_under_its_new_key(
+        self, conn, freezer, kept, other
+    ):
+        kept, other = _season("show", 1) | kept, _season("other", 1, folder="show") | other
+        _sync(conn, seasons=[kept, other])
+        _keep(conn, "show")
+        for _ in range(2):
+            freezer.tick(60)
+            _sync(conn, seasons=[other])
+
+        freezer.tick(60)
+        _scan(conn, seasons=[other, kept | _keys_of(_season("show", 1, prefix="new-"))])
+
+        assert _kept(conn)["new-show"] == FOREVER
+        assert _scheduled(conn) == {"other-s1"}
+
+    @pytest.mark.parametrize("ids", [{}, {"tmdb_id": 1, "tvdb_id": 2}])
+    def test_a_renamed_show_is_kept_under_its_new_key(self, conn, freezer, ids):
+        """Its ids are the same, or it has been gone for a while and nothing says it is another."""
+        _sync(conn, seasons=[_season("show", 1) | ids])
+        _keep(conn, "show")
+        for _ in range(0 if ids else 2):
+            freezer.tick(60)
+            _sync(conn)
+
+        renamed = _season("show", 1, prefix="new-") | ids | {"show_title": "Show (2020)"}
+        _scan(conn, seasons=[renamed])
+
+        assert _kept(conn)["new-show"] == FOREVER
+        assert _scheduled(conn) == set()
+
     def test_a_copy_listed_beside_the_kept_show_is_not_kept(self, conn):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")
@@ -347,6 +433,20 @@ class TestWholeShowKeep:
             _sync(conn, seasons=seasons)
         freezer.tick(60)
         _remove_keep(conn, "new-show")
+
+        _sync(conn, seasons=[_season("show", 1, prefix="newer-")])
+
+        assert "newer-show" not in _kept(conn)
+
+    def test_a_keep_a_returning_key_lost_before_is_not_given_to_the_next_one(self, conn, freezer):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show")
+        freezer.tick(60)
+        _remove_keep(conn, "new-show")
+        for seasons in ([], [], [_season("show", 1, prefix="new-")]):
+            freezer.tick(60)
+            _sync(conn, seasons=seasons)
+        assert "new-show" not in _kept(conn)
 
         _sync(conn, seasons=[_season("show", 1, prefix="newer-")])
 
