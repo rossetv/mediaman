@@ -303,6 +303,35 @@ const scenarios = {
     p.upd({ hero: item('b') });
     return { ...out, old: p.q('.dl-hero-ghost').querySelectorAll('.dl-hero-ep-summary').map((e) => e.textContent) };
   },
+  // the hero's height as titles of other heights take its place, the second while it still moves
+  async heroHeight(motion) {
+    const p = page(spec, { motion });
+    const card = p.q('.dl-hero');
+    const style = {};
+    const set = [];
+    let natural = 500, rendered = 0;
+    card.style = new Proxy(style, { get: (t, k) => t[k] || '', set: (t, k, v) => { t[k] = v; if (k === 'height') set.push(v); return true; } });
+    card.getBoundingClientRect = () => ({ height: style.height ? rendered : natural });
+    const swap = (id, to) => {
+      const title = p.q('.dl-hero-title');
+      Object.defineProperty(title, 'textContent', { configurable: true, get: () => '', set: () => { natural = to; } });
+      p.upd({ hero: item(id) });
+      return set.splice(0);
+    };
+    const out = { first: swap('b', 407) };
+    const timers = p.timers.splice(0);
+    rendered = 450;
+    out.second = swap('c', 460);
+    timers.forEach((t) => t.fn());
+    out.afterFirstTimer = style.height || '';
+    p.timers.splice(0).forEach((t) => t.fn());
+    out.settled = style.height || '';
+    set.splice(0);
+    p.upd({ hero: item('c', { progress: 4 }) });
+    out.same = set.length;
+    return out;
+  },
+  async heroHeightMoving() { return scenarios.heroHeight(true); },
   async pollLookMoving() { return scenarios.pollLook(true); },
 
   // the hero's background from mediaman's own address, and from one that only looks like it

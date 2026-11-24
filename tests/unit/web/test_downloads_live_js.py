@@ -387,6 +387,21 @@ def test_a_small_state_pill_stays_on_one_line() -> None:
     assert "white-space: nowrap" in _rule(".dl-state-pill--xs")
 
 
+def test_the_hero_eases_to_the_height_of_the_title_that_takes_its_place() -> None:
+    out = _run("heroHeightMoving", hero=_item("h"))
+    assert out["first"] == ["", "500px", "407px"]
+    # a swap while it moves goes on from where it is, and the first one's end is not its end
+    assert out["second"] == ["", "450px", "460px"]
+    assert out["afterFirstTimer"] == "460px" and out["settled"] == ""
+    assert out["same"] == 0
+    assert "transition: height var(--dur-slow)" in _rule(".dl-hero")
+
+
+def test_with_reduced_motion_the_hero_is_at_once_as_tall_as_its_title() -> None:
+    out = _run("heroHeight", hero=_item("h"))
+    assert out["first"] == out["second"] == [] and out["same"] == 0
+
+
 def _token(name: str) -> str:
     css = (WEB / "static/css/_tokens.css").read_text(encoding="utf-8")
     value = re.search(rf"--{name}:\s*([^;]+);", css)

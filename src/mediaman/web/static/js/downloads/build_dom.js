@@ -29,6 +29,7 @@
  *   MM.downloads.buildDom.buildEpisodeRow(ep)
  *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
  *   MM.downloads.buildDom.closeEpisodes(card)
+ *   MM.downloads.buildDom.easeHeight(card)          a function that eases the card from this height to its next
  *   MM.downloads.buildDom.fadeOver(card)            the hero as it is fades out over what it becomes
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
  *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
@@ -544,14 +545,37 @@
     var ghost = el('div', 'dl-hero-ghost' + (card.classList.contains('is-held') ? ' is-held' : ''));
     ghost.setAttribute('aria-hidden', 'true');
     ghost.setAttribute('inert', '');
-    ghost.style.height = card.getBoundingClientRect().height + 'px';
-    Array.prototype.forEach.call(card.children, function (part) { ghost.appendChild(part.cloneNode(true)); });
+    var copy = el('div', 'dl-hero-ghost__card');
+    copy.style.height = card.getBoundingClientRect().height + 'px';
+    Array.prototype.forEach.call(card.children, function (part) { copy.appendChild(part.cloneNode(true)); });
+    ghost.appendChild(copy);
     ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
       Array.prototype.forEach.call(ghost.querySelectorAll('[' + hook + ']'), function (part) { part.removeAttribute(hook); });
     });
     box.appendChild(ghost);
     /* Longer than the fade, which may never end in a tab that is hidden. */
     setTimeout(function () { if (ghost.parentNode) box.removeChild(ghost); }, 400);
+  }
+
+  /* Read a card's height before it turns into another title's; the function returned is
+     called after, and brings it to its new one from there. A swap while one still moves
+     starts from where the card is. */
+  function easeHeight(card) {
+    if (reducedMotion()) return function () {};
+    var from = card.getBoundingClientRect().height;
+    return function () {
+      var run = card._dlEase = {};
+      card.style.transition = 'none';
+      card.style.height = '';
+      var to = card.getBoundingClientRect().height;
+      if (Math.abs(to - from) >= 1) {
+        card.style.height = from + 'px';
+        void card.offsetHeight;
+        setTimeout(function () { if (card._dlEase === run) card.style.height = ''; }, 400);
+      }
+      card.style.transition = '';
+      if (card.style.height) card.style.height = to + 'px';
+    };
   }
 
   /* The episodes button and list of a hero or queue row exist only while the
@@ -833,6 +857,7 @@
     syncEpisodes:         syncEpisodes,
     closeEpisodes:        closeEpisodes,
     fadeOver:             fadeOver,
+    easeHeight:           easeHeight,
     syncAbandon:          syncAbandon,
     focusHeading:         focusHeading,
     passFocus:            passFocus,

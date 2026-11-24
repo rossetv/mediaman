@@ -69,7 +69,9 @@
     var d = dom();
     var card = container.querySelector('.dl-hero');
     if (!card) return;
+    var ease = null;
     if (card.getAttribute('data-dl-id') !== item.id) {
+      ease = d.easeHeight(card);
       /* The controls become another title's, which nobody on one of them asked for. */
       d.passFocus(card);
       d.fadeOver(card);
@@ -135,6 +137,7 @@
     d.syncEpisodes(card, item);
 
     d.syncAbandon(card, item, 'hero');
+    if (ease) ease();
   }
 
   MM.downloads.renderHero = {
