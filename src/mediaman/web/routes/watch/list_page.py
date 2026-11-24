@@ -42,8 +42,8 @@ SORT_OPTIONS = (
     ("name_desc", "Title (Z–A)"),
     ("size_desc", "Size (largest)"),
     ("size_asc", "Size (smallest)"),
-    ("watched_desc", "Last watched (recent)"),
-    ("watched_asc", "Last watched (oldest)"),
+    ("watched_desc", "Last watched by anyone (recent)"),
+    ("watched_asc", "Last watched by anyone (oldest)"),
     ("deletion_asc", "Deletion (soonest)"),
     ("deletion_desc", "Deletion (latest)"),
 )
