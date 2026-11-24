@@ -13,7 +13,7 @@
 /* ── The bar ── */
 
 .watch-page { position: relative; }
-/* The pill's two widths are parts of the bar's own, so opening it measures nothing. */
+/* The pill's two widths are lengths of the bar's own, so opening it measures nothing. */
 .watch-top { position: relative; z-index: 20; display: flex; justify-content: flex-end; align-items: center; height: 72px; padding: 20px var(--pad) 4px; container-type: inline-size; }
 .watch-search,
 .watch-sheet {
@@ -24,6 +24,7 @@
 .watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 440px); }
 .watch-top > .watch-search {
   position: absolute;
+  z-index: 1; /* over the switch and the meter while they make room */
   left: var(--pad);
   top: 20px;
   display: block;
@@ -38,34 +39,22 @@
 .watch-top > .watch-search.is-open { width: var(--open); }
 .watch-search:focus-within { outline: none; }
 
-/* Three slices, so it widens by transforms alone and its ends stay round. */
+/* A cap that stands still and a body that slides out from under it, so it
+   widens by one transform and both ends stay round. */
 .watch-search__pill,
 .watch-search__halo { position: absolute; left: 0; top: 0; width: var(--open); height: 48px; border-radius: 24px; pointer-events: none; }
-.watch-search__pill i {
-  position: absolute;
-  top: 0;
-  height: 48px;
-  background: var(--s3);
-  transition: transform var(--dur-open) var(--ease-spring);
-}
-.watch-search__pill i:nth-child(1) { left: 0; width: 24px; border-radius: 24px 0 0 24px; box-shadow: inset 1px 1px 0 var(--s4); }
-.watch-search__pill i:nth-child(2) {
-  left: 23px;
-  right: 23px;
-  box-shadow: inset 0 1px 0 var(--s4);
-  transform-origin: 0 50%;
-  transform: scaleX(tan(atan2(var(--shut) - 46px, var(--open) - 46px)));
-}
-.watch-search__pill i:nth-child(3) { right: 0; width: 24px; border-radius: 0 24px 24px 0; box-shadow: inset -1px 1px 0 var(--s4); transform: translateX(calc(var(--shut) - var(--open))); }
+.watch-search__pill { overflow: hidden; }
+.watch-search__pill i { position: absolute; top: 0; height: 48px; background: var(--s3); }
+.watch-search__pill i:nth-child(1) { left: 0; right: 0; border-radius: 0 24px 24px 0; box-shadow: inset -1px 1px 0 var(--s4); transform: translateX(calc(var(--shut) - var(--open))); transition: transform var(--dur-open) var(--ease-spring); }
+.watch-search__pill i:nth-child(2) { left: 0; width: 24px; border-radius: 24px 0 0 24px; box-shadow: inset 1px 1px 0 var(--s4); }
 .watch-search.is-open .watch-search__pill i { transform: none; }
 /* The raised tint and the accent ring. */
 .watch-search__pill i::before,
 .watch-search__pill i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 .watch-search__pill i::before { background: color-mix(in srgb, var(--t1) 5%, transparent); }
 .watch-search__pill i::after { border: 2px solid var(--accent); }
-.watch-search__pill i:nth-child(1)::after { border-right: 0; }
-.watch-search__pill i:nth-child(2)::after { border-width: 2px 0; }
-.watch-search__pill i:nth-child(3)::after { border-left: 0; }
+.watch-search__pill i:nth-child(1)::after { border-left: 0; }
+.watch-search__pill i:nth-child(2)::after { border-right: 0; }
 .watch-search.is-focus .watch-search__pill i::before,
 .watch-search.is-focus .watch-search__pill i::after { opacity: 1; }
 .watch-search__halo {
@@ -169,6 +158,7 @@
 
 .watch-sheet {
   position: absolute;
+  z-index: 1;
   left: var(--pad);
   top: 80px;
   width: var(--open);
@@ -378,6 +368,7 @@
   .watch-tile::after { content: none; }
   .watch-option.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
   .watch-suggestions__bar { display: none; }
+  .watch-line { color: CanvasText; }
   .watch-veil { display: none; }
   .results-fail { border: 1px solid CanvasText; }
 }

@@ -798,7 +798,10 @@ const scenarios = {
     click(p.doc, p.$('watch-option-genre-horror'));
     await settle();
     const type = p.doc.querySelectorAll('.explore-seg').filter((n) => n.getAttribute('aria-label') === 'Type')[0];
-    return { hidden: type.hidden === true, says: p.doc.querySelector('.explore-facts').textContent, url: p.calls[0].url };
+    const out = { hidden: type.hidden === true, says: p.doc.querySelector('.explore-facts').textContent, url: p.calls[0].url };
+    const linked = await ready(ADMIN, '', '/watch?genre=horror&type=tv');
+    out.linked = [linked.url(), linked.calls[linked.calls.length - 1].url];
+    return out;
   },
 
   // A person: what the library holds under its own heading, then the rest, whatever page they come on.

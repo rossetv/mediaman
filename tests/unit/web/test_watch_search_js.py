@@ -304,6 +304,8 @@ def test_a_category_of_films_alone_offers_no_kind_to_choose() -> None:
     assert out["hidden"] is True
     assert out["says"] == "Popular movies"
     assert out["url"] == "/api/watch/explore?genre=horror"
+    # A link that asks for a kind it has not lists all it has.
+    assert out["linked"] == ["/watch?genre=horror", "/api/watch/explore?genre=horror"]
 
 
 def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading() -> None:

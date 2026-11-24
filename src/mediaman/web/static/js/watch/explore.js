@@ -263,7 +263,6 @@
     var filter = { id: want.id, type: want.type, sort: want.sort, decade: want.decade };
     var bars = {};
     var asked = 0;
-    if (known && filter.type !== 'all' && known.types.indexOf(filter.type) === -1) filter.type = 'all';
     f.title.textContent = name;
 
     function words(total) {
@@ -297,11 +296,12 @@
     /* Only films or only TV: there is no kind to choose. */
     function settleTypes(g) {
       known = known || g;
-      if (g.types && g.types.length < 2) bars.type.hidden = true;
+      bars.type.hidden = g.types.length < 2;
+      // A link may ask for a kind it has not.
+      if (filter.type !== 'all' && g.types.indexOf(filter.type) === -1) change('type', 'all');
     }
 
     function change(key, value) {
-      if (filter[key] === value) return;
       filter[key] = value;
       address.replace('explore', address.url(query(filter)));
       f.facts.textContent = words();
@@ -326,7 +326,6 @@
     var filters = el('div', 'explore-filters');
     bars.type = segments('Type', TYPES, filter.type, function (v) { change('type', v); });
     bars.sort = segments('Order', SORTS, filter.sort, function (v) { change('sort', v); });
-    if (known) settleTypes(known);
     filters.appendChild(bars.type);
     filters.appendChild(bars.sort);
     var years = yearsMenu(filter.decade, function (v) { change('decade', v); });
@@ -343,7 +342,8 @@
       title: name, cards: [], next: 1, fetchPage: pages(Object.assign({}, filter)), empty: NO_FIT, say: function () {}
     });
     f.title.focus({ preventScroll: true });
-    categories().then(function (all) {
+    if (known) settleTypes(known);
+    else categories().then(function (all) {
       if (open !== mine) return;
       years.fill(all.decades);
       if (genre(want.id)) settleTypes(genre(want.id));
