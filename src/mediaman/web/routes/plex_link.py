@@ -105,6 +105,11 @@ class _PlexLinkBody(BaseModel):
     move: bool = False
 
 
+def carry_attempt(old_token: str | None, new_token: str) -> None:
+    """Keep a sign-in under way when its session's token is replaced."""
+    _attempts.move(hash_token(old_token or ""), hash_token(new_token))
+
+
 def _refuse(reason: str) -> JSONResponse:
     return respond_err(reason, status=_STATUS[reason], message=_MESSAGES[reason])
 

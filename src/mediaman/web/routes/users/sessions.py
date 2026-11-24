@@ -20,6 +20,7 @@ from mediaman.web.auth.session_store import (
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
+from mediaman.web.routes.plex_link import carry_attempt
 from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER, _SESSIONS_REVOKE_LIMITER
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ def api_revoke_other_sessions(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=client_ip,
     )
+    carry_attempt(session_token, new_token)
 
     response = respond_ok(
         {

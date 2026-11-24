@@ -88,12 +88,12 @@ class AttemptStore:
             if session not in self._attempts and len(self._attempts) >= _MAX_ATTEMPTS:
                 raise TooManyAttempts
             self._attempts[session] = attempt
-        attempt.last_look = _call_later(
-            attempt.expires_at - now, lambda: self._at_expiry(session, attempt)
-        )
+        attempt.last_look = _call_later(attempt.expires_at - now, lambda: self._at_expiry(attempt))
 
-    def _at_expiry(self, session: str, attempt: Attempt) -> None:
-        self.drop(session, attempt)
+    def _at_expiry(self, attempt: Attempt) -> None:
+        with self._lock:
+            for key in [k for k, a in self._attempts.items() if a is attempt]:
+                del self._attempts[key]
         if not discard(attempt):
             attempt.last_look = _call_later(_SECOND_LOOK_SECONDS, lambda: discard(attempt))
 
@@ -109,6 +109,12 @@ class AttemptStore:
                 return False
             del self._attempts[session]
             return True
+
+    def move(self, session: str, new_session: str) -> None:
+        with self._lock:
+            attempt = self._attempts.pop(session, None)
+            if attempt is not None:
+                self._attempts[new_session] = attempt
 
     def clear(self) -> None:
         with self._lock:

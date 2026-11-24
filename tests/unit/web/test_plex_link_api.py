@@ -13,9 +13,11 @@ from mediaman.crypto import encrypt_value
 from mediaman.services.plex_link import attempts, repository, sync
 from mediaman.services.plex_link.bounded import Pool, TooBusy, TookTooLong
 from mediaman.services.plex_link.plex_tv import Pin, PlexIdentity, PlexTv
+from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes import plex_link as routes
+from mediaman.web.routes.users import router as users_router
 from tests.helpers.fake_plex import SERVER, SERVER_ID, TOKEN, FakePlex
 
 TV = "https://plex.tv/api/v2"
@@ -306,6 +308,39 @@ def test_an_attempt_belongs_to_the_session_that_started_it(client_for, plex, con
         cancel(other, attempt)
     assert repository.list_links(conn) == []
     assert confirm(amy, attempt).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/users/sessions/revoke-others", None),
+        (
+            "/api/users/change-password",
+            {"old_password": "first pass 12345", "new_password": "Second-Pass-67890"},
+        ),
+    ],
+    ids=["signing out elsewhere", "a new password"],
+)
+def test_a_sign_in_under_way_outlives_a_new_session_token(
+    client_for, app, plex, conn, later, path, body
+):
+    app.include_router(users_router)
+    create_user(conn, "amy", "first pass 12345", enforce_policy=False, role="viewer")
+    amy = client_for("amy")
+    attempt = start(amy)
+    old = amy.cookies["session_token"]
+    resp = amy.post(path, json=body)
+    assert resp.status_code == 200, resp.text
+    new = resp.cookies["session_token"]
+    assert new != old
+    amy = TestClient(app, cookies={"session_token": new})
+    assert check(amy)["id"] == attempt["id"]
+
+    plex.approved = True
+    ((_, at_expiry),) = later
+    at_expiry()
+    assert plex.signed_out() == 1
+    assert routes._attempts._attempts == {}
 
 
 def test_an_attempt_is_not_handed_to_another_user_of_the_same_session(later):
