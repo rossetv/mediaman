@@ -332,11 +332,9 @@ def test_a_page_left_while_it_loads_saves_and_stops_its_stream(markup):
     assert out["left"][0]["body"]["position_s"] == 105
 
 
-def test_a_connection_that_failed_starts_anew_with_the_place_saved(markup):
+def test_a_connection_that_failed_goes_on_with_its_stream(markup):
     out = run(markup, "cancelled")
-    assert out["restarted"] == 2
-    # A page on its way out sends nothing else that is sure to arrive.
-    assert [b["body"]["position_s"] for b in out["stopped"]] == [110]
+    assert (out["restarted"], out["stopped"]) == (1, [])
 
 
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
@@ -850,7 +848,9 @@ def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
 ):
     out = run(markup, "next_unreached", plays=answer, pages=season)
     assert out["message"] == {"retry": True, "focus": True}
-    assert "next episode" in out["text"]
+    # A page that nothing answered for is waited for first, and is the connection's fault.
+    lost = answer in ("offline", "hangs", "refused")
+    assert ("mediaman" if lost else "next episode") in out["text"]
     # The system's own player would hide the message.
     assert (out["mode"], out["loading"], out["goesOn"]) == ("inline", False, False)
     assert out["href"] == ("/watch/play/502" if answer == "unopened" else "/watch/play/1")
@@ -1191,19 +1191,7 @@ def test_a_film_that_ends_on_a_page_that_came_by_a_link_stays_in_the_app(tmp_pat
     assert out == {"through": 0, "at": "/watch/movie/7"}
 
 
-def test_sound_dragged_to_nothing_comes_back_as_loud_as_it_was(markup):
-    out = run(markup, "drag_to_silence")
-    assert out["silent"] == {"volume": 0.7, "muted": True, "slider": 0, "name": "Unmute"}
-    assert out["saved"]["mediaman.watch.volume"] == "0.7"
-    assert out["back"] == {"volume": 0.7, "muted": False, "slider": 0.7, "name": "Mute"}
-    assert out["up"] == {"volume": 0.4, "muted": False, "slider": 0.4, "name": "Mute"}
-
-
-def test_f_and_the_arrows_work_after_the_mouse_used_the_volume_slider(markup):
-    out = run(markup, "slider_keys")
-    assert out["byMouse"] == {"moved": 10, "full": 1}
-    # There by Tab the arrows are the slider's own.
-    assert out["byTab"] == {"moved": 0, "full": 1}
+LOST = {"text": "Can't reach mediaman. Check your connection.", "button": "Try again"}
 
 
 def test_a_held_arrow_moves_the_bar_at_once_and_the_video_once_when_it_is_let_go(markup):
@@ -1249,3 +1237,117 @@ def test_presses_while_the_video_buffers_land_and_space_lands_one_at_once(markup
     out = run(markup, "press_while_buffering")
     assert (out["now"], out["landed"], out["bySpace"]) == ("120", [120], [120, 130])
     assert (out["all"], out["paused"]) == ([120, 130], True)
+
+
+def test_a_seek_to_what_has_not_loaded_keeps_the_frame_until_it_is_there(markup):
+    out = run(markup, "seek_holds")
+    assert out == {"loaded": False, "notLoaded": True, "seeked": True, "seen": False}
+
+
+def test_a_segment_the_server_is_too_busy_for_is_asked_for_again_when_it_says(markup):
+    out = run(markup, "busy", plays="fragLoadError")
+    assert out["early"] == [0, 1]
+    assert (out["after"]["loads"], out["after"]["streams"]) == ([-1], 1)
+    assert (out["starts"], out["stops"], out["message"], out["notice"]) == (1, 0, None, False)
+
+
+def test_a_playlist_the_server_is_too_busy_for_is_asked_for_again_when_it_says(markup):
+    out = run(markup, "busy", plays="manifestLoadError")
+    assert out["early"] == [0, 1]
+    assert (out["after"]["streams"], out["after"]["src"]) == (2, "/p1")
+    assert out["after"]["startPosition"] == 100
+    assert (out["starts"], out["stops"], out["message"], out["notice"]) == (1, 0, None, False)
+
+
+@pytest.mark.parametrize("how", ["offline", "gateway"])
+def test_a_short_drop_keeps_the_stream_and_is_tried_again_with_longer_waits(markup, how):
+    out = run(markup, "dropped", plays=how)
+    assert out["triedAt"] == [1, 3, 7, 15, 23, 31, 39]
+    trying = {"message": None, "destroyed": False, "notice": True, "loading": True}
+    assert out["whileTrying"] == trying
+    assert out["back"] == {"notice": False, "message": None}
+    assert (out["starts"], out["later"]) == (1, None)
+
+
+def test_a_drop_is_said_only_once_the_picture_waits_for_it_and_to_a_screen_reader(markup):
+    out = run(markup, "dropped", plays="offline")
+    assert (out["whilePlaying"], out["waiting"]) == (False, True)
+    assert (out["role"], "Connection lost" in out["text"]) == ("status", True)
+
+
+def test_a_drop_that_lasts_about_a_minute_is_said_with_the_frame_kept(markup):
+    out = run(markup, "dropped_long")
+    assert (out["before"], out["message"], out["notice"]) == (None, LOST, False)
+    assert (out["destroyed"], out["mode"], out["triesUnderMessage"]) == (False, "inline", 0)
+
+
+def test_try_again_and_coming_online_carry_on_with_the_same_stream(markup):
+    out = run(markup, "dropped_long")
+    assert out["again"] == {"loads": 1, "message": None, "notice": True}
+    assert out["messageAgain"] == LOST
+    assert out["online"] == {"loads": 1, "message": None}
+    assert (out["back"], out["starts"]) == (None, 1)
+
+
+def test_a_drop_is_no_error_while_there_is_video_left_to_play(markup):
+    out = run(markup, "dropped_playing_on")
+    assert out == {"playing": None, "waiting": None, "late": True, "starts": 1}
+
+
+def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(markup):
+    out = run(markup, "dropped_online")
+    assert (out["atOnce"], out["message"], out["after"]) == (1, True, None)
+    assert (out["plays"], out["paused"]) == (0, True)
+
+
+@pytest.mark.parametrize("how", ["offline", "gateway"])
+def test_a_start_that_does_not_reach_mediaman_is_tried_again_where_it_stood(markup, how):
+    out = run(markup, "start_dropped", plays=how)
+    assert out["first"] == {"message": None, "held": True, "notice": True}
+    assert (3 <= out["tries"] <= 8, out["waiting"], out["at"]) == (True, None, 105)
+    assert out["back"] == {"message": None, "notice": False, "quality": None, "toasts": 0}
+    assert (out["late"], out["frame"]) == (LOST, True)
+    assert out["online"] == {"starts": 1, "message": None, "notice": False}
+
+
+def test_a_next_episode_is_waited_for_through_a_short_drop(markup, season):
+    out = run(markup, "next_dropped", plays="short", pages=season)
+    assert out["first"] == {"message": None, "notice": True, "held": True}
+    assert out["went"] == {"key": "502", "message": None, "notice": False}
+
+
+def test_a_next_episode_out_of_reach_is_said_and_goes_on_by_itself_once_online(markup, season):
+    out = run(markup, "next_dropped", plays="long", pages=season)
+    assert (out["late"], out["subtitle"]) == (LOST, "S2 · E4")
+    assert out["asked"] > 4
+    assert out["went"] == {"key": "502", "message": None, "notice": False}
+
+
+def test_what_follows_is_asked_again_through_a_drop_and_once_online(unknown_next, markup):
+    out = run(unknown_next, "next_unknown_dropped", pages={"/found": markup})
+    assert (out["first"], out["notice"], out["late"]) == (None, True, LOST)
+    assert out["found"] == {"message": None, "card": True}
+
+
+def test_moving_back_while_what_follows_is_asked_ends_the_asking(unknown_next):
+    out = run(unknown_next, "next_unknown_left")
+    assert out == {"message": None, "notice": False, "asked": 1}
+
+
+def test_a_wait_for_a_busy_server_says_nothing_of_the_quality(markup):
+    assert run(markup, "busy_stalls") == {"busy": 1, "slow": 2}
+
+
+def test_f_and_the_arrows_work_after_the_mouse_used_the_volume_slider(markup):
+    out = run(markup, "slider_keys")
+    assert out["byMouse"] == {"moved": 10, "full": 1}
+    # There by Tab the arrows are the slider's own.
+    assert out["byTab"] == {"moved": 0, "full": 1}
+
+
+def test_sound_dragged_to_nothing_comes_back_as_loud_as_it_was(markup):
+    out = run(markup, "drag_to_silence")
+    assert out["silent"] == {"volume": 0.7, "muted": True, "slider": 0, "name": "Unmute"}
+    assert out["saved"]["mediaman.watch.volume"] == "0.7"
+    assert out["back"] == {"volume": 0.7, "muted": False, "slider": 0.7, "name": "Mute"}
+    assert out["up"] == {"volume": 0.4, "muted": False, "slider": 0.4, "name": "Mute"}

@@ -18,11 +18,13 @@
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works. If the server refuses the
- * stream of a new quality, the quality that was playing comes back.
+ * which is also how a quality change works. What answers 429 is asked again
+ * when it says. If the server refuses the stream of a new quality, the quality that
+ * was playing comes back.
  * Automatic steps the quality down when playback keeps stalling, and
  * slowly up again when it no longer does.
  * While a new stream replaces the old one, the last frame stays on screen.
+ * A connection that drops is tried again for a while before it is an error.
  *
  * The next episode takes over in this same page, from what its own page
  * (GET /watch/play/<key>) says, so that full screen, picture in picture and
@@ -64,8 +66,13 @@
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
   var MAX_REVERTS = 2;
-  /* How long a request cancelled, or with no answer, waits for the page to be left. */
-  var LEAVE_WAIT_MS = 1000;
+  /* A lost connection is tried again with waits that double, until there has been
+     nothing to play for this long. */
+  var LOST_FIRST_MS = 1000;
+  var LOST_MAX_MS = 8000;
+  var LOST_FOR_MS = 60000;
+  /* The longest a busy server may ask for before it is asked again. */
+  var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
      video, or once for this long. */
   var STALL_WINDOW_S = 60;
@@ -97,6 +104,7 @@
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
+  var MSG_LOST = "Can't reach mediaman. Check your connection.";
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
@@ -107,7 +115,7 @@
     too_many_streams: { text: 'You have too many videos playing. Close one and try again.', retry: true },
     rate_limited: { text: 'Too many tries. Wait a moment and try again.', retry: true },
   };
-  /* Only a network failure or a server fault is worth one more try. */
+  /* Only a fault of the server's or of its answer is worth one more try. */
   var RETRY_STATUS = { 0: 1, 500: 1, 502: 1, 504: 1 };
 
   function readJSON(el, name) {
@@ -176,6 +184,7 @@
     fullscreen: q('[data-fullscreen]'),
     upnextStatus: q('[data-upnext-status]'),
     ask: q('[data-ask]'),
+    lost: q('[data-lost]'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
     retry: q('[data-retry]'),
@@ -224,6 +233,7 @@
   var streamId = null;
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
+  var busy = false;          // the server had no room for the last request
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
@@ -478,7 +488,7 @@
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
     if (same) {
-      if (shown(els.message) && tryAgain === retry) retry();
+      if (shown(els.message) && (tryAgain === retry || tryAgain === tryLost)) tryAgain();
       return;
     }
     reverts = 0;
@@ -549,6 +559,8 @@
   function noteStall() {
     if (!rolling || swapping) return;
     stopRolling();
+    if (lost) countLost(); // What was loaded before is all played.
+    if (lost || busy) return;
     if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
   }
 
@@ -604,15 +616,18 @@
 
   function setLoading(on) {
     root.classList.toggle('is-loading', on);
+    showLost();
     showPlayState();
   }
 
+  var heldForSeek = false;
   var heldFor = 0;           // bumps as a frame is held or let go; what waits for an older one is dropped
 
   /* Draw the frame on screen over the video, so tearing the stream down
      does not leave the picture black. It dims where another video follows. */
   function holdFrame(another) {
     heldFor++;
+    heldForSeek = false;
     root.classList.toggle('is-switching', !!another);
     if (!shown(hold) && video.readyState >= 2 && video.videoWidth) {
       hold.width = video.videoWidth;
@@ -627,6 +642,7 @@
 
   function releaseFrame() {
     heldFor++;
+    heldForSeek = false;
     leave(hold);
     root.classList.remove('is-held');
   }
@@ -646,12 +662,13 @@
     else there();
   }
 
-  /* `again` is what Try again does; without it there is no such button. */
+  /* `again` is what Try again does; without it there is no such button. The last
+     frame stays under a message that the video can go on from. */
   var tryAgain = null;
   function showMessage(text, again) {
     tryAgain = again;
     swapping = false;
-    releaseFrame();
+    if (again !== tryLost) releaseFrame();
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
@@ -667,6 +684,101 @@
     els.play.disabled = false;
     if (els.message.contains(document.activeElement)) els.play.focus();
     leave(els.message);
+  }
+
+  /* ---- a lost connection ----------------------------------------------- */
+
+  /* While mediaman cannot be reached: what asks `again`, what tidies up once it
+     `gaveUp`, the next `wait`, whether a try is under way (`trying`) and whether
+     the message is up (`over`). */
+  var lost = null;
+
+  function noteLost(again, gaveUp) {
+    if (lost) return;
+    lost = { again: again, gaveUp: gaveUp, wait: LOST_FIRST_MS, trying: false, over: false };
+    clearTimeout(stallTimer);
+    countLost();
+    showLost();
+  }
+
+  function waitOut(again, gaveUp) {
+    noteLost(again, gaveUp);
+    lost.trying = false;
+    if (lost.over) return;
+    lost.again = again;
+    clearTimeout(lost.tryTimer);
+    lost.tryTimer = setTimeout(askAgain, lost.wait);
+    lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
+  }
+
+  function askAgain() {
+    clearTimeout(lost.tryTimer);
+    lost.trying = true;
+    lost.again();
+  }
+
+  /* What was loaded before may still play for long. */
+  function countLost() {
+    clearTimeout(lost.endTimer);
+    lost.endTimer = setTimeout(function () {
+      if (rolling) countLost();
+      else giveUp();
+    }, LOST_FOR_MS);
+  }
+
+  function giveUp() {
+    clearTimeout(lost.tryTimer);
+    lost.over = true;
+    if (lost.gaveUp) lost.gaveUp();
+    leaveNative();
+    showMessage(MSG_LOST, tryLost);
+  }
+
+  function goOnTrying() {
+    lost.over = false;
+    lost.wait = LOST_FIRST_MS;
+    countLost();
+    hideMessage();
+    setLoading(video.ended || video.readyState < 3);
+    if (!lost.trying) askAgain();
+  }
+
+  /* Try again. */
+  function tryLost() {
+    wantPlaying = true;
+    if (streamId && video.paused && !video.ended) play();
+    goOnTrying();
+  }
+
+  function endLost() {
+    if (!lost) return;
+    clearTimeout(lost.tryTimer);
+    clearTimeout(lost.endTimer);
+    lost = null;
+    showLost();
+  }
+
+  function reached() {
+    if (!lost) return;
+    if (lost.over) hideMessage();
+    endLost();
+  }
+
+  /* Said only where the picture waits for it. */
+  function showLost() {
+    if (lost && !lost.over && root.classList.contains('is-loading')) show(els.lost);
+    else leave(els.lost);
+  }
+
+  window.addEventListener('online', function () {
+    if (!lost) return;
+    if (lost.over) goOnTrying();
+    else if (!lost.trying) askAgain();
+  });
+
+  /* Whether a proxy, not mediaman, answered: one in front of it says so with these. */
+  function fromProxy(status) {
+    return (status >= 502 && status <= 504) || status >= 520;
   }
 
   /* ---- streams -------------------------------------------------------- */
@@ -688,6 +800,7 @@
   /* Start a stream at `pos`; one retry before the error is shown. */
   function startStream(pos) {
     var gen = ++generation;
+    endLost();
     dropAim();
     starting = true;
     pendingStart = pos;
@@ -707,6 +820,7 @@
             return;
           }
           starting = false;
+          reached();
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
@@ -718,6 +832,16 @@
         .catch(function (err) {
           if (gen !== generation) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
+          var code = err && err.error;
+          if (code === 'network_error' || (fromProxy(status) && code === 'http_' + status)) {
+            waitOut(function () {
+              starting = true;
+              swapping = true;
+              attempt(tries);
+            }, function () { starting = false; });
+            return;
+          }
+          reached();
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
           if (status === 422 && quality !== 'auto' && !hasPlayed) {
             /* A saved choice the server does not know. It stays saved. */
@@ -739,8 +863,12 @@
     return attempt(0);
   }
 
+  var playlistUrl;
+
   function attach(playlist, pos) {
     destroyHls();
+    playlistUrl = playlist;
+    busy = false;
     var h = new Hls({
       enableWorker: false,
       startPosition: pos,
@@ -751,12 +879,25 @@
     h.on(Hls.Events.ERROR, function (event, data) { if (h === hls) onHlsError(data); });
     h.on(Hls.Events.MANIFEST_PARSED, function () {
       if (h !== hls) return;
+      reached();
       swapping = false;
       if (wantPlaying) play();
       else setLoading(false);
     });
+    h.on(Hls.Events.FRAG_LOADED, function () {
+      if (h !== hls) return;
+      busy = false;
+      reached();
+    });
     h.loadSource(playlist);
     h.attachMedia(video);
+  }
+
+  /* hls.js has stopped at an error of this stream's that may pass: go on loading. */
+  function loadAgain(h, details) {
+    if (h !== hls) return;
+    if (/^manifest/.test(details)) attach(playlistUrl, position());
+    else h.startLoad(pendingStart === null ? -1 : pendingStart);
   }
 
   /* hls.js empties the video and fills it again, but says nothing of its place or of play. */
@@ -810,21 +951,45 @@
     restartStream(false);
   }
 
-  function onHlsError(data, stays) {
-    if (data.response && data.response.code === 410) {
+  /* The code of the server's own in a failed answer; null where it has none. */
+  function codeOf(data) {
+    var xhr = data.networkDetails;
+    try {
+      var text = xhr.responseType === 'arraybuffer' ? new TextDecoder().decode(xhr.response) : xhr.responseText;
+      return JSON.parse(text).error || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function retryAfterMs(data) {
+    var s = parseInt(data.networkDetails.getResponseHeader('Retry-After'), 10);
+    return Math.min(s > 0 ? s : 1, BUSY_MAX_S) * 1000;
+  }
+
+  function onHlsError(data) {
+    var h = hls;
+    var status = data.response ? data.response.code : undefined;
+    if (status === 410) {
       streamGone();
+      return;
+    }
+    if (status === 429) {
+      busy = true;
+      reached();
+      if (data.fatal) setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
+      return;
+    }
+    /* Leaving the page cancels its requests too, before it says that it is left. */
+    if (status === 0 || (fromProxy(status) && !codeOf(data))) {
+      var again = function () { loadAgain(h, data.details); };
+      if (data.fatal) waitOut(again);
+      else noteLost(again);
       return;
     }
     /* Also how a connection too slow to start at all shows. */
     if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
     if (!data.fatal) return;
-    if (data.response && data.response.code === 0 && !stays) {
-      /* Leaving the page cancels its requests before it says that it is left:
-         starting anew now would only hide the stream from the goodbye. */
-      var h = hls;
-      setTimeout(function () { if (h === hls) onHlsError(data, true); }, LEAVE_WAIT_MS);
-      return;
-    }
     /* An original that has played is one this browser can play: only the picture
        itself failing says otherwise. */
     var unplayable = data.type === Hls.ErrorTypes.MEDIA_ERROR || !originalPlayed;
@@ -869,7 +1034,9 @@
     streamId = null;
     generation++;
     starting = false;
+    endLost();
     dropAim();
+    stopRolling();
     destroyHls();
     return Promise.race([
       Promise.all(unstopped.map(sendStop)),
@@ -997,6 +1164,14 @@
     return Math.max(0, d > 0 ? Math.min(t, d - 1) : t);
   }
 
+  function isLoaded(t) {
+    var b = video.buffered;
+    for (var i = 0; i < b.length; i++) {
+      if (b.start(i) <= t && t < b.end(i)) return true;
+    }
+    return false;
+  }
+
   function seekTo(t) {
     t = within(t);
     dropAim();
@@ -1004,6 +1179,11 @@
     hideUpnext();
     if (video.readyState >= 1) {
       pendingStart = null;
+      /* WebKit shows black until the place has loaded. */
+      if (!isLoaded(t)) {
+        holdFrame();
+        heldForSeek = true;
+      }
       video.currentTime = t;
     } else {
       /* Nothing loaded yet: move where the stream will start. */
@@ -1118,10 +1298,14 @@
     lastTime = null;
     stopRolling();
     /* A message over a video that can be played is about its end. */
-    if (streamId && !starting) hideMessage();
+    if (streamId && !starting) {
+      if (lost && lost.over) goOnTrying();
+      else hideMessage();
+    }
   });
   video.addEventListener('seeked', function () {
     settleStart();
+    if (heldForSeek && !swapping) releaseOnceSeen();
     saveAfterSeek();
   });
   video.addEventListener('progress', render);
@@ -1893,6 +2077,10 @@
         if (!resp.redirected && !resp.ok) throw Object.assign(new Error('HTTP ' + resp.status), { status: resp.status });
         return resp.redirected ? '' : resp.text();
       })
+      .catch(function (err) {
+        clearTimeout(timer);
+        throw Object.assign(err, { lost: !err.status || fromProxy(err.status) });
+      })
       .then(function (html) {
         clearTimeout(timer);
         var page = new DOMParser().parseFromString(html, 'text/html');
@@ -1910,15 +2098,26 @@
     fetchPage(window.location.href)
       .then(function (page) {
         if (gen !== generation) return;
+        reached();
         var el = page.getElementById('player');
         readNext(el);
         fillSlot(el, 'next');
         fillSlot(el, 'upnext');
         setupNext();
       })
-      .catch(function () { /* still unknown */ })
-      .then(function () {
+      .catch(function (err) {
+        return err.lost; // Otherwise still unknown.
+      })
+      .then(function (unreached) {
         if (gen !== generation) return;
+        if (unreached && video.ended) {
+          waitOut(function () {
+            if (video.ended) findNext();
+            else endLost();
+          });
+          return;
+        }
+        endLost();
         setLoading(false);
         if (!video.ended) return;
         if (nextUnknown) {
@@ -1960,28 +2159,44 @@
     setLoading(true);
     showSkip();
     showControls();
-    Promise.all([fetchPage(href), stopped])
-      .then(function (done) {
-        if (gen !== generation) return;
-        takePage(done[0], href);
-        switching = false;
-        startStream(startS);
-      }, nextUnreached)
-      .catch(function () {
-        if (gen !== generation) return;
-        saveSitting(byItself);
-        window.location.href = href;
-        /* The browser may stay here after all: stopped, or with nothing to show. */
-        setTimeout(nextUnreached, PAGE_WAIT_MS);
-      });
+    askPage();
+
+    function askPage() {
+      Promise.all([fetchPage(href), stopped])
+        .then(function (done) {
+          if (gen !== generation) return;
+          takePage(done[0], href);
+          switching = false;
+          startStream(startS);
+        }, function (err) {
+          if (gen !== generation) return;
+          if (err.lost) waitOut(askPage, stay);
+          else nextUnreached(err);
+        })
+        .catch(function () {
+          if (gen !== generation) return;
+          saveSitting(byItself);
+          window.location.href = href;
+          /* The browser may stay here after all: stopped, or with nothing to show. */
+          setTimeout(nextUnreached, PAGE_WAIT_MS);
+        });
+    }
 
     function nextUnreached(err) {
       if (gen !== generation) return;
+      endLost();
+      stay();
+      leaveNative();
+      showMessage(MSG_NEXT_UNREACHED, err && err.status === 404 ? null : again);
+    }
+
+    function again() { goNext(false); }
+
+    function stay() {
       switching = false;
       showSubtitle(item.subtitle);
       saveSitting(false);
-      leaveNative();
-      showMessage(MSG_NEXT_UNREACHED, err && err.status === 404 ? null : function () { goNext(false); });
+      if (lost) lost.again = again;
     }
   }
 
@@ -2264,6 +2479,7 @@
     pendingStart = resumeAt;
     streamId = null;
     generation++;
+    endLost();
     dropAim();
     if (switching) showSubtitle(item.subtitle);
     switching = false;

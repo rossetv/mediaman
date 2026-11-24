@@ -482,7 +482,8 @@
 @keyframes player-pop { from { opacity: 0; translate: 0 var(--pop-y, 8px); } }
 @keyframes player-drop { to { opacity: 0; translate: 0 var(--pop-y, 8px); } }
 .player-menu,
-.player-card { animation: player-pop var(--dur) var(--ease-out); }
+.player-card,
+.player-lost-text { animation: player-pop var(--dur) var(--ease-out); }
 .player-menu--down { --pop-y: -6px; }
 .player .is-leaving {
   animation: player-drop var(--dur-fast) var(--ease-out) forwards;
@@ -492,6 +493,7 @@
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
   .player-card,
+  .player-lost-text,
   .player-bubble,
   .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
@@ -529,6 +531,24 @@
 }
 .player.is-held.is-switching .player-dim { opacity: .4; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
+
+/* A connection that dropped, said under the spinner that waits for it. */
+.player-lost {
+  position: absolute;
+  top: calc(50% + 40px);
+  left: 16px; right: 16px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.player-lost-text {
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  background: var(--player-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  font-size: 14px;
+}
 
 /* Cards: the "next episode" countdown, the error message and "Are you still watching?". */
 .player-card {
@@ -709,6 +729,7 @@
   .player-pill::before,
   .player-menu,
   .player-card,
+  .player-lost-text,
   .player-frame,
   .player-bubble-text { border: 1px solid CanvasText; }
   .player-pill::before,

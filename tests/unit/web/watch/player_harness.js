@@ -361,7 +361,7 @@ function boot(html, reduced, saved, serverPlays, came) {
 
   const hlsList = [];
   class Hls {
-    constructor(cfg) { this.config = cfg; this.startsAt = null; this.handlers = {}; this.destroyed = false; hlsList.push(this); }
+    constructor(cfg) { this.config = cfg; this.startsAt = null; this.loads = []; this.handlers = {}; this.destroyed = false; hlsList.push(this); }
     static isSupported() { return true; }
     on(name, fn) { this.handlers[name] = fn; }
     emit(name, data) {
@@ -371,7 +371,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     }
     loadSource(src) { this.src = src; }
     attachMedia(v) { this.media = v; }
-    startLoad(t) { if (this.startsAt !== null) this.startsAt = t; }
+    startLoad(t) { this.loads.push(t); if (this.startsAt !== null) this.startsAt = t; }
     /* Like hls.js: the media is let go of and taken again, empty and paused, with nothing
        said of its place. */
     recoverMediaError() {
@@ -391,7 +391,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       fire(v, 'emptied');
     }
   }
-  Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed' };
+  Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed', FRAG_LOADED: 'hlsFragLoaded' };
   Hls.ErrorDetails = { FRAG_LOAD_TIMEOUT: 'fragLoadTimeOut' };
   Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 
@@ -417,6 +417,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     sessionStorage: storeOf(session),
     Date: Object.assign(function (ms) { return new Date(ms); }, { now: () => clock.now }),
     AbortController: AbortController,
+    TextDecoder: TextDecoder,
     DOMParser: DOMParser,
     history: {
       urls: [], backs: 0, length: came ? came.length : 1, state: (came && came.state) || null,
@@ -464,6 +465,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     held: held,
     sleep: sleep,
     leave() { win.listeners.pagehide.forEach((fn) => fn({})); },
+    online() { (win.listeners.online || []).forEach((fn) => fn({})); },
     comeBack() { win.listeners.pageshow.forEach((fn) => fn({ persisted: true })); },
     storage: storage,
     sitting: () => JSON.parse(session['mediaman.watch.sitting']),
@@ -516,6 +518,47 @@ function countSeeks(video) {
 function barState(p) {
   return { time: p.q('[data-elapsed]').textContent, now: p.q('[data-seek]').getAttribute('aria-valuenow'), left: p.q('[data-played]').style.width };
 }
+
+/* A failed request, as hls.js tells of it; *body* is what the server answered it with. */
+function loadError(details, code, body, headers) {
+  const text = body ? JSON.stringify(body) : '';
+  const segment = /^frag/.test(details);
+  return {
+    fatal: true, type: 'networkError', details: details, response: { code: code },
+    networkDetails: {
+      responseType: segment ? 'arraybuffer' : '',
+      response: segment ? new TextEncoder().encode(text).buffer : text,
+      get responseText() { if (segment) throw new Error('InvalidStateError'); return text; },
+      getResponseHeader: (name) => (headers || {})[name.toLowerCase()] || null,
+    },
+  };
+}
+
+function messageState(p) {
+  if (gone(p.q('[data-message]'))) return null;
+  return { text: p.q('[data-message-text]').textContent, button: p.q('[data-retry]').hidden ? null : p.q('[data-retry]').textContent };
+}
+
+/* The connection fails again as often as the page tries, for this long. */
+async function failFor(p, ms, fail) {
+  for (let i = 0; i < ms; i += 500) {
+    p.tick(500);
+    fail();
+    await settle();
+  }
+}
+
+/* Every time *loads* grew, the try fails. */
+function failingLoads(h, error) {
+  let seen = h.loads.length;
+  return () => {
+    if (h.loads.length === seen) return;
+    seen = h.loads.length;
+    h.emit('hlsError', error());
+  };
+}
+
+const NET = { err: { error: 'network_error', status: 0 } };
 
 function holdState(p) {
   return {
@@ -1007,45 +1050,6 @@ const scenarios = {
     return out;
   },
 
-  /* The slider dragged to nothing, and the sound put back on, here and by a later page. */
-  async drag_to_silence(p) {
-    const slider = p.q('[data-volume]');
-    const drag = (levels) => {
-      levels.forEach((v) => { slider.value = String(v); fire(slider, 'input', { bubbles: true }); fire(p.video, 'volumechange'); });
-      fire(slider, 'change', { bubbles: true });
-    };
-    const look = () => ({ volume: p.video.volume, muted: p.video.muted, slider: +slider.value, name: p.q('[data-mute]').getAttribute('aria-label') });
-    await streamPlays(p, 100);
-    drag([0.9, 0.7]);
-    drag([0.5, 0.2, 0.05, 0]);
-    const out = { silent: look(), saved: Object.assign({}, p.storage) };
-    press(p.q('[data-mute]'));
-    fire(p.video, 'volumechange');
-    out.back = look();
-    drag([0.3, 0, 0.4]);
-    out.up = look();
-    return out;
-  },
-
-  /* F and the arrows with the volume slider in focus: by the mouse, then by Tab. */
-  async slider_keys(p) {
-    let asked = 0;
-    p.root.requestFullscreen = () => { asked++; return Promise.resolve(); };
-    await streamPlays(p, 100);
-    const look = () => {
-      const from = p.video.currentTime;
-      const full = asked;
-      key('ArrowRight');
-      p.tick(300);
-      key('f');
-      return { moved: p.video.currentTime - from, full: asked - full };
-    };
-    press(p.q('[data-volume]'));
-    const byMouse = look();
-    tabTo(p.q('[data-volume]'));
-    return { byMouse: byMouse, byTab: look() };
-  },
-
   /* An arrow held down, then the buttons pressed in quick succession. */
   async hold_arrow(p) {
     await streamPlays(p, 100);
@@ -1165,6 +1169,304 @@ const scenarios = {
     const bySpace = seeks.slice();
     p.tick(1000);
     return { now: now, landed: landed, bySpace: bySpace, all: seeks, paused: p.video.paused };
+  },
+
+  /* A seek to a place that has loaded, and to one that has not. */
+  async seek_holds(p) {
+    await streamPlays(p, 100);
+    const held = () => holdState(p).shown;
+    p.video.buffered = { length: 1, start: () => 90, end: () => 160 };
+    key('ArrowRight');
+    p.tick(300);
+    const out = { loaded: held() };
+    fire(p.video, 'seeked');
+    key('ArrowLeft');
+    key('ArrowLeft');
+    key('ArrowLeft');
+    p.tick(300);
+    out.notLoaded = held();
+    fire(p.video, 'seeked');
+    out.seeked = held();
+    present(p.video);
+    out.seen = held();
+    return out;
+  },
+
+  /* The server refuses a segment, or the playlist, for now. */
+  async busy(p) {
+    const details = p.win.serverPlays;
+    await streamPlays(p, 100);
+    const h = p.hlsList[0];
+    h.emit('hlsError', loadError(details, 429, { error: 'busy' }, { 'retry-after': '3' }));
+    p.tick(2900);
+    const early = [h.loads.length, p.hlsList.length];
+    p.tick(200);
+    await settle();
+    const last = p.hlsList[p.hlsList.length - 1];
+    const loading = { loads: h.loads.slice(), streams: p.hlsList.length, src: last.src, startPosition: last.config.startPosition };
+    for (let i = 0; i < 20; i++) {
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError(details, 429, null, {}));
+      p.tick(5000);
+      await settle();
+    }
+    return { early: early, after: loading, starts: p.starts().length, stops: p.beacons.length, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
+  },
+
+  /* A short drop in the middle: the segments fail, and then come again. */
+  async dropped(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const error = () => loadError('fragLoadError', p.win.serverPlays === 'gateway' ? 502 : 0);
+    const notice = () => !gone(p.q('[data-lost]'));
+    const out = { role: p.q('[data-lost]').parentNode.getAttribute('role'), text: p.q('[data-lost]').textContent };
+    const at = [];
+    h.emit('hlsError', error());
+    out.whilePlaying = notice();
+    playOn(p, 2);
+    fire(p.video, 'waiting');
+    out.waiting = notice();
+    const fail = failingLoads(h, error);
+    let before = 0;
+    for (let i = 0; i < 80; i++) {
+      p.tick(500);
+      if (h.loads.length !== before) { at.push((i + 1) / 2); before = h.loads.length; }
+      fail();
+    }
+    out.triedAt = at;
+    out.whileTrying = { message: messageState(p), destroyed: h.destroyed, notice: notice(), loading: p.root.classList.contains('is-loading') };
+    h.emit('hlsFragLoaded');
+    out.back = { notice: notice(), message: messageState(p) };
+    fire(p.video, 'playing');
+    out.starts = p.starts().length;
+    p.tick(120000);
+    out.later = messageState(p);
+    return out;
+  },
+
+  /* A drop that lasts, then Try again, then one the browser says is over. */
+  async dropped_long(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const error = () => loadError('fragLoadError', 0);
+    p.video.webkitPresentationMode = 'fullscreen';
+    p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    h.emit('hlsError', error());
+    const fail = failingLoads(h, error);
+    const out = {};
+    await failFor(p, 55000, fail);
+    out.before = messageState(p);
+    await failFor(p, 10000, fail);
+    out.message = messageState(p);
+    out.mode = p.video.webkitPresentationMode;
+    out.notice = !gone(p.q('[data-lost]'));
+    out.destroyed = h.destroyed;
+    let loads = h.loads.length;
+    await failFor(p, 60000, fail);
+    out.triesUnderMessage = h.loads.length - loads;
+    press(p.q('[data-retry]'));
+    out.again = { loads: h.loads.length - loads, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
+    fail();
+    await failFor(p, 65000, fail);
+    out.messageAgain = messageState(p);
+    loads = h.loads.length;
+    p.online();
+    out.online = { loads: h.loads.length - loads, message: messageState(p) };
+    h.emit('hlsFragLoaded');
+    fire(p.video, 'playing');
+    out.back = messageState(p);
+    out.starts = p.starts().length;
+    return out;
+  },
+
+  /* A drop that lasts while enough was loaded to play on. */
+  async dropped_playing_on(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const error = () => loadError('fragLoadError', 0);
+    h.emit('hlsError', error());
+    const fail = failingLoads(h, error);
+    for (let i = 0; i < 90; i++) { playOn(p, 1); p.tick(1000); fail(); }
+    const playing = messageState(p);
+    fire(p.video, 'waiting');
+    await failFor(p, 50000, fail);
+    const waiting = messageState(p);
+    await failFor(p, 15000, fail);
+    return { playing: playing, waiting: waiting, late: !!messageState(p), starts: p.starts().length };
+  },
+
+  /* The browser comes online between two tries, and while the person has paused. */
+  async dropped_online(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    p.video.pause();
+    const plays = p.video.plays;
+    h.emit('hlsError', loadError('fragLoadError', 0));
+    const fail = failingLoads(h, () => loadError('fragLoadError', 0));
+    await failFor(p, 20000, fail);
+    const loads = h.loads.length;
+    p.online();
+    const atOnce = h.loads.length - loads;
+    fail();
+    await failFor(p, 60000, fail);
+    const message = !!messageState(p);
+    p.online();
+    h.emit('hlsFragLoaded');
+    await settle();
+    return { atOnce: atOnce, message: message, after: messageState(p), plays: p.video.plays - plays, paused: p.video.paused };
+  },
+
+  /* The start of a stream does not reach mediaman: for a while, or for good. */
+  async start_dropped(p) {
+    const out = {};
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const down = { err: p.win.serverPlays === 'gateway' ? { error: 'http_502', status: 502 } : NET.err };
+    p.held.answer = () => down;
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    out.first = { message: messageState(p), held: holdState(p).shown, notice: !gone(p.q('[data-lost]')) };
+    for (let i = 0; i < 60; i++) { p.tick(500); await settle(); }
+    out.tries = p.starts().length - 1;
+    out.waiting = messageState(p);
+    p.held.answer = () => answer('1080p-8000');
+    for (let i = 0; i < 20; i++) { p.tick(500); await settle(); }
+    out.at = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    await streamPlays(p, 105);
+    out.back = { message: messageState(p), notice: !gone(p.q('[data-lost]')), quality: p.storage['mediaman.watch.quality'] || null, toasts: p.toasts.length };
+    playOn(p, 5);
+    p.held.answer = () => down;
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    for (let i = 0; i < 140; i++) { await settle(); p.tick(500); }
+    await settle();
+    out.late = messageState(p);
+    out.frame = holdState(p).shown;
+    const starts = p.starts().length;
+    p.held.answer = () => answer('1080p-8000');
+    p.online();
+    await settle();
+    out.online = { starts: p.starts().length - starts, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
+    return out;
+  },
+
+  /* The next episode's page does not come for a while, or for longer than the page waits. */
+  async next_dropped(p) {
+    const good = p.pages['/watch/play/502'];
+    const asked = () => p.calls.filter((c) => c.url === '/watch/play/502').length;
+    const out = {};
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = 'offline';
+    click(p.q('[data-next-btn]'));
+    await settle();
+    out.first = { message: messageState(p), notice: !gone(p.q('[data-lost]')), held: holdState(p).shown };
+    if (p.win.serverPlays === 'long') {
+      for (let i = 0; i < 130; i++) { p.tick(500); await settle(); }
+      out.late = messageState(p);
+      out.subtitle = p.q('.player-subtitle').textContent;
+    }
+    out.asked = asked();
+    p.pages['/watch/play/502'] = good;
+    p.replies.push(answer('1080p-8000'));
+    if (p.win.serverPlays === 'long') p.online();
+    for (let i = 0; i < 4; i++) { await settle(); p.tick(500); }
+    await streamPlays(p, 0);
+    out.went = { key: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body.rating_key, message: messageState(p), notice: !gone(p.q('[data-lost]')) };
+    return out;
+  },
+
+  /* What follows cannot be asked, for want of a connection, at the end of the video. */
+  async next_unknown_dropped(p) {
+    const found = p.pages['/found'];
+    p.pages['/watch/play/1'] = 'offline';
+    await streamPlays(p, 0);
+    endsNow(p);
+    await settle();
+    const out = { first: messageState(p), notice: !gone(p.q('[data-lost]')) };
+    for (let i = 0; i < 130; i++) { p.tick(500); await settle(); }
+    out.late = messageState(p);
+    p.pages['/watch/play/1'] = found;
+    p.online();
+    await settle();
+    out.found = { message: messageState(p), card: !gone(p.q('[data-upnext]')) };
+    return out;
+  },
+
+  /* The person moves back while what follows is still being asked. */
+  async next_unknown_left(p) {
+    p.pages['/watch/play/1'] = 'offline';
+    await streamPlays(p, 0);
+    endsNow(p);
+    await settle();
+    p.video.ended = false; p.video.paused = false; p.video.currentTime = 2000;
+    fire(p.video, 'seeking');
+    fire(p.video, 'playing');
+    playOn(p, 3);
+    for (let i = 0; i < 200; i++) { p.tick(500); await settle(); }
+    return { message: messageState(p), notice: !gone(p.q('[data-lost]')), asked: p.calls.filter((c) => c.page).length };
+  },
+
+  /* A server too busy for a while lets the video run dry, twice. */
+  async busy_stalls(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    for (let i = 0; i < 2; i++) {
+      playOn(p, 5);
+      p.hlsList[0].emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+      fire(p.video, 'waiting');
+      p.tick(11000);
+      p.hlsList[0].emit('hlsFragLoaded');
+      fire(p.video, 'playing');
+    }
+    await settle();
+    const starts = p.starts().length;
+    p.held.answer = (body) => answer(body.quality);
+    for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); fire(p.video, 'playing'); }
+    await settle();
+    return { busy: starts, slow: p.starts().length };
+  },
+
+  /* F and the arrows with the volume slider in focus: by the mouse, then by Tab. */
+  async slider_keys(p) {
+    let asked = 0;
+    p.root.requestFullscreen = () => { asked++; return Promise.resolve(); };
+    await streamPlays(p, 100);
+    const look = () => {
+      const from = p.video.currentTime;
+      const full = asked;
+      key('ArrowRight');
+      p.tick(300);
+      key('f');
+      return { moved: p.video.currentTime - from, full: asked - full };
+    };
+    press(p.q('[data-volume]'));
+    const byMouse = look();
+    tabTo(p.q('[data-volume]'));
+    return { byMouse: byMouse, byTab: look() };
+  },
+
+  /* The slider dragged to nothing, and the sound put back on, here and by a later page. */
+  async drag_to_silence(p) {
+    const slider = p.q('[data-volume]');
+    const drag = (levels) => {
+      levels.forEach((v) => { slider.value = String(v); fire(slider, 'input', { bubbles: true }); fire(p.video, 'volumechange'); });
+      fire(slider, 'change', { bubbles: true });
+    };
+    const look = () => ({ volume: p.video.volume, muted: p.video.muted, slider: +slider.value, name: p.q('[data-mute]').getAttribute('aria-label') });
+    await streamPlays(p, 100);
+    drag([0.9, 0.7]);
+    drag([0.5, 0.2, 0.05, 0]);
+    const out = { silent: look(), saved: Object.assign({}, p.storage) };
+    press(p.q('[data-mute]'));
+    fire(p.video, 'volumechange');
+    out.back = look();
+    drag([0.3, 0, 0.4]);
+    out.up = look();
+    return out;
   },
 
   /* A browser that leaves the page cancels its requests first, and only then says so. */
@@ -2073,8 +2375,7 @@ const scenarios = {
     p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
     endsNow(p);
     p.tick(10000);
-    await settle();
-    p.tick(15000);
+    for (let i = 0; i < 200 && !message(); i++) { await settle(); p.tick(500); }
     await settle();
     out.message = message();
     out.text = p.q('[data-message-text]').textContent;
@@ -2116,7 +2417,7 @@ const scenarios = {
     p.pages['/watch/play/502'] = 'offline';
     click(p.q('[data-next-btn]'));
     out.asked = look();
-    await settle();
+    for (let i = 0; i < 130; i++) { await settle(); p.tick(500); }
     out.unreached = look();
     p.pages['/watch/play/502'] = went;
     click(p.q('[data-next-btn]'));
@@ -2156,6 +2457,7 @@ const scenarios = {
     click(p.q('[data-next-btn]'));
     await settle();
     out.failed = stops();
+    for (let i = 0; i < 130 && p.win.serverPlays !== 'leaves'; i++) { await settle(); p.tick(500); }
     if (p.win.serverPlays === 'leaves') {
       p.leave();
       return { failed: out.failed, left: p.beacons.map((b) => [b.url, b.body && b.body.position_s]) };
