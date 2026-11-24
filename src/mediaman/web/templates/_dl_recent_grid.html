@@ -8,7 +8,7 @@
     {% for item in recent %}
     <div class="dl-recent-item">
       <div class="dl-recent-poster">
-        {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
+        {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}
         <div class="dl-recent-badge">
           {{ icon("i-check") }}
         </div>

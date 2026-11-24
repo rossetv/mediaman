@@ -166,3 +166,15 @@ def test_the_hero_never_wears_the_art_of_the_title_before_it() -> None:
 def test_a_row_gains_a_poster_that_comes_late() -> None:
     out = _run("art", hero=_item("h", poster_url="https://art/h.jpg"), queue=[_item("q")])
     assert out["bare"]["row"] == "https://art/q.jpg"
+
+
+def test_a_poster_that_fails_to_load_leaves_no_broken_icon_anywhere_on_the_page() -> None:
+    art = {"poster_url": "https://art/0.jpg"}
+    out = _run(
+        "broken",
+        hero=_item("h", **art),
+        queue=[_item("q", **art)],
+        upcoming=[_item("u", **art)],
+        recent=[_item("r", **art)],
+    )
+    assert out == {"drawn": [True] * 4, "fresh": [False] * 4, "polled": [True] * 4}

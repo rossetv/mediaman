@@ -4,7 +4,7 @@
 <div class="dl-compact dl-card-enter" data-dl-id="{{ item.id }}">
   <div class="dl-compact-row dl-row{% if can_abandon and item.abandon_visible %} dl-row--has-abandon{% endif %}">
     <div class="dl-compact-poster dl-row-poster">
-      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
+      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}
     </div>
     <div class="dl-compact-info dl-row-info">
       <div class="dl-compact-title dl-row-title">{{ item.title }}</div>

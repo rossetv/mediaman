@@ -138,6 +138,20 @@ const scenarios = {
     return { drawn, kept, bare, next: art() };
   },
 
+  // every poster fails to load, first the server's and then those the polls bring
+  async broken() {
+    const p = page(spec);
+    const fail = () => {
+      p.qa('img').forEach((img) => p.doc.listeners.error.forEach((f) => f({ target: img })));
+      return p.qa('img').map((img) => img.hasAttribute('data-broken'));
+    };
+    const drawn = fail();
+    const at = (n) => ({ poster_url: `https://art/${n}.jpg` });
+    p.upd({ hero: item('b', at(1)), queue: [item('r', at(2))], upcoming: [item('v', at(3))], recent: [{ title: 'S', ...at(4) }] });
+    const fresh = p.qa('img').map((img) => img.hasAttribute('data-broken'));
+    return { drawn, fresh, polled: fail() };
+  },
+
   // what a screen reader is told of each bar and section
   async spoken() {
     const p = page(spec);

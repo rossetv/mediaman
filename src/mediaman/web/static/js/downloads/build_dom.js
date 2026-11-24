@@ -126,6 +126,7 @@
   function buildPoster(url) {
     var img = document.createElement('img');
     img.alt = '';
+    img.setAttribute('data-broken-on-error', '');
     img.src = url;
     return img;
   }
