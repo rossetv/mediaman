@@ -22,6 +22,7 @@ from mediaman.core.audit import log_audit
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
+from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -157,7 +158,9 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
         if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):
             raise _held_error(exc, radarr_fetches_movie(client, tmdb_id)) from exc
-        raise
+        if not movie_add_landed(exc, client, tmdb_id):
+            raise
+        outcome = "added"
     if outcome == "already_tracked":
         raise SafeHTTPError(409, "already tracked", "radarr/api/v3/movie")
     if outcome == "bad_entry":
@@ -220,7 +223,8 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # Sonarr answers 400, not 409, for a series it tracks: same path.
         if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
             raise _held_error(exc, sonarr_fetches_series(client, tvdb_id)) from exc
-        raise
+        if not series_add_landed(exc, client, tvdb_id):
+            raise
     logger.info(
         "Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email
     )

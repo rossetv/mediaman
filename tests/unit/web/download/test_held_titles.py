@@ -207,3 +207,44 @@ class TestSubmitRefusedForAHeldTitle:
 
         assert resp.status_code == 502
         assert not _consumed(token)
+
+
+class TestSubmitWhoseAddGotNoAnswer:
+    """Radarr or Sonarr may add the title after mediaman stopped waiting for its answer."""
+
+    NO_ANSWER = SafeHTTPError(0, "transport error: ReadTimeout", "arr/add")
+
+    def _arr(self, media_type, held):
+        arr = MagicMock()
+        arr.get_movie_by_tmdb.side_effect = [None, {"id": 7, "monitored": True} if held else None]
+        arr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        arr.get_series.return_value = [{"tvdbId": 999, "monitored": True}] if held else []
+        arr.add_movie.side_effect = arr.add_series.side_effect = self.NO_ANSWER
+        return arr
+
+    def _post(self, client, secret_key, media_type, arr):
+        token = _token(secret_key, media_type)
+        builder = "build_radarr_from_db" if media_type == "movie" else "build_sonarr_from_db"
+        with patch(f"{_SUBMIT}.{builder}", return_value=arr):
+            return token, client.post(f"/download/{token}")
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_an_add_that_landed_is_a_success_and_the_person_will_be_mailed(
+        self, client, secret_key, media_type
+    ):
+        token, resp = self._post(client, secret_key, media_type, self._arr(media_type, held=True))
+
+        assert resp.status_code == 200
+        assert "poll_token" in resp.json()
+        assert _consumed(token)
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert [m["email"] for m in mails] == ["viewer@example.com"]
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_an_add_that_did_not_land_is_a_502_and_frees_the_link(
+        self, client, secret_key, media_type
+    ):
+        token, resp = self._post(client, secret_key, media_type, self._arr(media_type, held=False))
+
+        assert resp.status_code == 502
+        assert not _consumed(token)
