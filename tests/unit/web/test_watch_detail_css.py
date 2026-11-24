@@ -63,6 +63,14 @@ def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:
     assert re.search(r"overflow:\s*clip", _of(".ttl__sheet"))
 
 
+def test_close_never_stands_on_a_button_that_scrolls_under_it() -> None:
+    sticky = "(max-width: 699.98px), (max-height: 500px)"
+    assert "opacity: 1" in _of(".ttl.is-past .ttl__bar::before", sticky)
+    # What the bar hides takes no presses through it.
+    assert "pointer-events: auto" in _of(".ttl.is-past .ttl__bar", sticky)
+    assert "scroll-padding-top: var(--ttl-bar)" in _of(".ttl", sticky)
+
+
 def test_the_space_of_a_tagline_a_title_lacks_goes_under_its_meta_line() -> None:
     assert "order: 1" in _of(".ttl__tagline:empty")
     assert "min-height" in _of(".ttl__tagline")

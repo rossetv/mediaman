@@ -41,7 +41,9 @@
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
+  var bar = root.querySelector('.ttl__bar');
   var hero = root.querySelector('.ttl__hero');
+  var head = root.querySelector('.ttl__head');
   var titleEl = root.querySelector('#ttl-title');
   var part = function (name) { return root.querySelector('[data-ttl-part="' + name + '"]'); };
   var heroSkel = part('hero-skel');
@@ -2252,6 +2254,12 @@
     if (!isOpen || root.contains(e.target) || allowedOutside(e.target)) return;
     titleEl.focus({ preventScroll: true });
   });
+
+  /* Where Close stays on screen, what scrolls under it is out of sight and of reach. */
+  root.addEventListener('scroll', function () {
+    root.classList.toggle('is-past', root.scrollTop > 0 &&
+      head.getBoundingClientRect().top <= bar.getBoundingClientRect().bottom);
+  }, { passive: true });
 
   /* ── Clicks ── */
 

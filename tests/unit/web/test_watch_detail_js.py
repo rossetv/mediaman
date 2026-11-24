@@ -760,6 +760,10 @@ def test_sharing_again_takes_away_what_the_last_share_said() -> None:
         assert out[case] == {"stale": 1, "label": "Copied", "left": 0, "focus": True}
 
 
+def test_the_bar_of_close_is_marked_once_the_titles_text_reaches_it() -> None:
+    assert _run("scrolledPastHead") == [False, False, True, True, False]
+
+
 def test_tab_stays_inside_the_overlay() -> None:
     out = _run("focusTrap")
     assert (out["wrappedToFirst"], out["wrappedToLast"]) == (True, True)

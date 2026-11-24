@@ -449,7 +449,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__sheet { max-width: none; min-height: 100%; border: 0; border-radius: 0; box-shadow: none; transform-origin: 50% 100%; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
-  .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: 64px 20px 14px; }
+  .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: calc(var(--ttl-bar) + 8px) 20px 14px; }
+  .ttl.is-short .ttl__hero { padding-top: calc(var(--ttl-bar) + 16px); }
   .ttl__poster { width: min(140px, 24vw, 30vh); border-radius: var(--r-sm); }
   /* Too late for the buttons to move, so only its blurred copy shows: beside it a
      title can take another line. */
@@ -493,7 +494,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* Phones, either way up: Close stays on screen, and a trailer gets the screen's width
    or, lying down, its height but for a strip that shows there is more below. */
 @media (max-width: 699.98px), (max-height: 500px) {
+  .ttl { scroll-padding-top: var(--ttl-bar); }
   .ttl__bar { position: sticky; top: 0; }
+  .ttl.is-past .ttl__bar { pointer-events: auto; }
+  .ttl.is-past .ttl__bar::before { opacity: 1; box-shadow: 0 1px 0 var(--hair); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 

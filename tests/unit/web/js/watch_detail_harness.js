@@ -1925,6 +1925,21 @@ const scenarios = {
     return { refused: await run(new APIError(503, 'x')), shown: await run(null, { clipboardFails: true }) };
   },
 
+  // Scrolled until the title's text is about to go under Close's bar, then past it, and back.
+  async scrolledPastHead() {
+    const p = load({ routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'show-300');
+    const root = p.ttl();
+    p.q('.ttl__bar').getBoundingClientRect = () => ({ top: 0, bottom: 56 });
+    p.q('.ttl__head').getBoundingClientRect = () => ({ top: 100 - root.scrollTop, bottom: 200 - root.scrollTop });
+    return [0, 43, 44, 600, 10].map((at) => {
+      root.scrollTop = at;
+      (root.listeners.scroll || []).forEach((fn) => fn({ target: root }));
+      return root.classList.contains('is-past');
+    });
+  },
+
   async focusTrap() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();
