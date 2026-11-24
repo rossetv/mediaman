@@ -61,7 +61,7 @@
   .space-meter--phone { display: inline-flex; flex: 0 1 auto; min-width: 44px; padding: 0 10px; gap: 9px; }
   .space-meter--phone .space-meter__free { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .space-meter--phone > .ico { flex: none; }
-  .space-meter--phone .space-meter__bar { width: 36px; }
+  .space-meter--phone .space-meter__bar { flex-shrink: 99; width: 36px; min-width: 18px; } /* it gives way before the words */
   .space-meter--phone .space-meter__skel { width: 80px; }
 }
 /* The profile button beside it must keep its place: the marks stand before the bar and the words. */
