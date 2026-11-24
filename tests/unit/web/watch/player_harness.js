@@ -461,6 +461,9 @@ async function streamPlays(p, pos) {
   fire(v, 'playing');
 }
 
+/* Away for the person: hidden, or only its exit left to play. */
+function gone(el) { return el.hidden || el.classList.contains('is-leaving'); }
+
 function playState(p) {
   const btn = p.q('[data-play]');
   const icon = btn.querySelector('.ico');
@@ -537,7 +540,7 @@ async function bubbleState(p) {
   await settle();
   const img = p.q('[data-frame-img]');
   return {
-    shown: !p.q('[data-bubble]').hidden,
+    shown: !gone(p.q('[data-bubble]')),
     time: p.q('[data-bubble-time]').textContent,
     frame: p.q('[data-frame]').hidden || img.hidden ? null : +String(img.src).split('/').pop(),
     stale: p.q('[data-frame]').classList.contains('is-stale'),
@@ -594,7 +597,7 @@ const scenarios = {
     p.replies[0] = { err: { status: 422 } };
     p.replies.push(answer('1080p-8000'));
     await streamPlays(p, 30);
-    return Object.assign(menuState(p), { starts: p.starts(), message: !p.q('[data-message]').hidden });
+    return Object.assign(menuState(p), { starts: p.starts(), message: !gone(p.q('[data-message]')) });
   },
 
   /* The choice that Automatic already plays is made the person's. */
@@ -724,7 +727,7 @@ const scenarios = {
       if (p.win.serverPlays === 'refused' && body.quality !== 'auto') return { err: { status: 503 } };
       return answer(body.quality === 'auto' ? '1080p-8000' : body.quality);
     };
-    while (p.starts().length < 40 && p.q('[data-message]').hidden) {
+    while (p.starts().length < 40 && gone(p.q('[data-message]'))) {
       await settle();
       const h = p.hlsList[p.hlsList.length - 1];
       if (h.destroyed) continue;
@@ -735,7 +738,7 @@ const scenarios = {
       h.emit('hlsError', Object.assign({ fatal: true }, error));
       await settle();
     }
-    return { starts: p.starts(), message: !p.q('[data-message]').hidden, retry: !p.q('[data-retry]').hidden };
+    return { starts: p.starts(), message: !gone(p.q('[data-message]')), retry: !p.q('[data-retry]').hidden };
   },
 
   /* Automatic plays a little and is slow; each step down from it fails at once. */
@@ -745,7 +748,7 @@ const scenarios = {
     const error = { type: 'networkError', details: 'fragLoadTimeOut' };
     await streamPlays(p, 0);
     playOn(p, 100);
-    while (p.starts().length < 40 && p.q('[data-message]').hidden) {
+    while (p.starts().length < 40 && gone(p.q('[data-message]'))) {
       if (p.starts().pop() === 'auto') {
         await streamPlays(p, 100);
         playOn(p, 3);
@@ -755,7 +758,7 @@ const scenarios = {
       }
       await settle();
     }
-    return { starts: p.starts(), message: !p.q('[data-message]').hidden };
+    return { starts: p.starts(), message: !gone(p.q('[data-message]')) };
   },
 
   /* The original was left, then the person's own pick is refused. */
@@ -796,21 +799,21 @@ const scenarios = {
     p.held.answer = () => answer('1080p-8000');
     p.replies[0] = answer('1080p-8000');
     await streamPlays(p, 0);
-    while (p.q('[data-message]').hidden) {
+    while (gone(p.q('[data-message]'))) {
       p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
       await settle();
     }
     const before = p.starts().length;
     click(p.q('[data-quality="1080p-8000"]'));
     await settle();
-    return { started: p.starts().slice(before), message: !p.q('[data-message]').hidden };
+    return { started: p.starts().slice(before), message: !gone(p.q('[data-message]')) };
   },
 
   /* The quality of the menu's tick is picked under the message that it failed. */
   async pick_ticked(p) {
     p.replies[0] = answer('1080p-8000');
     await streamPlays(p, 0);
-    while (p.q('[data-message]').hidden) {
+    while (gone(p.q('[data-message]'))) {
       p.replies.push(answer('1080p-8000'));
       p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
       await settle();
@@ -821,14 +824,14 @@ const scenarios = {
     p.replies.push(answer('1080p-8000'));
     click(ticked);
     await settle();
-    const out = { ticked: ticked.getAttribute('data-quality'), started: p.starts().slice(before), message: !p.q('[data-message]').hidden };
+    const out = { ticked: ticked.getAttribute('data-quality'), started: p.starts().slice(before), message: !gone(p.q('[data-message]')) };
     /* One that no new try can mend stays. */
     p.replies.push({ err: { status: 404, error: 'not_found' } });
     p.hlsList[p.hlsList.length - 1].emit('hlsError', { response: { code: 410 } });
     await settle();
     click(p.q('[data-quality][aria-checked="true"]'));
     await settle();
-    out.final = [p.starts().length - before, !p.q('[data-message]').hidden];
+    out.final = [p.starts().length - before, !gone(p.q('[data-message]'))];
     return out;
   },
 
@@ -957,7 +960,7 @@ const scenarios = {
       click(p.q('[data-quality="' + (p.q('[data-quality="' + id + '"]') ? id : '480p-1500') + '"]'));
       await streamPlays(p, 0);
     }
-    return { message: !p.q('[data-message]').hidden, starts: p.starts().length };
+    return { message: !gone(p.q('[data-message]')), starts: p.starts().length };
   },
 
   /* A quality the person picked stays, however it stalls. */
@@ -1046,7 +1049,7 @@ const scenarios = {
     point(p, 'pointerup', 25);
     fire(p.video, 'timeupdate');
     const out = await restedOnBar(p, () => point(p, 'pointermove', 26));
-    out.skip = !p.q('[data-skip]').hidden;
+    out.skip = !gone(p.q('[data-skip]'));
     return out;
   },
 
@@ -1190,7 +1193,7 @@ const scenarios = {
     p.video.paused = false;
     p.q('[data-mute]').focus();
     const at = (t) => { p.video.currentTime = t; fire(p.video, 'timeupdate'); };
-    const look = () => (p.q('[data-skip]').hidden ? null : p.q('[data-skip-text]').textContent);
+    const look = () => (gone(p.q('[data-skip]')) ? null : p.q('[data-skip-text]').textContent);
     const out = {};
     at(59);
     out.before = look();
@@ -1243,7 +1246,7 @@ const scenarios = {
     fire(p.video, 'timeupdate');
     const label = p.q('[data-skip-text]').textContent;
     press(p.q('[data-skip]'));
-    return { label: label, at: p.video.currentTime, hidden: p.q('[data-skip]').hidden, href: p.win.location.href };
+    return { label: label, at: p.video.currentTime, hidden: gone(p.q('[data-skip]')), href: p.win.location.href };
   },
 
   /* An error over the intro. */
@@ -1253,9 +1256,9 @@ const scenarios = {
     fire(p.video, 'timeupdate');
     p.replies.push({ err: { status: 404, error: 'not_found' } });
     p.hlsList[0].emit('hlsError', { response: { code: 410 } });
-    const shown = !p.q('[data-skip]').hidden;
+    const shown = !gone(p.q('[data-skip]'));
     await settle();
-    return { shown: shown, underError: !p.q('[data-skip]').hidden };
+    return { shown: shown, underError: !gone(p.q('[data-skip]')) };
   },
 
   /* The buffer runs dry with no frame held. */
@@ -1293,10 +1296,47 @@ const scenarios = {
     p.q('[data-upnext-cancel]').focus();
     click(p.q('[data-upnext-cancel]'));
     const afterClick = { hidden: card.hidden, leaving: card.classList.contains('is-leaving') };
-    fire(card, 'animationend', { target: card, animationName: 'player-drop' });
+    fire(card, 'animationend', { bubbles: true, animationName: 'player-drop' });
     const afterExit = { hidden: card.hidden, leaving: card.classList.contains('is-leaving'), focus: doc.activeElement.getAttribute('data-play') !== null };
     p.tick(20000);
     return { shown: shown, afterClick: afterClick, afterExit: afterExit, href: p.win.location.href };
+  },
+
+  /* A menu, the skip button, the frame preview and the error card as they go. */
+  async exits(p) {
+    const out = {};
+    const going = (name, sel, at) => {
+      const el = p.q(sel);
+      const look = () => ({ hidden: el.hidden, leaving: el.classList.contains('is-leaving'), inert: !!el.inert });
+      out[name] = { before: look() };
+      at();
+      out[name].going = look();
+      /* An animation of its own that the exit cut short says nothing. */
+      fire(el, 'animationcancel', { bubbles: true, animationName: 'player-pop' });
+      out[name].still = !el.hidden;
+      fire(el, 'animationend', { bubbles: true, animationName: 'player-drop' });
+      out[name].after = look();
+    };
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 70);
+    fire(p.video, 'timeupdate');
+    going('skip', '[data-skip]', () => key('s'));
+    point(p, 'pointermove', 100);
+    going('bubble', '[data-bubble]', () => point(p, 'pointerleave', 100));
+    press(p.q('[data-quality-btn]'));
+    going('menu', '[data-quality-menu]', () => key('Escape'));
+    out.focus = doc.activeElement === p.q('[data-quality-btn]');
+    press(p.q('[data-quality-btn]'));
+    key('Escape');
+    press(p.q('[data-quality-btn]'));
+    out.back = { hidden: p.q('[data-quality-menu]').hidden, leaving: p.q('[data-quality-menu]').classList.contains('is-leaving'), inert: p.q('[data-quality-menu]').inert };
+    key('Escape');
+    p.replies.push({ err: { status: 429, error: 'rate_limited' } });
+    p.hlsList[0].emit('hlsError', { response: { code: 410 } });
+    await settle();
+    p.replies.push(answer('1080p-8000'));
+    going('message', '[data-message]', () => press(p.q('[data-retry]')));
+    return out;
   },
 
   /* What each way of saying "stop" does while the next-episode card counts down. */
@@ -1417,12 +1457,12 @@ const scenarios = {
     };
     p.replies.push({ ok: { stream_id: 's2', playlist: '/p2' } });
     await fail();
-    const shown = !p.q('[data-message]').hidden;
+    const shown = !gone(p.q('[data-message]'));
     const before = starts();
     p.replies.push({ ok: { stream_id: 's3', playlist: '/p3' } });
     press(p.q('[data-play]'));
     await settle();
-    const afterPlay = { started: starts() - before, shown: !p.q('[data-message]').hidden, busy: playState(p).busy };
+    const afterPlay = { started: starts() - before, shown: !gone(p.q('[data-message]')), busy: playState(p).busy };
     p.replies.push({ ok: { stream_id: 's4', playlist: '/p4' } });
     await streamPlays(p, 30);
     await fail();
@@ -1516,7 +1556,7 @@ const scenarios = {
     p.replies.push({ err: { status: 429, error: 'rate_limited' } });
     p.hlsList[0].emit('hlsError', { response: { code: 410 } });
     await settle();
-    out.error = !p.q('[data-message]').hidden;
+    out.error = !gone(p.q('[data-message]'));
     const starts = p.starts().length;
     press(p.video);
     doubleClick(p.video);
@@ -1680,7 +1720,7 @@ const scenarios = {
   /* The next episode's page cannot be had, and then can; or its page was opened and never came. */
   async next_unreached(p) {
     const good = p.pages['/watch/play/502'];
-    const message = () => (p.q('[data-message]').hidden ? null : { retry: !p.q('[data-retry]').hidden, focus: doc.activeElement === p.q('[data-retry]') });
+    const message = () => (gone(p.q('[data-message]')) ? null : { retry: !p.q('[data-retry]').hidden, focus: doc.activeElement === p.q('[data-retry]') });
     const out = {};
     await streamPlays(p, 0);
     p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, unopened: { html: '<p>Not here</p>' } }[p.win.serverPlays];
@@ -1727,7 +1767,7 @@ const scenarios = {
     p.pages['/watch/play/502'] = { status: 404, html: '' };
     press(p.q('[data-next-btn]'));
     await settle();
-    return { message: !p.q('[data-message]').hidden, retry: !p.q('[data-retry]').hidden, back: doc.activeElement.hasAttribute('data-back') };
+    return { message: !gone(p.q('[data-message]')), retry: !p.q('[data-retry]').hidden, back: doc.activeElement.hasAttribute('data-back') };
   },
 
   /* The connection is gone as the next episode is asked for, and back for the try again. */
@@ -1768,7 +1808,7 @@ const scenarios = {
     playOn(p, 20);
     p.held.stopFails = true;
     p.held.answer = () => answer('1080p-8000');
-    while (p.q('[data-message]').hidden) {
+    while (gone(p.q('[data-message]'))) {
       p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
       await settle();
     }
@@ -1820,7 +1860,7 @@ const scenarios = {
     p.tick(100);
     const late = p.frames.answer;
     await go();
-    out.bubble = p.q('[data-bubble]').hidden;
+    out.bubble = gone(p.q('[data-bubble]'));
     late(200);
     await settle();
     await streamPlays(p, 0);
@@ -1878,9 +1918,9 @@ const scenarios = {
   async next_after_error(p) {
     p.replies[0] = { err: { status: 404, error: 'not_found' } };
     await settle();
-    const error = !p.q('[data-message]').hidden;
+    const error = !gone(p.q('[data-message]'));
     click(p.q('[data-next-btn]'));
-    return { error: error, after: !p.q('[data-message]').hidden };
+    return { error: error, after: !gone(p.q('[data-message]')) };
   },
 
   /* The page is left while the next episode is on its way. */
@@ -1951,7 +1991,7 @@ const scenarios = {
     /* The video is gone and no longer ended; its place is still in the last credits. */
     p.video.ended = false;
     fire(p.video, 'progress');
-    out.skip = p.q('[data-skip]').hidden;
+    out.skip = gone(p.q('[data-skip]'));
     out.urls = p.win.history.urls.length;
     out.stopped = p.calls.filter((c) => /\/stop$/.test(c.url)).length - stops;
     out.started = p.starts().length - starts;
@@ -2041,7 +2081,7 @@ const scenarios = {
     await settle();
     out.card = card();
     fire(p.video, 'progress');
-    out.skip = !p.q('[data-skip]').hidden;
+    out.skip = !gone(p.q('[data-skip]'));
     p.tick(30000);
     await settle();
     out.wentByItself = p.calls.some((c) => c.page);
@@ -2265,18 +2305,18 @@ const scenarios = {
     endsNow(p);
     await settle();
     out.text = p.q('[data-message-text]').textContent;
-    out.message = !p.q('[data-message]').hidden;
+    out.message = !gone(p.q('[data-message]'));
     out.retry = !p.q('[data-retry]').hidden;
     out.streams = p.calls.filter((c) => /\/stop$/.test(c.url)).length;
     p.video.ended = false; p.video.currentTime = 2000;
     fire(p.video, 'seeking');
-    out.afterSeek = !p.q('[data-message]').hidden;
+    out.afterSeek = !gone(p.q('[data-message]'));
     endsNow(p);
     await settle();
     p.pages['/watch/play/1'] = found;
     press(p.q('[data-retry]'));
     await settle();
-    out.found = { message: !p.q('[data-message]').hidden, card: p.q('[data-upnext]').hidden, link: p.q('[data-next-btn]').getAttribute('href'), starts: p.starts().length, href: p.win.location.href };
+    out.found = { message: !gone(p.q('[data-message]')), card: p.q('[data-upnext]').hidden, link: p.q('[data-next-btn]').getAttribute('href'), starts: p.starts().length, href: p.win.location.href };
     return out;
   },
 

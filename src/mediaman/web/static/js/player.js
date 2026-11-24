@@ -175,6 +175,40 @@
 
   video.playsInline = true;
 
+  /* ---- coming and going ------------------------------------------------ */
+
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function shown(el) { return !el.hidden && !el.classList.contains('is-leaving'); }
+
+  function show(el) {
+    el.classList.remove('is-leaving');
+    el.inert = false;
+    el.hidden = false;
+  }
+
+  function hide(el) {
+    show(el);
+    el.hidden = true;
+  }
+
+  /* Out of reach at once; it hides when its exit has played. */
+  function leave(el) {
+    if (!shown(el)) return;
+    if (reducedMotion.matches) {
+      el.hidden = true;
+      return;
+    }
+    el.inert = true;
+    el.classList.add('is-leaving');
+  }
+
+  ['animationend', 'animationcancel'].forEach(function (name) {
+    root.addEventListener(name, function (e) {
+      if (e.animationName === 'player-drop') hide(e.target);
+    });
+  });
+
   /* ---- state ---------------------------------------------------------- */
 
   var hls = null;
@@ -409,7 +443,7 @@
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
     if (same) {
-      if (!els.message.hidden && tryAgain === retry) retry();
+      if (shown(els.message) && tryAgain === retry) retry();
       return;
     }
     reverts = 0;
@@ -564,7 +598,7 @@
     els.messageText.textContent = text;
     els.retry.hidden = !again;
     els.play.disabled = !again;
-    els.message.hidden = false;
+    show(els.message);
     showSkip();
     swapNotice = null;
     showControls();
@@ -574,7 +608,7 @@
   function hideMessage() {
     els.play.disabled = false;
     if (els.message.contains(document.activeElement)) els.play.focus();
-    els.message.hidden = true;
+    leave(els.message);
   }
 
   /* ---- streams -------------------------------------------------------- */
@@ -868,7 +902,7 @@
 
   /* Where the next-episode card waits only the Play button plays this one again. */
   function togglePlay(byButton) {
-    if (!els.message.hidden) {
+    if (shown(els.message)) {
       if (tryAgain) tryAgain();
       return;
     }
@@ -1161,7 +1195,7 @@
 
   function showSkip() {
     var over = video.ended || switching || (els.ask && els.ask.open) || (els.upnext && !els.upnext.hidden);
-    var m = els.message.hidden && !over ? markerAt(position()) : null;
+    var m = !shown(els.message) && !over ? markerAt(position()) : null;
     if (m !== skipMarker) offerSkip(m);
   }
 
@@ -1170,8 +1204,11 @@
     clearTimeout(skipTimer);
     els.skip.classList.remove('is-quiet');
     if (!m && els.skip === document.activeElement) els.play.focus();
-    els.skip.hidden = !m;
-    if (!m) return;
+    if (!m) {
+      leave(els.skip);
+      return;
+    }
+    show(els.skip);
     var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
     els.skipText.textContent = label;
     els.skip.setAttribute('title', label + ' (S)');
@@ -1228,11 +1265,11 @@
     var d = duration();
     if (!(d > 0)) return;
     bubbleS = t;
-    if (els.bubble.hidden) {
+    if (!shown(els.bubble)) {
       els.frameImg.hidden = true;
       frameShown = null;
     }
-    els.bubble.hidden = false;
+    show(els.bubble);
     els.seekHover.hidden = !marked;
     var chapter = startedBy(chapters, t);
     var marker = markerAt(t);
@@ -1254,7 +1291,7 @@
 
   function hideBubble() {
     clearTimeout(peekTimer);
-    els.bubble.hidden = true;
+    leave(els.bubble);
     els.seekHover.hidden = true;
   }
 
@@ -1293,7 +1330,7 @@
 
   /* One request at a time, for the frame wanted by then. */
   function loadFrame() {
-    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId || haveFrame()) return;
+    if (frameBusy || frameBlocked || !shown(els.bubble) || !previews || !streamId || haveFrame()) return;
     var n = frameWanted;
     var id = streamId;
     var mine = frames;
@@ -1349,7 +1386,7 @@
 
   function noPreviews() {
     previews = null;
-    if (!els.bubble.hidden) showBubble(bubbleS, !els.seekHover.hidden);
+    if (shown(els.bubble)) showBubble(bubbleS, !els.seekHover.hidden);
   }
   els.frameImg.addEventListener('error', noPreviews);
 
@@ -1385,7 +1422,7 @@
     els.seek.classList.remove('is-dragging');
     /* A mouse that is still on the bar goes on showing the frame under it. */
     if (e.pointerType === 'touch' || !commit) hideBubble();
-    else els.seekHover.hidden = els.bubble.hidden;
+    else els.seekHover.hidden = !shown(els.bubble);
     if (commit) seekTo(seekTimeAt(e.clientX));
     else render();
     scheduleIdle();
@@ -1442,11 +1479,10 @@
   /* Close every menu; with `refocus`, put focus back on the trigger of the one that was open. */
   function closeMenus(refocus) {
     var opened = openTrigger();
-    root.querySelectorAll('[data-menu-trigger]').forEach(function (t) {
-      t.setAttribute('aria-expanded', 'false');
-      t.parentNode.querySelector('.player-menu').hidden = true;
-    });
-    if (refocus && opened) opened.focus();
+    if (!opened) return;
+    opened.setAttribute('aria-expanded', 'false');
+    if (refocus) opened.focus();
+    leave(opened.parentNode.querySelector('.player-menu'));
   }
   function openTrigger() { return root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
   function menuOpen() { return !!openTrigger(); }
@@ -1477,7 +1513,7 @@
     if (open) return;
     trigger.setAttribute('aria-expanded', 'true');
     var menu = trigger.parentNode.querySelector('.player-menu');
-    menu.hidden = false;
+    show(menu);
     focusMenu(menu);
     showControls();
   });
@@ -1528,6 +1564,8 @@
         MM.api.post('/api/watch/keep', { media_item_id: keepId, days: days })
           .then(function () {
             var hadFocus = keep.contains(document.activeElement);
+            /* Cut off from the page it could not play its exit out. */
+            hide(keep.querySelector('.player-menu'));
             var original = document.createDocumentFragment();
             while (keep.firstChild) original.appendChild(keep.firstChild);
             var done = document.createElement('span');
@@ -1612,7 +1650,7 @@
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && !menuOpen() && els.message.hidden && !keyboardInChrome()) goIdle();
+      if (!video.paused && !dragging && !menuOpen() && !shown(els.message) && !keyboardInChrome()) goIdle();
     }, IDLE_MS);
   }
 
@@ -1654,7 +1692,7 @@
       hideUpnext();
       showControls();
     } else if (lastPointer === 'mouse') {
-      if (els.message.hidden && !startedElsewhere && (undoes || !(e.detail > 1))) {
+      if (!shown(els.message) && !startedElsewhere && (undoes || !(e.detail > 1))) {
         togglePlay(false);
         clickToggled = true;
       }
@@ -1723,8 +1761,6 @@
   });
 
   /* ---- next episode --------------------------------------------------- */
-
-  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
   /* What the video's end leads to. */
   function atEnd() {
@@ -1868,10 +1904,9 @@
   }
 
   function upnextOpen() {
-    return !!els.upnext && !els.upnext.hidden && !els.upnext.classList.contains('is-leaving');
+    return !!els.upnext && shown(els.upnext);
   }
 
-  /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     stopCountdown();
     els.upnextStatus.textContent = '';
@@ -1879,8 +1914,7 @@
     if (!upnextOpen()) return;
     card.classList.remove('is-counting');
     if (card.contains(document.activeElement)) els.play.focus();
-    if (reducedMotion && reducedMotion.matches) card.hidden = true;
-    else card.classList.add('is-leaving');
+    leave(card);
   }
 
   function stopCountdown() {
@@ -1895,10 +1929,9 @@
     var counts = autoplay && !wait;
     stopCountdown();
     els.upnextIn.hidden = !counts;
-    els.upnext.classList.remove('is-leaving');
     els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
     els.upnext.classList.toggle('is-counting', counts);
-    els.upnext.hidden = false;
+    show(els.upnext);
     els.upnextStatus.textContent = counts
       ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Space or Escape cancels.'
       : 'Next episode: ' + next.label;
@@ -1941,12 +1974,6 @@
     });
     q('[data-upnext-play]').addEventListener('click', function () { goNext(false); });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
-    els.upnext.addEventListener('animationend', function (e) {
-      if (e.target !== els.upnext || e.animationName !== 'player-drop') return;
-      if (!els.upnext.classList.contains('is-leaving')) return;
-      els.upnext.classList.remove('is-leaving');
-      els.upnext.hidden = true;
-    });
   }
 
   /* ---- are you still watching ------------------------------------------ */

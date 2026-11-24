@@ -352,6 +352,29 @@ def test_cancel_waits_for_the_card_to_leave_then_returns_focus(markup):
     assert out["href"] == "/watch/play/1"
 
 
+@pytest.mark.parametrize("what", ["skip", "bubble", "menu", "message"])
+def test_what_goes_plays_its_exit_and_then_hides(markup, what):
+    out = run(markup, "exits")[what]
+    there = {"hidden": False, "leaving": False, "inert": False}
+    assert out["before"] == there
+    # Out of reach at once.
+    assert out["going"] == {"hidden": False, "leaving": True, "inert": True}
+    assert out["still"] is True
+    assert out["after"] == {"hidden": True, "leaving": False, "inert": False}
+
+
+@pytest.mark.parametrize("what", ["skip", "bubble", "menu", "message"])
+def test_under_reduced_motion_what_goes_hides_at_once(markup, what):
+    out = run(markup, "exits", reduced=True)[what]
+    assert out["going"] == {"hidden": True, "leaving": False, "inert": False}
+
+
+def test_a_menu_opened_again_as_it_goes_is_there_at_once(markup):
+    out = run(markup, "exits")
+    assert out["back"] == {"hidden": False, "leaving": False, "inert": False}
+    assert out["focus"] is True
+
+
 def test_the_countdown_fill_lasts_the_countdown(markup):
     assert run(markup, "upnext_cancel")["shown"]["fill"] == "10s"
 
