@@ -348,6 +348,12 @@ def test_a_library_loses_its_threshold_only_when_the_person_clears_it() -> None:
         assert out[untouched] is None
 
 
+def test_thresholds_stored_as_no_object_do_not_stop_the_page_saving() -> None:
+    out = _run("strayThresholds")
+    saved = {"base_url": "b", "disk_thresholds": {"1": {"path": "/a", "threshold": 80}}}
+    assert out == {"odd": saved, "5": saved, "true": saved}
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"

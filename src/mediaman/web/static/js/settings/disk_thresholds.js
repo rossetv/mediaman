@@ -335,11 +335,17 @@
 
   function init(opts) {
     SELECTED_LIBS = ((opts && opts.selectedLibs) || []).map(String);
-    DISK_THRESHOLDS = copy((opts && opts.diskThresholds) || {});
+    DISK_THRESHOLDS = readable((opts && opts.diskThresholds) || {});
     loadPlexLibraries();
   }
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
+
+  // Every library's entry, or none when what is stored is not one object of them.
+  function readable(thresholds) {
+    var object = thresholds && typeof thresholds === 'object' && !Array.isArray(thresholds);
+    return object ? copy(thresholds) : {};
+  }
 
   // The library selection and thresholds as they stand, for a save to send and Discard to go back to.
   function state() {

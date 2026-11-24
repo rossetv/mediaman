@@ -158,6 +158,47 @@ function build() {
   return { ctx, doc, body, load, add, timers, flush, drain, docListeners };
 }
 
+// The libraries part of the settings page, with a save bar and a server that answers as `reply` says.
+async function openLibraries(answer, opts) {
+  const h = build();
+  const page = h.add('div', { className: 'setg-pg' });
+  const pills = h.add('div', { id: 'plex-library-pills' }, page);
+  const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+  const field = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+  const bar = h.add('div', { id: 'setg-savebar' });
+  const status = h.add('span', { id: 'save-status' }, bar);
+  const discard = h.add('button', { id: 'btn-discard' }, bar);
+  const save = h.add('button', { id: 'btn-save' }, bar);
+  const p = { h, page, rows, field, bar, status, sent: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
+  h.ctx.MM.api = {
+    get: (u) => (u === '/api/plex/libraries' ? answer() : u === '/api/settings' ? p.stored() : Promise.reject({})),
+    put: (u, b) => { p.sent.push(JSON.parse(JSON.stringify(b))); return p.reply(b); },
+    messageOf: (e, words) => words,
+  };
+  h.ctx.MM.reauth = { run: (f) => f() };
+  h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+  ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+  const m = h.ctx.MM.settings;
+  m.diskThresholds.init(opts);
+  m.savebar.init({ getPayload: m.general.collectSettings });
+  await h.flush();
+  const card = (id) => rows.querySelector('[data-lib-id="' + id + '"]');
+  const input = (id, f) => card(id).querySelector('[data-field="' + f + '"]');
+  return Object.assign(p, {
+    card, input,
+    on: () => bar.classList.contains('on'),
+    type: (id, path, threshold) => { input(id, 'path').value = path; input(id, 'threshold').value = threshold; input(id, 'path').fire('input'); },
+    edit: (v) => { field.value = v; field.fire('input'); },
+    shows: (id) => card(id) && [input(id, 'path').value, String(input(id, 'threshold').value)],
+    pills: () => pills.children.filter((c) => c.classList.contains('on')).map((c) => c.dataset.libId),
+    pill: (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click'),
+    press: () => save.fire('click'),
+    save: async () => { save.fire('click'); await h.flush(); h.drain(); await h.flush(); return p.sent[p.sent.length - 1]; },
+    discard: async () => { discard.fire('click'); await h.flush(); },
+  });
+}
+const plexLists = (...ids) => () => Promise.resolve({ libraries: ids.map((id) => ({ id, title: 'L' + id })) });
+
 const names = (list, cls) => list.children.filter((c) => c.classList.contains(cls));
 
 const scenarios = {
@@ -1279,6 +1320,18 @@ const scenarios = {
     p = await open(() => Promise.reject({}), { 1: { path: '/a', threshold: 80 } });
     await p.h.flush();
     out.unreachableSave = await p.save();
+    return out;
+  },
+
+  // What is stored may be no object of libraries at all, and the page still edits and saves.
+  async strayThresholds() {
+    const out = {};
+    for (const stray of ['odd', 5, true]) {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: stray });
+      p.type(1, '/a', '80');
+      p.edit('b');
+      out[String(stray)] = await p.save();
+    }
     return out;
   },
 
