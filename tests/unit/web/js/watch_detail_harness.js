@@ -802,6 +802,41 @@ const scenarios = {
     return { opened, inLink, picked, otherTitle, after, outside: q.ttl().querySelectorAll('[data-mark-toggle]').length };
   },
 
+  // Marking the season on show, which nobody picked, watched: the show's next season is then the
+  // one the server opens on, and the progress above the episodes goes.
+  async markedSeasonStays() {
+    const eps = (n, watched) => [{ number: 1, key: String(n), title: 'Ep ' + n, minutes: 45, state: watched ? 'watched' : 'none', watched, href: '/watch/play/' + n }];
+    let seen = false;
+    const leaving = { days: 3, keep_id: '3020', season: 2 };
+    const show = () => Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', leaving, leaving_seasons: [leaving],
+      play: seen ? { label: 'Play S2 · E1', href: '/watch/play/21' } : { label: 'Resume S1 · E1', href: '/watch/play/11', progress_pct: 40, minutes_left: 20 },
+      seasons: LIB_SHOW.seasons.map((x) => Object.assign({}, x, { key: '30' + x.number, watched: seen && x.number === 1, selected: x.number === (seen ? 2 : 1) })),
+      episodes: seen ? eps(21, false) : eps(11, false) });
+    const p = load({ routes: {
+      '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show()))),
+      '/api/watch/title/show-300/season/1': () => Promise.resolve({ ok: true, key: '301', watched: seen, episodes: eps(11, seen) }),
+    } });
+    p.run();
+    p.ctx.MMWatch.marks = { paint: () => {} };
+    await openCard(p, 'show-300');
+    const root = p.ttl();
+    root.scrollTop = 300;
+    const mark = () => p.q('[data-ttl-act="mark-season"]');
+    Node.prototype.getBoundingClientRect = function () {
+      return { top: 500 + (p.q('.ttl__progress') ? 40 : 0) - root.scrollTop, bottom: 20, left: 0, right: 20, width: 20, height: 20 };
+    };
+    const top = () => mark().getBoundingClientRect().top;
+    const look = () => ({ on: p.ttl().querySelectorAll('.watch-pill').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-season')),
+      eps: p.ttl().querySelectorAll('.watch-ep__title').map((n) => n.textContent), play: primary(p).text, leaving: p.text('.ttl__leaving') !== null,
+      pressed: mark().getAttribute('aria-pressed') });
+    const was = { look: look(), top: top() };
+    click(p.doc, mark());
+    seen = true;
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    return { before: was.look, after: look(), moved: top() - was.top, focus: p.doc.activeElement === mark() };
+  },
+
   async noTrailerKey() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { trailer_key: null }) } });
     p.run();

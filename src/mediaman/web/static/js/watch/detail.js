@@ -242,7 +242,8 @@
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
       picks: null,
       season: null,
-      picked: null,         // the episodes of the season the person picked
+      chosen: false,        // the person picked the season
+      picked: null,         // the episodes of the season on show, when not the title's own
       seasonLoading: null,  // the season being loaded: { number }
       room: 0,              // what is left above the seasons, for them to stay where they were
       shareUrl: null,
@@ -906,7 +907,7 @@
     var found = d.leaving;
     if (d.kind !== 'movie') {
       found = (d.leaving_seasons || []).filter(function (s) {
-        if (cur.picked) return s.season === cur.season;
+        if (cur.chosen) return s.season === cur.season;
         return !cur.cardKeep || String(s.keep_id) === cur.cardKeep;
       })[0];
     }
@@ -952,10 +953,12 @@
     return keyed ? keyed.getAttribute('data-ttl-act') : null;
   }
 
+  function byAct(key) { return key && root.querySelector('[data-ttl-act="' + key + '"]'); }
+
   /* *ring*: whether it is shown to have it; left to the browser when not given. */
   function restoreFocus(key, ring) {
     if (!key) return;
-    var target = root.querySelector('[data-ttl-act="' + key + '"]') ||
+    var target = byAct(key) ||
       root.querySelector('[data-ttl-part="actions"] > *');
     if (target) target.focus(Object.assign({ preventScroll: true }, ring === undefined ? null : { focusVisible: ring }));
     else titleEl.focus({ preventScroll: true });
@@ -1039,16 +1042,19 @@
     return b;
   }
 
-  /* A mark changes what Play plays and what the seasons and episodes say. */
+  /* A mark changes what Play plays and what the seasons and episodes say. The season on
+     show stays, whichever the show would now open on, and so does what was pressed. */
   function reloadMarks(c) {
     var asked = ++c.marksAsked;
-    var season = c.picked ? c.season : null;
+    var season = c.season;
     Promise.all([get(apiUrl(c.ref)), season === null ? null : get(apiUrl(c.ref) + '/season/' + encodeURIComponent(season))])
       .then(function (got) {
         if (c !== cur || !isOpen || asked !== c.marksAsked) return;
         c.data = got[0];
-        if (got[1] && c.picked && c.season === season) c.picked = got[1].episodes || [];
-        renderContent(false);
+        if (got[1] && c.season === season) c.picked = got[1].episodes || [];
+        var key = focusKey();
+        if (byAct(key)) holdStill(function () { return byAct(key); }, function () { renderContent(false); });
+        else renderContent(false);
         if (core.markOf(c.data)) window.MMWatch.marks.paint(core.markOf(c.data), c.data.watched);
       }).catch(function () {});
   }
@@ -1802,6 +1808,7 @@
       shown = d.seasons.filter(function (s) { return s.selected; })[0] || d.seasons[0];
       cur.season = shown ? shown.number : null;
       cur.picked = null;
+      cur.chosen = false;
     }
     if (cur.seasonLoading && !numbered(cur.seasonLoading.number)) cur.seasonLoading = null;
     var mark = seasonMark(shown);
@@ -1906,6 +1913,7 @@
       c.seasonLoading = null;
       var leftOn = leavingNow();
       c.season = s.number;
+      c.chosen = true;
       c.picked = data.episodes || [];
       var leaves = leavingNow();
       s.key = data.key;
@@ -2248,6 +2256,8 @@
   root.addEventListener('click', function (e) {
     var t = e.target;
     if (adminMenu && !adminMenu.menu.contains(t) && !adminMenu.trigger.contains(t)) closeAdminMenu(false);
+    var toggle = t.closest && t.closest('[data-mark-toggle]');
+    if (toggle) toggle.focus({ preventScroll: true }); // Safari leaves a pressed button without it
     if (t.closest && t.closest('[data-ttl-close]')) {
       e.preventDefault();
       requestClose();

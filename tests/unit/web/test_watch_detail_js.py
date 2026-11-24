@@ -859,6 +859,19 @@ def test_a_mark_loads_the_title_again_with_the_season_on_show_and_keeps_the_focu
     assert after["painted"] == [["show/300", False]]
 
 
+def test_a_season_marked_watched_stays_on_show_under_the_pointer_and_only_play_moves_on() -> None:
+    out = _run("markedSeasonStays")
+    assert (out["before"]["on"], out["before"]["play"]) == (["1"], "Resume S1 · E1")
+    assert out["after"] == {
+        "on": ["1"],
+        "eps": ["Ep 11, watched"],
+        "play": "Play S2 · E1",
+        "leaving": True,
+        "pressed": "true",
+    }
+    assert (out["moved"], out["focus"]) == (0, True)
+
+
 def test_a_card_that_is_gone_is_let_go_with_the_page_it_stood_on() -> None:
     assert _run("cardsThatGo") == {"held": 0}
 
