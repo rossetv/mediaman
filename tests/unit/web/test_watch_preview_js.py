@@ -368,3 +368,13 @@ def test_a_trailer_leaves_no_timer_running_however_it_ends() -> None:
     for running, left in out.values():
         assert running > 0
         assert left == 0
+
+
+def test_a_card_a_view_puts_under_a_mouse_at_rest_opens_nothing_until_it_moves() -> None:
+    opened = [None, "Fieldwork"]
+    assert _run("viewChanged") == {
+        "fresh": opened,
+        "detail": opened,
+        "back": opened,
+        "moved": opened,
+    }

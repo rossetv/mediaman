@@ -48,7 +48,7 @@
   var closeTimer = null;
   var warmUntil = 0;
   var scrolledAt = -SETTLE_MS;
-  var pos = { x: -1, y: -1 };
+  var pos = null;      // where the mouse was last, unless the view has changed since
   var trail = [];
   var flight = null;   // the one request on its way: { ref, ctrl, promise }
   var kept = {};       // replies by ref: { data, at }
@@ -416,6 +416,11 @@
   function fadeLive() {
     disarm();
     if (live) close(live, 'fade');
+  }
+
+  function viewChanged() {
+    pos = null;
+    fadeLive();
   }
 
   /* ── What it holds ── */
@@ -1000,9 +1005,11 @@
   /* ── The mouse ── */
 
   function onMove(e) {
-    if (e.pointerType !== 'mouse' || !mouse() || detailOpen()) return;
-    var moved = e.clientX !== pos.x || e.clientY !== pos.y;
+    if (e.pointerType !== 'mouse' || !mouse()) return;
+    // A browser says again where a mouse at rest is when what is under it changes.
+    var moved = !!pos && (e.clientX !== pos.x || e.clientY !== pos.y);
     pos = { x: e.clientX, y: e.clientY };
+    if (detailOpen()) return;
     trail.push({ x: pos.x, y: pos.y, t: now() });
     if (trail.length > 40) trail.shift();
     var target = e.target && e.target.closest ? e.target : null;
@@ -1061,7 +1068,7 @@
   }, { capture: true, passive: true });
   window.addEventListener('resize', fadeLive);
   window.addEventListener('popstate', function () {
-    fadeLive();
+    viewChanged();
     core.toArray(document.querySelectorAll('.pv__held')).forEach(function (n) { n.remove(); });
   });
   document.addEventListener('input', fadeLive);
@@ -1131,5 +1138,5 @@
 
   document.addEventListener('mm:watch-marked', function (e) { unkeep(e.detail.ref); });
 
-  watch.preview = { close: fadeLive };
+  watch.preview = { close: viewChanged };
 })();

@@ -788,6 +788,35 @@ const scenarios = {
     out.beforeItStarts = [h.timers(), !!h.frame()];
     return out;
   },
+  /* The view changes under a mouse at rest, and the browser says where it is: nothing opens until it moves. */
+  async viewChanged() {
+    const out = {};
+    const views = {
+      fresh: async () => {},
+      // The mouse was moved over the detail, which closes; or where the page did not see it.
+      detail: async (h) => {
+        h.doc.documentElement.classList.add('has-ttl');
+        h.over(h.doc.body, { clientX: 500 });
+        h.doc.documentElement.classList.remove('has-ttl');
+      },
+      back: async (h) => { h.over(h.doc.body, { clientX: 400 }); h.winFire('popstate'); },
+      moved: async (h) => { h.over(h.doc.body, { clientX: 400 }); h.ctx.MMWatch.preview.close(); },
+    };
+    for (const name of Object.keys(views)) {
+      const h = load();
+      if (name !== 'fresh') h.over(h.doc.body);
+      await views[name](h);
+      await h.pass(1000);
+      h.over(h.link('film'), { clientX: 500 });
+      h.over(h.link('film'), { clientX: 500 });
+      await h.pass(1500);
+      const still = h.title();
+      h.over(h.link('film'), { clientX: 501 });
+      await h.pass(1500);
+      out[name] = [still, h.title()];
+    }
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
