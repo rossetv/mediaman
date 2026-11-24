@@ -94,6 +94,9 @@ from mediaman.web.routes.settings.testers import (
     TESTERS as _SERVICE_TESTERS,
 )
 from mediaman.web.routes.settings.testers import (
+    cache_generation as _cache_generation,
+)
+from mediaman.web.routes.settings.testers import (
     cache_get as _cache_get,
 )
 from mediaman.web.routes.settings.testers import (
@@ -431,7 +434,7 @@ def _run_tester_with_timeout(
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse:
+def _cache_tester_response(service: str, response: JSONResponse, generation: int) -> JSONResponse:
     """Decode the tester response body and cache the JSON payload. A non-JSON body returns the
     raw response unchanged, preserving its status code and headers.
     """
@@ -440,7 +443,7 @@ def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
         return response
     if isinstance(payload, dict):
-        _cache_put(service, payload, response.status_code)
+        _cache_put(service, payload, response.status_code, generation=generation)
     return response
 
 
@@ -473,6 +476,7 @@ def api_test_service(
 
     conn = get_db()
     config = request.app.state.config
+    generation = _cache_generation(service)
     settings, decrypt_err = _load_tester_settings(service, conn, config.secret_key)
     if decrypt_err is not None:
         return decrypt_err
@@ -482,7 +486,7 @@ def api_test_service(
         )
 
     response = _run_tester_with_timeout(service, tester, settings)
-    return _cache_tester_response(service, response)
+    return _cache_tester_response(service, response, generation)
 
 
 @router.get("/api/plex/libraries")
