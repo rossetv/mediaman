@@ -958,9 +958,10 @@
   .watch-banner__bg { display: none; }
   .ai-label { border: 1px solid CanvasText; }
   .watch-badge--watched { background: Canvas; border-color: CanvasText; }
-  .watch-mark[aria-pressed="true"]::before { content: none; }
   .watch-mark[aria-pressed="true"],
-  .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-radius: var(--r-pill); }
+  .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }
+  .watch-mark-btn[aria-pressed="true"],
+  .watch-mark[aria-pressed="true"]::before { background: Highlight; }
   progress.watch-bar,
   .watch-card__poster > .watch-bar,
   .watch-ep__thumb > .watch-bar { forced-color-adjust: none; height: 6px; border: 1px solid CanvasText; background: Canvas; }
