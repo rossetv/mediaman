@@ -282,6 +282,10 @@ def show_seen(
         "SELECT mi.show_rating_key, mi.season_number, mi.episode_count, COUNT(wp.rating_key) AS seen"
         " FROM media_items mi LEFT JOIN watch_progress wp ON wp.media_item_id = mi.id"
         " AND wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
+        # a row of an episode no longer in the season (replaced under a new key, or removed)
+        # is not one of its episodes; a season with no list yet counts every row
+        " AND (mi.episode_keys IS NULL OR wp.rating_key IN"
+        " (SELECT json_extract(e.value, '$.key') FROM json_each(mi.episode_keys) e))"
         f" WHERE {' AND '.join(where)} GROUP BY mi.id",
         (username, *params),
     ).fetchall()
