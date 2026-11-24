@@ -202,9 +202,9 @@
 
       function paintSub(user, sub) {
         var emailPart = user.email ? user.email : 'No email';
-        sub.textContent = user.created_at
-          ? emailPart + ' · joined ' + String(user.created_at).slice(0, 10)
-          : emailPart;
+        var joined = new Date(user.created_at || NaN);
+        sub.textContent = isNaN(joined) ? emailPart : emailPart + ' · joined ' +
+          joined.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
       }
 
       function buildEmailForm(user, opener, sub) {

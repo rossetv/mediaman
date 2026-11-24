@@ -184,21 +184,21 @@ def test_an_admin_changes_someones_email_in_their_row() -> None:
         "value": " ann@x.example ",
         "msg": "Another user has this address.",
         "focused": True,
-        "sub": "old@x.example · joined 2026-01-02",
+        "sub": "old@x.example · joined 2 Jan 2026",
     }
     assert out["clearedOnInput"] == ""
     assert out["cancelled"] == {"open": True, "msg": ""}
     assert out["sending"] == {"sent": 1, "open": True, "busy": "true"}
     assert out["saved"] == {
         "open": False,
-        "sub": "new@x.example · joined 2026-01-02",
+        "sub": "new@x.example · joined 2 Jan 2026",
         "focused": True,
         "sent": ["/api/users/2/email", "ann@x.example"],
         "busy": None,
     }
     assert out["again"] == out["forgotten"] == "new@x.example"
     assert out["removed"] == {
-        "sub": "No email · joined 2026-01-02",
+        "sub": "No email · joined 2 Jan 2026",
         "sent": ["/api/users/2/email", ""],
         "errors": [],
     }
