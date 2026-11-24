@@ -326,6 +326,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.library_api import router as library_api_router
+    from mediaman.web.routes.plex_link import router as plex_link_router
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.scan import router as scan_router
@@ -362,6 +363,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(recommended_router)
     app.include_router(users_router)
     app.include_router(account_router)
+    app.include_router(plex_link_router)
     app.include_router(watch_pages_router)
     app.include_router(watch_browse_api_router)
     app.include_router(watch_stream_api_router)

@@ -9,6 +9,7 @@
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
 <script src="/static/js/account.js?v={{ static_v }}" defer></script>
+<script src="/static/js/profile-plex.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -50,6 +51,8 @@
         </div>
       </form>
     {% endcall %}
+
+    {% include "_profile_plex.html" %}
   </div>
 </div>
 {% endblock %}
