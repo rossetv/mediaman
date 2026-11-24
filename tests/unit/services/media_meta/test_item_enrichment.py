@@ -554,25 +554,39 @@ class TestAHungTmdbOnAPublicPage:
         assert paused["backdrop_url"] is None
         assert later["backdrop_url"] == WIDE
 
-    def test_a_view_waits_for_the_lookup_of_its_title_in_hand_and_takes_its_answer(self, conn):
+    def test_a_view_waits_for_the_lookup_of_its_title_in_hand_and_takes_its_answer(
+        self, conn, monkeypatch
+    ):
         tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
-        key = ("backdrop", "movie", 5)
-        item: dict = {"media_type": "movie", "tmdb_id": 5}
+        looks = [threading.Event(), threading.Event()]
+
+        class Spy(dict):
+            def get(self, key, default=None):
+                found = super().get(key, default)
+                looks[0 if not looks[0].is_set() else 1].set()
+                return found
+
+        cache = Spy()
+        monkeypatch.setattr(item_enrichment, "_backdrop_cache", cache)
         lock = threading.Lock()
-        item_enrichment._flights[key] = lock
+        item_enrichment._flights[("backdrop", "movie", 5)] = lock
         lock.acquire()
+        item: dict = {"media_type": "movie", "tmdb_id": 5}
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+        def visit_page():
+            own = sqlite3.connect(db_path)
+            own.row_factory = sqlite3.Row
+            fill_backdrop(item, own, SECRET)
+            own.close()
+
         with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
-            db_path = conn.execute("PRAGMA database_list").fetchone()[2]
-
-            def visit_page():
-                own = sqlite3.connect(db_path)
-                own.row_factory = sqlite3.Row
-                fill_backdrop(item, own, SECRET)
-                own.close()
-
             visit = threading.Thread(target=visit_page)
             visit.start()
-            item_enrichment._backdrop_cache[("movie", 5)] = (time.monotonic() + 60, WIDE)
+            assert looks[0].wait(5)
+            # Held back: it looks at the cache a second time only once the lock is free.
+            assert not looks[1].wait(0.2)
+            cache[("movie", 5)] = (time.monotonic() + 60, WIDE)
             lock.release()
             visit.join(10)
 
