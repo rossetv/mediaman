@@ -505,6 +505,15 @@ const scenarios = {
     };
   },
 
+  // A held title that is leaving says when, beside what else its badges say, and a Keep of it is known by its card.
+  async leavingCards() {
+    const items = [card('movie-11', { in_library: true, href: '/watch/movie/11', leaving_days: 2, keep_id: '11' }), card('tmdb-movie-2', { leaving_days: null, keep_id: null })];
+    const p = load({ items, routes: { 'GET /api/watch/discover': () => Promise.resolve({ ...DISCOVER, rows: [{ ...DISCOVER.rows[0], items }] }) } });
+    await settle();
+    return ['recommended', 'trending'].map((id) => scrollerOf(p, id).querySelectorAll('.watch-card').map((c) => [
+      c.getAttribute('data-keep-id'), text(c.querySelector('.watch-badge--leaving .watch-badge__short')), c.querySelectorAll('.watch-badge--leaving').length]));
+  },
+
   // A detail reports a new download state: every card of that title changes its badge.
   async titleChanged() {
     const p = load();

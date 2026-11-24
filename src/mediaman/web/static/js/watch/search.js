@@ -139,16 +139,13 @@
 
   /* One found by its category, in the library. */
   function buildHeldCard(item) {
-    var card = buildTmdbCard(item, true);
-    card.setAttribute('data-keep-id', item.keep_id || '');
-    var badge = leavingBadge(item);
-    if (badge) card.querySelector('.watch-card__title').after(badge);
-    return addKeep(card, item);
+    return addKeep(buildTmdbCard(item, true), item);
   }
 
   /* A title TMDB knows, in the library or not; *plain*: its heading says which. */
   function buildTmdbCard(item, plain) {
     var card = el('article', 'watch-card');
+    if (item.keep_id) card.setAttribute('data-keep-id', item.keep_id);
 
     var link = el('a', 'watch-card__link');
     link.setAttribute('data-title-ref', item.ref || '');
@@ -166,8 +163,9 @@
       poster.appendChild(img);
     }
     poster.appendChild(el('span', 'watch-card__title', item.title));
-    var badge = plain ? null : stateBadge(item);
-    if (badge) poster.appendChild(badge);
+    [leavingBadge(item), plain ? null : stateBadge(item)].forEach(function (badge) {
+      if (badge) poster.appendChild(badge);
+    });
     link.appendChild(poster);
     link.appendChild(el('span', 'watch-card__sub', kindLine(item)));
     card.appendChild(link);
@@ -1754,5 +1752,5 @@
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, composing: composing };
 })();

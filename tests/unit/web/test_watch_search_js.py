@@ -323,10 +323,10 @@ def test_a_held_title_of_a_category_phrase_has_its_keep_as_a_match_by_name_has()
     assert out["keeps"] == [
         ["7", leaving, "7"],
         ["8", leaving, "8"],
-        [None, None, ""],
+        [None, None, None],
         [None, None, None],
     ]
-    assert out["explore"] is False
+    assert out["explore"] == [False, "3 days left", "8"]
 
 
 def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:

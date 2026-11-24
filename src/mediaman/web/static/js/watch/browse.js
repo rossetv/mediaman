@@ -86,6 +86,7 @@
     var ref = item && typeof item.ref === 'string' && REF_RE.test(item.ref) ? item.ref : '';
     if (!ref) return null;
     var article = el('article', 'watch-card');
+    if (item.keep_id) article.setAttribute('data-keep-id', item.keep_id);
     var link = el('a', 'watch-card__link');
     link.setAttribute('href', safePath(item.href) || '/watch#title=' + ref);
     link.setAttribute('data-title-ref', ref);
@@ -104,8 +105,9 @@
       poster.appendChild(img);
     }
     poster.appendChild(el('span', 'watch-card__title', String(item.title || '')));
-    var state = badge(item.download_state, item.download_pct, item.in_library);
-    if (state) poster.appendChild(state);
+    [watch.search.leavingBadge(item), badge(item.download_state, item.download_pct, item.in_library)].forEach(function (b) {
+      if (b) poster.appendChild(b);
+    });
     link.appendChild(poster);
     var kind = item.kind === 'movie' ? 'Movie' : 'TV';
     var sub = el('span', 'watch-card__sub', typeof item.year === 'number' ? kind + ' · ' + item.year : kind);

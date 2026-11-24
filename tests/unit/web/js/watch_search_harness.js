@@ -803,8 +803,9 @@ const scenarios = {
     ] });
     out.keeps = p.doc.querySelectorAll('.watch-card').map((c) => [c.querySelector('[data-watch-keep]'), c.querySelector('.watch-badge--leaving')]
       .map((n) => n && (n.getAttribute('data-watch-keep') || n.textContent)).concat(c.getAttribute('data-keep-id')));
-    // On the category's own page they have none: it has its own badge.
-    out.explore = !!p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, keep_id: '8', leaving_days: 3 }, true).querySelector('[data-watch-keep]');
+    // On the category's own page it has the badge, and the Keep of its preview.
+    const own = p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, keep_id: '8', leaving_days: 3 });
+    out.explore = [!!own.querySelector('[data-watch-keep]'), own.querySelector('.watch-badge__short').textContent, own.getAttribute('data-keep-id')];
     out.titles = p.titles('.watch-card');
     out.counts = p.doc.querySelectorAll('.results-group__count').map((c) => c.textContent);
     out.status = p.status.textContent;

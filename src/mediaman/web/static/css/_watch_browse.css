@@ -254,6 +254,10 @@
 .watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
 .watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
 @media (max-width: 599.98px) { .watch-badge--state { right: 6px; } }
+/* A title that is leaving is in the library, so one badge says both; a download goes under it. */
+.watch-card__poster:has(> .watch-badge--leaving) > .watch-badge--in { display: none; }
+.watch-card__poster:has(> .watch-badge--leaving) > :is(.watch-badge--queued, .watch-badge--downloading) { top: 36px; }
+.watch-card__poster:has(> .watch-badge--leaving):has(> :is(.watch-badge--queued, .watch-badge--downloading)) > .watch-badge--watched { top: 64px; }
 
 /* More of a row on its way: placeholders past its last card, each the size of a
    card; or, when they did not come, a tile with Try again. */

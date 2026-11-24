@@ -21,6 +21,7 @@ from mediaman.web.routes.watch import catalog_api, recommended_api
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
+    insert_scheduled_action,
     insert_settings,
     insert_suggestion,
     insert_user_pick,
@@ -244,6 +245,21 @@ class TestCards:
             "Film 42": (True, "42"),
             "Film 43": (False, "43"),
             "Elsewhere": (False, None),
+        }
+
+    def test_a_pick_the_library_holds_says_when_it_leaves(self, viewer, conn):
+        for key in ("42", "43"):
+            insert_media_item(conn, id=key, plex_rating_key=key, title=f"Film {key}")
+            conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = ?", (int(key), key))
+            insert_suggestion(conn, title=f"Film {key}", tmdb_id=int(key), batch_id="2099-01-01")
+        execute_at = (now_utc() + timedelta(days=3)).isoformat()
+        insert_scheduled_action(conn, media_item_id="42", execute_at=execute_at)
+
+        items = {i["title"]: i for i in _get(viewer)["items"]}
+
+        assert {t: (i["leaving_days"], i["keep_id"]) for t, i in items.items()} == {
+            "Film 42": (3, "42"),
+            "Film 43": (None, None),
         }
 
     def test_a_remake_pick_is_not_the_older_library_title_it_shares_a_name_with(

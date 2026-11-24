@@ -4,6 +4,7 @@ pick marked when the library holds it or Radarr/Sonarr is fetching it."""
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from datetime import date
 from typing import Literal
 
@@ -25,6 +26,7 @@ from mediaman.web.repository.recommended import fetch_recommendations, group_int
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.recommended.own import my_refresh
 from mediaman.web.routes.recommended.refresh import _refresh_thread_alive
+from mediaman.web.routes.watch.catalog_api import held_fields
 
 router = APIRouter()
 
@@ -55,7 +57,10 @@ def _attach_states(
 
 
 def _card(
-    row: dict[str, object], index: catalog.LibraryIndex, arr: catalog.ArrView, seen: set[str]
+    row: dict[str, object],
+    index: catalog.LibraryIndex,
+    arr: catalog.ArrView,
+    held: Callable[[str | None], dict[str, object]],
 ) -> dict[str, object]:
     own = bool(row["own"])
     pick_ref = f"{'pick' if own else 'rec'}-{row['id']}"
@@ -86,7 +91,7 @@ def _card(
     )
     return {
         **card,
-        **lib.mark_fields(library_ref, seen),
+        **held(library_ref),
         "tmdb_id": tmdb_id if isinstance(tmdb_id, int) and tmdb_id > 0 else None,
         "rec_id": None if own else row["id"],
         "pick_ref": pick_ref,
@@ -180,6 +185,6 @@ def api_watch_recommended(
         lib.library_shows,
     )
     payload["batch"] = batches[chosen]["id"]
-    seen = lib.seen_refs(conn, username, libraries)
-    payload["items"] = [_card(row, index, arr, seen) for row in rows]
+    held = held_fields(conn, username, libraries)
+    payload["items"] = [_card(row, index, arr, held) for row in rows]
     return respond_ok(payload)
