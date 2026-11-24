@@ -343,7 +343,11 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     conn = get_db()
 
     if not _DOWNLOAD_LIMITER_GET.check(get_client_ip(request)):
-        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+        limited = templates.TemplateResponse(
+            request, "download.html", {"state": "limited", "item": None}
+        )
+        limited.status_code = 429
+        return limited
 
     _expired = templates.TemplateResponse(
         request,
