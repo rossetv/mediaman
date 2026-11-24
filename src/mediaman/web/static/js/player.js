@@ -1467,8 +1467,10 @@
     pointBubble(e.clientX);
     showControls();
   });
-  els.seek.addEventListener('pointerleave', function () {
+  els.seek.addEventListener('pointerleave', function (e) {
     if (dragging) return;
+    /* WebKit says it as a click lets go of the bar, the mouse still on it. */
+    if (e.pointerType === 'mouse' && els.seek.contains(document.elementFromPoint(e.clientX, e.clientY))) return;
     hideBubble();
     scheduleIdle();
   });

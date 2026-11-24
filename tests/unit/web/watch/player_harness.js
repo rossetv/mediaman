@@ -270,6 +270,7 @@ function boot(html, reduced, saved, serverPlays) {
   parse(html, doc.body);
   doc.activeElement = doc.body;
   doc.visibilityState = 'visible';
+  doc.elementFromPoint = () => doc.under || null;
   doc.getElementById = (id) => doc.querySelector('#' + id);
   doc.createElement = (tag) => make(tag.toLowerCase());
   doc.createElementNS = (ns, tag) => make(tag.toLowerCase());
@@ -1114,6 +1115,30 @@ const scenarios = {
     fire(p.video, 'timeupdate');
     const out = await restedOnBar(p, () => point(p, 'pointermove', 26));
     out.skip = !gone(p.q('[data-skip]'));
+    return out;
+  },
+
+  /* WebKit says the pointer left as it lets go of the bar, with what it is over unchanged. */
+  async bar_left(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    const bar = p.q('[data-played]');
+    const out = {};
+    const clickOn = async (under, type) => {
+      point(p, 'pointermove', 25);
+      point(p, 'pointerdown', 25, type);
+      doc.under = under;
+      point(p, 'pointerup', 25, type);
+      point(p, 'pointerleave', 25, type);
+      return (await bubbleState(p)).shown;
+    };
+    out.mouse = await clickOn(bar, 'mouse');
+    doc.under = p.video;
+    point(p, 'pointerleave', 25);
+    out.left = (await bubbleState(p)).shown;
+    out.droppedOff = await clickOn(p.video, 'mouse');
+    out.touch = await clickOn(bar, 'touch');
+    out.pen = await clickOn(bar, 'pen');
     return out;
   },
 

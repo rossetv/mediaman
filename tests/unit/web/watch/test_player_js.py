@@ -549,6 +549,12 @@ def test_looking_along_the_bar_moves_neither_the_video_nor_what_a_screen_reader_
     assert (out["now"], out["nowAfter"], out["position"]) == ("30", "30", 30)
 
 
+def test_the_preview_stays_after_a_click_while_the_mouse_is_still_on_the_bar(markup):
+    out = run(markup, "bar_left")
+    assert (out["mouse"], out["left"], out["droppedOff"]) == (True, False, False)
+    assert (out["touch"], out["pen"]) == (False, False)
+
+
 @pytest.mark.parametrize("way", ["frame_hover", "bar_clicked"])
 def test_a_mouse_that_rests_on_the_bar_hides_preview_and_controls_while_it_plays(markup, way):
     out = run(markup, way)
