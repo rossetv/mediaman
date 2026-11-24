@@ -237,7 +237,7 @@
     if (lost) fresh.querySelector('[data-watch-more]').focus({ preventScroll: true });
   }
 
-  /* The server's card that the page lacks, in its place in the row, or with its row. */
+  /* The server's card that the page lacks, in its place in the row, or with its row, and in that row's open grid. */
   function enterContinue(now) {
     var row = continueRow(document);
     var fresh = document.importNode(row ? now : now.closest('.watch-row'), true);
@@ -254,6 +254,8 @@
       if (window.MMWatch.expand) window.MMWatch.expand.row(fresh);
     }
     core.fadeIn(fresh);
+    var grid = window.MMWatch.grid;
+    if (grid && grid.bring) grid.bring(row ? fresh : continueCards(fresh, now.getAttribute('data-dismiss-ref'))[0]);
   }
 
   function playOf(banner) { return banner.querySelector('.watch-btn--play').getAttribute('href'); }

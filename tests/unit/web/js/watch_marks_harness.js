@@ -578,6 +578,19 @@ const scenarios = {
     return { gone, back: [p.banner(), p.marks()] };
   },
 
+  // The open grid is told of a card the server's page brought, with its row or into it.
+  async entersTheGrid() {
+    const go = async (before, after) => {
+      const p = load(continuePage(before), { next: () => continuePage(after) });
+      const told = [];
+      p.ctx.MMWatch.grid = { bring: (c) => told.push([c.classList.contains('watch-card'), c.getAttribute('data-dismiss-ref'), p.doc.body.contains(c), c.closest('.watch-row').id]) };
+      click(p.doc, p.doc.body.appendChild(build(p.doc, ['button', { 'data-mark-toggle': 'movie/3', 'data-mark-name': 'Salt', 'aria-pressed': 'true' }])));
+      await settle();
+      return told;
+    };
+    return { newRow: await go([], [CONTINUE[0], CONTINUE[2]]), into: await go([CONTINUE[0]], [CONTINUE[0], CONTINUE[2]]) };
+  },
+
   // Undone with the focus in what the Undo takes away: a card, the banner, and a card the server's page brings.
   async undoFocus() {
     const p = load(watchPage([row('cont', CONTINUE)]), { next: watchPage([row('cont', [CONTINUE[0], episodeCard(23), CONTINUE[2]])]) });

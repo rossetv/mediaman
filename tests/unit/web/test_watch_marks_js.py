@@ -308,6 +308,11 @@ def test_a_late_answer_about_a_show_never_brings_back_an_undone_mark() -> None:
     assert _run("lateShow") is False
 
 
+def test_an_open_grid_is_filled_for_a_card_the_server_s_page_brings() -> None:
+    told = [[True, "movie-3", True, "cont"]]
+    assert _run("entersTheGrid") == {"newRow": told, "into": told}
+
+
 def test_an_undo_waits_for_the_same_title_s_change_on_its_way() -> None:
     out = _run("undoWaits")
     assert out["waiting"] == 2
