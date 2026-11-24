@@ -591,11 +591,16 @@ def test_a_save_that_fails_removes_no_keep() -> None:
 
 
 def test_what_was_saved_is_announced_though_the_rest_failed() -> None:
-    assert _run("partSavedIsAnnounced") == {
-        "kept": ["busy", "done"],
-        "removed": ["busy", "done"],
-        "nothing": ["busy", "failed"],
-    }
+    out = _run("partSavedIsAnnounced")
+    for name, phase, season in (
+        ("kept", "done", "Season 2"),
+        ("removed", "done", "Season 2"),
+        ("nothing", "failed", "Season 1"),
+    ):
+        assert out[name]["phases"] == ["busy", phase], name
+        # The failure is said and nothing is told as saved.
+        assert len(out[name]["errors"]) == 1 and season in out[name]["errors"][0], name
+        assert out[name]["told"] == [], name
 
 
 def test_setting_all_seasons_leaves_a_longer_keep_that_is_a_seasons_own() -> None:

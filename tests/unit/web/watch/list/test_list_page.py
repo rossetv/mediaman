@@ -204,9 +204,9 @@ class TestBulkKeepResponseOk:
         body = code(js)
         remove_all = body[body.index("function removeAllKeeps") :]
         remove_all = remove_all[: remove_all.index("function deleteBody")]
-        assert ".catch(function () { failed.push(" in remove_all
-        assert "if (failed.length)" in remove_all
+        assert "(changedMeanwhile(err) ? changed : failed).push(" in remove_all
+        assert "if (missed)" in remove_all
         keep = body[body.index("function confirmKeepDialog") :]
         keep = keep[: keep.index("function removeAllKeeps")]
-        assert ".catch(function () { failed.push(" in keep
-        assert "if (failed.length)" in keep
+        assert "failed.push(" in keep
+        assert "if (!failed.length && !changed.length)" in keep

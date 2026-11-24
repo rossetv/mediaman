@@ -833,7 +833,8 @@ const scenarios = {
     no.replies['post /api/media/s1/unprotect'] = serverError;
     click(no.doc, no.button('keep-dialog-remove'));
     await settle();
-    return { kept: p.phases, removed: rm.phases, nothing: no.phases };
+    const of = (d) => ({ phases: d.phases, errors: d.errors, told: d.told() });
+    return { kept: of(p), removed: of(rm), nothing: of(no) };
   },
 
   // All seasons set to 7 days: a keep that lasts longer and is the season's own stays.
