@@ -36,11 +36,21 @@ def _ids(media: PlexMedia | None, *, original: bool = False) -> list[str]:
         (_media(3840, 2160, 60000, False), [*TOP, *MID, "480p-1500"]),
         (_media(1920, 800), ["1080p-10000", "1080p-8000", *MID, "480p-1500"]),
         (_media(1440, 1080, 9000), ["1080p-8000", *MID, "480p-1500"]),
+        (_media(kbps=10000), ["1080p-8000", *MID, "480p-1500"]),
         (_media(1280, 536, 3500), ["720p-3000", "720p-2000", "480p-1500"]),
         (_media(720, 576, 3000), ["480p-1500"]),
         (PlexMedia(resolution="4k", bitrate_kbps=60000), [*TOP, *MID, "480p-1500"]),
     ],
-    ids=["1080p", "4K", "cropped 1080p", "4:3 1080p", "cropped 720p", "576p", "class only"],
+    ids=[
+        "1080p",
+        "4K",
+        "cropped 1080p",
+        "4:3 1080p",
+        "exactly a step",
+        "cropped 720p",
+        "576p",
+        "class only",
+    ],
 )
 def test_conversions_stay_at_or_below_the_source(media, expected):
     assert _ids(media) == ["auto", *expected]
