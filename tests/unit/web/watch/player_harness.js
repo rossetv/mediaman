@@ -1677,6 +1677,37 @@ const scenarios = {
     return out;
   },
 
+  /* Nobody there for two hours, with a stream that dropped and came back, or playback that moved
+     by `serverPlays` seconds: does the question come? */
+  async ask_restarted(p) {
+    await streamPlays(p, 0);
+    playOn(p, 1);
+    p.video.currentTime = 1200;
+    fire(p.video, 'timeupdate');
+    p.sleep(7190000);
+    const asks = () => { endsNow(p); p.sleep(11000); p.tick(250); return p.q('[data-ask]').open; };
+    if (p.win.serverPlays !== 'restart') {
+      p.video.currentTime += +p.win.serverPlays;
+      fire(p.video, 'seeking');
+      return { asked: asks() };
+    }
+    /* Emptied of its stream the video stands at 0 and says so, at whatever point of the start. */
+    const stands = () => { p.video.currentTime = 0; fire(p.video, 'timeupdate'); };
+    p.hlsList[0].emit('hlsError', { response: { code: 410 } });
+    stands();
+    p.replies.push(answer('1080p-8000'));
+    await settle();
+    stands();
+    p.hlsList[1].emit('hlsManifestParsed');
+    p.video.readyState = 1;
+    stands();
+    p.video.currentTime = p.hlsList[1].startsAt;
+    const at = p.video.currentTime;
+    fire(p.video, 'seeking');
+    await streamPlays(p, at);
+    return { at: at, asked: asks() };
+  },
+
   /* The episode ends; is the question there? */
   async ask_carried(p) {
     const stored = p.sitting();

@@ -799,6 +799,16 @@ def test_it_asks_when_nobody_was_there_for_two_hours_and_escape_goes_to_the_deta
     assert out["href"] == "/watch/show/77"
 
 
+def test_a_stream_that_drops_and_comes_back_is_no_sign_of_somebody(markup):
+    out = run(markup, "ask_restarted", plays="restart")
+    assert out == {"at": 1200, "asked": True}
+
+
+@pytest.mark.parametrize(("seconds", "asked"), [("1.5", True), ("2.5", False), ("-2.5", False)])
+def test_a_jump_is_a_sign_of_somebody_and_a_nudge_is_not(markup, seconds, asked):
+    assert run(markup, "ask_restarted", plays=seconds) == {"asked": asked}
+
+
 @pytest.mark.parametrize(("goes_on", "asked"), [(True, True), (False, False)])
 def test_only_a_page_opened_by_itself_carries_the_count_on(markup, goes_on, asked):
     held = json.dumps({"count": 3, "lastActivity": 0, "goes_on": goes_on})
