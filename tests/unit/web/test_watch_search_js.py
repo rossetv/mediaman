@@ -222,6 +222,15 @@ def test_categories_are_suggested_on_the_keystroke_and_people_once_they_are_know
     assert out["begun"] == "Action | Category · Popular"
 
 
+def test_the_column_beside_the_grid_goes_only_once_it_is_known_to_stay_empty() -> None:
+    assert _run("column") == {
+        "first": False,
+        "typing": [False, 0],
+        "early": False,
+        "settled": True,
+    }
+
+
 def test_a_phrase_that_names_a_category_lists_its_titles_each_once() -> None:
     out = _run("phraseResults")
     assert out["urls"][2] == "/api/watch/explore?genre=action&type=movie"

@@ -715,7 +715,6 @@
 
     function holdResults() {
       if (!hold('results', 'Search results')) return;
-      live.node.classList.add('has-no-suggestions');
       var side = el('div', 'results-side');
       var list = el('div', 'watch-suggestions');
       list.setAttribute('id', 'watch-suggestions');
@@ -836,19 +835,20 @@
       return all;
     }
 
-    function drawSuggestions(q, c) {
-      var list = suggestionsFor(q, c);
-      var at = picked && picked.id;
-      var none = !list.length;
-      if (none !== live.node.classList.contains('has-no-suggestions')) {
-        // The grid gives up or takes the column beside it.
-        glide(live.grid, live.rows, function () { live.node.classList.toggle('has-no-suggestions', none); });
-      }
-      live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
-      glide(live.list, list);
-      input.setAttribute('aria-controls', 'watch-suggestions');
-      input.setAttribute('aria-expanded', list.length ? 'true' : 'false');
-      pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
+    /* The suggestions for *q*, and *rows* in the grid, which moves with them.
+       Their column goes only once it is known to stay empty. */
+    function draw(q, c, rows, settled) {
+      live.rows = rows;
+      glide(live.grid, rows, function () {
+        var list = suggestionsFor(q, c);
+        var at = picked && picked.id;
+        if (list.length || settled) live.node.classList.toggle('has-no-suggestions', !list.length);
+        live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
+        glide(live.list, list);
+        input.setAttribute('aria-controls', 'watch-suggestions');
+        input.setAttribute('aria-expanded', list.length ? 'true' : 'false');
+        pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
+      });
     }
 
     /* ── The highlight ── */
@@ -1072,9 +1072,11 @@
         }
       }
       holdResults();
-      drawSuggestions(c.q, c);
       // Old results stay, dimmed, until the library answers.
-      if (lib.state === 'loading' && live.drawn && !lib.items) return;
+      if (lib.state === 'loading' && live.drawn && !lib.items) {
+        draw(c.q, c, live.rows, false);
+        return;
+      }
 
       var rows = [];
       if (lib.state === 'loading' && !lib.items) rows = rows.concat(headRow('lib', 'In your library'), skeletonRows('lib'));
@@ -1104,8 +1106,7 @@
       }
       live.grid.removeAttribute('aria-busy');
       live.drawn = lib.state !== 'loading';
-      live.rows = rows;
-      glide(live.grid, rows);
+      draw(c.q, c, rows, settled);
       refocus(c, 'lib', lib);
       refocus(c, 'tmdb', tmdb);
       if (settled) {
@@ -1251,7 +1252,7 @@
       show('results');
       if (address.value('explore') !== null || address.value('grid') !== null) syncUrl(q);
       holdResults();
-      drawSuggestions(q, null);
+      draw(q, null, live.rows, false);
       setPending(true);
       timer = setTimeout(change, SEARCH_DELAY_MS);
     }

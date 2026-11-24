@@ -632,6 +632,24 @@ const scenarios = {
     return out;
   },
 
+  // The column beside the grid goes only once nothing is known to come into it, so the grid is not moved and moved back.
+  async column() {
+    const p = await ready(ADMIN);
+    const none = () => p.doc.querySelector('.results-page').classList.contains('has-no-suggestions');
+    await p.search('orchard');
+    const out = { first: none() };
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    p.type('lantern');
+    out.typing = [none(), p.suggested().length];
+    await p.search('lantern');
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-5', title: 'Alight', subtitle: 'Lantern' }] });
+    out.early = none();
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out.settled = none();
+    return out;
+  },
+
   // "popular action movies" lists the category's own titles with whatever matched, each once.
   async phraseResults() {
     const p = await ready(ADMIN);
