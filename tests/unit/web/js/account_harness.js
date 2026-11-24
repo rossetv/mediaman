@@ -108,7 +108,7 @@ const scenarios = {
       return { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className, says: $('again-match').textContent };
     };
     const out = {
-      weak: type('pw', 'abc'), ok: type('pw', 'abcdefghijK1'), strong: type('pw', 'abcdefghijK1-xyz'),
+      weak: type('pw', 'abc'), ok: type('pw', 'abcdefghijK1lmno'), strong: type('pw', 'abcdefghijK1-xyz'),
       differs: type('again', 'abc'), matches: type('again', 'abcdefghijK1-xyz'),
       changed: type('pw', 'abcdefghijK1-xyzz'), emptied: type('again', ''),
     };
