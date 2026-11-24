@@ -1,4 +1,4 @@
-"""Where the focus goes after an Undo in the Watch list."""
+"""Where the focus goes after an Undo in the Watch list, and which failed reads it makes good."""
 
 from __future__ import annotations
 
@@ -27,3 +27,17 @@ def test_an_undo_whose_row_is_not_there_puts_the_focus_on_a_row_in_sight_or_the_
 
 def test_an_undo_takes_no_focus_from_where_it_is_or_from_what_is_open_over_the_list() -> None:
     assert _run("undoLeavesFocus") == {"details": True, "dialog": True, "typing": "watch-search"}
+
+
+def test_a_list_that_could_not_be_read_after_a_change_is_read_when_shown_again() -> None:
+    assert _run("unreadIsReadAgain") == {"reads": [1, 0], "summary": "summary now"}
+
+
+def test_a_row_that_could_not_be_found_after_a_change_has_the_list_read_when_shown_again() -> None:
+    out = _run("unfoundIsReadAgain")
+    assert out["reads"] == 1
+    assert "id:m2" not in out["keys"]
+
+
+def test_a_change_during_a_load_that_failed_has_the_list_read_when_shown_again() -> None:
+    assert _run("changeDuringAFailedLoad") == {"reads": 1, "summary": "summary now"}

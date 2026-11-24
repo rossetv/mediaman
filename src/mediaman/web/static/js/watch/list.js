@@ -29,7 +29,7 @@
   var _request = 0;   // the newest list fetch; older replies are dropped
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _again = false; // what is scheduled changed while a list was loading
-  var _stale = false; // an admin action changed the library while the list was hidden
+  var _stale = false; // the library changed and the list could not show it, so it is read again when next shown
   var _working = Object.create(null); // the admin actions still running, by the key of their row
 
   /* ── State and addresses ── */
@@ -239,6 +239,8 @@
     }, function () {
       if (request !== _request) return;
       _asked = null;
+      if (_again) _stale = true;
+      _again = false;
       showFailure(state);
     });
   }
@@ -545,19 +547,20 @@
         if (action === 'delete') { leave(row); return; }
         rowElsewhere(row).then(function (found) {
           if (!current() || !row.parentNode) return;
-          if (found) replaceRow(row, found, action);
-          else letGo(row, d);
+          if (found) { replaceRow(row, found, action); return; }
+          _stale = true;
+          letGo(row, d);
         });
       });
       /* A page the server moved back (its last row went) is loaded whole once the row has left. */
       if (action === 'delete' && same(state, stateOf(fresh))) refill(now, fresh);
     }, function () {
+      _stale = true;
       keys.forEach(function (key) {
         var row = rowByKey(key);
         if (row) letGo(row, d);
       });
       if (_view === 'list') window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
-      else _stale = true;
     });
   }
 

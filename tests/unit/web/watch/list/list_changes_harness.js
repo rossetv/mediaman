@@ -35,6 +35,15 @@ async function kept(state) {
   return p;
 }
 
+/* To Browse and back: how often the list was read for it. */
+async function thereAndBack(p) {
+  const toggle = (view) => p.doc.querySelector('#watch-viewtoggle [data-view="' + view + '"]');
+  const before = p.fetches.length;
+  click(p.doc, toggle('rows')); await settle();
+  click(p.doc, toggle('list')); await settle();
+  return p.fetches.length - before;
+}
+
 const scenarios = {
   // Undo of a keep: where the focus is once it is saved, refused, or the list could not be read again.
   async undoFocus() {
@@ -87,6 +96,38 @@ const scenarios = {
     await typing.pressUndo();
     out.typing = typing.doc.activeElement.id;
     return out;
+  },
+
+  // A keep whose list could not be read again: to Browse and back reads it, once.
+  async unreadIsReadAgain() {
+    const p = load({ list: true });
+    p.fail(LIST);
+    click(p.doc, keepOption(p, 'id:m2', 'forever')); await settle();
+    p.serve(LIST, { label: 'now' }, ROWS);
+    const reads = [await thereAndBack(p), await thereAndBack(p)];
+    return { reads, summary: p.part('summary') };
+  },
+
+  // A row that left the page and could not be found in the library.
+  async unfoundIsReadAgain() {
+    const p = load({ list: true });
+    p.serve(LIST, {}, ROWS.filter((r) => r.id !== 'm2'));
+    p.fail('/watch/list?q=Saltmarsh&per_page=100');
+    click(p.doc, keepOption(p, 'id:m2', 'forever')); await settle();
+    return { reads: await thereAndBack(p), keys: p.rowKeys() };
+  },
+
+  // What is scheduled changed while a filter loaded that then failed.
+  async changeDuringAFailedLoad() {
+    const p = load({ list: true });
+    let fail;
+    p.serve('/watch/list?type=tv', {}, [], { promise: new Promise((_res, rej) => { fail = rej; }) });
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill').find((n) => n.getAttribute('data-type') === 'tv'));
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    fail(new Error('gone')); await settle();
+    p.serve(LIST, { label: 'now' }, ROWS);
+    const reads = await thereAndBack(p);
+    return { reads, summary: p.part('summary') };
   },
 };
 
