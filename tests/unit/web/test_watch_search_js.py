@@ -53,7 +53,7 @@ def test_a_library_group_that_shows_only_some_of_what_was_found_says_of_how_many
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]
-    assert out["shortCalls"] == ["/api/watch/search?q=a"]
+    assert out["shortCalls"] == ["/api/watch/search?q=a", "/api/watch/search/tmdb?q=a"]
     assert out["afterShort"] == {"titles": ["Short"], "heads": ["In your library"]}
 
 
@@ -95,10 +95,10 @@ def test_without_tmdb_the_hint_links_for_admins_and_never_says_tmdb_to_viewers()
     assert out["fromReply"] is True
 
 
-def test_a_one_letter_query_does_not_ask_tmdb_but_two_letters_do() -> None:
+def test_a_title_of_one_letter_is_searched_for_outside_the_library_too() -> None:
     out = _run("short")
-    assert out["one"] == ["/api/watch/search?q=a"]
-    assert out["two"] == ["/api/watch/search?q=ab", "/api/watch/search/tmdb?q=ab"]
+    assert out["urls"] == ["/api/watch/search?q=M", "/api/watch/search/tmdb?q=M"]
+    assert out["titles"] == ["M"]
 
 
 def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -> None:

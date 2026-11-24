@@ -27,8 +27,6 @@
   var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
   var PEOPLE = 6;
   var NO_PEOPLE = 'mm.watch.no-people'; // stored while none of the library are known, so no place is held for them
-  // TMDB answers nothing for less; do not ask.
-  var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
   var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
@@ -1269,7 +1267,7 @@
       var tmdb = c.tmdb;
       var cat = c.cat ? c.cat.state : 'ok';
       var all = gather(c);
-      var tmdbQuiet = tmdb.state === 'short' || tmdb.state === 'unconfigured' || (tmdb.state === 'ok' && !tmdb.items.length);
+      var tmdbQuiet = tmdb.state === 'unconfigured' || (tmdb.state === 'ok' && !tmdb.items.length);
       var settled = lib.state !== 'loading' && tmdb.state !== 'loading' && cat !== 'loading';
       setPending(!settled);
 
@@ -1390,7 +1388,7 @@
           if (current !== c) return;
           c.cat = null;
           if (explore.known()) askCategory(c, before);
-          else if (c.q.length >= TMDB_MIN_CHARS) c.cat = { state: 'unknown' };
+          else if (c.q.length > 1) c.cat = { state: 'unknown' };
           paint(c);
         });
         return;
@@ -1455,7 +1453,6 @@
       status.textContent = '';
       fetchLibrary(c);
       if (data.tmdb_configured !== true) c.tmdb = { state: 'unconfigured' };
-      else if (q.length < TMDB_MIN_CHARS) c.tmdb = { state: 'short' };
       else fetchTmdb(c);
       if (canExplore()) askCategory(c, known && known.cat);
       paint(c);

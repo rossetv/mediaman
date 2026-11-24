@@ -246,7 +246,7 @@ const scenarios = {
     return out;
   },
 
-  // A reply for an older query, or for one shorter than TMDB takes, never reaches the page.
+  // A reply for an older query never reaches the page.
   async staleReply() {
     const p = load(ADMIN);
     await p.search('ab');
@@ -267,6 +267,7 @@ const scenarios = {
     await q.search('a');
     out.shortCalls = q.calls.filter((c) => !slow.includes(c)).map((c) => c.url);
     await q.answer('/api/watch/search?q=a', { items: [{ ...LIB, title: 'Short' }] });
+    q.calls.filter((c) => c.url === '/api/watch/search/tmdb?q=a').forEach((c) => c.resolve({ tmdb_configured: true, items: [] }));
     slow.forEach((c) => c.resolve({ items: [{ ...LIB, title: 'Stale' }], tmdb_configured: true }));
     await settle();
     out.afterShort = { titles: q.titles('.watch-card'), heads: q.heads() };
@@ -528,11 +529,10 @@ const scenarios = {
   // A query under two letters asks the library only; two letters ask TMDB too.
   async short() {
     const p = load(ADMIN);
-    await p.search('a');
-    const one = p.calls.map((c) => c.url);
-    const q = load(ADMIN);
-    await q.search('ab');
-    return { one, two: q.calls.map((c) => c.url) };
+    await p.search('M');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...TM, title: 'M' }] });
+    return { urls: p.calls.map((c) => c.url), titles: p.titles('.watch-card') };
   },
 
   // Clearing goes back to the rows, keeps focus in the field and takes ?q= off the address.
