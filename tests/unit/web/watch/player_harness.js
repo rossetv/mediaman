@@ -576,13 +576,13 @@ const scenarios = {
 
   /* The volume the page starts with, and what is kept when it changes. */
   async volume(p) {
-    const start = { volume: p.video.volume, muted: p.video.muted, mute: p.q('[data-mute]').getAttribute('aria-label'), fill: p.q('[data-volume]').style['--fill'] };
+    const start = { volume: p.video.volume, muted: p.video.muted, mute: p.q('[data-mute]').getAttribute('aria-label') };
     p.video.muted = false; p.video.volume = 0.25;
     fire(p.video, 'volumechange');
     const unmuted = Object.assign({}, p.storage);
     press(p.q('[data-mute]'));
     fire(p.video, 'volumechange');
-    return { start: start, unmuted: unmuted, muted: Object.assign({}, p.storage), fill: p.q('[data-volume]').style['--fill'] };
+    return { start: start, unmuted: unmuted, muted: Object.assign({}, p.storage) };
   },
 
   /* The keys of a slider on the seek bar. */

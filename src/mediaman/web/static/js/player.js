@@ -26,6 +26,8 @@
   if (!root) return;
 
   var QUALITY_KEY = 'mediaman.watch.quality';
+  var VOLUME_KEY = 'mediaman.watch.volume';
+  var MUTED_KEY = 'mediaman.watch.muted';
   var QUALITIES = { best: 1, medium: 1, low: 1 };
   var IDLE_MS = 3000;
   var SAVE_EVERY_MS = 10000;
@@ -143,15 +145,28 @@
     return pendingStart !== null ? pendingStart : video.currentTime;
   }
 
-  /* ---- quality -------------------------------------------------------- */
+  /* ---- saved settings ------------------------------------------------- */
+
+  function readSetting(key) {
+    try { return window.localStorage.getItem(key); } catch (e) { return null; /* storage blocked */ }
+  }
+
+  function saveSetting(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (e) { /* storage blocked */ }
+  }
 
   function readQuality() {
-    try {
-      var saved = window.localStorage.getItem(QUALITY_KEY);
-      if (saved && QUALITIES[saved]) return saved;
-    } catch (e) { /* storage blocked */ }
-    return 'best';
+    var saved = readSetting(QUALITY_KEY);
+    return saved && QUALITIES[saved] ? saved : 'best';
   }
+
+  function readVolume() {
+    var saved = parseFloat(readSetting(VOLUME_KEY));
+    if (saved >= 0 && saved <= 1) video.volume = saved;
+    video.muted = readSetting(MUTED_KEY) === 'true';
+  }
+
+  /* ---- quality -------------------------------------------------------- */
 
   function showQuality() {
     var items = root.querySelectorAll('[data-quality]');
@@ -170,7 +185,7 @@
 
   function setQuality(value) {
     quality = value;
-    try { window.localStorage.setItem(QUALITY_KEY, value); } catch (e) { /* storage blocked */ }
+    saveSetting(QUALITY_KEY, value);
     showQuality();
   }
 
@@ -549,7 +564,11 @@
     saveAfterSeek();
   });
   video.addEventListener('progress', render);
-  video.addEventListener('volumechange', showVolume);
+  video.addEventListener('volumechange', function () {
+    showVolume();
+    saveSetting(VOLUME_KEY, video.volume);
+    saveSetting(MUTED_KEY, video.muted);
+  });
 
   video.addEventListener('timeupdate', function () {
     settleStart();
@@ -982,6 +1001,7 @@
   /* ---- start ---------------------------------------------------------- */
 
   showQuality();
+  readVolume();
   showVolume();
   showPlayState();
   render();

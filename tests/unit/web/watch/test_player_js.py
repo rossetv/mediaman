@@ -179,3 +179,20 @@ def test_play_is_off_under_an_error_no_new_try_can_mend(markup):
         "playDisabled": True,
         "focusOnBack": True,
     }
+
+
+def test_volume_and_mute_carry_to_the_next_video(markup):
+    out = run(
+        markup,
+        "volume",
+        saved={"mediaman.watch.volume": "0.6", "mediaman.watch.muted": "true"},
+    )
+    assert out["start"] == {"volume": 0.6, "muted": True, "mute": "Unmute"}
+    assert out["unmuted"] == {"mediaman.watch.volume": "0.25", "mediaman.watch.muted": "false"}
+    assert out["muted"] == {"mediaman.watch.volume": "0.25", "mediaman.watch.muted": "true"}
+
+
+@pytest.mark.parametrize("stored", ["loud", "7", "-1", "", "NaN"])
+def test_a_saved_volume_that_makes_no_sense_is_ignored(markup, stored):
+    start = run(markup, "volume", saved={"mediaman.watch.volume": stored})["start"]
+    assert (start["volume"], start["muted"]) == (1, False)
