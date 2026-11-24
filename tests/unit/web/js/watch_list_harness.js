@@ -530,6 +530,20 @@ const scenarios = {
     return out;
   },
 
+  // The rows held for the seasons of a show opened from its title page, by how many it says it has.
+  async keepDialogFromATitle() {
+    const rows = async (said) => {
+      const p = load({ list: true });
+      p.replies['get /api/show/77/seasons'] = () => deferred().promise;
+      p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift', season_id: '', ...said }, '30 days');
+      await settle();
+      return p.doc.querySelectorAll('#keep-season-list .keep-season-item--skel').length;
+    };
+    const out = [];
+    for (const seasons of [0, 1, 2, 12]) out.push(await rows({ seasons }));
+    return { out, missing: await rows({}), none: await rows({ seasons: null }) };
+  },
+
   // Keep a show from its dialog: the dialog closes and the show's row changes in place.
   async showKeep() {
     const p = load({ list: true });

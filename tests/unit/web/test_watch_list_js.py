@@ -127,6 +127,12 @@ def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() 
     assert out["bar"] == ["15px", ""]
 
 
+def test_the_keep_dialog_of_a_title_page_holds_a_row_for_each_season_and_one_for_all() -> None:
+    out = _run("keepDialogFromATitle")
+    assert out["out"] == [1, 2, 3, 13]
+    assert (out["missing"], out["none"]) == (3, 3)
+
+
 def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place() -> None:
     out = _run("showKeep")
     assert out["opened"] is True

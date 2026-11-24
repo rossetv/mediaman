@@ -872,6 +872,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
                     "has_rk": is_show,
                     "show_title": facts.title,
                     "keep": asdict(read) if read else None,
+                    "seasons": len(facts.item_ids) if is_show else None,
                 },
                 "delete": delete,
             },

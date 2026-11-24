@@ -121,6 +121,7 @@ def test_a_show_sums_its_seasons_and_deletes_through_the_season_picker(admin):
         "title": "Glass Coast",
     }
     assert body["actions"]["keep_wrapper"]["is_tv"] is True
+    assert body["actions"]["keep_wrapper"]["seasons"] == 2
 
 
 def test_a_show_kept_as_a_whole_reads_show_kept(admin, library):

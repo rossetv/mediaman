@@ -9,7 +9,7 @@
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
  * detail's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
- * show_title, keep}) with `season_id`, the season the Keep dialog opens for ('' for
+ * show_title, keep, seasons}) with `season_id`, the season the Keep dialog opens for ('' for
  * none; without one it opens for the season that leaves first).
  */
 (function () {
@@ -80,7 +80,7 @@
       kept: !!w.kept,
       deletion: !!w.deletion,
       keep: w.keep || null,
-      seasons: 2,
+      seasons: typeof w.seasons === 'number' ? w.seasons : 2,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
   }
