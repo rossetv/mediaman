@@ -381,6 +381,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 4. Match arr cards to NZBGet entries; collect upcoming separately.
     # Pass maybe_trigger_search explicitly so monkeypatching it at the
     # download_queue module level is correctly intercepted by tests.
+    remembered = _remembered_cards(arr_result)
     items, upcoming_items = _build_arr_items(
         conn,
         arr_result.cards,
@@ -389,7 +390,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         download_rate,
         secret_key,
         trigger_search=maybe_trigger_search,
-        remembered=_remembered_cards(arr_result),
+        remembered=remembered,
     )
 
     matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])
@@ -405,6 +406,9 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
+    for card in [*arr_result.cards, *remembered]:
+        if card["dl_id"] in current_map and "tmdb_id" in card:
+            current_map[card["dl_id"]]["tmdb_id"] = card["tmdb_id"]
     _maybe_record_completions(
         conn,
         current_map,

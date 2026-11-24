@@ -150,6 +150,8 @@ class ArrCard(BaseArrCard, total=False):
     is_upcoming: bool
     release_label: str
     arr_id: int
+    # Set on a queue card, which has no arr_id to look it up by.
+    tmdb_id: int
     title_slug: str
     added_at: float
     # Epoch since which the title has been searching without a break. Absent while

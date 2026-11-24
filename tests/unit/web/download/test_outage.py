@@ -116,15 +116,16 @@ _NEW_FILE = {"id": 3, "dateAdded": "2999-01-01T00:00:00Z"}
 _POSTER = "https://artworks.thetvdb.com/banners/posters/dune.jpg"
 
 
-def _queued(title: str, release: str) -> dict[str, object]:
+def _queued(title: str, release: str, **record: object) -> dict[str, object]:
+    """A queue entry; *record* goes into its film and its show."""
     images = [{"coverType": "poster", "remoteUrl": _POSTER}]
     return {
         "title": release,
         "size": 100,
         "sizeleft": 40,
         "status": "downloading",
-        "movie": {"title": title, "images": images},
-        "series": {"id": 7, "title": title, "images": images},
+        "movie": {"title": title, "images": images, **record},
+        "series": {"id": 7, "title": title, "images": images, **record},
         "episode": {"seasonNumber": 1, "episodeNumber": 1, "title": "One"},
     }
 
@@ -257,6 +258,64 @@ def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(s
         {"id": 2, "tmdbId": 20, "title": "Dune", "monitored": False},
     ]
     assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+
+
+_DUNE = {"id": 1, "tmdbId": 10, "title": "Dune"}
+_OTHER_DUNE = {"id": 2, "tmdbId": 20, "title": "Dune"}
+_FILED = {
+    "hasFile": True,
+    "movieFile": _NEW_FILE,
+    "statistics": {"episodeFileCount": 1},
+}
+
+
+def _library(client, *titles: dict[str, object]) -> None:
+    client.get_movies.return_value = client.get_series.return_value = list(titles)
+
+
+def _give_episode_a_file(client) -> None:
+    client.get_episodes.side_effect = lambda series_id: [
+        {"seasonNumber": 1, "episodeNumber": 1, "hasFile": series_id == 1, "episodeFileId": 3}
+    ]
+    client.get_episode_files.return_value = [_NEW_FILE]
+
+
+@_SERVICES
+def test_what_is_searched_queued_and_filed_is_told_from_another_of_its_title(
+    services, client, service, name
+):
+    arr = services[service]
+    wanted = {**_DUNE, "monitored": True, "isAvailable": True}
+    _library(arr, wanted)
+    arr.get_episodes.return_value = []
+    assert _get(client)["hero"]["state"] == "searching"
+
+    arr.get_queue.return_value = [_queued("Dune", "Dune.2021", tmdbId=10)]
+    assert _get(client)["hero"]["state"] == "downloading"
+
+    arr.get_queue.return_value = []
+    _library(arr, {**_DUNE, **_FILED}, {**_OTHER_DUNE, "monitored": False})
+    _give_episode_a_file(arr)
+    assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
+
+
+@_SERVICES
+def test_a_queued_title_that_takes_the_place_of_another_is_not_taken_for_it(
+    services, client, service, name
+):
+    arr = services[service]
+    _library(arr, {**_OTHER_DUNE, "monitored": True, "isAvailable": True})
+    arr.get_episodes.return_value = []
+    _get(client)
+
+    arr.get_queue.return_value = [_queued("Dune", "Dune.2021", tmdbId=10)]
+    _library(arr)
+    _get(client)
+
+    arr.get_queue.return_value = []
+    _library(arr, {**_DUNE, **_FILED}, {**_OTHER_DUNE, "monitored": False})
+    _give_episode_a_file(arr)
+    assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
 
 
 def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it(services, client):

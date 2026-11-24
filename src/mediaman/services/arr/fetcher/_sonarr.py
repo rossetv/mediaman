@@ -200,6 +200,8 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
                 year=series.get("year"),
                 poster_url=poster_url,
             )
+            if tmdb_id := series.get("tmdbId"):
+                series_map[series_id]["tmdb_id"] = tmdb_id
 
         release_name = q.get("title") or ""
         if release_name:
