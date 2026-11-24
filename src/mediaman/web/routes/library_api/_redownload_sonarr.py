@@ -51,8 +51,10 @@ def _redownload_season(
     propagate to the caller.
     """
     existing = client.get_series_by_tvdb(tvdb_id)
-    series_id = existing.get("id") if existing else None
-    if existing is not None and series_id is not None:
+    if existing is not None:
+        series_id = existing.get("id")
+        if series_id is None:
+            raise ArrError("Sonarr holds the series with no usable id")
         was_unmonitored = any(
             s.get("seasonNumber") == season_number and not s.get("monitored")
             for s in existing.get("seasons") or []

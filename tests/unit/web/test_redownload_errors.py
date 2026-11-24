@@ -232,3 +232,19 @@ def test_a_season_add_that_timed_out_but_landed_is_a_success(
             {"title": "Severance", "tvdb_id": 999, "season_number": 2},
         )
     assert resp.json() == {"ok": True, "message": "Added season 2 of 'Severance' to Sonarr"}
+
+
+def test_a_held_series_with_no_id_is_a_failure_and_is_not_added_again(
+    app_factory, authed_client, conn
+):
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.return_value = {"seasons": []}
+    sonarr.get_series.return_value = [{"tvdbId": 999, "monitored": True}]
+    sonarr.add_series_with_seasons.side_effect = _err(0, "timeout")
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json()["ok"] is False
+    sonarr.add_series_with_seasons.assert_not_called()
