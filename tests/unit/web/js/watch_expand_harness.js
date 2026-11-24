@@ -105,7 +105,7 @@ async function load(opts = {}) {
   const fire = (type, e) => (listeners[type] || []).slice().forEach((fn) => fn(e || {}));
   const go = (by) => setImmediate(() => { tab.index += by; fire('popstate'); });
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, WeakSet, Map, Set, Date, Error, Infinity,
+    document: Object.assign(doc, { dispatchEvent: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, WeakSet, Map, Set, Date, Error, Infinity,
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn) => { setImmediate(fn); return 1; }, clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', visibility: 'visible', display: 'block', paddingLeft: '0', paddingRight: '0', gridTemplateColumns: '1px 1px 1px' }),

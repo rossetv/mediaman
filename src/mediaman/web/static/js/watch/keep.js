@@ -566,6 +566,7 @@
   function settled(id, saved) {
     setBusy(id, false);
     if (panel) panel.settled(saved);
+    if (saved) document.dispatchEvent(new CustomEvent('mm:watch-kept', { detail: { id: id } }));
   }
 
   function moveTo(node) {

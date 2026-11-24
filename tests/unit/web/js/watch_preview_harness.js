@@ -141,7 +141,7 @@ function load(opts = {}) {
   });
 
   const h = {
-    doc, ctx, gets, aborted, posts, waiting, toasts, details, origins, store, fire,
+    doc, ctx, gets, aborted, posts, waiting, toasts, details, origins, store, fire, answers,
     winFire: (type, e) => (winListeners[type] || []).forEach((fn) => fn(e || {})),
     /* Press *key*, from the document down to *target* and back up to the window. */
     key(key, target, over) {
@@ -858,6 +858,61 @@ const scenarios = {
     const cards = ['season2', 'season3'].map((id) => !!h.doc.querySelector('#' + id + ' .watch-badge--leaving'));
     await h.rest('season3', 900);
     return { posts: h.posts, toasts: h.toasts, cards, asked: h.gets.length };
+  },
+  /* A Keep and an Undo made anywhere: what a whole show's card says after each, its reply held before it. */
+  async keptElsewhere() {
+    const three = { days: 3, keep_id: '203', season: 3 };
+    const two = { days: 9, keep_id: '202', season: 2 };
+    const reply = (seasons) => ({ ...FILM, ref: 'show-2', kind: 'show', library_ref: 'show-2', title: 'The Long Coast', keep_allowed: true, leaving: seasons[0] || null, leaving_seasons: seasons });
+    const told = (h, id) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-kept', { detail: { id } }));
+    const says = (h) => [h.title(), h.text('.pv__leaving'), h.pv() && h.pv().querySelector('.pv__keep') ? h.pv().querySelector('.pv__keep').getAttribute('data-watch-keep') : null];
+    const out = {};
+    // Held, with no preview open.
+    let h = load({ api: { 'show-2': reply([three, two]), 'movie-1': FILM } });
+    await h.rest('wholeShow', 900);
+    h.away();
+    await h.pass(1000);
+    h.answers['show-2'] = reply([two]);
+    told(h, '203');
+    await h.rest('wholeShow', 900);
+    out.kept = says(h);
+    h.away();
+    await h.pass(1000);
+    h.answers['show-2'] = reply([three, two]);
+    told(h, '203');
+    await h.rest('wholeShow', 900);
+    out.undone = says(h);
+    // Open: what it offered goes at once, what is so now comes with the reply.
+    delete h.answers['show-2'];
+    told(h, '203');
+    out.openAtOnce = says(h);
+    h.waiting['show-2'](reply([two]));
+    await h.pass(50);
+    out.openThen = [...says(h), h.pv().querySelectorAll('.pv__art').length];
+    // On its way: the answer is from before.
+    h = load({ api: { 'show-2': undefined } });
+    await h.rest('wholeShow', 450);
+    const before = h.waiting['show-2'];
+    h.answers['show-2'] = reply([two]);
+    told(h, '203');
+    before(reply([three, two]));
+    await h.pass(1000);
+    out.onItsWay = says(h);
+    // A preview of another title is left alone, its menu open.
+    h = load({ api: { 'show-2': reply([three, two]) } });
+    await h.rest('wholeShow', 900);
+    await h.rest('film', 900);
+    h.pv().querySelector('[data-preview-more]').click();
+    told(h, '203');
+    out.other = [h.title(), h.gets.length, h.pv().querySelector('[data-preview-more]').getAttribute('aria-expanded')];
+    // An admin's Keep, which names no season.
+    h = load({ api: { 'show-2': reply([three, two]) } });
+    await h.rest('wholeShow', 900);
+    h.answers['show-2'] = reply([]);
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', id: '', showRk: '2' } }));
+    await h.pass(50);
+    out.admin = says(h);
+    return out;
   },
 };
 

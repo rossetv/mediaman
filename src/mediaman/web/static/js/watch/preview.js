@@ -52,6 +52,7 @@
   var trail = [];
   var flight = null;   // the one request on its way: { ref, ctrl, promise }
   var kept = {};       // replies by ref: { data, at }
+  var keptBy = {};     // the title each keep id met in a reply is of
   var failedAt = {};
   var refusedAt = 0;   // the server asked for a pause
   var badTrailers = {};
@@ -92,6 +93,8 @@
     return node ? node.textContent.trim() : '';
   }
 
+  function leavingOn(link) { return textOf(posterOf(link), '.watch-badge__long'); }
+
   function readCard(link) {
     var poster = posterOf(link);
     var bar = poster.querySelector('progress');
@@ -108,7 +111,7 @@
       season: season ? Number(season[1] || season[2]) : null,
       keepId: cardOf(link).getAttribute('data-keep-id') || '',
       pct: bar ? bar.value : 0,
-      leaving: textOf(poster, '.watch-badge__long'),
+      leaving: leavingOn(link),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
       pick: pickOf(link)
     };
@@ -131,6 +134,8 @@
     f.promise = MM.api.get('/api/watch/preview/' + encodeURIComponent(ref), { signal: f.ctrl.signal }).then(function (data) {
       if (flight !== f) return drop();
       flight = null;
+      (data.leaving_seasons || []).concat(data.leaving || []).forEach(function (l) { keptBy[l.keep_id] = data.library_ref; });
+      if (f.stale) return ask(ref);
       kept[ref] = { data: data, at: Date.now() };
       return data;
     }, function (err) {
@@ -156,6 +161,35 @@
     Object.keys(kept).forEach(function (key) {
       if (key === ref || kept[key].data.library_ref === ref) delete kept[key];
     });
+  }
+
+  /* A Keep or an Undo has finished: what was said of its title, or is on its way, is from before. */
+  function keptOrUndone(id) {
+    var ref = keptBy[id];
+    if (ref) unkeep(ref);
+    else kept = {};
+    if (flight) flight.stale = true;
+    var p = live;
+    if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return;
+    if (armed) {
+      close(p); // the one request is the next card's
+      return;
+    }
+    sayLeaving(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
+    ask(askedOf(p.link)).then(function (data) {
+      if (live === p) sayLeaving(p, data);
+    }, function () {
+      // It stays without a Keep.
+    });
+  }
+
+  function sayLeaving(p, data) {
+    closeMenus(p);
+    p.data = data;
+    p.card.leaving = leavingOn(p.link);
+    p.keep = null;
+    p.body.querySelectorAll('.pv__meta')[1].replaceWith(where(p, data));
+    actions(p);
   }
 
   /* ── Resting on a card ── */
@@ -1149,9 +1183,7 @@
   /* A day count chosen in the Keep menu takes the card away: not under its preview. */
   document.addEventListener('click', function (e) {
     var days = e.target.closest && e.target.closest('#watch-keep-menu [data-days]');
-    if (!days) return;
-    if (live) unkeep(live.card.ref);
-    if (!live || !live.keep || document.activeElement !== live.keep) return;
+    if (!days || !live || !live.keep || document.activeElement !== live.keep) return;
     live.keep.blur(); // keep.js moves a focus that is nowhere on from the card that goes
     close(live);
   });
@@ -1164,6 +1196,12 @@
     live.data.download.pct = d.download_pct;
     actions(live);
     core.fadeIn(live.actions.querySelector('.pv__first') || live.actions);
+  });
+
+  document.addEventListener('mm:watch-kept', function (e) { keptOrUndone(e.detail.id); });
+
+  document.addEventListener('mm:watch-admin', function (e) {
+    if (e.detail.phase === 'done') keptOrUndone(e.detail.id);
   });
 
   document.addEventListener('mm:watch-marked', function (e) { unkeep(e.detail.ref); });

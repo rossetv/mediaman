@@ -195,7 +195,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   };
   ctx.window = ctx;
   const told = [];
-  doc.dispatchEvent = (e) => { told.push(e.type); (doc.listeners[e.type] || []).forEach((fn) => fn(e)); };
+  doc.dispatchEvent = (e) => { if (e.type !== 'mm:watch-kept') told.push(e.type); (doc.listeners[e.type] || []).forEach((fn) => fn(e)); };
   ctx.MM = opts.realApi ? {} : { api: {
     get: (url) => server.request('GET', url), post: (url, body) => server.request('POST', url, body),
     postForm: (url, body) => server.request('FORM', url, body), messageOf: (e, f) => (e && e.message) || f } };

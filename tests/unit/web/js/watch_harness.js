@@ -70,10 +70,13 @@ function load(opts = {}) {
     UIFeedback: { toast: (message, opts) => toasts.push({ message, opts }) },
     MM: { api: { post: () => Promise.resolve({}), get: () => Promise.resolve({ items: [] }), messageOf: (_e, f) => f } },
     addEventListener() {},
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
   };
+  const told = [];
+  doc.dispatchEvent = (e) => told.push([e.type, e.detail.id]);
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, timers, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
+  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx)) };
 }
 
@@ -111,6 +114,28 @@ function leavingRowPage(doc) {
 }
 
 const scenarios = {
+  // A finished Keep, a finished Undo and a Keep refused, as they are announced.
+  async keepsTold() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    const keepFirst = async () => {
+      click(page.doc, page.doc.querySelector('.watch-card [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      const early = page.told.length;
+      await settle();
+      return early;
+    };
+    const out = { early: await keepFirst(), kept: page.told.slice() };
+    page.toasts[0].opts.action.onClick();
+    await settle();
+    out.undone = page.told.slice();
+    page.ctx.MM.api.post = () => Promise.reject(new Error('no'));
+    await keepFirst();
+    out.refused = page.told.length;
+    return out;
+  },
+
   // Keep one of two seasons of a show, its button named as the server names it.
   async keptSeason() {
     const page = load();

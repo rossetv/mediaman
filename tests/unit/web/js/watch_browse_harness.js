@@ -105,7 +105,7 @@ function load(opts = {}) {
     return fn ? fn() : Promise.reject(apiError(404, {}));
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
+    document: Object.assign(doc, { dispatchEvent: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
     parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: () => {},

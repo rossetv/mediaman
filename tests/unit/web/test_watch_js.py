@@ -101,3 +101,8 @@ def test_focus_put_in_the_new_view_during_a_swap_outlives_the_fade() -> None:
 
 def test_the_toast_of_a_kept_season_names_it_once() -> None:
     assert _run("keptSeason") == ["Kept Glass Coast, Season 2 for 7 days."]
+
+
+def test_a_finished_keep_and_a_finished_undo_are_announced() -> None:
+    kept = ["mm:watch-kept", "1100"]
+    assert _run("keepsTold") == {"early": 0, "kept": [kept], "undone": [kept, kept], "refused": 2}

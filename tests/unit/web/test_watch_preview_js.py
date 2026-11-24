@@ -419,3 +419,19 @@ def test_keeping_one_season_from_its_preview_keeps_that_one_and_says_which() -> 
         "cards": [False, True],
         "asked": 2,
     }
+
+
+def test_a_keep_or_undo_made_anywhere_is_in_the_next_preview_and_the_open_one() -> None:
+    title = "The Long Coast"
+    first = [title, "Season 3 leaves in 3 days", "203"]
+    second = [title, "Season 2 leaves in 9 days", "202"]
+    nothing = [title, None, None]
+    assert _run("keptElsewhere") == {
+        "kept": second,
+        "undone": first,
+        "openAtOnce": nothing,
+        "openThen": [*second, 1],
+        "onItsWay": second,
+        "other": ["Fieldwork", 2, "true"],
+        "admin": nothing,
+    }
