@@ -203,8 +203,8 @@ def _partition_runnable(
             logger.warning(
                 "Download notification id=%s has no email address — marking as notified", row.id
             )
-            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
-            conn.commit()
+            with conn:
+                conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
         elif _is_backed_off(row.id, now_dt):
             deferred_ids.append(row.id)
         else:
@@ -396,11 +396,11 @@ def _check_arr_availability(
             row_id,
             service,
         )
-        conn.execute(
-            "UPDATE download_notifications SET notified=1 WHERE id=?",
-            (row_id,),
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "UPDATE download_notifications SET notified=1 WHERE id=?",
+                (row_id,),
+            )
         return False, _ARR_UNKNOWN_SERVICE
 
     if arr_unreachable:
@@ -468,8 +468,8 @@ def _process_one_notification(
         subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
         mailgun.send(to=email, subject=subject, html=html)
 
-        conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
-        conn.commit()
+        with conn:
+            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
         # Successful send — drop any backoff/poll-throttle state we may
         # have built up for this row during a previous outage or wait.
         _clear_backoff(int(row_id))

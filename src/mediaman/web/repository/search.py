@@ -67,18 +67,18 @@ def upsert_ratings_cache(
     """
     if not rows:
         return
-    conn.executemany(
-        "INSERT INTO ratings_cache "
-        "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT (tmdb_id, media_type) DO UPDATE SET "
-        "imdb_rating = COALESCE(excluded.imdb_rating, imdb_rating), "
-        "rt_rating = COALESCE(excluded.rt_rating, rt_rating), "
-        "metascore = COALESCE(excluded.metascore, metascore), "
-        "fetched_at = excluded.fetched_at",
-        rows,
-    )
-    conn.commit()
+    with conn:
+        conn.executemany(
+            "INSERT INTO ratings_cache "
+            "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (tmdb_id, media_type) DO UPDATE SET "
+            "imdb_rating = COALESCE(excluded.imdb_rating, imdb_rating), "
+            "rt_rating = COALESCE(excluded.rt_rating, rt_rating), "
+            "metascore = COALESCE(excluded.metascore, metascore), "
+            "fetched_at = excluded.fetched_at",
+            rows,
+        )
 
 
 __all__ = [

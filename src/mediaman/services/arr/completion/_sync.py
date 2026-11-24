@@ -76,10 +76,10 @@ def detect_completed(
 
 def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
     """Delete recent_downloads rows older than 7 days. Returns count deleted."""
-    cursor = conn.execute(
-        "DELETE FROM recent_downloads WHERE completed_at < datetime('now', '-7 days')"
-    )
-    conn.commit()
+    with conn:
+        cursor = conn.execute(
+            "DELETE FROM recent_downloads WHERE completed_at < datetime('now', '-7 days')"
+        )
     return cursor.rowcount
 
 
@@ -142,14 +142,14 @@ def _sync_recent_row(
     Per-row side effects:
 
     * If the item has reappeared in the active queue, ``DELETE`` the row,
-      ``commit()``, and return ``None`` (the caller skips it).
+      commit, and return ``None`` (the caller skips it).
     * Otherwise, when the stored poster is missing, look it up via
-      *poster_lookup* and, on a hit, ``UPDATE`` the row and ``commit()``.
+      *poster_lookup* and, on a hit, ``UPDATE`` the row and commit.
     """
     if row["dl_id"] in active_ids or row["title"] in active_titles:
         # Item is back in the download queue — remove from recent
-        conn.execute("DELETE FROM recent_downloads WHERE id = ?", (row["id"],))
-        conn.commit()
+        with conn:
+            conn.execute("DELETE FROM recent_downloads WHERE id = ?", (row["id"],))
         return None
 
     poster_url = row["poster_url"] or ""
@@ -165,11 +165,11 @@ def _sync_recent_row(
         poster_url = poster_lookup.poster_for(service, row["title"])
         if poster_url:
             try:
-                conn.execute(
-                    "UPDATE recent_downloads SET poster_url = ? WHERE id = ?",
-                    (poster_url, row["id"]),
-                )
-                conn.commit()
+                with conn:
+                    conn.execute(
+                        "UPDATE recent_downloads SET poster_url = ? WHERE id = ?",
+                        (poster_url, row["id"]),
+                    )
             except sqlite3.Error:
                 logger.warning(
                     "Failed to backfill poster for %s",

@@ -46,23 +46,23 @@ def claim_download_token(conn: sqlite3.Connection, *, digest: str, exp: int) -> 
     """
     expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
     used_at = now_utc().isoformat()
-    cursor = conn.execute(
-        "INSERT OR IGNORE INTO used_download_tokens "
-        "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
-        (digest, expires_at, used_at),
-    )
-    conn.commit()
+    with conn:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO used_download_tokens "
+            "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
+            (digest, expires_at, used_at),
+        )
     return cursor.rowcount == 1
 
 
 def release_download_token(conn: sqlite3.Connection, digest: str) -> None:
-    conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
-    conn.commit()
+    with conn:
+        conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
 
 
 def purge_expired_download_tokens(conn: sqlite3.Connection, *, now_iso: str) -> None:
-    conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
-    conn.commit()
+    with conn:
+        conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
 
 
 def fetch_suggestion_enrichment(

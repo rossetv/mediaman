@@ -172,12 +172,12 @@ def _batch_insert_completions(
     if not to_insert:
         return
     try:
-        conn.executemany(
-            "INSERT OR IGNORE INTO recent_downloads "
-            "(dl_id, title, media_type, poster_url) VALUES (?, ?, ?, ?)",
-            to_insert,
-        )
-        conn.commit()
+        with conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO recent_downloads "
+                "(dl_id, title, media_type, poster_url) VALUES (?, ?, ?, ?)",
+                to_insert,
+            )
     except sqlite3.Error:
         logger.warning(
             "Failed to record %d completed download(s)",

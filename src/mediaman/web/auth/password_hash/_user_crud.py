@@ -73,11 +73,11 @@ def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
 
 
 def set_must_change_password(conn: sqlite3.Connection, username: str, flag: bool) -> None:
-    conn.execute(
-        "UPDATE admin_users SET must_change_password = ? WHERE username = ?",
-        (1 if flag else 0, username),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "UPDATE admin_users SET must_change_password = ? WHERE username = ?",
+            (1 if flag else 0, username),
+        )
 
 
 def create_user(
@@ -318,11 +318,11 @@ def set_user_email(
                 detail={"cleared": cleared},
             )
     else:
-        conn.execute(
-            "UPDATE admin_users SET email = ? WHERE username = ?",
-            (normalised, username),
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "UPDATE admin_users SET email = ? WHERE username = ?",
+                (normalised, username),
+            )
 
 
 def delete_user(

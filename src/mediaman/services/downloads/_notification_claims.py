@@ -63,17 +63,17 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
     reconcile_stranded_notifications(conn)
     claim_iso = now_iso()
     try:
-        rows = conn.execute(
-            "UPDATE download_notifications SET notified=2, claimed_at=? "
-            "WHERE notified=0 "
-            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service, season_number",
-            (claim_iso,),
-        ).fetchall()
-        # Build the return value before committing so the rows are safely in a
-        # local variable — a Python exception between commit and return would
-        # otherwise strand them at notified=2.
-        claimed = [_row_to_claimed(r) for r in rows]
-        conn.commit()
+        with conn:
+            rows = conn.execute(
+                "UPDATE download_notifications SET notified=2, claimed_at=? "
+                "WHERE notified=0 "
+                "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service, season_number",
+                (claim_iso,),
+            ).fetchall()
+            # Build the return value before the commit so the rows are safely in a
+            # local variable — a Python exception between commit and return would
+            # otherwise strand them at notified=2.
+            claimed = [_row_to_claimed(r) for r in rows]
         return claimed
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
@@ -117,11 +117,11 @@ def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
     so a reconcile sweep does not see a phantom in-flight stamp.
     """
     try:
-        conn.execute(
-            "UPDATE download_notifications SET notified=0, claimed_at=NULL WHERE id=?",
-            (row_id,),
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "UPDATE download_notifications SET notified=0, claimed_at=NULL WHERE id=?",
+                (row_id,),
+            )
     except sqlite3.Error:
         logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
 
@@ -136,12 +136,12 @@ def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
     try:
         # rationale: placeholder list built from integer row IDs only; no user input reaches the SQL string
         placeholders = ",".join("?" * len(row_ids))
-        conn.execute(
-            f"UPDATE download_notifications SET notified=0, claimed_at=NULL "
-            f"WHERE id IN ({placeholders})",
-            row_ids,
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                f"UPDATE download_notifications SET notified=0, claimed_at=NULL "
+                f"WHERE id IN ({placeholders})",
+                row_ids,
+            )
     except sqlite3.Error:
         logger.warning(
             "failed to bulk-release notification claims (n=%d)", len(row_ids), exc_info=True
@@ -161,14 +161,14 @@ def reconcile_stranded_notifications(
     notified=0; returns the number reset.
     """
     cutoff = (now_utc() - timedelta(seconds=grace_seconds)).isoformat()
-    cur = conn.execute(
-        "UPDATE download_notifications "
-        "SET notified=0, claimed_at=NULL "
-        "WHERE notified=2 "
-        "  AND (claimed_at IS NULL OR claimed_at < ?)",
-        (cutoff,),
-    )
-    conn.commit()
+    with conn:
+        cur = conn.execute(
+            "UPDATE download_notifications "
+            "SET notified=0, claimed_at=NULL "
+            "WHERE notified=2 "
+            "  AND (claimed_at IS NULL OR claimed_at < ?)",
+            (cutoff,),
+        )
     reset = cur.rowcount or 0
     if reset:
         logger.info("notifications.reconcile reset=%d cutoff=%s", reset, cutoff)
