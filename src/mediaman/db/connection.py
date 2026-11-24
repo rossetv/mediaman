@@ -115,7 +115,20 @@ _ADDED_COLUMNS = (
     ("pruned_keeps", "tmdb_id", "INTEGER"),
     ("pruned_keeps", "plex_library_id", "INTEGER"),
     ("media_items", "last_tmdb_id", "INTEGER"),
+    ("pruned_keeps", "tvdb_id", "INTEGER"),
+    ("pruned_keeps", "given_libraries", "TEXT"),
+    ("pruned_show_seasons", "tmdb_id", "INTEGER"),
+    ("pruned_show_seasons", "tvdb_id", "INTEGER"),
+    ("pruned_show_seasons", "plex_library_id", "INTEGER"),
+    ("pruned_show_seasons", "given_libraries", "TEXT"),
 )
+
+# Not in SCHEMA, which runs before an older table has these columns.
+_ADDED_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_media_items_tvdb_id ON media_items(tvdb_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id
+    ON media_items(COALESCE(tmdb_id, last_tmdb_id));
+"""
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -164,6 +177,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        conn.executescript(_ADDED_INDEXES)
         _take_over_plays(conn)
         conn.commit()
     except Exception:

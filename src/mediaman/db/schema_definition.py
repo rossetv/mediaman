@@ -173,9 +173,12 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
     token_used INTEGER NOT NULL,
     snoozed_at TEXT,
     snooze_duration TEXT,
-    -- What finds the new key of a film Plex lists with another file.
+    -- What finds the new key of a film or season Plex lists with other files.
     tmdb_id INTEGER,
-    plex_library_id INTEGER
+    plex_library_id INTEGER,
+    tvdb_id INTEGER,
+    -- JSON list of the other libraries where a title with these ids was given the keep.
+    given_libraries TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
@@ -186,7 +189,12 @@ CREATE TABLE IF NOT EXISTS pruned_show_seasons (
     show_rating_key TEXT NOT NULL,
     media_item_id TEXT NOT NULL,
     file_path TEXT NOT NULL,
-    season_number INTEGER
+    season_number INTEGER,
+    -- The show's, and as in pruned_keeps.
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    plex_library_id INTEGER,
+    given_libraries TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_show ON pruned_show_seasons(show_rating_key);
 CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_file_path ON pruned_show_seasons(file_path);

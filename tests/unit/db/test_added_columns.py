@@ -7,7 +7,11 @@ import sqlite3
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner.repository import save_pruned_keeps, take_pruned_keeps
+from mediaman.scanner.repository import (
+    carry_film_keeps,
+    save_pruned_keeps,
+    take_pruned_keeps,
+)
 from mediaman.services.downloads._notification_claims import _claim_pending_notifications
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
@@ -357,4 +361,56 @@ def test_a_film_kept_in_an_old_database_is_set_aside_with_its_match(tmp_path):
 
     rows = conn.execute("SELECT tmdb_id, plex_library_id FROM pruned_keeps").fetchall()
     assert [tuple(row) for row in rows] == [(7, 3)]
+    conn.close()
+
+
+_OLD_PRUNED = """
+CREATE TABLE pruned_show_seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER
+);
+CREATE TABLE pruned_watches (
+    media_item_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    show_title TEXT,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    last_watched_at TEXT NOT NULL
+);
+INSERT INTO pruned_watches VALUES ('gone', '/m/a', 1, 'T', 7, 8, '2026');
+"""
+
+
+def test_a_kept_season_an_older_version_set_aside_is_given_back_by_its_match(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        _OLD_MEDIA_ITEMS
+        + _OLD_PRUNED
+        + _OLD_PRUNED_KEEPS.replace(
+            "snooze_duration TEXT", "snooze_duration TEXT, tmdb_id INTEGER, plex_library_id INTEGER"
+        )
+    )
+    old.execute(
+        "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, action, scheduled_at,"
+        " token_used, tmdb_id, plex_library_id)"
+        " VALUES ('gone', '/m/a', 1, 'protected_forever', '2026', 0, 7, 3)"
+    )
+    old.commit()
+    old.close()
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, season_number, plex_library_id,"
+        " plex_rating_key, added_at, file_path, file_size_bytes, tmdb_id, tvdb_id)"
+        " VALUES ('new','T','tv_season',1,3,'new','2020','/m/b',5,7,8)"
+    )
+
+    carry_film_keeps(conn)
+
+    kept = conn.execute("SELECT media_item_id FROM scheduled_actions").fetchall()
+    assert [row["media_item_id"] for row in kept] == ["new"]
     conn.close()

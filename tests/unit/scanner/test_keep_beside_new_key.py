@@ -72,21 +72,19 @@ class _Library:
             }
             for n in range(5)
         ]
-        films = {
-            "1": others + [i for i in items if i["plex_rating_key"] not in self.elsewhere],
-            "3": [i for i in items if i["plex_rating_key"] in self.elsewhere],
-        }
-        plex.get_movie_items.side_effect = (
-            films.get if self.kind == "film" else {"1": others, "3": []}.get
-        )
-        plex.get_show_seasons.return_value = items if self.kind == "season" else []
+        here = [i for i in items if i["plex_rating_key"] not in self.elsewhere]
+        there = [i for i in items if i["plex_rating_key"] in self.elsewhere]
+        films = (here, there) if self.kind == "film" else ([], [])
+        seasons = (here, there) if self.kind == "season" else ([], [])
+        plex.get_movie_items.side_effect = {"1": others + films[0], "3": films[1]}.get
+        plex.get_show_seasons.side_effect = {"2": seasons[0], "4": seasons[1]}.get
         plex.get_watch_history.side_effect = self._history
         plex.get_season_watch_history.side_effect = self._history
         engine = ScanEngine(
             conn=self._conn,
             plex_client=plex,
-            library_ids=["1", "2", "3"],
-            library_types={"1": "movie", "2": "show", "3": "movie"},
+            library_ids=["1", "2", "3", "4"],
+            library_types={"1": "movie", "2": "show", "3": "movie", "4": "show"},
             secret_key="0123456789abcdef" * 4,
             **options,
         )
@@ -121,7 +119,7 @@ def library(request, conn, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
     conn.execute(
         "INSERT INTO settings (key, value, updated_at) "
-        "VALUES ('plex_libraries', '[\"1\", \"2\", \"3\"]', '2026')"
+        'VALUES (\'plex_libraries\', \'["1", "2", "3", "4"]\', \'2026\')'
     )
     conn.commit()
     return _Library(conn, root, request.param)
@@ -330,7 +328,7 @@ class TestKeyBesideAKeptOne:
             ({"season_number": 1}, {"season_number": 2}),
             ({"tmdb_id": 1}, {"tmdb_id": 2}),
             ({"tvdb_id": 1}, {"tvdb_id": 2}),
-            ({"tmdb_id": 1, "tvdb_id": 3}, {"tmdb_id": 2, "tvdb_id": 3}),
+            ({"tmdb_id": 3, "tvdb_id": 1}, {"tmdb_id": 4, "tvdb_id": 2}),
             ({}, {"show_title": "Another"}),
         ],
     )
@@ -350,6 +348,21 @@ class TestKeyBesideAKeptOne:
         library.scan("new")
 
         assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("library", ["season"], indirect=True)
+    def test_is_kept_with_it_when_it_has_the_same_tvdb_id(self, conn, freezer, library):
+        library.ids = {"old": {"tmdb_id": 1, "tvdb_id": 3}, "new": {"tmdb_id": 2, "tvdb_id": 3}}
+        library.names = {"new": "Other E1.mkv"}
+        library.file("new").write_bytes(b"data")
+        library.sync("old")
+        _keep(conn, "old")
+
+        library.scan("old", "new")
+        assert _actions(conn, "new") == []
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == ["protected_forever"]
 
     def test_is_scheduled_and_given_no_keep_when_it_is_elsewhere(self, conn, freezer, library):
         library.places = {"new": "Another"}
@@ -748,12 +761,9 @@ class TestFilmReplacedByAnotherFile:
         assert _actions(conn, "new") == ["protected_forever"]
 
     @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
-    @pytest.mark.parametrize("other", ["id", "library", "unmatched"])
+    @pytest.mark.parametrize("other", ["id", "unmatched"])
     def test_another_title_is_not_kept(self, conn, freezer, two_files, lists, other):
-        if other == "library":
-            two_files.elsewhere = {"new"}
-        else:
-            two_files.ids["new"] = {"tmdb_id": 8 if other == "id" else None}
+        two_files.ids["new"] = {"tmdb_id": 8 if other == "id" else None}
         two_files.sync("old")
         _keep(conn, "old")
         for keys in lists:

@@ -1,9 +1,11 @@
 """SQL that carries keeps and Watch progress to the new key Plex gives a title.
 
 Plex gives a title it removed and found again a new key. The same title is one
-at the same path, of the same season; an episode also has the same number. For
-keeps, films of one library with the same TMDB id are the same title too, or
-with the one they last had while Plex has none for them.
+at the same path, of the same season; an episode also has the same number. One
+with the same id is the same title too: its TVDB id, or its TMDB id where one of
+the two has no TVDB id; a film's or season's TMDB id is the one it last had while
+Plex has none for it. Two that Plex lists in two libraries are two titles, until
+it lists one of them no more.
 Nothing here commits: each caller runs it in the transaction that adds or
 removes the title.
 """
@@ -12,7 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import timedelta
 from typing import Any
 
@@ -71,7 +73,7 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
 
 _TITLE = (
     "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
-    "tracked_files, episode_keys, plex_library_id, last_tmdb_id"
+    "tracked_files, episode_keys, plex_library_id, last_tmdb_id, media_type, last_scanned_at"
 )
 
 
@@ -106,6 +108,111 @@ def ids_conflict(
         if old[column] is not None and new[column] is not None:
             return bool(old[column] != new[column])
     return None
+
+
+# The TVDB and TMDB id of a title, None where it has none.
+Ids = tuple[int | None, int | None]
+
+
+def title_ids(title: sqlite3.Row | Mapping[str, Any]) -> Ids:
+    """Return the ids of a title, its TMDB id the one it last had if it has none."""
+    tmdb_id = title["last_tmdb_id"] if title["tmdb_id"] is None else title["tmdb_id"]
+    tvdb_id, tmdb_id = (
+        value if isinstance(value, int) and value > 0 else None
+        for value in (title["tvdb_id"], tmdb_id)
+    )
+    return tvdb_id, tmdb_id
+
+
+def ids_match(one: Ids, other: Ids) -> bool:
+    """Return True if the ids are one title's: the TVDB ids, else the TMDB ids."""
+    if one[0] is not None and other[0] is not None:
+        return one[0] == other[0]
+    return one[1] is not None and one[1] == other[1]
+
+
+def _titles_with_ids(
+    conn: sqlite3.Connection, ids: Ids, where: str, params: tuple[object, ...]
+) -> list[sqlite3.Row]:
+    """Return the library's titles of the ids that meet the fixed condition *where*."""
+    # rationale: the interpolated columns and condition are fixed strings; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_TITLE} FROM media_items "
+        "WHERE (tvdb_id = ? OR COALESCE(tmdb_id, last_tmdb_id) = ?) "
+        f"  AND {where}",
+        (*ids, *params),
+    )
+    return [row for row in rows if ids_match(ids, title_ids(row))]
+
+
+def _films_or_seasons_with_ids(
+    conn: sqlite3.Connection, ids: Ids, season_number: int | None
+) -> list[sqlite3.Row]:
+    """Return the library's films of the ids, or its seasons of that number."""
+    return _titles_with_ids(
+        conn,
+        ids,
+        "season_number IS ? AND (media_type = 'movie') = (season_number IS NULL)",
+        (season_number,),
+    )
+
+
+def is_film_or_numbered(title: sqlite3.Row) -> bool:
+    """Return False for a season with no number, which its show's ids do not tell."""
+    return bool((title["media_type"] == "movie") == (title["season_number"] is None))
+
+
+def copies(
+    conn: sqlite3.Connection, title: sqlite3.Row, *, every_library_read: bool = True
+) -> list[sqlite3.Row]:
+    """Return the library's other films or seasons with the ids of *title*.
+
+    Of those in other libraries, only the ones Plex lists no more: until every
+    library of a run is read nothing tells which they are.
+    """
+    if not is_film_or_numbered(title):
+        return []
+    return [
+        other
+        for other in _films_or_seasons_with_ids(conn, title_ids(title), title["season_number"])
+        if other["id"] != title["id"]
+        and (
+            other["plex_library_id"] == title["plex_library_id"]
+            or (every_library_read and _unlisted_since(title, other["last_scanned_at"]))
+        )
+    ]
+
+
+def _unlisted_since(title: sqlite3.Row, last_scanned_at: str | None) -> bool:
+    """Return True if Plex listed *title* in a run after the one of *last_scanned_at*.
+
+    Within a run mark_listed_copies leaves none listed with an earlier time.
+    """
+    return (last_scanned_at or "") < (title["last_scanned_at"] or "")
+
+
+def mark_listed_copies(conn: sqlite3.Connection, media_id: str, listed: Collection[str]) -> None:
+    """Note that Plex lists each title of other libraries with the ids of *media_id* that it does.
+
+    Run it once the title is stored: it was seen after those read before it.
+    """
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return
+    others = _titles_with_ids(
+        conn,
+        title_ids(title),
+        "(media_type = 'movie') = (? = 'movie') AND plex_library_id != ?",
+        (title["media_type"], title["plex_library_id"]),
+    )
+    conn.executemany(
+        "UPDATE media_items SET last_scanned_at = ? WHERE id = ? AND last_scanned_at < ?",
+        [
+            (title["last_scanned_at"], other["id"], title["last_scanned_at"])
+            for other in others
+            if other["id"] in listed
+        ],
+    )
 
 
 def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) -> bool:
@@ -165,7 +272,7 @@ _LIVE_ITEM_KEEP = (
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
     """Return True if a kept film, season or show of the library is the title *media_id*.
 
-    A film or season with its files keeps it. So does another copy of the film, or
+    A film or season with its files keeps it. So does another copy of it, or
     another key of the season's show, unless someone removed its own keep since.
     """
     title = fetch_title(conn, media_id)
@@ -181,20 +288,16 @@ def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
     )
 
 
-def _copy_keeps(conn: sqlite3.Connection, film: sqlite3.Row) -> list[sqlite3.Row]:
-    """Return the live keeps of the library's other films with the TMDB id of *film*."""
-    tmdb_id = film["last_tmdb_id"] if film["tmdb_id"] is None else film["tmdb_id"]
-    if tmdb_id is None:
-        return []
-    # CROSS JOIN reads the few keeps first, as no index finds a film by its TMDB id.
+def _copy_keeps(conn: sqlite3.Connection, title: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return the live keeps of the copies of *title*."""
+    return [keep for other in copies(conn, title) for keep in _live_item_keeps(conn, other["id"])]
+
+
+def _live_item_keeps(conn: sqlite3.Connection, media_id: str) -> list[sqlite3.Row]:
     # rationale: the interpolated condition is a fixed string; every value is bound
     return conn.execute(  # nosec B608
-        "SELECT sa.* FROM scheduled_actions sa "
-        "CROSS JOIN media_items mi ON mi.id = sa.media_item_id "
-        f"WHERE {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie' "
-        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = ? AND mi.plex_library_id = ? "
-        "  AND mi.id != ?",
-        (now_iso(), tmdb_id, film["plex_library_id"], film["id"]),
+        f"SELECT * FROM scheduled_actions sa WHERE sa.media_item_id = ? AND {_LIVE_ITEM_KEEP}",
+        (media_id, now_iso()),
     ).fetchall()
 
 
@@ -291,22 +394,16 @@ def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> bo
     """
     if _keep_removed_since(conn, keep, media_id):
         return False
-    now = now_iso()
     forever = keep["action"] == "protected_forever"
-    # rationale: the interpolated condition is a fixed string; every value is bound
-    live = conn.execute(  # nosec B608
-        f"SELECT * FROM scheduled_actions sa WHERE sa.media_item_id = ? AND {_LIVE_ITEM_KEEP}",
-        (media_id, now),
-    ).fetchall()
     if not any(
         own["action"] == "protected_forever"
         or (not forever and own["execute_at"] >= keep["execute_at"])
-        for own in live
+        for own in _live_item_keeps(conn, media_id)
     ):
         _delete_unclaimed(
             conn,
             "media_item_id = ? AND action = 'snoozed' AND execute_at >= ?",
-            (media_id, now),
+            (media_id, now_iso()),
         )
         restore_keeps(conn, media_id, [keep])
     _delete_unclaimed(
@@ -338,25 +435,67 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
 
 
 def carry_film_keeps(conn: sqlite3.Connection) -> None:
-    """Give the keeps save_pruned_keeps set aside to the library's films with their TMDB ids.
+    """Give the keeps of removed films, seasons and shows to the library's titles with their ids.
 
-    A film replaced by another file has a new path and a new key, and Plex may
-    match it only after it lists it. Its own key and one at its path still take
-    its keep; no other does once a film has it. Run it once the items set aside
-    are removed, and once a run has stored all Plex lists.
+    A title replaced by other files, renamed or moved to another library has a
+    new path and a new key, and Plex may match it only after it lists it. Its own
+    key and one at its path still take its keep; no other does once one of its own
+    library has it, nor one of another library once one there has it. Run it once
+    the items set aside are removed, and once a run has stored all Plex lists.
     """
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
-        "SELECT sa.*, mi.id AS film_id FROM pruned_keeps sa CROSS JOIN media_items mi "
-        "ON mi.plex_library_id = sa.plex_library_id "
-        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = sa.tmdb_id "
-        f"WHERE sa.tmdb_id IS NOT NULL AND {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie'",
+        "SELECT sa.* FROM pruned_keeps sa "
+        f"WHERE {_LIVE_ITEM_KEEP} AND (sa.tmdb_id IS NOT NULL OR sa.tvdb_id IS NOT NULL)",
         (now_iso(),),
     ).fetchall()
-    given = [keep["id"] for keep in keeps if _give_keep(conn, keep, keep["film_id"])]
-    conn.executemany("UPDATE pruned_keeps SET tmdb_id = NULL WHERE id = ?", [(i,) for i in given])
+    for keep in keeps:
+
+        def give(title: sqlite3.Row, keep: sqlite3.Row = keep) -> bool:
+            return _give_keep(conn, keep, title["id"])
+
+        titles = _films_or_seasons_with_ids(conn, _pruned_ids(keep), keep["season_number"])
+        _store_claim(conn, "pruned_keeps", keep["id"], _give_nearest(keep, titles, give))
+    _carry_pruned_show_keeps(conn)
+
+
+def _pruned_ids(pruned: sqlite3.Row) -> Ids:
+    return title_ids({**dict(pruned), "last_tmdb_id": None})
+
+
+def _give_nearest(
+    pruned: sqlite3.Row, titles: Collection[sqlite3.Row], give: Callable[[sqlite3.Row], bool]
+) -> Collection[object] | None:
+    """Give the keep of *pruned* to those of *titles* in its own library, else to those elsewhere.
+
+    Return the other libraries that have it, None once its own does. One
+    elsewhere may be a copy that was always there, so the title may still come
+    back to its own library, or to a third.
+    """
+    own_library = pruned["plex_library_id"]
+    if [t for t in titles if t["plex_library_id"] == own_library and give(t)]:
+        return None
+    had = set(_entries(pruned["given_libraries"]))
+    elsewhere = [t for t in titles if t["plex_library_id"] not in {own_library, *had}]
+    return had.union(title["plex_library_id"] for title in elsewhere if give(title))
+
+
+def _store_claim(
+    conn: sqlite3.Connection, table: str, pruned_id: int, libraries: Collection[object] | None
+) -> None:
+    """Store what _give_nearest returned of the row of the fixed *table*: None uses its ids up."""
+    params: list[object] = []
+    if libraries is None:
+        change = "tvdb_id = NULL, tmdb_id = NULL"
+    elif libraries:
+        change = "given_libraries = ?"
+        params.append(json.dumps(sorted(libraries, key=str)))
+    else:
+        return
+    # rationale: the interpolated table and columns are fixed strings; every value is bound
+    conn.execute(f"UPDATE {table} SET {change} WHERE id = ?", (*params, pruned_id))  # nosec B608
 
 
 def carry_stranded_keeps(conn: sqlite3.Connection) -> None:
@@ -405,7 +544,8 @@ _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
     """Return the live keeps of the other keys of the show of *season*.
 
-    Such a key has a season where this one has it.
+    Such a key has a season where this one has it, or its ids: in another library,
+    only if Plex lists none of its seasons any more.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
@@ -422,7 +562,62 @@ def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sql
         own, other = fetch_title(conn, row["own_id"]), fetch_title(conn, row["other_id"])
         if own is not None and other is not None and not _is_another_title(other, own):
             keeps.append(row)
+    return keeps + _other_show_keeps_by_ids(conn, season)
+
+
+def _other_show_keeps_by_ids(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
+    if not season["show_rating_key"]:
+        return []
+    others = {
+        (other["show_rating_key"], other["plex_library_id"])
+        for other in _titles_with_ids(conn, title_ids(season), "media_type != 'movie'", ())
+    }
+    keeps = []
+    for show_key, library_id in others:
+        # rationale: the interpolated condition is a fixed string; every value is bound
+        keep = conn.execute(  # nosec B608
+            "SELECT ks.*, (SELECT MAX(mi.last_scanned_at) FROM media_items mi "
+            "  WHERE mi.show_rating_key = ks.show_rating_key) AS last_scanned_at "
+            f"FROM kept_shows ks WHERE ks.show_rating_key = ? AND {_LIVE_KEEP}",
+            (show_key, now_iso()),
+        ).fetchone()
+        if keep is None or show_key == season["show_rating_key"]:
+            continue
+        if library_id == season["plex_library_id"] or _unlisted_since(
+            season, keep["last_scanned_at"]
+        ):
+            keeps.append(keep)
     return keeps
+
+
+def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
+    """Give the keep of each show none of whose seasons is left to the shows with its ids."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    seasons = conn.execute(  # nosec B608
+        "SELECT ps.*, ks.show_title, ks.action, ks.execute_at, ks.snooze_duration, ks.created_at "
+        "FROM pruned_show_seasons ps JOIN kept_shows ks USING (show_rating_key) "
+        f"WHERE {_LIVE_KEEP} AND (ps.tvdb_id IS NOT NULL OR ps.tmdb_id IS NOT NULL) "
+        "  AND NOT EXISTS (SELECT 1 FROM media_items mi "
+        "    WHERE mi.show_rating_key = ps.show_rating_key) ORDER BY ps.id",
+        (now_iso(),),
+    ).fetchall()
+    by_show: dict[str, list[sqlite3.Row]] = {}
+    for season in seasons:
+        by_show.setdefault(season["show_rating_key"], []).append(season)
+    for gone in by_show.values():
+        shows = {
+            other["show_rating_key"]: other
+            for season in gone
+            for other in _titles_with_ids(conn, _pruned_ids(season), "media_type != 'movie'", ())
+            if other["show_rating_key"]
+        }
+
+        def give(show: sqlite3.Row, keep: sqlite3.Row = gone[0]) -> bool:
+            return _give_show_keep(conn, keep, show["show_rating_key"])
+
+        libraries = _give_nearest(gone[0], shows.values(), give)
+        for season in gone:
+            _store_claim(conn, "pruned_show_seasons", season["id"], libraries)
 
 
 def _show_keep_removed_since(
@@ -438,14 +633,15 @@ def _show_keep_removed_since(
     return removed_since is not None
 
 
-def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) -> None:
+def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) -> bool:
     """Keep *show_key* for as long as *keep* says, unless it is already kept for longer.
 
     Either way its scheduled deletions are cancelled, but for one being carried out.
-    A keep the new key was removed from after the old one got it is not given again.
+    Return False if it was refused: a keep the new key was removed from after the old
+    one got it is not given again.
     """
     if _show_keep_removed_since(conn, keep, show_key):
-        return
+        return False
     given = conn.execute(
         "INSERT INTO kept_shows "
         "(show_rating_key, show_title, action, execute_at, snooze_duration, created_at) "
@@ -473,6 +669,7 @@ def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) 
         )
     # The deletion pass cancels these when they are due; until then a kept show reads as leaving.
     delete_show_scheduled_deletions(conn, show_key)
+    return True
 
 
 def _listed_title(season: Mapping[str, object]) -> dict[str, Any]:
@@ -536,7 +733,8 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
     """Carry the keeps of the kept shows whose seasons are about to be removed.
 
     A season still in the library under another key gives its show the keep;
-    without one, where the season was is set aside for carry_show_keeps.
+    without one, where the season was and its ids are set aside for carry_show_keeps
+    and carry_film_keeps.
     """
     now = now_iso()
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -546,13 +744,14 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
         (now,),
     )
     seasons = conn.execute(  # nosec B608
-        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number "
+        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number, mi.tvdb_id, "
+        "COALESCE(mi.tmdb_id, mi.last_tmdb_id) AS tmdb_id, mi.plex_library_id "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP}",
         (now,),
     ).fetchall()
     for season in seasons:
-        if season["season_id"] not in media_ids or not season["file_path"]:
+        if season["season_id"] not in media_ids:
             continue
         shows = {
             other["show_rating_key"] for other in other_keys(conn, season["season_id"], media_ids)
@@ -561,13 +760,16 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
             _give_show_keep(conn, season, show_key)
         if not shows - {None, ""}:
             conn.execute(
-                "INSERT INTO pruned_show_seasons "
-                "(show_rating_key, media_item_id, file_path, season_number) VALUES (?, ?, ?, ?)",
+                "INSERT INTO pruned_show_seasons (show_rating_key, media_item_id, file_path, "
+                "season_number, tvdb_id, tmdb_id, plex_library_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     season["show_rating_key"],
                     season["season_id"],
                     season["file_path"],
                     season["season_number"],
+                    season["tvdb_id"],
+                    season["tmdb_id"],
+                    season["plex_library_id"],
                 ),
             )
 
@@ -581,7 +783,8 @@ def forget_pruned_show_season(
     another show in the same folder.
     """
     conn.execute(
-        "DELETE FROM pruned_show_seasons WHERE file_path = ? AND season_number IS ? "
+        "DELETE FROM pruned_show_seasons "
+        "WHERE file_path = ? AND file_path != '' AND season_number IS ? "
         "AND EXISTS (SELECT 1 FROM media_items mi WHERE mi.id = ? AND ("
         "  EXISTS (SELECT 1 FROM kept_shows ks WHERE ks.show_rating_key = mi.show_rating_key) "
         "  OR EXISTS (SELECT 1 FROM audit_log a WHERE a.media_item_id = mi.show_rating_key "
