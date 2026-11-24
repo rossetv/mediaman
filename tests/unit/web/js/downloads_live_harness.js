@@ -123,6 +123,21 @@ const scenarios = {
     return { first, more, pack, none: look() };
   },
 
+  // the art of the hero as one title follows another, and of a row whose poster comes late
+  async art() {
+    const p = page(spec);
+    const art = () => [p.q('.dl-hero-poster img'), p.q('.dl-hero-bg')].map((e, i) =>
+      (!e ? null : i ? e.style['background-image'] || null : e.getAttribute('src')));
+    const drawn = art();
+    const img = p.q('.dl-hero-poster img');
+    p.upd({ hero: item('h', { poster_url: 'https://art/h.jpg' }), queue: [item('q')] });
+    const kept = p.q('.dl-hero-poster img') === img;
+    p.upd({ hero: item('b', { media_type: 'series' }), queue: [item('q', { poster_url: 'https://art/q.jpg' })] });
+    const bare = { art: art(), pill: p.text('.dl-hero .pill'), row: p.q('.dl-compact-poster img') && p.q('.dl-compact-poster img').getAttribute('src') };
+    p.upd({ hero: item('c', { poster_url: 'https://art/c.jpg' }) });
+    return { drawn, kept, bare, next: art() };
+  },
+
   // what a screen reader is told of each bar and section
   async spoken() {
     const p = page(spec);

@@ -22,6 +22,7 @@
   function updateCompactRow(row, item) {
     var d = dom();
     d.unmarkHeld(row);
+    d.syncPoster(d.q('.dl-compact-poster', row), item.poster_url);
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('.dl-state-pill', row);
     if (pill) {
@@ -57,6 +58,7 @@
   function updateUpcomingRow(row, item) {
     var d = dom();
     d.unmarkHeld(row);
+    d.syncPoster(d.q('.dl-compact-poster', row), item.poster_url);
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('[data-v="release-label"]', row);
     if (pill) d.setText(pill, item.release_label || '');

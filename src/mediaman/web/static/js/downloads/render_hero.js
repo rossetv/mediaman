@@ -7,7 +7,6 @@
  *
  * Cross-module dependencies:
  *   MM.downloads.buildDom
- *   window.DLPoster   (optional — used to apply background image safely)
  *
  * Exposes:
  *   MM.downloads.renderHero.updateHero(container, item)
@@ -56,31 +55,6 @@
     }
   }
 
-  /* The type pill is kept in sync because the hero can swap
-        between a series and a movie item between polls. The server-rendered
-        pill belongs to whichever item was hero at SSR time; once polling
-        promotes a different item to hero we have to repaint this pill or
-        the user sees a "TV" badge on a movie until they hard-refresh. */
-  function updateTypePill(card, mediaType) {
-    var d = dom();
-    var info = d.q('.dl-hero-info', card);
-    if (!info) return;
-    var pillRow = info.querySelector('.pill-row');
-    if (!pillRow) {
-      pillRow = document.createElement('div');
-      pillRow.className = 'pill-row u-mb-12';
-      info.insertBefore(pillRow, info.firstChild);
-    }
-    var isMovie = mediaType === 'movie';
-    var pill = pillRow.querySelector('.pill');
-    if (!pill) {
-      pill = document.createElement('span');
-      pillRow.appendChild(pill);
-    }
-    pill.className = 'pill pill--' + (isMovie ? 'movie' : 'tv');
-    d.setText(pill, isMovie ? 'Movie' : 'TV');
-  }
-
   function updateHero(container, item) {
     if (!item || !container) return;
     var d = dom();
@@ -88,31 +62,10 @@
     if (!card) return;
     d.unmarkHeld(card);
 
-    /* Update poster backdrop */
-    var bg = d.q('.dl-hero-bg', card);
-    if (bg && item.poster_url) {
-      /* Set via DLPoster.apply to avoid CSS string injection. */
-      bg.setAttribute('data-bg-url', item.poster_url);
-      if (window.DLPoster) window.DLPoster.apply(bg);
-    }
+    d.syncArt(card, item);
 
-    /* Update poster img */
-    var posterDiv = d.q('.dl-hero-poster', card);
-    if (posterDiv && item.poster_url) {
-      var img = posterDiv.querySelector('img');
-      if (img) { if (img.src !== item.poster_url) img.src = item.poster_url; }
-      else {
-        var ph = posterDiv.querySelector('.dl-hero-poster-placeholder');
-        if (ph) posterDiv.removeChild(ph);
-        img = document.createElement('img');
-        img.src = item.poster_url;
-        img.alt = '';
-        posterDiv.appendChild(img);
-      }
-    }
-
-    /* Type pill before the title — must be kept in sync per updateTypePill's note. */
-    updateTypePill(card, item.media_type);
+    /* The hero can go from a film to a show between polls. */
+    d.syncTypePill(d.q('.dl-hero-info', card), item.media_type);
 
     /* Title */
     d.setText(d.q('.dl-hero-title', card), item.title);
@@ -176,6 +129,5 @@
   MM.downloads.renderHero = {
     updateHero: updateHero,
     updateSearchHint: updateSearchHint,
-    updateTypePill: updateTypePill,
   };
 })();

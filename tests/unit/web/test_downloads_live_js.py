@@ -151,3 +151,18 @@ def test_the_server_draws_the_same_headings_as_the_polls() -> None:
     }
     out = _run("spoken", **data)
     assert [h[:2] for h in out["first"]["headings"]] == ["H1", "H2", "H2", "H2", "H2"]
+
+
+def test_the_hero_never_wears_the_art_of_the_title_before_it() -> None:
+    poster = "https://art/h.jpg"
+    out = _run("art", hero=_item("h", poster_url=poster), queue=[_item("q")])
+    assert out["drawn"] == [poster, f'url("{poster}")']
+    assert out["kept"], "an unchanged poster is not loaded again"
+    assert out["bare"]["art"] == [None, None]
+    assert out["bare"]["pill"] == "TV"
+    assert out["next"] == ["https://art/c.jpg", 'url("https://art/c.jpg")']
+
+
+def test_a_row_gains_a_poster_that_comes_late() -> None:
+    out = _run("art", hero=_item("h", poster_url="https://art/h.jpg"), queue=[_item("q")])
+    assert out["bare"]["row"] == "https://art/q.jpg"

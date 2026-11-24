@@ -18,9 +18,11 @@
    */
   function applyPosterBg(bgEl) {
     var url = bgEl.getAttribute('data-bg-url');
-    if (!url) return;
     /* Validate scheme before applying — only http / https are acceptable. */
-    if (!/^https?:\/\//i.test(url)) return;
+    if (!url || !/^https?:\/\//i.test(url)) {
+      bgEl.style.removeProperty('background-image');
+      return;
+    }
     bgEl.style.setProperty('background-image', 'url(' + JSON.stringify(url) + ')');
   }
 

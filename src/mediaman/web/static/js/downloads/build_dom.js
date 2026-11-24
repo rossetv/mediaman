@@ -13,6 +13,9 @@
  *   MM.downloads.buildDom.setText(el, txt)         → MM.dom.setText
  *   MM.downloads.buildDom.findByDlId(c, dlId)      → MM.dom.findByAttr(c, 'data-dl-id', dlId)
  *   MM.downloads.buildDom.buildHero(item)          shared hero card builder (item.hero_backdrop fills its background)
+ *   MM.downloads.buildDom.syncArt(card, item)       a hero's poster and background
+ *   MM.downloads.buildDom.syncPoster(box, url)
+ *   MM.downloads.buildDom.syncTypePill(info, mediaType)  the Movie or TV pill above a hero's title
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
@@ -120,6 +123,32 @@
     fill.parentNode.setAttribute('aria-valuenow', String(percent || 0));
   }
 
+  function buildPoster(url) {
+    var img = document.createElement('img');
+    img.alt = '';
+    img.src = url;
+    return img;
+  }
+
+  /* Show an item's poster in `box`; with none it is left empty. */
+  function syncPoster(box, url) {
+    if (!box) return;
+    var img = box.querySelector('img');
+    if ((img ? img.getAttribute('src') : '') === (url || '')) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    if (url) box.appendChild(buildPoster(url));
+  }
+
+  /* The hero's poster and blurred background are its item's, or none. */
+  function syncArt(card, item) {
+    var url = item.poster_url || '';
+    syncPoster(card.querySelector('.dl-hero-poster'), url);
+    var bg = card.querySelector('.dl-hero-bg');
+    if (!bg || (bg.getAttribute('data-bg-url') || '') === url) return;
+    bg.setAttribute('data-bg-url', url);
+    if (window.DLPoster) window.DLPoster.apply(bg);
+  }
+
   /* Build a recent item element safely. */
   function buildRecentItem(r) {
     var item = document.createElement('div');
@@ -127,12 +156,7 @@
 
     var poster = document.createElement('div');
     poster.className = 'dl-recent-poster';
-    if (r.poster_url) {
-      var img = document.createElement('img');
-      img.src = r.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (r.poster_url) poster.appendChild(buildPoster(r.poster_url));
     var badge = document.createElement('div');
     badge.className = 'dl-recent-badge';
     badge.appendChild(MM.dom.icon('i-check'));
@@ -180,20 +204,6 @@
     return el;
   }
 
-  /**
-   * Build a hero card DOM element.
-   *
-   * Shared builder used by both the per-token download page (download.js)
-   * and the downloads list page (buildHeroPlaceholder). Produces the full
-   * .dl-hero tree with all data-v hooks required by render_hero.js and
-   * download.js polling.
-   *
-   * @param {Object|null} item  Download item. When null/falsy a blank card is
-   *   returned (all text empty, progress at 0%, state pill unstyled). Pass a
-   *   real item to pre-populate title, poster, state pill, and progress.
-   *   Shape: { id, title, poster_url, state, state_label, progress, eta }
-   * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
-   */
   function buildEtaStat(text) {
     var wrap = document.createElement('span');
     wrap.appendChild(document.createTextNode('ETA '));
@@ -218,6 +228,40 @@
     }
   }
 
+  function buildTypeRow() {
+    var row = el('div', 'pill-row u-mb-12');
+    row.appendChild(el('span'));
+    return row;
+  }
+
+  function showType(row, mediaType) {
+    var isMovie = mediaType === 'movie';
+    var pill = row.children[0];
+    pill.className = 'pill pill--' + (isMovie ? 'movie' : 'tv');
+    MM.dom.setText(pill, isMovie ? 'Movie' : 'TV');
+  }
+
+  function syncTypePill(info, mediaType) {
+    if (!info) return;
+    var row = info.querySelector('.pill-row');
+    if (!row) row = info.insertBefore(buildTypeRow(), info.firstChild);
+    showType(row, mediaType);
+  }
+
+  /**
+   * Build a hero card DOM element.
+   *
+   * Shared builder used by both the per-token download page (download.js)
+   * and the downloads list page (buildHeroPlaceholder). Produces the full
+   * .dl-hero tree with all data-v hooks required by render_hero.js and
+   * download.js polling.
+   *
+   * @param {Object|null} item  Download item. When null/falsy a blank card is
+   *   returned (all text empty, progress at 0%, state pill unstyled). Pass a
+   *   real item to pre-populate title, poster, state pill, and progress.
+   *   Shape: { id, title, media_type, poster_url, state, state_label, progress, eta }
+   * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
+   */
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
@@ -251,10 +295,7 @@
     var posterWrap = document.createElement('div');
     posterWrap.className = 'dl-hero-poster';
     if (bgUrl) {
-      var posterImg = document.createElement('img');
-      posterImg.src = bgUrl;
-      posterImg.alt = '';
-      posterWrap.appendChild(posterImg);
+      posterWrap.appendChild(buildPoster(bgUrl));
     } else {
       var posterPh = document.createElement('div');
       posterPh.className = 'dl-hero-poster-placeholder';
@@ -265,6 +306,12 @@
     /* Info section */
     var info = document.createElement('div');
     info.className = 'dl-hero-info';
+
+    if (item.media_type) {
+      var typeRow = buildTypeRow();
+      showType(typeRow, item.media_type);
+      info.appendChild(typeRow);
+    }
 
     var titleEl = document.createElement('h2');
     titleEl.className = 'dl-hero-title';
@@ -503,12 +550,7 @@
     card.appendChild(row);
 
     var poster = el('div', 'dl-compact-poster dl-row-poster');
-    if (item.poster_url) {
-      var img = el('img');
-      img.src = item.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
     row.appendChild(poster);
 
     var info = el('div', 'dl-compact-info dl-row-info');
@@ -644,12 +686,7 @@
 
     var poster = document.createElement('div');
     poster.className = 'dl-compact-poster dl-row-poster';
-    if (item.poster_url) {
-      var img = document.createElement('img');
-      img.src = item.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
     row.appendChild(poster);
 
     var info = document.createElement('div');
@@ -709,6 +746,9 @@
     setText:              function (el, txt)         { return MM.dom.setText(el, txt); },
     findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
     buildHero:            buildHero,
+    syncArt:              syncArt,
+    syncPoster:           syncPoster,
+    syncTypePill:         syncTypePill,
     buildEtaStat:         buildEtaStat,
     updateEtaStat:        updateEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
