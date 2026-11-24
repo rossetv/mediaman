@@ -8,7 +8,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#000">
   <title>{% block title %}Mediaman{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="48x48" href="/static/icons/favicon.png?v={{ static_v }}">
+  <link rel="icon" type="image/svg+xml" href="/static/icons/favicon.svg?v={{ static_v }}">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png?v={{ static_v }}">
   <!-- CSS is split into per-concern fragments under static/css/.
        Order: tokens first, then _base.css (reset + layout primitives),
        then concern-specific files. Cascade follows source order, so
