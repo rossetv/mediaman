@@ -210,7 +210,7 @@ def api_keep_show(
         deletion_running = set_protected_state(
             conn, to_update=to_update, to_insert=to_insert, to_delete=to_delete
         )
-        # The scan skips a season still scheduled, so one left here would go under the keep.
+        # The deletion pass cancels these when they are due; until then a kept show reads as leaving.
         deletion_running |= delete_show_scheduled_deletions(conn, resolved_key)
         log_audit(
             conn,
