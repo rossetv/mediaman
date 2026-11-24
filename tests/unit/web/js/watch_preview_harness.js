@@ -981,6 +981,56 @@ const scenarios = {
     out.open = says(h);
     return out;
   },
+  /* A mark while its title's preview is open, while its reply is on the way, and one that cannot be asked about. */
+  async marked() {
+    const going = { ...FILM, play: { label: 'Resume', href: '/watch/play/1?resume=1', progress_pct: 28, minutes_left: 83 } };
+    const says = (h) => [h.text('.pv__first'), h.pv().querySelector('.pv__first').getAttribute('href'), h.pv().querySelectorAll('.pv__meta')[1].textContent, h.pv().querySelectorAll('.pv__progress').length];
+    const mark = (h, ref) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref } }));
+    const out = {};
+    let h = load({ api: { 'movie-1': going } });
+    const poster = h.link('film').querySelector('.watch-card__poster');
+    const bar = poster.appendChild(build(h.doc, ['progress', { class: 'watch-bar', value: '28' }]));
+    await h.rest('film');
+    out.before = says(h);
+    const n = h.pv();
+    mark(h, 'movie-2');
+    await h.pass(50);
+    out.another = h.gets.length;
+    h.answers['movie-1'] = FILM;
+    bar.remove();
+    mark(h, 'movie-1');
+    await h.pass(50);
+    out.marked = [...says(h), h.pv() === n, h.pv().querySelectorAll('.pv__art').length];
+    h.answers['movie-1'] = going;
+    poster.appendChild(bar);
+    mark(h, 'movie-1');
+    await h.pass(50);
+    out.undone = says(h);
+    h.answers['movie-1'] = 502;
+    mark(h, 'movie-1');
+    await h.pass(500);
+    out.failed = h.title();
+    h = load({ api: { 'movie-1': undefined } });
+    await h.rest('film', 450);
+    const first = h.waiting['movie-1'];
+    h.answers['movie-1'] = FILM;
+    mark(h, 'movie-1');
+    first(going);
+    await h.pass(1000);
+    out.onItsWay = says(h);
+    return out;
+  },
+  /* A title queued elsewhere while the reply about it is on the way. */
+  async queuedOnItsWay() {
+    const h = load({ api: { 'tmdb-movie-9': undefined } });
+    await h.rest('outside', 450);
+    const first = h.waiting['tmdb-movie-9'];
+    h.answers['tmdb-movie-9'] = { ...OUTSIDE, download: { ...OUTSIDE.download, state: 'queued' } };
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:title-changed', { detail: { ref: 'tmdb-movie-9', download_state: 'queued' } }));
+    first(OUTSIDE);
+    await h.pass(1000);
+    return h.text('.pv__first');
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {

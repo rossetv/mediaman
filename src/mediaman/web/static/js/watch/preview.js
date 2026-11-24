@@ -93,8 +93,6 @@
     return node ? node.textContent.trim() : '';
   }
 
-  function leavingOn(link) { return textOf(posterOf(link), '.watch-badge__long'); }
-
   function readCard(link) {
     var poster = posterOf(link);
     var bar = poster.querySelector('progress');
@@ -111,7 +109,7 @@
       season: season ? Number(season[1] || season[2]) : null,
       keepId: cardOf(link).getAttribute('data-keep-id') || '',
       pct: bar ? bar.value : 0,
-      leaving: leavingOn(link),
+      leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
       pick: pickOf(link)
     };
@@ -163,33 +161,50 @@
     });
   }
 
-  /* A Keep or an Undo has finished: what was said of its title, or is on its way, is from before. */
-  function keptOrUndone(id) {
-    var ref = keptBy[id];
+  /* The title *ref* has changed, or any has: what was said of it, or is on its way, is from before.
+     Returns the preview open of it that is to say it again. */
+  function outOfDate(ref) {
     if (ref) unkeep(ref);
     else kept = {};
     if (flight) flight.stale = true;
     var p = live;
-    if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return;
-    if (armed) {
-      close(p); // the one request is the next card's
-      return;
-    }
-    sayLeaving(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
+    if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return null;
+    if (!armed) return p;
+    close(p); // the one request is the next card's
+    return null;
+  }
+
+  /* A Keep or an Undo has finished: it offers none until it is known again what leaves. */
+  function keptOrUndone(id) {
+    var p = outOfDate(keptBy[id]);
+    if (!p) return;
+    sayAgain(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
     ask(askedOf(p.link)).then(function (data) {
-      if (live === p) sayLeaving(p, data);
+      if (live === p) sayAgain(p, data);
     }, function () {
       // It stays without a Keep.
     });
   }
 
-  function sayLeaving(p, data) {
+  /* Marked as watched or not, or that undone. */
+  function marked(ref) {
+    var p = outOfDate(ref);
+    if (!p) return;
+    ask(askedOf(p.link)).then(function (data) {
+      if (live === p) sayAgain(p, data);
+    }, function () {
+      if (live === p) close(p); // it would go on offering to resume
+    });
+  }
+
+  function sayAgain(p, data) {
     closeMenus(p);
     p.data = data;
-    p.card.leaving = leavingOn(p.link);
+    p.card = readCard(p.link);
     p.keep = null;
     p.body.querySelectorAll('.pv__meta')[1].replaceWith(where(p, data));
     actions(p);
+    progress(p);
   }
 
   /* ── Resting on a card ── */
@@ -557,7 +572,7 @@
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
     else if (!d) p.body.appendChild(lines(p.card.pick ? ['96%', '70%'] : ['100%', '94%', '58%']));
-    progress(p, p.card.pct || (d && d.play && d.play.progress_pct));
+    progress(p);
     if (d) showArt(p, d);
   }
 
@@ -574,7 +589,10 @@
     return box;
   }
 
-  function progress(p, pct) {
+  function progress(p) {
+    var old = p.body.querySelector('.pv__progress');
+    if (old) old.remove();
+    var pct = p.card.pct || (p.data && p.data.play && p.data.play.progress_pct);
     if (!pct) return;
     var bar = el('progress', 'watch-bar pv__progress');
     bar.max = 100;
@@ -1201,6 +1219,7 @@
   document.addEventListener('mm:title-changed', function (e) {
     var d = e.detail || {};
     unkeep(d.ref);
+    if (flight) flight.stale = true;
     if (!live || live.card.ref !== d.ref || !live.data || !live.data.download) return;
     live.data.download.state = d.download_state;
     live.data.download.pct = d.download_pct;
@@ -1217,7 +1236,7 @@
   /* A scan, or deletions cleared: no title is named. */
   document.addEventListener('mm:watch-scheduled', function () { keptOrUndone(''); });
 
-  document.addEventListener('mm:watch-marked', function (e) { unkeep(e.detail.ref); });
+  document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.ref); });
 
   watch.preview = { close: viewChanged };
 })();

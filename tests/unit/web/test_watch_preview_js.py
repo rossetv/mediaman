@@ -463,3 +463,18 @@ def test_what_the_storage_panel_schedules_or_clears_is_in_the_next_preview_and_t
 ):
     leaving = ["Season 3 leaves in 3 days", True]
     assert _run("scheduled") == {"before": leaving, "cleared": [None, False], "open": leaving}
+
+
+def test_a_mark_is_in_the_open_preview_and_in_a_reply_on_its_way() -> None:
+    out = _run("marked")
+    going = ["Resume", "/watch/play/1?resume=1", "1 h 23 min left · Drama", 1]
+    seen = ["Play", "/watch/play/1", "Drama", 0]
+    assert (out["before"], out["another"]) == (going, 1)
+    assert out["marked"] == [*seen, True, 1]
+    assert out["undone"] == going
+    assert out["failed"] is None
+    assert out["onItsWay"] == seen
+
+
+def test_a_title_queued_while_its_reply_is_on_the_way_is_shown_queued() -> None:
+    assert _run("queuedOnItsWay") == "Queued"
