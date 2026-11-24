@@ -24,6 +24,8 @@
   var LATE_MS = 1000; // a step through the history this late is not coming
   var GROW_MS = 3000; // how long a page, or a row, may go without growing on its way back to its scroll
   var ROWS_KEY = 'mm:watch:rows';
+  var TITLES_KEY = 'mm:watch:titles';
+  var HEADINGS = { grid: '.watch-all__title', explore: '.explore-title', search: '.results-group__title' }; // of the layers that are views
   var HOLD_MS = 1000; // how long a page, or a row, stays where it was put before it is left there
   var TAKES = ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'click', 'keydown']; // the person takes over
 
@@ -33,6 +35,7 @@
   var leaving = null; // the step asked of the browser and not yet made: { close, timer, then, land }
   var places = {}; // each entry's scroll, by id
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
+  var openedOn = {}; // the title opened from each entry, as its card had it, by id
   var ats = {}; // how far along each entry seen stands, by id
   var placing = null; // the scroll being put back
   var arriving = null; // the entry a step through the history leads to, while its layers open and close
@@ -150,6 +153,8 @@
     var preview = window.MMWatch.preview;
     if (name !== 'title' && preview && preview.close) preview.close();
     keepPlace();
+    var ref = /#title=([a-z0-9-]+)$/.exec(to);
+    if (was && ref) openedOn[was.id] = ref[1];
     var at = (was ? was.at : 0) + 1;
     var stack = was ? was.stack : [];
     var open = stack.some(function (s) { return s.name === name; });
@@ -161,7 +166,7 @@
     stopPlacing();
     Object.keys(ats).forEach(function (id) {
       // Back and Forward no longer lead to it.
-      if (ats[id] >= at) { delete ats[id]; delete places[id]; delete focused[id]; }
+      if (ats[id] >= at) { delete ats[id]; delete places[id]; delete focused[id]; delete openedOn[id]; }
     });
     current = mark().id;
     ats[current] = at;
@@ -211,7 +216,9 @@
   }
 
   function shut(name) {
-    if (value(name) !== null) replace(null, without(named(name)));
+    if (value(name) === null) return;
+    replace(null, without(named(name)));
+    refocus();
   }
 
   function close(name) {
@@ -403,8 +410,17 @@
   function refocus() {
     if (seen(document.activeElement)) return;
     var node = focused[current];
-    if (seen(node)) node.focus({ preventScroll: true });
+    // A page that was loaded again has neither the node nor what opened its title.
+    if (!seen(node)) node = cardOf(openedOn[current]) || firstSeen(HEADINGS[top()]);
+    if (!node) return;
+    node.focus({ preventScroll: true });
   }
+
+  function firstSeen(selector) {
+    return !selector ? null : Array.prototype.filter.call(document.querySelectorAll(selector), seen)[0] || null;
+  }
+
+  function cardOf(ref) { return ref ? firstSeen('[data-title-ref="' + ref + '"]') : null; }
 
   /* A private window may refuse the storage; the page then opens at its top. */
   function remember() {
@@ -415,9 +431,12 @@
     Object.keys(ats).forEach(function (id) { rowsById[id] = rowsNow; });
     var rows = {};
     Object.keys(rowsById).slice(-KEPT).forEach(function (id) { rows[id] = rowsById[id]; });
+    var titles = {};
+    Object.keys(openedOn).slice(-KEPT).forEach(function (id) { titles[id] = openedOn[id]; });
     try {
       window.sessionStorage.setItem(KEY, JSON.stringify(kept));
       window.sessionStorage.setItem(ROWS_KEY, JSON.stringify(rows));
+      window.sessionStorage.setItem(TITLES_KEY, JSON.stringify(titles));
     } catch (e) { /* kept in memory only */ }
   }
 
@@ -426,6 +445,7 @@
       var kept = JSON.parse(window.sessionStorage.getItem(KEY)) || {};
       Object.keys(kept).forEach(function (id) { if (typeof kept[id] === 'number') places[id] = kept[id]; });
       rowsById = JSON.parse(window.sessionStorage.getItem(ROWS_KEY)) || {};
+      openedOn = JSON.parse(window.sessionStorage.getItem(TITLES_KEY)) || {};
     } catch (e) { /* nothing kept */ }
   }
 

@@ -230,3 +230,13 @@ def test_a_page_moved_while_it_fills_is_put_back_until_it_has_settled_or_the_per
 
 def test_a_row_off_the_screen_is_put_back_however_late_the_rest_of_it_loads() -> None:
     assert _run("aRowOffTheScreen") == {"left": 1148}
+
+
+def test_closing_a_title_on_a_page_loaded_again_focuses_its_card_or_the_views_heading() -> None:
+    at = "/watch?genre=action"
+    assert _run("focusAfterTheTitleOfALoadedPage") == {
+        "card": [at, "card"],
+        "heading": [at, "heading"],
+        "rows": [at, None],
+        "shared": "heading",
+    }

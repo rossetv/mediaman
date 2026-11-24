@@ -226,6 +226,32 @@ const scenarios = {
     return { left: movies.scrollLeft };
   },
 
+  // A title opened from a card under one ref, its address moved to another; the page is loaded again over it.
+  async focusAfterTheTitleOfALoadedPage() {
+    const go = async (nodes) => {
+      const tab = makeTab('/watch?genre=action');
+      let p = open(tab);
+      title(p, 'tmdb-movie-9');
+      p.address.replace('title', p.address.url({}, 'title=movie-7'));
+      p.fire('pagehide');
+      p = open(tab);
+      nodes.forEach((n) => p.doc.body.appendChild(build(p.doc, n)));
+      p.address.close('title');
+      await settle();
+      return [p.at(), p.doc.activeElement.id || null];
+    };
+    const heading = ['h1', { id: 'heading', class: 'explore-title', tabindex: '-1' }];
+    const shared = open(makeTab('/watch?genre=action#title=movie-7'));
+    shared.doc.body.appendChild(build(shared.doc, heading));
+    shared.address.close('title');
+    return {
+      card: await go([heading, ['a', { id: 'card', 'data-title-ref': 'tmdb-movie-9' }]]),
+      heading: await go([heading, ['a', { id: 'other', 'data-title-ref': 'tmdb-movie-8' }]]),
+      rows: await go([]),
+      shared: shared.doc.activeElement.id,
+    };
+  },
+
   async playLinks() {
     const follow = (url, href, type) => {
       const p = open(makeTab(url));
