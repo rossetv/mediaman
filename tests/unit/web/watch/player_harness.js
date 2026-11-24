@@ -119,6 +119,7 @@ class Element extends Node {
   closest(sel) { let n = this; while (n instanceof Element) { if (n.matches(sel)) return n; n = n.parentNode; } return null; }
   focus() { doc.activeElement = this; fire(this, 'focusin', { bubbles: true }); }
   blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
+  get offsetWidth() { return 200; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 1000, height: 44 }; }
   setPointerCapture() {}
 }
@@ -271,6 +272,18 @@ function boot(html, reduced, saved, serverPlays) {
     messageOf(err, fallback) { return fallback; },
   };
 
+  /* Frame previews: the scenario answers each request. */
+  const frames = { asked: [], answer: null, made: 0, freed: 0 };
+  function fetchFrame(url) {
+    frames.asked.push(+url.split('/').pop());
+    return new Promise((resolve) => {
+      frames.answer = (status) => {
+        frames.answer = null;
+        resolve({ ok: status === 200, status: status, blob: () => Promise.resolve({ url: url }) });
+      };
+    });
+  }
+
   const hlsList = [];
   class Hls {
     constructor(cfg) { this.config = cfg; this.startsAt = null; this.handlers = {}; this.destroyed = false; hlsList.push(this); }
@@ -322,6 +335,12 @@ function boot(html, reduced, saved, serverPlays) {
     clearInterval: clearTimer,
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
     Blob: function Blob() {},
+    fetch: fetchFrame,
+    URL: {
+      createObjectURL(blob) { frames.made++; return 'blob:' + blob.url; },
+      revokeObjectURL() { frames.freed++; },
+    },
+    innerWidth: 1000,
     console: console,
     listeners: {},
     addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
@@ -340,6 +359,7 @@ function boot(html, reduced, saved, serverPlays) {
     replies: replies,
     calls: calls,
     starts: starts,
+    frames: frames,
     toasts: toasts,
     storage: storage,
     win: win,
@@ -409,6 +429,24 @@ function menuState(p) {
     pill: p.q('[data-quality-btn]').textContent.trim(),
     auto: items.filter((b) => b.getAttribute('data-quality') === 'auto').map((b) => b.querySelector('.player-menu-side').textContent)[0],
     saved: p.storage['mediaman.watch.quality'] || null,
+  };
+}
+
+/* The pointer over the seek bar, 1000 px wide: one pixel is three seconds of the episode. */
+function point(p, type, x, pointerType) {
+  fire(p.q('[data-seek]'), type, { bubbles: true, button: 0, pointerId: 1, pointerType: pointerType || 'mouse', clientX: x });
+}
+
+const WITH_FRAMES = { previews: { interval_s: 5, count: 600 } };
+
+async function bubbleState(p) {
+  await settle();
+  const img = p.q('[data-frame-img]');
+  return {
+    shown: !p.q('[data-bubble]').hidden,
+    time: p.q('[data-bubble-time]').textContent,
+    frame: p.q('[data-frame]').hidden || img.hidden ? null : +String(img.src).split('/').pop(),
+    stale: p.q('[data-frame]').classList.contains('is-stale'),
   };
 }
 
@@ -567,6 +605,108 @@ const scenarios = {
     for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); }
     await streamPlays(p, 40);
     return Object.assign(menuState(p), { starts: p.starts(), toasts: p.toasts });
+  },
+
+  /* The mouse moves along the bar, rests, and moves back. */
+  async frame_hover(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    fire(p.video, 'timeupdate');
+    const now = () => p.q('[data-seek]').getAttribute('aria-valuenow');
+    const out = { now: now() };
+    for (const x of [100, 120, 140]) { point(p, 'pointermove', x); p.tick(50); }
+    out.moving = p.frames.asked.slice();
+    p.tick(100);
+    out.rested = p.frames.asked.slice();
+    /* Moved on while the request is out: only the last place is asked for after it. */
+    for (const x of [200, 300, 400]) { point(p, 'pointermove', x); p.tick(150); }
+    out.oneInFlight = p.frames.asked.slice();
+    p.frames.answer(200);
+    out.waiting = await bubbleState(p);
+    out.latest = p.frames.asked.slice();
+    p.frames.answer(200);
+    out.arrived = await bubbleState(p);
+    point(p, 'pointermove', 140);
+    out.kept = await bubbleState(p);
+    p.tick(500);
+    out.keptAsked = p.frames.asked.length;
+    out.nowAfter = now();
+    out.position = p.video.currentTime;
+    p.video.paused = false;
+    p.tick(5000);
+    out.idleOnBar = p.root.classList.contains('is-idle');
+    point(p, 'pointerleave', 140);
+    out.left = await bubbleState(p);
+    p.tick(5000);
+    out.idleAfter = p.root.classList.contains('is-idle');
+    return out;
+  },
+
+  /* A finger drags along the bar and lets go. */
+  async frame_drag(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    point(p, 'pointermove', 100, 'touch');
+    const before = await bubbleState(p);
+    point(p, 'pointerdown', 100, 'touch');
+    point(p, 'pointermove', 200, 'touch');
+    const during = await bubbleState(p);
+    const during_s = p.video.currentTime;
+    p.tick(150);
+    point(p, 'pointerup', 200, 'touch');
+    return { before: before.shown, during: during, duringAt: during_s, asked: p.frames.asked, after: (await bubbleState(p)).shown, at: p.video.currentTime };
+  },
+
+  /* A long look around: only the newest frames are kept. */
+  async frame_many(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    for (let i = 0; i < 65; i++) {
+      point(p, 'pointermove', 5 * i);
+      p.tick(150);
+      p.frames.answer(200);
+      await settle();
+    }
+    return { kept: p.frames.made - p.frames.freed };
+  },
+
+  /* What each refusal does, and what a new stream changes. */
+  async frame_refused(p) {
+    const status = +p.win.serverPlays;
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    const go = (x) => { point(p, 'pointermove', x); p.tick(150); };
+    go(100);
+    p.frames.answer(status);
+    const out = { first: await bubbleState(p) };
+    go(200);
+    out.atOnce = p.frames.asked.length;
+    p.tick(2500);
+    out.after = p.frames.asked.length;
+    if (p.frames.answer) p.frames.answer(status);
+    await settle();
+    p.tick(2500);
+    out.longer = p.frames.asked.length;
+    p.tick(2000);
+    out.longerAfter = p.frames.asked.length;
+    out.starts = p.starts().length;
+    p.replies.push(answer('720p-4000', WITH_FRAMES));
+    if (p.frames.answer) { p.frames.answer(200); await settle(); }
+    const had = p.frames.asked.length;
+    click(p.q('[data-quality="720p-4000"]'));
+    await streamPlays(p, 30);
+    go(500);
+    out.newStream = p.frames.asked.length - had;
+    return out;
+  },
+
+  /* A stream without previews. */
+  async frame_none(p) {
+    p.replies[0] = answer('1080p-8000', { previews: null });
+    await streamPlays(p, 30);
+    point(p, 'pointermove', 100);
+    p.tick(150);
+    return Object.assign(await bubbleState(p), { asked: p.frames.asked });
   },
 
   /* The buffer runs dry with no frame held. */

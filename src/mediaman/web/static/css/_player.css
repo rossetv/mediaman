@@ -120,6 +120,7 @@
 
 /* The seek target is 44 px tall; the visible track is 5 px in its middle. */
 .player-seek {
+  position: relative;
   flex: 1;
   height: 44px;
   display: flex;
@@ -157,6 +158,54 @@
 }
 .player-seek:hover .player-seek-thumb,
 .player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
+/* Where the pointer is on the bar. */
+.player-seek-hover {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--t1);
+}
+
+/* The frame and time of that place, over the bar. player.js moves it along. */
+.player-bubble {
+  position: absolute;
+  left: 0;
+  bottom: calc(50% + 18px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  animation: player-pop var(--dur-fast) var(--ease-out);
+}
+.player-frame {
+  width: 224px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--s1);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+}
+.player-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+/* Still the last frame, while the one wanted loads. */
+.player-frame.is-stale img { opacity: .4; }
+.player-bubble-time {
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--player-glass);
+  font-size: 13px;
+  color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
 
 .player-controls {
   display: flex;
@@ -346,7 +395,8 @@
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
   .player-card,
-  .player-card.is-leaving { animation: none; }
+  .player-card.is-leaving,
+  .player-bubble { animation: none; }
   /* No moving fill: the number counts down alone. */
   .player-upnext-fill { display: none; }
   .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
@@ -410,6 +460,8 @@
   .player-subtitle { font-size: 16px; }
   .player-seek-row { font-size: 15px; }
   .player-pill { font-size: 15px; }
+  .player-frame { width: 304px; }
+  .player-bubble-time { font-size: 15px; }
 }
 
 /* No volume slider where there is no room, or on touch screens, where the
@@ -428,10 +480,12 @@
   .player-controls { gap: 2px; }
   .player-pill { padding: 0 10px; }
   .player-wide { display: none; }
+  .player-frame { width: 168px; }
   .player-upnext { left: 12px; right: 12px; width: auto; bottom: 120px; max-width: none; }
 }
 
 /* A phone on its side: the next-episode card keeps to the right. */
 @media (max-height: 420px) {
+  .player-frame { width: 176px; }
   .player-upnext { left: auto; width: 300px; }
 }

@@ -8,8 +8,9 @@
  *
  * Requests:
  *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist,
- *                                     quality, qualities}
+ *                                     quality, qualities, previews}
  *   GET  <playlist> and its segments  (made by hls.js)
+ *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
  *   POST /api/watch/stream/<id>/stop  (sendBeacon on leave; fetch on quality change)
  *   POST /api/watch/keep              {media_item_id, days}
@@ -55,6 +56,13 @@
   var UP_TRIAL_S = 120;
   /* Not worth a new stream this close to the end. */
   var UP_LEFT_S = 120;
+  /* A frame preview is asked for once the pointer rests, and this many are kept. */
+  var FRAME_SETTLE_MS = 100;
+  var FRAMES_KEPT = 60;
+  var FRAME_BACKOFF_MS = 2000;
+  var FRAME_BACKOFF_MAX_MS = 30000;
+  /* How close the preview may come to the edge of the window. */
+  var BUBBLE_EDGE = 12;
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
@@ -92,6 +100,11 @@
     played: q('[data-played]'),
     buffered: q('[data-buffered]'),
     thumb: q('[data-thumb]'),
+    seekHover: q('[data-seek-hover]'),
+    bubble: q('[data-bubble]'),
+    bubbleTime: q('[data-bubble-time]'),
+    frame: q('[data-frame]'),
+    frameImg: q('[data-frame-img]'),
     elapsed: q('[data-elapsed]'),
     remaining: q('[data-remaining]'),
     qualityBtn: q('[data-quality-btn]'),
@@ -139,6 +152,9 @@
   var steppedAt;
   var steppedUpAt;
   var upAfter;
+  var previews;              // {interval_s, count} of this stream's frames, or null
+  var frames;                // object URLs of the frames kept, by number
+  var frameOrder;            // their numbers, the one shown last at the end
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -163,6 +179,8 @@
     steppedAt = 0;
     steppedUpAt = -Infinity;
     upAfter = UP_AFTER_S;
+    previews = null;
+    dropFrames();
     troubleAtPlayed = 0;
     clearTrouble();
   }
@@ -478,6 +496,7 @@
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
+          previews = data.previews && data.previews.interval_s > 0 ? data.previews : null;
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
@@ -826,11 +845,11 @@
     return (h ? h + ':' : '') + mm + ':' + (sec < 10 ? '0' + sec : sec);
   }
 
-  var previewS = 0;
+  var dragS = 0;
 
   function render() {
     var d = duration();
-    var pos = dragging ? previewS : position();
+    var pos = dragging ? dragS : position();
     var pct = d > 0 ? Math.min(100, (pos / d) * 100) : 0;
     els.played.style.width = pct + '%';
     els.thumb.style.left = pct + '%';
@@ -853,25 +872,150 @@
     return Math.max(0, Math.min(1, frac)) * duration();
   }
 
+  /* ---- frame preview -------------------------------------------------- */
+
+  var bubbleX = 0;
+  var frameWanted = null;
+  var frameBusy = false;
+  var frameBlocked = false;  // Plex or the server asked for a rest
+  var frameBackoff = FRAME_BACKOFF_MS;
+  var frameTimer = null;
+
+  /* The frame and time under the pointer, over the bar. The bar itself and
+     what it tells a screen reader stay at what is playing. */
+  function showBubble(clientX) {
+    var d = duration();
+    if (!(d > 0)) return;
+    var t = seekTimeAt(clientX);
+    bubbleX = clientX;
+    if (els.bubble.hidden) els.frameImg.hidden = true;
+    els.bubble.hidden = false;
+    els.seekHover.hidden = dragging;
+    els.bubbleTime.textContent = fmt(t);
+    wantFrame(t);
+    placeBubble(t / d);
+  }
+
+  function placeBubble(frac) {
+    var rect = els.seek.getBoundingClientRect();
+    var half = els.bubble.offsetWidth / 2;
+    var x = Math.min(frac * rect.width, window.innerWidth - BUBBLE_EDGE - half - rect.left);
+    x = Math.max(x, BUBBLE_EDGE + half - rect.left);
+    els.bubble.style.transform = 'translateX(' + Math.round(x - half) + 'px)';
+    els.seekHover.style.left = frac * 100 + '%';
+  }
+
+  function hideBubble() {
+    clearTimeout(frameTimer);
+    els.bubble.hidden = true;
+    els.seekHover.hidden = true;
+    scheduleIdle();
+  }
+
+  function wantFrame(t) {
+    els.frame.hidden = !previews;
+    if (!previews) return;
+    frameWanted = Math.min(previews.count - 1, Math.floor(t / previews.interval_s));
+    clearTimeout(frameTimer);
+    if (frames[frameWanted]) {
+      paintFrame();
+      return;
+    }
+    els.frame.classList.add('is-stale');
+    frameTimer = setTimeout(loadFrame, FRAME_SETTLE_MS);
+  }
+
+  function paintFrame() {
+    frameOrder.splice(frameOrder.indexOf(frameWanted), 1);
+    frameOrder.push(frameWanted);
+    els.frameImg.src = frames[frameWanted];
+    els.frameImg.hidden = false;
+    els.frame.classList.remove('is-stale');
+  }
+
+  /* One request at a time; the frame wanted by the time it is done comes next. */
+  function loadFrame() {
+    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId) return;
+    if (frames[frameWanted]) {
+      paintFrame();
+      return;
+    }
+    var n = frameWanted;
+    var id = streamId;
+    var mine = frames;
+    frameBusy = true;
+    fetch('/api/watch/stream/' + encodeURIComponent(id) + '/preview/' + n, { credentials: 'same-origin' })
+      .then(function (resp) {
+        if (resp.ok) return resp.blob().then(function (blob) { if (mine === frames) keepFrame(n, blob); });
+        if (resp.status !== 404 && resp.status !== 410) throw new Error(String(resp.status));
+        /* None for this stream, or the stream is gone: the next one may have them. */
+        if (id === streamId) noPreviews();
+      })
+      .catch(function () {
+        frameBlocked = true;
+        setTimeout(function () { frameBlocked = false; loadFrame(); }, frameBackoff);
+        frameBackoff = Math.min(frameBackoff * 2, FRAME_BACKOFF_MAX_MS);
+      })
+      .then(function () {
+        frameBusy = false;
+        loadFrame();
+      });
+  }
+
+  function keepFrame(n, blob) {
+    frames[n] = URL.createObjectURL(blob);
+    frameOrder.push(n);
+    frameBackoff = FRAME_BACKOFF_MS;
+    if (frameOrder.length > FRAMES_KEPT) {
+      var old = frameOrder.shift();
+      URL.revokeObjectURL(frames[old]);
+      delete frames[old];
+    }
+  }
+
+  function dropFrames() {
+    Object.keys(frames || {}).forEach(function (n) { URL.revokeObjectURL(frames[n]); });
+    frames = {};
+    frameOrder = [];
+  }
+
+  function noPreviews() {
+    previews = null;
+    if (!els.bubble.hidden) showBubble(bubbleX);
+  }
+  els.frameImg.addEventListener('error', noPreviews);
+
+  /* ---- seeking on the bar --------------------------------------------- */
+
   els.seek.addEventListener('pointerdown', function (e) {
     if (e.button !== undefined && e.button !== 0) return;
     dragging = true;
     els.seek.classList.add('is-dragging');
     if (els.seek.setPointerCapture) els.seek.setPointerCapture(e.pointerId);
-    previewS = seekTimeAt(e.clientX);
+    dragS = seekTimeAt(e.clientX);
     render();
+    showBubble(e.clientX);
     e.preventDefault();
   });
   els.seek.addEventListener('pointermove', function (e) {
-    if (!dragging) return;
-    previewS = seekTimeAt(e.clientX);
-    render();
+    if (!dragging && e.pointerType === 'touch') return;
+    if (dragging) {
+      dragS = seekTimeAt(e.clientX);
+      render();
+    }
+    showBubble(e.clientX);
     showControls();
+  });
+  els.seek.addEventListener('pointerleave', function () {
+    if (!dragging) hideBubble();
   });
   function endDrag(e, commit) {
     if (!dragging) return;
     dragging = false;
     els.seek.classList.remove('is-dragging');
+    /* A mouse that is still on the bar goes on showing the frame under it. */
+    if (e.pointerType === 'touch' || !commit) hideBubble();
+    else els.seekHover.hidden = els.bubble.hidden;
     if (commit) seekTo(seekTimeAt(e.clientX));
     else render();
   }
@@ -1086,7 +1230,7 @@
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && !menuOpen() && els.message.hidden && !keyboardInChrome()) {
+      if (!video.paused && !dragging && els.bubble.hidden && !menuOpen() && els.message.hidden && !keyboardInChrome()) {
         root.classList.add('is-idle');
       }
     }, IDLE_MS);

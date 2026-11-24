@@ -331,3 +331,59 @@ def test_the_button_f_and_a_double_click_ask_for_full_screen_but_a_double_tap_do
 def test_the_volume_track_fills_to_the_volume_heard(markup):
     out = run(markup, "volume", saved={"mediaman.watch.volume": "0.6"})
     assert (out["start"]["fill"], out["unmutedFill"], out["mutedFill"]) == ("60%", "25%", "0%")
+
+
+def test_the_bar_shows_the_frame_under_a_resting_mouse_and_asks_for_no_other(markup):
+    out = run(markup, "frame_hover")
+    assert (out["moving"], out["rested"]) == ([], [84])
+    # One request at a time; then only the place the mouse is at by then.
+    assert out["oneInFlight"] == [84]
+    assert out["latest"] == [84, 240]
+    assert (out["waiting"]["stale"], out["waiting"]["time"]) == (True, "20:00")
+    assert out["arrived"] == {"shown": True, "time": "20:00", "frame": 240, "stale": False}
+    assert out["kept"] == {"shown": True, "time": "7:00", "frame": 84, "stale": False}
+    assert out["keptAsked"] == 2
+
+
+def test_looking_along_the_bar_moves_neither_the_video_nor_what_a_screen_reader_hears(markup):
+    out = run(markup, "frame_hover")
+    assert (out["now"], out["nowAfter"], out["position"]) == ("30", "30", 30)
+
+
+def test_the_controls_stay_while_the_mouse_rests_on_the_bar(markup):
+    out = run(markup, "frame_hover")
+    assert (out["idleOnBar"], out["left"]["shown"], out["idleAfter"]) == (False, False, True)
+
+
+def test_a_finger_on_the_bar_shows_frames_and_lets_go_at_the_place_shown(markup):
+    out = run(markup, "frame_drag")
+    assert out["before"] is False
+    assert (out["during"]["shown"], out["during"]["time"], out["duringAt"]) == (True, "10:00", 30)
+    assert out["asked"] == [120]
+    assert (out["after"], out["at"]) == (False, 600)
+
+
+def test_only_the_newest_frames_are_kept(markup):
+    assert run(markup, "frame_many") == {"kept": 60}
+
+
+@pytest.mark.parametrize("status", ["404", "410"])
+def test_a_stream_without_frames_shows_the_time_alone_until_the_next_stream(markup, status):
+    out = run(markup, "frame_refused", plays=status)
+    assert out["first"] == {"shown": True, "time": "5:00", "frame": None, "stale": True}
+    assert out["atOnce"] == out["longerAfter"] == 1
+    # It is no reason to start the stream again.
+    assert out["starts"] == 1
+    assert out["newStream"] == 1
+
+
+@pytest.mark.parametrize("status", ["429", "502", "503"])
+def test_frames_are_asked_for_less_and_less_while_they_are_refused(markup, status):
+    out = run(markup, "frame_refused", plays=status)
+    assert (out["atOnce"], out["after"]) == (1, 2)
+    assert (out["longer"], out["longerAfter"]) == (2, 3)
+
+
+def test_a_title_without_previews_asks_for_none_and_shows_the_time(markup):
+    out = run(markup, "frame_none")
+    assert (out["shown"], out["time"], out["frame"], out["asked"]) == (True, "5:00", None, [])
