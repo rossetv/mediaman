@@ -1,5 +1,5 @@
-// Runs the real ui-feedback.js against the fake DOM: whether Ctrl+Z presses a toast's Undo.
-// Usage: node ui_feedback_harness.js
+// Runs the real ui-feedback.js against the fake DOM: whether Ctrl+Z presses a toast's Undo (pressed), and confirms asked
+// together (stacked). Usage: node ui_feedback_harness.js <scenario>
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -38,8 +38,29 @@ function press({ dialog, own, other, confirm, key = {}, field } = {}) {
   return undone === 1;
 }
 
+/* Two confirms asked at once; *close* says what closes first. What each answered, and how many are still open. */
+async function stacked(close) {
+  const doc = makeDocument();
+  const ctx = {
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  const answers = [null, null];
+  [0, 1].forEach((i) => ctx.UIFeedback.confirm({ title: 'Sure?' }).then((yes) => { answers[i] = yes; }));
+  const overlays = doc.querySelectorAll('.ui-confirm-overlay');
+  const ids = new Set(overlays.map((o) => o.id)).size;
+  if (close !== null) overlays[close].querySelectorAll('button')[1].listeners.click.forEach((fn) => fn({}));
+  ctx.UIFeedback.dismissConfirm();
+  await Promise.resolve();
+  await Promise.resolve();
+  return { ids, answers };
+}
+
 const open = { attrs: {} };
-console.log(JSON.stringify({
+const pressed = () => ({
   nothingOpen: press(),
   closedInside: press({ dialog: { attrs: {}, box: false } }),
   open: press({ dialog: open }),
@@ -53,4 +74,6 @@ console.log(JSON.stringify({
   confirm: press({ confirm: true }),
   textField: press({ field: 'input' }),
   redo: press({ key: { shiftKey: true } }),
-}));
+});
+const scenarios = { pressed, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

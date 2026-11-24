@@ -8,7 +8,7 @@
  *     cancelLabel: 'Cancel',              // default: 'Cancel'
  *   }) → Promise<boolean>
  *
- *   window.UIFeedback.dismissConfirm()   the open one, if any, answers false
+ *   window.UIFeedback.dismissConfirm()   any that is open answers false
  *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
@@ -204,12 +204,13 @@
     return node;
   }
 
-  var cancelOpen = null; // answers the open confirm with no
+  var asked = 0;
+  var open = []; // what answers each open confirm with no, the newest last
 
   function confirmDialog(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
-      var titleId = 'ui-confirm-title-' + Date.now();
+      var titleId = 'ui-confirm-title-' + (++asked);
       var overlay = el('div', {
         class: 'ui-confirm-overlay',
         role: 'dialog',
@@ -238,7 +239,7 @@
       function cleanup(result) {
         if (closed) return;
         closed = true;
-        cancelOpen = null;
+        open.splice(open.indexOf(cancel), 1);
         if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
@@ -246,22 +247,23 @@
         overlay.classList.remove('is-visible');
         removeAfterExit(overlay);
       }
+      function cancel() { cleanup(false); }
       overlay.id = titleId;
-      cancelOpen = function () { cleanup(false); };
-      cancelBtn.addEventListener('click', function () { cleanup(false); });
+      open.push(cancel);
+      cancelBtn.addEventListener('click', cancel);
       confirmBtn.addEventListener('click', function () { cleanup(true); });
       overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) cleanup(false);
+        if (e.target === overlay) cancel();
       });
 
       if (window.ModalA11y) {
-        window.ModalA11y.register(titleId, function () { cleanup(false); });
+        window.ModalA11y.register(titleId, cancel);
         window.ModalA11y.onOpened(titleId);
       } else {
         // Fallback focus + Escape
         setTimeout(function () { cancelBtn.focus(); }, 0);
         overlay.addEventListener('keydown', function (e) {
-          if (e.key === 'Escape') cleanup(false);
+          if (e.key === 'Escape') cancel();
         });
       }
       // Animate in
@@ -271,7 +273,7 @@
 
   global.UIFeedback = {
     confirm: confirmDialog,
-    dismissConfirm: function () { if (cancelOpen) cancelOpen(); },
+    dismissConfirm: function () { while (open.length) open[open.length - 1](); },
     toast: toast,
     error: function (msg) { return toast(msg, { variant: 'error' }); },
     success: function (msg) { return toast(msg, { variant: 'success' }); }
