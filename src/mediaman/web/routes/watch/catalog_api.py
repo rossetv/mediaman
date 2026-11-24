@@ -178,6 +178,8 @@ def _pause_title(pause_key: tuple[int, str]) -> None:
     global _unanswered_streak, _outage_until
     with _pause_lock:
         now = time.monotonic()
+        if _title_paused.get(pause_key, 0.0) > now:
+            return
         if len(_title_paused) >= _TITLE_PAUSE_MAX:
             for k in [k for k, until in _title_paused.items() if until <= now]:
                 del _title_paused[k]

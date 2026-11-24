@@ -703,6 +703,13 @@ class TestTmdbTitle:
 
         assert not catalog_api._title_is_paused((99, "movie"))
 
+    def test_one_title_opened_three_times_at_once_does_not_pause_the_others(self):
+        for _ in range(3):
+            catalog_api._pause_title((1, "movie"))
+
+        assert catalog_api._title_is_paused((1, "movie"))
+        assert not catalog_api._title_is_paused((99, "movie"))
+
     def test_ratings_resets_the_run_of_titles_without_an_answer_when_omdb_answers(
         self, conn, monkeypatch
     ):
