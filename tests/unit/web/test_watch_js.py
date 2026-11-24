@@ -31,6 +31,14 @@ def test_a_season_switch_shows_the_quiet_line_then_the_real_one_in_the_same_slot
     assert out["back"]["beforeActions"] is True
 
 
+def test_the_season_tabs_are_one_line_that_shows_the_picked_one() -> None:
+    assert _run("seasonLine") == {
+        "row": True,
+        "opened": [],
+        "cutOff": [{"left": 300, "behavior": "smooth"}],
+    }
+
+
 def test_undo_after_moving_to_another_season_leaves_that_season_line_alone() -> None:
     second = _run("undoElsewhere")["second"]
     assert (second["text"], second["other"]) == ("Season 1 leaves in 3 days", True)

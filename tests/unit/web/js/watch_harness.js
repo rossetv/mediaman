@@ -345,6 +345,25 @@ const scenarios = {
     return { first, second, back: lineState(page.doc) };
   },
 
+  // The season tabs as one scrolling line: where it stands at first and after a press on a tab
+  // that is cut off, then on one wholly in view.
+  async seasonLine() {
+    const page = load({ motion: true });
+    page.doc.body.appendChild(showPage(page.doc, 1, leavingLine(3)));
+    const nav = page.doc.querySelector('.watch-seasons');
+    const moves = [];
+    nav.scrollLeft = 0;
+    nav.scrollTo = (o) => { nav.scrollLeft = o.left; moves.push(o); };
+    Object.defineProperty(nav, 'clientWidth', { value: 300 });
+    [1, 2].forEach((n) => { pill(page.doc, n).offsetLeft = n === 1 ? 0 : 400; Object.defineProperty(pill(page.doc, n), 'offsetWidth', { value: 100 }); });
+    page.run();
+    const out = { row: nav.parentNode.classList.contains('watch-row__viewport') && nav.classList.contains('watch-row__scroll'), opened: moves.splice(0) };
+    click(page.doc, pill(page.doc, 2));
+    await settle();
+    out.cutOff = moves.splice(0);
+    return out;
+  },
+
   // A Keep from the line, then Undo after moving to a season that is not leaving.
   async undoElsewhere() {
     const page = load();
