@@ -208,6 +208,13 @@ class TestScheduled:
             "meter": "1.4 TB free3 leaving",
         }
 
+    def test_a_kept_row_fades_where_it_stands_as_the_rest_slide_and_the_next_comes_into_view(self):
+        out = _run("keepMotion")
+        assert out["gone"] == ["1", "0px", [0]]
+        assert out["slid"] == [["translate(0px, 84px)"]] * 2
+        assert out["seen"] == [["focus", True], ["reveal", "nearest", "smooth"]]
+        assert out["focused"] == "Keep Film 2"
+
     def test_keeping_the_last_one_leaves_the_focus_on_the_empty_state(self):
         out = _run("keepLast")
         assert out["rows"] == []
@@ -324,6 +331,9 @@ class TestDeleted:
         assert out["buttons"] == [1, 0]
         assert out["rows"][1] == "OldDeleted yesterdayFreed 8.7 GB"
 
+    def test_a_poster_says_nothing_beside_the_title(self):
+        assert _run("deleted")["posters"] == [["/api/poster/5", ""]]
+
     def test_the_total_and_the_history_stand_at_the_top(self):
         out = _run("deleted")
         assert (out["head"], out["history"]) == ("5 GB reclaimed in total", "/history")
@@ -335,6 +345,10 @@ class TestDeleted:
 
     def test_nothing_deleted_yet_says_so(self):
         assert "No deletion history yet" in _run("noDeleted")
+
+
+def test_an_expired_session_goes_to_sign_in_without_showing_a_failure_first():
+    assert _run("expired") == {"to": "/login", "meter": "true"}
 
 
 def test_the_panel_never_reloads_the_page():

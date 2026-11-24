@@ -1245,11 +1245,12 @@
     rows.forEach(function (li) { byKey[li.getAttribute('data-id')] = li; });
     var active = document.activeElement;
     var place = list.contains(active) ? rows.indexOf(active.closest('.space-item')) : -1;
-    var play = core.flip(rows);
-    var keep = {};
-    scheduled.forEach(function (item) { keep[item.media_item_id] = true; });
+    var listed = {};
+    scheduled.forEach(function (item) { listed[item.media_item_id] = true; });
+    function stays(li) { return listed[li.getAttribute('data-id')]; }
+    var play = core.flip(rows.filter(stays));
     var box = list.getBoundingClientRect();
-    var gone = rows.filter(function (li) { return !keep[li.getAttribute('data-id')]; }).map(function (li) {
+    var gone = rows.filter(function (li) { return !stays(li); }).map(function (li) {
       return { li: li, top: li.getBoundingClientRect().top - box.top };
     });
     gone.forEach(function (g) {

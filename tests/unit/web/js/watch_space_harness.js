@@ -129,7 +129,7 @@ function markup() {
   ];
 }
 
-async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {}) {
+async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {}, opts = {}) {
   const doc = makeDocument();
   const create = doc.createElement;
   doc.createElement = (t) => {
@@ -165,20 +165,22 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     AbortController: class { abort() {} },
     CustomEvent: class {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', transform: 'none', opacity: '1' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
-    location: { reload() { throw new Error('the page was reloaded'); } },
+    location: { pathname: '/watch', reload() { throw new Error('the page was reloaded'); } },
+    fetch: () => Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) }),
     UIFeedback: { toast: (message, opts) => toasts.push({ message, undo: !!(opts && opts.action), opts }), error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed) },
     addEventListener(type, fn) { if (type === 'load') ready.push(fn); },
   };
   ctx.window = ctx;
-  ctx.MM = { api: {
+  ctx.MM = opts.realApi ? {} : { api: {
     get: (url) => server.request('GET', url), post: (url, body) => server.request('POST', url, body),
     postForm: (url, body) => server.request('FORM', url, body), messageOf: (e, f) => (e && e.message) || f } };
   doc.readyState = 'interactive';
   vm.createContext(ctx);
+  if (opts.realApi) run('core/api.js');
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
   ['watch/keep.js', 'watch/space.js'].forEach(run);
@@ -431,6 +433,38 @@ const scenarios = {
     await p.keep('2', '7');
     return { rows: p.rows(), focused: p.focused(), toast: p.last().message, busy: p.all('#space-scheduled [aria-busy="true"]').length };
   },
+  // The kept row is pinned and fades while the rows under it already slide; the next Keep takes the
+  // focus without a jump and is then brought into view.
+  async keepMotion() {
+    const p = await page(undefined, undefined, { motion: true });
+    await p.open();
+    const list = p.one('#space-scheduled .space-list');
+    const place = (li) => list.children.filter((n) => !n.classList.contains('is-gone')).indexOf(li) * 84;
+    Node.prototype.getBoundingClientRect = function () { const top = this.parentNode === list ? place(this) : 0; return { top, bottom: top + 84, left: 0, right: 20, width: 20, height: 84 }; };
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const a = { node: this, frames };
+      anims.push(a);
+      return a;
+    };
+    const seen = [];
+    const focus = Node.prototype.focus;
+    Node.prototype.focus = function (o) { if (this.closest('.space-item')) seen.push(['focus', o && o.preventScroll]); focus.call(this); };
+    Node.prototype.scrollIntoView = function (o) { seen.push(['reveal', o.block, o.behavior]); };
+    const trigger = p.all('#space-scheduled .watch-keep')[0];
+    click(p.doc, trigger);
+    click(p.doc, p.one('#watch-keep-menu [data-days="7"]'));
+    await settle();
+    delete Node.prototype.animate;
+    const rows = p.all('#space-scheduled .space-item');
+    const of = (li) => anims.filter((a) => a.node === li).map((a) => a.frames[0].transform || a.frames[a.frames.length - 1].opacity);
+    const gone = rows.find((li) => li.classList.contains('is-gone'));
+    return { gone: [gone.getAttribute('data-id'), gone.style.top, of(gone)], slid: rows.filter((li) => li !== gone).map(of), seen: seen.slice(-2), focused: p.focused() };
+  },
+  async expired() {
+    const p = await page(undefined, undefined, { realApi: true });
+    return { to: p.ctx.location.href, meter: p.$('meter').getAttribute('aria-busy') };
+  },
   async keepFromTheRow() {
     const p = await page();
     await p.open();
@@ -543,7 +577,8 @@ const scenarios = {
     await p.open('deleted');
     const li = p.all('#space-deleted .space-item');
     const b = li[0].querySelector('.space-redo');
-    const out = { head: p.one('#space-deleted .space-list-head small').textContent, history: p.one('#space-deleted .space-more').href, rows: li.map((n) => n.textContent), buttons: li.map((n) => n.querySelectorAll('button').length) };
+    const out = { head: p.one('#space-deleted .space-list-head small').textContent, history: p.one('#space-deleted .space-more').href, rows: li.map((n) => n.textContent), buttons: li.map((n) => n.querySelectorAll('button').length),
+      posters: p.all('#space-deleted img').map((i) => [i.src, i.alt]) };
     p.server.holding = 'redownload';
     b.focus();
     await p.click(b);

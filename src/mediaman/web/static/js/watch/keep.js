@@ -555,7 +555,7 @@
   function moveTo(node) {
     if (!node.closest('.space-pane')) { focusSoftly(node); return; }
     node.focus({ preventScroll: true });
-    node.scrollIntoView({ block: 'nearest' });
+    node.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
   }
 
   function keep(trigger, days) {
