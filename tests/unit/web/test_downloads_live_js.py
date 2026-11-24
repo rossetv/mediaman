@@ -458,3 +458,13 @@ def test_every_text_of_the_hero_is_read_over_a_white_poster() -> None:
 
 def test_an_episode_in_a_pack_is_not_faded_with_its_text() -> None:
     assert "opacity" not in _rule(".dl-ep-row-pack")
+
+
+def test_a_failed_abandon_leaves_the_focus_in_the_dialog_whatever_a_click_does_with_it() -> None:
+    stuck = {"state": "searching", "abandon_visible": True}
+    out = _run("abandonFailsByClick", hero=_item("h", **stuck))
+    assert out["during"] and out["after"]
+    assert out["back"], "and closing it gives the focus to the button that opened it"
+    assert out["posts"] == 1 and out["errors"] == 1
+    # a click beside the buttons stays in the dialog too
+    assert out["dialog"] == "-1"

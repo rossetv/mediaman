@@ -41,6 +41,7 @@ class El {
   set src(v) { this.attrs.src = v; }
   get src() { return this.attrs.src; }
   removeAttribute(k) { delete this.attrs[k]; }
+  focus() {}
   cloneNode() {
     const copy = new El(this.tagName, this.doc);
     copy.attrs = { ...this.attrs }; copy.className = this.className; copy._text = this._text; copy.hidden = this.hidden;

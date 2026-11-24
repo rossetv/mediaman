@@ -403,6 +403,29 @@ const scenarios = {
     return { out };
   },
 
+  // a click that gives a button no focus, as in Safari, on an abandon that fails
+  async abandonFailsByClick() {
+    const posts = [];
+    const p = page(spec, { post: () => new Promise((_resolve, reject) => posts.push(reject)) });
+    const tick = async () => { p.timers.splice(0).forEach((t) => t.fn()); await settle(); };
+    click(p.doc, p.q('[data-abandon-trigger]'));
+    await tick();
+    const confirm = p.q('[data-abandon-confirm]');
+    p.doc.body.focus();
+    click(p.doc, confirm);
+    const during = p.doc.activeElement === confirm;
+    p.doc.body.focus();
+    click(p.doc, confirm);
+    posts[0](new Error('down'));
+    await settle();
+    await tick();
+    const after = p.doc.activeElement === confirm;
+    click(p.doc, p.q('[data-abandon-cancel]'));
+    await tick();
+    const back = p.doc.activeElement === p.q('[data-abandon-trigger]');
+    return { posts: posts.length, during, after, back, dialog: p.q('#abandon-modal').getAttribute('tabindex'), errors: p.ctx.toasts.length };
+  },
+
   // everything coming soon gives way to something else in one poll
   async upcomingReplaced() {
     const p = page(spec);

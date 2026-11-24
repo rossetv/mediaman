@@ -174,7 +174,10 @@
     }
   }
 
+  /* Safari gives a button that is clicked no focus: without it here and where the dialog
+     is opened, the focus would stay or come back on the page behind. */
   function doConfirm() {
+    confirmBtn.focus();
     if (!current || isBusy()) return;
     if (confirmBtn.getAttribute('aria-disabled') === 'true') return;
 
@@ -214,7 +217,9 @@
   /* Backdrop click and the cancel button are owned by MM.modal.setupDetail. */
   document.addEventListener('click', function (e) {
     var trigger = e.target.closest('[data-abandon-trigger]');
-    if (trigger) open(trigger);
+    if (!trigger) return;
+    trigger.focus();
+    open(trigger);
   });
   confirmBtn.addEventListener('click', doConfirm);
 
