@@ -170,9 +170,13 @@ def build_email_payload(
     if poster_src:
         poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
 
-    subject = f"'{title}' is now available to watch"
+    # A season row names its season so two seasons of one show do not send the same text.
+    season_label = f"Season {row.season_number}" if row.season_number is not None else ""
+    what = f"'{title}' {season_label.lower()}" if season_label else f"'{title}'"
+    subject = f"{what} is now available to watch"
     html = template.render(
         title=title,
+        season_label=season_label,
         poster_src=poster_src,
         meta=meta_ctx,
         ratings=ratings_ctx,

@@ -1242,3 +1242,35 @@ class TestClaimFreesStrandedRowsWhileRunning:
         self._stamp(conn, age_seconds=60)
 
         assert _claim_pending_notifications(conn) == []
+
+
+class TestAvailableEmailNamesTheSeason:
+    def _payload(self, season_number):
+        from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
+        from mediaman.services.downloads._notification_email import build_email_payload
+
+        row = ClaimedNotificationRow(
+            id=1,
+            email="u@x",
+            title="Severance",
+            media_type="tv",
+            tmdb_id=None,
+            tvdb_id=7,
+            service="sonarr",
+            season_number=season_number,
+        )
+        return build_email_payload(row, None, {}, _load_template())
+
+    def test_two_seasons_of_one_show_do_not_send_the_same_text(self):
+        subject_two, html_two = self._payload(2)
+        subject_three, html_three = self._payload(3)
+
+        assert "season 2" in subject_two and "season 3" in subject_three
+        assert "Season 2" in html_two and "Season 3" not in html_two
+        assert "Season 3" in html_three
+
+    def test_a_row_with_no_season_reads_as_before(self):
+        subject, html = self._payload(None)
+
+        assert subject == "'Severance' is now available to watch"
+        assert "Season" not in html
