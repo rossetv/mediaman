@@ -83,3 +83,17 @@ def test_the_admin_s_keep_and_delete_share_the_panel_s_width_equally() -> None:
 def test_the_seasons_of_a_show_never_wrap_onto_a_second_line() -> None:
     assert "flex-wrap: nowrap" in _of(".ttl .watch-seasons")
     assert "flex: none" in _of(".ttl .watch-pill")
+
+
+def test_a_button_s_label_never_wraps_on_a_phone() -> None:
+    # Each is as wide as its label at least, and a row takes as many as fit it.
+    assert "flex: 1 1 120px" in _of(".ttl__actions > .btn", PHONE)
+    assert "min-width: max-content" in _of(".ttl__actions > .btn", PHONE)
+    assert "grid" not in _of(".ttl__actions", PHONE)
+    assert "flex-wrap: wrap" in _of(".ttl__actions")
+    assert "white-space" not in _of(".ttl__actions .watch-mark-btn", PHONE)
+
+
+def test_the_facts_labels_take_the_room_there_is_where_the_panel_is_wide() -> None:
+    wide = "(min-width: 360px) and (max-width: 899.98px)"
+    assert "grid-template-columns: max-content" in _of(".ttl-facts__list", wide)

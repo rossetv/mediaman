@@ -374,7 +374,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-facts__eyebrow { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); }
 /* The labels' column is set, so that they wrap the same before and after the facts come. */
 .ttl-facts__list { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 16px; font-size: 14px; }
-.ttl-facts__list dt { color: var(--t3); }
+@media (min-width: 360px) and (max-width: 899.98px) { .ttl-facts__list { grid-template-columns: max-content minmax(0, 1fr); } }
+.ttl-facts__list dt { color: var(--t3); text-wrap: balance; }
 .ttl-facts__list dd { text-align: right; color: var(--t1); font-variant-numeric: tabular-nums; }
 .ttl-facts__sub { display: block; font-size: 12px; color: var(--t3); }
 .ttl-facts .is-danger { color: var(--danger-text); }
@@ -465,15 +466,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__tagline { font-size: 13px; -webkit-line-clamp: 1; }
   .ttl__meta { font-size: 13px; }
   .ttl__body { padding: 8px 20px calc(36px + env(safe-area-inset-bottom, 0px)); gap: 28px; }
-  .ttl__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ttl__actions > :first-child,
-  .ttl__actions > :nth-child(2):last-child { grid-column: 1 / -1; }
-  .ttl__actions .btn,
-  .ttl__actions .dl-state { width: 100%; padding-inline: 12px; }
-  /* Half a narrow phone: the label takes two lines of the button's height. */
-  .ttl__actions .watch-mark-btn { padding-block: 0; font-size: 15px; line-height: 1.2; white-space: normal; }
-  .ttl__actions .watch-mark-btn__faces { align-items: center; min-width: 0; }
-  .ttl__actions .skel--pill { width: auto !important; }
+  /* Two to a row where their labels fit it; each row is filled. */
+  .ttl__actions > .btn,
+  .ttl__actions > .dl-state,
+  .ttl__actions > .skel--pill { flex: 1 1 120px; min-width: max-content; padding-inline: 12px; }
+  .ttl__actions > :first-child { flex-basis: 100%; }
   .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; padding: 10px 8px; }
   .ttl .watch-eprow { margin-inline: -8px; }
   .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
