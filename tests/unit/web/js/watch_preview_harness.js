@@ -535,6 +535,13 @@ const scenarios = {
     await h.pass(1500);
     return { before, after, layers, gets: h.gets };
   },
+  async heldPick() {
+    const h = load({ api: { 'rec-6': { ...FILM, ref: 'movie-3', library_ref: 'movie-3', reason: 'You finished Fieldwork.' } } });
+    await h.rest('held');
+    const reason = h.text('.pv__reason');
+    h.pv().querySelectorAll('button').filter((b) => b.textContent === 'Details')[0].click();
+    return { gets: h.gets, reason, opened: h.details, pick: h.origins[0].pick, kind: h.origins[0].kind };
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {

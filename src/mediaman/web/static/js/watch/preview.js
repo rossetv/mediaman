@@ -721,7 +721,7 @@
 
   function openDetail(p) {
     if (!watch.detail) return;
-    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, pick: p.card.pick });
+    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick });
     if (detailOpen()) handOver(p);
   }
 

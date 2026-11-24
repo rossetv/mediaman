@@ -240,3 +240,13 @@ def test_the_page_closes_it_and_calls_off_the_next_when_it_moves_on() -> None:
         "layers": 0,
         "gets": ["movie-1"],
     }
+
+
+def test_a_pick_the_library_holds_keeps_its_reason_here_and_in_its_detail() -> None:
+    assert _run("heldPick") == {
+        "gets": ["rec-6"],
+        "reason": "AI pickYou finished Fieldwork.",
+        "opened": ["movie-3"],
+        "pick": "rec-6",
+        "kind": "movie",
+    }
