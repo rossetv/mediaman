@@ -78,12 +78,28 @@ def test_a_link_that_cannot_work_again_offers_no_retry(answers: dict) -> None:
         assert seen["focus"] == "result"
 
 
+_BUSY = {
+    "label": "Adding…",
+    "busy": "true",
+    "focused": True,
+    "spinner": True,
+    "minWidth": "132px",
+}
+
+
+def test_a_refusal_that_gives_no_reason_does_not_say_to_try_again(answers: dict) -> None:
+    seen = answers["wordless"]
+
+    assert seen["error"] and seen["button"] is None
+    assert "again" not in seen["result"].replace("Download failed", "")
+
+
 def test_pressing_keeps_the_focus_sends_once_and_can_be_tried_again() -> None:
     out = _run("retry")
 
-    assert out["first"] == {"label": "Adding…", "busy": "true", "focused": True}
+    assert out["first"] == _BUSY
     assert out["failed"]["posted"] == 1
-    assert out["second"] == {"label": "Adding…", "busy": "true", "focused": True}
+    assert out["second"] == _BUSY
     assert out["done"]["posted"] == 2
     assert out["done"]["card"] and not out["done"]["content"]
 
@@ -111,6 +127,32 @@ def test_the_episodes_sit_in_the_card_s_text_column_and_open_from_a_button() -> 
         "rows": ["Ready", "Searching", "Queued"],
     }
     assert out["closedAgain"] == {"expanded": "false", "shown": False}
+
+
+def test_the_card_comes_in_and_its_parts_open_and_close() -> None:
+    out = _run("motion")
+
+    assert out["enters"]
+    assert sorted(out["starts"]) == [
+        "reveal dl-hero-ep-summary",
+        "reveal ep-toggle",
+        "reveal progress-wrap",
+    ]
+    assert out["goesOn"] == []
+    assert sorted(out["ends"]) == [
+        "collapse progress-wrap",
+        "collapseAway dl-hero-ep-summary",
+        "collapseAway dl-hint",
+        "collapseAway ep-toggle",
+        "reveal dl-result",
+    ]
+
+
+def test_what_closes_keeps_its_figures_and_gives_its_focus_to_the_heading() -> None:
+    out = _run("motion")
+
+    assert "3 GB of 9 GB" in out["figures"]
+    assert out["left"] == 0 and out["focus"] == "H1"
 
 
 def test_a_service_that_does_not_answer_leaves_the_last_progress_drawn() -> None:

@@ -22,6 +22,8 @@ class El {
     c.parentNode = this; this.children.splice(at, 0, c); return c;
   }
   contains(o) { for (let e = o; e; e = e.parentNode) if (e === this) return true; return false; }
+  // The busy button's padding is narrower.
+  get offsetWidth() { return this.getAttribute('aria-disabled') === 'true' ? 92 : 132; }
   closest(sel) { for (let e = this; e; e = e.parentNode) if (e.matches(sel)) return e; return null; }
   removeAttribute(k) { delete this.attrs[k]; }
   focus() { El.focused = this; }
@@ -122,6 +124,8 @@ async function press(p) {
   El.focused = p.root;
   p.button.listeners.click.forEach((fn) => fn());
   const during = { label: p.button.textContent, busy: p.button.getAttribute('aria-disabled'), focused: El.focused === p.button };
+  during.spinner = !!p.button.querySelector('.btn-spinner');
+  during.minWidth = p.button.style.minWidth;
   p.button.listeners.click.forEach((fn) => fn());
   await settle();
   return during;
@@ -144,6 +148,7 @@ const ANSWERS = {
   down: refusal(502, { message: 'Check service connectivity' }),
   limited: refusal(429, { message: 'Too many requests' }),
   expired: refusal(410, { message: 'Token expired or invalid' }),
+  wordless: refusal(403),
   used: refusal(409, { message: 'This download link has already been used' }),
   queued: refusal(409, { poll_token: 'p3', download_state: 'queued' }),
   queuedMailed: refusal(409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }),
@@ -173,6 +178,29 @@ const SCENARIOS = {
     p.answer = good;
     const second = await press(p);
     return { first, failed, second, done: seen(p) };
+  },
+  // Which parts of the card open and close, and that it comes in, as the download goes on.
+  async motion() {
+    const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
+    const moves = [];
+    const dom = p.ctx.MM.downloads.buildDom;
+    for (const name of ['reveal', 'collapse', 'collapseAway']) {
+      const real = dom[name];
+      dom[name] = (el, done) => { moves.push(`${name} ${el.getAttribute('data-v') || el.className}`); real(el, done); };
+    }
+    p.load('download.js');
+    p.payload = { state: 'searching', state_label: 'Searching', progress: 0 };
+    await press(p);
+    const enters = p.wrapper.querySelector('.dl-hero').classList.contains('dl-card-enter');
+    const poll = async (payload) => { moves.length = 0; p.payload = payload; p.ctx.tick(); await settle(); return moves.slice(); };
+    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
+      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
+    const starts = await poll(running);
+    const goesOn = await poll(running);
+    El.focused = p.wrapper.querySelector('[data-v="ep-toggle"]');
+    const ends = await poll({ state: 'ready', state_label: 'Ready', progress: 100, size_done: '', size_total: '' });
+    return { enters, starts, goesOn, ends, left: p.wrapper.querySelectorAll('[data-v="ep-toggle"]').length,
+      figures: p.wrapper.querySelector('.dl-hero-details').textContent, focus: El.focused.tagName };
   },
   async hint() {
     const p = page({ download_state: '', poll_token: '', notify_by_email: true });

@@ -34,8 +34,12 @@
     var btn = document.getElementById('btn-download');
     /* Not the disabled attribute: that would drop the keyboard's focus. */
     if (btn.getAttribute('aria-disabled') === 'true') return;
+    btn.style.minWidth = btn.offsetWidth + 'px';
     btn.setAttribute('aria-disabled', 'true');
-    btn.textContent = 'Adding…';
+    var spin = document.createElement('span');
+    spin.className = 'btn-spinner';
+    spin.setAttribute('aria-hidden', 'true');
+    btn.replaceChildren(spin, document.createTextNode('Adding…'));
     /* Safari gives a clicked button no focus, and what comes next goes by where it is. */
     btn.focus();
 
@@ -104,10 +108,11 @@
     heading.textContent = item.title;
     heading.setAttribute('aria-describedby', 'dl-hint');
 
+    var status = document.createElement('div');
+    status.setAttribute('role', 'status');
     var hint = document.createElement('div');
     hint.className = 'dl-hint';
     hint.id = 'dl-hint';
-    hint.setAttribute('role', 'status');
     hint.textContent = (already ? 'This was already on its way. ' : '')
       + 'You may close this page — the download will continue in the background. ';
     /* A link minted without an email gets no notification, so promise none. */
@@ -118,6 +123,8 @@
       ));
     }
 
+    status.appendChild(hint);
+
     var footer = document.createElement('div');
     footer.className = 'dl-footer u-mt-24';
     var link = document.createElement('a');
@@ -125,7 +132,8 @@
     link.textContent = 'Open mediaman →';
     footer.appendChild(link);
 
-    wrapper.replaceChildren(heading, hero, hint, footer);
+    [hero, status, footer].forEach(function(part) { part.classList.add('dl-card-enter'); });
+    wrapper.replaceChildren(heading, hero, status, footer);
     return heading;
   }
 
@@ -180,28 +188,12 @@
         }
 
         var progressWrap = wrapper.querySelector('[data-v="progress-wrap"]');
-        if (progressWrap) {
-          progressWrap.hidden = (data.state === 'searching' || data.state === 'ready');
-        }
+        var running = data.state !== 'searching' && data.state !== 'ready';
+        /* One that closes keeps its last figures while it does. */
+        if (running) drawProgress(wrapper, data);
+        if (progressWrap) showPart(progressWrap, running);
 
-        var fill = wrapper.querySelector('[data-v="fill"]');
-        if (fill) {
-          MM.downloads.buildDom.setProgress(fill, data.progress || 0);
-          if (data.state === 'almost_ready') fill.classList.add('green');
-          else fill.classList.remove('green');
-        }
-
-        var pct = wrapper.querySelector('[data-v="pct"]');
-        if (pct) pct.textContent = (data.progress || 0) + '%';
-
-        var sizeDone = wrapper.querySelector('[data-v="size-done"]');
-        if (sizeDone) sizeDone.textContent = data.size_done || '';
-        var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
-        if (sizeTotal) sizeTotal.textContent = data.size_total || '';
-
-        MM.downloads.buildDom.updateEtaStat(wrapper, data.eta);
-
-        MM.downloads.buildDom.syncEpisodes(wrapper, data);
+        drawEpisodes(wrapper, data);
         updateEpisodeSummary(wrapper, data.episode_summary);
 
         if (data.state === 'ready') {
@@ -220,35 +212,85 @@
       });
   }
 
+  function drawProgress(wrapper, data) {
+    var buildDom = MM.downloads.buildDom;
+    var fill = wrapper.querySelector('[data-v="fill"]');
+    if (fill) {
+      buildDom.setProgress(fill, data.progress || 0);
+      if (data.state === 'almost_ready') fill.classList.add('green');
+      else fill.classList.remove('green');
+    }
+
+    var pct = wrapper.querySelector('[data-v="pct"]');
+    if (pct) pct.textContent = (data.progress || 0) + '%';
+
+    var sizeDone = wrapper.querySelector('[data-v="size-done"]');
+    if (sizeDone) sizeDone.textContent = data.size_done || '';
+    var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
+    if (sizeTotal) sizeTotal.textContent = data.size_total || '';
+
+    buildDom.updateEtaStat(wrapper, data.eta);
+  }
+
+  /* The episodes button opens and closes like the card's other parts. */
+  function drawEpisodes(wrapper, data) {
+    var buildDom = MM.downloads.buildDom;
+    var toggle = wrapper.querySelector('[data-v="ep-toggle"]');
+    if (toggle && !(data.episodes && data.episodes.length)) {
+      var heading = wrapper.querySelector('h1');
+      if (heading && document.activeElement === toggle) {
+        heading.tabIndex = -1;
+        heading.focus();
+      }
+      buildDom.collapseAway(toggle);
+      var list = wrapper.querySelector('[data-v="ep-list"]');
+      if (list.hidden) list.parentNode.removeChild(list);
+      else buildDom.collapseAway(list);
+      return;
+    }
+    buildDom.syncEpisodes(wrapper, data);
+    var drawn = wrapper.querySelector('[data-v="ep-toggle"]');
+    if (drawn && !toggle) buildDom.reveal(drawn);
+  }
+
+  function showPart(el, shown) {
+    var buildDom = MM.downloads.buildDom;
+    if (!shown) {
+      if (!el.hidden) buildDom.collapse(el, function() { el.hidden = true; });
+    } else if (el.hidden || buildDom.isCollapsing(el)) {
+      el.hidden = false;
+      buildDom.reveal(el);
+    }
+  }
+
   /* Polling can no longer authenticate: keep the last progress on screen and
      tell the visitor to reload, rather than leaving a bar that silently stops. */
   function showReloadNotice() {
     var wrapper = document.getElementById('dl-hero-wrapper');
     if (!wrapper) return;
     var hint = wrapper.querySelector('.dl-hint');
-    if (!hint) {
-      hint = document.createElement('div');
-      hint.className = 'dl-hint';
-      wrapper.appendChild(hint);
-    }
-    hint.setAttribute('role', 'status');
+    if (!hint) return;
     hint.textContent = 'Progress updates have stopped. Reload this page to see the latest status.';
   }
 
   /* Where _dl_hero_card.html draws it: between the title and the state. */
   function updateEpisodeSummary(wrapper, summary) {
     var line = wrapper.querySelector('.dl-hero-ep-summary');
+    var buildDom = MM.downloads.buildDom;
     if (!summary) {
-      if (line) line.parentNode.removeChild(line);
+      if (line) buildDom.collapseAway(line);
       return;
     }
-    if (!line) {
-      line = document.createElement('div');
-      line.className = 'dl-hero-ep-summary';
-      var status = wrapper.querySelector('.dl-hero-status');
-      status.parentNode.insertBefore(line, status);
+    if (line) {
+      MM.dom.setText(line, summary);
+      return;
     }
-    MM.dom.setText(line, summary);
+    line = document.createElement('div');
+    line.className = 'dl-hero-ep-summary';
+    line.textContent = summary;
+    var status = wrapper.querySelector('.dl-hero-status');
+    status.parentNode.insertBefore(line, status);
+    buildDom.reveal(line);
   }
 
   function fillResult(box, ok, title, detail) {
@@ -272,7 +314,13 @@
   /* The card stays, so the page keeps its heading and its link; the words under it change. */
   function showReady(wrapper) {
     var hint = wrapper.querySelector('.dl-hint');
-    if (hint) fillResult(hint, true, 'Ready to watch!', 'It will appear in your Plex library shortly.');
+    if (!hint) return;
+    var box = document.createElement('div');
+    fillResult(box, true, 'Ready to watch!', 'It will appear in your Plex library shortly.');
+    box.className = 'dl-result';
+    hint.parentNode.appendChild(box);
+    MM.downloads.buildDom.reveal(box);
+    MM.downloads.buildDom.collapseAway(hint);
   }
 
   /* The request did not go through: say why where the button is. */
@@ -299,9 +347,8 @@
       detail.appendChild(reload);
       return;
     }
-    var message = MM.api.messageOf(err, 'Something went wrong. Try again.');
     if (status && status !== 429 && status < 500) {
-      endWith(false, 'Download failed', message);
+      endWith(false, 'Download failed', MM.api.messageOf(err, 'This link could not start the download.'));
       return;
     }
 
@@ -309,7 +356,7 @@
     btn.removeAttribute('aria-disabled');
     btn.textContent = 'Try again';
     var box = document.getElementById('download-result');
-    fillResult(box, false, 'Download failed', message);
+    fillResult(box, false, 'Download failed', MM.api.messageOf(err, 'Something went wrong. Try again.'));
     box.hidden = false;
     btn.setAttribute('aria-describedby', box.id);
     box.scrollIntoView({ block: 'nearest' });
