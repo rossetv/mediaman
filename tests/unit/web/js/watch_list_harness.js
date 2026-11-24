@@ -1,4 +1,4 @@
-// Runs watch/core.js, watch/admin.js and watch/list.js against the fake DOM and prints the outcome
+// Runs watch/core.js, watch/address.js, watch/admin.js and watch/list.js against the fake DOM and prints the outcome
 // of one scenario as JSON. Usage: node watch_list_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -145,6 +145,9 @@ function load(opts = {}) {
   const pages = {}; // fetch url -> { state, rows } or a deferred
   let confirmAnswer = true;
 
+  let ready = false; // the page's own mark of its first entry is not told
+  const moveTo = (url) => { const q = url.indexOf('?'); ctx.location.search = q < 0 ? '' : url.slice(q); };
+
   const api = (method) => (url, body) => {
     calls.push([method, url, body === undefined ? null : body]);
     const reply = replies[method + ' ' + url];
@@ -161,11 +164,15 @@ function load(opts = {}) {
     innerHeight: 900,
     innerWidth: 1280,
     scrollBy() {},
-    location: { pathname: '/watch', search: opts.list ? '?view=list' : '', assign(u) { history.push(['assign', u]); } },
+    location: { pathname: '/watch', search: opts.list ? '?' + new URLSearchParams({ view: 'list', ...opts.state }) : '', hash: '', assign(u) { history.push(['assign', u]); } },
     history: {
-      pushState: (_s, _t, url) => history.push(['push', url]),
-      replaceState: (_s, _t, url) => history.push(['replace', url]),
+      state: null,
+      pushState(state, _t, url) { this.state = state; history.push(['push', url]); moveTo(url); },
+      replaceState(state, _t, url) { this.state = state; if (ready) history.push(['replace', url]); moveTo(url); },
     },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    scrollTo() {},
+    Infinity,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
     DOMParser: class { parseFromString(token) { const d = makeDocument(); d.body.appendChild(pages[token].node(d)); return d; } },
     fetch: (url) => {
@@ -196,11 +203,14 @@ function load(opts = {}) {
       },
     },
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    removeEventListener() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/admin.js', 'watch/list.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/admin.js', 'watch/list.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
+  ctx.MMWatch.address.start();
+  ready = true;
   // The search field listens on window, so the event must bubble up to it.
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
@@ -213,7 +223,7 @@ function load(opts = {}) {
     /* The browser drops focus to the page when the focused button is disabled. */
     dropFocusIfDisabled() { const a = doc.activeElement; if (a && a.disabled) a.blur(); },
     answerConfirm(v) { confirmAnswer = v; },
-    popstate(search) { ctx.location.search = search; (winListeners.popstate || []).forEach((fn) => fn({})); },
+    popstate(search) { ctx.location.search = search; ctx.history.state = null; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
     row(key) { return doc.querySelectorAll('#watch-list tr[data-row-key]').find((r) => r.getAttribute('data-row-key') === key) || null; },
     part(name) { return doc.querySelector('#watch-list [data-list-part="' + name + '"]').textContent; },
@@ -495,7 +505,7 @@ const scenarios = {
     p.doc.querySelector('#watch-list [data-list-part="results"]').appendChild(clear);
     click(p.doc, clear);
     await settle();
-    out.cleared = { q: p.doc.getElementById('watch-search').value, clearHidden: p.doc.getElementById('watch-search-clear').hidden === true };
+    out.cleared = p.doc.getElementById('watch-search').value;
     out.fetches = p.fetches;
     out.history = p.history;
     return out;
@@ -820,6 +830,34 @@ const scenarios = {
     await settle();
     out.sortAfterPill = { fetches: p.fetches, summary: p.part('summary'), address: p.history[p.history.length - 1] };
     return out;
+  },
+
+  // Left for the rows while a filter loads: its reply moves no address. Back opens the list as it was.
+  async leftWhileLoading() {
+    const p = load({ list: true });
+    const slow = deferred();
+    p.serve('/watch/list?type=kept', { type: 'kept' }, ROWS.slice(3), slow);
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[1]);
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    slow.resolve();
+    await settle();
+    const shown = () => ({ list: !p.doc.getElementById('watch-list').hidden, browse: !p.doc.getElementById('watch-browse').hidden });
+    const out = { history: p.history.slice(), left: shown() };
+    p.serve('/watch/list', {}, ROWS);
+    p.popstate('?view=list');
+    await settle();
+    return { ...out, back: shown(), keys: p.rowKeys().length };
+  },
+
+  // Back from the list to a row opened as a grid: the rows stay behind it.
+  async backToGrid() {
+    Node.prototype.animate = () => { const a = { cancel() {} }; setImmediate(() => a.onfinish && a.onfinish()); return a; };
+    const p = load({ list: true, motion: true });
+    const opened = [];
+    p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all'], read: (here) => here.params.get('all'), open: (v) => { opened.push(v); }, close() {} });
+    p.popstate('?all=movies');
+    await settle();
+    return { opened, browse: !p.doc.getElementById('watch-browse').hidden, list: !p.doc.getElementById('watch-list').hidden };
   },
 
   // A header, pill or page link of the list showing, pressed while another list loads: a header or pill

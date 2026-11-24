@@ -158,7 +158,7 @@ def test_pills_pages_and_clear_change_the_list_in_place_with_history() -> None:
     assert out["afterPill"] == ["id:m3"]
     assert out["focus"] == "kept"
     assert out["afterPage"] == ["show:77", "id:m3"]
-    assert out["cleared"] == {"q": "", "clearHidden": True}
+    assert out["cleared"] == ""
     assert out["fetches"] == ["/watch/list?type=kept", "/watch/list?page=2", "/watch/list"]
     assert out["history"] == [
         ["push", "/watch?view=list&type=kept"],
@@ -299,6 +299,17 @@ def test_a_search_or_sort_asked_while_a_fetch_runs_builds_on_what_was_asked() ->
         "push",
         "/watch?view=list&type=kept&sort=deletion_asc",
     ]
+
+
+def test_a_list_left_while_a_filter_loads_leaves_the_address_to_the_rows() -> None:
+    out = _run("leftWhileLoading")
+    assert out["history"] == [["push", "/watch"]]
+    assert out["left"] == {"list": False, "browse": True}
+    assert (out["back"], out["keys"]) == ({"list": True, "browse": False}, 4)
+
+
+def test_back_from_the_list_to_a_grid_leaves_the_rows_hidden() -> None:
+    assert _run("backToGrid") == {"opened": ["movies"], "browse": False, "list": False}
 
 
 def test_a_header_pill_or_page_link_of_the_list_showing_builds_on_the_list_loading() -> None:

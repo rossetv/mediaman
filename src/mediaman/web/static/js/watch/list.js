@@ -1,15 +1,16 @@
 /* Watch: the admin list view. Switches between Browse and List in place,
  * and pages, filters, sorts and searches the list by swapping the server's
- * /watch/list fragment in, with the address kept in step so Back works.
+ * /watch/list fragment in, with the address kept in step (watch/address.js) so Back works.
  * Row actions go through MMWatch.admin; when one is done the row changes
- * where it is, or leaves and the rows below slide up. Needs watch/core.js
- * and watch/admin.js.
+ * where it is, or leaves and the rows below slide up. Needs watch/core.js,
+ * watch/address.js and watch/admin.js.
  */
 (function () {
   'use strict';
 
   var core = window.MMWatch.core;
   var admin = window.MMWatch.admin;
+  var address = window.MMWatch.address;
   var byId = core.byId;
   var el = core.el;
   var toArray = core.toArray;
@@ -208,8 +209,8 @@
       if (request !== _request) return;
       _asked = null;
       _stale = false;
-      if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(state));
-      else if (opts.history === 'replace') window.history.replaceState({ view: 'list' }, '', pageUrl(state));
+      // Left for the rows meanwhile: the address is theirs.
+      if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
       apply(fresh, opts.focus);
       if (opts.toTop) toTop();
     }, function () {
@@ -278,13 +279,13 @@
     markToggle(view);
     if (view === 'list') {
       var current = state || norm({ q: search ? search.value : '' });
-      if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(current));
+      if (opts.history === 'push') address.push('list', pageUrl(current));
       fadeOut([browse, results], function () { reveal(list); });
       if (!root() || _stale || !same(current, wanted())) load(current, {});
     } else {
-      if (opts.history === 'push') window.history.pushState({ view: 'rows' }, '', '/watch');
-      /* With text in the field the search shows its results instead. */
-      fadeOut([list], function () { if (!results || results.hidden) reveal(browse); });
+      if (opts.history === 'push') address.push(null, '/watch');
+      /* With text in the field the search shows its results instead; Back may lead to a row's grid. */
+      fadeOut([list], function () { if ((!results || results.hidden) && address.value('grid') === null) reveal(browse); });
     }
     document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
   }
@@ -635,8 +636,6 @@
       if (!plainClick(e)) return;
       e.preventDefault();
       if (search) search.value = '';
-      var clearBtn = byId('watch-search-clear');
-      if (clearBtn) clearBtn.hidden = true;
       load(norm({}), {
         history: 'push',
         focus: function (fresh) { return fresh.querySelector('.fpill'); }
@@ -671,9 +670,12 @@
     load(norm(state), { history: 'replace' });
   });
 
-  window.addEventListener('popstate', function () {
-    var params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'list') setView('list', { history: null, state: stateFromSearch(window.location.search) });
-    else setView('rows', { history: null });
+  address.layer({
+    name: 'list',
+    depth: 5,
+    params: ['view'].concat(KEYS),
+    read: function (here) { return here.params.get('view') === 'list' ? query(stateFromSearch(here.params)) : null; },
+    open: function (value) { setView('list', { history: null, state: stateFromSearch(value) }); },
+    close: function () { setView('rows', { history: null }); }
   });
 })();
