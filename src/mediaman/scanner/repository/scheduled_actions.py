@@ -621,7 +621,9 @@ def book_deletion(
     delete_scheduled_action(conn, row.id)
 
 
-def book_removed_files(conn: sqlite3.Connection, action_ids: Collection[int] | None = None) -> None:
+def book_removed_files(
+    conn: sqlite3.Connection, action_ids: Collection[object] | None = None
+) -> None:
     """Book what the rows *action_ids* record as removed, and leave the rows without a record.
 
     Run it before a keep is written over a row, or a row is dropped, as its

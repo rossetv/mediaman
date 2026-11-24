@@ -358,7 +358,7 @@ def set_protected_state(
     stays kept.
     """
     deletion_running = False
-    book_removed_files(conn, [*(row[4] for row in to_update), *to_delete])
+    book_removed_files(conn, [row[4] for row in to_update] + list(to_delete))
     if to_update:
         ids = [row[4] for row in to_update]
         # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
