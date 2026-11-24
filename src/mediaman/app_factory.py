@@ -61,9 +61,10 @@ def _static_version(static_dir: Path) -> str:
 class _RevalidatedStaticFiles(StaticFiles):
     """Serve /static with ``Cache-Control: no-cache`` on the 200 and the 304.
 
-    Asset URLs carry no version, so a browser must check the ETag on every
-    load instead of reusing a stale copy after an update; an unchanged file
-    still costs only a 304.
+    Templates link assets with ``?v=``, but the fonts a stylesheet loads carry
+    no version, so a browser must check the ETag on every load instead of
+    reusing a stale copy after an update; an unchanged file still costs only
+    a 304.
     """
 
     def file_response(self, *args: Any, **kwargs: Any) -> Response:
