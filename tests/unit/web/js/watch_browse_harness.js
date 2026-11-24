@@ -847,6 +847,20 @@ const scenarios = {
     };
   },
 
+  // The day's limit passes while the page is open: the clock of the button takes its line away too.
+  async ownLimitPasses() {
+    const p = load({ items: OWN_ITEMS, mine: { ...MINE.wait, reason: 'daily_limit', next_available_at: new Date(Date.now() + 60000).toISOString() } });
+    await settle();
+    const before = lineOf(p);
+    const now = Date.now();
+    p.ctx.Date.now = () => now + 61000;
+    await tick(p);
+    const out = { before, after: lineOf(p) };
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+    await settle();
+    return { ...out, posts: p.calls.filter((c) => /^POST/.test(c)).length };
+  },
+
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
   async loggedOutOnLoad() {
     const p = load({ routes: {

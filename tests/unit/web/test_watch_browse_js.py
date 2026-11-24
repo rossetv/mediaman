@@ -263,6 +263,20 @@ def test_a_failure_that_cannot_be_tried_again_does_not_say_to() -> None:
     }
 
 
+def test_the_day_s_limit_is_no_longer_told_once_its_wait_is_over() -> None:
+    out = _run("ownLimitPasses")
+    assert (out["before"]["text"], out["before"]["off"]) == (
+        "That’s all the refreshes for now.",
+        True,
+    )
+    assert out["after"] == {
+        "text": "From your plays, then new and popular.",
+        "button": "Refresh my picks",
+        "off": False,
+    }
+    assert out["posts"] == 1
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True

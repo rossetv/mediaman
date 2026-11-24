@@ -482,7 +482,7 @@
     shown.appendChild(el('span', 'row-tool__long', face[1]));
     button.appendChild(shown);
     // The clock counts down by itself; once it runs out Refresh is back.
-    if (state === 'cooldown') timers[kind] = setTimeout(function () { setRefresh(kind, 'cooldown', nextAt); }, 60000);
+    if (state === 'cooldown') timers[kind] = setTimeout(function () { if (kind === 'own') drawOwn(); else setRefresh(kind, 'cooldown', nextAt); }, 60000);
   }
 
   function refreshState(refresh) {
@@ -614,13 +614,14 @@
   function ownState(mine) {
     if (ownBusy || mine.running) return 'busy';
     if (mine.available) return 'ready';
-    return mine.reason === 'wait' || mine.reason === 'daily_limit' ? 'cooldown' : 'none';
+    if (mine.reason !== 'wait' && mine.reason !== 'daily_limit') return 'none';
+    return waitText(mine.next_available_at) ? 'cooldown' : 'ready';
   }
 
   function ownText(payload, state) {
     var mine = payload.my_refresh;
     if (state === 'busy') return 'Making yours. It can take a minute or two.';
-    if (mine.reason === 'daily_limit') return 'That’s all the refreshes for now.';
+    if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return 'New ones need an OpenAI key, set in Settings.';
     if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
