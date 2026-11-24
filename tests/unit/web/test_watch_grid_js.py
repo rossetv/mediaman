@@ -304,3 +304,12 @@ def test_the_open_grid_asked_for_again_stays_as_it_is_or_takes_the_order_asked_f
     # A line to jump to says where the screen stands: nothing to follow.
     assert out["jump"] == "Sort: Recently added"
     assert out["midway"] == ["Sort: Recently added", list(range(1, 13)), True, 0]
+
+
+def test_a_page_made_short_for_a_moment_moves_no_layer_from_where_it_stood() -> None:
+    out = _run("scrolledAndTurned")
+    assert (out["rows"], out["grid"]) == (20, 74)
+    assert out["opened"] == [20, 50, "translate(0px, -94px) scale(0.7368421052631579)"]
+    assert out["closing"][:2] == [74, 120]
+    assert out["closing"][2].startswith("translate(0px, -54px)")
+    assert out["closing"][3] == ""

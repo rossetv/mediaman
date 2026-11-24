@@ -341,6 +341,44 @@ const scenarios = {
       cancelled: opening.every((a) => a.cancelled), after, again: again.frames[1].transform, cards, landed: p.state(), left: p.leftovers() };
   },
 
+  /* Safari: a page laid out too short for its scroll gives way, and says where what is fixed is by the scroll it had. */
+  async scrolledAndTurned() {
+    const p = load({ motion: true });
+    const page = p.doc.querySelector('#watch-page');
+    const flat = Node.prototype.getBoundingClientRect;
+    const inFlow = (n) => !!n && shown(n) && !n.classList.contains('is-pinned');
+    const height = () => Math.max(parseFloat(page.style.minHeight) || 0, inFlow(p.browse) ? 3000 : inFlow(p.all()) ? 900 : 0);
+    let late = 0;
+    const tall = Object.getOwnPropertyDescriptor(Node.prototype, 'offsetHeight');
+    Object.defineProperty(Node.prototype, 'offsetHeight', { configurable: true, get() { return this === page ? height() : tall.get.call(this); } });
+    Node.prototype.getBoundingClientRect = function () {
+      const most = Math.max(0, height() - VIEW.height);
+      if (win.y > most) { late = win.y - most; win.y = most; }
+      const r = flat.call(this);
+      const layer = this.closest('.is-pinned');
+      const by = layer ? parseFloat(layer.style.top) - (100 - win.y) + late : this.classList.contains('nav-glass') ? late : 0;
+      return rect([r.left, r.top + by, r.width, r.height]);
+    };
+    const scrollTo = p.ctx.scrollTo;
+    p.ctx.scrollTo = (o) => { late = 0; scrollTo(o); };
+    const first = (layer) => layer.querySelector('.watch-card').getBoundingClientRect().top;
+    const went = (n) => p.anims.filter((a) => a.node === n).pop().frames;
+    const out = {};
+    p.scroll(120);
+    out.rows = first(p.browse);
+    p.grid.open(p.opts());
+    const card = p.all().querySelector('.watch-card');
+    out.opened = [first(p.browse), win.y, went(card)[0].transform];
+    p.finish();
+    p.scroll(90);
+    out.grid = first(p.all());
+    p.grid.close();
+    out.closing = [first(p.all()), win.y, went(card)[1].transform, page.style.minHeight];
+    Node.prototype.getBoundingClientRect = flat;
+    Object.defineProperty(Node.prototype, 'offsetHeight', tall);
+    return out;
+  },
+
   async resizedMidway() {
     const p = load({ motion: true });
     p.grid.open(p.opts());

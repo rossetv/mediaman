@@ -759,10 +759,12 @@
     dom.head.style.top = '';
   }
 
-  /* Put the layer *to* in the page's flow at the scroll *y*, the other fixed
+  /* Put the layer *to* in the page's flow at the scroll *y* says, the other fixed
      where it stands. Returns where the search bar was. */
   function swapLayers(to, y) {
     var bar = topBar ? topBar.getBoundingClientRect() : null;
+    // Too short for its scroll, even for a moment, Safari places what is fixed by the scroll it had.
+    page.style.minHeight = page.offsetHeight + 'px';
     var from = to === 'grid' ? browse : dom.all;
     var headAt = to === 'rows' ? dom.head.getBoundingClientRect().top : 0;
     pinInPlace(from);
@@ -770,7 +772,8 @@
     browse.hidden = false;
     dom.all.hidden = false;
     unhead();
-    scrollPage(y);
+    scrollPage(y());
+    page.style.minHeight = '';
     lastY = window.scrollY;
     if (to === 'rows') {
       // Fixed, the layer no longer holds its header under the top bar.
@@ -1129,7 +1132,7 @@
     dom.sortMenu.close(false);
     if (move && now && now.opts.id === opts.id && !resorted(opts)) {
       if (move.to === 'grid') return;
-      ghost(swapLayers('grid', move.gridY));
+      ghost(swapLayers('grid', function () { return move.gridY; }));
       play('grid');
       announce();
       return;
@@ -1155,8 +1158,7 @@
       return;
     }
     now.list.hold(true);
-    var bar = swapLayers('grid', y);
-    scrollPage(Math.min(y, headScroll()));
+    var bar = swapLayers('grid', function () { return Math.min(y, headScroll()); });
     aim(first);
     ghost(bar);
     lastY = window.scrollY;
@@ -1174,7 +1176,7 @@
       if (move.to === 'rows') return;
       move.gridY = window.scrollY;
       restoreLefts();
-      ghost(swapLayers('rows', place.y));
+      ghost(swapLayers('rows', function () { return place.y; }));
       play('rows');
       focusRows(now.opts, null);
       return;
@@ -1199,7 +1201,7 @@
     restoreLefts();
     pin(browse, 0);
     scrollPage(y);
-    ghost(swapLayers('rows', place.y));
+    ghost(swapLayers('rows', function () { return place.y; }));
     move = { to: 'rows', gridY: y, tracks: null, token: null };
     move.tracks = measure(opts);
     play('rows');
