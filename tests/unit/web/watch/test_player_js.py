@@ -441,6 +441,17 @@ def test_the_seek_bar_answers_the_keys_of_a_slider(markup):
     }
 
 
+def test_a_key_on_the_seek_bar_shows_for_a_moment_where_it_led(markup):
+    out = run(markup, "seek_key_bubble")
+    assert out["elsewhere"] is False
+    assert out["ArrowRight"] == {"shown": True, "time": "10:20", "frame": 124, "stale": False}
+    assert out["PageUp"] == {"shown": True, "time": "11:20", "frame": 136, "stale": False}
+    # A second key starts the moment again.
+    assert (out["ArrowRightStill"], out["PageUpStill"], out["gone"]) == (True, True, True)
+    # The mark of the pointer is the mouse's alone.
+    assert (out["marker"], out["underMouse"]) == (False, "25:00")
+
+
 def test_full_screen_is_an_icon_that_follows_the_state(markup):
     out = run(markup, "fullscreen")
     enter = {"icon": "#i-expand", "label": "Full screen", "title": "Full screen (F)", "text": ""}

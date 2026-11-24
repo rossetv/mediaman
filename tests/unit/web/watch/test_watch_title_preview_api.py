@@ -16,7 +16,7 @@ from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.plex_watch import PlexUnavailable
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _library
+from mediaman.services.watch_catalog import _arr, _gate, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.search import upsert_ratings_cache
 from mediaman.web.repository.watch_progress import NEVER_PLAYED, save_progress
@@ -76,8 +76,6 @@ def _fresh_state(monkeypatch, tmp_path):
     monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: None)
     monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(60, 60))
-    monkeypatch.setattr(title_preview_api, "_paused_until", 0.0)
-    monkeypatch.setattr(title_preview_api, "_failures", 0)
 
     def spent(*_a):
         raise AssertionError("a search or OMDb look-up was spent")
@@ -507,7 +505,7 @@ class TestTmdbPause:
     @pytest.fixture
     def clock(self, monkeypatch):
         now = [1000.0]
-        monkeypatch.setattr(title_preview_api, "_clock", lambda: now[0])
+        monkeypatch.setattr(_gate, "_clock", lambda: now[0])
         return now
 
     @pytest.mark.parametrize(("failure", "status"), [(0, 502), (500, 502), (429, 429)])
@@ -523,7 +521,7 @@ class TestTmdbPause:
         assert _preview(viewer, "tmdb-movie-13").status_code == 200  # cached
         assert _preview(viewer, "movie-100").json()["overview"] == "A film."  # Plex's
 
-        clock[0] += title_preview_api._TMDB_PAUSE_S
+        clock[0] += _gate.PAUSE_S
         assert _preview(viewer, "tmdb-movie-11").status_code == 200
 
     @pytest.mark.parametrize(

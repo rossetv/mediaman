@@ -82,6 +82,8 @@
   var FRAME_BACKOFF_MAX_MS = 30000;
   /* How close the preview may come to the edge of the window. */
   var BUBBLE_EDGE = 12;
+  /* How long it shows where a key on the bar led. */
+  var PEEK_MS = 1000;
   /* Chapter gaps on the bar stay at least this many pixels apart. */
   var GAP_APART_PX = 8;
   /* The skip button stays this long; after that it comes and goes with the controls. */
@@ -1162,7 +1164,8 @@
     missingInRow = 0;
   }
 
-  var bubbleX = 0;
+  var bubbleS = 0;           // the time it shows
+  var peekTimer = null;
   var frameWanted = null;
   var frameShown = null;
   var frameAskedAt = -Infinity;
@@ -1173,17 +1176,28 @@
 
   /* The frame and time under the pointer, over the bar. The bar itself and
      what it tells a screen reader stay at what is playing. */
-  function showBubble(clientX) {
+  function pointBubble(clientX) {
+    clearTimeout(peekTimer);
+    showBubble(seekTimeAt(clientX), !dragging);
+  }
+
+  /* Where a key on the bar led, for a moment. */
+  function peekBubble() {
+    showBubble(position(), false);
+    clearTimeout(peekTimer);
+    peekTimer = setTimeout(hideBubble, PEEK_MS);
+  }
+
+  function showBubble(t, marked) {
     var d = duration();
     if (!(d > 0)) return;
-    var t = seekTimeAt(clientX);
-    bubbleX = clientX;
+    bubbleS = t;
     if (els.bubble.hidden) {
       els.frameImg.hidden = true;
       frameShown = null;
     }
     els.bubble.hidden = false;
-    els.seekHover.hidden = dragging;
+    els.seekHover.hidden = !marked;
     var chapter = startedBy(chapters, t);
     var marker = markerAt(t);
     els.bubbleTitle.textContent = chapter ? chapter.title : '';
@@ -1203,6 +1217,7 @@
   }
 
   function hideBubble() {
+    clearTimeout(peekTimer);
     els.bubble.hidden = true;
     els.seekHover.hidden = true;
   }
@@ -1298,7 +1313,7 @@
 
   function noPreviews() {
     previews = null;
-    if (!els.bubble.hidden) showBubble(bubbleX);
+    if (!els.bubble.hidden) showBubble(bubbleS, !els.seekHover.hidden);
   }
   els.frameImg.addEventListener('error', noPreviews);
 
@@ -1311,7 +1326,7 @@
     if (els.seek.setPointerCapture) els.seek.setPointerCapture(e.pointerId);
     dragS = seekTimeAt(e.clientX);
     render();
-    showBubble(e.clientX);
+    pointBubble(e.clientX);
     e.preventDefault();
   });
   els.seek.addEventListener('pointermove', function (e) {
@@ -1320,7 +1335,7 @@
       dragS = seekTimeAt(e.clientX);
       render();
     }
-    showBubble(e.clientX);
+    pointBubble(e.clientX);
     showControls();
   });
   els.seek.addEventListener('pointerleave', function () {
@@ -1351,6 +1366,7 @@
     else if (e.key === 'PageDown') skip(-PAGE_S);
     else return;
     e.preventDefault();
+    peekBubble();
   });
 
   /* ---- buttons -------------------------------------------------------- */
@@ -1649,6 +1665,7 @@
       if (tag === 'INPUT' || menuOpen()) return;
       e.preventDefault();
       skip(e.key === 'ArrowLeft' ? -SKIP_S : SKIP_S);
+      if (e.target === els.seek) peekBubble();
     } else if (e.key === 'f' || e.key === 'F') {
       if (tag === 'INPUT') return;
       e.preventDefault();

@@ -1434,6 +1434,32 @@ const scenarios = {
     return out;
   },
 
+  /* A key on the seek bar shows for a moment where it led; one elsewhere does not. */
+  async seek_key_bubble(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 600);
+    const out = {};
+    key('ArrowRight');
+    out.elsewhere = (await bubbleState(p)).shown;
+    tabTo(p.q('[data-seek]'));
+    for (const k of ['ArrowRight', 'PageUp']) {
+      key(k);
+      p.frames.answer(200);
+      out[k] = await bubbleState(p);
+      p.tick(900);
+      out[k + 'Still'] = (await bubbleState(p)).shown;
+    }
+    out.marker = !p.q('[data-seek-hover]').hidden;
+    p.tick(200);
+    out.gone = !(await bubbleState(p)).shown;
+    /* The mouse that comes to the bar keeps it. */
+    key('Home');
+    point(p, 'pointermove', 500);
+    p.tick(1100);
+    out.underMouse = (await bubbleState(p)).time;
+    return out;
+  },
+
   /* A double click on the picture: while it plays, with a menu open, and under an error. */
   async double_click(p) {
     p.root.requestFullscreen = () => Promise.resolve();
