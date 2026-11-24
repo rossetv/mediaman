@@ -40,7 +40,7 @@
   /* What a ref is numbered by. Two refs of one source with different numbers
      are two titles, except picks, which are numbered anew in every batch. */
   function sourceOf(ref) {
-    return /^tmdb-/.test(ref) ? 'tmdb' : /^rec-/.test(ref) ? 'rec' : 'library';
+    return /^tmdb-/.test(ref) ? 'tmdb' : /^(rec|pick)-/.test(ref) ? 'rec' : 'library';
   }
 
   function textOf(card, selector) {

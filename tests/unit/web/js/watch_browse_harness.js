@@ -41,6 +41,7 @@ function recommended(opts = {}) {
     batches: opts.enabled === false ? [] : batches,
     items: opts.items || [card('rec-7', { rec_id: 7, reason: 'Because' }), card('rec-8', { rec_id: 8 })] };
   if (opts.enabled === false) out.items = [];
+  out.my_refresh = opts.mine || { available: false, reason: 'not_enough_plays', next_available_at: null, running: false };
   if (opts.admin) out.refresh = opts.refresh || { available: true, next_available_at: null, running: false };
   return out;
 }
@@ -188,6 +189,23 @@ function loadPages(first, pages, extra = {}) {
 function pageCalls(p) { return p.calls.filter((c) => /page=/.test(c)).map((c) => Number(/page=([0-9]+)/.exec(c)[1])); }
 
 const movies = (...ids) => ids.map((id) => card('tmdb-movie-' + id));
+
+const MINE = {
+  ready: { available: true, reason: null, next_available_at: null, running: false },
+  wait: { available: false, reason: 'wait', next_available_at: new Date(Date.now() + 6 * 24 * HOUR - 60000).toISOString(), running: false },
+  few: { available: false, reason: 'not_enough_plays', next_available_at: null, running: false },
+  noKey: { available: false, reason: 'not_configured', next_available_at: null, running: false },
+  running: { available: false, reason: 'running', next_available_at: null, running: true },
+};
+
+const pick = (ref, over) => card(ref, { ai_pick: true, own: /^pick/.test(ref), pick_ref: ref, ...over });
+const OWN_ITEMS = [pick('pick-1', { ref: 'movie-11', in_library: true, library_ref: 'movie-11' }), pick('pick-2'), pick('rec-7')];
+
+function lineOf(p) {
+  const line = rec(p.doc).querySelector('.rec-line');
+  const button = line.querySelector('[data-own-refresh]');
+  return { text: text(line.querySelector('.rec-line__text')), button: text(button), off: button && button.getAttribute('aria-disabled') === 'true' };
+}
 
 const scenarios = {
   // Pages shift (a title again), one is all repeats, one title is scanned meanwhile: none twice.
@@ -601,6 +619,132 @@ const scenarios = {
       cards: section.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
       after: text(p.doc.querySelector('[data-picks-refresh]')),
       toast: p.toasts.map((t) => t.message),
+    };
+  },
+
+  // A person's own picks, one of them in the library, before a shared one; then an older batch
+  // that has one of the titles again under another number.
+  async ownRow() {
+    layout();
+    const p = load({ mine: MINE.ready, batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended({ mine: MINE.ready, items: OWN_ITEMS }), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended?batch=2026-11-14&start=2026-11-21': () => Promise.resolve({ ...recommended({ batch: '2026-11-14',
+        items: [pick('pick-30', { title: 'Title pick-2' }), pick('pick-31'), pick('javascript:1')] }), next_batch: null }),
+    } });
+    await settle();
+    const scroller = scrollerOf(p, 'recommended');
+    await scroll(scroller, 0);
+    return { refs: refsOf(scroller), picks: scroller.querySelectorAll('.watch-card__link').map((a) => a.getAttribute('data-pick-ref')),
+      marked: scroller.querySelectorAll('.watch-card__ai').map(text), line: lineOf(p), chip: text(rec(p.doc).querySelector('.ai-label')),
+      updated: (p.doc.listeners['mm:title-changed'].forEach((fn) => fn({ detail: { ref: 'x', title: 'Title pick-2', kind: 'movie', year: 2024, download_state: 'queued' } })), badgeOf(p.doc, 'pick-2')) };
+  },
+
+  // What the line under the heading says, and whether there is a Refresh, in each state.
+  async ownStates() {
+    const at = async (mine, opts = {}) => {
+      const p = load({ mine, ...opts });
+      await settle();
+      const button = rec(p.doc).querySelector('[data-own-refresh]');
+      if (button) click(p.doc, button);
+      return { ...lineOf(p), toasts: p.toasts.map((t) => t.message), posts: p.calls.filter((c) => /^POST/.test(c)).length };
+    };
+    const off = load({ enabled: false, admin: true });
+    await settle();
+    return {
+      wait: await at(MINE.wait, { items: OWN_ITEMS }),
+      limit: await at({ ...MINE.wait, reason: 'daily_limit', next_available_at: new Date(Date.now() + 5 * HOUR - 60000).toISOString() }),
+      few: await at(MINE.few),
+      noKeyViewer: await at(MINE.noKey),
+      noKeyAdmin: await at(MINE.noKey, { admin: true }),
+      off: !!rec(off.doc).querySelector('.rec-line'),
+    };
+  },
+
+  // A person has theirs made: busy, then the new picks in place and a week's wait.
+  async ownRefreshDone() {
+    let done = false;
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(done ? recommended({ mine: MINE.wait, items: OWN_ITEMS }) : recommended({ mine: MINE.ready })),
+      'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: done ? 'done' : 'running' }),
+    } });
+    await settle();
+    const section = rec(p.doc);
+    const before = lineOf(p);
+    const button = section.querySelector('[data-own-refresh]');
+    button.focus();
+    click(p.doc, button);
+    click(p.doc, button);
+    await settle();
+    const busy = { ...lineOf(p), spinning: button.classList.contains('is-busy') };
+    await tick(p);
+    done = true;
+    await tick(p);
+    return { before, busy, after: lineOf(p), sameRow: rec(p.doc) === section, focus: p.doc.activeElement === section.querySelector('[data-own-refresh]'),
+      refs: section.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
+      posts: p.calls.filter((c) => /^POST/.test(c)), toasts: p.toasts.map((t) => t.message) };
+  },
+
+  // It made none: the row stays as it was, says so, and can be tried again.
+  async ownRefreshFailed() {
+    const p = load({ mine: MINE.ready, routes: {
+      'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'failed' }),
+    } });
+    await settle();
+    const scroller = rec(p.doc).querySelector('.watch-row__scroll');
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+    await settle();
+    await tick(p);
+    const failed = { ...lineOf(p), variant: p.toasts[0].opts.variant };
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+    await settle();
+    return { failed, sameCards: rec(p.doc).querySelector('.watch-row__scroll') === scroller, again: lineOf(p) };
+  },
+
+  // The server refuses: what it says takes the button's place, or the button waits.
+  async ownRefused() {
+    const at = async (error, opts) => {
+      const p = load({ mine: MINE.ready, routes: {
+        'POST /api/watch/picks/refresh': () => Promise.reject(error),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'running' }),
+      } });
+      await settle();
+      const button = rec(p.doc).querySelector('[data-own-refresh]');
+      button.focus();
+      click(p.doc, button);
+      await settle();
+      return { ...lineOf(p), focus: p.doc.activeElement.className.split(' ')[0], toasts: p.toasts.length, href: p.ctx.location.href };
+    };
+    return {
+      wait: await at(apiError(429, { error: 'wait', next_available_at: MINE.wait.next_available_at })),
+      few: await at(apiError(409, { error: 'not_enough_plays', next_available_at: null })),
+      running: await at(apiError(409, { error: 'running', next_available_at: null })),
+      broken: await at(apiError(500, {})),
+      out: await at(apiError(401, {})),
+    };
+  },
+
+  // Found being made when the page loads, by the scan or an earlier press: the end is followed, and
+  // an old failure is not told as this one's when there are new picks.
+  async ownRunningAtLoad() {
+    const at = async (status, items, mine) => {
+      let done = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => Promise.resolve(done ? recommended({ mine, items }) : recommended({ mine: MINE.running, items: OWN_ITEMS })),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status }),
+      } });
+      await settle();
+      const busy = lineOf(p);
+      done = true;
+      await tick(p);
+      return { busy: busy.text, after: lineOf(p).text, toasts: p.toasts.map((t) => t.message) };
+    };
+    return {
+      made: await at('failed', [pick('pick-40')], MINE.ready),
+      none: await at('idle', OWN_ITEMS, MINE.ready),
+      failed: await at('failed', OWN_ITEMS, MINE.ready),
     };
   },
 
