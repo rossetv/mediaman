@@ -159,35 +159,32 @@
   bottom: 0;
   z-index: var(--z-nav);
   height: calc(64px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 8px 20px calc(8px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
   background: color-mix(in srgb, var(--scrim) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair);
-  align-items: stretch;
-  justify-content: space-around;
 }
 .nav-tab {
   flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  font-size: 10px;
+  gap: 9px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--t3);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-  text-decoration: none;
-  letter-spacing: -.005em;
+  color: var(--t2);
+  border-radius: var(--r-pill);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.nav-tab > .ico { font-size: 20px; }
+.nav-tab > .ico { font-size: 15px; }
 .nav-tab:hover,
-.nav-tab.on { color: var(--accent); }
-.nav-tab:active { transform: scale(.94); }
+.nav-tab.on { color: var(--t1); }
+.nav-tab.on { background: var(--s3); }
+.nav-tab.on > .ico { color: var(--accent); }
+.nav-tab:focus-visible { outline-offset: -2px; border-radius: var(--r-pill); }
+.nav-tab:active { transform: scale(.97); }
 
 /* Profile menu. Closed: invisible and out of the tab order once the fade-out
    ends. One step above the nav surfaces and page dropdowns. */

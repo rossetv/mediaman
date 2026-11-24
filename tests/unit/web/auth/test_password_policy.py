@@ -375,6 +375,6 @@ class TestForcePasswordChangePage:
             headers={"Origin": "http://testserver"},
         )
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/"
+        assert resp.headers["location"] == "/watch"
         # Flag cleared
         assert user_must_change_password(conn, "alice") is False

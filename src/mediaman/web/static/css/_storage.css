@@ -1,4 +1,4 @@
-/* STORAGE — capacity bar primitives used on the library/dashboard
+/* STORAGE — capacity bar primitives used on the Settings overview's
    storage card. Owns `.storage*`, the segmented progress bar, and
    the legend dots. */
 
@@ -42,17 +42,9 @@
   margin-bottom: 18px;
 }
 .storage-bar .seg { height: 100%; flex: 0 0 var(--seg-pct, 0%); transition: flex var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out); }
-.storage-bar .seg--mov   { background: var(--orange); }
-.storage-bar .seg--tv    { background: var(--accent); }
-.storage-bar .seg--anime { background: var(--purple); }
-.storage-bar .seg--other { background: var(--t4); }
 
 .storage-legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; }
 .legend { display: flex; align-items: center; gap: 8px; color: var(--t2); }
 .legend .dot,
 .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
-.legend-dot--movies { background: var(--orange); }
-.legend-dot--tv     { background: var(--accent); }
-.legend-dot--anime  { background: var(--purple); }
-.legend-dot--other  { background: var(--t4); }
 .legend b { color: var(--t1); font-weight: 500; margin-left: 4px; }

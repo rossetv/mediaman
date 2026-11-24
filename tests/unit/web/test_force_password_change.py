@@ -112,7 +112,7 @@ class TestForceChangePost:
                 follow_redirects=False,
             )
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/"
+        assert resp.headers["location"] == "/watch"
 
 
 def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():

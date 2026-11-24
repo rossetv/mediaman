@@ -1,12 +1,13 @@
 {# Nav surfaces.
    - .nav-glass    — desktop sticky top, link rail and profile button (>= 700 px)
-   - .nav-topbar   — mobile sticky top, brand, page title and profile button (< 700 px)
+   - .nav-topbar   — mobile sticky top, brand, page title (on Watch, an admin's storage
+                     meter in its place) and profile button (< 700 px)
    - .nav-tabs     — mobile fixed bottom tab bar (< 700 px)
    - .profile-menu — what either profile button opens: a menu under it on desktop,
                      a bottom sheet on phones
 
    Set `nav_active` in template context to one of:
-     dashboard | watch | downloads | history | settings | account
+     watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
    The links follow the role on the request (`request.state.user_role`). A viewer
@@ -14,6 +15,7 @@
 #}
 {% from "_components.html" import icon %}
 {% from "_avatar.html" import avatar %}
+{% import "_watch_space.html" as space %}
 
 {% set state = request.state if request is defined else none %}
 {% set is_viewer = (state.user_role if state else none) | default('admin', true) != 'admin' %}
@@ -22,7 +24,6 @@
 {% set active = nav_active or ('watch' if (path == '/watch' or path.startswith('/watch/')) else '') %}
 
 {% set titles = {
-  'dashboard':   'Dashboard',
   'watch':       'Watch',
   'downloads':   'Downloads',
   'history':     'History',
@@ -43,21 +44,20 @@
 
 {# Desktop top nav — hidden below 700 px #}
 <header class="nav-glass">
-  <a class="brand" href="/">media<b>man</b></a>
+  <a class="brand" href="/watch">media<b>man</b></a>
   <nav class="nav-links" aria-label="Primary">
-    {% if not is_viewer %}
-    <a href="/"            class="nav-btn{% if active == 'dashboard' %} on{% endif %}"{{ current('dashboard') }}>Dashboard</a>
-    {% endif %}
     <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}"{{ current('watch') }}>Watch</a>
     <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}"{{ current('downloads') }}>Downloads</a>
   </nav>
   {{ profile_button() }}
 </header>
 
-{# Mobile top bar — brand, current page title, profile button #}
+{# Mobile top bar — brand, current page title or storage meter, profile button #}
 <div class="nav-topbar">
-  <a class="brand" href="/">media<b>man</b></a>
-  <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
+  <a class="brand" href="/watch">media<b>man</b></a>
+  {% if is_admin and path == '/watch' %}{{ space.meter(phone=true) }}
+  {% else %}<span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
+  {% endif %}
   {{ profile_button() }}
 </div>
 
@@ -67,12 +67,6 @@
     {{ icon("i-play") }}
     <span>Watch</span>
   </a>
-  {% if not is_viewer %}
-  <a class="nav-tab{% if active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard"{{ current('dashboard') }}>
-    {{ icon("i-house") }}
-    <span>Dashboard</span>
-  </a>
-  {% endif %}
   <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads"{{ current('downloads') }}>
     {{ icon("i-download") }}
     <span>Downloads</span>

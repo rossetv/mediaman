@@ -110,13 +110,6 @@ def test_keep_page_posters_use_empty_alt():
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
-def test_dashboard_posters_use_empty_alt():
-    """Scheduled-items tiles + recently-deleted thumbs each
-    render the title as adjacent text, so the alt must be empty."""
-    dash = _tpl("dashboard.html")
-    assert 'alt="{{ item.title }}"' not in dash
-
-
 def test_watch_list_uses_empty_alt_posters():
     """The list view's thumbnails sit beside the title as text, so the poster
     img is decorative: alt is empty and the title is never repeated in it."""

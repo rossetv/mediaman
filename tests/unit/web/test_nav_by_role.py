@@ -83,8 +83,8 @@ def test_a_viewer_gets_watch_and_downloads_and_a_menu_of_what_they_may_open():
 def test_an_admin_and_a_missing_role_find_history_and_settings_in_the_menu_not_the_nav(role):
     html = _render(role)
 
-    assert _desktop_links(html) == ["/", "/watch", "/downloads"]
-    assert _links(_tabbar(html)) == ["/watch", "/", "/downloads"]
+    assert _desktop_links(html) == ["/watch", "/downloads"]
+    assert _links(_tabbar(html)) == ["/watch", "/downloads"]
     assert _menu_items(html) == [
         ("/account", "Profile"),
         ("/account#plex", "Plex account"),
@@ -92,6 +92,19 @@ def test_an_admin_and_a_missing_role_find_history_and_settings_in_the_menu_not_t
         ("/settings", "Settings"),
         ("/api/auth/logout", "Log out"),
     ]
+
+
+def test_the_phone_bar_shows_the_storage_meter_on_watch_to_an_admin_and_to_nobody_else():
+    assert "data-space-open" in _render("admin", path="/watch", is_admin=True)
+    for role, path, is_admin in (
+        ("viewer", "/watch", False),
+        (None, "/watch", None),
+        ("admin", "/watch/show/1", True),
+        ("admin", "/downloads", None),
+    ):
+        html = _render(role, path=path, is_admin=is_admin)
+        assert "space-meter" not in html
+        assert "nav-topbar-title" in html
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])

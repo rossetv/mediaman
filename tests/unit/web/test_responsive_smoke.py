@@ -248,7 +248,6 @@ def test_nav_template_emits_all_surfaces():
         assert cls in nav, f"missing nav surface class: {cls}"
     # Every primary destination still routes from the nav.
     for href in (
-        'href="/"',
         'href="/watch"',
         'href="/downloads"',
         'href="/history"',
@@ -256,7 +255,7 @@ def test_nav_template_emits_all_surfaces():
     ):
         assert href in nav, f"missing nav link: {href}"
     # Bottom tabs must contain the primary tabs.
-    for label in (">Watch<", ">Dashboard<", ">Downloads<"):
+    for label in (">Watch<", ">Downloads<"):
         assert label in nav, f"missing bottom-tab label: {label}"
 
 
@@ -291,7 +290,6 @@ def test_every_page_uses_default_container():
     and content rails line up across screens. Using `--narrow` or
     `--wide` modifiers is forbidden after the width-consistency pass."""
     for name in (
-        "dashboard.html",
         "downloads.html",
         "history.html",
         "settings.html",

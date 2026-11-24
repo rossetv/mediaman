@@ -6,7 +6,7 @@
 .card-pad       { padding: 24px; }
 
 /* 8. TILES (poster + pills + title + meta)
-   Used by dashboard, the Watch page and downloads. */
+   The tile macro's. */
 .tile {
   position: relative;
   display: flex;
@@ -19,8 +19,8 @@
 /* .tile-hit: stretched, transparent button overlay providing the
    keyboard-accessible click target for a card (a11y) without
    nesting interactive elements inside a real <button> (which is
-   invalid HTML and breaks the grid layout). Action buttons inside
-   .tile-actions sit above this overlay via a higher z-index. */
+   invalid HTML and breaks the grid layout). Action buttons of
+   the caller sit above this overlay via a higher z-index. */
 .tile-hit {
   position: absolute;
   inset: 0;
@@ -45,8 +45,6 @@
   .tile:hover { transform: translateY(-2px); }
 }
 .tile:active { transform: scale(.97); }
-/* An open keep menu must sit above the tiles in the rows below it. */
-.tile:has(.keep-wrapper.is-open) { z-index: 30; }
 @media (hover: hover) {
   .tile:hover .tile-poster { box-shadow: var(--shadow-card); }
 }
@@ -119,31 +117,9 @@
 }
 .tile-rating .star { color: var(--warning); }
 
-.tile-actions { display: flex; gap: 6px; margin-top: 2px; position: relative; z-index: 2; }
-.tile-actions .btn { flex: 1; min-width: 0; }
-.tile-actions .btn--icon { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; }
-@media (max-width: 699.98px) {
-  .tile-actions .btn--icon { flex-basis: 44px; width: 44px; height: 44px; }
-}
-/* Dashboard: grid items already stretch to the row, so pinning the Keep row
-   lines the buttons up across tiles of differing title and meta length. */
-.grid-tiles .keep-wrapper.tile-actions { margin-top: auto; }
-
-/* Dashboard on phones: the count and size go under the heading, Clear all
-   stays beside it, and every control has a 44px tap area. */
-@media (max-width: 519.98px) {
-  .sched-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
-  .sched-hd > .u-flex { display: contents; }
-  .sched-hd .sub { grid-row: 2; grid-column: 1; }
-  .sched-hd .btn { grid-row: 1; grid-column: 2; }
-}
-
 /* Grids */
 .grid           { display: grid; gap: 20px; }
 .grid-tiles     { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-/* Rows keep their own height when the grid is taller than its rows, as while
-   a removed tile's row collapses, so they slide instead of stretching. */
-.grid-tiles     { align-content: start; }
 
 /* Horizontal scroll shelf */
 .shelf {

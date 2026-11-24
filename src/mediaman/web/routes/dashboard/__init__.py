@@ -1,4 +1,4 @@
-"""Dashboard page and its JSON endpoints.
+"""The storage panel's JSON endpoints, and `/`, which sends an admin to Watch.
 
 View-model shaping lives in _data and _poster_fanout. Every query lives in
 mediaman.web.repository.dashboard, so no SQL belongs here.
@@ -7,11 +7,9 @@ mediaman.web.repository.dashboard, so no SQL belongs here.
 from __future__ import annotations
 
 import logging
-from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.delete_root_state import read_delete_root_waiting
@@ -19,7 +17,11 @@ from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.scanner.repository import read_delete_allowed_roots_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
-from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
+from mediaman.web.auth.middleware import (
+    LANDING_PATH,
+    get_current_admin,
+    resolve_admin_page_session,
+)
 from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
 from mediaman.web.routes.dashboard._data import (
     _fetch_recently_deleted,
@@ -44,50 +46,11 @@ def _show_storage(storage: dict[str, object], plex_configured: bool) -> bool:
 
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard_page(request: Request) -> Response:
+def home(request: Request) -> Response:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
-
-    config = request.app.state.config
-    scheduled_items = _fetch_scheduled(conn)
-    recently_deleted = _fetch_recently_deleted(conn, config.secret_key)
-    storage = _fetch_storage_stats(conn)
-
-    plex_configured = plex_is_configured(conn)
-    # Aggregate totals for section subtitles
-    scheduled_count = len(scheduled_items)
-    scheduled_size = format_bytes(
-        sum(cast(int, i["file_size_bytes"] or 0) for i in scheduled_items)
-    )
-
-    # SUM always returns a row; value is NULL when audit_log is empty.
-    reclaimed_total = format_bytes(sum_reclaimed_bytes(conn))
-
-    # Read from the settings row only; the page never touches a mount.
-    unavailable_roots = sorted(read_delete_root_waiting(conn).items())
-    deletions_off = not read_delete_allowed_roots_setting(conn, quiet=True)
-
-    templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        {
-            "username": username,
-            "nav_active": "dashboard",
-            "storage": storage,
-            "plex_configured": plex_configured,
-            "show_storage": _show_storage(storage, plex_configured),
-            "scheduled_items": scheduled_items,
-            "scheduled_count": scheduled_count,
-            "scheduled_size": scheduled_size,
-            "recently_deleted": recently_deleted,
-            "reclaimed_total": reclaimed_total,
-            "unavailable_roots": unavailable_roots,
-            "deletions_off": deletions_off,
-        },
-    )
+    return RedirectResponse(LANDING_PATH, status_code=302)
 
 
 @router.get("/api/dashboard/stats")
@@ -104,7 +67,7 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
             "reclaimed_total_bytes": reclaimed_bytes,
             "reclaimed_total": format_bytes(reclaimed_bytes),
             "scheduled": _scheduled_summary(_fetch_scheduled(conn)),
-            # From the settings row only, as on the page: a mount is never probed for it.
+            # From the settings row only: a mount is never probed for it.
             "unavailable_roots": [
                 {"path": path, "waiting": waiting}
                 for path, waiting in sorted(read_delete_root_waiting(conn).items())

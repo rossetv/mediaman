@@ -39,8 +39,8 @@ binding (User-Agent + client IP) is consistently applied:
     page-rendering routes that toggle admin-only UI affordances on or off
     without rejecting anonymous callers (keep and kept).
 
-`landing_path`
-    Where a user lands after signing in, by role.
+`LANDING_PATH`
+    Where a user lands after signing in.
 """
 
 from __future__ import annotations
@@ -57,6 +57,9 @@ from mediaman.web.auth.session_store import validate_session
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
 PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
+
+#: Where a user lands after signing in.
+LANDING_PATH = "/watch"
 
 #: Attribute name under which the resolved-session cache is stashed on
 #: ``request.state``. Stored as a ``(token, username | None)`` tuple so a
@@ -209,7 +212,7 @@ def resolve_admin_page_session(request: Request) -> PageSession:
         return resolved
     username, conn = resolved
     if get_user_role(conn, username) != "admin":
-        return RedirectResponse("/watch", status_code=303)
+        return RedirectResponse(LANDING_PATH, status_code=303)
     return resolved
 
 
@@ -223,11 +226,3 @@ def is_admin(request: Request) -> bool:
     if username is None:
         return False
     return get_user_role(get_db(), username) == "admin"
-
-
-def landing_path(conn: sqlite3.Connection, username: str) -> str:
-    """Return where *username* lands after signing in: ``/watch`` for a viewer, ``/`` otherwise.
-
-    Only a convenience: the viewer guard, not this, keeps a non-admin off ``/``.
-    """
-    return "/watch" if get_user_role(conn, username) == "viewer" else "/"

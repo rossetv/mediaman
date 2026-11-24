@@ -1,4 +1,4 @@
-"""Dashboard and Watch list empty states when Plex is not set up."""
+"""The storage panel's and the Watch list's empty states when Plex is not set up."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _CONNECT = "Connect Plex to get started"
 
 
 @pytest.fixture
-def page(app_factory, authed_client, conn):
+def get(app_factory, authed_client, conn):
     app = app_factory(
         dashboard_router,
         watch_pages.router,
@@ -29,13 +29,23 @@ def page(app_factory, authed_client, conn):
     )
     client = authed_client(app, conn)
 
-    def get(path: str) -> str:
+    def _get(path: str):
         conn.commit()
         resp = client.get(path)
         assert resp.status_code == 200
-        return resp.text
+        return resp
 
-    return get
+    return _get
+
+
+@pytest.fixture
+def page(get):
+    return lambda path: get(path).text
+
+
+@pytest.fixture
+def stats(get):
+    return lambda: get("/api/dashboard/stats").json()
 
 
 def _disk(monkeypatch, total):
@@ -85,40 +95,35 @@ class TestPlexIsConfigured:
         assert plex_is_configured(conn)
 
 
-class TestDashboard:
-    def test_unset_plex_says_connect_and_hides_empty_storage(self, page, monkeypatch):
+class TestStoragePanel:
+    def test_unset_plex_hides_empty_storage(self, stats, monkeypatch):
         _disk(monkeypatch, None)
-        html = page("/")
-        assert _CONNECT in html
-        assert 'href="/settings"' in html
-        assert "Library is healthy" not in html
-        assert 'class="storage"' not in html
+        got = stats()
+        assert (got["plex_configured"], got["show_storage"]) == (False, False)
 
-    def test_unset_plex_keeps_storage_that_has_a_disk_reading(self, page, monkeypatch):
+    def test_unset_plex_keeps_storage_that_has_a_disk_reading(self, stats, monkeypatch):
         _disk(monkeypatch, 10_000_000_000)
-        assert 'class="storage"' in page("/")
+        assert stats()["show_storage"] is True
 
     def test_unset_plex_keeps_storage_with_type_rows_but_no_disk_reading(
-        self, page, conn, monkeypatch
+        self, stats, conn, monkeypatch
     ):
         _disk(monkeypatch, None)
         insert_media_item(conn, id="m2", media_type="movie", file_size_bytes=5_000_000)
-        assert 'class="storage"' in page("/")
+        assert stats()["show_storage"] is True
 
-    def test_set_up_plex_is_unchanged(self, page, conn):
+    def test_set_up_plex_shows_storage(self, stats, conn, monkeypatch):
+        _disk(monkeypatch, None)
         _plex(conn)
-        html = page("/")
-        assert _CONNECT not in html
-        assert "Library is healthy" in html
-        assert 'class="storage"' in html
+        got = stats()
+        assert (got["plex_configured"], got["show_storage"]) == (True, True)
 
-    def test_scheduled_rows_and_banner_show_without_plex(self, page, conn):
+    def test_scheduled_rows_and_the_missing_folder_show_without_plex(self, get, stats, conn):
         _schedule(conn)
         write_delete_root_state(conn, {"/media/movies": 1})
-        html = page("/")
-        assert "Still Scheduled" in html
-        assert "root-banner" in html
-        assert _CONNECT not in html
+        assert stats()["unavailable_roots"] == [{"path": "/media/movies", "waiting": 1}]
+        items = get("/api/dashboard/scheduled").json()["items"]
+        assert [i["title"] for i in items] == ["Still Scheduled"]
 
 
 class TestWatchList:
