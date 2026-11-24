@@ -26,7 +26,7 @@
  *
  * The next episode takes over in this same page, from what its own page
  * (GET /watch/play/<key>) says, so that full screen, picture in picture and
- * sound carry on. Anything unexpected opens that page instead.
+ * sound carry on. A page that is no player's is opened instead.
  */
 (function () {
   'use strict';
@@ -87,6 +87,7 @@
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
+  var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
   var START_ERRORS = {
@@ -1620,14 +1621,15 @@
     else showUpnext();
   }
 
-  /* The document at `href`: not a player's where the video cannot be played. */
+  /* The document at `href`: not a player's where the video cannot be played, and
+     an empty one where the address leads elsewhere. */
   function fetchPage(href) {
     var abort = new AbortController();
     var timer = setTimeout(function () { abort.abort(); }, PAGE_WAIT_MS);
     return fetch(href, { credentials: 'same-origin', signal: abort.signal })
       .then(function (resp) {
-        if (resp.redirected) throw new Error('redirected');
-        return resp.text();
+        if (!resp.redirected && !resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.redirected ? '' : resp.text();
       })
       .then(function (html) {
         clearTimeout(timer);
@@ -1695,12 +1697,22 @@
         takePage(done[0], href);
         switching = false;
         startStream(startS);
-      })
+      }, nextUnreached)
       .catch(function () {
         if (gen !== generation) return;
         saveSitting(byItself);
         window.location.href = href;
+        /* The browser may stay here after all: stopped, or with nothing to show. */
+        setTimeout(nextUnreached, PAGE_WAIT_MS);
       });
+
+    function nextUnreached() {
+      if (gen !== generation) return;
+      switching = false;
+      saveSitting(false);
+      leaveNative();
+      showMessage(MSG_NEXT_UNREACHED, function () { goNext(false); });
+    }
   }
 
   /* Become the page of another video. */

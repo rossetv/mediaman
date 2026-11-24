@@ -296,6 +296,7 @@ function boot(html, reduced, saved, serverPlays) {
   function fetchPage(url, opts) {
     calls.push({ url: url, page: true });
     const answer = pages[url] || { status: 404, html: '' };
+    if (answer === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
     if (answer === 'hangs') {
       return new Promise((r, reject) => opts.signal.addEventListener('abort', () => reject(new Error('aborted'))));
     }
@@ -1097,6 +1098,7 @@ const scenarios = {
     key('s');
     out.sInMenu = p.win.location.href;
     key('Escape');
+    p.pages['/watch/play/502'] = { html: '<p>Not here</p>' };
     press(p.q('[data-skip]'));
     await settle();
     out.hrefAfter = p.win.location.href;
@@ -1457,14 +1459,43 @@ const scenarios = {
   /* A page that cannot take over here is opened instead. */
   async next_falls_back(p) {
     await streamPlays(p, 100);
-    p.pages['/watch/play/502'] = { redirect: { html: '<div id="player"></div>', redirected: true }, refused: { status: 503 }, other: { html: '<p>Not here</p>' }, hangs: 'hangs' }[p.win.serverPlays];
+    p.pages['/watch/play/502'] = { redirect: { html: '<div id="player"></div>', redirected: true }, other: { html: '<p>Not here</p>' } }[p.win.serverPlays];
     click(p.q('[data-next-btn]'));
-    await settle();
-    p.tick(15000);
     await settle();
     const starts = p.starts().length;
     p.leave();
     return { href: p.win.location.href, starts: starts, stops: p.calls.filter((c) => /\/stop$/.test(c.url)).length, beacons: p.beacons.length };
+  },
+
+  /* The next episode's page cannot be had, and then can; or its page was opened and never came. */
+  async next_unreached(p) {
+    const good = p.pages['/watch/play/502'];
+    const message = () => (p.q('[data-message]').hidden ? null : { retry: !p.q('[data-retry]').hidden, focus: doc.activeElement === p.q('[data-retry]') });
+    const out = {};
+    await streamPlays(p, 0);
+    p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, gone: { status: 404, html: '' }, unopened: { html: '<p>Not here</p>' } }[p.win.serverPlays];
+    p.video.webkitPresentationMode = 'fullscreen';
+    p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
+    endsNow(p);
+    p.tick(10000);
+    await settle();
+    p.tick(15000);
+    await settle();
+    out.message = message();
+    out.text = p.q('[data-message-text]').textContent;
+    out.mode = p.video.webkitPresentationMode;
+    out.loading = p.root.classList.contains('is-loading');
+    out.href = p.win.location.href;
+    out.goesOn = p.sitting().goes_on;
+    p.pages['/watch/play/502'] = good;
+    const starts = p.starts().length;
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    out.trying = message();
+    await settle();
+    await streamPlays(p, 0);
+    out.went = { starts: p.starts().length - starts, urls: p.win.history.urls, key: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body.rating_key, message: message() };
+    return out;
   },
 
   /* The old stream counts against the limit until the server has stopped it. */
@@ -1704,7 +1735,7 @@ const scenarios = {
     p.video.currentTime = p.hlsList[1].startsAt;
     const at = p.video.currentTime;
     fire(p.video, 'seeking');
-    await streamPlays(p, at);
+    fire(p.video, 'playing');
     return { at: at, asked: asks() };
   },
 
@@ -1720,7 +1751,7 @@ const scenarios = {
 
   /* A page opened because this one could not go on by itself knows how long nobody was there. */
   async ask_handed_on(p) {
-    p.pages['/watch/play/502'] = { status: 503 };
+    p.pages['/watch/play/502'] = { redirected: true, html: '' };
     await streamPlays(p, 0);
     endsNow(p);
     p.tick(10000);

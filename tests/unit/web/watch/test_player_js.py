@@ -719,10 +719,24 @@ def test_the_next_episode_s_own_keep_works(markup, season):
     assert out["kept"] == [{"media_item_id": "88", "days": 30}]
 
 
-@pytest.mark.parametrize("answer", ["redirect", "refused", "other", "hangs"])
+@pytest.mark.parametrize("answer", ["redirect", "other"])
 def test_a_page_that_cannot_take_over_is_opened_with_the_old_stream_stopped(markup, answer):
     out = run(markup, "next_falls_back", plays=answer)
     assert out == {"href": "/watch/play/502", "starts": 1, "stops": 1, "beacons": 0}
+
+
+@pytest.mark.parametrize("answer", ["offline", "hangs", "refused", "gone", "unopened"])
+def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
+    markup, season, answer
+):
+    out = run(markup, "next_unreached", plays=answer, pages=season)
+    assert out["message"] == {"retry": True, "focus": True}
+    assert "next episode" in out["text"]
+    # The system's own player would hide the message.
+    assert (out["mode"], out["loading"], out["goesOn"]) == ("inline", False, False)
+    assert out["href"] == ("/watch/play/502" if answer == "unopened" else "/watch/play/1")
+    assert out["trying"] is None
+    assert out["went"] == {"starts": 1, "urls": ["/watch/play/502"], "key": "502", "message": None}
 
 
 def test_the_new_stream_waits_for_the_old_to_stop_but_not_for_ever(markup, season):
