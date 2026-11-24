@@ -251,6 +251,15 @@ def test_the_abandon_dialog_keeps_the_width_of_the_page_s_scrollbar_until_it_clo
     assert '#abandon-modal[aria-hidden="false"]' in shared.split("var(--page-bar")[0]
 
 
+def _rule_of(selector: str) -> str:
+    """As `_rule`, of a selector that may hold commas and a list that may hold it."""
+    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    css = re.sub(r"@media [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
+    heads = [(h.strip(), body) for h, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+    return "".join(b for h, b in heads if h == selector or selector in h.split(",\n"))
+
+
 def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
     assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
 
@@ -376,3 +385,61 @@ def test_what_is_coming_soon_gains_and_changes_its_poster() -> None:
 
 def test_a_small_state_pill_stays_on_one_line() -> None:
     assert "white-space: nowrap" in _rule(".dl-state-pill--xs")
+
+
+def _token(name: str) -> str:
+    css = (WEB / "static/css/_tokens.css").read_text(encoding="utf-8")
+    value = re.search(rf"--{name}:\s*([^;]+);", css)
+    assert value
+    return value[1].strip()
+
+
+def _rgb(colour: str) -> tuple[float, ...]:
+    return tuple(int(colour[i : i + 2], 16) for i in (1, 3, 5))
+
+
+def _mix(over: tuple[float, ...], alpha: float, under: tuple[float, ...]) -> tuple[float, ...]:
+    return tuple(a * alpha + b * (1 - alpha) for a, b in zip(over, under, strict=True))
+
+
+def _contrast(a: tuple[float, ...], b: tuple[float, ...]) -> float:
+    def light(colour: tuple[float, ...]) -> float:
+        lin = [c / 255 / 12.92 if c <= 10 else ((c / 255 + 0.055) / 1.055) ** 2.4 for c in colour]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    high, low = sorted((light(a), light(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def test_every_text_of_the_hero_is_read_over_a_white_poster() -> None:
+    white, black = (255.0,) * 3, (0.0,) * 3
+    art = float(re.findall(r"opacity: ([.\d]+)", _rule(".dl-hero-bg"))[0])
+    scrim = min(float(a) for a in re.findall(r"rgba\(0,0,0,([.\d]+)\)", _rule(".dl-hero-scrim")))
+    card = _mix(black, scrim, _mix(white, art, _rgb(_token("s2"))))
+
+    def text(name: str) -> tuple[float, ...]:
+        value = _token(name)
+        if value.startswith("#"):
+            return _rgb(
+                value if len(value) == 7 else "#" + value[1] * 2 + value[2] * 2 + value[3] * 2
+            )
+        return _mix(white, float(value.split(",")[3].rstrip(")")), card)
+
+    for selector in (
+        ".dl-hero-ep-summary",
+        ":is(.dl-hero, .dl-hero-ghost) .dl-search-hint",
+        ":is(.dl-hero, .dl-hero-ghost) .dl-arr-link",
+        ".dl-hero-details",
+    ):
+        name = re.findall(r"(?<![-\w])color: var\(--([\w-]+)\)", _rule_of(selector))[0]
+        assert _contrast(text(name), card) >= 4.5, selector
+    pills = _rule_of(":is(.dl-hero, .dl-hero-ghost) :is(.pill, .dl-state-pill)")
+    base = re.search(r"color-mix\(in srgb, currentColor (\d+)%, var\(--(\w+)\)\)", pills)
+    assert base
+    for name in ("accent-text", "purple-text", "orange", "success", "warning"):
+        tint = _mix(text(name), int(base[1]) / 100, _rgb(_token(base[2])))
+        assert _contrast(text(name), tint) >= 4.5, name
+
+
+def test_an_episode_in_a_pack_is_not_faded_with_its_text() -> None:
+    assert "opacity" not in _rule(".dl-ep-row-pack")

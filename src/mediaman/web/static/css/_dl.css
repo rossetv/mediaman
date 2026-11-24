@@ -33,7 +33,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: linear-gradient(135deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.55) 45%, rgba(0,0,0,.75) 100%);
+  background: linear-gradient(135deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.64) 45%, rgba(0,0,0,.75) 100%);
 }
 .dl-hero-content {
   position: relative;
@@ -65,7 +65,7 @@
   line-height: 1.05;
   margin-bottom: 8px;
 }
-.dl-hero-ep-summary { color: var(--t3); font-size: 13px; margin-bottom: 12px; }
+.dl-hero-ep-summary { color: var(--t2); font-size: 13px; margin-bottom: 12px; }
 .dl-hero-status { margin-bottom: 16px; }
 
 .dl-state-pill {
@@ -93,6 +93,11 @@
 @media (max-width: 699.98px), (pointer: coarse) {
   .dl-arr-link::after { content: ""; position: absolute; inset: -15px -6px; }
 }
+/* On the hero's art, which a bright poster makes light: the pills have a base of their own
+   under their tint, and the link and the line it is in are a step brighter. */
+:is(.dl-hero, .dl-hero-ghost) :is(.pill, .dl-state-pill) { background: color-mix(in srgb, currentColor 18%, var(--s1)); }
+:is(.dl-hero, .dl-hero-ghost) .dl-search-hint { color: var(--t2); }
+:is(.dl-hero, .dl-hero-ghost) .dl-arr-link { color: var(--accent-text); }
 /* On phones the link has a line of its own, with nothing to set it off from. */
 @media (max-width: 479.98px) {
   .dl-arr-link { display: block; width: fit-content; margin-top: 4px; }
@@ -305,9 +310,9 @@
   border-radius: var(--r-xs);
 }
 .dl-ep-row:hover { background: var(--rgba-overlay-xs); }
-.dl-ep-row-pack { opacity: .7; }
 .dl-ep-number   { color: var(--t3); font-variant-numeric: tabular-nums; }
 .dl-ep-title    { color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-ep-row-pack .dl-ep-title { color: var(--t2); }
 .dl-ep-mini-bar {
   width: 60px;
   height: 3px;
