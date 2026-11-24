@@ -684,6 +684,25 @@ def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     assert stops[0] == "320" and stops[-1] == "1150"
 
 
+def test_a_card_progress_bar_lines_up_with_the_title_above_it() -> None:
+    assert "padding: var(--card-pad)" in _declarations_of("_watch.css", ".watch-card__poster")
+    assert "left: var(--card-pad)" in _declarations_of(
+        "_watch.css", ".watch-card__poster > .watch-bar"
+    )
+
+
+def test_the_shade_behind_a_title_over_a_progress_bar_starts_higher_and_ends_darker() -> None:
+    body = _declarations_of("_watch.css", ".watch-card__poster:has(> .watch-bar)::after")
+
+    assert "transparent 35%" in body and "var(--scrim) 92%" in body
+
+
+def test_the_phone_banner_bar_is_as_wide_as_the_text() -> None:
+    phone = _in_media("_watch.css", "(max-width: 599.98px)")
+
+    assert "width: 100%" in _declarations_in(phone, ".watch-bar--banner")
+
+
 def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_buttons_in_a_row() -> (
     None
 ):

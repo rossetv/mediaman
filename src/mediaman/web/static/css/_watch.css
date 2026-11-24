@@ -63,8 +63,14 @@
 }
 .watch-card__poster > .watch-bar::-webkit-progress-bar,
 .watch-ep__thumb > .watch-bar::-webkit-progress-bar { background: none; }
-/* Lifts the title off the bar. */
+/* The bar lines up with the title, which sits just above it on a deeper shade. */
 .watch-card__poster:has(> .watch-bar) { padding-bottom: 20px; }
+.watch-card__poster > .watch-bar { left: var(--card-pad); width: calc(100% - 2 * var(--card-pad)); }
+.watch-card__poster:has(> .watch-bar)::after {
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent), transparent 25%),
+    linear-gradient(to bottom, transparent 35%, color-mix(in srgb, var(--scrim) 34%, transparent) 46%, color-mix(in srgb, var(--scrim) 62%, transparent) 58%, color-mix(in srgb, var(--scrim) 82%, transparent) 76%, color-mix(in srgb, var(--scrim) 92%, transparent));
+}
 /* A title barely begun still shows a mark; one not begun shows none. */
 .watch-bar::-webkit-progress-value { border-radius: var(--r-pill); }
 .watch-bar::-moz-progress-bar { border-radius: var(--r-pill); }
@@ -420,7 +426,8 @@
   align-items: flex-end;
   width: 100%;
   aspect-ratio: 2 / 3;
-  padding: 10px;
+  --card-pad: 10px;
+  padding: var(--card-pad);
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
@@ -461,6 +468,11 @@
   line-height: 1.15;
   text-shadow: 0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent);
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }
 .watch-card__sub {
   font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
@@ -491,7 +503,7 @@
 }
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
-  .watch-card__poster { padding: 8px; }
+  .watch-card__poster { --card-pad: 8px; }
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
   .watch-badge--leaving { left: 6px; }
   .watch-badge--watched { right: 6px; }
