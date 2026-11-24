@@ -248,6 +248,64 @@ def test_the_emailed_page_the_status_and_the_state_say_the_same_of_a_show(
     assert (compute_download_state("tv", 500, caches) == "in_library") is ready
 
 
+@pytest.mark.parametrize(
+    ("seasons", "in_queue", "card", "page"),
+    [
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 10, monitored=True)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        ([_season_of(1, 3, 3), _season_of(2, 0, 10, monitored=True)], False, "queued", "queued"),
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 0, monitored=True, aired=False)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 0, monitored=True, aired=False)],
+            False,
+            "queued",
+            "tracked",
+        ),
+        (
+            [_season_of(1, 10, 10), _season_of(2, 0, 10, monitored=True)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        ([_season_of(1, 3, 3)], False, None, "tracked"),
+    ],
+    ids=[
+        "another season downloading",
+        "another season searched",
+        "an early episode downloading",
+        "another season still to air",
+        "one whole and another downloading",
+        "nothing else",
+    ],
+)
+def test_what_is_left_of_a_season_nobody_wants_hides_no_season_on_its_way(
+    client, secret_key, seasons, in_queue, card, page
+):
+    files = sum(s["statistics"]["episodeFileCount"] for s in seasons)
+    series = {
+        "tmdbId": 500,
+        "monitored": True,
+        "statistics": {"episodeFileCount": files},
+        "seasons": seasons,
+    }
+    cache = {"sonarr_series": {500: series}, "sonarr_queue_tmdb_ids": {500} if in_queue else set()}
+    with patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache):
+        shown = client.get(f"/download/{_token(secret_key, 'tv')}").text
+
+    caches = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set(), **cache}
+    assert compute_download_state("tv", 500, caches) == card
+    assert f'"download_state": "{page}"' in shown
+
+
 class TestReopeningAUsedLink:
     """The page keeps the Arr list for half a minute; a request must not be hidden by it."""
 

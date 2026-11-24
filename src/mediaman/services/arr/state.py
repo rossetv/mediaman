@@ -9,11 +9,12 @@
 States:
 - ``in_library`` — movie has a file, OR the TV show is ready: see
   ``series_ready``.
-- ``partial`` — TV only; a season has files but the show is not ready.
-- ``downloading`` — item is in the Arr download queue.
-- ``queued`` — item is added to Radarr/Sonarr but has no files yet, is
-  not in the queue and is set to be fetched (an unmonitored one is not).
-- ``None`` — item is not tracked at all.
+- ``partial`` — TV only; the show is not ready, but a monitored season
+  that has aired has files.
+- ``downloading`` — none of these, and item is in the Arr download queue.
+- ``queued`` — none of these, and item is set to be fetched (an
+  unmonitored one is not).
+- ``None`` — item is not tracked at all, or will not be fetched.
 
 ``ACTION_*`` constants are the canonical strings used as the ``action``
 column value in ``compute_download_state``.  Import these instead of
@@ -193,7 +194,11 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
     """
     if series_ready(series):
         return ACTION_IN_LIBRARY
-    if any((_season_stats(s).get("episodeFileCount") or 0) > 0 for s in _judged_seasons(series)):
+    # What is left of a season nobody wants must not hide that another is on its way.
+    if any(
+        _wanted_by_now(s) and (_season_stats(s).get("episodeFileCount") or 0) > 0
+        for s in _judged_seasons(series)
+    ):
         return ACTION_PARTIAL
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
