@@ -1359,6 +1359,24 @@ def test_a_stream_this_page_replaced_is_never_taken_for_another_page_s(markup):
     assert (out["later"], out["after"]) == (REPLACED["text"], 4)
 
 
+@pytest.mark.parametrize("way", ["segment", "save", "never"])
+def test_a_title_started_somewhere_else_long_after_a_quick_pick_stops_here(markup, way):
+    out = run(markup, "replaced_long_after", plays=way)
+    assert out == {"message": REPLACED, "starts": 0}
+
+
+def test_a_segment_asked_for_before_the_other_start_was_answered_settles_nothing(markup):
+    out = run(markup, "replaced_long_after", plays="asked before")
+    assert out == {"message": None, "starts": 1}
+
+
+def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is_stopped(markup):
+    out = run(markup, "start_unanswered")
+    assert (out["early"], out["loading"]) == (None, False)
+    assert out["message"] == {"text": "Can't play this right now.", "button": "Try again"}
+    assert out["after"] == {"streams": 0, "message": None, "stopped": True}
+
+
 def test_a_wait_for_a_busy_server_says_nothing_of_the_quality(markup):
     assert run(markup, "busy_stalls") == {"busy": 1, "slow": 2}
 

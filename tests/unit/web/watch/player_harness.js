@@ -392,7 +392,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       fire(v, 'emptied');
     }
   }
-  Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed', FRAG_LOADED: 'hlsFragLoaded' };
+  Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed', FRAG_LOADING: 'hlsFragLoading', FRAG_LOADED: 'hlsFragLoaded' };
   Hls.ErrorDetails = { FRAG_LOAD_TIMEOUT: 'fragLoadTimeOut' };
   Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 
@@ -1485,6 +1485,66 @@ const scenarios = {
     p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
     await settle();
     return Object.assign(restarted, { later: messageState(p).text, after: p.starts().length });
+  },
+
+  /* Two qualities are picked quickly, so that the first start reaches the server last or is never
+     answered. Much later the title starts somewhere else. */
+  async replaced_long_after(p) {
+    const way = p.win.serverPlays;
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    const first = {};
+    p.replies.push({ ok: new Promise((r) => { first.reply = r; }) }, answer('720p-4000'));
+    click(p.q('[data-quality="480p-1500"]'));
+    await settle();
+    click(p.q('[data-quality="720p-4000"]'));
+    await streamPlays(p, 105);
+    const h = p.hlsList[p.hlsList.length - 1];
+    h.emit('hlsFragLoading');
+    if (way !== 'never') first.reply(answer('480p-1500').ok);
+    await settle();
+    const replaced = () => h.emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    if (way === 'asked before') {
+      /* Asked for while the other start was still open, it says nothing of what followed. */
+      h.emit('hlsFragLoaded');
+    } else if (way === 'save') {
+      playOn(p, 5);
+      p.video.pause();
+      await settle();
+    } else {
+      if (way === 'never') p.tick(60000);
+      h.emit('hlsFragLoaded');
+      h.emit('hlsFragLoading');
+      h.emit('hlsFragLoaded');
+    }
+    const starts = p.starts().length;
+    p.replies.push(answer('720p-4000'));
+    replaced();
+    await settle();
+    return { message: messageState(p), starts: p.starts().length - starts };
+  },
+
+  /* A start is never answered; Try again is, and then the first answer comes after all. */
+  async start_unanswered(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const first = {};
+    p.replies.push({ ok: new Promise((r) => { first.reply = r; }) }, answer('1080p-8000'));
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    p.tick(59000);
+    await settle();
+    const out = { early: messageState(p) };
+    p.tick(2000);
+    await settle();
+    out.message = messageState(p);
+    out.loading = p.root.classList.contains('is-loading');
+    press(p.q('[data-retry]'));
+    await streamPlays(p, 105);
+    const streams = p.hlsList.length;
+    first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
+    await settle();
+    out.after = { streams: p.hlsList.length - streams, message: messageState(p), stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') };
+    return out;
   },
 
   /* A server too busy for a while lets the video run dry, twice. */

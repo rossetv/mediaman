@@ -64,6 +64,7 @@
   var PAGE_WAIT_MS = 15000;
   var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
+  var START_WAIT_MS = 60000; // how long a start may go without an answer
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
@@ -237,7 +238,7 @@
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
   var startsOpen = 0;        // starts not answered yet, dropped ones included
-  var ownRival = false;      // one of them was, as the stream now playing started
+  var ownRival = false;      // one of them may have replaced the stream now playing
   var busy = false;          // the server had no room for the last request
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
@@ -818,14 +819,37 @@
     hideMessage();
     setLoading(true);
 
+    function gaveUp() { starting = false; }
+
     function attempt(tries) {
+      var again = function () {
+        starting = true;
+        swapping = true;
+        attempt(tries);
+      };
+      /* The connection that dropped has not come back, or the server hangs. */
+      var unanswered = function () {
+        if (lost) waitOut(again, gaveUp);
+        else fail();
+      };
       startsOpen++;
-      var answered = function () { startsOpen--; };
+      var open = true;
+      var late = false;
+      var answered = function () {
+        if (open) startsOpen--;
+        open = false;
+        clearTimeout(limit);
+      };
+      var limit = setTimeout(function () {
+        answered();
+        late = true;
+        if (gen === generation) unanswered();
+      }, START_WAIT_MS);
       var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() });
       start.then(answered, answered);
       return start
         .then(function (data) {
-          if (gen !== generation) {
+          if (late || gen !== generation) {
             if (data && data.stream_id) stopOnServer(data.stream_id);
             return;
           }
@@ -841,15 +865,11 @@
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
-          if (gen !== generation) return;
+          if (late || gen !== generation) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
           var code = err && err.error;
           if (code === 'network_error' || (fromProxy(status) && code === 'http_' + status)) {
-            waitOut(function () {
-              starting = true;
-              swapping = true;
-              attempt(tries);
-            }, function () { starting = false; });
+            waitOut(again, gaveUp);
             return;
           }
           reached();
@@ -895,8 +915,11 @@
       if (wantPlaying) play();
       else setLoading(false);
     });
+    var askedAlone = false;  // the segment now loading was asked for with no start open
+    h.on(Hls.Events.FRAG_LOADING, function () { askedAlone = startsOpen === 0; });
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
+      if (askedAlone) ownRival = false;
       busy = false;
       reached();
     });
@@ -1109,8 +1132,11 @@
     var body = unsaved();
     if (!body) return;
     var id = streamId;
+    var alone = startsOpen === 0;
     MM.api.post('/api/watch/progress', withStream(body)).then(function () {
-      if (id === streamId) savedAs = JSON.stringify(body);
+      if (id !== streamId) return;
+      savedAs = JSON.stringify(body);
+      if (alone) ownRival = false;
     }).catch(function (err) {
       if (!err || err.status !== 410 || id !== streamId) return;
       if (err.error === 'replaced') streamReplaced();
