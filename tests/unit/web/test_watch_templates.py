@@ -282,6 +282,8 @@ def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> No
     ]
     assert ['loading="lazy"' in i for i in images] == [False, True, True]
     assert all("data-broken-on-error" in i for i in images)
+    # The backdrop is judged on its shape once it has loaded; the poster copies never are.
+    assert ["data-wide-art" in i for i in images] == [True, False, False]
     css = (CSS / "_watch.css").read_text()
     for part in ("bg--fill", "poster"):
         assert f".watch-banner__bg--art:not([data-broken]) ~ .watch-banner__{part}" in css
@@ -615,3 +617,39 @@ def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
 def test_a_little_progress_still_shows_a_mark_and_none_shows_nothing(part: str) -> None:
     assert "min-width: 6px" in _declarations_of("_watch.css", f'.watch-bar:not([value="0"]){part}')
     assert "min-width" not in _declarations_of("_watch.css", f".watch-bar{part}")
+
+
+def _in_media(sheet: str, query: str) -> str:
+    """The rules inside every `@media` block whose query holds *query*."""
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(r"@media ([^{]*)\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    return "".join(body for head, body in blocks if query in head)
+
+
+def _declarations_in(rules: str, selector: str) -> str:
+    return "".join(
+        body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+        if selector in [s.strip() for s in head.split(",")]
+    )
+
+
+@pytest.mark.parametrize(
+    ("sheet", "poster"),
+    [
+        ("_watch.css", ".watch-banner__poster"),
+        ("_watch_detail.css", ".ttl__poster"),
+        ("_download_page.css", ".dl-cinema__poster"),
+    ],
+)
+def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, poster: str) -> None:
+    body = _declarations_of(sheet, poster)
+
+    assert "aspect-ratio: auto 2 / 3" in body and "height: auto" in body
+    assert "object-fit: cover" not in body and "filter" not in body
+
+
+def test_the_banner_poster_keeps_clear_of_the_banner_edges() -> None:
+    assert "max-height: calc(100% - 72px)" in _declarations_of(
+        "_watch.css", ".watch-banner__poster"
+    )

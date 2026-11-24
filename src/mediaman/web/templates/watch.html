@@ -68,8 +68,8 @@
     {% else %}
     {% if banner %}
     <section class="watch-banner" aria-label="Featured">
-      {% if banner.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ banner.backdrop_url }}" alt="" data-broken-on-error>{% endif %}
-      {# Lazy and hidden until the backdrop fails, so the browser only then asks for the poster. #}
+      {% if banner.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ banner.backdrop_url }}" alt="" data-wide-art data-broken-on-error>{% endif %}
+      {# Lazy and hidden until the backdrop fails or is no wide picture, so the browser only then asks for the poster. #}
       {% if banner.poster_url %}
       <img class="watch-banner__bg watch-banner__bg--fill" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
       <img class="watch-banner__poster" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
