@@ -681,6 +681,12 @@
   .player-ask .player-still { display: none; }
 }
 
+/* "Kept until" with its whole date and Undo, on one line of the narrow toast. */
+@media (max-height: 420px) {
+  body:has(.player) .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
+  body:has(.player) .ui-toast__action { padding-inline: 8px; }
+}
+
 /* Forced colours drop the fills that draw the bar and the edges of the rest. */
 @media (forced-colors: active) {
   .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }
