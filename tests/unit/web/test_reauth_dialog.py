@@ -84,9 +84,9 @@ def test_enter_held_down_after_a_refusal_sends_the_password_no_second_time() -> 
     assert _run("heldAfterRefusal") == {"held": 1, "pressedAgain": 2}
 
 
-def test_an_answer_that_comes_after_the_dialog_was_closed_does_nothing() -> None:
+def test_an_answer_or_a_second_close_after_the_dialog_was_closed_does_nothing() -> None:
     quiet = {"keyboardStays": True, "cancels": 1, "said": ""}
-    assert _run("lateAnswer") == {"refused": quiet, "accepted": quiet}
+    assert _run("lateAnswer") == {"refused": quiet, "accepted": quiet, "closedAgain": quiet}
 
 
 def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() -> None:

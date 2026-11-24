@@ -131,7 +131,7 @@ const scenarios = {
     await flush();
     return { held, pressedAgain: sent };
   },
-  // the answer to a password comes after the dialog was closed and another opened: refused, then accepted
+  // after the dialog was closed and another opened: its password is refused, is accepted, or it is closed once more
   async lateAnswer() {
     const late = async (answer) => {
       const asker = new El('button');
@@ -143,14 +143,15 @@ const scenarios = {
       const input = first.querySelector('.inp');
       input.value = 'pw';
       input.emit('keydown', { key: 'Enter' });
-      closers[closers.length - 1]();
+      const close = closers[closers.length - 1];
+      close();
       const second = open({ ok: true }).sheet.querySelector('.inp');
       second.focus();
-      give(answer);
+      if (answer) give(answer); else close();
       await flush();
       return { keyboardStays: doc.activeElement === second, cancels, said: first.querySelector('.reauth-msg').textContent };
     };
-    return { refused: await late({ ok: false, error: 'No' }), accepted: await late({ ok: true }) };
+    return { refused: await late({ ok: false, error: 'No' }), accepted: await late({ ok: true }), closedAgain: await late(null) };
   },
   // what the dialog of run() says, with the caller's words and without
   async words() {
