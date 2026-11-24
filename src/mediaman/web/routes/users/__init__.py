@@ -21,6 +21,9 @@ from mediaman.web.routes.users.rate_limits import _REAUTH_LIMITER as _REAUTH_LIM
 from mediaman.web.routes.users.rate_limits import (
     _SESSIONS_LIST_LIMITER as _SESSIONS_LIST_LIMITER,
 )
+from mediaman.web.routes.users.rate_limits import (
+    _SESSIONS_REVOKE_LIMITER as _SESSIONS_REVOKE_LIMITER,
+)
 from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER as _USER_CREATE_LIMITER
 from mediaman.web.routes.users.rate_limits import _USER_MGMT_LIMITER as _USER_MGMT_LIMITER
 from mediaman.web.routes.users.reauth import router as _reauth_router
@@ -37,6 +40,7 @@ __all__ = [
     "_PASSWORD_CHANGE_LIMITER",
     "_REAUTH_LIMITER",
     "_SESSIONS_LIST_LIMITER",
+    "_SESSIONS_REVOKE_LIMITER",
     "_USER_CREATE_LIMITER",
     "_USER_MGMT_LIMITER",
     "router",

@@ -110,13 +110,6 @@ def test_keep_page_posters_use_empty_alt():
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
-def test_dashboard_posters_use_empty_alt():
-    """Scheduled-items tiles + recently-deleted thumbs each
-    render the title as adjacent text, so the alt must be empty."""
-    dash = _tpl("dashboard.html")
-    assert 'alt="{{ item.title }}"' not in dash
-
-
 def test_watch_list_uses_empty_alt_posters():
     """The list view's thumbnails sit beside the title as text, so the poster
     img is decorative: alt is empty and the title is never repeated in it."""
@@ -127,14 +120,6 @@ def test_watch_list_uses_empty_alt_posters():
     assert thumb_imgs, "list view must render poster thumbnails"
     for line in thumb_imgs:
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
-
-
-def test_components_exposes_poster_macro():
-    """The macro is the new single source of truth — without
-    it, future templates would need to know the alt-empty rule."""
-    comps = _tpl("_components.html")
-    assert "{% macro poster(item)" in comps
-    assert 'alt=""' in comps  # macro emits empty alt
 
 
 def test_components_warns_about_safe_filter():

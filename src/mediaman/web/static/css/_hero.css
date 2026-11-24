@@ -1,0 +1,16 @@
+/* The hero picture shared by every page that has one: wide backdrop first, a blurred fill
+ * with a sharp poster when there is only a poster. */
+
+/* The emailed page's backdrop waits to be known for a wide picture (broken-poster.js) like the
+ * Watch banner's, so one that is not never shows; one that had already loaded does not fade in. */
+.dl-cinema__art { transition: opacity var(--dur-slow) var(--ease-out); }
+@media (scripting: enabled) {
+  .dl-cinema__art:not([data-fit]) { opacity: 0; }
+}
+.dl-cinema__art[data-fit="at-once"],
+.dl-cinema__art[data-retrying] { transition: none; }
+
+/* The reason box is as tall as its own text, with its own heading, beside a longer summary. */
+.dl-columns .dl-reason { align-self: start; }
+.dl-reason .eyebrow { font-family: inherit; margin-bottom: 6px; }
+.dl-reason p { margin: 0; }

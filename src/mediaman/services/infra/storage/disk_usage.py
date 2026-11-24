@@ -23,18 +23,26 @@ logger = logging.getLogger(__name__)
 _FREE_TOLERANCE_CAP = 256 * 1024 * 1024
 
 
-def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
-    """Sum ``shutil.disk_usage`` across *paths*, counting each disk once.
+def is_same_disk(total: int, free: int, other_total: int, other_free: int) -> bool:
+    """Return whether two readings are of one disk.
 
-    Two paths are one disk when their totals are equal and their free bytes
+    They are when their totals are equal and their free bytes
     differ by under 0.1% of the total, at most 256 MiB.  The device id is left out of the
     comparison on purpose: one filesystem can show several ids (btrfs
     subvolumes, NFS mounts), and container binds can put two drives behind a
     single id.  The free bytes get a tolerance because they move between two
     reads of the same live disk, while two equal-sized drives rarely hold the
-    same free space.  The first reading of each disk is the one summed.
+    same free space.
+    """
+    return total == other_total and abs(free - other_free) <= min(
+        total * 0.001, _FREE_TOLERANCE_CAP
+    )
 
-    Non-existent or unreadable paths are skipped.
+
+def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
+    """Sum ``shutil.disk_usage`` across *paths*, counting each disk once (``is_same_disk``).
+
+    The first reading of each disk is the one summed.  Non-existent or unreadable paths are skipped.
     """
     seen: list[tuple[int, int]] = []
     total = used = free = 0
@@ -47,8 +55,7 @@ def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
             logger.debug("disk_usage failed for %s — skipping", p)
             continue
         if any(
-            usage.total == total_seen
-            and abs(usage.free - free_seen) <= min(usage.total * 0.001, _FREE_TOLERANCE_CAP)
+            is_same_disk(usage.total, usage.free, total_seen, free_seen)
             for total_seen, free_seen in seen
         ):
             continue

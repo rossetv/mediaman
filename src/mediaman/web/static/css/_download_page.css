@@ -121,6 +121,7 @@
   font-size: 11px;
   font-weight: 500;
 }
+.genre-pill--ai { align-items: center; gap: 5px; color: var(--t1); }
 
 .dl-columns {
   display: grid;
@@ -161,11 +162,10 @@
 .dl-requested {
   font-size: 12px;
   color: var(--t3);
-  text-align: center;
   padding-top: 8px;
 }
 
-.dl-action { display: flex; justify-content: center; padding: 8px 0 24px; }
+.dl-action { display: flex; padding: 8px 0 24px; }
 /* Sized as a large .btn. */
 .btn-download-hero {
   display: inline-flex;
@@ -224,6 +224,7 @@
   margin-top: 24px;
   padding-bottom: 40px;
 }
+.dl-content .dl-footer { text-align: start; }
 .dl-footer a { color: var(--accent); font-size: 14px; }
 
 .dl-expired {
@@ -260,7 +261,7 @@
 
 .u-mt-24 { margin-top: 24px; }
 
-/* Phone: 44px tap area on the brand and dashboard links. */
+/* Phone: 44px tap area on the brand and the links back. */
 @media (max-width: 699.98px) {
   .dl-nav .nav-brand,
   .dl-footer a,

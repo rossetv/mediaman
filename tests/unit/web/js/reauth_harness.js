@@ -46,7 +46,7 @@ const ctx = {
   document: doc, Promise, TypeError,
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
   clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = () => {}; },
-  MM: { modal: { setupDetail: (_el, o) => { closers.push(o.onClose); return { open() {}, close() { o.onClose(); } }; } } },
+  MM: { api: { APIError: Error }, modal: { setupDetail: (_el, o) => { closers.push(o.onClose); return { open() {}, close() { o.onClose(); } }; } } },
 };
 ctx.window = ctx;
 vm.createContext(ctx);
@@ -65,6 +65,19 @@ function open(result) {
 }
 
 const scenarios = {
+  // what the dialog of run() says, with the caller's words and without
+  async words() {
+    const says = async (words) => {
+      ctx.MM.reauth.run(() => Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } }), words).catch(() => {});
+      await flush();
+      const sheet = doc.body.children[doc.body.children.length - 1].children[0];
+      return ['.reauth-title', '.reauth-desc', '.btn--primary'].map((c) => sheet.querySelector(c).textContent);
+    };
+    return {
+      own: await says({ title: 'T', descText: 'D', confirmLabel: 'C' }),
+      none: await says(),
+    };
+  },
   // Cancel hands focus back to the control that asked for the password
   async focusReturn() {
     const asker = new El('button');

@@ -3,7 +3,8 @@ library, the discover rows, a title's detail and a season's episodes, for admins
 viewers alike, and a library title's size, dates and keeps for admins only.
 
 A title is named by a ref: ``movie-<key>`` and ``show-<key>`` for the library,
-``tmdb-movie-<id>`` and ``tmdb-tv-<id>`` for TMDB, ``rec-<id>`` for a recommendation.
+``tmdb-movie-<id>`` and ``tmdb-tv-<id>`` for TMDB, ``rec-<id>`` for a shared
+recommendation and ``pick-<id>`` for one of the person's own, which no one else has.
 A malformed ref, or a library ref outside the scanned libraries, is a 404. TMDB not set
 up is never an error for the library; Radarr or Sonarr out of reach only leaves out the
 download state.
@@ -17,11 +18,11 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.format import format_bytes
@@ -30,6 +31,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
+from mediaman.services.media_meta.item_enrichment import tidy_summary
 from mediaman.services.media_meta.omdb import get_omdb_key, is_key_refused, lookup_ratings
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
@@ -39,6 +41,8 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations.repository import fetch_suggestion_by_id
+from mediaman.services.openai.recommendations.user_picks import fetch_pick
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
@@ -54,6 +58,7 @@ from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
+    _season_watched,
     leaving_info,
     open_plex,
     play_href,
@@ -67,7 +72,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-REF_RE = re.compile(r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$")
+REF_RE = re.compile(
+    r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^(rec|pick)-[0-9]{1,10}$"
+)
+_SHELF_IDS = frozenset(shelf[0] for shelf in catalog.SHELVES)
+# Pages of discover rows TMDB is asked for, apart from the query limit so a long scroll does
+# not use up the day's searches. The day's cap is each of the three lists to its end.
+_PAGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1500)
+# A worker thread waits for the answer.
+_TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
 # OMDb with nothing to give (no rating yet, or the day's quota spent) is asked again the
 # next day, not on every open.
@@ -97,7 +110,9 @@ def _not_found() -> JSONResponse:
 
 
 def _tmdb_client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    return TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    return TmdbClient.from_db(
+        conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
+    )
 
 
 def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
@@ -108,18 +123,18 @@ def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
 def api_watch_search_tmdb(
     request: Request, q: str = "", username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """TMDB titles matching *q* that the library does not hold."""
+    """TMDB titles matching *q* that the library does not hold, and the people it names."""
     term = q.strip()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
-        return respond_ok({"tmdb_configured": False, "items": []})
+        return respond_ok({"tmdb_configured": False, "items": [], "people": []})
     if len(term) < catalog.MIN_QUERY_LEN:
-        return respond_ok({"tmdb_configured": True, "items": []})
+        return respond_ok({"tmdb_configured": True, "items": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
         found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
-    except disk_cache.Refused:
+    except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
@@ -132,34 +147,98 @@ def api_watch_search_tmdb(
         for item in found
         if (card := catalog.tmdb_card(item, index, arr)) is not None and not card["in_library"]
     ]
-    return respond_ok({"tmdb_configured": True, "items": items})
+    return respond_ok({"tmdb_configured": True, "items": items, "people": catalog.people(found)})
 
 
 @router.get("/api/watch/discover")
-def api_watch_discover(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_watch_discover(
+    request: Request,
+    row: str | None = None,
+    page: int = Query(2, ge=2, le=catalog.MAX_PAGE),
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
     """Trending this week, Popular movies and Popular TV, each card marked when the
-    library holds it."""
+    library holds it; with *row*, a later page of that one row instead. ``next_page`` is
+    the page to go on with, or None at the end of the list."""
+    if row is not None and row not in _SHELF_IDS:
+        return _not_found()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
         return respond_ok({"tmdb_configured": False, "stale": False, "rows": []})
+    if row is not None:
+        return _discover_page(request, conn, client, row, page, username)
     try:
         shelves = catalog.discover_shelves(client)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = catalog.library_index(
-        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
-    )
-    arr = _arr(request, conn)
+    cards = _discover_cards(request, conn, client, username, [items for _, _, items in shelves])
     rows = [
-        {
-            "id": shelf_id,
-            "title": title,
-            "items": [c for i in items if (c := catalog.tmdb_card(i, index, arr)) is not None],
-        }
-        for shelf_id, title, items in shelves
+        {"id": shelf_id, "title": title, "items": row_cards, "next_page": 2}
+        for (shelf_id, title, _), row_cards in zip(shelves, cards, strict=True)
     ]
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
+
+
+def held_fields(
+    conn: sqlite3.Connection, username: str, libraries: list[str]
+) -> Callable[[str | None], dict[str, object]]:
+    """What a TMDB title's card says of the library title it is, by that title's ref:
+    *username*'s mark, and of a film that is leaving, when and what a Keep of it keeps."""
+    seen = lib.seen_refs(conn, username, libraries)
+    now = now_utc()
+    leaving = {
+        f"movie-{p.media_item_id}": leaving_info(p, now)
+        for p in lib.pending_deletions(conn, libraries, now)
+    }
+
+    def fields(ref: str | None) -> dict[str, object]:
+        found = leaving.get(ref or "") or {"days": None, "keep_id": None}
+        return {
+            **lib.mark_fields(ref, seen),
+            "leaving_days": found["days"],
+            "keep_id": found["keep_id"],
+        }
+
+    return fields
+
+
+def _discover_cards(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    username: str,
+    shelves: Sequence[Sequence[Mapping[str, object]]],
+) -> list[list[dict[str, object]]]:
+    """The cards of each of *shelves*, marked with what the library holds, when it leaves and
+    what *username* has seen."""
+    libraries = lib.scanned_library_ids(conn)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
+    arr = _arr(request, conn)
+    held = held_fields(conn, username, libraries)
+    cards = [[catalog.tmdb_card(item, index, arr) for item in items] for items in shelves]
+    return [[{**c, **held(cast(str | None, c["library_ref"]))} for c in row if c] for row in cards]
+
+
+def _discover_page(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    row: str,
+    page: int,
+    username: str,
+) -> JSONResponse:
+    try:
+        # Only a page TMDB is asked for counts against the limit; a cached one is free.
+        found, next_page = catalog.discover_page(
+            client, row, page, allow_fetch=lambda: _PAGE_LIMITER.check(username)
+        )
+    except (disk_cache.Refused, catalog.TmdbBusy):
+        return respond_err("too_many_requests", status=429)
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
+    [items] = _discover_cards(request, conn, client, username, [found])
+    return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
 def _title_is_paused(pause_key: tuple[int, str]) -> bool:
@@ -256,24 +335,30 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "kind": kind,
         "in_library": False,
         "library_ref": None,
+        **lib.mark_fields(None, set()),
         "title": "",
         "year": None,
         "year_end": None,
         "runtime_min": None,
         "season_count": None,
         "genres": [],
+        "genre_refs": [],
         "certificate": None,
         "tagline": None,
         "overview": "",
         "backdrop_url": None,
         "poster_url": None,
         "director": None,
+        "director_id": None,
         "ratings": {"imdb": None, "rt": None, "tmdb": None, "metascore": None},
         "cast": [],
         "trailer_key": None,
         "reason": None,
+        "ai_pick": False,
+        "because_of": [],
         "play": None,
         "leaving": None,
+        "leaving_seasons": [],
         "keep_allowed": False,
         "seasons": [],
         "episodes": [],
@@ -291,22 +376,27 @@ def _apply_tmdb(
     tmdb_id: int,
     username: str,
     allow_fetch: Callable[[], bool] | None = None,
+    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
-    from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
-    when TMDB would be asked and *allow_fetch* says no. OMDb is asked only within the
-    query limit: *allow_fetch*, or *username*'s own when it is not given."""
-    fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    from Plex; returns the TMDB fields, asked for unless the caller has them. Raises
+    TmdbUnavailable, and disk_cache.Refused when TMDB would be asked and *allow_fetch* says
+    no. OMDb is asked only within the query limit: *allow_fetch*, or *username*'s own when
+    it is not given."""
+    if fields is None:
+        fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     for name in (
         "year",
         "year_end",
         "runtime_min",
         "season_count",
         "genres",
+        "genre_refs",
         "certificate",
         "tagline",
         "backdrop_url",
         "director",
+        "director_id",
         "cast",
     ):
         if fields[name] or out[name] in (None, []):
@@ -346,6 +436,9 @@ def _movie_title(
     out.update(
         in_library=True, library_ref=ref, title=movie.title, poster_url=poster_url(movie.key)
     )
+    progress = get_progress(conn, username, [movie.key]).get(movie.key)
+    seen = progress is not None and progress.seen
+    out.update(lib.mark_fields(ref, {ref} if seen else set()))
     try:
         item = open_plex(request, conn).get_item(movie.key)
     except PlexError:
@@ -359,7 +452,6 @@ def _movie_title(
             overview=item.summary,
             runtime_min=round(item.duration_s / 60) or None,
         )
-        progress = get_progress(conn, username, [movie.key]).get(movie.key)
         origin = f"/watch#title={ref}"
         if progress is not None and resumable(progress):
             pct, left = progress_fields(progress)
@@ -414,6 +506,8 @@ def _show_title(
         poster_url=poster_url(listed.key),
         season_count=listed.season_count or None,
     )
+    counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
+    out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
     origin = f"/watch#title={ref}"
     try:
         plex = open_plex(request, conn)
@@ -428,7 +522,9 @@ def _show_title(
             return episodes_cache[season_key]
 
         progress = show_progress(conn, username, listed.key)
-        primary, primary_season = _primary_episode(plex, show, progress, episodes_of, origin)
+        primary, primary_season = _primary_episode(
+            plex, show, progress, episodes_of, origin, counted
+        )
         selected = next((s for s in show.seasons if s.index == primary_season), None)
         if selected is None and show.seasons:
             selected = show.seasons[0]
@@ -436,7 +532,14 @@ def _show_title(
     except PlexError:
         show = None
     if show is not None:
+        season_watched = {
+            s.rating_key: _season_watched(
+                episodes_cache.get(s.rating_key), progress, counted, s.index
+            )
+            for s in show.seasons
+        }
         out.update(
+            watched=bool(season_watched) and all(season_watched.values()),
             title=show.title or listed.title,
             year=show.year_first,
             year_end=show.year_last if show.year_last != show.year_first else None,
@@ -453,22 +556,14 @@ def _show_title(
                     else None,
                     "in_library": True,
                     "selected": s is selected,
+                    "key": s.rating_key,
+                    "watched": season_watched[s.rating_key],
                 }
                 for s in show.seasons
             ],
             episodes=[_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
         )
-    now = now_utc()
-    leaving = next(
-        (
-            p
-            for p in lib.pending_deletions(conn, libraries, now)
-            if p.show_key == listed.key and p.season_number is not None
-        ),
-        None,
-    )
-    out["leaving"] = leaving_info(leaving, now)
-    out["keep_allowed"] = is_admin or leaving is not None
+    fill_show_leaving(out, conn, libraries, listed.key, is_admin)
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
@@ -483,6 +578,21 @@ def _show_title(
     return out
 
 
+def fill_show_leaving(
+    out: dict[str, Any], conn: sqlite3.Connection, libraries: list[str], key: str, is_admin: bool
+) -> None:
+    """Each leaving season of the show, soonest first, and the first as what is leaving."""
+    now = now_utc()
+    seasons = [
+        {**(leaving_info(p, now) or {}), "season": p.season_number}
+        for p in lib.pending_deletions(conn, libraries, now)
+        if p.show_key == key and p.season_number is not None
+    ]
+    out["leaving"] = seasons[0] if seasons else None
+    out["leaving_seasons"] = seasons
+    out["keep_allowed"] = is_admin or bool(seasons)
+
+
 def _tmdb_title(
     request: Request,
     conn: sqlite3.Connection,
@@ -493,11 +603,12 @@ def _tmdb_title(
     tmdb_id: int,
     download_url: str | None,
     allow_fetch: Callable[[], bool] | None = None,
+    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable and, as
-    ``_apply_tmdb``, disk_cache.Refused."""
+    """A TMDB title (*kind* "movie" or "tv"); *fields* is as in ``_apply_tmdb``. Raises
+    TmdbUnavailable and, as that, disk_cache.Refused."""
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch)
+    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch, fields)
     arr = _arr(request, conn)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
@@ -506,11 +617,18 @@ def _tmdb_title(
         kind, tmdb_id, fields["title"], arr, year=fields["year"], tvdb_id=fields["tvdb_id"]
     )
     if library_ref is not None:
-        out.update(in_library=True, library_ref=library_ref)
+        seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+        out.update(in_library=True, library_ref=library_ref, **lib.mark_fields(library_ref, seen))
     if kind == "tv":
         held = arr.seasons_with_files(tmdb_id)
         out["seasons"] = [
-            {**s, "in_library": s["number"] in held, "selected": False}
+            {
+                **s,
+                "in_library": s["number"] in held,
+                "selected": False,
+                "key": None,
+                "watched": False,
+            }
             for s in fields["tmdb_seasons"]
         ]
         if library_ref is None:
@@ -535,6 +653,7 @@ def _tmdb_title(
             and has_unsent_notification(
                 conn,
                 email=email,
+                username=username,
                 service=service,
                 tmdb_id=tmdb_id,
                 tvdb_id=(fields["tvdb_id"] or arr.tvdb_id(tmdb_id)) if kind == "tv" else None,
@@ -598,7 +717,11 @@ def api_watch_title(
                     allow_fetch,
                 )
             )
-        rec = fetch_suggestion_by_id(conn, int(rest))
+        rec = (
+            fetch_pick(conn, username, int(rest))
+            if kind == "pick"
+            else fetch_suggestion_by_id(conn, int(rest))
+        )
         if rec is None or rec.media_type not in ("movie", "tv"):
             return _not_found()
         if rec.tmdb_id:
@@ -610,22 +733,26 @@ def api_watch_title(
                 ref,
                 rec.media_type,
                 rec.tmdb_id,
-                f"/api/recommended/{rec.id}/download",
+                f"/api/watch/picks/{rec.id}/download"
+                if kind == "pick"
+                else f"/api/recommended/{rec.id}/download",
             )
         else:
             out = _payload(ref, "movie" if rec.media_type == "movie" else "show", True)
             out.update(
                 title=rec.title,
                 year=rec.year,
-                overview=rec.description or "",
+                overview=tidy_summary(rec.description) or "",
                 poster_url=catalog.tmdb_image_url(rec.poster_url, "w500"),
             )
             out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)
-    except disk_cache.Refused:
+    except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        return _not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    out["reason"] = rec.reason
+    out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))
     return respond_ok(out)
 
 
@@ -657,7 +784,11 @@ def api_watch_title_season(
     progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
     return respond_ok(
-        {"episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes]}
+        {
+            "key": season.rating_key,
+            "watched": _season_watched(episodes, progress, None, number),
+            "episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+        }
     )
 
 
@@ -676,17 +807,25 @@ def _keep(facts: lib.TitleFacts) -> dict[str, str]:
     return {"state": "none", "label": "Not kept"}
 
 
-def _deletion(
+def _deletions(
     conn: sqlite3.Connection, libraries: list[str], facts: lib.TitleFacts, now: datetime
-) -> dict[str, Any] | None:
+) -> list[dict[str, Any]]:
+    """What of the title is scheduled for deletion, soonest first."""
     ids = set(facts.item_ids)
-    soonest = next(
-        (p for p in lib.pending_deletions(conn, libraries, now) if p.media_item_id in ids), None
-    )
-    if soonest is None:
-        return None
-    execute_at = parse_execute_at(soonest.execute_at, default=now)
-    return {"execute_at": execute_at.isoformat(), "days": days_left(execute_at, now)}
+    out: list[dict[str, Any]] = []
+    for pending in lib.pending_deletions(conn, libraries, now):
+        if pending.media_item_id not in ids:
+            continue
+        execute_at = parse_execute_at(pending.execute_at, default=now)
+        out.append(
+            {
+                "keep_id": pending.media_item_id,
+                "season": pending.season_number,
+                "execute_at": execute_at.isoformat(),
+                "days": days_left(execute_at, now),
+            }
+        )
+    return out
 
 
 @router.get("/api/watch/admin/title/{ref}")
@@ -703,6 +842,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
     if facts is None:
         return _not_found()
     keep = _keep(facts)
+    deletions = _deletions(conn, libraries, facts, now)
     is_show = kind == "show"
     delete: dict[str, Any] | None
     if keep["state"] != "none":
@@ -717,7 +857,8 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
             "size_bytes": facts.size_bytes,
             "added": facts.added_at,
             "last_watched": facts.last_watched_at,
-            "deletion": _deletion(conn, libraries, facts, now),
+            "deletion": deletions[0] if deletions else None,
+            "deletions": deletions,
             "keep": keep,
             "actions": {
                 "keep_wrapper": {

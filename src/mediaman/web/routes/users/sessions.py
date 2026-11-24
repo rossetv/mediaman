@@ -10,7 +10,7 @@ from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.reauth import revoke_all_reauth_for, revoke_reauth
 from mediaman.web.auth.session_store import (
     create_session,
@@ -20,7 +20,8 @@ from mediaman.web.auth.session_store import (
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
-from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER
+from mediaman.web.routes.plex_link import carry_attempt
+from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER, _SESSIONS_REVOKE_LIMITER
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,8 @@ _SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
 
 @router.get("/api/users/sessions")
 @rate_limit(_SESSIONS_LIST_LIMITER, key="actor")
-def api_list_sessions(request: Request, admin: str = Depends(get_current_admin)) -> Response:
-    """List active sessions for the current admin.
+def api_list_sessions(request: Request, admin: str = Depends(get_current_user)) -> Response:
+    """List active sessions for the signed-in user.
 
     Returns timestamp metadata only, never raw tokens, IPs or fingerprints: a cookie thief
     could use a fingerprint to detect the legitimate user logging in or to forge a match on
@@ -55,12 +56,13 @@ def api_list_sessions(request: Request, admin: str = Depends(get_current_admin))
 
 
 @router.post("/api/users/sessions/revoke-others")
+@rate_limit(_SESSIONS_REVOKE_LIMITER, key="actor")
 def api_revoke_other_sessions(
     request: Request,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
-    """Revoke every session for the current admin except the current one. Reauth tickets bound
+    """Revoke every session for the signed-in user except the current one. Reauth tickets bound
     to the destroyed sessions are dropped too so they cannot be reused.
     """
     conn = get_db()
@@ -68,7 +70,8 @@ def api_revoke_other_sessions(
     # so a thief who held a ticket cannot perform one last privileged
     # action between the destroy and the new-session create.
     revoke_all_reauth_for(conn, admin)
-    destroyed = destroy_all_sessions_for(conn, admin)
+    # The caller's own session is destroyed too, but replaced below.
+    ended = max(destroy_all_sessions_for(conn, admin) - 1, 0)
     client_ip = get_client_ip(request)
 
     new_token = create_session(
@@ -77,21 +80,22 @@ def api_revoke_other_sessions(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=client_ip,
     )
+    carry_attempt(session_token, new_token)
 
     response = respond_ok(
         {
-            "revoked": destroyed,
+            "revoked": ended,
             "message": "Other sessions revoked. You are now logged in with a fresh token.",
         }
     )
     set_session_cookie(response, new_token, secure=is_request_secure(request))
-    logger.info("session.revoke_all user=%s revoked=%d", _sanitise_log_field(admin), destroyed)
+    logger.info("session.revoke_all user=%s revoked=%d", _sanitise_log_field(admin), ended)
     security_event(
         conn,
         event="session.revoke_all",
         actor=admin,
         ip=client_ip,
-        detail={"revoked": destroyed},
+        detail={"revoked": ended},
     )
     # Belt-and-braces: drop any ticket that may have been re-granted for
     # the freshly issued token (none should exist, but it costs us nothing

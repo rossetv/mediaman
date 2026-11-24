@@ -6,6 +6,10 @@
   /* Dark enough that pill text keeps 4.5:1 even over a white frame. */
   --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
   --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
+  /* The quieter text over the picture. */
+  --player-t2: color-mix(in srgb, var(--t1) 90%, transparent);
+  --player-top: max(26px, env(safe-area-inset-top));
+  --player-foot: max(14px, env(safe-area-inset-bottom));
   position: fixed;
   inset: 0;
   z-index: var(--z-nav);
@@ -16,6 +20,8 @@
   -webkit-user-select: none;
 }
 .player [hidden] { display: none !important; }
+/* Holds what changes with the episode; the layout is its contents' own. */
+.player-slot { display: contents; }
 
 .player-video {
   position: absolute;
@@ -25,11 +31,15 @@
   object-fit: contain;
   background: var(--bg);
 }
-.player-hold { pointer-events: none; }
+.player-hold { pointer-events: none; --pop-y: 0; }
 
 /* Controls fade out while playing and nobody touches anything. */
 .player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
-.player.is-idle .player-chrome { opacity: 0; pointer-events: none; }
+.player.is-idle .player-chrome { opacity: 0; }
+/* The bars shade more of the picture than they hold; only what they hold takes a press. */
+.player-chrome,
+.player.is-idle .player-chrome > * { pointer-events: none; }
+.player-chrome > * { pointer-events: auto; }
 .player.is-idle { cursor: none; }
 
 /* Top bar: back, title, optional "Leaving" chip. */
@@ -40,8 +50,9 @@
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 12px 18px;
-  padding: max(26px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) 40px max(32px, env(safe-area-inset-left));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 70%, transparent), transparent);
+  padding: var(--player-top) max(32px, env(safe-area-inset-right)) 80px max(32px, env(safe-area-inset-left));
+  /* Dark enough behind the title and subtitle for 4.5:1 even over a white frame. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 62%, transparent) calc(var(--player-top) + 54px), transparent);
 }
 .player-back {
   flex: none;
@@ -77,7 +88,7 @@
 }
 .player-subtitle {
   font-size: 14px;
-  color: var(--t2);
+  color: var(--player-t2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,15 +102,16 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 48px max(32px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
-  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), transparent);
+  padding: 88px max(32px, env(safe-area-inset-right)) var(--player-foot) max(32px, env(safe-area-inset-left));
+  /* The same for the controls and the times above them. */
+  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), color-mix(in srgb, var(--scrim) 62%, transparent) calc(var(--player-foot) + 82px), transparent);
 }
 .player-seek-row {
   display: flex;
   align-items: center;
   gap: 14px;
   font-size: 13px;
-  color: var(--t2);
+  color: var(--player-t2);
 }
 .player-time {
   flex: none;
@@ -110,6 +122,7 @@
 
 /* The seek target is 44 px tall; the visible track is 5 px in its middle. */
 .player-seek {
+  position: relative;
   flex: 1;
   height: 44px;
   display: flex;
@@ -119,11 +132,25 @@
 }
 .player-seek-track {
   position: relative;
+  isolation: isolate;
   width: 100%;
   height: 5px;
+}
+.player-seek-track::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: var(--r-xxs);
   background: color-mix(in srgb, var(--t1) 20%, transparent);
 }
+/* The bar grows under the pointer; the thumb on it keeps its shape. */
+.player-seek-track::before,
+.player-seek-buffered,
+.player-seek-played,
+.player-band,
+.player-gap { transition: transform var(--dur-fast) var(--ease-out); }
+.player-seek:is(:hover, .is-dragging, :focus-visible) .player-seek-track::before,
+.player-seek:is(:hover, .is-dragging, :focus-visible) :is(.player-seek-buffered, .player-seek-played, .player-band, .player-gap) { transform: scaleY(1.6); }
 .player-seek-buffered,
 .player-seek-played {
   position: absolute;
@@ -132,10 +159,11 @@
   width: 0;
   border-radius: var(--r-xxs);
 }
-.player-seek-buffered { background: color-mix(in srgb, var(--t1) 35%, transparent); }
-.player-seek-played { background: var(--accent); }
+.player-seek-buffered { background: color-mix(in srgb, var(--t1) 45%, transparent); }
+.player-seek-played { z-index: 1; background: var(--accent); }
 .player-seek-thumb {
   position: absolute;
+  z-index: 3;
   top: 50%;
   left: 0;
   width: 15px;
@@ -145,8 +173,88 @@
   background: var(--t1);
   transition: transform var(--dur-fast) var(--ease-out);
 }
-.player-seek:hover .player-seek-thumb,
-.player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
+.player-seek:is(:hover, .is-dragging) .player-seek-thumb { transform: scale(1.2); }
+/* Intro and credits as bands along the bar, under what has played; chapter starts as gaps in it. */
+.player-band,
+.player-gap {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.player-band {
+  min-width: 2px;
+  border-radius: var(--r-xxs);
+  background: color-mix(in srgb, var(--purple) 85%, transparent);
+}
+.player-gap {
+  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--bg);
+}
+
+/* Where the pointer is on the bar. */
+.player-seek-hover {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--t1);
+}
+
+/* The frame and time of that place, over the bar. player.js moves it along. */
+.player-bubble {
+  position: absolute;
+  left: 0;
+  bottom: calc(50% + 18px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  animation: player-pop var(--dur-fast) var(--ease-out);
+}
+.player-frame {
+  width: 224px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--s1);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+}
+.player-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  animation: player-dim var(--dur) var(--ease-out);
+}
+/* Still the nearest frame, while the one wanted loads: dimmed only where that takes a while. */
+.player-frame.is-stale img { opacity: .75; transition-delay: .15s; }
+.player-bubble-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 224px;
+  padding: 3px 10px;
+  border-radius: var(--r-md);
+  background: var(--player-glass);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--t1);
+}
+.player-bubble-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.player-bubble-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .player-controls {
   display: flex;
@@ -164,7 +272,8 @@
   font-size: 20px;
   transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
-.player-btn--text { font-size: 14px; padding: 0 6px; }
+.player-btn:disabled { opacity: .4; cursor: default; }
+.player-btn--skip { font-size: 26px; }
 
 /* The play button while a stream loads to play. */
 .player-btn-ring {
@@ -208,6 +317,33 @@
 .player-pill--primary::before,
 .player-pill--primary:hover::before { background: var(--t1); }
 
+/* Focus rings have the shape of what is drawn: the pill, the round button, the bar's thumb. */
+.player-pill:focus-visible { outline: none; }
+.player-pill:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+.player-back:focus-visible,
+.player-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-pill); }
+.player-seek:focus-visible { outline: none; }
+.player-seek:focus-visible .player-seek-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-volume-slider:focus-visible { outline: none; }
+.player-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-volume-slider:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Skip intro, Skip credits, Next episode: there without the controls at first. */
+.player-skip {
+  position: absolute;
+  right: max(32px, env(safe-area-inset-right));
+  bottom: calc(var(--player-foot) + 104px);
+  gap: 8px;
+  font-size: 15px;
+  padding: 0 18px;
+  animation: player-pop var(--dur) var(--ease-out);
+  transition: opacity var(--dur-slow) var(--ease-out), visibility var(--dur-slow) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+/* Out of the way of an open menu and of a frame preview too. */
+.player.is-idle .player-skip.is-quiet,
+.player:has([aria-expanded="true"]) .player-skip,
+.player:has(.player-bubble:not([hidden], .is-leaving)) .player-skip { opacity: 0; visibility: hidden; }
+
 /* "Play now" fills as the next-episode countdown runs out. The clip keeps
    the pill's round ends while the bar inside it scales. */
 .player-upnext-fill {
@@ -232,13 +368,40 @@
 @keyframes player-fill { to { transform: scaleX(1); } }
 
 .player-volume { display: flex; align-items: center; }
+/* Drawn here like the seek bar: Safari draws no track of its own on a dark page. */
 .player-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
   width: 90px;
-  accent-color: var(--accent);
+  height: 44px;
+  background: none;
   cursor: pointer;
 }
-
-.player-narrow { display: none; }
+.player-volume-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: var(--r-xxs);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 100%), color-mix(in srgb, var(--t1) 30%, transparent) 0);
+}
+.player-volume-slider::-moz-range-track {
+  height: 5px;
+  border-radius: var(--r-xxs);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 100%), color-mix(in srgb, var(--t1) 30%, transparent) 0);
+}
+.player-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--t1);
+}
+.player-volume-slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--t1);
+}
 
 /* Small menus: quality (opens up) and keep (opens down). */
 .player-menu-wrap { position: relative; }
@@ -247,16 +410,23 @@
   right: 0;
   z-index: 1;
   min-width: 170px;
+  max-width: calc(100vw - 24px);
+  /* Clears the control row below an upward menu and the top bar above it. */
+  max-height: min(480px, calc(100vh - 136px));
+  max-height: min(480px, calc(100dvh - 136px));
   padding: 6px;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--s2) 96%, transparent);
-  box-shadow: var(--shadow-card);
+  background: var(--s2);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
 }
 .player-menu--up { bottom: calc(100% + 4px); }
 .player-menu--down { top: calc(100% + 4px); }
 .player-menu-item {
+  flex: none;
   min-height: 44px;
   padding: 0 12px;
   text-align: left;
@@ -267,12 +437,36 @@
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
-.player-menu-tick { display: none; float: right; width: 12px; height: 1.47em; margin-left: 12px; color: var(--accent); }
-.player-menu-item[aria-checked="true"] > .player-menu-tick { display: block; }
+.player-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
+/* The list scrolls between what stays of its menu, fading at an end that has more. */
+.player-menu-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+}
+.player-menu-list.has-more-above { --above: 28px; }
+.player-menu-list.has-more-below { --below: 28px; }
+.player-menu-title { flex: none; padding: 8px 12px 6px; font-size: 12px; font-weight: 600; color: var(--t2); }
+/* What the row is on the left, the detail of it on the right, then the tick. */
+.player-menu-item--split { display: flex; align-items: center; gap: 12px; }
+.player-menu-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.player-menu-side { flex: none; font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.player-menu-tick { flex: none; width: 12px; height: 12px; color: var(--accent); visibility: hidden; }
+.player-menu-item[aria-checked="true"] > .player-menu-tick { visibility: visible; }
+
+.player-menu-rule { flex: none; height: 1px; margin: 6px 12px; background: var(--hair-strong); }
+
+.player-menu--wide { width: 340px; }
+.player-chapter-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.player-chapters .player-pill { gap: 8px; }
 
 /* Pressed: a quick shrink and a tint, since the tap highlight is off. */
 .player-back:active { transform: scale(.94); background: var(--player-glass-hover); }
-.player-btn:active { transform: scale(.9); opacity: .7; }
+.player-btn:active:not(:disabled) { transform: scale(.9); opacity: .7; }
 .player-pill:active { transform: scale(.96); }
 .player-pill:active::before { background: var(--player-glass-hover); }
 .player-pill--primary:active::before { background: color-mix(in srgb, var(--t1) 80%, transparent); }
@@ -283,21 +477,23 @@
   .player-pill:active { transform: none; }
 }
 
-/* Menus and cards rise in when they open; they are usable at once. Menus
-   hide without delay; the next-episode card sinks away. */
+/* What opens rises in and is usable at once; what closes is out of reach at
+   once and sinks away, and player.js hides it as that ends. */
 @keyframes player-pop { from { opacity: 0; translate: 0 var(--pop-y, 8px); } }
-@keyframes player-drop { to { opacity: 0; translate: 0 8px; } }
+@keyframes player-drop { to { opacity: 0; translate: 0 var(--pop-y, 8px); } }
 .player-menu,
 .player-card { animation: player-pop var(--dur) var(--ease-out); }
 .player-menu--down { --pop-y: -6px; }
-.player-card.is-leaving {
-  animation: player-drop var(--dur) var(--ease-out) forwards;
+.player .is-leaving {
+  animation: player-drop var(--dur-fast) var(--ease-out) forwards;
   pointer-events: none;
 }
+.player .player-hold.is-leaving { animation-duration: var(--dur); }
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
   .player-card,
-  .player-card.is-leaving { animation: none; }
+  .player-bubble,
+  .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
   .player-upnext-fill { display: none; }
   .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
@@ -319,28 +515,62 @@
   transition: opacity var(--dur) var(--ease-out);
 }
 .player.is-loading .player-spinner { opacity: 1; }
-/* A held frame already has the play button's ring; one spinner is enough. */
-.player.is-held .player-spinner { opacity: 0; }
+/* A held frame says nothing of the wait: a new quality is mostly quick, another video is not. */
+@media (prefers-reduced-motion: no-preference) {
+  .player.is-held.is-loading:not(.is-switching) .player-spinner { transition-delay: .6s; }
+}
+.player-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.player.is-held.is-switching .player-dim { opacity: .4; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
-/* Cards: the "next episode" countdown and the error message. */
+/* Cards: the "next episode" countdown, the error message and "Are you still watching?". */
 .player-card {
+  --card-x: 22px;
+  --card-y: 20px;
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 20px 22px 14px;
+  padding: var(--card-y) var(--card-x) 14px;
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--s2) 94%, transparent);
   box-shadow: var(--shadow-card);
   max-width: calc(100% - 32px);
 }
+/* A pill in the card's own colour would look like bare text. */
+.player-card .player-pill:not(.player-pill--primary)::before { background: var(--s5); }
+.player-card .player-pill:not(.player-pill--primary):is(:hover, :active)::before { background: color-mix(in srgb, var(--t1) 12%, var(--s5)); }
 .player-card-title { font-size: 17px; font-weight: 600; }
-.player-card-line { font-size: 14px; color: var(--t2); }
+.player-card-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--t2);
+}
+/* The picture of what follows, to the edges of its card. */
+.player-still {
+  width: calc(100% + 2 * var(--card-x));
+  max-width: none;
+  margin: calc(-1 * var(--card-y)) calc(-1 * var(--card-x)) 12px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--s1);
+  animation: player-dim var(--dur) var(--ease-out);
+}
 .player-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .player-upnext {
   right: max(32px, env(safe-area-inset-right));
-  bottom: 140px;
+  bottom: calc(var(--player-foot) + 118px);
   width: 340px;
 }
 .player-message {
@@ -352,12 +582,42 @@
   align-items: center;
 }
 .player-message .player-card-actions { justify-content: center; }
+.player-ask {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: 420px;
+  height: fit-content;
+  --card-x: 28px;
+  --card-y: 28px;
+  padding-bottom: 20px;
+  border: 0;
+  color: inherit;
+  text-align: center;
+  align-items: center;
+}
+.player-ask:not([open]) { display: none; opacity: 0; translate: 0 8px; }
+.player-ask:not([open])::backdrop { opacity: 0; }
+/* As it closes it stays, and stays on top, until it has sunk away. */
+@supports (transition-behavior: allow-discrete) {
+  .player-ask { transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
+  .player-ask::backdrop { transition: opacity var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
+}
+.player-ask::backdrop { background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: player-dim var(--dur) var(--ease-out); }
+.player-ask .player-card-title { font-size: 20px; }
+.player-ask .player-card-actions { justify-content: center; gap: 12px; margin-top: 14px; }
+@keyframes player-dim { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .player-ask::backdrop { animation: none; }
+}
 
 @media (min-width: 1920px) {
   .player-title { font-size: 22px; }
   .player-subtitle { font-size: 16px; }
   .player-seek-row { font-size: 15px; }
   .player-pill { font-size: 15px; }
+  .player-frame { width: 304px; }
+  .player-bubble-text { max-width: 304px; font-size: 15px; }
 }
 
 /* No volume slider where there is no room, or on touch screens, where the
@@ -366,15 +626,93 @@
   .player-volume-slider { display: none; }
 }
 
+@media (max-width: 900px) {
+  .player-chapter-name { display: none; }
+}
+
 @media (max-width: 600px) {
-  .player-top { padding: max(12px, env(safe-area-inset-top)) 12px 32px; gap: 8px 12px; }
+  .player { --player-top: max(12px, env(safe-area-inset-top)); --player-foot: max(6px, env(safe-area-inset-bottom)); }
+  .player-top { padding: var(--player-top) 12px 72px; gap: 8px 12px; }
   .player-title { font-size: 16px; }
   .player-subtitle { font-size: 13px; }
-  .player-bottom { padding: 40px 12px max(6px, env(safe-area-inset-bottom)); gap: 0; }
+  .player-bottom { padding: 80px 12px var(--player-foot); gap: 0; }
   .player-seek-row { gap: 8px; font-size: 12px; }
   .player-controls { gap: 2px; }
   .player-pill { padding: 0 10px; }
   .player-wide { display: none; }
-  .player-narrow { display: inline; }
-  .player-upnext { left: 12px; right: 12px; width: auto; bottom: 120px; max-width: none; }
+  .player-frame { width: 168px; }
+  .player-bubble-text { max-width: 220px; }
+  /* No room in the row of controls: above the bar. */
+  .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
+  .player-chapters { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) var(--ease-out); }
+  /* Where the frame preview and the next-episode card come. */
+  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
+  .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
+  .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
+  .player-chapters .player-menu {
+    left: 0;
+    right: auto;
+    max-height: min(480px, calc(100vh - 224px));
+    max-height: min(480px, calc(100dvh - 224px));
+  }
+  .player-upnext { left: 12px; right: 12px; width: auto; max-width: none; }
+  .player-upnext:has(.player-still) { left: max(12px, calc(100% - 352px)); }
+}
+
+/* The narrowest phones: every control keeps its height and its place in the row. */
+@media (max-width: 350px) {
+  .player-controls { gap: 0; }
+  .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
+}
+
+/* A phone on its side: the next-episode card keeps to the right, its picture beside the words. */
+@media (max-height: 520px) {
+  .player-frame { width: 176px; }
+  .player-card { --card-x: 16px; --card-y: 14px; }
+  .player-upnext { left: auto; width: 300px; bottom: calc(var(--player-foot) + 100px); padding-bottom: 10px; }
+  .player-upnext:has(.player-still:not([hidden])) { left: auto; width: 440px; padding-left: 190px; min-height: 112px; }
+  .player-upnext .player-still {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 174px;
+    height: 100%;
+    margin: 0;
+    aspect-ratio: auto;
+    border-radius: var(--r-lg) 0 0 var(--r-lg);
+  }
+  .player-ask .player-still { display: none; }
+}
+
+/* "Kept until" with its whole date and Undo, on one line of the narrow toast. */
+@media (max-height: 420px) {
+  body:has(.player) .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
+  body:has(.player) .ui-toast__action { padding-inline: 8px; }
+}
+
+/* Forced colours drop the fills that draw the bar and the edges of the rest. */
+@media (forced-colors: active) {
+  .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }
+  .player-seek-buffered { background: GrayText; }
+  .player-seek-played { background: Highlight; }
+  .player-band { background: LinkText; }
+  .player-gap { top: -4px; height: calc(100% + 8px); }
+  .player-volume-slider { forced-color-adjust: none; }
+  .player-volume-slider::-webkit-slider-runnable-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }
+  .player-volume-slider::-moz-range-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }
+  .player-volume-slider::-webkit-slider-thumb { background: CanvasText; }
+  .player-volume-slider::-moz-range-thumb { background: CanvasText; }
+  .player-gap,
+  .player-menu-rule,
+  .player-seek-hover,
+  .player-seek-thumb { background: CanvasText; }
+  .player-back,
+  .player-pill::before,
+  .player-menu,
+  .player-card,
+  .player-frame,
+  .player-bubble-text { border: 1px solid CanvasText; }
+  .player-pill::before,
+  .player-bubble-text { background: Canvas; }
+  .player-menu-item:hover,
+  .player-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }

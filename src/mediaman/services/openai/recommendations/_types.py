@@ -20,6 +20,8 @@ class RecommendationItem(TypedDict):
     imdb_id: NotRequired[str | None]
     description: NotRequired[str | None]
     reason: str
+    # Titles the person played that led to the pick; only on a person's own picks.
+    because_of: NotRequired[list[str]]
     trailer_url: NotRequired[str | None]
     poster_url: NotRequired[str | None]
     # Fields added by enrich stage
@@ -33,3 +35,6 @@ class RecommendationItem(TypedDict):
     director: NotRequired[str | None]
     trailer_key: NotRequired[str | None]
     metascore: NotRequired[str | None]
+    backdrop_url: NotRequired[str | None]
+    # 1 once TMDB's details said the title is not an adult one.
+    adult_checked: NotRequired[int | None]

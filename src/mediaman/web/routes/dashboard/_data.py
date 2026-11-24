@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.core.delete_root_state import STATE_KEY
 from mediaman.core.deleted_media import (
     DeletedMedia,
     fetch_deleted_media,
@@ -27,9 +30,12 @@ from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra import (
     get_aggregate_disk_usage,
     get_disk_usage_for_paths,
-    get_string_setting,
+    get_setting,
+    is_same_disk,
 )
 from mediaman.services.infra import get_media_path as _get_media_path
+from mediaman.services.infra.storage.disk_reads import library_disk_reads, media_root_reads
+from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
 from mediaman.web.repository.dashboard import (
     fetch_deleted_audit_batch,
@@ -37,8 +43,10 @@ from mediaman.web.repository.dashboard import (
     fetch_redownload_audit_rows,
     fetch_scheduled_deletions,
 )
+from mediaman.web.repository.library_query import count_titles, title_ref
+from mediaman.web.repository.watch_library import pending_deletions, scanned_library_ids
 
-# Bounded scan size so the dashboard render doesn't degenerate into a
+# Bounded scan size so the Deleted tab doesn't degenerate into a
 # long table walk on a heavy audit_log. 5 batches × 50 rows = 250
 # candidates is enough headroom for any realistic mix of re-downloaded
 # and orphan-titled deletions.
@@ -46,7 +54,7 @@ _RECENT_DELETED_BATCH = 50
 _RECENT_DELETED_MAX_BATCHES = 5
 
 # Cache window for the disk-usage stat. statvfs() is cheap but a busy
-# dashboard on a slow filesystem could still spend tens of milliseconds
+# page on a slow filesystem could still spend tens of milliseconds
 # per render hitting it; 30s is well below the granularity at which a
 # user notices stale "free space" numbers.
 _DISK_USAGE_CACHE_TTL_SECONDS = 30.0
@@ -54,29 +62,51 @@ _disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
 _disk_usage_cache_lock = threading.Lock()
 
 
-def _days_until(dt_str: str | None) -> str:
-    """Return 'Deletes in N days' given an ISO datetime string, or ''."""
-    execute_at = parse_iso_utc(dt_str)
+def _days_until(execute_at: datetime | None, now: datetime) -> str:
+    """Return 'Deletes in N days', or '' without a date."""
     if execute_at is None:
         return ""
     return relative_day_label(
         execute_at,
-        now=now_utc(),
+        now=now,
         today="Deletes today",
         tomorrow="Deletes tomorrow",
         future=lambda days: f"Deletes in {days} days",
     )
 
 
+def _waiting_folders(conn: sqlite3.Connection) -> dict[int, str]:
+    """Return the folder the last deletion pass found missing or empty, by the row it holds back."""
+    state = get_setting(conn, STATE_KEY)
+    items = state.get("items") if isinstance(state, dict) else None
+    if not isinstance(items, dict):
+        return {}
+    return {
+        row_id: folder
+        for folder, ids in items.items()
+        if isinstance(ids, list)
+        for row_id in ids
+        if type(row_id) is int
+    }
+
+
 def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
+    now = now_utc()
+    # Watch's own rule, so the count of these is always the length of its Leaving soon row.
+    leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn), now)}
+
+    waiting = _waiting_folders(conn)
 
     items = []
     for row in rows:
         media_type = row.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if normalise_media_type(media_type) != "movie" and row.season_number:
+        is_movie = normalise_media_type(media_type) == "movie"
+        if not is_movie and row.season_number:
             type_label = f"{type_label} · S{row.season_number}"
+        execute_at = parse_iso_utc(row.execute_at)
+        state = "leaving" if row.sa_id in leaving else "deleting" if row.deleting else "overdue"
 
         items.append(
             {
@@ -87,13 +117,43 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
                 "badge_class": badge_class,
                 "media_type": media_type,
                 "type_label": type_label,
-                "countdown": _days_until(row.execute_at),
+                "ref": (
+                    title_ref("movie", row.media_item_id)
+                    if is_movie
+                    else title_ref("show", row.show_rating_key)
+                ),
+                "season_number": None if is_movie else row.season_number,
+                "countdown": _days_until(execute_at, now),
+                "days_left": days_left(execute_at, now) if execute_at else None,
+                "state": state,
+                "waiting_folder": waiting.get(row.sa_id),
                 "added_ago": days_ago(row.added_at),
                 "file_size": format_bytes(row.file_size_bytes),
                 "file_size_bytes": row.file_size_bytes,
             }
         )
     return items
+
+
+def _scheduled_summary(items: list[dict[str, object]]) -> dict[str, object]:
+    """Return the counts and sizes of _fetch_scheduled's *items*, by their state."""
+
+    def total_bytes(rows: list[dict[str, object]]) -> int:
+        return sum(cast(int, item["file_size_bytes"]) for item in rows)
+
+    leaving = [item for item in items if item["state"] == "leaving"]
+    return {
+        "total": len(items),
+        "total_bytes": total_bytes(items),
+        "total_size": format_bytes(total_bytes(items)),
+        "leaving": len(leaving),
+        "leaving_bytes": total_bytes(leaving),
+        "leaving_size": format_bytes(total_bytes(leaving)),
+        # Leaving rows no scan has sized yet: leaving_bytes is at least what it says.
+        "unsized_count": sum(not item["file_size_bytes"] for item in leaving),
+        "overdue": sum(item["state"] == "overdue" for item in items),
+        "deleting": sum(item["state"] == "deleting" for item in items),
+    }
 
 
 def _build_redownload_index(
@@ -207,68 +267,173 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
     return items
 
 
-def _configured_library_paths(conn: sqlite3.Connection) -> list[str]:
-    """Return the distinct media paths from the ``disk_thresholds`` setting.
+def _library_folders(conn: sqlite3.Connection) -> list[tuple[str, str, int | None]]:
+    """Return ``(library id, folder, threshold)`` of each library with a folder in Settings.
 
     ``disk_thresholds`` is a JSON dict keyed by Plex library id, each value
     an object with a ``path`` (e.g. ``{"1": {"path": "/media/movies", ...}}``).
     These paths are the authoritative set of mount points the libraries live
     on — a movies drive and a TV drive may be entirely separate disks not
-    reachable from a single base directory.  Returns ``[]`` when the setting
+    reachable from a single base directory.  The threshold is ``None`` where the
+    scanner would read none.  Returns ``[]`` when the setting
     is missing or malformed so the caller can fall back to the media root.
     """
-    raw_value = get_string_setting(conn, "disk_thresholds")
-    if not raw_value:
-        return []
-    try:
-        thresholds = json.loads(raw_value)
-    except (json.JSONDecodeError, TypeError):
-        return []
+    thresholds = get_setting(conn, "disk_thresholds")
     if not isinstance(thresholds, dict):
         return []
-    paths: list[str] = []
-    for cfg in thresholds.values():
-        path = cfg.get("path") if isinstance(cfg, dict) else None
-        if isinstance(path, str) and path and path not in paths:
-            paths.append(path)
-    return paths
+    folders: list[tuple[str, str, int | None]] = []
+    for library, cfg in thresholds.items():
+        if not isinstance(cfg, dict):
+            continue
+        path = cfg.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        try:
+            threshold = int(cfg.get("threshold") or 0)
+        except (ValueError, TypeError, OverflowError):
+            threshold = 0
+        folders.append((str(library), path, threshold if threshold > 0 else None))
+    return folders
 
 
-def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[str, int]:
-    """Return aggregate disk usage cached for 30s and keyed on cache_key. With paths, usage is
-    aggregated across those mount points (each physical disk counted once); otherwise
-    cache_key is a single base path scanned for sub-mounts. A change of configured paths
-    yields a new key.
+def _some_disk(usage: dict[str, int]) -> dict[str, int]:
+    """Return *usage*; raise OSError when it is of no disk, so that it counts as a failed read."""
+    if not usage["total_bytes"]:
+        raise OSError("no disk could be read")
+    return usage
+
+
+def _read_media_root(base_path: str) -> dict[str, int]:
+    return _some_disk(get_aggregate_disk_usage(base_path))
+
+
+def _cached_disk_usage(base_path: str) -> dict[str, int]:
+    """Return the usage of the disks under *base_path*, cached for 30s.
+
+    Raises OSError when no disk could be read; that is not kept here.
     """
     now = time.monotonic()
     with _disk_usage_cache_lock:
-        entry = _disk_usage_cache.get(cache_key)
+        entry = _disk_usage_cache.get(base_path)
         if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL_SECONDS:
             return entry[1]
-    fresh = get_disk_usage_for_paths(paths) if paths else get_aggregate_disk_usage(cache_key)
+    fresh = media_root_reads.read(base_path, _read_media_root)
+    if fresh is None:
+        raise OSError(f"No disk could be read under {base_path}")
     with _disk_usage_cache_lock:
         # Plain assignment so an expired entry is replaced, not kept.
-        _disk_usage_cache[cache_key] = (now, fresh)
+        _disk_usage_cache[base_path] = (now, fresh)
     return fresh
 
 
-def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return storage stats for the dashboard template. Disk usage spans every configured
-    library drive; falls back to the media root without paths and to zeroes on a filesystem
-    error.
-    """
-    # Disk-level stats — aggregate across every configured library drive
-    try:
-        lib_paths = _configured_library_paths(conn)
-        if lib_paths:
-            disk = _cached_disk_usage("|".join(sorted(lib_paths)), lib_paths)
+@dataclass(frozen=True)
+class _Disk:
+    folders: list[str]  # the library folders on it
+    usage: dict[str, int] | None  # None when it could not be read
+
+
+_disks_cache: dict[tuple[str, ...], tuple[float, list[_Disk]]] = {}
+
+
+def _read_usage(path: str) -> dict[str, int]:
+    """Return the usage of the disk behind *path*; raise OSError when it cannot be read."""
+    return _some_disk(get_disk_usage_for_paths([path]))
+
+
+def _read_disks(paths: Iterable[str]) -> list[_Disk]:
+    """Return one entry per device behind *paths*, and one per path that cannot be read."""
+    disks: list[_Disk] = []
+    for path, usage in library_disk_reads.read_all(paths, _read_usage).items():
+        for disk in disks:
+            if (
+                usage
+                and disk.usage
+                and is_same_disk(
+                    disk.usage["total_bytes"],
+                    disk.usage["free_bytes"],
+                    usage["total_bytes"],
+                    usage["free_bytes"],
+                )
+            ):
+                disk.folders.append(path)
+                break
         else:
-            disk = _cached_disk_usage(_get_media_path())
-        total = disk["total_bytes"]
-        used = disk["used_bytes"]
-        free = disk["free_bytes"]
-    except (OSError, KeyError):
-        total = used = free = 0
+            disks.append(_Disk([path], usage))
+    return disks
+
+
+def _cached_disks(paths: list[str]) -> list[_Disk]:
+    """Return _read_disks(paths), cached for 30s once every path has been read."""
+    now = time.monotonic()
+    key = tuple(paths)
+    with _disk_usage_cache_lock:
+        entry = _disks_cache.get(key)
+        if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL_SECONDS:
+            return entry[1]
+    fresh = _read_disks(paths)
+    if all(disk.usage for disk in fresh):
+        with _disk_usage_cache_lock:
+            _disks_cache[key] = (now, fresh)
+    return fresh
+
+
+def _fetch_disks(conn: sqlite3.Connection) -> list[dict[str, object]]:
+    """Return the devices the library folders set in Settings are on, with their thresholds.
+
+    Only a library ticked in Settings is scanned, so only its threshold counts.
+    """
+    folders = _library_folders(conn)
+    ticked = set(scanned_library_ids(conn))
+    # A ticked library with no folder is scanned whatever its disk, which nothing here knows.
+    all_placed = ticked <= {library for library, _, _ in folders}
+    result: list[dict[str, object]] = []
+    for disk in _cached_disks(list(dict.fromkeys(path for _, path, _ in folders))):
+        thresholds = [
+            threshold
+            for library, path, threshold in folders
+            if library in ticked and path in disk.folders
+        ]
+        lowest = min((t for t in thresholds if t is not None), default=None)
+        usage = disk.usage or {"total_bytes": 0, "used_bytes": 0, "free_bytes": 0}
+        used_pct = usage["used_bytes"] / usage["total_bytes"] * 100 if disk.usage else 0.0
+        result.append(
+            {
+                "path": disk.folders[0],
+                "readable": disk.usage is not None,
+                **usage,
+                "total": format_bytes(usage["total_bytes"]),
+                "free": format_bytes(usage["free_bytes"]),
+                "used_pct": round(used_pct, 1),
+                "threshold_pct": lowest,
+                "threshold_shared": lowest is not None
+                and all_placed
+                and all(t == lowest for t in thresholds),
+                "over_threshold": lowest is not None
+                and disk.usage is not None
+                and used_pct >= lowest,
+            }
+        )
+    return result
+
+
+def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
+    """Return storage stats for the storage panel. Disk usage spans every configured
+    library drive; falls back to the media root when none can be read, and to zeroes on a
+    filesystem error. ``readable`` is False for a fallback from drives that are set.
+    """
+    disks = _fetch_disks(conn)
+    disk_read = any(disk["readable"] for disk in disks)
+    if disk_read:
+        total, used, free = (
+            sum(cast(int, disk[key]) for disk in disks)
+            for key in ("total_bytes", "used_bytes", "free_bytes")
+        )
+    else:
+        try:
+            usage = _cached_disk_usage(_get_media_path())
+            total, used, free = usage["total_bytes"], usage["used_bytes"], usage["free_bytes"]
+        except (OSError, KeyError):
+            total = used = free = 0
 
     # Per-type breakdown from DB
     type_rows = fetch_media_type_sizes(conn)
@@ -282,14 +447,22 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     known_bytes = movies_bytes + tv_bytes + anime_bytes
     other_bytes = max(0, used - known_bytes) if used else 0
 
+    # The sizes also count titles on a disk that could not be read, and extra copies.
+    fit = min(1.0, used / known_bytes) if known_bytes else 1.0
+
     def pct(val: int) -> float:
-        return round(val / total * 100, 1) if total else 0.0
+        return round(val * fit / total * 100, 1) if total else 0.0
 
     return {
         "used": format_bytes(used),
         "total": format_bytes(total),
         "total_bytes": total,
         "free": format_bytes(free),
+        "used_bytes": used,
+        "free_bytes": free,
+        "readable": disk_read if disks else total > 0,
+        "counts": count_titles(conn),
+        "disks": disks,
         "movies_bytes": movies_bytes,
         "tv_bytes": tv_bytes,
         "anime_bytes": anime_bytes,

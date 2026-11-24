@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
@@ -209,6 +210,31 @@ class TestDiskUsageAPI:
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
         assert resp.json().get("message") == "Folder not found."
+
+    @pytest.mark.parametrize("stuck", ["resolve_safe_readonly_path", "disk_usage_allowed_roots"])
+    def test_a_folder_that_hangs_is_reported_and_not_read_again(
+        self, app_factory, authed_client, conn, monkeypatch, stuck
+    ):
+        from mediaman.services.infra.storage import disk_reads
+
+        monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.1)
+        release, calls = threading.Event(), []
+
+        def hang(*_args):
+            calls.append(1)
+            release.wait(30)
+            return []
+
+        monkeypatch.setattr(f"mediaman.web.routes.settings.api.{stuck}", hang)
+        client = _client(app_factory, authed_client, conn)
+        try:
+            for _ in range(2):
+                resp = client.get("/api/settings/disk-usage?path=/media/movies")
+                assert resp.json()["error"] == "fetch_failed"
+        finally:
+            release.set()
+
+        assert len(calls) == 1
 
     def test_rejects_symlink_path(self, app_factory, authed_client, conn, tmp_path, monkeypatch):
         """A path that is or contains a symlink is rejected with a generic 404."""

@@ -33,7 +33,13 @@ from .enrich import _annotate_rec_download_states
 from .render import _TEMPLATE_DIR, _build_subject, _get_jinja_env
 from .schedule import _load_scheduled_items, _mark_notified
 from .subscribers import _load_subscribers, _send_to_subscribers
-from .summary import StorageSummary, _load_deleted_items, _load_recommendations, _load_storage_stats
+from .summary import (
+    StorageSummary,
+    _load_deleted_items,
+    _load_recommendations,
+    _load_storage_stats,
+    load_own_picks,
+)
 
 if TYPE_CHECKING:
     from jinja2 import Template as _JinjaTemplate
@@ -70,6 +76,7 @@ class SendResult:
 class SendContext:
     deleted_items: list[DeletedNewsletterItem]
     this_week_items: list[NewsletterRecItem]
+    own_picks: dict[str, list[NewsletterRecItem]]
     storage_summary: StorageSummary
     template: _JinjaTemplate
     mailgun: _MailgunClient
@@ -139,6 +146,8 @@ def _build_send_context(
     mg_settings: MailgunSettings,
     secret_key: str,
     scheduled_items: list[ScheduledNewsletterItem],
+    this_week_items: list[NewsletterRecItem],
+    own_picks: dict[str, list[NewsletterRecItem]],
     dry_run: bool,
     now: datetime,
 ) -> SendContext:
@@ -151,13 +160,11 @@ def _build_send_context(
     from mediaman.services.mail.mailgun import MailgunClient
 
     deleted_items = _load_deleted_items(conn, secret_key, mg_settings.base_url, now)
-    # Pass has_recommendations through; _load_recommendations does not
-    # re-query suggestions_enabled — the outer check in send_newsletter is sufficient.
-    this_week_items = _load_recommendations(conn, check_enabled=False)
     storage_summary = _load_storage_stats(conn, now)
 
-    if this_week_items:
-        _annotate_rec_download_states(this_week_items, conn, secret_key)
+    rec_items = [*this_week_items, *(pick for picks in own_picks.values() for pick in picks)]
+    if rec_items:
+        _annotate_rec_download_states(rec_items, conn, secret_key)
 
     env = _get_jinja_env()
     if env is None:  # pragma: no cover
@@ -173,6 +180,7 @@ def _build_send_context(
     return SendContext(
         deleted_items=deleted_items,
         this_week_items=this_week_items,
+        own_picks=own_picks,
         storage_summary=storage_summary,
         template=template,
         mailgun=mailgun,
@@ -220,20 +228,14 @@ def send_newsletter(
     # and cannot straddle midnight.
     now = now_utc()
 
-    # Cheap settings/COUNT checks first so a
-    # tick with no scheduled items and no suggestions does not pay for
-    # the per-item ``_load_scheduled_items`` join (which fans out to
-    # ``media_items`` and runs the same join every minute on busy
-    # servers).  We only fetch the heavier scheduled-item payload when
-    # there is at least one notification candidate to render.
-    rec_enabled_check = conn.execute(
-        "SELECT value FROM settings WHERE key='suggestions_enabled'"
-    ).fetchone()
-    if not rec_enabled_check or rec_enabled_check["value"] != "false":
-        rec_check = conn.execute("SELECT COUNT(*) AS n FROM suggestions").fetchone()
-        has_recommendations = bool(rec_check and rec_check["n"] > 0)
-    else:
-        has_recommendations = False
+    from mediaman.services.infra import get_bool_setting
+
+    this_week_items: list[NewsletterRecItem] = []
+    own_picks: dict[str, list[NewsletterRecItem]] = {}
+    if get_bool_setting(conn, "suggestions_enabled", default=True):
+        this_week_items = _load_recommendations(conn, check_enabled=False)
+        own_picks = load_own_picks(conn, subscriber_emails, now)
+    has_recommendations = bool(this_week_items) or any(own_picks.values())
 
     scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now, mark_notified)
     if not _has_content_to_report(scheduled_items, has_recommendations):
@@ -245,6 +247,8 @@ def send_newsletter(
         mg_settings=mg_settings,
         secret_key=secret_key,
         scheduled_items=scheduled_items,
+        this_week_items=this_week_items,
+        own_picks=own_picks,
         dry_run=dry_run,
         now=now,
     )
@@ -254,6 +258,7 @@ def send_newsletter(
         scheduled_items=scheduled_items,
         deleted_items=ctx.deleted_items,
         this_week_items=ctx.this_week_items,
+        own_picks=ctx.own_picks,
         storage=ctx.storage_summary.stats,
         reclaimed_week=ctx.storage_summary.reclaimed_week,
         reclaimed_month=ctx.storage_summary.reclaimed_month,

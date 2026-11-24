@@ -1,13 +1,16 @@
 /* Watch page: the Discover rows (Recommended for you, Trending this week,
  * Popular movies, Popular TV) that load after the page in place of their
- * skeleton, the badges on their posters, the menu of earlier picks and, for
- * admins, Refresh. Needs watch/core.js and watch/keep.js.
+ * skeleton, the badges on their posters, the menu of earlier picks, each
+ * person's Refresh of their own picks and an admin's of the shared ones; the rest of the library rows as they are scrolled;
+ * and what each of these rows holds when it is opened as a grid.
+ * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/rows-load.js and watch/expand.js.
  */
 (function () {
   'use strict';
 
   var watch = window.MMWatch;
   var core = watch.core;
+  var address = watch.address;
   var el = core.el;
   var icon = window.MM.dom.icon;
   var byId = core.byId;
@@ -16,16 +19,22 @@
 
   var DISCOVER_URL = '/api/watch/discover';
   var RECOMMENDED_URL = '/api/watch/recommended';
+  var LIBRARY_URL = '/api/watch/library/';
   var REFRESH_URL = '/api/recommended/refresh';
   var STATUS_URL = '/api/recommended/refresh/status';
+  var OWN_URL = '/api/watch/picks/refresh';
   var SETTINGS_HREF = '/settings#setg-general';
+  var NO_KEY = 'New ones need an OpenAI key, set in Settings.';
   var REC_TITLE = 'Recommended for you';
   var DISCOVER_ROWS = [
     ['trending', 'Trending this week'],
     ['popular_movies', 'Popular movies'],
     ['popular_tv', 'Popular TV']
   ];
-  var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$/;
+  var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^(rec|pick)-[0-9]{1,10}$/;
+  var PICK_RE = /^(rec|pick)-[0-9]{1,10}$/;
+  var GRID_PAGE = 60;
+  var DAY_MS = 86400000;
   var POLL_MS = 3000;
   var POLL_MAX_MS = 30000;
   var MAX_FAILURES = 8;
@@ -82,6 +91,8 @@
     link.setAttribute('data-title-ref', ref);
     if (item.kind === 'movie' || item.kind === 'show') link.setAttribute('data-kind', item.kind);
     if (item.in_library) link.setAttribute('data-in-library', '');
+    if (item.tmdb_id > 0) link.setAttribute('data-tmdb-id', String(Number(item.tmdb_id)));
+    if (PICK_RE.test(item.pick_ref || '')) link.setAttribute('data-pick-ref', item.pick_ref);
     var poster = el('span', 'watch-card__poster');
     var src = safePath(item.poster_url);
     if (src) {
@@ -97,9 +108,22 @@
     if (state) poster.appendChild(state);
     link.appendChild(poster);
     var kind = item.kind === 'movie' ? 'Movie' : 'TV';
-    link.appendChild(el('span', 'watch-card__sub', typeof item.year === 'number' ? kind + ' · ' + item.year : kind));
+    var sub = el('span', 'watch-card__sub', typeof item.year === 'number' ? kind + ' · ' + item.year : kind);
+    link.appendChild(item.ai_pick ? pickCaption(sub) : sub);
     article.appendChild(link);
+    core.addMarks(article, poster, item);
     return article;
+  }
+
+  /* A pick's caption: the row's chip has the words of its icon. */
+  function pickCaption(sub) {
+    var caption = el('span', 'watch-card__cap');
+    var mark = el('span', 'watch-card__ai');
+    mark.appendChild(icon('i-sparkles'));
+    mark.appendChild(el('span', 'sr-only', 'AI pick, '));
+    caption.appendChild(mark);
+    caption.appendChild(sub);
+    return caption;
   }
 
   /* A card of the title under another ref (a pick, a result): it prints the
@@ -133,15 +157,18 @@
   function rowSection(id, title) {
     var section = el('section', 'watch-row');
     section.setAttribute('data-discover-row', id);
-    var head = el('div', 'watch-row__head');
-    head.appendChild(el('h2', 'watch-row__title', title));
-    section.appendChild(head);
+    section.setAttribute('data-row-id', id);
+    section.appendChild(watch.expand.head(id, title));
     return section;
+  }
+
+  function cardsOf(items) {
+    return (items || []).map(card).filter(Boolean);
   }
 
   /* The scrolling strip of cards, or null when none of *items* can be shown. */
   function strip(title, items) {
-    var cards = (items || []).map(card).filter(Boolean);
+    var cards = cardsOf(items);
     if (!cards.length) return null;
     var viewport = el('div', 'watch-row__viewport');
     var scroller = el('div', 'watch-row__scroll');
@@ -172,8 +199,11 @@
   }
 
   function startRows(root) {
-    if (!watch.rows) return; // watch-rows.js starts every row it finds when it loads
-    toArray(root.querySelectorAll('.watch-row__viewport')).forEach(watch.rows.init);
+    // Until it loads; then watch-rows.js starts every row it finds.
+    if (watch.rows) toArray(root.querySelectorAll('.watch-row__viewport')).forEach(watch.rows.init);
+    var own = root.closest('[data-row-id]');
+    (own ? [own] : toArray(root.querySelectorAll('[data-row-id]'))).forEach(watch.expand.row);
+    address.putRowsBack(root);
   }
 
   /* Swap a row's body (its strip or note) for another in place. */
@@ -185,9 +215,50 @@
 
   /* ── Discover rows ── */
 
-  function discoverRow(id, title, items) {
+  var loaders = {}; // what loads the rest of each TMDB and library row, by id
+
+  /* The later pages of one TMDB row; of one *kind* ("movie" or "tv") when given. */
+  function discoverPages(id, kind) {
+    return function (page) {
+      return MM.api.get(DISCOVER_URL + '?row=' + id + '&page=' + page).then(function (data) {
+        return { cards: ofKind(cardsOf(data.items), kind), next: data.next_page };
+      });
+    };
+  }
+
+  function ofKind(cards, kind) {
+    if (kind !== 'movie' && kind !== 'tv') return cards;
+    return cards.filter(function (c) {
+      return (c.querySelector('.watch-card__link').getAttribute('data-kind') === 'movie') === (kind === 'movie');
+    });
+  }
+
+  /* A TMDB row's grid goes on from where the row stands, or starts where the row is not here yet. */
+  function discoverGrid(at) {
+    var loader = at.row && loaders[at.id];
+    function from(kind) {
+      var pages = discoverPages(at.id, kind);
+      if (loader) return { cards: ofKind(at.cards(), kind), next: loader.next(), fetchPage: pages };
+      return { cards: [], next: 'first', fetchPage: function (page) { return page === 'first' ? firstOf(at.id, kind) : pages(page); } };
+    }
+    var made = from(at.sort);
+    if (at.id === 'trending') {
+      made.sort = { label: 'Show', choose: function (kind) { return from(kind); } };
+    }
+    return made;
+  }
+
+  function firstOf(id, kind) {
+    return discover().then(function (data) {
+      var row = (data.rows || []).filter(function (r) { return r.id === id; })[0];
+      return { cards: row ? ofKind(cardsOf(row.items), kind) : [], next: row ? row.next_page : null };
+    });
+  }
+
+  function discoverRow(id, title, items, next) {
     var body = strip(title, items);
     if (!body) return null;
+    loaders[id] = watch.rowsLoad.start(body, { title: title, next: next, fetchPage: discoverPages(id) });
     var section = rowSection(id, title);
     section.appendChild(body);
     return section;
@@ -202,13 +273,25 @@
     });
   }
 
+  var asking = null;
+
+  /* Asked for once for the rows and a grid opened before they are here. */
+  function discover() {
+    if (!asking) {
+      asking = MM.api.get(DISCOVER_URL);
+      var done = function () { asking = null; };
+      asking.then(done, done);
+    }
+    return asking;
+  }
+
   /* The three TMDB rows, as sections; a failure gives each its Try again. */
   function loadDiscover() {
-    return MM.api.get(DISCOVER_URL).then(function (data) {
+    return discover().then(function (data) {
       var titles = {};
       DISCOVER_ROWS.forEach(function (r) { titles[r[0]] = r[1]; });
       return (data.rows || []).map(function (row) {
-        return titles[row.id] ? discoverRow(row.id, titles[row.id], row.items) : null;
+        return titles[row.id] ? discoverRow(row.id, titles[row.id], row.items, row.next_page) : null;
       }).filter(Boolean);
     }, discoverFailed);
   }
@@ -227,6 +310,8 @@
         core.toast('Still couldn’t load them. Try again in a moment.', { variant: 'error' });
         return;
       }
+      // Read before the swap: a row fading out is inert, so it loses the focus.
+      var focused = document.activeElement === button;
       var focusNext = null;
       failed.forEach(function (old) {
         var match = fresh.filter(function (s) {
@@ -235,30 +320,82 @@
         if (!match) { old.remove(); return; }
         core.swap(old, match);
         startRows(match);
-        if (!focusNext) focusNext = match.querySelector('.watch-row__scroll');
+        if (!focusNext || old.contains(button)) focusNext = match.querySelector('.watch-row__scroll');
       });
-      if (focusNext && document.activeElement === button) core.focusSoftly(focusNext);
+      if (focusNext && focused) core.focusSoftly(focusNext);
     });
   }
+
+  /* ── Your library ── */
+
+  /* The rest of a library row, past the cards the page came with. *more*: the
+     order and the size of a grid's page. */
+  function libraryPages(kind, more) {
+    return function (after) {
+      return MM.api.get(LIBRARY_URL + kind + '/row?after=' + encodeURIComponent(after) + (more || '')).then(function (data) {
+        return { cards: (data.items || []).map(watch.search.card), next: data.next, total: data.total };
+      });
+    };
+  }
+
+  function startLibrary() {
+    toArray(document.querySelectorAll('.watch-row__viewport[data-row-next]')).forEach(function (viewport) {
+      loaders[viewport.getAttribute('data-row-kind')] = watch.rowsLoad.start(viewport, {
+        title: viewport.querySelector('.watch-row__scroll').getAttribute('aria-label'),
+        next: viewport.getAttribute('data-row-next'),
+        fetchPage: libraryPages(viewport.getAttribute('data-row-kind'))
+      });
+    });
+  }
+
+  /* A library row's grid: newest first, as the row, it goes on from where that stands. */
+  function libraryGrid(at) {
+    function pages(sort) { return libraryPages(at.id, '&limit=' + GRID_PAGE + (sort === 'added' ? '' : '&sort=' + sort)); }
+    var made = {
+      fetchPage: pages(at.sort),
+      total: at.drawn ? at.drawn.total : at.row ? Number(at.row.getAttribute('data-row-total')) : 0,
+      sort: {
+        label: 'Sort',
+        choose: function (sort) {
+          return pages(sort)('').then(function (page) { return Object.assign(page, { fetchPage: pages(sort) }); });
+        }
+      }
+    };
+    if (at.drawn) made.next = at.drawn.next;
+    else if (at.sort !== 'added') Object.assign(made, { cards: [], next: '' });
+    else Object.assign(made, { cards: at.cards(), next: loaders[at.id] ? loaders[at.id].next() : null });
+    return made;
+  }
+
+  ['movies', 'tv', 'anime'].forEach(function (kind) { watch.expand.source(kind, libraryGrid); });
+  DISCOVER_ROWS.forEach(function (r) { watch.expand.source(r[0], discoverGrid); });
 
   /* ── Recommended for you ── */
 
   var isAdmin = false;
   var rec = null; // { section, tools, body, payload }
+  var recLoader = null;
   var picksMenu = null;
   var picksMenuNode = null;
-  var cooldownTimer = null;
+  var timers = {}; // of the Refresh buttons that count down, by kind
   var polling = false;
+  var ownBusy = false;
+  var ownFailed = false; // the last refresh of the person's own picks made none
+  var ownRefs = ''; // the person's own picks in the latest batch
 
-  /* "14 h" or "25 min": how long until *iso*. */
+  /* "6 days", "14 h" or "25 min": how long until *iso*. */
   function waitText(iso) {
     var ms = new Date(iso).getTime() - Date.now();
     if (!(ms > 0)) return '';
+    if (ms >= 2 * DAY_MS) return Math.ceil(ms / DAY_MS) + '\u00a0days';
     if (ms >= 3600000) return Math.ceil(ms / 3600000) + '\u00a0h';
     return Math.max(1, Math.ceil(ms / 60000)) + '\u00a0min';
   }
 
+  function againText(left) { return 'Shared picks can be fetched again in ' + left + '.'; }
+
   function batchName(batch, first) {
+    if (!batch.date_label) return first ? 'Latest' : '';
     return first ? 'Latest · ' + batch.date_label : batch.date_label;
   }
 
@@ -271,9 +408,16 @@
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
     button.setAttribute('aria-controls', 'watch-picks-menu');
-    button.setAttribute('aria-label', 'Picks: ' + chosen.label + ', ' + chosen.date_label + '. Choose another batch');
-    button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
-    button.appendChild(document.createTextNode(chosen.date_label));
+    button.setAttribute('aria-label', 'Picks: ' + chosen.label + (chosen.date_label ? ', ' + chosen.date_label : '') + '. Choose another batch');
+    if (chosen.date_label) {
+      button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
+      button.appendChild(document.createTextNode(chosen.date_label));
+    } else {
+      // One box: the space between its two parts would be lost between flex items.
+      var name = el('span', '', chosen.label.replace(/ picks$/, ''));
+      name.appendChild(el('span', 'row-tool__long', chosen.label.slice(name.textContent.length)));
+      button.appendChild(name);
+    }
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
   }
@@ -307,47 +451,56 @@
     });
     var refresh = payload.refresh;
     if (refresh && !refresh.available && refresh.next_available_at && waitText(refresh.next_available_at)) {
-      picksMenuNode.appendChild(el('p', 'rec-menu__note',
-        'New picks can be fetched again in ' + waitText(refresh.next_available_at) + '.'));
+      picksMenuNode.appendChild(el('p', 'rec-menu__note', againText(waitText(refresh.next_available_at))));
     }
   }
 
-  /* Refresh: ready, busy (spinner) or cooling down ("Refresh in 14 h"). */
-  function refreshButton() {
+  /* The two Refresh buttons: the person's own picks, and the shared ones. */
+  var REFRESH = {
+    own: { attr: 'data-own-refresh', name: 'Refresh my picks', busy: 'Making your picks', narrow: { ready: 'My picks', busy: 'Making…' } },
+    shared: { attr: 'data-picks-refresh', name: 'Refresh shared', busy: 'Refreshing shared picks' }
+  };
+
+  /* Ready, busy (spinner) or cooling down ("Refresh in 14 h"). It is as wide as
+     its widest label in every state, so what is beside it stays put. */
+  function refreshButton(kind) {
     var button = el('button', 'row-tool row-tool--refresh');
     button.type = 'button';
-    button.setAttribute('data-picks-refresh', '');
+    button.setAttribute(REFRESH[kind].attr, '');
+    button.setAttribute('data-widest', 'Refresh in 59\u00a0min');
+    if (REFRESH[kind].narrow) button.setAttribute('data-narrow', REFRESH[kind].narrow.busy);
     return button;
   }
 
-  function setRefresh(state, nextAt) {
-    var button = rec && rec.tools.querySelector('[data-picks-refresh]');
+  function noKey(payload) { return payload.my_refresh.reason === 'not_configured'; }
+
+  function refreshOf(kind) { return rec && rec.section.querySelector('[' + REFRESH[kind].attr + ']'); }
+
+  function setRefresh(kind, state, nextAt) {
+    var button = refreshOf(kind);
     if (!button) return;
-    clearTimeout(cooldownTimer);
+    var words = REFRESH[kind];
+    clearTimeout(timers[kind]);
+    var off = kind === 'shared' && state !== 'busy' && noKey(rec.payload);
+    var left = state === 'cooldown' && !off ? waitText(nextAt) : '';
+    if (state === 'cooldown' && !left) state = 'ready';
+    var face = { ready: ['i-rotate-right', words.name], busy: ['i-rotate-right', 'Refreshing…'],
+      cooldown: ['i-clock-regular', 'Refresh in ' + left] }[state];
     button.textContent = '';
     button.classList.toggle('is-busy', state === 'busy');
-    if (state === 'ready') {
-      button.removeAttribute('aria-disabled');
-      button.setAttribute('aria-label', 'Refresh picks');
-      button.appendChild(icon('i-rotate-right'));
-      button.appendChild(el('span', 'row-tool__long', 'Refresh picks'));
-      return;
-    }
-    button.setAttribute('aria-disabled', 'true');
-    if (state === 'busy') {
-      button.setAttribute('aria-label', 'Refreshing picks');
-      button.appendChild(icon('i-rotate-right'));
-      button.appendChild(el('span', 'row-tool__long', 'Refreshing…'));
-      return;
-    }
-    var left = waitText(nextAt);
-    if (!left) { setRefresh('ready'); return; }
-    button.setAttribute('aria-label', 'Refresh picks, available in ' + left);
-    button.appendChild(icon('i-clock-regular'));
-    button.appendChild(el('span', 'row-tool__long', 'Refresh in '));
-    button.appendChild(document.createTextNode(left));
+    if (state === 'ready' && !off) button.removeAttribute('aria-disabled');
+    else button.setAttribute('aria-disabled', 'true');
+    if (off) button.setAttribute('title', NO_KEY);
+    else button.removeAttribute('title');
+    button.setAttribute('aria-label', { ready: words.name, busy: words.busy,
+      cooldown: words.name + ', available in ' + left }[state]);
+    var shown = el('span', 'row-tool__face');
+    shown.appendChild(icon(face[0]));
+    shown.appendChild(el('span', 'row-tool__long', face[1]));
+    if (words.narrow) shown.setAttribute('data-narrow', words.narrow[state] || left);
+    button.appendChild(shown);
     // The clock counts down by itself; once it runs out Refresh is back.
-    cooldownTimer = setTimeout(function () { setRefresh('cooldown', nextAt); }, 60000);
+    if (state === 'cooldown') timers[kind] = setTimeout(function () { if (kind === 'own') drawOwn(); else setRefresh(kind, 'cooldown', nextAt); }, 60000);
   }
 
   function refreshState(refresh) {
@@ -355,30 +508,108 @@
     return !refresh.available && refresh.next_available_at ? 'cooldown' : 'ready';
   }
 
-  /* An inline line under the row's heading; null clears it. */
-  function setRecError(message) {
-    if (!rec) return;
-    var old = rec.section.querySelector('.watch-row__error');
-    if (old) old.remove();
-    if (!message) return;
-    var line = el('p', 'watch-row__error', message);
-    line.setAttribute('role', 'alert');
-    var head = rec.section.querySelector('.watch-row__head');
-    head.parentNode.insertBefore(line, head.nextSibling);
+  /* A batch's cards, each with the batch it is of. */
+  function pickCards(payload) {
+    return tagged(cardsOf(payload.items), payload.batch);
+  }
+
+  function tagged(cards, batch) {
+    cards.forEach(function (c) { c.setAttribute('data-batch', batch); });
+    return cards;
+  }
+
+  /* The batches older than the one the row of *payload* starts at. */
+  function olderPicks(payload) {
+    var ids = payload.batches.map(function (b) { return b.id; });
+    var start = payload.batch;
+    return function load(batch) {
+      return fetchRec(batch, start).then(function (older) {
+        return { cards: pickCards(older), next: older.next_batch };
+      }, function (err) {
+        if (!err || err.status !== 404) throw err;
+        // Deleted meanwhile, the one the row starts at or the batch: on without the first, then without both.
+        if (start !== null) {
+          start = null;
+          return load(batch);
+        }
+        var after = ids.indexOf(batch) + 1;
+        return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+      });
+    };
   }
 
   function recBody(payload) {
+    if (recLoader) recLoader.stop();
+    recLoader = null;
     var body = payload.enabled ? strip(REC_TITLE, payload.items) : null;
-    if (body) return body;
+    if (body) {
+      tagged(toArray(body.querySelectorAll('.watch-card')), payload.batch);
+      recLoader = watch.rowsLoad.start(body, {
+        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload)
+      });
+      return body;
+    }
     if (!payload.enabled) {
       var link = el('a', 'watch-row__link', 'Turn them on in Settings');
       link.setAttribute('href', SETTINGS_HREF);
       return note('Recommendations are switched off.', link);
     }
     var empty = note('No recommendations yet.');
-    if (payload.refresh) empty.appendChild(el('span', 'watch-row__hint', 'Refresh picks to fetch the first ones.'));
+    if (payload.refresh && !noKey(payload)) empty.appendChild(el('span', 'watch-row__hint', 'Refresh shared to fetch the first ones.'));
     return empty;
   }
+
+  /* Recommended's grid: each batch under its date, from the one the row starts at. */
+  function recGrid(at) {
+    var shown = null; // the batch of the last card
+    function lines(cards, payload) {
+      return cards.reduce(function (out, c) {
+        var id = c.getAttribute('data-batch');
+        if (id !== shown) {
+          out.push(batchLine(id, payload));
+          shown = id;
+        }
+        return out.concat(c);
+      }, []);
+    }
+    function pages(payload) {
+      var older = olderPicks(payload);
+      return function (batch) {
+        return older(batch).then(function (page) { return { cards: lines(page.cards, payload), next: page.next }; });
+      };
+    }
+    function jump(payload) {
+      var from = payload.batches.map(function (b) { return b.id; }).indexOf(payload.batch);
+      var options = payload.batches.map(function (b, i) { return { id: b.id, label: batchName(b, i === 0) }; }).slice(Math.max(0, from));
+      return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
+    }
+    var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    if (at.row && rec && rec.payload.batch) {
+      return { cards: lines(at.cards(), rec.payload), next: recLoader ? recLoader.next() : null,
+        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty };
+    }
+    var rest = null;
+    return { cards: [], next: 'first', empty: empty, fetchPage: function (batch) {
+      if (batch !== 'first') return rest(batch);
+      return fetchRec(null).then(function (payload) {
+        if (!payload.batch) return { cards: [], next: null };
+        rest = pages(payload);
+        var sort = jump(payload);
+        if (sort && address.value('grid') === at.id) watch.grid.setSort(sort);
+        return { cards: lines(pickCards(payload), payload), next: payload.next_batch };
+      });
+    } };
+  }
+
+  function batchLine(id, payload) {
+    var at = payload.batches.map(function (b) { return b.id; }).indexOf(id);
+    var date = at < 0 ? '' : payload.batches[at].date_label;
+    var line = watch.grid.group(id, at === 0 ? (date ? 'Latest picks · ' + date : 'Latest picks') : 'Picks of ' + date);
+    line.insertBefore(core.aiLabel('AI picks'), line.firstChild);
+    return line;
+  }
+
+  watch.expand.source('recommended', recGrid);
 
   function fillTools(tools, payload) {
     var keepRefresh = tools.querySelector('[data-picks-refresh]');
@@ -388,7 +619,132 @@
       tools.appendChild(picksButton(payload));
       fillPicksMenu(payload);
     }
-    if (payload.refresh) tools.appendChild(keepRefresh || refreshButton());
+    if (payload.refresh) tools.appendChild(keepRefresh || refreshButton('shared'));
+  }
+
+  /* ── A person's own picks ── */
+
+  function ownOf(payload) {
+    return (payload.items || []).filter(function (i) { return i.own; }).map(function (i) { return i.pick_ref; }).join(' ');
+  }
+
+  function latestOf(payload) { return payload.batches.length ? payload.batches[0].id : null; }
+
+  function noteOwn(payload) {
+    if (!payload.batches.length || payload.batch === latestOf(payload)) ownRefs = ownOf(payload);
+  }
+
+  /* Whether the person may have their picks made: ready, busy, cooldown, or none
+     (nothing they do here would change it). */
+  function ownState(mine) {
+    if (ownBusy || mine.running) return 'busy';
+    if (mine.available) return 'ready';
+    if (mine.reason !== 'wait' && mine.reason !== 'daily_limit') return 'none';
+    return waitText(mine.next_available_at) ? 'cooldown' : 'ready';
+  }
+
+  function ownText(payload, state) {
+    var mine = payload.my_refresh;
+    if (state === 'busy') return 'Making yours. It can take a minute or two.';
+    if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
+    if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
+    if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
+    if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
+    var items = payload.items || [];
+    if (ownOf(payload)) {
+      return items.every(function (i) { return i.own; }) ? 'From your plays.' : 'From your plays, then new and popular.';
+    }
+    if (state === 'ready' && !ownRefs) return (items.length ? 'New and popular. ' : '') + 'Refresh for your own.';
+    return items.length ? 'New and popular.' : '';
+  }
+
+  /* The line under the heading: what these are, and the person's own Refresh. */
+  function ownLine() {
+    var line = el('div', 'rec-line');
+    line.appendChild(core.aiLabel('AI picks'));
+    var text = el('span', 'rec-line__text');
+    text.setAttribute('role', 'status');
+    line.appendChild(text);
+    return line;
+  }
+
+  function drawOwn() {
+    var line = rec && rec.section.querySelector('.rec-line');
+    if (!line) return;
+    var state = ownState(rec.payload.my_refresh);
+    var button = refreshOf('own');
+    var said = line.querySelector('.rec-line__text');
+    var says = ownText(rec.payload, state);
+    if (said.textContent !== says) said.textContent = says;
+    if (state === 'none') {
+      var focused = button && document.activeElement === button;
+      if (button) button.remove();
+      var row = focused && rec.section.querySelector('.watch-row__scroll');
+      if (row) core.focusSoftly(row);
+      return;
+    }
+    if (!button) line.appendChild(refreshButton('own'));
+    setRefresh('own', state, rec.payload.my_refresh.next_available_at);
+    if (!ownBusy && rec.payload.my_refresh.running) followOwn(false);
+  }
+
+  function ownError(message) {
+    ownBusy = false;
+    rec.payload.my_refresh = { available: true, reason: null, next_available_at: null, running: false };
+    drawOwn();
+    core.toast(message, { variant: 'error' });
+  }
+
+  /* Have the person's own picks made again: once a week, and only when the server says so. */
+  function refreshOwn(button) {
+    if (ownBusy || button.getAttribute('aria-disabled') === 'true') {
+      var left = !ownBusy && waitText(rec.payload.my_refresh.next_available_at);
+      if (left) core.toast('Your picks can be refreshed again in ' + left + '.');
+      return;
+    }
+    ownBusy = true;
+    ownFailed = false;
+    drawOwn();
+    MM.api.post(OWN_URL).then(function () { followOwn(true); }, function (err) {
+      if (loggedOut(err)) return;
+      var data = (err && err.data) || {};
+      if (data.error === 'running') { followOwn(false); return; }
+      if (err && (err.status === 409 || (err.status === 429 && data.next_available_at))) {
+        ownBusy = false;
+        rec.payload.my_refresh = { available: false, reason: data.error, running: false, next_available_at: data.next_available_at };
+        drawOwn();
+        return;
+      }
+      ownError(MM.api.messageOf(err, 'Couldn’t refresh your picks. Try again.'));
+    });
+  }
+
+  /* Follow the making of the person's picks to its end. *mine*: started here; a
+     scan can be making them too, and then the status says nothing of how it went. */
+  function followOwn(mine) {
+    ownBusy = true;
+    drawOwn();
+    follow(OWN_URL, function (st) {
+      if (st.status === 'running') return false;
+      fetchRec(null).then(function (payload) {
+        var own = ownOf(payload);
+        var changed = own !== ownRefs || latestOf(payload) !== latestOf(rec.payload);
+        var fresh = !!own && own !== ownRefs;
+        ownBusy = false;
+        ownFailed = !fresh && !payload.my_refresh.running && (st.status === 'failed' || (mine && st.status !== 'done'));
+        if (changed) {
+          updateRec(payload);
+        } else {
+          rec.payload.my_refresh = payload.my_refresh;
+          drawOwn();
+        }
+        if (fresh) core.toast('Your new picks are in.', { variant: 'success' });
+        else if (ownFailed) core.toast('Couldn’t make new picks for you.' + (payload.my_refresh.available ? ' Try again.' : ''), { variant: 'error' });
+      }).catch(function (err) {
+        if (!loggedOut(err)) ownError('Your picks may have changed, but they didn’t load. Reload the page to see them.');
+      });
+      return true;
+    }, ownError);
   }
 
   /* The Recommended row for *payload*; null when a viewer has it switched off. */
@@ -397,14 +753,18 @@
     var section = rowSection('recommended', REC_TITLE);
     var tools = el('div', 'watch-row__tools');
     section.querySelector('.watch-row__head').appendChild(tools);
+    if (payload.enabled) section.appendChild(ownLine());
     var body = recBody(payload);
     section.appendChild(body);
     rec = { section: section, tools: tools, body: body, payload: payload };
     fillTools(tools, payload);
-    if (payload.refresh && payload.enabled) {
-      setRefresh(refreshState(payload.refresh), payload.refresh.next_available_at);
+    if (!payload.enabled) return section;
+    noteOwn(payload);
+    if (payload.refresh) {
+      setRefresh('shared', refreshState(payload.refresh), payload.refresh.next_available_at);
       if (payload.refresh.running) poll();
     }
+    drawOwn();
     return section;
   }
 
@@ -416,8 +776,9 @@
     return section;
   }
 
-  function fetchRec(batch) {
-    return MM.api.get(RECOMMENDED_URL + (batch ? '?batch=' + encodeURIComponent(batch) : ''));
+  function fetchRec(batch, start) {
+    return MM.api.get(RECOMMENDED_URL + (batch ? '?batch=' + encodeURIComponent(batch) : '') +
+      (start ? '&start=' + encodeURIComponent(start) : ''));
   }
 
   function loadRecommended() {
@@ -429,7 +790,9 @@
     if (picksMenu) picksMenu.close(false);
     var refocus = rec.tools.contains(document.activeElement) && document.activeElement.hasAttribute('data-picks-menu');
     rec.payload = payload;
+    noteOwn(payload);
     fillTools(rec.tools, payload);
+    drawOwn();
     if (refocus) {
       var pill = rec.tools.querySelector('[data-picks-menu]');
       if (pill) pill.focus({ preventScroll: true });
@@ -458,10 +821,12 @@
     fetchRec(null).then(function (payload) {
       var section = recSection(payload);
       if (!section) { old.remove(); return; }
+      // Read before the swap: a row fading out is inert, so it loses the focus.
+      var focused = document.activeElement === button;
       core.swap(old, section);
       startRows(section);
       var focus = section.querySelector('.watch-row__scroll, [data-picks-menu]');
-      if (focus && document.activeElement === button) core.focusSoftly(focus);
+      if (focus && focused) core.focusSoftly(focus);
     }, function (err) {
       if (loggedOut(err)) return;
       button.removeAttribute('aria-disabled');
@@ -470,18 +835,22 @@
     });
   }
 
-
   function refreshFailed(message) {
     polling = false;
-    setRefresh('ready');
-    setRecError(message);
+    setRefresh('shared', 'ready');
+    core.toast(message, { variant: 'error' });
   }
 
   /* Ask for new picks; the server says no while the last refresh cools down. */
   function refresh(button) {
-    if (polling || button.getAttribute('aria-disabled') === 'true') return;
-    setRecError(null);
-    setRefresh('busy');
+    if (polling || button.getAttribute('aria-disabled') === 'true') {
+      // On a phone the button is its icon alone, so it says how long when pressed.
+      var left = rec.payload.refresh && waitText(rec.payload.refresh.next_available_at);
+      if (!polling && noKey(rec.payload)) core.toast(NO_KEY);
+      else if (!polling && left) core.toast(againText(left));
+      return;
+    }
+    setRefresh('shared', 'busy');
     MM.api.post(REFRESH_URL).then(function (data) {
       if (data && (data.status === 'started' || data.status === 'already_running')) { poll(); return; }
       refreshFailed('Couldn’t refresh picks. Try again.');
@@ -493,63 +862,64 @@
           new Date(Date.now() + (data.cooldown_seconds || 0) * 1000).toISOString();
         rec.payload.refresh = { available: false, next_available_at: next, running: false };
         fillPicksMenu(rec.payload);
-        setRefresh('cooldown', next);
+        setRefresh('shared', 'cooldown', next);
         return;
       }
       refreshFailed(MM.api.messageOf(err, 'Couldn’t refresh picks. Try again.'));
     });
   }
 
-  /* Follow a running refresh to its end, then show the new picks in place. */
-  function poll() {
-    if (polling) return;
-    polling = true;
-    setRefresh('busy');
+  /* Ask *url* how a refresh goes until take(status) says it is over, or
+     lost(message) that nobody can tell. */
+  function follow(url, take, lost) {
     var failures = 0;
-    var idle = 0;
     function later(ms) { setTimeout(tick, ms); }
     function tick() {
-      if (!polling) return;
       if (document.hidden) { later(POLL_MS); return; }
-      MM.api.get(STATUS_URL).then(function (st) {
+      MM.api.get(url).then(function (st) {
         failures = 0;
-        if (st.status === 'done') {
-          if (!(st.result && st.result.ok)) {
-            refreshFailed((st.result && st.result.error) || 'Couldn’t refresh picks. Try again.');
-            return;
-          }
-          fetchRec(null).then(function (payload) {
-            polling = false;
-            updateRec(payload);
-            setRefresh(payload.refresh ? refreshState(payload.refresh) : 'ready',
-              payload.refresh && payload.refresh.next_available_at);
-            core.toast('New picks are in.', { variant: 'success' });
-          }, function () {
-            refreshFailed('New picks are ready, but they didn’t load. Reload the page to see them.');
-          });
-          return;
-        }
-        if (st.status === 'idle') {
-          idle += 1;
-          if (idle >= IDLE_LIMIT) {
-            refreshFailed('The refresh stopped before it finished. Try again.');
-            return;
-          }
-        } else {
-          idle = 0;
-        }
-        later(POLL_MS);
+        if (!take(st)) later(POLL_MS);
       }).catch(function (err) {
-        if (err && (err.status === 401 || err.status === 403)) { polling = false; toLogin(); return; }
+        if (err && (err.status === 401 || err.status === 403)) { toLogin(); return; }
         failures += 1;
         if (failures >= MAX_FAILURES) {
-          refreshFailed('Couldn’t reach the server. Check your connection and try again.');
+          lost('Couldn’t reach the server. Check your connection and try again.');
           return;
         }
         later(Math.min(POLL_MS * Math.pow(2, failures), POLL_MAX_MS));
       });
     }
     later(POLL_MS);
+  }
+
+  /* Follow a running refresh of the shared picks to its end, then show them in place. */
+  function poll() {
+    if (polling) return;
+    polling = true;
+    setRefresh('shared', 'busy');
+    var idle = 0;
+    follow(STATUS_URL, function (st) {
+      if (st.status === 'done') {
+        if (!(st.result && st.result.ok)) {
+          refreshFailed((st.result && st.result.error) || 'Couldn’t refresh picks. Try again.');
+          return true;
+        }
+        fetchRec(null).then(function (payload) {
+          polling = false;
+          updateRec(payload);
+          setRefresh('shared', payload.refresh ? refreshState(payload.refresh) : 'ready',
+            payload.refresh && payload.refresh.next_available_at);
+          core.toast('New picks are in.', { variant: 'success' });
+        }, function () {
+          refreshFailed('New picks are ready, but they didn’t load. Reload the page to see them.');
+        });
+        return true;
+      }
+      idle = st.status === 'idle' ? idle + 1 : 0;
+      if (idle < IDLE_LIMIT) return false;
+      refreshFailed('The refresh stopped before it finished. Try again.');
+      return true;
+    }, refreshFailed);
   }
 
   /* ── Landing on Recommended ── */
@@ -561,8 +931,7 @@
     var params = (window.location.search || '').replace(/^\?/, '').split('&').filter(Boolean);
     var rest = params.filter(function (p) { return p !== 'row=recommended'; });
     if (rest.length === params.length) return false;
-    window.history.replaceState(window.history.state, '', window.location.pathname +
-      (rest.length ? '?' + rest.join('&') : '') + (window.location.hash || ''));
+    address.replace(null, window.location.pathname + (rest.length ? '?' + rest.join('&') : '') + (window.location.hash || ''));
     return true;
   }
 
@@ -583,10 +952,16 @@
     slot.removeAttribute('aria-busy');
     var skel = slot.querySelector('.watch-discover-skel');
     function settle() {
+      var lefts = content ? toArray(content.querySelectorAll('.watch-row__scroll')).map(function (n) {
+        return { node: n, left: n.scrollLeft };
+      }) : [];
+      address.hold(slot);
       slot.textContent = '';
       if (content) {
         slot.appendChild(content);
         content.classList.remove('is-swapping-in');
+        // Moved, they stand at their start.
+        lefts.forEach(function (l) { if (l.left) l.node.scrollTo({ left: l.left, behavior: 'instant' }); });
       }
     }
     if (!content || !skel || core.reduceMotion()) {
@@ -595,6 +970,7 @@
       return;
     }
     var layer = el('div', 'swap-layer watch-discover-layer');
+    address.hold(slot);
     skel.replaceWith(layer);
     content.classList.add('is-swapping-in');
     layer.appendChild(content);
@@ -637,7 +1013,9 @@
       return;
     }
     var button = target.closest('[data-picks-refresh]');
-    if (button && isAdmin) refresh(button);
+    if (button && isAdmin) { refresh(button); return; }
+    var own = target.closest('[data-own-refresh]');
+    if (own) refreshOwn(own);
   });
 
   watch.browse = { card: card, badge: badge };
@@ -645,4 +1023,5 @@
   var landing = takeLanding();
   var slot = byId('watch-discover-slot');
   if (slot) start(slot, pageData());
+  startLibrary();
 })();

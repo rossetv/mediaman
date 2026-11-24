@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sqlite3
+import unicodedata
 from typing import Any
 
 import requests
@@ -22,8 +23,7 @@ import requests
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 # Module-level client so the connection pool is shared across calls.
-# Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking
-# the scan path for too long on a slow or unreachable OpenAI endpoint.
+# Connect timeout: 5 s.  Read timeout: 30 s unless a call sets its own.
 # Callers that are ``async def`` should wrap calls in ``asyncio.to_thread``
 # so this synchronous HTTP call does not stall the event loop.
 # A global is required: per-request instantiation would rebuild
@@ -37,6 +37,12 @@ _OPENAI_CLIENT = SafeHTTPClient(
     default_timeout=(5.0, 30.0),
 )
 
+# Twenty reasoned picks, some after a web search, take a model longer than a plain answer.
+# A call that times out may be billed, so it is never sent again (POST does not retry).
+_CALL_TIMEOUT = (5.0, 120.0)
+# Twenty picks are about 3,000 tokens; the rest is for what a model thinks before them.
+_MAX_OUTPUT_TOKENS = 16_000
+
 logger = logging.getLogger(__name__)
 
 #: Models the settings page offers and the settings API accepts.
@@ -46,9 +52,10 @@ OPENAI_MODELS: tuple[str, ...] = ("gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra
 # retired model keeps working instead of sending OpenAI a model it has dropped.
 _DEFAULT_MODEL = "gpt-6.2-sol"
 
-# Regex for validating web-search-derived recommendation titles.
-_SAFE_TITLE_RE = re.compile(r"^[\x20-\x7E]+$")
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
+
+#: A domain of any ending, as mail programs and pages make links of ("S.W.A.T." is none).
+DOMAIN_RE = re.compile(r"\w\.(?:[^\W\d_]{2,}|xn--)")
 
 
 def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = None) -> str:
@@ -92,19 +99,21 @@ def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
     return get_bool_setting(conn, "openai_web_search_enabled", default=False)
 
 
-def is_web_search_title_safe(title: str) -> bool:
-    """Return True if *title* is safe to persist after a web-search response.
-
-    Rejects the entire batch (caller must check the return value) if:
-    - The title contains non-printable-ASCII characters.
-    - The title contains markdown link syntax ``[text](url)``.
-    - The title contains a URL scheme pattern (``http://``, ``https://``).
+def _title_hostile(title: str) -> bool:
+    """Whether *title* holds a character that is neither printable ASCII nor a letter, mark,
+    number or punctuation of another script, markdown link syntax ``[text](url)``, or a URL
+    scheme (``http://``, ``https://``): what a manipulated web search leaves.
     """
-    if not _SAFE_TITLE_RE.match(title):
-        return False
-    if _MARKDOWN_LINK_RE.search(title):
-        return False
-    return not re.search(r"https?://", title, re.IGNORECASE)
+    if not title or not all(
+        " " <= c <= "~" or (ord(c) > 0x7F and unicodedata.category(c)[0] in "LMNP") for c in title
+    ):
+        return True
+    return bool(_MARKDOWN_LINK_RE.search(title) or re.search(r"https?://", title, re.IGNORECASE))
+
+
+def holds_domain(title: str) -> bool:
+    """Whether *title* holds an address ("evil.xyz"), as "Mr.Robot" does by its shape."""
+    return DOMAIN_RE.search(title) is not None
 
 
 def _build_request(
@@ -116,7 +125,7 @@ def _build_request(
     """Build the Responses-API request body and auth headers.
 
     ``web_search_active`` controls whether the ``web_search_preview`` tool
-    and the "ALWAYS search the web" instruction are included. Both the
+    and the instruction to search the web are included. Both the
     directive and the tool must arrive together — or neither — so the model
     is never told to do something it has no way to do.
     """
@@ -124,11 +133,11 @@ def _build_request(
         "model": model,
         "input": prompt,
         "text": {"format": {"type": "json_object"}},
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
     }
     if web_search_active:
         body["instructions"] = (
-            "You are a media recommendation engine. ALWAYS search the web to find "
-            "current, real, accurate information. Do not rely on training data alone. "
+            "You are a media recommendation engine. Use web search for current facts. "
             "Return only valid JSON."
         )
         body["tools"] = [{"type": "web_search_preview"}]
@@ -204,7 +213,7 @@ def _handle_error(exc: Exception) -> list[dict[str, object]]:
         else:
             logger.exception("OpenAI API returned HTTP error: %s", exc)
     elif isinstance(exc, requests.Timeout):
-        logger.warning("OpenAI API call timed out after 30 s", exc_info=True)
+        logger.warning("OpenAI API call timed out", exc_info=True)
     elif isinstance(exc, requests.RequestException):
         logger.exception("OpenAI API network error: %s", exc)
     else:
@@ -226,8 +235,8 @@ def call_openai(
     indirect-prompt-injection surface. *use_web_search* defaults to False so callers
     must opt in alongside the operator setting.
 
-    When web search is active every returned title must pass a strict printable-ASCII
-    check; if any looks adversarial the whole batch is rejected and [] is returned.
+    When web search is active a title that looks adversarial rejects the whole batch and []
+    is returned; a title that holds a domain is left out alone.
     """
     try:
         api_key = get_openai_key(conn, secret_key)
@@ -240,28 +249,29 @@ def call_openai(
 
     try:
         body, headers = _build_request(prompt, model, api_key, web_search_active)
-        resp = _OPENAI_CLIENT.post("/v1/responses", headers=headers, json=body)
+        resp = _OPENAI_CLIENT.post(
+            "/v1/responses", headers=headers, json=body, timeout=_CALL_TIMEOUT
+        )
         items = _parse_response(resp.json())
         if items is None:
             return []
 
         if web_search_active:
-            # Conservative security choice: reject the entire batch on any
-            # unsafe title rather than filtering per-item. A single adversarial
-            # title indicates the web-search path may have been manipulated, so
-            # the entire result set is untrusted. The per-item filtering path
-            # (used for non-web-search results via _validate_llm_string) is
-            # deliberately more lenient because it operates on model-only
-            # output without the indirect-prompt-injection surface.
+            # Conservative security choice: reject the entire batch on any hostile
+            # title rather than filtering per-item. A single adversarial title
+            # indicates the web-search path may have been manipulated, so the entire
+            # result set is untrusted. A title that only has the shape of a domain
+            # ("Mr.Robot") is the one that is dropped.
             for item in items:
                 title = str(item.get("title", ""))
-                if not is_web_search_title_safe(title):
+                if _title_hostile(title):
                     logger.error(
                         "openai.web_search.batch_rejected title=%r — "
                         "title failed safety check; entire batch discarded",
                         title,
                     )
                     return []
+            items = [i for i in items if not holds_domain(str(i.get("title", "")))]
 
         return items
 
@@ -271,5 +281,8 @@ def call_openai(
         requests.RequestException,
         ValueError,
         KeyError,
+        TypeError,
+        AttributeError,
+        RecursionError,
     ) as exc:
         return _handle_error(exc)

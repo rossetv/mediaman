@@ -138,14 +138,10 @@ main:focus { outline: none; }
     transition-duration: .01ms !important;
     scroll-behavior: auto !important;
   }
-  /* A frozen spinner shows nothing, so spinners and the loading dots swap
+  /* A frozen spinner shows nothing, so spinners swap
      rotation for a slow fade, which still says "working" without movement. */
   .btn-spinner,
-  .search-spinner,
-  .progress-icon .spinner,
-  .player.is-loading .player-spinner,
-  .scan-dots span,
-  .countdown::before {
+  .player.is-loading .player-spinner {
     animation: loading-pulse 1.6s ease-in-out infinite !important;
   }
 }
@@ -175,34 +171,6 @@ main:focus { outline: none; }
   margin-top: 10px;
   font-size: 17px;
   letter-spacing: -.02em;
-}
-.ph-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-/* Section header */
-.sec-hd {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.sec-hd h2 {
-  font-size: clamp(22px, 2.6vw, 30px);
-  font-weight: 600;
-  letter-spacing: -.025em;
-  font-family: var(--font-display);
-}
-.sec-hd .sub {
-  color: var(--t3);
-  font-size: 13px;
-  letter-spacing: -.01em;
 }
 
 .eyebrow {
@@ -254,8 +222,6 @@ main:focus { outline: none; }
   border: 1px dashed var(--hair);
   border-radius: var(--r-lg);
 }
-/* Larger padding variant — applied via extra_class on the .empty macro. */
-.empty-state--lg { padding: 100px 20px; }
 .empty-ico {
   margin: 0 auto 16px;
   color: var(--t3);

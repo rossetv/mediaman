@@ -25,7 +25,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     for q in client.get_queue():
         movie = q.get("movie") or {}
         size = q.get("size") or 0
-        sizeleft = q.get("sizeleft") or 0
+        sizeleft = max(0, q.get("sizeleft") or 0)
         # Clamp to [0, 100]: Radarr can briefly report ``sizeleft > size`` while
         # a torrent re-downloads or pads, which would otherwise produce a
         # negative percentage and break progress bars.

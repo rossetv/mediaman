@@ -28,6 +28,12 @@ def test_form_message_line_is_never_hidden_so_nothing_below_jumps() -> None:
     assert "line-height: 1.4" in _declarations(".setg-pg .inline-form-msg")
 
 
+def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
+    for part in (".usr-name", ".usr-sub"):
+        for at in (".usr-row", ".usr-self-head"):
+            assert "overflow-wrap: anywhere" in _declarations(f".setg-pg {at} {part}")
+
+
 def test_fold_wrapper_may_shrink_below_its_content() -> None:
     assert "min-width: 0" in _declarations(".setg-pg .setg-fold-inner")
 

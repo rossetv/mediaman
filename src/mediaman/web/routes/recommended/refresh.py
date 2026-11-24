@@ -8,7 +8,6 @@ import logging
 import sqlite3
 import threading
 
-import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -21,8 +20,6 @@ from mediaman.db import (
     open_thread_connection,
     start_refresh_run,
 )
-from mediaman.services.arr.build import build_plex_from_db
-from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.throttle import (
     RECOMMENDATION_REFRESH_COOLDOWN_HOURS,
@@ -114,33 +111,26 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
     result: dict[str, object]
     manual_refresh_recorded = False
     try:
-        plex_client = build_plex_from_db(thread_conn, thread_secret_key)
-        if plex_client:
-            count = refresh_recommendations(
-                thread_conn, plex_client, manual=True, secret_key=thread_secret_key
-            )
-            if count > 0:
-                result = {"ok": True, "count": count}
-                # Cooldown only counts on success — a failure must not
-                # lock the user out for 24h. Record the timestamp here,
-                # after the work returned without raising.
-                record_manual_refresh(thread_conn, now_utc())
-                manual_refresh_recorded = True
-                finish_refresh_run(thread_conn, run_id, "done")
-            else:
-                # Zero rows generated means OpenAI returned nothing
-                # usable (quota, key, network, or web-search batch
-                # rejected). Treat as failure: don't burn the 24h
-                # cooldown, surface a real error so the user can retry.
-                no_recs = (
-                    "OpenAI returned no recommendations. Check the OpenAI "
-                    "API key, quota, and server logs, then try again."
-                )
-                result = {"ok": False, "error": no_recs, "message": no_recs}
-                finish_refresh_run(thread_conn, run_id, "error", "no recommendations generated")
-        else:
-            result = {"ok": False, "error": "Plex not configured", "message": "Plex not configured"}
+        count = refresh_recommendations(thread_conn, secret_key=thread_secret_key)
+        if count > 0:
+            result = {"ok": True, "count": count}
+            # Cooldown only counts on success — a failure must not
+            # lock the user out for 24h. Record the timestamp here,
+            # after the work returned without raising.
+            record_manual_refresh(thread_conn, now_utc())
+            manual_refresh_recorded = True
             finish_refresh_run(thread_conn, run_id, "done")
+        else:
+            # Zero rows generated means OpenAI returned nothing
+            # usable (quota, key, network, or web-search batch
+            # rejected). Treat as failure: don't burn the 24h
+            # cooldown, surface a real error so the user can retry.
+            no_recs = (
+                "OpenAI returned no recommendations. Check the OpenAI "
+                "API key, quota, and server logs, then try again."
+            )
+            result = {"ok": False, "error": no_recs, "message": no_recs}
+            finish_refresh_run(thread_conn, run_id, "error", "no recommendations generated")
     except Exception as exc:  # rationale: background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.
         logger.exception("Background recommendation refresh failed")
         result = {
@@ -179,7 +169,7 @@ def api_refresh_recommendations(
     """
     conn = get_db()
 
-    # Cooldown — enforced before we touch OpenAI / Plex / the lock.
+    # Cooldown — enforced before we touch OpenAI / the lock.
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is not None:
         next_at = (now_utc() + cooldown).isoformat()
@@ -196,16 +186,6 @@ def api_refresh_recommendations(
         return JSONResponse({"status": "already_running"})
 
     config = request.app.state.config
-    try:
-        plex = build_plex_from_db(conn, config.secret_key)
-    except (SSRFRefused, ConfigDecryptError, requests.RequestException, ValueError):
-        logger.exception("Could not build the Plex client for a manual refresh")
-        finish_refresh_run(conn, run_id, "error", "Plex client could not be built")
-        return respond_failure("Could not connect to Plex", status=200)
-    if not plex:
-        finish_refresh_run(conn, run_id, "error", "Plex not configured")
-        return respond_failure("Plex not configured", status=200)
-
     db_path = request.app.state.db_path
     secret_key = config.secret_key
 

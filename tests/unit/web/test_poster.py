@@ -1331,8 +1331,8 @@ class TestPosterTmdbBackdrop:
             monkeypatch.setattr(watch_catalog, "details", answer)
             monkeypatch.setattr(watch_catalog, "tmdb_id_for_tvdb", tmdb_id_for_tvdb)
 
-            def from_db(*_a, timeout=10.0):
-                timeouts.append(timeout)
+            def from_db(*_a, timeout=10.0, retry=True):
+                timeouts.append((timeout, retry))
                 return object() if tmdb else None
 
             monkeypatch.setattr(TmdbClient, "from_db", from_db)
@@ -1411,12 +1411,12 @@ class TestPosterTmdbBackdrop:
         assert r.status_code == 404
         assert asked == []
 
-    def test_tmdb_is_given_three_seconds_to_answer(self, ask):
+    def test_tmdb_is_given_three_seconds_to_answer_and_asked_once(self, ask):
         self._item(ask, id="700", tmdb_id=42)
 
         ask("700", details={"backdrop_url": self._IMAGE})
 
-        assert ask.timeouts == [3.0]
+        assert ask.timeouts == [(3.0, False)]
 
     def test_a_title_tmdb_gave_no_answer_for_is_asked_again_only_after_five_minutes(self, ask):
         from mediaman.services.watch_catalog import TmdbUnavailable
@@ -1493,7 +1493,7 @@ class TestPosterTmdbBackdrop:
             r, asked = ask("700", details=details)
             assert (r.status_code, r.content, asked) == (200, b"plex-art", [])
             assert r.headers["cache-control"] == "public, max-age=604800"
-        assert ask.timeouts == [3.0, 3.0]
+        assert ask.timeouts == [(3.0, False)] * 2
 
     @pytest.mark.parametrize("value", ["", "plex", "TMDB", "tmdb,plex"])
     def test_any_other_source_still_serves_plexs_backdrop(self, ask, plex_art, value):

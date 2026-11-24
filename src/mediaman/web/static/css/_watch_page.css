@@ -1,0 +1,25 @@
+/* A film's and a show's own pages: the Watch banner's picture behind the title, and the
+   episodes under it, in line with it. */
+
+.watch-detail:has(> .watch-banner) { background: none; }
+.watch-detail .watch-banner { margin-top: 8px; padding-bottom: 36px; }
+.watch-detail .watch-banner .watch-hero__info { max-width: none; }
+.watch-detail .watch-hero__summary { color: var(--t1); }
+.watch-detail__seasons { padding: 0 var(--pad); }
+.watch-detail .watch-seasons { margin-top: 0; }
+.watch-detail .watch-episodes { margin-left: 0; }
+.watch-detail .watch-episodes__head { padding-inline: 0; }
+.watch-detail .watch-episodes__list { margin-inline: -16px; }
+
+@media (max-width: 599.98px) {
+  .watch-detail .watch-banner { padding-bottom: 20px; }
+  .watch-detail .watch-episodes__list { margin-inline: -8px; }
+}
+/* A phone held sideways: the buttons beside the text, as the banner's are. */
+@media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  .watch-detail .watch-banner__body { grid-template-columns: minmax(0, 1fr) 216px; }
+  .watch-detail .watch-hero__info { display: contents; }
+  .watch-detail .watch-hero__info > * { grid-column: 1; }
+  .watch-detail .watch-banner .watch-actions { grid-column: 2; }
+  .watch-detail .watch-banner .watch-actions .btn { flex: 1 0 100%; font-size: 15px; }
+}

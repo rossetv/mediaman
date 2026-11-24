@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
-from datetime import datetime
+from collections.abc import Collection, Sequence
+from datetime import datetime, timedelta
 
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
+from mediaman.scanner.repository.rekeyed import (
+    fetch_title,
+    ids_conflict,
+    other_keys,
+    title_files,
+)
+
+# A watch older than the longest inactivity setting (365 days) keeps nothing.
+_WATCH_KEPT_FOR = timedelta(days=366)
+
+# The last watch of a title ``o``, with the plays made in mediaman a scan may not have stored yet.
+_LATEST = (
+    "MAX(COALESCE(o.last_watched_at, ''), COALESCE("
+    " (SELECT MAX(wp.credited_at) FROM watch_progress wp WHERE wp.media_item_id = o.id), ''))"
+)
 
 
 def _times_by_media_item(
@@ -71,4 +86,79 @@ def keep_credited_plays(conn: sqlite3.Connection, username: str) -> None:
         " WHERE id IN (SELECT media_item_id FROM watch_progress"
         " WHERE username = ? AND credited_at IS NOT NULL)",
         (username, username),
+    )
+
+
+def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
+    """Give *media_id* the last watch of the same title under another key, or its own set aside.
+
+    Only if it is later.
+
+    Plex gives a title it removed and found again a new key, and its plays stay
+    with the old one. The old key is in the library, or set aside by
+    save_pruned_watches. Run it once the title is stored and before it is evaluated.
+    """
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return
+    watches = [
+        # rationale: the interpolated expression is a fixed string; every value is bound
+        conn.execute(  # nosec B608
+            f"SELECT {_LATEST} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
+        ).fetchone()["at"]
+        for other in other_keys(conn, media_id, ())
+    ]
+    watches += [
+        gone["last_watched_at"]
+        for gone in conn.execute(
+            "SELECT * FROM pruned_watches WHERE media_item_id = ? "
+            "OR (file_path = ? AND file_path != '' AND season_number IS ?)",
+            (media_id, title["file_path"], title["season_number"]),
+        ).fetchall()
+        if gone["media_item_id"] == media_id or not _was_another_title(conn, gone, title)
+    ]
+    latest = max(watches, default="")
+    if latest:
+        conn.execute(
+            "UPDATE media_items SET last_watched_at = MAX(?, COALESCE(last_watched_at, ''))"
+            " WHERE id = ?",
+            (latest, media_id),
+        )
+
+
+def _was_another_title(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches, at the place of *title*, was another season.
+
+    A film's path is its file. A season's files are gone with it, but for those
+    of the episodes someone has progress in.
+    """
+    if title["season_number"] is None or not ids_conflict(gone, title):
+        return False
+    files = title_files(title)
+    return not any(
+        row["episode_path"] in files
+        for row in conn.execute(
+            "SELECT episode_path FROM pruned_progress WHERE media_item_id = ?",
+            (gone["media_item_id"],),
+        )
+    )
+
+
+def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
+    """Set aside when titles about to be removed were last watched, for carry_last_watched.
+
+    Run it in the transaction that removes them, before their plays go.
+    """
+    conn.execute(
+        "DELETE FROM pruned_watches WHERE last_watched_at < ?",
+        ((now_utc() - _WATCH_KEPT_FOR).isoformat(),),
+    )
+    # rationale: the interpolated expression is a fixed string; every value is bound
+    conn.executemany(  # nosec B608
+        "INSERT OR REPLACE INTO pruned_watches"
+        " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_watched_at)"
+        " SELECT o.id, o.file_path, o.season_number, o.show_title, o.tmdb_id, o.tvdb_id,"
+        f" {_LATEST} FROM media_items o"
+        f" WHERE o.id = ? AND o.file_path != '' AND {_LATEST} != ''",
+        [(media_id,) for media_id in media_ids],
     )

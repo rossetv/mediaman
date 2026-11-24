@@ -110,7 +110,7 @@
      accent/interactive semantic; .15 is the canonical mid-point. */
   --rgba-accent-bg: rgba(41,151,255,.15);
 
-  /* Success (green) chip background — kept state, .btn--success, disk-badge.ok.
+  /* Success (green) chip background — kept state, disk-badge.ok.
      Same 0.10–0.22 rule; .14 chosen to match the primary button/badge usage. */
   --rgba-success-bg: rgba(48,209,88,.14);
 

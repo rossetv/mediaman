@@ -54,7 +54,7 @@ def read_delete_allowed_roots_setting(
 
     ``quiet=True`` silences every log line of this read (bad JSON, an
     unparseable env var, nothing configured) for read-only callers such as
-    the dashboard; the returned list is the same.
+    the storage panel; the returned list is the same.
 
     Documenting the precedence inline so anyone reading the deletion
     path can confirm at a glance that the unusual order — DB beats env

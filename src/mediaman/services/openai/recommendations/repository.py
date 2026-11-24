@@ -9,6 +9,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+#: Which suggestions may be shown. Older "personal" rows were made from what everyone here
+#: watched, so nobody is shown them; a person's own picks are in ``user_picks``.
+SHARED_ONLY = "category = 'trending'"
+
 
 @dataclass(frozen=True, slots=True)
 class SuggestionRow:
@@ -33,13 +37,15 @@ class SuggestionDetail:
     batch_id: str | None  # TEXT column — stores a fixed-width "YYYY-MM-DD" date string
     downloaded_at: str | None
     created_at: str
+    # Titles the person played that led to the pick; only a person's own pick has any.
+    because_of: tuple[str, ...] = ()
 
 
 def fetch_suggestion_by_id(conn: sqlite3.Connection, suggestion_id: int) -> SuggestionDetail | None:
     row = conn.execute(
         "SELECT id, title, media_type, tmdb_id, year, description, reason, poster_url, "
         "rating, rt_rating, batch_id, downloaded_at, created_at "
-        "FROM suggestions WHERE id = ?",
+        f"FROM suggestions WHERE id = ? AND {SHARED_ONLY}",
         (suggestion_id,),
     ).fetchone()
     if row is None:
@@ -63,7 +69,7 @@ def fetch_suggestion_by_id(conn: sqlite3.Connection, suggestion_id: int) -> Sugg
 
 def fetch_suggestion_header(conn: sqlite3.Connection, suggestion_id: int) -> SuggestionRow | None:
     row = conn.execute(
-        "SELECT id, title, media_type, tmdb_id FROM suggestions WHERE id = ?",
+        f"SELECT id, title, media_type, tmdb_id FROM suggestions WHERE id = ? AND {SHARED_ONLY}",
         (suggestion_id,),
     ).fetchone()
     if row is None:

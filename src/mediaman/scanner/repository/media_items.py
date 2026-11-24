@@ -21,12 +21,13 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
+from mediaman.scanner.repository.rekeyed import episode_keys_json
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,8 @@ def upsert_media_item(
     when that arr's list was loaded this run. A run without Radarr or
     Sonarr (a library sync, an arr that is down) keeps the stored ids.
     ``tracked_files`` is stored as a JSON array of ``{"path", "size"}``,
-    or NULL when Plex reported no files.
+    or NULL when Plex reported no files. ``episode_count`` is NULL for a
+    movie and where Plex names no episode.
     """
     now = now_iso()
     tracked = item.get("tracked_files")
@@ -90,8 +92,9 @@ def upsert_media_item(
             id, title, media_type, show_title, season_number,
             plex_library_id, plex_rating_key, show_rating_key,
             added_at, file_path, file_size_bytes, poster_path, last_scanned_at,
-            tmdb_id, tvdb_id, tracked_files, radarr_id, sonarr_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tmdb_id, tvdb_id, tracked_files, radarr_id, sonarr_id,
+            episode_count, episode_keys, year
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             media_type = excluded.media_type,
@@ -107,6 +110,9 @@ def upsert_media_item(
             tmdb_id = excluded.tmdb_id,
             tvdb_id = excluded.tvdb_id,
             tracked_files = excluded.tracked_files,
+            episode_count = excluded.episode_count,
+            episode_keys = excluded.episode_keys,
+            year = excluded.year,
             radarr_id = CASE WHEN ? THEN excluded.radarr_id ELSE media_items.radarr_id END,
             sonarr_id = CASE WHEN ? THEN excluded.sonarr_id ELSE media_items.sonarr_id END
         """,
@@ -129,6 +135,9 @@ def upsert_media_item(
             tracked_json,
             radarr_id,
             sonarr_id,
+            item.get("episode_count") or None,
+            episode_keys_json(item),
+            item.get("year"),
             set_radarr_id,
             set_sonarr_id,
         ),
@@ -199,6 +208,18 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
     return ids
 
 
+def fetch_places(conn: sqlite3.Connection, media_ids: Iterable[str]) -> set[tuple[str, int | None]]:
+    """Return the stored path and season of each of *media_ids* in the library."""
+    places = set()
+    for media_id in media_ids:
+        row = conn.execute(
+            "SELECT file_path, season_number FROM media_items WHERE id = ?", (media_id,)
+        ).fetchone()
+        if row is not None:
+            places.add((row["file_path"], row["season_number"]))
+    return places
+
+
 def fetch_ids_touched_since(conn: sqlite3.Connection, since: str) -> set[str]:
     """Return the items another run saw in Plex, or anyone scheduled or kept, at *since* or later."""
     rows = conn.execute(
@@ -214,7 +235,8 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
     """Delete ``media_items`` rows, and the Watch progress saved against them, in chunks.
 
     Besides the ``media_items`` DELETE this removes the ``watch_progress``
-    rows that point at them. The matching
+    rows that point at them; rekeyed.save_pruned_progress comes first, to
+    save what is to outlive them. The matching
     ``scheduled_actions`` rows belong to the ``scheduled_actions``
     repository and are removed by
     scheduled_actions.delete_actions_for_media_items, which the

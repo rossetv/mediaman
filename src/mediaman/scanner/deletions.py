@@ -9,7 +9,7 @@ All deletion-time concerns live here:
 * The two-phase delete loop that unmonitors *arr clients only after the
   SQLite write lock has been released, and only an entry that matches.
 * The record of which delete roots or folders the last pass found
-  missing or empty, for the dashboard.
+  missing or empty, for the storage panel.
 
 Imports repository; MUST NOT import fetch or
 engine (see engine.py header).
@@ -1083,7 +1083,7 @@ class DeletionExecutor:
            record which roots or folders would hold rows back, and stop.
         3. Live: load allowlist (fail closed if unset), then for each row
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
-        4. Live: record which roots or folders held rows back, for the dashboard.
+        4. Live: record which roots or folders held rows back, for the storage panel.
         5. Clean up expired snoozes unless dry-run.
         6. Live: ask Radarr/Sonarr to rescan what was unmonitored, then or by an earlier run.
         """
@@ -1107,7 +1107,7 @@ class DeletionExecutor:
         """Record what *would* be deleted and which folders would hold rows back.
 
         Mutates no deletion: only ``dry_run_skip`` rows and the record of
-        unavailable folders, which the dashboard would otherwise keep showing
+        unavailable folders, which the storage panel would otherwise keep showing
         from the last live pass however long the passes stay dry runs.
         """
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)

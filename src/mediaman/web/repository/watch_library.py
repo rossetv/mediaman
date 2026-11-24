@@ -8,16 +8,24 @@ searched or looked up.
 
 from __future__ import annotations
 
+import base64
+import json
+import re
 import sqlite3
-from dataclasses import dataclass
+import unicodedata
+from collections.abc import Sequence, Set
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from mediaman.services.infra import get_setting
+from mediaman.services.watch_catalog import folder_year
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
     MAX_SEARCH_TERM_LEN,
 )
+from mediaman.web.repository.watch_progress import seen_movies
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +34,7 @@ class LibraryMovie:
     title: str
     added_at: str
     tmdb_id: int | None = None
+    year: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +45,56 @@ class LibraryShow:
     season_count: int
     added_at: str
     tvdb_id: int | None = None
+    year: int | None = None
+
+
+# The order of a library row: A to Z, newest added, newest released, or (A to Z) the titles a
+# person has not seen before those they have.
+RowOrder = Literal["az", "added", "year", "unwatched"]
+
+# Where a page of titles ended: what its last title is ordered by, its title folded for
+# comparing, and its key.
+RowCursor = tuple[str, str, str]
+
+_NEWEST_FIRST = ("added", "year")
+
+_ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonSeen:
+    """How many of a season's episodes a person has seen."""
+
+    seen: int
+    total: int | None  # None until a scan has counted the episodes
+
+    @property
+    def watched(self) -> bool:
+        return bool(self.total) and self.seen >= (self.total or 0)
+
+
+@dataclass(slots=True)
+class ShowSeen:
+    """A person's seen episodes of one show, by the number of each regular season."""
+
+    seasons: dict[int, SeasonSeen] = field(default_factory=dict)
+
+    @property
+    def watched(self) -> bool:
+        return bool(self.seasons) and all(s.watched for s in self.seasons.values())
+
+    @property
+    def left(self) -> int | None:
+        """Episodes left of a show partly seen; None when none or all are seen, or a season's
+        episodes are not counted yet."""
+        if not any(s.seen for s in self.seasons.values()):
+            return None
+        left = 0
+        for s in self.seasons.values():
+            if not s.total:
+                return None
+            left += s.total - min(s.seen, s.total)
+        return left or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +124,7 @@ class TitleFacts:
     show_keep: Keep | None  # a show keep in force
 
 
-# Matches the Dashboard's recently-deleted window (5 batches of 50).
+# Matches the storage panel's recently-deleted window (5 batches of 50).
 _DELETED_POSTER_WINDOW = 250
 
 
@@ -107,11 +166,20 @@ def _movies(
         params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
-        f"SELECT id, title, added_at, tmdb_id FROM media_items WHERE {' AND '.join(where)}"
+        f"SELECT id, title, added_at, tmdb_id, year, file_path FROM media_items WHERE {' AND '.join(where)}"
         " ORDER BY title COLLATE NOCASE, id LIMIT ?",
         (*params, limit),
     ).fetchall()
-    return [LibraryMovie(r["id"], r["title"], r["added_at"], r["tmdb_id"]) for r in rows]
+    return [
+        LibraryMovie(
+            r["id"],
+            r["title"],
+            r["added_at"],
+            r["tmdb_id"],
+            r["year"] or folder_year(r["file_path"]),
+        )
+        for r in rows
+    ]
 
 
 def _shows(
@@ -138,7 +206,8 @@ def _shows(
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
         f" MAX(media_type IN ({anime_marks})) AS anime,"
         " COUNT(DISTINCT CASE WHEN season_number > 0 THEN season_number END) AS seasons,"
-        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id"
+        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id,"
+        " MAX(year) AS year, MIN(file_path) AS file_path"
         f" FROM media_items WHERE {' AND '.join(where)}"
         " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key LIMIT ?",
         (*ANIME_SEASON_TYPES, *params, limit),
@@ -151,6 +220,8 @@ def _shows(
             season_count=r["seasons"],
             added_at=r["added_at"],
             tvdb_id=r["tvdb_id"],
+            # a title not scanned since years were stored has only its folder's
+            year=r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
     ]
@@ -164,6 +235,146 @@ def library_movies(conn: sqlite3.Connection, libraries: list[str]) -> list[Libra
 def library_shows(conn: sqlite3.Connection, libraries: list[str]) -> list[LibraryShow]:
     """Every show (TV and anime) in the scanned libraries, grouped from its seasons, by title."""
     return _shows(conn, libraries)
+
+
+def sort_title(title: str) -> str:
+    """*title* as A to Z reads it: without a leading article, accents or case."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", title) if not unicodedata.combining(c))
+    return _ARTICLE.sub("", plain.casefold().strip())
+
+
+def row_cursor(
+    item: LibraryMovie | LibraryShow,
+    order: RowOrder = "added",
+    seen: Set[str] = frozenset(),
+) -> RowCursor:
+    """Where *item* stands in *order*; *seen* is seen_refs' answer, for Not watched first."""
+    if order == "added":
+        return item.added_at or "", item.title.casefold(), item.key
+    name = sort_title(item.title)
+    if order == "year":
+        return f"{item.year:04d}" if item.year else "", name, item.key
+    if order == "unwatched":
+        kind = "movie" if isinstance(item, LibraryMovie) else "show"
+        name = ("1" if f"{kind}-{item.key}" in seen else "0") + name
+    return name, item.title.casefold(), item.key
+
+
+def cursor_text(cursor: RowCursor) -> str:
+    """*cursor* as text safe in a URL; parse_cursor reads it back."""
+    return base64.urlsafe_b64encode(json.dumps(cursor).encode()).decode().rstrip("=")
+
+
+def parse_cursor(text: str) -> RowCursor | None:
+    """The cursor in *text*; None when it is not one of cursor_text's."""
+    try:
+        value = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+    except (ValueError, RecursionError):
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(isinstance(part, str) for part in value)
+    ):
+        return None
+    return value[0], value[1], value[2]
+
+
+def newest_first[T: LibraryMovie | LibraryShow](items: Sequence[T]) -> list[T]:
+    """*items* newest added first, by the date List's Recently added sort compares."""
+    return in_order(items, "added")
+
+
+def in_order[T: LibraryMovie | LibraryShow](
+    items: Sequence[T], order: RowOrder, seen: Set[str] = frozenset()
+) -> list[T]:
+    """*items* in *order*; ties by title, and an item with no date or year last."""
+    at = {item.key: row_cursor(item, order, seen) for item in items}
+    ordered = sorted(items, key=lambda item: at[item.key][1:])
+    return sorted(ordered, key=lambda item: at[item.key][0], reverse=order in _NEWEST_FIRST)
+
+
+def row_page[T: LibraryMovie | LibraryShow](
+    ordered: Sequence[T],
+    after: RowCursor | None,
+    limit: int,
+    order: RowOrder = "added",
+    seen: Set[str] = frozenset(),
+) -> tuple[list[T], RowCursor | None]:
+    """The next *limit* of the items, which are in *order*, past *after*, and where they end (None
+    at the end). Found by value, so a title that comes or goes meanwhile moves no other."""
+    rest = [
+        item
+        for item in ordered
+        if after is None or _is_past(row_cursor(item, order, seen), after, order)
+    ]
+    page = rest[:limit]
+    return page, row_cursor(page[-1], order, seen) if len(rest) > limit else None
+
+
+def _is_past(cursor: RowCursor, after: RowCursor, order: RowOrder) -> bool:
+    if order not in _NEWEST_FIRST:
+        return cursor > after
+    return cursor[0] < after[0] or (cursor[0] == after[0] and cursor[1:] > after[1:])
+
+
+def show_seen(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    *,
+    show_key: str | None = None,
+) -> dict[str, ShowSeen]:
+    """*username*'s seen episodes of each show of the scanned libraries (or only of *show_key*),
+    by show rating key. Specials do not count."""
+    lib_sql, params = _in_libraries(libraries, "mi.plex_library_id")
+    season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
+    where = [
+        lib_sql,
+        f"mi.media_type IN ({season_marks})",
+        "mi.show_rating_key IS NOT NULL",
+        "mi.season_number > 0",
+    ]
+    params.extend(ALL_SEASON_TYPES)
+    if show_key is not None:
+        where.append("mi.show_rating_key = ?")
+        params.append(show_key)
+    seen_rows = "FROM watch_progress wp WHERE wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
+    # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT mi.show_rating_key, mi.season_number, mi.episode_count,"
+        # by its own episodes, whichever season their rows were saved under: a row of one no longer
+        # in it (replaced under a new key, or removed) does not count; a season with no list yet
+        # counts every row of its own
+        " CASE WHEN mi.episode_keys IS NULL THEN"
+        f" (SELECT COUNT(*) {seen_rows} AND wp.media_item_id = mi.id)"
+        f" ELSE (SELECT COUNT(*) {seen_rows} AND wp.rating_key IN"
+        " (SELECT json_extract(e.value, '$.key') FROM json_each(mi.episode_keys) e)) END AS seen"
+        f" FROM media_items mi WHERE {' AND '.join(where)}",
+        (username, username, *params),
+    ).fetchall()
+    found: dict[str, ShowSeen] = {}
+    for r in rows:
+        seasons = found.setdefault(r["show_rating_key"], ShowSeen()).seasons
+        seasons[r["season_number"]] = SeasonSeen(r["seen"], r["episode_count"])
+    return found
+
+
+def seen_refs(conn: sqlite3.Connection, username: str, libraries: list[str]) -> set[str]:
+    """The refs ("movie-<key>", "show-<key>") of the library titles *username* has seen."""
+    shows = show_seen(conn, username, libraries)
+    return {f"movie-{key}" for key in seen_movies(conn, username)} | {
+        f"show-{key}" for key, seen in shows.items() if seen.watched
+    }
+
+
+def mark_fields(ref: str | None, seen: set[str]) -> dict[str, object]:
+    """The Watched fields of a card or title: *ref* is its library ref, None when the library
+    does not hold it, and *seen* is seen_refs' answer."""
+    if ref is None:
+        return {"watched": False, "mark_kind": None, "mark_key": None}
+    kind, _, key = ref.partition("-")
+    return {"watched": ref in seen, "mark_kind": kind, "mark_key": key}
 
 
 def find_movie(conn: sqlite3.Connection, libraries: list[str], key: str) -> LibraryMovie | None:
@@ -319,7 +530,7 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
 
     True for the key of a movie or season in the scanned libraries, or of
     the show such a season belongs to, and for an item the audit log records
-    as deleted (the Dashboard still shows those, from the poster cache).
+    as deleted (the storage panel still shows those, from the poster cache).
     """
     lib_sql, params = _in_libraries(libraries)
     # rationale: only the fixed library filter and "?" placeholders are interpolated
@@ -331,7 +542,7 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
     if row is not None:
         return True
     # The audit row keeps the rating key only inside its detail text, so look at the newest
-    # deleted rows (the window the Dashboard shows) rather than every audit row.
+    # deleted rows (the window the storage panel shows) rather than every audit row.
     row = conn.execute(
         "SELECT 1 FROM audit_log WHERE action = 'deleted' AND media_item_id = ? LIMIT 1",
         (key,),
@@ -350,16 +561,29 @@ __all__ = [
     "LibraryMovie",
     "LibraryShow",
     "PendingDeletion",
+    "RowCursor",
+    "RowOrder",
+    "SeasonSeen",
+    "ShowSeen",
     "TitleFacts",
+    "cursor_text",
     "find_movie",
     "find_show",
+    "in_order",
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",
+    "mark_fields",
+    "newest_first",
+    "parse_cursor",
     "pending_deletion",
     "pending_deletions",
+    "row_cursor",
+    "row_page",
     "scanned_library_ids",
     "search_library",
     "season_item_id",
+    "seen_refs",
+    "show_seen",
     "title_facts",
 ]

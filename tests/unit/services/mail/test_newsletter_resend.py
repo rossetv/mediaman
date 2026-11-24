@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mediaman.crypto import validate_download_token
 from mediaman.db import init_db
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import send_newsletter
@@ -16,6 +18,7 @@ from tests.helpers.factories import (
     insert_scheduled_action,
     insert_subscriber,
     insert_suggestion,
+    insert_user_pick,
 )
 
 _SECRET_KEY = "0123456789abcdef" * 4
@@ -125,7 +128,7 @@ def test_a_subscriber_already_served_still_gets_new_recommendations_without_the_
     outbox.failing = {"bob@example.com"}
     outbox.scan(conn)  # alice and carol get OldMovie; bob keeps failing
 
-    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+    insert_suggestion(conn, title="FreshPick", batch_id="b1", tmdb_id=101)
     outbox.scan(conn)
 
     assert outbox.sent["alice@example.com"] == 2
@@ -150,7 +153,7 @@ def test_items_are_marked_notified_once_the_last_subscriber_is_reached(conn):
     outbox = _Outbox()
     outbox.failing = {"bob@example.com"}
     outbox.scan(conn)
-    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+    insert_suggestion(conn, title="FreshPick", batch_id="b1", tmdb_id=102)
 
     outbox.failing = set()
     outbox.scan(conn)
@@ -178,9 +181,132 @@ def test_a_partial_copys_subject_counts_only_the_items_left_for_that_subscriber(
 
 
 def test_a_recommendations_only_newsletter_has_a_plain_subject(conn):
-    insert_suggestion(conn, title="FreshPick", batch_id="b1")
+    insert_suggestion(conn, title="FreshPick", batch_id="b1", tmdb_id=103)
     outbox = _Outbox()
 
     outbox.scan(conn)
 
     assert outbox.subject["alice@example.com"] == "Mediaman Weekly Report"
+
+
+def _days_ago(days: int) -> str:
+    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _person(conn, username: str, email: str | None) -> None:
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at, email)"
+        " VALUES (?, 'x', '2020', ?)",
+        (username, email),
+    )
+    conn.commit()
+
+
+def test_each_subscriber_gets_their_own_picks_and_the_shared_ones_and_no_one_elses(conn):
+    _person(conn, "al", "Alice@Example.com")
+    _person(conn, "bo", "bob@example.com")
+    insert_suggestion(conn, title="SharedPick", batch_id="b1", tmdb_id=104)
+    insert_suggestion(conn, title="HouseholdPick", category="personal", batch_id="b1", tmdb_id=105)
+    insert_user_pick(
+        conn, "al", title="AlsPick", batch_id=_days_ago(3), tmdb_id=5, because_of='["AlsFilm"]'
+    )
+    insert_user_pick(conn, "al", title="AlsOldPick", batch_id=_days_ago(9), tmdb_id=106)
+    insert_user_pick(conn, "bo", title="BosPick", batch_id=_days_ago(1), tmdb_id=107)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    shown = {
+        to.split("@")[0]: {
+            title
+            for title in ("SharedPick", "HouseholdPick", "AlsPick", "AlsOldPick", "BosPick")
+            if title in html
+        }
+        for to, html in outbox.html.items()
+    }
+    assert shown == {
+        "alice": {"SharedPick", "AlsPick"},
+        "bob": {"SharedPick", "BosPick"},
+        "carol": {"SharedPick"},
+    }
+    assert all("AlsFilm" not in html for html in outbox.html.values())
+    assert "AI picks" in outbox.html["alice@example.com"]
+
+
+def test_an_address_two_people_share_gets_neithers_picks(conn):
+    _person(conn, "al", "alice@example.com")
+    _person(conn, "ally", "ALICE@example.com")
+    insert_suggestion(conn, title="SharedPick", batch_id="b1", tmdb_id=108)
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=109)
+    insert_user_pick(conn, "ally", title="AllysPick", tmdb_id=110)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    html = outbox.html["alice@example.com"]
+    assert "SharedPick" in html
+    assert "AlsPick" not in html and "AllysPick" not in html
+
+
+def test_picks_of_one_person_send_no_empty_email_to_the_others(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=111)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    assert outbox.sent == {"alice@example.com": 1}
+
+
+def test_picks_tmdb_does_not_vouch_for_are_neither_mailed_nor_worth_an_email(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_suggestion(conn, title="SharedPick", batch_id="b1", tmdb_id=None)
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=None)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+    assert outbox.sent == {}
+
+    insert_suggestion(conn, title="KnownPick", batch_id="b1", tmdb_id=7)
+    outbox.scan(conn)
+    html = outbox.html["alice@example.com"]
+    assert "KnownPick" in html
+    assert "SharedPick" not in html and "AlsPick" not in html
+
+
+def test_own_picks_over_28_days_old_are_neither_mailed_nor_worth_an_email(conn):
+    _person(conn, "al", "alice@example.com")
+    _person(conn, "bo", "bob@example.com")
+    insert_user_pick(conn, "al", title="AlsPick", batch_id=_days_ago(29), tmdb_id=112)
+    insert_user_pick(conn, "bo", title="BosPick", batch_id=_days_ago(27), tmdb_id=113)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    assert outbox.sent == {"bob@example.com": 1}
+    assert "BosPick" in outbox.html["bob@example.com"]
+
+
+def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    [token] = re.findall(r"/download/([^\"?]+)", outbox.html["alice@example.com"])
+    payload = validate_download_token(token, _SECRET_KEY)
+    assert (payload["title"], payload["tmdb"], payload["sid"]) == ("AlsPick", 5, None)
+
+
+@pytest.mark.parametrize("tmdb_id", [5, None])
+def test_a_title_among_an_own_batch_and_a_later_shared_one_is_shown_once(conn, tmdb_id):
+    _person(conn, "al", "alice@example.com")
+    insert_suggestion(conn, title="BothPick", tmdb_id=5, batch_id=_days_ago(0))
+    insert_user_pick(conn, "al", title="BothPick", tmdb_id=tmdb_id, batch_id=_days_ago(8))
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    counts = {to: html.count(">BothPick<") for to, html in outbox.html.items()}
+    assert counts["alice@example.com"] == counts["bob@example.com"] == 1

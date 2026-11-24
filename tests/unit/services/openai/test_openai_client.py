@@ -6,15 +6,16 @@ import json
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
+from mediaman.services.openai import client as client_mod
 from mediaman.services.openai.client import (
     _DEFAULT_MODEL,
     call_openai,
     get_openai_key,
     get_openai_model,
     is_web_search_enabled,
-    is_web_search_title_safe,
 )
 from tests.helpers.factories import insert_settings
 
@@ -81,29 +82,6 @@ class TestIsWebSearchEnabled:
         assert is_web_search_enabled(conn) is True
 
 
-class TestValidateWebSearchTitle:
-    def test_plain_ascii_title_is_valid(self):
-        assert is_web_search_title_safe("Inception") is True
-
-    def test_title_with_punctuation_is_valid(self):
-        assert is_web_search_title_safe("The Dark Knight (2008)") is True
-
-    def test_non_printable_ascii_rejected(self):
-        assert is_web_search_title_safe("Title\x01here") is False
-
-    def test_non_ascii_unicode_rejected(self):
-        assert is_web_search_title_safe("Títle with accent") is False
-
-    def test_markdown_link_rejected(self):
-        assert is_web_search_title_safe("[click me](http://evil.com)") is False
-
-    def test_embedded_https_url_rejected(self):
-        assert is_web_search_title_safe("Dune https://evil.com") is False
-
-    def test_embedded_http_url_rejected(self):
-        assert is_web_search_title_safe("Dune http://evil.com") is False
-
-
 class TestCallOpenAi:
     def test_returns_empty_when_no_api_key(self, conn):
         with patch("mediaman.services.openai.client.get_openai_key", return_value=None):
@@ -139,6 +117,41 @@ class TestCallOpenAi:
             result = call_openai("some prompt", conn, use_web_search=False)
         assert result == []
 
+    def test_a_call_waits_two_minutes_and_is_sent_once(self, conn, monkeypatch):
+        sent = []
+
+        def time_out(path, **kwargs):
+            sent.append((kwargs["timeout"], kwargs.get("retry", False)))
+            raise requests.Timeout("slow")
+
+        insert_settings(conn, openai_api_key="sk-test")
+        monkeypatch.setattr(client_mod._OPENAI_CLIENT, "post", time_out)
+        assert call_openai("p", conn) == []
+        assert sent == [((5.0, 120.0), False)]
+
+    @pytest.mark.parametrize(
+        "payload", [{"output": None}, [], {"output": [None]}, "text", {"output": "[" * 5}]
+    )
+    def test_returns_empty_on_an_answer_of_another_shape(
+        self, conn, fake_http, fake_response, payload
+    ):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data=payload))
+        assert call_openai("p", conn) == []
+
+    def test_returns_empty_on_json_nested_too_deep(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        text = "[" * 200_000
+        output = [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        fake_http.queue("POST", fake_response(json_data={"output": output}))
+        assert call_openai("p", conn) == []
+
+    def test_how_much_a_model_may_write_is_bounded(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data={"output": []}))
+        call_openai("p", conn)
+        assert 8_000 <= fake_http.calls[0][2]["json"]["max_output_tokens"] <= 32_000
+
     def test_returns_empty_on_http_error(self, conn, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=401, text="Unauthorised"))
         with patch("mediaman.services.openai.client.get_openai_key", return_value="sk-bad"):
@@ -165,9 +178,27 @@ class TestCallOpenAi:
         assert "tools" in kwargs["json"]
         assert result == payload
 
-    def test_web_search_batch_rejected_on_unsafe_title(self, conn, fake_http, fake_response):
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Bad\x00Title",
+            "",
+            "A\u202etitle",
+            "A\u200btitle",
+            "A\u00a0title",
+            "A\ue000",
+            "[click me](http://evil.com)",
+            "[Foo](evil)",
+            "Dune https://evil.com",
+            "Dune http://evil.com",
+        ],
+    )
+    def test_web_search_batch_rejected_on_unsafe_title(self, conn, fake_http, fake_response, title):
         """If a title fails safety check, the entire batch is rejected."""
-        payload = [{"title": "Bad\x00Title", "media_type": "movie", "reason": "x"}]
+        payload = [
+            {"title": "Dune", "media_type": "movie", "reason": "y"},
+            {"title": title, "media_type": "movie", "reason": "x"},
+        ]
         openai_resp = {
             "output": [
                 {
@@ -183,6 +214,64 @@ class TestCallOpenAi:
         ):
             result = call_openai("some prompt", conn, use_web_search=True)
         assert result == []
+
+    @pytest.mark.parametrize("title", ["Mr.Robot", "Dune at evil.xyz", "Dune (evil.co.uk)"])
+    def test_a_title_shaped_like_a_domain_is_left_out_and_the_batch_kept(
+        self, conn, fake_http, fake_response, title
+    ):
+        payload = [
+            {"title": title, "media_type": "tv", "reason": "x"},
+            {"title": "Dune", "media_type": "movie", "reason": "y"},
+        ]
+        openai_resp = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(payload)}],
+                }
+            ]
+        }
+        fake_http.queue("POST", fake_response(json_data=openai_resp))
+        with (
+            patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"),
+            patch("mediaman.services.openai.client.is_web_search_enabled", return_value=True),
+        ):
+            result = call_openai("some prompt", conn, use_web_search=True)
+        assert [i["title"] for i in result] == ["Dune"]
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "The Dark Knight (2008)",
+            "S.W.A.T.",
+            "Vol.2",
+            "君の名は。",
+            "Mr. Robot",
+            "Monsters, Inc.",
+            "Amélie",
+            "アニメ",
+            "Ocean’s – Eight",
+        ],
+    )
+    def test_a_web_search_title_without_a_hostile_character_or_domain_is_kept(
+        self, conn, fake_http, fake_response, title
+    ):
+        payload = [{"title": title, "media_type": "movie", "reason": "x"}]
+        openai_resp = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(payload)}],
+                }
+            ]
+        }
+        fake_http.queue("POST", fake_response(json_data=openai_resp))
+        with (
+            patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"),
+            patch("mediaman.services.openai.client.is_web_search_enabled", return_value=True),
+        ):
+            result = call_openai("some prompt", conn, use_web_search=True)
+        assert [i["title"] for i in result] == [title]
 
     def test_strips_markdown_code_fence_from_response(self, conn, fake_http, fake_response):
         """Model sometimes wraps JSON in ```json fences despite instructions."""

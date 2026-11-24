@@ -30,6 +30,25 @@
         pill.classList.toggle('on', on);
         if (on) pill.setAttribute('aria-current', 'page'); else pill.removeAttribute('aria-current');
       });
+      showPicked(core.reduceMotion() ? 'auto' : 'smooth');
+    }
+
+    /* The tabs stand on one line that scrolls, with the rows' arrows and
+       fades (watch-rows.js starts it). */
+    function makeLine() {
+      var viewport = el('div', 'watch-row__viewport watch-seasons__line');
+      nav.before(viewport);
+      viewport.appendChild(nav);
+      nav.classList.add('watch-row__scroll');
+      showPicked('auto');
+    }
+
+    function showPicked(behavior) {
+      var pill = nav.querySelector('.watch-pill.on');
+      if (!pill) return;
+      var left = pill.offsetLeft - nav.scrollLeft;
+      var cutOff = left < 0 || left + pill.offsetWidth > nav.clientWidth;
+      if (cutOff) nav.scrollTo({ left: pill.offsetLeft - (nav.clientWidth - pill.offsetWidth) / 2, behavior: behavior });
     }
 
     /* The line's slot keeps its place through a switch, so Resume and the
@@ -112,6 +131,7 @@
         });
     }
 
+    makeLine();
     var first = nav.querySelector('a.watch-pill.on');
     current = shown = first ? first.getAttribute('href') : null;
 

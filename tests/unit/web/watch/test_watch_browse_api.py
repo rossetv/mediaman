@@ -16,7 +16,7 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.repository.watch_progress import save_progress
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched, save_progress
 from mediaman.web.routes.watch import browse_api, pages
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
@@ -97,6 +97,21 @@ class TestSearch:
             _movie(conn, str(1000 + n), f"Film {n:03d}")
 
         assert len(_search(client, "film")) == browse_api.SEARCH_LIMIT
+
+    def test_a_show_seen_to_the_end_is_marked(self, client, conn):
+        _season(conn, "501", "500", "Glass Coast")
+        conn.execute("UPDATE media_items SET episode_count = 1 WHERE id = '501'")
+        conn.commit()
+        mark_watched(
+            conn,
+            "aoife",
+            [MarkTarget("511", "501", "500", 0)],
+            datetime(2026, 11, 23, tzinfo=UTC),
+        )
+
+        [show] = _search(client, "glass")
+
+        assert (show["watched"], show["mark_kind"], show["mark_key"]) == (True, "show", "500")
 
     def test_watched_mark_is_the_searchers_own(self, client, conn):
 

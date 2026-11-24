@@ -1,4 +1,4 @@
-// Runs watch/core.js, watch/admin.js and watch/list.js against the fake DOM and prints the outcome
+// Runs watch/core.js, watch/address.js, watch/admin.js and watch/list.js against the fake DOM and prints the outcome
 // of one scenario as JSON. Usage: node watch_list_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -79,6 +79,12 @@ function row(r) {
     ['td', { class: 'wl-act' }, ['div', { class: 'wl-actions' }, wrapper, ...del]]];
 }
 
+/* The keep a save answers it made. */
+const MADE = { action: 'snoozed', execute_at: '2026-12-24T12:00:00+00:00', kept_at: '2026-11-24T12:00:00+00:00' };
+/* The refusal of a change to a keep that is not the one read. */
+const keepChanged = () => Promise.reject(Object.assign(new Error('changed'), { error: 'keep_changed', status: 409 }));
+const serverError = () => Promise.reject(Object.assign(new Error('no'), { status: 500 }));
+
 const ROWS = [
   { id: 'm1', title: 'Copperline', deletion: true },
   { id: 'm2', title: 'Saltmarsh' },
@@ -145,10 +151,13 @@ function load(opts = {}) {
   const pages = {}; // fetch url -> { state, rows } or a deferred
   let confirmAnswer = true;
 
+  let ready = false; // the page's own mark of its first entry is not told
+  const moveTo = (url) => { const q = url.indexOf('?'); ctx.location.search = q < 0 ? '' : url.slice(q); };
+
   const api = (method) => (url, body) => {
     calls.push([method, url, body === undefined ? null : body]);
     const reply = replies[method + ' ' + url];
-    return reply ? reply() : Promise.resolve({ ok: true });
+    return reply ? reply() : Promise.resolve(method === 'postForm' ? { ok: true, keep: MADE } : { ok: true });
   };
 
   const ctx = {
@@ -161,11 +170,15 @@ function load(opts = {}) {
     innerHeight: 900,
     innerWidth: 1280,
     scrollBy() {},
-    location: { pathname: '/watch', search: opts.list ? '?view=list' : '', assign(u) { history.push(['assign', u]); } },
+    location: { pathname: '/watch', search: opts.list ? '?' + new URLSearchParams({ view: 'list', ...opts.state }) : '', hash: '', assign(u) { history.push(['assign', u]); } },
     history: {
-      pushState: (_s, _t, url) => history.push(['push', url]),
-      replaceState: (_s, _t, url) => history.push(['replace', url]),
+      state: null,
+      pushState(state, _t, url) { this.state = state; history.push(['push', url]); moveTo(url); },
+      replaceState(state, _t, url) { this.state = state; if (ready) history.push(['replace', url]); moveTo(url); },
     },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    scrollTo() {},
+    Infinity,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
     DOMParser: class { parseFromString(token) { const d = makeDocument(); d.body.appendChild(pages[token].node(d)); return d; } },
     fetch: (url) => {
@@ -176,7 +189,7 @@ function load(opts = {}) {
     },
     UIFeedback: {
       toast: (message, o) => {
-        const entry = { message, undo: !!(o && o.action), action: o && o.action, dismissed: false };
+        const entry = { message, dialog: (o && o.dialog && o.dialog.id) || null, undo: !!(o && o.action), action: o && o.action, dismissed: false };
         toasts.push(entry);
         // Like the real toast: pressing its button dismisses it, then runs the action.
         const button = { click() { entry.dismissed = true; o.action.onClick(); } };
@@ -196,11 +209,14 @@ function load(opts = {}) {
       },
     },
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    removeEventListener() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/admin.js', 'watch/list.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/admin.js', 'watch/list.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
+  ctx.MMWatch.address.start();
+  ready = true;
   // The search field listens on window, so the event must bubble up to it.
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
@@ -213,7 +229,7 @@ function load(opts = {}) {
     /* The browser drops focus to the page when the focused button is disabled. */
     dropFocusIfDisabled() { const a = doc.activeElement; if (a && a.disabled) a.blur(); },
     answerConfirm(v) { confirmAnswer = v; },
-    popstate(search) { ctx.location.search = search; (winListeners.popstate || []).forEach((fn) => fn({})); },
+    popstate(search) { ctx.location.search = search; ctx.history.state = null; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
     row(key) { return doc.querySelectorAll('#watch-list tr[data-row-key]').find((r) => r.getAttribute('data-row-key') === key) || null; },
     part(name) { return doc.querySelector('#watch-list [data-list-part="' + name + '"]').textContent; },
@@ -222,6 +238,55 @@ function load(opts = {}) {
 
 function keepOption(p, key, dur) {
   return p.row(key).querySelectorAll('[data-keep-dur]').find((b) => b.getAttribute('data-keep-dur') === dur);
+}
+
+/* ── The Keep dialog of a show ── */
+
+const FOREVER = { action: 'protected_forever', execute_at: null, kept_at: '2026-11-20T12:00:00+00:00', days: null, label: 'Kept forever' };
+/* Kept forever, at another time. */
+const OWN_FOREVER = Object.assign({}, FOREVER, { kept_at: '2026-11-01T12:00:00+00:00' });
+const readOf = (k) => k && { action: k.action, execute_at: k.execute_at, kept_at: k.kept_at || null };
+const until = (days) => ({ action: 'snoozed', execute_at: new Date(Date.UTC(2026, 10, 24 + days)).toISOString(), days, label: 'Kept for ' + days + ' more days' });
+const leaves = (days) => ({ execute_at: until(days).execute_at, days });
+/* Seasons numbered from 1: each a keep, what is left of it, or nothing. */
+const seasonsOf = (...each) => each.map((s, i) => Object.assign(
+  { id: 's' + (i + 1), season_number: i + 1, kept: !!(s && s.keep), keep: null, leaving: null }, s));
+/* Season 1 kept forever, Season 2 leaves in 3 days and Season 3 in 5. */
+const LEAVING = seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { leaving: leaves(5) });
+
+/* The dialog, opened as the title page does (*seasonId*: the season its line names, '' when
+   none; undefined opens it from the list). */
+async function keepDialog({ seasons, showKept, seasonId, duration }) {
+  const p = load({ list: true });
+  let now = seasons;
+  p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: showKept || null, seasons: now });
+  p.serve('/watch/list', {}, ROWS);
+  if (seasonId === undefined) click(p.doc, keepOption(p, 'show:77', duration || '30 days'));
+  else {
+    p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift',
+      kept: false, deletion: true, season_id: seasonId }, duration || '30 days');
+  }
+  await settle();
+  const list = p.doc.getElementById('keep-season-list');
+  const phases = [];
+  p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
+  const box = (id) => list.querySelectorAll('input').find((n) => n.id === 'keep-' + (id === 'all' ? 'all-seasons' : 'season-' + id));
+  const set = (id) => list.querySelectorAll('[data-keep-set]').find((n) => n.getAttribute('data-keep-set') === id);
+  return Object.assign(p, {
+    ticked: () => list.querySelectorAll('input').filter((n) => n.checked).map((n) => n.id.replace(/^keep-(season-)?/, '')),
+    tick(id, on) { const n = box(id); n.checked = on; (n.listeners.change || []).forEach((fn) => fn({ target: n })); },
+    set,
+    phases,
+    reload(fresh) { now = fresh; },
+    async reopen() { click(p.doc, keepOption(p, 'show:77', '30 days')); await settle(); },
+    posts: () => p.calls.filter((c) => c[0] !== 'get').map((c) => [c[1], c[2]]),
+    button: (id) => p.doc.getElementById(id),
+    state: () => ({ ticked: p.ticked(), focus: p.doc.activeElement.id, gets: p.calls.filter((c) => c[0] === 'get').length,
+      open: p.doc.getElementById('keep-dialog-overlay').classList.contains('active') }),
+    async confirm() { const b = p.doc.getElementById('keep-dialog-confirm'); b.focus(); click(p.doc, b); await settle(); },
+    sent: () => p.calls.filter((c) => c[0] !== 'get').map((c) => [c[1], c[2] && (c[2].duration || c[2].days || ''), c[2] && (c[2].season_ids || c[2].media_item_id || '')]),
+    told: () => p.toasts.map((t) => t.message),
+  });
 }
 
 const scenarios = {
@@ -414,6 +479,399 @@ const scenarios = {
     };
   },
 
+  // Opened from the card of a season that leaves: that season, and the keep there is.
+  async keepLeavingSeason() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    const ticked = p.ticked();
+    await p.confirm();
+    const out = { ticked, sent: p.sent(), told: p.told() };
+    p.toasts[0].action.onClick();
+    await settle();
+    out.undone = p.sent().slice(1);
+    return out;
+  },
+
+  async keepNothingPicked() {
+    const none = seasonsOf(null, null, { leaving: leaves(5) });
+    const out = {};
+    for (const [name, opts] of [['other', { seasonId: '', seasons: none }], ['kept', { seasonId: '', seasons: LEAVING }]]) {
+      const p = await keepDialog(opts);
+      out[name] = { ticked: p.ticked() };
+      await p.confirm();
+      Object.assign(out[name], { sent: p.sent(), errors: p.errors.length, busy: p.row('show:77').classList.contains('is-busy') });
+    }
+    return out;
+  },
+
+  async keepFromList() {
+    const p = await keepDialog({ seasons: LEAVING });
+    const leavingOnes = p.doc.getElementById('keep-season-list').querySelectorAll('.keep-season-details').map((n) => /leaves in (\d+) days/.exec(n.textContent)).map((m) => m && m[1]);
+    const ticked = p.ticked();
+    const several = await keepDialog({ seasons: seasonsOf(null, null) });
+    const movedOn = await keepDialog({ seasons: seasonsOf(null, { leaving: leaves(9) }, { leaving: leaves(4) }) });
+    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked() };
+  },
+
+  // A keep is changed only by its own button, which says to what.
+  async keepChanged() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s3', false);
+    const only = { s1: !!p.set('s1'), s2: !!p.set('s2'), all: !!p.set('all') };
+    click(p.doc, p.doc.querySelectorAll('.keep-dur-btn').find((b) => b.dataset.dur === '90 days'));
+    const label = p.set('s1').textContent;
+    click(p.doc, p.set('s1'));
+    const pressed = p.set('s1').getAttribute('aria-pressed');
+    await p.confirm();
+    const back = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    click(back.doc, back.set('s1'));
+    back.tick('s1', false);
+    back.tick('s1', true);
+    await back.confirm();
+    return { only, label, pressed, sent: p.sent(), told: p.told(), undo: p.toasts[0].undo, afterUntick: back.sent() };
+  },
+
+  async keepRemoved() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s1', false);
+    await p.confirm();
+    const only = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(5) }), seasonId: '' });
+    only.tick('s1', false);
+    await only.confirm();
+    return { sent: p.sent(), told: p.told(), undo: p.toasts[0].undo, only: [only.sent(), only.told()] };
+  },
+
+  // The whole show, ticked by hand: the seasons with a keep stay as they are.
+  async keepWholeShow() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('all', true);
+    const ticked = p.ticked();
+    await p.confirm();
+    const kept = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(60) }), seasonId: '' });
+    kept.tick('all', true);
+    await kept.confirm();
+    return { ticked, sent: p.sent(), told: p.told(), allKept: [kept.sent(), kept.errors.length] };
+  },
+
+  // A season unticked on a show kept as a whole ends that keep: the others are kept at least as long.
+  async keepShowUnticked() {
+    const forever = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, { keep: until(40) }, null), seasonId: '', duration: '7 days' });
+    const ticked = forever.ticked();
+    forever.tick('s3', false);
+    await forever.confirm();
+    const days = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(3) }, { keep: until(40) }, { keep: until(12) }, null), seasonId: '', duration: '7 days' });
+    days.tick('s4', false);
+    await days.confirm();
+    return { ticked, forever: [forever.sent(), forever.told()], days: days.sent() };
+  },
+
+  async keepShowChanged() {
+    const p = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: FOREVER }, { keep: until(12) }, null), seasonId: '' });
+    await p.confirm();
+    const untouched = [p.sent(), p.errors.length];
+    const seasonSet = !!p.set('s1') || !!p.set('s2');
+    click(p.doc, p.set('all'));
+    await p.confirm();
+    return { untouched, seasonSet, sent: p.sent(), told: p.told() };
+  },
+
+  // One of two fails: the dialog reads the seasons again and offers only what is left.
+  async keepPartFails() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s2', true);
+    p.replies['post /api/watch/keep'] = () => (p.calls[p.calls.length - 1][2].media_item_id === 's2' ? Promise.reject(new Error('no')) : Promise.resolve({ ok: true }));
+    p.reload(seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { keep: until(30) }));
+    await p.confirm();
+    const out = { errors: p.errors, ticked: p.ticked(), focus: p.doc.activeElement.id, open: p.doc.getElementById('keep-dialog-overlay').classList.contains('active') };
+    const before = p.sent().length;
+    delete p.replies['post /api/watch/keep'];
+    await p.confirm();
+    out.again = p.sent().slice(before);
+    return out;
+  },
+
+  // The Undo of a season's keep goes once that keep is removed in the dialog; forever on one that leaves has none.
+  async keepUndoRetired() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { keep: until(30) }));
+    click(p.doc, keepOption(p, 'show:77', '30 days'));
+    await settle();
+    p.tick('s2', false);
+    p.tick('s3', false);
+    await p.confirm();
+    const always = await keepDialog({ seasons: LEAVING, seasonId: 's3', duration: 'forever' });
+    await always.confirm();
+    const plain = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '', duration: 'forever' });
+    plain.tick('s2', true);
+    await plain.confirm();
+    plain.toasts[0].action.onClick();
+    await settle();
+    return { dismissed: p.toasts[0].dismissed, sent: p.sent(), forever: [always.sent(), always.toasts[0].undo], unscheduled: plain.sent() };
+  },
+
+  // Every change says which keep it read.
+  async keepSaysWhatItRead() {
+    const out = {};
+    const one = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(5) }, null), seasonId: '' });
+    one.tick('s3', true);
+    click(one.doc, one.set('s1'));
+    one.tick('s2', false);
+    await one.confirm();
+    out.seasons = one.posts();
+    const all = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, null), seasonId: '' });
+    all.tick('all', true);
+    await all.confirm();
+    out.all = all.posts();
+    const end = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(12) }, null), seasonId: '' });
+    end.tick('s2', false);
+    await end.confirm();
+    out.end = end.posts();
+    const none = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(12) }, null), seasonId: '' });
+    click(none.doc, none.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = none.posts();
+    const own = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: '' });
+    click(own.doc, own.button('keep-dialog-remove'));
+    await settle();
+    out.removeOwn = own.posts();
+    out.expected = { forever: readOf(FOREVER), five: readOf(until(5)), twelve: readOf(until(12)) };
+    return out;
+  },
+
+  // A keep changed since the dialog opened: the dialog shows what there is now, and nothing more is sent.
+  async keepChangedMeanwhile() {
+    const now = seasonsOf({ keep: FOREVER }, null, { leaving: leaves(5) });
+    const run = async (opts, url, act) => {
+      const p = await keepDialog(opts);
+      act(p);
+      p.replies[url] = keepChanged;
+      p.reload(now);
+      await p.confirm();
+      return { sent: p.posts().length, errors: p.errors, phases: p.phases, told: p.told(), ...p.state() };
+    };
+    const out = {
+      season: await run({ seasons: seasonsOf({ keep: until(5) }, null, { leaving: leaves(5) }), seasonId: 's2' }, 'postForm /api/media/s2/keep', (p) => p.tick('s1', false)),
+      all: await run({ seasons: seasonsOf(null, null, null), seasonId: '' }, 'post /api/show/77/keep', (p) => p.tick('all', true)),
+      end: await run({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' }, 'post /api/show/77/remove', (p) => p.tick('s3', false)),
+      drop: await run({ seasons: seasonsOf({ keep: until(5) }, { keep: until(5) }, null), seasonId: '' }, 'post /api/media/s1/unprotect', (p) => p.tick('s1', false)),
+    };
+    for (const status of [404, 409]) {
+      const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+      p.replies['post /api/watch/keep'] = () => Promise.reject(Object.assign(new Error('gone'), { status }));
+      p.reload(now);
+      await p.confirm();
+      out['watch' + status] = { errors: p.errors, phases: p.phases, ticked: p.ticked() };
+    }
+    const rm = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' });
+    rm.replies['post /api/show/77/remove'] = keepChanged;
+    rm.reload(now);
+    click(rm.doc, rm.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = { errors: rm.errors, phases: rm.phases, told: rm.told(), ...rm.state() };
+    return out;
+  },
+
+  // A film kept, or a keep undone, after another admin changed its keep.
+  async filmKeepChangedMeanwhile() {
+    const p = load({ list: true });
+    const phases = [];
+    p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
+    p.serve('/watch/list', {}, ROWS);
+    p.replies['postForm /api/media/m2/keep'] = keepChanged;
+    click(p.doc, keepOption(p, 'id:m2', '30 days'));
+    await settle();
+    delete p.replies['postForm /api/media/m2/keep'];
+    click(p.doc, keepOption(p, 'id:m2', '30 days'));
+    await settle();
+    p.replies['post /api/media/m2/unprotect'] = keepChanged;
+    p.toasts[0].action.onClick();
+    await settle();
+    return { phases, errors: p.errors.length, toasts: p.toasts.length, undo: p.calls[p.calls.length - 1] };
+  },
+
+  // The Undo of seasons kept in the dialog takes back only the keeps that save made.
+  async seasonUndoChangedMeanwhile() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '' });
+    p.tick('s2', true);
+    await p.confirm();
+    p.replies['post /api/media/s2/unprotect'] = keepChanged;
+    p.toasts[0].action.onClick();
+    await settle();
+    const unsaid = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '' });
+    unsaid.tick('s2', true);
+    unsaid.replies['postForm /api/media/s2/keep'] = () => Promise.resolve({ ok: true });
+    await unsaid.confirm();
+    return { undo: p.posts()[1], reads: p.state().gets, made: MADE, errors: p.errors, phases: p.phases, told: p.told(), unsaid: unsaid.toasts[0].undo };
+  },
+
+  // A save takes away the Undo of what it changes as it starts, not once it is saved.
+  async undoRetiredAsASaveStarts() {
+    const out = {};
+    const kept = seasonsOf({ keep: until(30) }, null, null);
+    for (const [name, showKept, act] of [
+      ['same', null, (p) => { p.tick('s1', false); p.tick('s2', true); }],
+      ['other', null, (p) => p.tick('s2', true)],
+      ['all', null, (p) => p.tick('all', true)],
+      ['show', FOREVER, (p) => p.tick('s3', false)],
+    ]) {
+      const p = await keepDialog({ seasons: seasonsOf(null, null, null), seasonId: 's1' });
+      await p.confirm();
+      p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: showKept, seasons: kept });
+      const reply = deferred();
+      ['post /api/media/s1/unprotect', 'postForm /api/media/s2/keep', 'post /api/show/77/keep', 'post /api/show/77/remove']
+        .forEach((url) => { p.replies[url] = () => reply.promise; });
+      await p.reopen();
+      act(p);
+      await p.confirm();
+      out[name] = p.toasts[0].dismissed;
+    }
+    const removeAll = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await removeAll.confirm();
+    removeAll.reload(seasonsOf({ keep: until(30) }, null));
+    await removeAll.reopen();
+    removeAll.replies['post /api/media/s1/unprotect'] = () => deferred().promise;
+    click(removeAll.doc, removeAll.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = removeAll.toasts[0].dismissed;
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r)));
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    film.replies['post /api/media/m1/unprotect'] = () => deferred().promise;
+    click(film.doc, film.row('id:m1').querySelector('[data-remove-keep-id]'));
+    out.film = film.toasts[0].dismissed;
+    const again = load({ list: true });
+    again.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r)));
+    click(again.doc, keepOption(again, 'id:m1', '30 days'));
+    await settle();
+    again.replies['postForm /api/media/m1/keep'] = () => deferred().promise;
+    click(again.doc, keepOption(again, 'id:m1', 'forever'));
+    out.filmKeptAgain = again.toasts[0].dismissed;
+    return out;
+  },
+
+  // An Undo pressed while the dialog is open holds its buttons until it settles, then the seasons are read again.
+  async undoWithTheDialogOpen() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, null));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['post /api/media/s1/unprotect'] = () => reply.promise;
+    const buttons = () => [!!p.button('keep-dialog-confirm').disabled, !!p.button('keep-dialog-remove').disabled];
+    const out = { before: buttons(), ticked: p.ticked() };
+    p.toasts[0].action.onClick();
+    await settle();
+    out.during = buttons();
+    p.reload(seasonsOf(null, null));
+    const gets = p.state().gets;
+    reply.resolve({ ok: true });
+    await settle();
+    out.after = buttons();
+    out.reads = p.state().gets - gets;
+    out.tickedAfter = p.ticked();
+    return out;
+  },
+
+  // An Undo pressed while a save of another season runs waits for it.
+  async undoWaitsForASave() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, null));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['postForm /api/media/s2/keep'] = () => reply.promise;
+    p.tick('s2', true);
+    await p.confirm();
+    p.toasts[0].action.onClick();
+    await settle();
+    const during = p.posts().map((c) => c[0]);
+    reply.resolve({ ok: true, keep: MADE });
+    await settle();
+    return { during, after: p.posts().map((c) => c[0]).slice(during.length) };
+  },
+
+  // Remove all, confirmed while an Undo of the show runs, waits for it.
+  async removeAllWaitsForAnUndo() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, { keep: until(30) }));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['post /api/media/s1/unprotect'] = () => reply.promise;
+    const asked = deferred();
+    p.ctx.UIFeedback.confirm = () => asked.promise;
+    click(p.doc, p.button('keep-dialog-remove'));
+    p.toasts[0].action.onClick();
+    asked.resolve(true);
+    await settle();
+    const during = p.posts().length;
+    reply.resolve({ ok: true });
+    await settle();
+    return { during, after: p.posts().length };
+  },
+
+  // A save that fails removes no keep.
+  async failedKeepDropsNothing() {
+    const p = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: 's2' });
+    p.tick('s1', false);
+    p.replies['postForm /api/media/s2/keep'] = serverError;
+    await p.confirm();
+    const show = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' });
+    show.tick('s3', false);
+    show.replies['post /api/show/77/remove'] = serverError;
+    await show.confirm();
+    const label = show.button('keep-dialog-confirm').textContent;
+    return { sent: p.posts().map((c) => c[0]), phases: p.phases,
+      show: show.posts().map((c) => c[0]), showPhases: show.phases, label, ticked: show.ticked(), disabled: !!show.button('keep-dialog-confirm').disabled };
+  },
+
+  // What a save did keep, or an Undo took back, is announced though the rest failed.
+  async partSavedIsAnnounced() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    p.tick('s2', true);
+    p.replies['postForm /api/media/s2/keep'] = serverError;
+    await p.confirm();
+    const rm = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, { keep: until(5) }), seasonId: '' });
+    rm.replies['post /api/media/s2/unprotect'] = serverError;
+    click(rm.doc, rm.button('keep-dialog-remove'));
+    await settle();
+    const no = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: '' });
+    no.replies['post /api/media/s1/unprotect'] = serverError;
+    click(no.doc, no.button('keep-dialog-remove'));
+    await settle();
+    const of = (d) => ({ phases: d.phases, errors: d.errors, told: d.told() });
+    return { kept: of(p), removed: of(rm), nothing: of(no) };
+  },
+
+  // All seasons set to 7 days: a keep that lasts longer and is the season's own stays.
+  async keepShowShortened() {
+    const seasons = seasonsOf({ keep: FOREVER }, { keep: until(90) }, { keep: OWN_FOREVER }, { keep: until(3) }, null);
+    const p = await keepDialog({ showKept: FOREVER, seasons, seasonId: '', duration: '7 days' });
+    click(p.doc, p.set('all'));
+    await p.confirm();
+    const days = await keepDialog({ showKept: until(60), seasons: seasonsOf({ keep: until(60) }, { keep: until(40) }, { keep: until(7) }), seasonId: '', duration: '7 days' });
+    click(days.doc, days.set('all'));
+    await days.confirm();
+    const own = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: OWN_FOREVER }), seasonId: '', duration: '7 days' });
+    click(own.doc, own.set('all'));
+    await own.confirm();
+    return { forever: p.sent(), told: p.told(), days: days.sent(), own: [own.sent(), own.errors] };
+  },
+
+  // The dialog the Undo of a keep says it came from, in Details and on the list.
+  async keepToastDialog() {
+    const p = load({ list: true });
+    p.serve('/watch/list', {}, ROWS);
+    p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }]));
+    p.doc.documentElement.classList.add('has-ttl');
+    await p.ctx.MMWatch.admin.keep({ id: '42', is_tv: false, title: 'Dune' }, '7 days');
+    p.doc.documentElement.classList.remove('has-ttl');
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    return p.toasts.map((t) => t.dialog);
+  },
+
   // The detail calls the same actions with a plain object, list or no list.
   async detailCalls() {
     const p = load({ list: false });
@@ -445,6 +903,7 @@ const scenarios = {
       events: p.events.slice(),
     };
     p.popstate('');
+    await settle();
     out.back = { listHidden: list.hidden === true, browseShown: !p.doc.getElementById('watch-browse').hidden, events: p.events.slice(1) };
     p.popstate('?view=list&q=harbour');
     out.forward = { listShown: !list.hidden, fetches: p.fetches.length };
@@ -495,7 +954,7 @@ const scenarios = {
     p.doc.querySelector('#watch-list [data-list-part="results"]').appendChild(clear);
     click(p.doc, clear);
     await settle();
-    out.cleared = { q: p.doc.getElementById('watch-search').value, clearHidden: p.doc.getElementById('watch-search-clear').hidden === true };
+    out.cleared = p.doc.getElementById('watch-search').value;
     out.fetches = p.fetches;
     out.history = p.history;
     return out;
@@ -822,6 +1281,111 @@ const scenarios = {
     return out;
   },
 
+  // Left for the rows while a filter loads: its reply moves no address. Back opens the list as it was.
+  async leftWhileLoading() {
+    const p = load({ list: true });
+    const slow = deferred();
+    p.serve('/watch/list?type=kept', { type: 'kept' }, ROWS.slice(3), slow);
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[1]);
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    slow.resolve();
+    await settle();
+    const shown = () => ({ list: !p.doc.getElementById('watch-list').hidden, browse: !p.doc.getElementById('watch-browse').hidden });
+    const out = { history: p.history.slice(), left: shown() };
+    p.serve('/watch/list', {}, ROWS);
+    p.popstate('?view=list');
+    await settle();
+    return { ...out, back: shown(), keys: p.rowKeys().length };
+  },
+
+  // With motion the view that comes is there while the one that goes fades out over it, and a
+  // quick change of mind leaves the last one chosen alone.
+  async overlappingViews() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: false, motion: true });
+    p.serve('/watch/list', {}, ROWS);
+    const go = (view) => click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="' + view + '"]'));
+    const look = () => ['watch-browse', 'watch-list'].map((id) => {
+      const n = p.doc.getElementById(id);
+      return [n.hidden ? 'hidden' : 'shown', n.hasAttribute('inert'), n.style.position || ''].join(' ');
+    });
+    const finish = () => anims.splice(0).forEach((a) => a.onfinish && a.onfinish());
+    go('list');
+    await settle();
+    const during = look();
+    finish();
+    const after = look();
+    go('rows');
+    await settle();
+    go('list');
+    const back = look();
+    finish();
+    return { during, after, back, end: look() };
+  },
+
+  // With text in the field the rows half of the switch leads to the results, shown at the page's top.
+  async listToResults() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: true, motion: true });
+    const list = p.doc.getElementById('watch-list');
+    const results = p.doc.getElementById('watch-results');
+    const look = () => [list.hidden ? 'hidden' : 'shown', list.hasAttribute('inert'), list.style.position || ''].join(' ');
+    let asResultsCame;
+    p.ctx.scrollY = 300;
+    p.doc.addEventListener('mm:watch-view', () => { asResultsCame = look(); results.hidden = false; p.ctx.scrollY = 0; });
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    await settle();
+    const out = { asResultsCame, top: list.style.top, results: { shown: !results.hidden, fadesIn: results.classList.contains('fade-in') } };
+    anims.forEach((a) => a.onfinish && a.onfinish());
+    return { ...out, end: look(), browse: !p.doc.getElementById('watch-browse').hidden };
+  },
+
+  // The page the list leaves is too short for where it was scrolled, so it goes up as the list is lifted.
+  async listLeftOnAShortPage() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: true, motion: true });
+    const list = p.doc.getElementById('watch-list');
+    const up = () => list.style.position === 'absolute' && list.style.paddingBottom !== '112px';
+    let y = 300;
+    Object.defineProperty(p.ctx, 'scrollY', { get: () => (up() ? (y = 204) : y) });
+    Object.defineProperty(p.doc.documentElement, 'scrollHeight', { get: () => (up() ? (y = 204, 904) : 1000) });
+    p.ctx.scrollTo = (x, to) => { y = to; };
+    p.ctx.getComputedStyle = () => ({ paddingBottom: '16px', getPropertyValue: () => '' });
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    await settle();
+    const out = { top: list.style.top, y: p.ctx.scrollY };
+    anims.forEach((a) => a.onfinish && a.onfinish());
+    return { ...out, padding: list.style.paddingBottom };
+  },
+
+  // A category's page closes as its address is left, which puts the rows back.
+  async categoryToList() {
+    let faded = 0;
+    Node.prototype.animate = function () { if (this.id === 'watch-browse') faded += 1; return { cancel() {} }; };
+    const p = load({ list: false, motion: true });
+    p.serve('/watch/list', {}, ROWS);
+    const browse = p.doc.getElementById('watch-browse');
+    browse.hidden = true;
+    p.ctx.MMWatch.address.push = () => { browse.hidden = false; };
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="list"]'));
+    await settle();
+    return { browse: !browse.hidden, list: !p.doc.getElementById('watch-list').hidden, faded };
+  },
+
+  // Back from the list to a row opened as a grid: the rows stay behind it.
+  async backToGrid() {
+    Node.prototype.animate = () => { const a = { cancel() {} }; setImmediate(() => a.onfinish && a.onfinish()); return a; };
+    const p = load({ list: true, motion: true });
+    const opened = [];
+    p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all'], read: (here) => here.params.get('all'), open: (v) => { opened.push(v); }, close() {} });
+    p.popstate('?all=movies');
+    await settle();
+    return { opened, browse: !p.doc.getElementById('watch-browse').hidden, list: !p.doc.getElementById('watch-list').hidden };
+  },
+
   // A header, pill or page link of the list showing, pressed while another list loads: a header or pill
   // changes only its own part of what was asked, and a page of the old list is not asked of the new one.
   async linksWhileLoading() {
@@ -905,6 +1469,50 @@ const scenarios = {
     await settle();
     const a = p.doc.activeElement;
     return { header: a.classList.contains('th-sort'), inert: !!a.closest('[inert]'), old: a === header };
+  },
+
+  // What is scheduled changed somewhere else: the totals and dates follow, the focus stays in its row.
+  async scheduledChanged() {
+    const p = load({ list: true });
+    p.serve('/watch/list', { label: 'fresh' }, ROWS);
+    const button = p.row('id:m1').querySelector('.keep-trigger');
+    button.focus();
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const a = p.doc.activeElement;
+    const focus = { key: a.closest('tr').getAttribute('data-row-key'), keep: a.classList.contains('keep-trigger'), fresh: a !== button };
+    const del = p.row('id:m1').querySelector('[data-action="confirm-delete"]');
+    del.focus();
+    p.serve('/watch/list', { label: 'without it' }, ROWS.slice(1));
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const gone = p.doc.activeElement.closest('tr').getAttribute('data-row-key');
+    return { focus, gone, first: p.rowKeys()[0], summary: p.part('summary'), fetches: p.fetches };
+  },
+
+  // It changed while another list was loading, and while the list was hidden.
+  async scheduledChangedMeanwhile() {
+    const p = load({ list: true });
+    const slow = deferred();
+    p.serve('/watch/list?type=movie', { type: 'movie', label: 'movies' }, ROWS.slice(0, 1), slow);
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[2]);
+    const pill = p.fetches.length;
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    const during = p.fetches.length - pill;
+    slow.resolve();
+    await settle();
+    const after = p.fetches.slice();
+    const q = load({});
+    q.serve('/watch/list', { label: 'one' }, ROWS);
+    const list = q.doc.querySelector('#watch-viewtoggle [data-view="list"]');
+    const rows = q.doc.querySelector('#watch-viewtoggle [data-view="rows"]');
+    click(q.doc, list); await settle();
+    click(q.doc, rows); await settle();
+    q.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const hidden = q.fetches.length;
+    click(q.doc, list); await settle();
+    return { during, after, hidden, shown: q.fetches.length };
   },
 
   // The sort select reorders in place, from page 1.

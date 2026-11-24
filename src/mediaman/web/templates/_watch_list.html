@@ -2,6 +2,7 @@
    control is a link or a form, so it works without the page script, which
    swaps the parts marked data-list-part in place instead. #}
 {% import "_components.html" as c %}
+{% import "_watch_card.html" as w %}
 {% set type_nouns = {"": "titles", "movie": "movies", "tv": "TV shows", "anime": "anime", "kept": "kept titles", "stale": "stale titles"} %}
 <div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}">
 
@@ -66,7 +67,7 @@
             {{ sort_header("Title", "name", "name_asc", "name_desc", "name_asc") }}
             <th>Type</th>
             {{ sort_header("Size", "size", "size_asc", "size_desc", "size_desc") }}
-            {{ sort_header("Last watched", "watched", "watched_asc", "watched_desc", "watched_desc") }}
+            {{ sort_header("Last watched by anyone", "watched", "watched_asc", "watched_desc", "watched_desc") }}
             {{ sort_header("Deletion", "deletion", "deletion_asc", "deletion_desc", "deletion_asc", "col-del") }}
             <th class="col-act">Actions</th>
           </tr>
@@ -81,11 +82,15 @@
               </div>
             </td>
             <td class="title-cell">
-              {% if item.ref %}<a class="wl-title" href="/watch#title={{ item.ref }}" data-title-ref="{{ item.ref }}">{{ item.title }}</a>{% else %}<span class="wl-title">{{ item.title }}</span>{% endif %}
+              <div class="wl-titleline">
+                {% if item.ref %}<a class="wl-title" href="/watch#title={{ item.ref }}" data-title-ref="{{ item.ref }}">{{ item.title }}</a>{% else %}<span class="wl-title">{{ item.title }}</span>{% endif %}
+                {# The admin's own mark; Last watched by anyone counts everybody's plays. #}
+                {% if item.ref %}{% set kind, key = item.ref.split("-") %}{{ w.mark_toggle(kind, key, item.watched, item.title) }}{% endif %}
+              </div>
               <div class="sub">
                 {{ item.subtitle }}
                 {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}
-                <span class="wl-sub-watched"> · {% if item.last_watched %}watched {{ item.last_watched }}{% else %}<span class="text-danger">never watched</span>{% endif %}</span>
+                <span class="wl-sub-watched"> · {% if item.last_watched %}last watched by anyone {{ item.last_watched }}{% else %}<span class="text-danger">never watched by anyone</span>{% endif %}</span>
               </div>
             </td>
             <td>{{ c.pill("Movie" if item.media_type == "movie" else ("TV" if item.media_type == "tv" else "Anime"), variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}</td>
@@ -206,7 +211,11 @@
   {% else %}
     <div class="empty wl-empty">
       <h3>Your library is empty</h3>
-      <p>Run a scan to pull in media from Plex.</p>
+      <p>Run a scan from Storage to pull in media from Plex.</p>
+      <div class="watch-actions">
+        <a class="btn btn--primary" href="/watch#storage">Open Storage</a>
+        <a class="btn btn--secondary" href="/settings">Open Settings</a>
+      </div>
     </div>
   {% endif %}
   </div>

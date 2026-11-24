@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
 from mediaman.services.downloads.download_format import extract_poster_url
+from mediaman.services.media_meta.item_enrichment import safe_backdrop
 
 if TYPE_CHECKING:
     from jinja2 import Template
@@ -50,6 +51,7 @@ class SuggestionsMeta:
     imdb_rating: str
     rt_rating: str
     poster_url: str
+    backdrop_url: str = ""
 
 
 # Module-cached Jinja template.
@@ -111,6 +113,7 @@ def gather_email_meta(
         "imdb_rating": "",
         "rt_rating": "",
         "poster_url": "",
+        "backdrop_url": "",
     }
 
     # Recommendations cache lookup — pulled from the batch fetch
@@ -164,8 +167,9 @@ def build_email_payload(
         "rt_rating": meta["rt_rating"],
     }
 
-    # Poster source — constrained to 240px height in the template.
+    # The wide backdrop heads the email; a title with none shows its poster as a poster.
     # Upgrade small TMDB posters to w500 for better-looking emails.
+    backdrop_src = safe_backdrop(meta["backdrop_url"]) or ""
     poster_src = meta["poster_url"]
     if poster_src:
         poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
@@ -181,6 +185,7 @@ def build_email_payload(
         title=title,
         season_label=season_label,
         poster_src=poster_src,
+        backdrop_src=backdrop_src,
         meta=meta_ctx,
         ratings=ratings_ctx,
         description=meta["description"],

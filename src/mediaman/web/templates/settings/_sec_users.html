@@ -1,76 +1,9 @@
-{# Users & Access — self card + team management.
-   The `username` var is passed in by the settings route. #}
+{# Users & Access — team management. #}
 {% import "_components.html" as c %}
-
-{% set user_initial = (username or "?")[:1] | upper %}
 
 {% call c.setg_block("setg-users", "Users & Access", "Who can sign in and administer Mediaman") %}
 
-  {# Signed-in user (self card). Action buttons live inside the
-         card body (usr-self-actions), not in the card header. #}
-  {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
-    <div class="usr-self-head">
-      <div class="av">{{ user_initial }}</div>
-      <div class="usr-meta">
-        <div class="usr-name">{{ username }}</div>
-        <div class="usr-sub">Admin · signed in</div>
-        <div class="usr-sub" id="self-email-display">
-          {% if email %}{{ email }}{% else %}Not set · download alerts disabled{% endif %}
-        </div>
-      </div>
-      <div class="usr-self-actions">
-        {{ c.btn(("Edit email" if email else "Add email"),
-                 variant="secondary", size="sm", id="btn-edit-email") }}
-        {{ c.btn("Change password", variant="secondary", size="sm", id="btn-change-password") }}
-        {{ c.btn("Sign out other devices", variant="ghost", size="sm", id="btn-revoke-others") }}
-      </div>
-    </div>
-
-    <form class="inline-form setg-fold" id="self-password-form" novalidate hidden>
-      <div class="setg-fold-inner">
-        <div class="inline-form-grid">
-          <label class="fld">
-            <span class="fld-lbl">Current password</span>
-            <input class="inp" type="password" id="self-old-password" autocomplete="current-password" data-show-password>
-          </label>
-          <label class="fld">
-            <span class="fld-lbl">New password</span>
-            <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength" data-show-password>
-            <div class="fpc-meter"><span class="fpc-meter-fill" id="self-new-strength-meter"></span></div>
-            <span class="fpc-caption" id="self-new-strength-label">&nbsp;</span>
-          </label>
-          <label class="fld">
-            <span class="fld-lbl">Confirm new password</span>
-            <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password" data-show-password>
-            <span class="fpc-caption" id="self-match-label">&nbsp;</span>
-          </label>
-        </div>
-        <div class="inline-form-actions">
-          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
-          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
-          <span class="inline-form-msg" id="password-result" role="status"></span>
-        </div>
-      </div>
-    </form>
-
-    <form class="inline-form setg-fold" id="self-email-form" novalidate hidden>
-      <div class="setg-fold-inner">
-        <label class="fld">
-          <span class="fld-lbl">Notification email</span>
-          <input class="inp" type="email" id="self-email-input"
-                 autocomplete="email" inputmode="email"
-                 placeholder="you@example.com"
-                 value="{{ email or '' }}">
-          <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
-        </label>
-        <div class="inline-form-actions">
-          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
-          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-email">Save email</button>
-          <span class="inline-form-msg" id="email-result" role="status"></span>
-        </div>
-      </div>
-    </form>
-  {% endcall %}
+  <p class="fld-sub usr-profile-link">Your own email, password and sign-ins are on your <a href="/account">Profile</a>.</p>
 
   {% set team_actions %}
     {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",

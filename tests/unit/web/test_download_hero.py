@@ -69,3 +69,46 @@ def test_the_hero_takes_no_more_height_than_it_needs_on_a_short_screen() -> None
 
     assert short and re.search(r"\.dl-cinema \{[^}]*min-height: 0", short[1])
     assert re.search(r"\.dl-cinema__poster \{ width: min\([^}]*34vh\)", short[1])
+
+
+def test_the_backdrop_waits_to_be_known_for_a_wide_picture_before_it_shows() -> None:
+    css = (WEB / "static/css/_hero.css").read_text(encoding="utf-8")
+
+    assert re.search(
+        r"@media \(scripting: enabled\) \{\s*\.dl-cinema__art:not\(\[data-fit\]\) \{ opacity: 0; \}",
+        css,
+    )
+    assert '.dl-cinema__art[data-fit="at-once"]' in css
+
+
+def test_the_reason_has_a_heading_and_is_no_taller_than_its_own_text() -> None:
+    html = _ENV.get_template("download.html").render(
+        state="confirm",
+        item={"title": "Ember Coast", "media_type": "movie", "reason": "Because sand."},
+    )
+    css = (WEB / "static/css/_hero.css").read_text(encoding="utf-8")
+
+    assert re.search(r'<div class="dl-reason">\s*<h2[^>]*>Why it\'s here</h2>', html)
+    assert re.search(r"\.dl-columns \.dl-reason \{ align-self: start; \}", css)
+
+
+def _queued_card(**context: object) -> str:
+    item = {"id": "radarr:Ember Coast", "title": "Ember Coast", "media_type": "movie"}
+    item.update(state="searching", state_label="Searching", progress=0, **context.pop("item", {}))
+    return _ENV.get_template("_dl_hero_card.html").render(item=item, **context)
+
+
+def test_the_queued_card_is_filled_with_the_wide_backdrop_when_there_is_one() -> None:
+    wide = _queued_card(item={"poster_url": POSTER}, hero_backdrop=BACKDROP)
+    poster_only = _queued_card(item={"poster_url": POSTER})
+
+    assert f'class="dl-hero-bg" data-bg-url="{BACKDROP}"' in wide
+    assert f'<img src="{POSTER}"' in wide
+    assert f'class="dl-hero-bg" data-bg-url="{POSTER}"' in poster_only
+
+
+def test_a_title_pill_never_wraps_its_count() -> None:
+    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.dl-hero-episodes-toggle,\s*\.dl-compact-episodes-toggle \{([^}]*)\}", css)
+
+    assert rule and "white-space: nowrap" in rule[1]

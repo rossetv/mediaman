@@ -142,3 +142,50 @@ class TestApiLibraryListDeletion:
         assert body["items"][1]["deletion_at"] is None
         assert body["stats"]["due_soon"] == 1
         assert "movies_size" in body["stats"]
+
+
+class TestApiLibraryTitles:
+    @pytest.fixture
+    def get(self, app_factory, authed_client, conn):
+        client = authed_client(app_factory(api_router, conn=conn), conn)
+        return lambda path: client.get(path).json()
+
+    def test_an_item_carries_the_title_to_open(self, get, conn):
+        insert_media_item(conn, id="10", title="B", file_size_bytes=3)
+        # A show without its own key groups under its title, which may be a number.
+        for item_id, key, size in (("20", "900", 2), ("30", None, 1)):
+            insert_media_item(
+                conn,
+                id=item_id,
+                media_type="tv_season",
+                show_title="24",
+                show_rating_key=key,
+                file_size_bytes=size,
+            )
+
+        items = get("/api/library?sort=size_desc")["items"]
+
+        assert [i["ref"] for i in items] == ["movie-10", "show-900", None]
+
+    def test_titles_with_no_size_are_counted_and_a_show_with_one_sized_season_is_not(
+        self, get, conn
+    ):
+        insert_media_item(conn, id="1", file_size_bytes=0)
+        insert_media_item(conn, id="2", file_size_bytes=7)
+        for item_id, kind, show, size in (
+            ("3", "tv_season", "50", 0),
+            ("4", "tv_season", "50", 9),
+            ("5", "tv_season", "60", 0),
+            ("6", "tv_season", "60", 0),
+            ("7", "anime_season", "70", 0),
+        ):
+            insert_media_item(
+                conn,
+                id=item_id,
+                media_type=kind,
+                show_title=show,
+                show_rating_key=show,
+                file_size_bytes=size,
+            )
+
+        assert get("/api/library")["stats"]["no_size"] == {"movies": 1, "tv": 1, "anime": 1}

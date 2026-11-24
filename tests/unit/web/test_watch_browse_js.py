@@ -4,9 +4,11 @@ against a fake DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+STATIC = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "static"
 HARNESS = Path(__file__).parent / "js" / "watch_browse_harness.js"
 
 
@@ -103,18 +105,36 @@ def test_choosing_an_earlier_batch_swaps_the_picks_in_the_same_row() -> None:
     assert "14 Nov" in out["pill"]
 
 
+def test_a_first_batch_without_a_date_says_latest_with_no_dangling_separator() -> None:
+    out = _run("undatedFirstBatch")
+    assert out["items"] == ["Latest", "14 Nov"]
+    assert out["pill"] == "Latest picks"
+    # A phone does not show the long part.
+    assert out["phone"] == "Latest"
+    assert out["label"] == "Picks: Latest picks. Choose another batch"
+
+
 def test_refresh_during_the_cooldown_shows_the_time_left_and_no_error() -> None:
     out = _run("refreshCooldown")
     assert out["label"] == "Refresh in 14 h"
     assert out["disabled"] == "true"
     assert out["error"] is False
-    assert out["note"] == "New picks can be fetched again in 14 h."
+    assert out["note"] == "Shared picks can be fetched again in 14 h."
 
 
-def test_a_refused_refresh_shows_the_reason_inline_and_can_be_tried_again() -> None:
+def test_a_cooling_refresh_says_how_long_when_pressed_and_keeps_its_width() -> None:
+    out = _run("refreshCooldown")
+    assert out["pressed"] == ["Shared picks can be fetched again in 14\u00a0h."]
+    assert out["widest"] == "Refresh in 59\u00a0min"
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    assert re.search(r"\.row-tool--refresh::before \{ content: attr\(data-widest\)", css)
+
+
+def test_a_refused_refresh_says_why_without_moving_the_row_and_can_be_tried_again() -> None:
     out = _run("refreshFailed")
-    assert out["error"] == "Plex not configured"
-    assert (out["label"], out["disabled"]) == ("Refresh picks", None)
+    assert out["toasts"] == [["Plex not configured", "error"]]
+    assert out["moved"] == 0
+    assert (out["label"], out["disabled"]) == ("Refresh shared", None)
 
 
 def test_a_session_lost_before_the_rows_load_goes_to_login_not_an_error() -> None:
@@ -144,6 +164,151 @@ def test_a_finished_refresh_puts_the_new_picks_in_the_same_row_and_starts_the_co
     assert out["after"] == "Refresh in 24 h"
 
 
+def test_a_person_s_own_picks_open_by_their_own_refs_marked_as_ai_picks() -> None:
+    out = _run("ownRow")
+    # An older batch repeats a title under another number, and lists a ref that is none.
+    assert out["refs"] == ["movie-11", "pick-2", "rec-7", "pick-31"]
+    assert out["picks"] == ["pick-1", "pick-2", "rec-7", "pick-31"]
+    assert out["marked"] == ["AI pick,"] * 4
+    assert out["chip"] == "AI picks"
+    assert out["line"]["text"] == "From your plays, then new and popular."
+    # The mark is no part of what a card of the same title is found by.
+    assert out["updated"] == "Queued"
+
+
+def test_the_line_says_why_there_are_no_new_picks_to_be_had() -> None:
+    out = _run("ownStates")
+    assert out["wait"]["button"] == "Refresh in 6 days"
+    assert out["wait"]["toasts"] == ["Your picks can be refreshed again in 6\u00a0days."]
+    assert (out["limit"]["button"], out["limit"]["off"]) == ("Refresh in 5 h", True)
+    assert out["limit"]["text"] == "That’s all the refreshes for now."
+    assert (out["few"]["text"], out["few"]["button"]) == (
+        "Play five titles and these become yours.",
+        None,
+    )
+    assert (out["noKeyViewer"]["text"], out["noKeyViewer"]["button"]) == ("New and popular.", None)
+    assert "OpenAI key" in out["noKeyAdmin"]["text"]
+    assert {v["posts"] for k, v in out.items() if k != "off"} == {0}
+    assert out["off"] is False
+
+
+def test_a_person_has_their_own_picks_made_and_they_come_in_place() -> None:
+    out = _run("ownRefreshDone")
+    assert out["before"]["button"] == "Refresh my picks"
+    assert (out["busy"]["button"], out["busy"]["spinning"]) == ("Refreshing…", True)
+    assert out["posts"] == ["POST /api/watch/picks/refresh"]
+    assert out["refs"] == ["movie-11", "pick-2", "rec-7"]
+    assert out["after"]["button"] == "Refresh in 6 days"
+    assert (out["sameRow"], out["focus"], out["toasts"]) == (True, True, ["Your new picks are in."])
+
+
+def test_own_picks_that_could_not_be_made_leave_the_row_and_can_be_tried_again() -> None:
+    out = _run("ownRefreshFailed")
+    assert out["failed"]["text"].startswith("Couldn’t make new ones")
+    assert (out["failed"]["button"], out["failed"]["off"]) == ("Refresh my picks", False)
+    assert out["failed"]["variant"] == "error"
+    assert out["sameCards"] is True
+    assert out["again"]["text"].startswith("Making yours")
+
+
+def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:
+    out = _run("ownRefused")
+    assert (out["wait"]["button"], out["wait"]["focus"]) == ("Refresh in 6 days", "row-tool")
+    assert out["few"]["text"] == "Play five titles and these become yours."
+    assert (out["few"]["button"], out["few"]["focus"]) == (None, "watch-row__scroll")
+    assert out["running"]["button"] == "Refreshing…"
+    assert (out["broken"]["button"], out["broken"]["toasts"]) == ("Refresh my picks", 1)
+    assert out["out"]["href"] == "/login"
+
+
+def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() -> None:
+    out = _run("ownRunningAtLoad")
+    assert out["made"]["busy"].startswith("Making yours")
+    assert out["made"]["toasts"] == ["Your new picks are in."]
+    assert out["none"]["toasts"] == []
+    assert out["none"]["after"].startswith("From your plays")
+    assert len(out["failed"]["toasts"]) == 1
+
+
+def test_own_picks_found_being_made_by_a_later_answer_are_followed_to_their_end() -> None:
+    out = _run("ownRunningElsewhere")
+    assert out["busy"]["button"] == "Refreshing…"
+    # The one followed is over, another is running: no word of a failure, and that one is followed.
+    assert (out["still"]["button"], out["still"]["toasts"]) == ("Refreshing…", 0)
+    assert out["polls"] == 2
+    assert (out["after"]["button"], out["toasts"]) == (
+        "Refresh in 6 days",
+        ["Your new picks are in."],
+    )
+
+
+def test_own_picks_nobody_can_tell_of_any_more_can_be_tried_again() -> None:
+    out = _run("ownLost")
+    for lost in (out["status"], out["picks"]):
+        assert (lost["button"], lost["off"]) == ("Refresh my picks", False)
+        assert (lost["text"], lost["toasts"], lost["timers"]) == (
+            "From your plays, then new and popular.",
+            1,
+            0,
+        )
+
+
+def test_a_newer_shared_batch_is_not_told_as_new_own_picks_but_still_shown() -> None:
+    out = _run("ownFailedNewerBatch")
+    for at, ref in ((out["hadOwn"], "rec-50"), (out["hadNone"], "rec-51")):
+        assert at["refs"] == [ref]
+        assert at["text"].startswith("Couldn’t make new ones")
+        assert at["toasts"] == ["Couldn’t make new picks for you. Try again."]
+
+
+def test_a_failure_that_cannot_be_tried_again_does_not_say_to() -> None:
+    out = _run("ownFailedLast")
+    assert out["limit"]["text"] == "That’s all the refreshes for now."
+    assert out["limit"]["off"] is True
+    assert out["few"]["text"] == "Play five titles and these become yours."
+    assert out["noKey"]["text"] == "Couldn’t make new ones."
+    assert {t for at in out.values() for t in at["toasts"]} == {"Couldn’t make new picks for you."}
+
+
+def test_the_day_s_limit_is_no_longer_told_once_its_wait_is_over() -> None:
+    out = _run("ownLimitPasses")
+    assert (out["before"]["text"], out["before"]["off"]) == (
+        "That’s all the refreshes for now.",
+        True,
+    )
+    assert out["after"] == {
+        "text": "From your plays, then new and popular.",
+        "button": "Refresh my picks",
+        "off": False,
+    }
+    assert out["posts"] == 1
+
+
+def test_on_a_phone_the_own_refresh_has_a_word_the_shared_one_has_not() -> None:
+    out = _run("ownNarrow")
+    assert {k: v["own"] for k, v in out.items()} == {
+        "ready": "My picks",
+        "wait": "6\u00a0days",
+        "busy": "Making…",
+    }
+    assert {v["shared"] for v in out.values()} == {None}
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    assert ".row-tool__face[data-narrow]::after { content: attr(data-narrow)" in css
+
+
+def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    wide = re.search(r"@media \(min-width: 700px\) \{([^\n]*(?:\n  [^\n]*)*)", css)
+    assert wide and ".rec-line__text { order: 1; }" in wide[1]
+    assert "margin-left: 0" in wide[1]
+
+
+def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    phone = "".join(re.findall(r"@media \(max-width: 599\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
+    assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
@@ -163,3 +328,149 @@ def test_landing_from_recommended_scrolls_its_row_into_view_and_cleans_the_addre
     # No Recommended row for a viewer with picks off, and nobody is pulled back from where they scrolled.
     assert out["picksOff"] == {"replacedAtOnce": ["/watch"], "scrolls": []}
     assert out["alreadyScrolled"]["scrolls"] == []
+
+
+def test_a_season_line_of_pills_pages_by_the_keys_and_the_arrow() -> None:
+    assert _run("seasonLine") == {"hasNext": True, "afterKey": 100, "afterArrow": 500}
+
+
+def test_a_row_loads_page_after_page_to_the_last_and_never_shows_a_title_twice() -> None:
+    out = _run("pagesToTheEnd")
+    assert out["calls"] == [2, 3, 4]
+    # Two titles of one name are two titles when their TMDB ids differ.
+    assert out["refs"] == [f"tmdb-movie-{n}" for n in range(1, 6)]
+    assert (out["things"], out["more"], out["next"]) == (5, False, False)
+
+
+def test_one_page_is_asked_for_at_a_time_with_placeholders_and_next_still_shown() -> None:
+    out = _run("pageOnItsWay")
+    assert out["far"] == {"calls": 0}
+    assert out["waiting"] == {
+        "calls": [2],
+        "things": 16,
+        "busy": "true",
+        "hidden": True,
+        "next": True,
+    }
+    assert (out["kept"], out["cards"], out["things"], out["busy"]) == (True, 30, 30, None)
+
+
+def test_a_row_with_plenty_left_to_scroll_asks_for_nothing() -> None:
+    assert _run("pageNotNear") == []
+
+
+def test_pages_of_nothing_but_repeats_end_the_row_instead_of_looping() -> None:
+    assert _run("pagesOfRepeats") == {"calls": 8, "things": 1, "more": False}
+
+
+def test_a_page_that_fails_offers_try_again_and_waits_for_it() -> None:
+    out = _run("pageFailed")
+    assert out["failed"] == {
+        "calls": [2],
+        "things": 2,
+        "text": "Couldn\u2019t load more.Try again",
+        "toasts": 0,
+        "next": True,
+    }
+    assert out["still"]["calls"] == [2, 2]
+    assert len(out["still"]["toasts"]) == 1
+    assert (out["still"]["busy"], out["still"]["focus"]) == ("false", True)
+
+
+def test_next_at_the_end_tries_a_failed_page_again_and_focus_goes_on_to_the_new_cards() -> None:
+    out = _run("pageFailed")
+    assert out["refs"] == ["tmdb-movie-1", "tmdb-movie-2", "tmdb-movie-3"]
+    assert out["calls"] == [2, 2, 2, 3]
+    assert out["focus"] == "tmdb-movie-2"
+    assert out["tiles"] == 1
+
+
+def test_a_row_asked_too_often_waits_longer_each_time_then_offers_try_again() -> None:
+    out = _run("pageTooMany")
+    assert out["quiet"] == {"tile": False, "skel": 6}
+    assert out["calls"] == 1
+    assert out["waits"] == sorted(out["waits"]) and len(out["waits"]) == 5
+    assert (out["total"], out["tile"], out["toasts"]) == (6, True, 0)
+
+
+def test_posters_far_off_the_screen_are_unloaded_and_come_back() -> None:
+    out = _run("farPosters")
+    poster = "/api/watch/img/tmdb/w342/a.jpg"
+    assert out["atStart"] == [poster, None]
+    assert out["atEnd"] == [None, poster]
+    assert (out["back"], out["cards"]) == (poster, 100)
+
+
+def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> None:
+    out = _run("olderPicks")
+    # rec-10 is rec-7 again and rec-13 rec-9; the batch between them is gone.
+    assert out["first"] == {"refs": ["rec-7", "rec-8", "rec-9", "rec-12"], "more": False}
+    assert out["chosen"] == ["rec-9", "rec-11"]
+    assert "14 Nov" in out["pill"]
+
+
+def test_a_row_whose_first_batch_is_gone_still_shows_the_older_one() -> None:
+    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9"]
+
+
+def test_a_row_whose_older_batches_are_gone_ends() -> None:
+    out = _run("goneBatches")
+    assert out == {"refs": ["rec-7", "rec-8"], "asked": 4, "more": False}
+
+
+def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> None:
+    assert _run("picksOfOneName") == ["pick-1", "rec-1", "rec-3", "rec-6"]
+
+
+def test_an_older_batch_on_its_way_when_the_row_starts_again_is_not_added() -> None:
+    assert _run("refreshedWhileLoading") == {"old": ["rec-7", "rec-8"], "now": ["rec-30"]}
+
+
+def test_focus_moves_into_the_row_that_try_again_brought_back() -> None:
+    assert _run("focusAfterRetry") == {"discover": "popular_tv", "recommended": "recommended"}
+
+
+def test_a_season_line_goes_by_where_each_pill_stands_however_wide() -> None:
+    out = _run("unevenSeasonLine")
+    # The fourth pill (500-760) is cut off at 700; the seventh (960-1360) at 1200; the line ends at 1460.
+    # Back from there, the fourth fits whole in a line that starts at the second (100).
+    assert out["arrows"] == [500, 760, 760, 100, 0]
+    assert out["keys"] == [100, 400, 100]
+
+
+def test_a_library_row_loads_on_from_the_page_s_cards_to_its_end() -> None:
+    out = _run("libraryRow")
+    assert out["refs"] == ["show-1", "show-2", "show-3", "show-4"]
+    assert out["calls"] == [
+        "GET /api/watch/library/tv/row?after=a%3D1",
+        "GET /api/watch/library/tv/row?after=b2",
+    ]
+    assert out["more"] is False
+    # As the page draws it: its mark and More, and no Keep outside Leaving soon.
+    assert out["third"] == ["show/3", True, True, False]
+
+
+def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -> None:
+    assert _run("discoverMarks") == [
+        ["movie/11", True, 1, False],
+        [None, False, 0, False],
+        [None, False, 0, False],
+    ]
+
+
+def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:
+    assert _run("rowsMovedIn") == {"before": True, "after": False, "left": 300}
+
+
+def test_refresh_of_the_shared_picks_is_off_without_a_key_and_says_why() -> None:
+    out = _run("sharedWithoutAKey")
+    for case in (out["ready"], out["cooling"]):
+        assert (case["label"], case["disabled"], case["posts"]) == ("Refresh shared", "true", 0)
+        assert case["why"] == "New ones need an OpenAI key, set in Settings."
+        assert case["toasts"] == [case["why"]]
+    assert "fetch the first ones" not in out["none"]
+    assert (out["withKey"]["posts"], out["withKey"]["why"]) == (1, None)
+
+
+def test_the_page_is_held_before_the_discover_rows_fade_in_and_before_they_settle() -> None:
+    assert _run("heldAroundTheSwaps") == [[True, False, True], [True, True, True]]

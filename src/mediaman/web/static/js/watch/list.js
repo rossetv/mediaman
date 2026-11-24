@@ -1,15 +1,16 @@
 /* Watch: the admin list view. Switches between Browse and List in place,
  * and pages, filters, sorts and searches the list by swapping the server's
- * /watch/list fragment in, with the address kept in step so Back works.
+ * /watch/list fragment in, with the address kept in step (watch/address.js) so Back works.
  * Row actions go through MMWatch.admin; when one is done the row changes
- * where it is, or leaves and the rows below slide up. Needs watch/core.js
- * and watch/admin.js.
+ * where it is, or leaves and the rows below slide up. Needs watch/core.js,
+ * watch/address.js and watch/admin.js.
  */
 (function () {
   'use strict';
 
   var core = window.MMWatch.core;
   var admin = window.MMWatch.admin;
+  var address = window.MMWatch.address;
   var byId = core.byId;
   var el = core.el;
   var toArray = core.toArray;
@@ -27,7 +28,7 @@
   var _view = list.hidden ? 'rows' : 'list';
   var _request = 0;   // the newest list fetch; older replies are dropped
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
-  var _switch = 0;    // the newest view switch; an older one's fade stops short
+  var _again = false; // what is scheduled changed while a list was loading
   var _stale = false; // an admin action changed the library while the list was hidden
 
   /* ── State and addresses ── */
@@ -208,10 +209,11 @@
       if (request !== _request) return;
       _asked = null;
       _stale = false;
-      if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(state));
-      else if (opts.history === 'replace') window.history.replaceState({ view: 'list' }, '', pageUrl(state));
+      // Left for the rows meanwhile: the address is theirs.
+      if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
       apply(fresh, opts.focus);
       if (opts.toTop) toTop();
+      if (_again) reload();
     }, function () {
       if (request !== _request) return;
       _asked = null;
@@ -232,22 +234,60 @@
 
   /* ── Browse / List ── */
 
-  function fadeOut(nodes, then) {
-    var token = ++_switch;
-    var shown = nodes.filter(function (n) { return n && !n.hidden; });
-    if (core.reduceMotion() || !shown.length || !shown[0].animate) {
-      shown.forEach(function (n) { n.hidden = true; });
-      then();
-      return;
+  var _leaving = []; // what ends the fade of each view on its way out
+
+  function endLeaving() {
+    _leaving.splice(0).forEach(function (end) { end(); });
+  }
+
+  /* Take *node* out of the flow where it stands. Its margins no longer collapse into the page's,
+     so its content is measured, not itself. */
+  function lift(node) {
+    var first = node.firstElementChild || node;
+    function at() { return first.getBoundingClientRect().top - node.parentNode.getBoundingClientRect().top; }
+    var was = at();
+    Object.assign(node.style, { position: 'absolute', top: '0px', left: '0px', right: '0px' });
+    node.style.top = was - at() + 'px';
+  }
+
+  /* Give way to what *then* shows: *nodes* fade out over it while it fades in, so the page is
+     never empty between them. Out of the flow first, they neither move nor push what comes. */
+  function giveWay(nodes, then) {
+    // Out of the flow they leave the page without what stands below them, which can be too
+    // short for where it is scrolled.
+    var y = window.scrollY;
+    var tall = document.documentElement.scrollHeight;
+    endLeaving();
+    var lifted = [];
+    nodes.forEach(function (n) {
+      if (!n || n.hidden) return;
+      if (core.reduceMotion() || !n.animate) { n.hidden = true; return; }
+      lift(n);
+      lifted.push(n);
+      n.setAttribute('inert', '');
+      var fade = n.animate([{ opacity: 1 }, { opacity: 0 }],
+        { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' });
+      function end() {
+        fade.onfinish = null;
+        n.hidden = true;
+        n.removeAttribute('inert');
+        Object.assign(n.style, { position: '', top: '', left: '', right: '', paddingBottom: '' });
+        fade.cancel();
+      }
+      fade.onfinish = function () {
+        _leaving.splice(_leaving.indexOf(end), 1);
+        end();
+      };
+      _leaving.push(end);
+    });
+    var lost = tall - document.documentElement.scrollHeight;
+    if (lost > 0 && lifted.length) {
+      lifted.forEach(function (n) { n.style.paddingBottom = parseFloat(getComputedStyle(n).paddingBottom) + lost + 'px'; });
+      window.scrollTo(0, y);
     }
-    var opts = { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' };
-    var anims = shown.map(function (n) { return n.animate([{ opacity: 1 }, { opacity: 0 }], opts); });
-    anims[0].onfinish = function () {
-      if (token !== _switch) return;
-      shown.forEach(function (n) { n.hidden = true; });
-      anims.forEach(function (a) { a.cancel(); });
-      then();
-    };
+    then();
+    // Where the page went to its top, they stay where they were on the screen.
+    if (window.scrollY !== y) lifted.forEach(function (n) { n.style.top = parseFloat(n.style.top) + window.scrollY - y + 'px'; });
   }
 
   function reveal(node) {
@@ -276,17 +316,27 @@
     }
     _view = view;
     markToggle(view);
-    if (view === 'list') {
-      var current = state || norm({ q: search ? search.value : '' });
-      if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(current));
-      fadeOut([browse, results], function () { reveal(list); });
-      if (!root() || _stale || !same(current, wanted())) load(current, {});
-    } else {
-      if (opts.history === 'push') window.history.pushState({ view: 'rows' }, '', '/watch');
-      /* With text in the field the search shows its results instead. */
-      fadeOut([list], function () { if (!results || results.hidden) reveal(browse); });
-    }
-    document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
+    var current = state || norm({ q: search ? search.value : '' });
+    var rowsOff = browse.hidden;
+    if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
+    if (view === 'list' && (!root() || _stale || !same(current, wanted()))) load(current, {});
+    // Leaving a category's page brings the rows back: they were not on view, so they do not fade.
+    if (view === 'list' && rowsOff) browse.hidden = true;
+    giveWay([view === 'list' ? browse : list], function () {
+      // The search puts its results away or shows them first.
+      document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
+      if (view === 'list') reveal(list);
+      else showRows();
+    });
+  }
+
+  /* With text in the field the search shows its results instead. Back may lead to a row's grid,
+     which opens once the list has closed. */
+  function showRows() {
+    if (results && !results.hidden) reveal(results);
+    Promise.resolve().then(function () {
+      if (_view === 'rows' && (!results || results.hidden) && address.value('grid') === null) reveal(browse);
+    });
   }
 
   function plainClick(e) {
@@ -551,6 +601,29 @@
     refresh([key], d.action);
   });
 
+  /* The same control in the list coming in, of the row the focus is in. */
+  function sameControl(fresh) {
+    var active = document.activeElement;
+    var find = focusKey(active);
+    if (find) return find(fresh);
+    var row = list.contains(active) ? active.closest('tr[data-row-key]') : null;
+    if (!row) return null;
+    var next = rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]');
+    return next && (active === deleteButton(row) && deleteButton(next) || firstAction(next));
+  }
+
+  /* The list as it is now, its totals and dates too. */
+  function reload() {
+    _again = false;
+    load(stateOf(root()), { focus: sameControl });
+  }
+
+  document.addEventListener('mm:watch-scheduled', function () {
+    if (_view !== 'list' || !root()) _stale = true;
+    else if (_asked) _again = true;
+    else reload();
+  });
+
   /* ── Wiring ── */
 
   /* A pill, tile, header or page link, whose address is for the list showing.
@@ -635,8 +708,6 @@
       if (!plainClick(e)) return;
       e.preventDefault();
       if (search) search.value = '';
-      var clearBtn = byId('watch-search-clear');
-      if (clearBtn) clearBtn.hidden = true;
       load(norm({}), {
         history: 'push',
         focus: function (fresh) { return fresh.querySelector('.fpill'); }
@@ -671,9 +742,12 @@
     load(norm(state), { history: 'replace' });
   });
 
-  window.addEventListener('popstate', function () {
-    var params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'list') setView('list', { history: null, state: stateFromSearch(window.location.search) });
-    else setView('rows', { history: null });
+  address.layer({
+    name: 'list',
+    depth: 5,
+    params: ['view'].concat(KEYS),
+    read: function (here) { return here.params.get('view') === 'list' ? query(stateFromSearch(here.params)) : null; },
+    open: function (value) { setView('list', { history: null, state: stateFromSearch(value) }); },
+    close: function () { setView('rows', { history: null }); }
   });
 })();

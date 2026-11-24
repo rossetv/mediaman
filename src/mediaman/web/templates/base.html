@@ -3,7 +3,7 @@
      Every page-level script lives in static/js/; the only remaining inline scripts are
      <script type="application/json"> data islands, which CSP does not
      gate. style-src still allows 'unsafe-inline' for the few inline styles
-     that carry data (bar widths, legend colours). -->
+     that carry data (bar widths). -->
 <html lang="en-GB">
 <head>
   <meta charset="UTF-8">
@@ -16,20 +16,21 @@
   <link rel="stylesheet" href="/static/css/_tokens.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_base.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_forms.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_search.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tables.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_storage.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_history.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_nav.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_buttons.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tiles.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_hero.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_dl.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_download_page.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_settings.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_settings_pg.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_settings_pg_panels.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_profile.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_profile_plex.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_keep.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_ui_feedback.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_watch.css?v={{ static_v }}">
@@ -53,5 +54,6 @@
   <main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+  {% block overlays %}{% endblock %}
 </body>
 </html>

@@ -107,7 +107,6 @@ def test_fluid_type_uses_clamp():
     # reverts to fixed px.
     fluid_selectors = (
         ".ph h1 {",  # page headline — standalone rule, no trailing comma
-        ".sec-hd h2 {",  # section heading — standalone rule, no trailing comma
         ".dl-hero-title",  # downloads cinematic hero
     )
     for sel in fluid_selectors:
@@ -125,7 +124,7 @@ def test_container_system_present():
 
 def test_three_surface_nav_present():
     """Nav has three surfaces: desktop .nav-glass, mobile .nav-topbar
-    + .nav-tabs (bottom bar), plus the .nav-more-sheet overflow drawer.
+    + .nav-tabs (bottom bar), plus the .profile-menu that the avatar opens.
     The mobile bottom bar was reinstated after the mockup-only horizontal
     pill rail proved unworkable on phones."""
     css = _css()
@@ -135,9 +134,10 @@ def test_three_surface_nav_present():
         ".nav-topbar",
         ".nav-tabs",
         ".nav-tab ",
-        ".nav-more-sheet",
-        ".nav-more-panel",
-        ".nav-more-item",
+        ".profile-btn",
+        ".profile-menu",
+        ".profile-panel",
+        ".profile-item",
     ):
         assert sel in css, f"missing nav selector: {sel}"
 
@@ -158,7 +158,6 @@ def test_component_primitives_present():
         ".btn--primary",
         ".btn--secondary",
         ".btn--ghost",
-        ".btn--success",
         ".btn--danger",
         ".btn--accent-soft",
         ".pill",
@@ -172,18 +171,11 @@ def test_component_primitives_present():
         ".fpill",
         ".fpill--movie",
         ".fpill--tv",
-        ".tile",
-        ".tile-poster",
-        ".tile-pills",
-        ".tile-title",
-        ".tile-meta",
         ".card",
         ".card--bordered",
         ".tbl",
-        ".storage",
         ".stat",
         ".wl-stat",
-        ".search-box",
         ".inp",
         ".setg-card",
         ".setg-row",
@@ -195,12 +187,8 @@ def test_component_primitives_present():
         ".hist",
         ".empty",
         ".eyebrow",
-        ".sec-hd",
         ".modal-backdrop",
         ".modal-sheet",
-        ".shelf",
-        ".grid-tiles",
-        ".countdown",
     )
     for sel in primitives:
         assert sel in css, f"missing primitive: {sel}"
@@ -240,21 +228,21 @@ def test_nav_template_emits_all_surfaces():
         "nav-topbar",
         "nav-tabs",
         "nav-tab",
-        "nav-more-sheet",
-        "nav-more-item",
+        "profile-btn",
+        "profile-menu",
+        "profile-item",
     ):
         assert cls in nav, f"missing nav surface class: {cls}"
     # Every primary destination still routes from the nav.
     for href in (
-        'href="/"',
         'href="/watch"',
         'href="/downloads"',
         'href="/history"',
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
-    # Bottom tabs + More sheet must contain the primary tabs.
-    for label in (">Watch<", ">Dashboard<", ">Downloads<", ">More<"):
+    # Bottom tabs must contain the primary tabs.
+    for label in (">Watch<", ">Downloads<"):
         assert label in nav, f"missing bottom-tab label: {label}"
 
 
@@ -270,16 +258,13 @@ def test_components_macros_importable():
         "macro btn(",
         "macro pill(",
         "macro fpill(",
-        "macro tile(",
         "macro setg_card(",
         "macro setg_row(",
         "macro tog(",
         "macro inp(",
         "macro conn(",
-        "macro storage(",
         "macro empty(",
         "macro eyebrow(",
-        "macro sec_hd(",
     ):
         assert macro in components, f"missing macro: {macro}"
 
@@ -289,7 +274,6 @@ def test_every_page_uses_default_container():
     and content rails line up across screens. Using `--narrow` or
     `--wide` modifiers is forbidden after the width-consistency pass."""
     for name in (
-        "dashboard.html",
         "downloads.html",
         "history.html",
         "settings.html",

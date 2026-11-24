@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mediaman.db import init_db
+from mediaman.services.media_meta import item_enrichment
 from mediaman.services.media_meta.item_enrichment import (
     enrich_item_with_tmdb,
     enrich_redownload_item,
+    fill_backdrop,
+    tidy_summary,
 )
 from tests.helpers.factories import insert_suggestion
 
@@ -276,3 +281,337 @@ class TestEnrichRedownloadItem:
         enrich_redownload_item(other, conn, SECRET)
         assert "year" not in other
         mock_fetch.assert_called_once_with(other, conn, SECRET)
+
+
+WIDE = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+
+
+@pytest.fixture(autouse=True)
+def _forget_backdrops():
+    item_enrichment._backdrop_cache.clear()
+    item_enrichment._facts_cache.clear()
+
+
+def _tmdb_with(details):
+    client = MagicMock()
+    client.details.return_value = details
+    return patch(
+        "mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=client
+    ), client
+
+
+class TestFillBackdrop:
+    """The emailed page's wide backdrop: the stored one, one stored for the same title, TMDB's."""
+
+    def test_a_backdrop_stored_for_the_same_title_is_used_without_asking_tmdb(self, conn):
+        sid = insert_suggestion(conn, title="Dune", tmdb_id=42, created_at="2026-01-01")
+        conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (WIDE, sid))
+        patcher, client = _tmdb_with({"backdrop_path": "/other.jpg"})
+        item: dict = {"media_type": "movie", "tmdb_id": 42}
+
+        with patcher:
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+        client.details.assert_not_called()
+
+    def test_tmdb_gives_the_backdrop_when_none_is_stored_and_is_asked_once_a_while(self, conn):
+        patcher, client = _tmdb_with({"backdrop_path": "/wide.jpg"})
+
+        with patcher:
+            for _ in range(2):
+                item: dict = {"media_type": "tv", "tmdb_id": 7}
+                fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+        client.details.assert_called_once_with("tv", 7)
+
+    def test_a_title_with_no_backdrop_or_no_answer_is_left_without_one(self, conn):
+        patcher, _client = _tmdb_with(None)
+        item: dict = {"media_type": "movie", "tmdb_id": 9}
+
+        with patcher:
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_stored_address_that_is_no_tmdb_image_is_not_shown(self, conn):
+        item: dict = {"media_type": "movie", "backdrop_url": 'https://evil.example/a.jpg"onerror='}
+
+        fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_failing_tmdb_never_fails_the_page(self, conn):
+        with patch(
+            "mediaman.services.media_meta.tmdb.TmdbClient.from_db",
+            side_effect=ValueError("bad token"),
+        ):
+            item: dict = {"media_type": "movie", "tmdb_id": 3}
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_redownload_takes_the_backdrop_stored_with_its_suggestion(self, conn):
+        sid = insert_suggestion(
+            conn, title="Dune", tmdb_id=42, poster_url="https://x/p.jpg", created_at="2026-01-01"
+        )
+        conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (WIDE, sid))
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 42}
+
+        enrich_redownload_item(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+
+    @pytest.mark.parametrize(
+        ("tmdb_answer", "held_s"),
+        [({"overview": "From TMDB."}, 600), ({"id": 42}, 600), (None, 60)],
+        ids=["found", "empty", "failed"],
+    )
+    def test_a_title_not_stored_is_asked_for_once_in_ten_minutes_or_one_after_a_failure(
+        self, conn, monkeypatch, tmdb_answer, held_s
+    ):
+        clock = [1000.0]
+        monkeypatch.setattr(item_enrichment, "_clock", lambda: clock[0])
+        tmdb = MagicMock(**{"details.return_value": tmdb_answer, "search.return_value": None})
+        shown = []
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}) as ratings,
+        ):
+            for later, tmdb_id in ((0, 42), (held_s - 1, 42), (held_s - 1, 43), (held_s, 42)):
+                clock[0] = 1000.0 + later
+                item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": tmdb_id}
+                enrich_redownload_item(item, conn, SECRET)
+                shown.append(item.get("description"))
+
+        assert [c.args[1] for c in tmdb.details.call_args_list] == [42, 43, 42]
+        assert ratings.call_count == 3
+        assert shown[0] == shown[1] == (tmdb_answer and tmdb_answer.get("overview", ""))
+
+    @pytest.mark.parametrize(
+        ("answers", "held_s"),
+        [([{"id": 7}], 600), ([None], 60), (ValueError("bad token"), 60)],
+        ids=["none", "failed", "refused"],
+    )
+    def test_a_missing_backdrop_is_asked_for_again_sooner_after_a_failure(
+        self, conn, monkeypatch, answers, held_s
+    ):
+        clock = [1000.0]
+        monkeypatch.setattr(item_enrichment, "_clock", lambda: clock[0])
+        tmdb = MagicMock()
+        tmdb.details.side_effect = answers * 2 if isinstance(answers, list) else answers
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            asked = []
+            for later in (0, held_s - 1, held_s):
+                clock[0] = 1000.0 + later
+                fill_backdrop({"media_type": "tv", "tmdb_id": 7}, conn, SECRET)
+                asked.append(tmdb.details.call_count)
+        assert asked == [1, 1, 2]
+
+    def test_held_facts_are_of_one_type_and_carry_no_reason(self, conn):
+        with patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb") as fetch:
+            first: dict = {"title": "D", "media_type": "movie", "tmdb_id": 4, "reason": "Mine."}
+            enrich_redownload_item(first, conn, SECRET)
+            again: dict = {"title": "D", "media_type": "movie", "tmdb_id": 4}
+            enrich_redownload_item(again, conn, SECRET)
+            enrich_redownload_item({"title": "D", "media_type": "tv", "tmdb_id": 4}, conn, SECRET)
+        assert "reason" not in again
+        assert [c.args[0]["media_type"] for c in fetch.call_args_list] == ["movie", "tv"]
+
+    @pytest.mark.parametrize(("category", "shown"), [("trending", "A heist."), ("personal", None)])
+    def test_a_reason_made_from_everyones_viewing_is_not_shown_on_a_redownload(
+        self, conn, category, shown
+    ):
+        insert_suggestion(
+            conn, tmdb_id=42, poster_url="https://x/p.jpg", category=category, reason="A heist."
+        )
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 42}
+
+        enrich_redownload_item(item, conn, SECRET)
+
+        assert (item["reason"], item["poster_url"]) == (shown, "https://x/p.jpg")
+
+
+class TestTidySummary:
+    CUT = (
+        "After being separated for 15 years, the Sword of Power leads Prince Adam back to "
+        "Eternia, where he discovers his home shattered under the fiendish rule of Skeletor. "
+        "To save his family and his world, Adam must join forces with his closest allies, Teel"
+    )
+
+    def test_a_cut_summary_ends_at_its_last_full_sentence(self):
+        assert len(self.CUT) == 250
+
+        assert tidy_summary(self.CUT) == self.CUT[: self.CUT.index("Skeletor.") + 9]
+
+    def test_a_cut_with_no_full_sentence_ends_at_a_whole_word_with_an_ellipsis(self):
+        cut = ("word " * 60)[:250]
+
+        out = tidy_summary(cut)
+
+        assert out is not None and out.endswith("word…") and len(out) < 250
+
+    def test_a_summary_that_is_not_a_cut_is_left_as_it_is(self):
+        short = "A film about sand and no end to it"
+        whole = "x" * 249 + "."
+        assert tidy_summary(short) == short
+        assert tidy_summary(whole) == whole
+        assert tidy_summary(None) is None
+
+
+class TestAHungTmdbOnAPublicPage:
+    @pytest.fixture(autouse=True)
+    def _open_gate(self):
+        from mediaman.services.watch_catalog import gate
+
+        gate.reset()
+        yield
+        gate.reset()
+
+    def test_the_page_asks_tmdb_briefly_and_once(self, conn):
+        tmdb = MagicMock(token="t", **{"details.return_value": None, "search.return_value": None})
+        with (
+            patch(
+                "mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb
+            ) as from_db,
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            enrich_redownload_item({"title": "Dune", "media_type": "movie"}, conn, SECRET)
+            fill_backdrop({"media_type": "movie", "tmdb_id": 5}, conn, SECRET)
+
+        assert from_db.call_count == 2
+        for call in from_db.call_args_list:
+            assert call.kwargs["retry"] is False
+            assert call.kwargs["timeout"] <= 3.0
+
+    def test_a_paused_tmdb_is_not_asked_by_the_page(self, conn):
+        from mediaman.services.watch_catalog import TmdbDown, gate
+
+        tmdb = MagicMock(token="t")
+        with gate.asking("t"):
+            pass
+        gate.note("t", TmdbDown("x"))
+        gate.note("t", TmdbDown("x"))
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            item: dict = {"title": "Dune", "media_type": "movie"}
+            enrich_redownload_item(item, conn, SECRET)
+
+        tmdb.search.assert_not_called()
+        tmdb.details.assert_not_called()
+
+    def test_two_visitors_of_one_title_cost_one_lookup(self, conn):
+        entered = threading.Event()
+
+        def slow_search(*_a, **_k):
+            entered.set()
+            time.sleep(0.3)
+
+        tmdb = MagicMock(token="t", **{"details.return_value": None})
+        tmdb.search.side_effect = slow_search
+
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+        def visit():
+            own = sqlite3.connect(db_path)
+            own.row_factory = sqlite3.Row
+            enrich_redownload_item({"title": "Dune", "media_type": "movie"}, own, SECRET)
+            own.close()
+
+        threads = [threading.Thread(target=visit) for _ in range(3)]
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            threads[0].start()
+            assert entered.wait(5)
+            for t in threads[1:]:
+                t.start()
+            for t in threads:
+                t.join(10)
+
+        assert tmdb.search.call_count == 1
+
+    def test_a_paused_tmdb_is_not_asked_for_a_backdrop_and_the_refusal_is_not_held(self, conn):
+        from mediaman.services.watch_catalog import TmdbDown, gate
+
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        with gate.asking("t"):
+            pass
+        gate.note("t", TmdbDown("x"))
+        gate.note("t", TmdbDown("x"))
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            paused: dict = {"media_type": "movie", "tmdb_id": 5}
+            fill_backdrop(paused, conn, SECRET)
+            tmdb.details.assert_not_called()
+            gate.reset()
+            later: dict = {"media_type": "movie", "tmdb_id": 5}
+            fill_backdrop(later, conn, SECRET)
+
+        assert paused["backdrop_url"] is None
+        assert later["backdrop_url"] == WIDE
+
+    def test_a_view_waits_for_the_lookup_of_its_title_in_hand_and_takes_its_answer(
+        self, conn, monkeypatch
+    ):
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        looks = [threading.Event(), threading.Event()]
+
+        class Spy(dict):
+            def get(self, key, default=None):
+                found = super().get(key, default)
+                looks[0 if not looks[0].is_set() else 1].set()
+                return found
+
+        cache = Spy()
+        monkeypatch.setattr(item_enrichment, "_backdrop_cache", cache)
+        lock = threading.Lock()
+        item_enrichment._flights[("backdrop", "movie", 5)] = lock
+        lock.acquire()
+        item: dict = {"media_type": "movie", "tmdb_id": 5}
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+        def visit_page():
+            own = sqlite3.connect(db_path)
+            own.row_factory = sqlite3.Row
+            fill_backdrop(item, own, SECRET)
+            own.close()
+
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            visit = threading.Thread(target=visit_page)
+            visit.start()
+            assert looks[0].wait(5)
+            # Held back: it looks at the cache a second time only once the lock is free.
+            assert not looks[1].wait(0.2)
+            cache[("movie", 5)] = (time.monotonic() + 60, WIDE)
+            lock.release()
+            visit.join(10)
+
+        tmdb.details.assert_not_called()
+        assert item["backdrop_url"] == WIDE
+
+    @pytest.mark.parametrize("page", ["backdrop", "facts"])
+    def test_a_view_that_waits_too_long_for_a_lookup_in_hand_goes_without(
+        self, conn, monkeypatch, page
+    ):
+        monkeypatch.setattr(item_enrichment, "_FLIGHT_WAIT_S", 0.05)
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        key = ("backdrop", "movie", 5) if page == "backdrop" else ("movie", 5, "Dune")
+        item_enrichment._flights[key] = threading.Lock()
+        item_enrichment._flights[key].acquire()
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 5}
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            if page == "backdrop":
+                fill_backdrop(item, conn, SECRET)
+            else:
+                enrich_redownload_item(item, conn, SECRET)
+
+        tmdb.details.assert_not_called()
+        assert not item.get("backdrop_url")
+        item_enrichment._flights.pop(key).release()

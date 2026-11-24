@@ -5,26 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.media_meta.tmdb import TmdbClient, dicts, dicts_in, year_of
 
-from ._shape import tmdb_image_url, tmdb_rating, year_of
+from ._genres import genre_refs
+from ._shape import tmdb_id_of, tmdb_image_url, tmdb_rating
 
 CAST_LIMIT = 12
-
-
-def _dicts(value: object) -> list[Mapping[str, Any]]:
-    return [v for v in value if isinstance(v, Mapping)] if isinstance(value, list) else []
-
-
-def _results(value: object) -> list[Mapping[str, Any]]:
-    return _dicts(value.get("results")) if isinstance(value, Mapping) else []
 
 
 def pick_trailer(details: Mapping[str, Any]) -> str | None:
     """The YouTube key of the first trailer, else of the first YouTube video. Not checked:
     the caller must pass it through validate_youtube_id."""
     fallback: str | None = None
-    for video in _results(details.get("videos")):
+    for video in dicts_in(details.get("videos"), "results"):
         key = video.get("key")
         if video.get("site") != "YouTube" or not isinstance(key, str) or not key:
             continue
@@ -34,15 +27,19 @@ def pick_trailer(details: Mapping[str, Any]) -> str | None:
     return fallback
 
 
-def _director(details: Mapping[str, Any], kind: str) -> str | None:
+def _director(details: Mapping[str, Any], kind: str) -> tuple[str | None, int | None]:
     if kind == "movie":
-        credits = details.get("credits")
-        crew = _dicts(credits.get("crew")) if isinstance(credits, Mapping) else []
-        name = next((c.get("name") for c in crew if c.get("job") == "Director"), None)
+        crew = dicts_in(details.get("credits"), "crew")
+        found = next((c for c in crew if c.get("job") == "Director"), {})
     else:
-        creators = _dicts(details.get("created_by"))
-        name = creators[0].get("name") if creators else None
-    return name if isinstance(name, str) and name else None
+        found = next(iter(dicts(details.get("created_by"))), {})
+    name = found.get("name")
+    return (name, _person_id(found)) if isinstance(name, str) and name else (None, None)
+
+
+def _person_id(person: Mapping[str, Any]) -> int | None:
+    # TMDB marks some people adult; those have no page here to link to.
+    return None if person.get("adult") else tmdb_id_of(person)
 
 
 def _runtime(details: Mapping[str, Any], kind: str) -> int | None:
@@ -54,13 +51,19 @@ def _runtime(details: Mapping[str, Any], kind: str) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def _number(value: object) -> float:
+    valid = isinstance(value, int | float) and not isinstance(value, bool) and 0 <= value < 10**12
+    return float(value) if valid else 0.0  # type: ignore[arg-type]
+
+
 def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
     """Title, dates, people, pictures and seasons of a TMDB details payload ("movie" or
     "tv"). ``trailer_key`` is unchecked, ``tmdb_seasons`` is TMDB's season list,
     specials left out, and ``tvdb_id`` is a show's TVDB id when TMDB knows it."""
-    credits = details.get("credits")
-    cast = _dicts(credits.get("cast")) if isinstance(credits, Mapping) else []
-    year = year_of(details.get("release_date") or details.get("first_air_date"))
+    cast = dicts_in(details.get("credits"), "cast")
+    director, director_id = _director(details, kind)
+    released = details.get("release_date") or details.get("first_air_date")
+    year = year_of(released)
     year_end = year_of(details.get("last_air_date")) if kind == "tv" else None
     seasons = [
         {
@@ -70,7 +73,7 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
             if isinstance(s.get("episode_count"), int)
             else None,
         }
-        for s in _dicts(details.get("seasons"))
+        for s in dicts(details.get("seasons"))
         if isinstance(s.get("season_number"), int) and s["season_number"] > 0
     ]
     count = details.get("number_of_seasons")
@@ -79,23 +82,29 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
     return {
         "title": str(details.get("title") or details.get("name") or ""),
         "year": year,
+        "release_date": released if year else None,
         "year_end": year_end if year_end != year else None,
         "runtime_min": _runtime(details, kind),
         "season_count": (count if isinstance(count, int) else len(seasons))
         if kind == "tv"
         else None,
         "genres": [
-            g["name"] for g in _dicts(details.get("genres")) if isinstance(g.get("name"), str)
+            g["name"] for g in dicts(details.get("genres")) if isinstance(g.get("name"), str)
         ],
+        "genre_refs": genre_refs(details.get("genres"), kind),
         "certificate": TmdbClient.certificate(details, "movie" if kind == "movie" else "tv"),
-        "tagline": details.get("tagline") or None,
+        "tagline": str(details.get("tagline") or "") or None,
         "overview": str(details.get("overview") or ""),
         "backdrop_url": tmdb_image_url(details.get("backdrop_path"), "w1280"),
         "poster_url": tmdb_image_url(details.get("poster_path"), "w500"),
         "tmdb_rating": tmdb_rating(details.get("vote_average")),
-        "director": _director(details, kind),
+        "popularity": _number(details.get("popularity")),
+        "vote_count": int(_number(details.get("vote_count"))),
+        "director": director,
+        "director_id": director_id,
         "cast": [
             {
+                "person_id": _person_id(c),
                 "name": str(c.get("name") or ""),
                 "character": str(c.get("character") or ""),
                 "profile_url": tmdb_image_url(c.get("profile_path"), "w185"),

@@ -1,31 +1,48 @@
 {% extends "base.html" %}
 {% import "_components.html" as c %}
+{% from "_avatar.html" import avatar %}
 
-{% block title %}Account · Mediaman{% endblock %}
+{% block title %}Profile · Mediaman{% endblock %}
 
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block head %}
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
+<script src="/static/js/password-strength.js?v={{ static_v }}" defer></script>
 <script src="/static/js/account.js?v={{ static_v }}" defer></script>
+<script src="/static/js/profile-plex.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
 {% block content %}
-<div class="setg-pg">
+<div class="setg-pg profile-pg">
   <div class="container">
     <div class="ph">
-      <h1>Account</h1>
+      <h1>Profile</h1>
     </div>
 
     {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
       <div class="usr-self-head">
-        <div class="av">{{ (username or "?")[:1] | upper }}</div>
+        {{ avatar(username) }}
         <div class="usr-meta">
           <div class="usr-name">{{ username }}</div>
           <div class="usr-sub">{{ "Admin" if role == "admin" else "Viewer" }} · signed in</div>
         </div>
       </div>
+    {% endcall %}
+
+    {% call c.setg_card(title="Email", sub="Where download-ready alerts go.", pad=True) %}
+      <form class="inline-form" id="account-email-form" novalidate>
+        <label class="fld">
+          <span class="fld-lbl">Notification email</span>
+          <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}">
+          <span class="fld-sub">Leave empty to turn alerts off.</span>
+        </label>
+        <div class="inline-form-actions">
+          <button class="btn btn--primary" type="submit" id="account-submit-email">Save email</button>
+          <span class="inline-form-msg" id="account-email-result" role="status"></span>
+        </div>
+      </form>
     {% endcall %}
 
     {% call c.setg_card(title="Change password", pad=True) %}
@@ -35,21 +52,37 @@
             <span class="fld-lbl">Current password</span>
             <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required data-show-password>
           </label>
-          <label class="fld">
-            <span class="fld-lbl">New password</span>
-            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-show-password>
-          </label>
-          <label class="fld">
-            <span class="fld-lbl">Confirm new password</span>
-            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-show-password>
-          </label>
+          <div class="fld">
+            <label class="fld-lbl" for="account-new-password">New password</label>
+            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
+            <div class="fpc-meter" aria-hidden="true"><span class="fpc-meter-fill" id="account-new-strength-meter"></span></div>
+            <span class="fpc-caption" id="account-new-strength-label" aria-live="polite">&nbsp;</span>
+          </div>
+          <div class="fld">
+            <label class="fld-lbl" for="account-confirm-password">Confirm new password</label>
+            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
+            <span class="fpc-caption" id="account-confirm-password-match" aria-live="polite">&nbsp;</span>
+          </div>
         </div>
         <div class="inline-form-actions">
-          <button class="btn btn--primary btn--sm" type="submit" id="account-submit-password">Update password</button>
+          <button class="btn btn--primary" type="submit" id="account-submit-password">Update password</button>
           <span class="inline-form-msg" id="account-password-result" role="status"></span>
         </div>
       </form>
     {% endcall %}
+
+    {% call c.setg_card(title="Where you're signed in", pad=True) %}
+      <ul class="profile-sessions" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true"><li>Loading…</li></ul>
+      <div class="inline-form-actions">
+        <button class="btn btn--secondary" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
+        <span class="profile-why" id="account-revoke-why" hidden>This is your only sign-in.</span>
+        <span class="inline-form-msg" id="account-revoke-result" role="status"></span>
+      </div>
+    {% endcall %}
+
+    <section class="profile-plex" id="plex" aria-label="Plex account" tabindex="-1">
+      {% include "_profile_plex.html" %}
+    </section>
   </div>
 </div>
 {% endblock %}

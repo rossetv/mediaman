@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
 import re
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 
 import jinja2
 import pytest
@@ -67,11 +70,26 @@ def _show_ctx(**over: object) -> dict:
             "meta_line": "TV · 2021",
             "summary": "A town.",
             "poster_url": "",
+            "watched": False,
+            "mark_kind": "show",
+            "mark_key": "300",
         },
         "primary": {"label": "Resume S2 · E4", "href": "/watch/play/9?resume=1"},
         "seasons": [
-            {"number": 1, "href": "/watch/show/s?season=1", "selected": False},
-            {"number": 2, "href": "/watch/show/s?season=2", "selected": True},
+            {
+                "number": 1,
+                "key": "301",
+                "watched": True,
+                "href": "/watch/show/s?season=1",
+                "selected": False,
+            },
+            {
+                "number": 2,
+                "key": "302",
+                "watched": False,
+                "href": "/watch/show/s?season=2",
+                "selected": True,
+            },
         ],
         "leaving": None,
         "episodes": [
@@ -80,7 +98,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Spring Tide",
                 "minutes": 52,
                 "thumb_url": "/api/watch/thumb/1",
+                "key": "1",
                 "state": "watched",
+                "watched": True,
                 "progress_pct": None,
                 "minutes_left": None,
                 "href": "/watch/play/1",
@@ -90,7 +110,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Low Water",
                 "minutes": 50,
                 "thumb_url": None,
+                "key": "2",
                 "state": "in_progress",
+                "watched": False,
                 "progress_pct": 38,
                 "minutes_left": 31,
                 "href": "/watch/play/2",
@@ -100,7 +122,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Maydays",
                 "minutes": 47,
                 "thumb_url": None,
+                "key": "3",
                 "state": "none",
+                "watched": False,
                 "progress_pct": None,
                 "minutes_left": None,
                 "href": "/watch/play/3",
@@ -121,6 +145,9 @@ def _movie_ctx(**over: object) -> dict:
             "minutes": 89,
             "summary": "A film.",
             "poster_url": "",
+            "watched": True,
+            "mark_kind": "movie",
+            "mark_key": "5",
         },
         "primary": {"label": "Resume (31 min left)", "href": "/watch/play/5?resume=1"},
         "leaving": None,
@@ -206,6 +233,13 @@ def test_leaving_badge_wording(days: int, text: str) -> None:
     assert f">{text}<" in html
 
 
+@pytest.mark.parametrize(("days", "now"), [(0, True), (1, True), (2, False)])
+def test_only_what_leaves_today_or_tomorrow_stands_out(days: int, now: bool) -> None:
+    html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
+    assert "watch-badge--leaving" in html
+    assert ("watch-badge--leaving-now" in html) is now
+
+
 def test_keep_button_only_for_cards_with_a_keep_id() -> None:
     plain = _watch(rows=[{"title": "Movies", "items": [_card()]}])
     scheduled = _watch(
@@ -225,8 +259,16 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
         ]
     )
     assert 'value="38"' in html
-    assert "31 min left" in html
+    assert "31 min left" in " ".join(_captions(html))
     assert ">Watched<" in html
+
+
+def test_each_face_of_the_watched_button_holds_its_own_icon() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    for face in ("off", "on"):
+        for inside in re.findall(rf'<span class="watch-mark-btn__{face}">(.*?)</span>', html):
+            assert inside.count("<use") == 1
+    assert html.count('class="watch-mark-btn__on"') == html.count('class="watch-mark-btn__off"') > 0
 
 
 def test_banner_shows_episodes_button_only_when_given() -> None:
@@ -361,6 +403,38 @@ def test_movie_page_shows_facts_primary_and_leaving_line() -> None:
     assert "Leaving in 1 day" in html and 'data-watch-keep="m9"' in html
 
 
+@pytest.mark.parametrize(
+    ("name", "ctx"),
+    [
+        ("watch_show.html", _show_ctx(show={**_show_ctx()["show"], "poster_url": "/api/poster/7"})),
+        (
+            "watch_movie.html",
+            _movie_ctx(movie={**_movie_ctx()["movie"], "poster_url": "/api/poster/7"}),
+        ),
+    ],
+)
+def test_a_title_s_own_page_shows_its_wide_picture_and_its_poster_only_without_one(
+    name: str, ctx: dict
+) -> None:
+    page = _Tree(_render(name, **ctx))
+    pictures = [a for tag, a, _in in page.found if tag == "img" and "/api/poster/" in a["src"]]
+    art, fill, poster = pictures
+    assert "data-wide-art" in art and "data-broken-on-error" in art
+    assert art["src"] == "/api/poster/7?kind=art"
+    assert art["data-next-src"] == "/api/poster/7?kind=art&source=tmdb"
+    for img in (fill, poster):
+        assert (img["src"], img["loading"]) == ("/api/poster/7", "lazy")
+
+
+def test_a_show_s_season_tabs_stand_with_its_episodes_and_not_on_the_picture() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    banner = html.split('<section class="watch-banner"', 1)[1].split("</section>", 1)[0]
+    assert "watch-btn--play" in banner
+    assert "watch-pill" not in banner
+    # Outside what a season's tab swaps.
+    assert "watch-pill" not in html.split('<section class="watch-episodes"', 1)[1]
+
+
 def test_movie_page_not_available() -> None:
     html = _render("watch_movie.html", not_available=True, back_href="/watch")
     assert "No longer available" in html
@@ -404,6 +478,12 @@ def test_base_links_the_watch_and_player_styles() -> None:
     assert "/static/css/_player.css" in html
 
 
+def _captions(html: str) -> list[str]:
+    """What each card's caption says to anyone who reads it out, whatever is drawn of it."""
+    found = re.findall(r'<span class="watch-card__sub">(.*?)</span>\s*</a>', html, re.S)
+    return [unescape(re.sub(r"<[^>]+>", "", caption)) for caption in found]
+
+
 @pytest.mark.parametrize("minutes", [60, 120, 180])
 @pytest.mark.parametrize(("kind", "lead"), [("movie", "Movie"), ("show", "S2 · E4")])
 def test_exact_hour_time_left_is_said_once(minutes, kind, lead):
@@ -412,16 +492,18 @@ def test_exact_hour_time_left_is_said_once(minutes, kind, lead):
 
     html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
 
-    assert html.count(f"{hours} left") == 1
+    assert _captions(html) == [f"{lead} · {hours} left"]
 
 
 def test_card_without_time_in_its_caption_gets_it_appended():
     item = _card(subtitle="Movie", minutes_left=120)
 
-    assert "Movie · 2 h left" in _watch(rows=[{"title": "Continue watching", "items": [item]}])
+    html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
+
+    assert _captions(html) == ["Movie · 2 h left"]
 
 
-def test_leaving_badge_has_a_short_wording_for_narrow_cards():
+def test_leaving_badge_has_a_short_wording():
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=90, keep_id="k")]}])
 
     assert "Leaving in 90 days" in html
@@ -462,13 +544,49 @@ def test_keep_shows_only_in_the_leaving_soon_row():
     assert 'data-keep-id="m1"' in other_row
 
 
+def test_the_keeps_of_two_seasons_of_a_show_are_told_apart_by_name():
+    seasons = [
+        _card(
+            kind="season",
+            title="Glass Coast",
+            subtitle=f"Season {n}",
+            leaving_days=3,
+            keep_id=f"s{n}",
+        )
+        for n in (2, 3)
+    ]
+
+    html = _watch(rows=[{"title": "Leaving soon", "items": seasons}])
+
+    labels = re.findall(r'data-watch-keep="(\w+)"[^>]*aria-label="([^"]*)"', html)
+    assert labels == [("s2", "Keep Glass Coast, Season 2"), ("s3", "Keep Glass Coast, Season 3")]
+
+
+def test_a_films_keep_is_named_by_its_title_alone():
+    item = _card(kind="movie", title="Fieldwork", subtitle="Movie", leaving_days=3, keep_id="m1")
+
+    html = _watch(rows=[{"title": "Leaving soon", "items": [item]}])
+
+    assert 'aria-label="Keep Fieldwork"' in html
+
+
 def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     html = _watch()
 
     assert 'id="watch-search-clear"' in html
     top, results = html.split('id="watch-results"')
     assert 'id="watch-search-status" role="status"' in top
+    # The title overlay, after the results, has a status line of its own.
+    results, overlay = results.split('id="ttl"')
     assert 'role="status"' not in results
+    assert "watch-search-status" not in overlay
+
+
+def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
+    field = re.search(r'<input id="watch-search"[^>]*>', _watch())
+    assert field is not None
+    for attr in ('enterkeyhint="search"', 'autocapitalize="off"', 'autocorrect="off"'):
+        assert attr in field.group(0)
 
 
 @pytest.mark.parametrize(
@@ -520,7 +638,7 @@ def test_banner_details_opens_the_title_overlay() -> None:
     }
     html = _watch(banner=banner)
     actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
-    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>', actions)
+    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>(?=Details</a>)', actions)
     assert details is not None
     assert 'href="/watch#title=show-500"' in details.group(0)
     assert 'data-title="The Long Coast"' in details.group(0)
@@ -537,6 +655,17 @@ def _phone_rules(sheet: str) -> list[tuple[str, str]]:
         for block in blocks
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
     ]
+
+
+def test_banner_episodes_opens_the_title_overlay_at_its_episodes() -> None:
+    html = _watch(
+        banner={**_BANNER, "ref": "show-500", "episodes_href": "/watch/show/500?season=2"}
+    )
+    link = re.search(r"<a [^>]*>Episodes</a>", html)
+    assert link is not None
+    assert 'href="/watch/show/500?season=2"' in link.group(0)
+    assert 'data-title-ref="show-500"' in link.group(0)
+    assert 'data-title-at="episodes"' in link.group(0)
 
 
 def test_the_picks_batch_and_refresh_tools_are_44px_tall_below_700px() -> None:
@@ -780,17 +909,15 @@ def test_the_phone_banner_bar_is_as_wide_as_the_text() -> None:
     assert "width: 100%" in _declarations_in(phone, ".watch-bar--banner")
 
 
-def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_buttons_in_a_row() -> (
-    None
-):
-    sideways = _in_media("_watch.css", "(max-width: 599.98px) and (max-height: 500px)")
+def test_a_narrow_phone_held_sideways_puts_the_shade_and_the_buttons_beside_the_text() -> None:
+    sideways = _in_media("_watch.css", "(max-width: 699.98px) and (max-height: 500px)")
 
     assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
     assert "min-height: 0" in _declarations_in(sideways, ".watch-banner")
     assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
-    assert "flex: none" in _declarations_in(
-        sideways, ".watch-banner .watch-actions .watch-btn--play"
-    )
+    # At the top of their own column, so a long title never pushes them off the screen.
+    actions = _declarations_in(sideways, ".watch-banner .watch-actions")
+    assert "grid-column: 2" in actions and "align-self: start" in actions
 
 
 def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
@@ -803,3 +930,233 @@ def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
         assert "Highlight" in _declarations_in(forced, f"progress.watch-bar{part}")
     overlay = _in_media("_watch_detail.css", "forced-colors: active")
     assert "display: none" in _declarations_in(overlay, ".ttl__art")
+
+
+def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
+    def open_panels(html: str) -> tuple[bool, bool]:
+        browse = re.search(r'<div id="watch-browse"([^>]*)>', html)
+        results = re.search(r'<section class="watch-results"[^>]*>', html)
+        assert browse and results
+        return "hidden" in browse.group(1), "hidden" in results.group(0)
+
+    assert open_panels(_watch(q="orchard")) == (True, False)
+    assert open_panels(_watch(q="")) == (False, True)
+    for key in ("genre", "person"):
+        asked = SimpleNamespace(query_params={key: "28"})
+        assert open_panels(_watch(request=asked)) == (True, False)
+
+
+def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
+    scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
+    place = {name: n for n, name in enumerate(scripts)}
+
+    assert scripts[0] == "watch/core"
+    assert place["watch/address"] == 1
+    for first, then in [
+        ("keep", "search"),
+        ("search", "browse"),
+        ("rows-load", "grid"),
+        ("grid", "explore"),
+        ("search", "explore"),
+    ]:
+        assert place[f"watch/{first}"] < place[f"watch/{then}"]
+    # It starts them all and opens what the address names.
+    assert place["watch"] > place["watch/explore"]
+
+
+@pytest.mark.parametrize(
+    ("admin", "tmdb", "says", "never"),
+    [
+        (True, True, "search above for something to download", "Connect TMDB"),
+        (True, False, "Connect TMDB", "search above"),
+        (False, True, "ask whoever runs mediaman", "Settings"),
+        (False, False, "ask whoever runs mediaman", "TMDB"),
+    ],
+)
+def test_an_empty_library_says_so_and_what_to_do_next(
+    admin: bool, tmdb: bool, says: str, never: str
+) -> None:
+    html = _watch(is_admin=admin, tmdb_configured=tmdb)
+    empty = re.search(r'<section class="watch-empty">(.*?)</section>', html, re.S)
+
+    assert empty
+    text = empty.group(1)
+    assert "Nothing to watch yet" in text
+    assert says.lower() in text.lower()
+    assert never.lower() not in text.lower()
+    assert ('href="/settings"' in text) is admin
+
+
+def test_a_library_with_titles_or_a_plex_error_has_no_empty_state() -> None:
+    row = {"title": "Movies", "items": [_card()], "library": True}
+
+    assert "watch-empty" not in _watch(rows=[row])
+    assert "watch-empty" not in _watch(watch_error="not_set_up")
+
+
+def _scrim_at(sheet: str, selector: str, position: float) -> float:
+    """The scrim alpha (%) of the selector's gradient at *position* % of its length."""
+    body = _declarations_of(sheet, selector)
+    found = re.findall(r"(?:--scrim\) (\d+)%, )?transparent\)? (\d+)%", body)
+    stops = [(float(pos), float(alpha or 0)) for alpha, pos in found]
+    for (p0, a0), (p1, a1) in itertools.pairwise(stops):
+        if p0 <= position <= p1:
+            return a0 + (a1 - a0) * (position - p0) / (p1 - p0)
+    raise AssertionError(stops)
+
+
+def test_a_four_line_card_title_sits_on_at_least_half_dark() -> None:
+    # Four lines of 14px reach a third of the way up a poster; white on a pale one needs about half.
+    assert _scrim_at("_watch.css", ".watch-card__poster::after", 67) >= 50
+
+
+def test_the_hint_under_an_empty_search_is_centred() -> None:
+    body = _declarations_of("_watch_search.css", ".results-empty + .results-hint")
+
+    assert "margin: 12px auto 0" in body and "justify-content: center" in body
+
+
+def test_results_that_fade_out_keep_their_columns() -> None:
+    # They leave from outside .watch-results.
+    assert "repeat(3," in _declarations_of("_watch_search.css", ".results-page .watch-grid")
+
+
+class _Tree(HTMLParser):
+    """Every element's tag and attributes, each with the tags it stands in."""
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.found: list[tuple[str, dict, list[str]]] = []
+        self._open: list[str] = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        self.found.append((tag, dict(attrs), list(self._open)))
+        if tag not in ("img", "input", "br", "hr", "meta", "link", "use", "path"):
+            self._open.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag in self._open:
+            while self._open.pop() != tag:
+                pass
+
+    def having(self, attr: str) -> list[dict]:
+        return [a for _tag, a, _in in self.found if attr in a]
+
+
+def _marked(**over: object) -> dict:
+    return _card(mark_kind="movie", mark_key="1", dismiss_ref=None, **over)
+
+
+_BANNER = {
+    "kicker": "Continue watching",
+    "title": "Salt & Iron",
+    "ref": "movie-1",
+    "line": "31 min left",
+    "progress_pct": 40,
+    "primary": {"label": "Resume", "href": "/watch/play/1"},
+    "episodes_href": None,
+    "backdrop_url": None,
+    "dismiss_ref": "movie-1",
+}
+
+
+def test_a_card_has_one_more_button_named_after_it_only_when_it_can_be_marked() -> None:
+    tree = _Tree(_watch(rows=[{"title": "Movies", "items": [_marked(), _card()]}]))
+    [more] = tree.having("data-watch-more")
+    assert (more["aria-label"], more["aria-haspopup"]) == ("More for Brightwater", "menu")
+    assert [c.get("data-mark") for c in tree.having("data-keep-id")] == ["movie/1", None]
+
+
+def test_a_watched_poster_says_so_in_words_and_not_with_the_tick_of_in_library() -> None:
+    html = _watch(rows=[{"title": "Movies", "items": [_marked(watched=True)]}])
+    badge = re.search(r'<span class="watch-badge watch-badge--watched">(.*?)</span></span>', html)
+    assert badge
+    assert '<span class="watch-badge__word">Watched' in badge.group(1)
+    assert "#i-eye" in badge.group(1) and "#i-check" not in badge.group(1)
+
+
+def test_dismiss_is_offered_by_a_continue_watching_card_and_its_banner_alone() -> None:
+    item = {**_marked(), "dismiss_ref": "movie-1"}
+    rows = [{"title": "Continue watching", "items": [item]}]
+    tree = _Tree(_watch(banner=_BANNER, rows=rows))
+    assert [a["data-dismiss-ref"] for a in tree.having("data-dismiss-ref")] == ["movie-1"] * 2
+    [button] = tree.having("data-watch-dismiss")
+    assert button["aria-label"] == "Dismiss Salt & Iron from Continue watching"
+
+    other = _Tree(
+        _watch(
+            banner={**_BANNER, "dismiss_ref": None},
+            rows=[{"title": "Movies", "items": [_marked()]}],
+        )
+    )
+    assert not other.having("data-dismiss-ref") and not other.having("data-watch-dismiss")
+
+
+def test_the_pages_toggles_say_what_is_watched_and_what_a_press_does() -> None:
+    def toggles(html: str) -> list[tuple]:
+        return [
+            (a["data-mark-toggle"], a["aria-pressed"], a["aria-label"])
+            for a in _Tree(html).having("data-mark-toggle")
+        ]
+
+    assert toggles(_render("watch_movie.html", **_movie_ctx())) == [
+        ("movie/5", "true", "Mark as watched")
+    ]
+    assert toggles(_render("watch_show.html", **_show_ctx())) == [
+        ("show/300", "false", "Mark show as watched"),
+        ("season/302", "false", "Mark season as watched"),
+        ("episode/1", "true", "Mark Spring Tide as watched"),
+        ("episode/2", "false", "Mark Low Water as watched"),
+        ("episode/3", "false", "Mark Maydays as watched"),
+    ]
+
+
+def test_a_watched_season_s_tab_says_so_without_changing_its_words() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    tabs = re.findall(r'<a class="watch-pill[^>]*>.*?</a>', html)
+    assert 'aria-label="Season 1, watched"' in tabs[0] and "#i-eye" in tabs[0]
+    assert "aria-label" not in tabs[1] and "#i-eye" not in tabs[1]
+    # seasons.js reads the tab's text as the season's name.
+    assert re.sub(r"<[^>]+>", "", tabs[0]) == "Season 1"
+
+
+def test_an_episode_seen_before_says_so_while_it_is_played_again() -> None:
+    ctx = _show_ctx()
+    ctx["episodes"][1]["watched"] = True
+    html = _render("watch_show.html", **ctx)
+    assert 'Low Water<span class="sr-only">, watched</span>' in html
+    assert ">In progress<" in html
+
+
+def test_no_button_stands_in_a_link() -> None:
+    pages = [
+        _watch(
+            banner=_BANNER,
+            rows=[{"title": "Leaving soon", "items": [_marked(leaving_days=2, keep_id="m1")]}],
+        ),
+        _render("watch_show.html", **_show_ctx()),
+        _render("watch_movie.html", **_movie_ctx()),
+    ]
+    for html in pages:
+        tree = _Tree(html)
+        assert any(tag == "button" for tag, _a, _in in tree.found)
+        assert not [a for tag, a, around in tree.found if tag == "button" and "a" in around]
+
+
+def test_a_long_library_row_draws_its_first_page_and_where_to_go_on() -> None:
+    row = {
+        "title": "Movies",
+        "items": [_marked(title=f"Film {n}") for n in range(5)],
+        "library": True,
+        "kind": "movies",
+        "page_size": 3,
+        "next": "c1",
+    }
+    tree = _Tree(_watch(rows=[row]))
+    assert len(tree.having("data-mark")) == 3
+    [viewport] = tree.having("data-row-next")
+    assert (viewport["data-row-kind"], viewport["data-row-next"]) == ("movies", "c1")
+
+    whole = _Tree(_watch(rows=[{**row, "next": None}]))
+    assert len(whole.having("data-mark")) == 5 and not whole.having("data-row-next")

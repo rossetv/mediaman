@@ -29,6 +29,9 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 from ._dedupe import LibraryIndex, library_ids
+from ._discover import _failure
+from ._gate import TmdbUnavailable, gate
+from ._title_meta import clear_held
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +120,13 @@ def library_index(
 
 
 def clear_library_index() -> None:
-    """Drop the held index, so the next caller builds it afresh. For a library scan that
+    """Drop the held index, and the titles and people read of the library, so the next
+    caller builds them afresh. For a library scan that
     has finished and a library title that was deleted."""
     with _lock:
         _held.clear()
         _generation[0] += 1
+    clear_held()
 
 
 def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
@@ -131,7 +136,11 @@ def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
         held = _tvdb.get(tvdb_id)
     if held is not None and held[0] > _clock():
         return held[1]
-    found, changed = _ask(client, tvdb_id)
+    try:
+        with gate.asking(client.token):
+            found, changed = _ask(client, tvdb_id)
+    except TmdbUnavailable:
+        return held[1] if held is not None else None
     if changed:
         with _lock:
             _generation[0] += 1
@@ -168,8 +177,10 @@ def _ask(client: TmdbClient, tvdb_id: int) -> tuple[int | None, bool]:
     try:
         answer = client.find_by_tvdb(tvdb_id)
         failed = False
-    except (SafeHTTPError, requests.RequestException, ValueError):
+        gate.note(client.token, None)
+    except (SafeHTTPError, requests.RequestException, ValueError) as exc:
         answer, failed = None, True
+        gate.note(client.token, _failure(exc, "find"))
     with _lock:
         before = _tvdb.get(tvdb_id, (0.0, None))[1]
         if failed:

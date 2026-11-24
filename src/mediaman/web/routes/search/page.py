@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user, resolve_page_session
@@ -23,6 +25,7 @@ from mediaman.web.responses import respond_err
 from ._enrichment import (
     _MAX_QUERY_LEN,
     _QUERY_LIMITER,
+    _TMDB_TIMEOUT_S,
     _annotate_states,
     _fetch_discover_shelf,
     _normalise_tmdb_item,
@@ -66,15 +69,25 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_user))
         return JSONResponse({"results": []})
     q = q[:_MAX_QUERY_LEN]
     conn = get_db()
-    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    client = TmdbClient.from_db(
+        conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
+    )
     if client is None:
         return respond_err("tmdb_not_configured", status=502)
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        f1 = pool.submit(client.search_multi_paged, q, 1)
-        f2 = pool.submit(client.search_multi_paged, q, 2)
-        page1 = f1.result()
-        page2 = f2.result()
+    try:
+        with (
+            watch_catalog.gate.asking(client.token),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            f1 = pool.submit(client.search_multi_paged, q, 1)
+            f2 = pool.submit(client.search_multi_paged, q, 2)
+            page1 = f1.result()
+            page2 = f2.result()
+    except watch_catalog.TmdbBusy:
+        return respond_err("too_many_requests", status=429)
+    except watch_catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
 
     if not page1 and not page2:
         return respond_err("tmdb_request_failed", status=502)
@@ -97,24 +110,34 @@ def api_discover(request: Request, admin: str = Depends(get_current_user)) -> JS
             "too_many_requests", status=429, message="Too many discover requests — slow down"
         )
     conn = get_db()
-    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    client = TmdbClient.from_db(
+        conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
+    )
     if client is None:
         return respond_err("tmdb_not_configured", status=502)
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        f_trending_1 = pool.submit(_fetch_discover_shelf, "trending", client.trending, None, 1)
-        f_trending_2 = pool.submit(_fetch_discover_shelf, "trending", client.trending, None, 2)
-        f_movies_1 = pool.submit(
-            _fetch_discover_shelf, "popular_movies", client.popular_movies, "movie", 1
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(watch_catalog.gate.asking(client.token))
+            may_ask = True
+        except watch_catalog.TmdbUnavailable:
+            may_ask = False
+        shelves = (
+            ("trending", client.trending, None),
+            ("popular_movies", client.popular_movies, "movie"),
+            ("popular_tv", client.popular_tv, "tv"),
         )
-        f_movies_2 = pool.submit(
-            _fetch_discover_shelf, "popular_movies", client.popular_movies, "movie", 2
-        )
-        f_tv_1 = pool.submit(_fetch_discover_shelf, "popular_tv", client.popular_tv, "tv", 1)
-        f_tv_2 = pool.submit(_fetch_discover_shelf, "popular_tv", client.popular_tv, "tv", 2)
-        trending_raw = f_trending_1.result() + f_trending_2.result()
-        movies_raw = f_movies_1.result() + f_movies_2.result()
-        tv_raw = f_tv_1.result() + f_tv_2.result()
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            pages = [
+                [
+                    pool.submit(_fetch_discover_shelf, key, fetch, media_type, page, may_ask)
+                    for page in (1, 2)
+                ]
+                for key, fetch, media_type in shelves
+            ]
+            trending_raw, movies_raw, tv_raw = (
+                [item for page in shelf for item in page.result()] for shelf in pages
+            )
 
     trending = _normalise_shelf(trending_raw, 21)
     popular_movies = _normalise_shelf(movies_raw, 21)

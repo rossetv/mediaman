@@ -9,6 +9,8 @@ html.has-ttl .watch-keep-menu { z-index: var(--z-modal); }
 html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl {
+  --ttl-bar: 56px;  /* holds Close, and Back to details while a trailer plays */
+  --ttl-gap: 16px;  /* between a playing trailer and the buttons under it */
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
@@ -25,6 +27,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   background: color-mix(in srgb, var(--scrim) 74%, transparent);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
+  transition: opacity var(--dur) var(--ease-out);
 }
 .ttl__sheet {
   position: relative;
@@ -34,14 +37,21 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
   overflow: hidden;
+  overflow: clip; /* clips without scrolling, so the bar can stick to the overlay */
   box-shadow: var(--shadow-card);
   transform-origin: 50% 0;
+  transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
 .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
 .ttl.is-entering .ttl__sheet { animation: ttl-sheet-in var(--dur-slow) var(--ease-out) both; }
-.ttl.is-leaving { pointer-events: none; }
+/* Leaving, it takes presses without answering: a second one on Close must not reach the page. */
+.ttl.is-leaving > * { pointer-events: none; }
 .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) var(--ease-out) both; }
 .ttl.is-leaving .ttl__sheet { animation: ttl-sheet-out var(--dur) var(--ease-out) both; }
+/* Another page takes the place of what is under it: it steps back, and returns the way it went. */
+.ttl.is-aside { pointer-events: none; }
+.ttl.is-aside .ttl__sheet { transform: translateY(14px) scale(.97); opacity: 0; }
+.ttl.is-aside .ttl__scrim { opacity: 0; }
 @keyframes ttl-fade-in  { from { opacity: 0; } }
 @keyframes ttl-fade-out { to { opacity: 0; } }
 @keyframes ttl-sheet-in  { from { opacity: 0; transform: translateY(16px) scale(.96); } }
@@ -49,11 +59,51 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @keyframes ttl-sheet-up   { from { transform: translateY(100%); } }
 @keyframes ttl-sheet-down { to { transform: translateY(100%); } }
 
-.ttl__close {
+/* Over the hero's top edge, and over a trailer rather than on it. */
+.ttl__bar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  height: var(--ttl-bar);
+  margin-bottom: calc(-1 * var(--ttl-bar));
+  padding: 0 8px;
+  pointer-events: none;
+}
+.ttl__bar::before {
+  content: "";
   position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 4;
+  inset: 0;
+  z-index: -1;
+  background: var(--s1);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.ttl.is-trailer .ttl__bar::before { opacity: 1; }
+.ttl__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(8px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur);
+}
+.ttl.is-trailer .ttl__back { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.ttl__back:hover { background: var(--s3); }
+.ttl__back:active { background: var(--s4); }
+.ttl__back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ttl__close {
+  margin-left: auto;
+  pointer-events: auto;
+  translate: -8px 10px; /* off the corner, until a trailer brings it into the bar */
   display: grid;
   place-items: center;
   width: 44px;
@@ -65,8 +115,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   backdrop-filter: blur(12px) saturate(1.4);
   color: var(--t1);
   font-size: 17px;
-  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), translate var(--dur) var(--ease-out);
 }
+.ttl.is-trailer .ttl__close { translate: none; }
 .ttl__close:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
 .ttl__close:active { transform: scale(.94); }
 .ttl__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -154,6 +205,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__title-skel { width: min(320px, 70%); height: .8em; }
 .ttl__tagline {
   max-width: 60ch;
+  min-height: 1lh;
   font-size: 15px;
   font-style: italic;
   color: var(--t2);
@@ -162,35 +214,45 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* A title without one: its line's space stays, under the meta line, so the title stays put. */
+.ttl__tagline:empty { order: 1; }
+.ttl__tagline-skel { width: min(260px, 60%); height: .8em; margin-block: calc((1lh - .8em) / 2); }
 /* Each part carries its dot in front; the dot that starts a line falls in the clipped margin. */
-.ttl__meta { --dot: 17px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-height: 22px; margin-left: calc(-1 * var(--dot)); clip-path: inset(0 -20px 0 var(--dot)); font-size: 15px; color: var(--t2); }
+.ttl__meta { --dot: 17px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-height: 22px; margin-left: calc(-1 * var(--dot)); clip-path: inset(-14px -20px -14px var(--dot)); font-size: 15px; color: var(--t2); }
 .ttl__meta > span { position: relative; padding-left: var(--dot); }
 .ttl__meta > span::before { content: "·"; position: absolute; left: 0; width: var(--dot); text-align: center; color: var(--t3); }
 .ttl__meta > .ttl__cert,
 .ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
+:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
+:is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
+:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.ttl__genre, .ttl__director):active { opacity: .6; }
+@media (hover: hover) { :is(.ttl__genre, .ttl__director):hover { color: var(--t1); text-decoration-color: currentColor; } }
+.ttl.is-trailer .ttl__genre { visibility: hidden; }
 .ttl__meta > .ttl__meta-skel { width: min(300px, 70%); height: 14px; }
 .ttl__meta > .ttl__meta-skel::before { content: none; }
 .ttl__cert { display: inline-flex; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: var(--r-xxs); font-size: 12px; line-height: 18px; font-weight: 600; }
 .ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
-/* The trailer takes the hero's box, so nothing below it moves (a short hero grows first). */
+/* The trailer takes the hero's box under the bar, so nothing below it moves (a hero too small for it grows). */
 .ttl__player {
   position: absolute;
   inset: 0;
   z-index: 3;
-  display: grid;
-  place-items: center;
-  background: var(--scrim);
+  padding: var(--ttl-bar) 0 var(--ttl-gap);
+  background: var(--s1);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
 }
 .ttl.is-trailer .ttl__player { opacity: 1; visibility: visible; transition-delay: 0s; }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
-.ttl__frame { display: block; height: 100%; aspect-ratio: 16 / 9; max-width: 100%; border: 0; background: var(--scrim); }
+.ttl__frame { display: block; width: 100%; height: 100%; border: 0; background: var(--scrim); }
+.ttl__trailer { transition: opacity var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.ttl.is-trailer .ttl__trailer { opacity: .45; }
 
 /* ── Body ── */
 
@@ -205,7 +267,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__actions .watch-btn--grey,
 .ttl__actions .btn--primary { padding-inline: 24px; font-size: 16px; }
 .ttl__actions .btn--primary { font-weight: 600; }
-.ttl__actions .btn > .ico { font-size: 13px; }
+.ttl__actions .btn > .ico,
+.ttl__actions .watch-mark-btn__faces .ico { font-size: 13px; }
 .ttl__actions .skel--pill { flex: none; }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .ttl__download .btn-spinner { margin-right: 0; }
@@ -229,8 +292,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__overview { max-width: 68ch; font-size: 15px; line-height: 1.55; color: var(--t2); }
 .ttl__credit { display: flex; gap: 10px; font-size: 14px; color: var(--t1); }
 .ttl__credit-label { color: var(--t3); }
-.ttl__reason { max-width: 68ch; padding: 10px 12px; background: var(--s2); border-radius: var(--r-xs); font-size: 13px; line-height: 1.5; color: var(--t2); }
-.ttl__reason b { color: var(--t1); font-weight: 600; }
+.ttl__reason { display: flex; flex-direction: column; gap: 8px; max-width: 68ch; padding: 14px 16px; background: var(--s2); border-radius: var(--r-lg); font-size: 14px; line-height: 1.5; color: var(--t2); overflow-wrap: anywhere; }
+.ttl__reason-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; font-weight: 600; color: var(--t1); }
+.ttl__because { font-size: 13px; }
+.ttl__because b { color: var(--t1); font-weight: 600; }
 .ttl__note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--t3); }
 .ttl__note a { position: relative; color: var(--accent); font-weight: 500; }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }
@@ -242,6 +307,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
 .ttl__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__sec-title { font-size: 19px; font-weight: 600; margin-bottom: 14px; }
+.ttl__sec-title:focus { outline: none; }
 .ttl__sec-skel { width: 80px; height: 18px; margin-bottom: 16px; }
 .ttl-skel-lines { display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
 
@@ -279,8 +345,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  max-width: 100%;
   min-height: 44px;
-  padding: 0 16px 0 12px;
+  padding: 6px 16px 6px 12px;
   border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: var(--s3);
@@ -290,8 +357,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .season-chip:hover { background: var(--s4); }
 .season-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.season-chip__box { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
-.season-chip__sub { font-size: 12px; color: var(--t3); }
+.season-chip__box { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.season-chip__name { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.season-chip__sub { flex: none; font-size: 12px; color: var(--t3); }
 .season-chip[aria-checked="true"] { background: var(--rgba-accent-bg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .season-chip[aria-checked="true"] .season-chip__box { background: var(--accent); border-color: var(--accent); color: var(--color-on-accent); }
 .season-chip[aria-disabled="true"] { background: transparent; border-color: var(--hair-strong); color: var(--t2); cursor: default; }
@@ -306,17 +374,24 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl-facts { align-self: start; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; background: var(--s2); border: 1px solid var(--hair); border-radius: var(--r-lg); }
 .ttl-facts__eyebrow { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); }
-.ttl-facts__list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px 16px; font-size: 14px; }
-.ttl-facts__list dt { color: var(--t3); }
+/* The labels' column is set, so that they wrap the same before and after the facts come. */
+.ttl-facts__list { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 16px; font-size: 14px; }
+@media (min-width: 360px) and (max-width: 899.98px) { .ttl-facts__list { grid-template-columns: max-content minmax(0, 1fr); } }
+.ttl-facts__list dt { color: var(--t3); text-wrap: balance; }
 .ttl-facts__list dd { text-align: right; color: var(--t1); font-variant-numeric: tabular-nums; }
 .ttl-facts__sub { display: block; font-size: 12px; color: var(--t3); }
 .ttl-facts .is-danger { color: var(--danger-text); }
 .ttl-facts .is-success { color: var(--success); }
 .ttl-facts .is-warning { color: var(--warning); }
-.ttl-facts__foot { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--hair); }
-.ttl-facts__btn { flex: 1 1 0; min-height: 44px; font-size: 14px; padding-inline: 12px; }
+.ttl-facts .is-pending { display: flex; flex-direction: column; align-items: flex-end; min-height: 1lh; }
+.ttl-facts .skel { background: var(--s4); }
+.ttl-facts__skel { width: 72px; height: .8em; margin-block: calc((1lh - .8em) / 2); }
+.ttl-facts__foot > .skel--pill { width: 100%; height: 44px; }
+.ttl-facts__error { flex-wrap: wrap; font-size: 13px; }
+.ttl-facts__foot { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.ttl-facts__btn { min-height: 44px; font-size: 14px; padding-inline: 12px; }
 .ttl-facts__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ttl-facts__keep { position: relative; display: flex; flex: 1 1 0; }
+.ttl-facts__keep { position: relative; display: grid; }
 .ttl-facts__menu {
   position: absolute;
   bottom: calc(100% + 6px);
@@ -340,23 +415,26 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-facts__menu .watch-keep-menu__item:hover,
 .ttl-facts__menu .watch-keep-menu__item:focus-visible { background: var(--s4); }
 
-/* ── Episodes and cast ── */
+/* ── Episodes ── */
 
-.ttl .watch-episodes { padding: 0; margin-left: 0; max-width: none; }
-.ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; margin-inline: -12px; }
-.ttl .watch-ep:hover { background: var(--s2); }
-.ttl .watch-ep--in-progress { background: var(--s2); }
-.ttl .watch-seasons { margin: 0 0 14px; }
-.ttl__seasonsec .ttl__sec-title { margin-bottom: 12px; }
+.ttl .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0; margin-left: 0; max-width: none; }
+.ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; }
+.ttl .watch-eprow { margin-inline: -12px; }
+.ttl .watch-eprow:has(> .watch-ep:hover),
+.ttl .watch-eprow:has(> .watch-ep--in-progress) { background: var(--s2); }
+/* The seasons stand on one line that scrolls to the sheet's edges, as the rows do to the screen's. */
+.ttl-seasons { --pad: 32px; margin: 0 calc(-1 * var(--pad)) 8px; }
+.ttl .watch-seasons { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
+.ttl .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
+/* In the sheet's own edge, so that they never stand on a season. */
+.ttl-seasons > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
+.ttl-seasons > .watch-row__arrow--prev { left: 2px; }
+.ttl-seasons > .watch-row__arrow--next { right: 2px; }
+.ttl__sec-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+.ttl__sec-head > .ttl__sec-title { margin: 0 auto 0 0; }
+.ttl__season-mark { min-height: 44px; padding-inline: 18px; font-size: 14px; }
+.ttl__season-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
-
-.ttl-cast { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 12px; }
-.ttl-cast__item { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
-.ttl-cast__avatar { display: grid; place-items: center; width: 64px; height: 64px; overflow: hidden; border-radius: 50%; background: var(--s3); color: var(--t2); font-size: 16px; font-weight: 600; }
-.ttl-cast__avatar img { width: 100%; height: 100%; object-fit: cover; }
-.ttl-cast__name { font-size: 12px; font-weight: 500; line-height: 1.3; }
-.ttl-cast__char { font-size: 11px; color: var(--t3); line-height: 1.3; }
-.ttl-cast__name-skel { width: 70%; height: 10px; }
 
 /* ── Load failed ── */
 
@@ -374,12 +452,15 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__sheet { max-width: none; min-height: 100%; border: 0; border-radius: 0; box-shadow: none; transform-origin: 50% 100%; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
-  .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: 64px 20px 14px; }
+  .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: calc(var(--ttl-bar) + 8px) 20px 14px; }
+  .ttl.is-short .ttl__hero { padding-top: calc(var(--ttl-bar) + 16px); }
   .ttl__poster { width: min(140px, 24vw, 30vh); border-radius: var(--r-sm); }
   /* Too late for the buttons to move, so only its blurred copy shows: beside it a
      title can take another line. */
   .ttl.is-late .ttl__poster { display: none; }
-  .ttl__close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
+  .ttl { --ttl-bar: calc(56px + env(safe-area-inset-top, 0px)); }
+  .ttl__bar { padding-top: env(safe-area-inset-top, 0px); }
+  .ttl__close { translate: -2px 4px; }
   .ttl__head { gap: 6px; }
   .ttl__kind { font-size: 11px; }
   .ttl__title { font-size: 28px; }
@@ -387,20 +468,36 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__tagline { font-size: 13px; -webkit-line-clamp: 1; }
   .ttl__meta { font-size: 13px; }
   .ttl__body { padding: 8px 20px calc(36px + env(safe-area-inset-bottom, 0px)); gap: 28px; }
-  .ttl__actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .ttl__actions > :first-child,
-  .ttl__actions > :nth-child(2):last-child { grid-column: 1 / -1; }
-  .ttl__actions .btn,
-  .ttl__actions .dl-state { width: 100%; padding-inline: 12px; }
-  .ttl__actions .skel--pill { width: auto !important; }
-  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); margin-inline: -8px; padding: 10px 8px; }
-  .ttl .watch-ep__state { display: none; }
-  .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .ttl-cast__avatar { width: 56px; height: 56px; }
+  /* Two to a row where their labels fit it; each row is filled. */
+  .ttl__actions > .btn,
+  .ttl__actions > .dl-state,
+  .ttl__actions > .skel--pill { flex: 1 1 120px; min-width: max-content; padding-inline: 12px; }
+  .ttl__actions > :first-child { flex-basis: 100%; }
+  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; padding: 10px 8px; }
+  .ttl .watch-eprow { margin-inline: -8px; }
+  .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
+  .ttl .watch-ep__state { justify-self: start; align-self: end; }
+  .ttl-seasons { --pad: 20px; }
   /* Two to a line: the episode count drops under the name. */
-  .season-chip { flex: 1 1 calc(50% - 4px); display: grid; grid-template-columns: 18px 1fr; column-gap: 10px; row-gap: 1px; align-items: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; white-space: nowrap; }
+  .season-chip { flex: 1 1 calc(50% - 4px); min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; align-content: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; }
   .season-chip__box { grid-row: span 2; }
   .season-chip__sub { grid-column: 2; }
+}
+
+/* A phone held sideways: the sheet takes the whole height. */
+@media (max-height: 500px) {
+  .ttl { padding-block: 0; }
+  .ttl__sheet { min-height: 100%; border-block: 0; border-radius: 0; }
+}
+
+/* Phones, either way up: Close stays on screen, and a trailer gets the screen's width
+   or, lying down, its height but for a strip that shows there is more below. */
+@media (max-width: 699.98px), (max-height: 500px) {
+  .ttl { scroll-padding-top: var(--ttl-bar); }
+  .ttl__bar { position: sticky; top: 0; }
+  .ttl.is-past .ttl__bar { pointer-events: auto; }
+  .ttl.is-past .ttl__bar::before { opacity: 1; border-bottom: 1px solid var(--hair); }
+  .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 
 /* A small hero: the shade keeps close to the text, so the picture stays clear above it. */
@@ -416,6 +513,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__fill,
   .ttl__hero::after,
   .ttl__head::before { display: none; }
+  .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }
@@ -426,4 +524,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) linear both !important; }
   .ttl.is-leaving .ttl__sheet,
   .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
+  .ttl__sheet,
+  .ttl__scrim { transition: opacity var(--dur) linear !important; }
+  .ttl.is-aside .ttl__sheet { transform: none; }
 }

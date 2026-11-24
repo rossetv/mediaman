@@ -1,0 +1,129 @@
+"""The Profile page holds a person's own email, password and sign-ins; Settings only points to it."""
+
+from __future__ import annotations
+
+import re
+from html.parser import HTMLParser
+
+import pytest
+from fastapi.templating import Jinja2Templates
+
+from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.web.routes.account import router as account_router
+from mediaman.web.routes.settings import router as settings_router
+
+_TEMPLATES = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+
+class _Page(HTMLParser):
+    """Record each form's submit buttons, every id, and the forms' inputs by their id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.forms: dict[str, list[str]] = {}
+        self._form: str | None = None
+        self.ids: set[str] = set()
+        self.inputs: dict[str, str | None] = {}
+        self.hints: dict[str, set[str]] = {}
+        self.scripts: set[str] = set()
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if a.get("id"):
+            self.ids.add(a["id"])
+        if a.get("data-strength"):
+            key = a["data-strength"]
+            self.hints[a["id"]] = {f"{key}-meter", f"{key}-label"}
+        if a.get("data-match"):
+            self.hints[a["id"]] = {a["data-match"], f"{a['id']}-match"}
+        if tag == "script" and a.get("src"):
+            self.scripts.add(a["src"].split("?")[0])
+        if tag == "form":
+            self._form = a.get("id")
+            self.forms[self._form] = []
+        elif tag == "button" and self._form and a.get("type") == "submit":
+            self.forms[self._form].append(a.get("id"))
+        elif tag == "input" and self._form and a.get("id"):
+            self.inputs[a["id"]] = a.get("value")
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self._form = None
+
+
+def _parse(html: str) -> _Page:
+    page = _Page()
+    page.feed(html)
+    return page
+
+
+@pytest.fixture
+def settings_html(app_factory, authed_client, conn) -> str:
+    app = app_factory(settings_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    return authed_client(app, conn).get("/settings").text
+
+
+def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+    conn.execute("UPDATE admin_users SET email = 'admin@example.com'")
+    conn.commit()
+
+    page = _parse(client.get("/account").text)
+
+    # each form is sent with Enter by its one submit button
+    assert page.forms["account-email-form"] == ["account-submit-email"]
+    assert page.inputs["account-email"] == "admin@example.com"
+    assert page.forms["account-password-form"] == ["account-submit-password"]
+    assert {"account-old-password", "account-new-password", "account-confirm-password"} <= set(
+        page.inputs
+    )
+    assert "account-revoke-others" in page.ids
+
+
+@pytest.mark.parametrize(
+    ("router", "path", "fields"),
+    [
+        (account_router, "/account", {"account-new-password", "account-confirm-password"}),
+        (settings_router, "/settings", {"new-user-password"}),
+    ],
+)
+def test_new_password_fields_have_the_parts_their_hints_are_drawn_in(
+    app_factory, authed_client, conn, router, path, fields
+):
+    app = app_factory(router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    page = _parse(authed_client(app, conn).get(path).text)
+
+    assert set(page.hints) == fields
+    assert all(parts <= page.ids for parts in page.hints.values())
+    assert "/static/js/password-strength.js" in page.scripts
+
+
+def test_settings_keeps_the_team_and_no_second_account_form(settings_html):
+    page = _parse(settings_html)
+
+    assert page.forms["add-user-form"] == ["btn-submit-add-user"]
+    # the menu's Log out is the only other form
+    assert set(page.forms) == {"add-user-form", None}
+
+
+def test_settings_users_links_to_profile(settings_html):
+    section = settings_html.split('id="setg-users"', 1)[1].split('id="user-list"', 1)[0]
+
+    assert 'href="/account"' in section
+
+
+def test_what_the_ai_service_and_admins_get_is_in_sight_before_linking(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account").text
+
+    panel = html.split('data-plex-panel="unlinked"')[1].split('id="plex-start"')[0]
+    in_sight = re.sub(r"<details.*?</details>", "", panel, flags=re.S)
+    assert "AI service" in in_sight
+    assert "Admins can see" in in_sight
+    assert panel.count("AI service") == panel.count("Admins can see") == 1

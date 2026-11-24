@@ -189,8 +189,8 @@ def real_app(conn):
     return create_app()
 
 
-@pytest.mark.parametrize(("role", "landing"), [("viewer", "/watch"), ("admin", "/")])
-def test_signing_in_lands_by_role(real_app, conn, role, landing):
+@pytest.mark.parametrize("role", ["viewer", "admin"])
+def test_signing_in_lands_on_watch_whatever_the_role(real_app, conn, role):
     create_user(conn, "someone", "Correct-Horse-9-battery", enforce_policy=False, role=role)
 
     resp = TestClient(real_app).post(
@@ -200,7 +200,7 @@ def test_signing_in_lands_by_role(real_app, conn, role, landing):
         follow_redirects=False,
     )
 
-    assert (resp.status_code, resp.headers["location"]) == (302, landing)
+    assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
 
 
 def test_a_viewer_lands_on_watch_after_a_forced_password_change(real_app, conn):

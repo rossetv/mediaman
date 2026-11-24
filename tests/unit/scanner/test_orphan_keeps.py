@@ -178,13 +178,16 @@ class TestListShorterThanTheLibrary:
         assert _actions(conn, _FILMS[-1]) == ["scheduled_deletion"]
 
     def test_another_copy_still_listed_does_not_take_the_keep(self, conn, kept):
+        """It is given the keep too, as its file is the kept one, and the old key keeps its own."""
         _engine(conn, _Plex([*_FILMS, "new-o0"])).sync_library()
+        assert _actions(conn, "new-o0") == []
         _engine(conn, _Plex([*_FILMS[1:], "new-o0"])).sync_library()
+        assert _actions(conn, "new-o0") == ["protected_forever"]
 
         _engine(conn, _Plex([*_FILMS, "new-o0"])).sync_library()
 
         assert _actions(conn, "o0") == ["protected_forever"]
-        assert _actions(conn, "new-o0") == []
+        assert _actions(conn, "new-o0") == ["protected_forever"]
 
     @pytest.mark.parametrize("key", ["o0", "new-o0"])
     def test_a_keep_given_back_is_in_the_history(self, conn, kept, key):
@@ -284,7 +287,7 @@ class TestNewKeyInTheListTheOldOneLeaves:
         getattr(_engine(conn, _Plex(["new-o0", *_FILMS])), run)()
 
         assert _actions(conn, "o0") == ["protected_forever"]
-        assert "protected_forever" not in _actions(conn, "new-o0")
+        assert _actions(conn, "new-o0") == []
 
     def test_a_new_copy_does_not_take_the_keep_of_one_whose_history_failed(self, conn, kept, run):
         plex = _Plex([*_FILMS, "new-o0"])

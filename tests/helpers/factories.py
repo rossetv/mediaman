@@ -303,7 +303,7 @@ def insert_suggestion(conn: sqlite3.Connection, **fields) -> int:
         "title": "Test Suggestion",
         "year": None,
         "media_type": "movie",
-        "category": "personal",
+        "category": "trending",
         "tmdb_id": None,
         "imdb_id": None,
         "description": None,
@@ -364,6 +364,24 @@ def insert_suggestion(conn: sqlite3.Connection, **fields) -> int:
     return int(cursor.lastrowid)
 
 
+def insert_user_pick(conn: sqlite3.Connection, username: str, **fields) -> int:
+    """Persist a ``user_picks`` row of *username*; return the assigned id."""
+    row: dict = {
+        "username": username,
+        "title": "Test Pick",
+        "media_type": "movie",
+        "batch_id": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "created_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    cursor = conn.execute(
+        f"INSERT INTO user_picks ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+        tuple(row.values()),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
 def insert_recent_download(conn: sqlite3.Connection, **fields) -> int:
     """Persist a ``recent_downloads`` row; return the assigned id.
 
@@ -410,6 +428,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
         "tvdb_id": None,
         "claimed_at": None,
         "season_number": None,
+        "username": None,
         **fields,
     }
     if isinstance(row.get("created_at"), datetime):
@@ -417,8 +436,8 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
     cursor = conn.execute(
         "INSERT INTO download_notifications"
         " (email, title, media_type, tmdb_id, service, notified, created_at, tvdb_id, claimed_at,"
-        " season_number)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " season_number, username)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row["email"],
             row["title"],
@@ -430,6 +449,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
             row["tvdb_id"],
             row["claimed_at"],
             row["season_number"],
+            row["username"],
         ),
     )
     conn.commit()

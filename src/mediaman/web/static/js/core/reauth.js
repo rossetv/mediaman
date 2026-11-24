@@ -4,20 +4,21 @@
  *
  * Public surface (global MM.reauth):
  *
- *   MM.reauth.openModal({ onSubmit, onCancel })
- *       Open the centred "Re-authenticate to save" modal. onSubmit(pw)
+ *   MM.reauth.openModal({ onSubmit, onCancel, title, descText, confirmLabel })
+ *       Open the centred modal, "Re-authenticate to save" unless worded otherwise. onSubmit(pw)
  *       returns Promise<{ok, error?}>; resolving ok=true closes the
  *       modal, ok=false surfaces the error inline and keeps it open.
  *       onCancel runs on Cancel / Escape / backdrop click.
  *
- *   MM.reauth.run(requestFn)
+ *   MM.reauth.run(requestFn, words)
  *       Call requestFn() and return its promise. If it rejects with an
  *       APIError where status === 403 and err.data.reauth_required ===
  *       true, open the modal; on a successful POST /api/auth/reauth,
  *       retry requestFn() once and resolve with the retry result. If
  *       the user cancels the modal, reject with an APIError carrying
  *       error code 'reauth_cancelled' so callers can distinguish
- *       "backed out" from "request failed".
+ *       "backed out" from "request failed". `words` may hold the modal's
+ *       title, descText and confirmLabel, for what is not a save.
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
@@ -169,13 +170,17 @@
       err.data.reauth_required === true;
   }
 
-  function run(requestFn) {
+  function run(requestFn, words) {
+    words = words || {};
     return new Promise(function (resolve, reject) {
       var cancelled = false;
       function attempt() {
         Promise.resolve(requestFn()).then(resolve, function (err) {
           if (!isReauthRequired(err)) { reject(err); return; }
           openModal({
+            title: words.title,
+            descText: words.descText,
+            confirmLabel: words.confirmLabel,
             onSubmit: function (pw) {
               return MM.api.post('/api/auth/reauth', { password: pw })
                 .then(function () {

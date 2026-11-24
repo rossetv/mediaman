@@ -3,7 +3,8 @@
 'use strict';
 
 function parseCompound(text) {
-  const out = { tag: null, id: null, classes: [], attrs: [] };
+  const out = { tag: null, id: null, classes: [], attrs: [], not: [] };
+  text = text.replace(/:not\(([^)]*)\)/g, (_all, inner) => { out.not.push(parseCompound(inner)); return ''; });
   const re = /^([a-z]+)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]/gi;
   let m;
   while ((m = re.exec(text))) {
@@ -20,6 +21,7 @@ function matchesCompound(el, c) {
   if (c.tag && el.tagName !== c.tag) return false;
   if (c.id && el.id !== c.id) return false;
   if (!c.classes.every((k) => el.classList.contains(k))) return false;
+  if (c.not.some((n) => matchesCompound(el, n))) return false;
   return c.attrs.every(([k, v]) => el.hasAttribute(k) && (v === undefined || el.getAttribute(k) === v));
 }
 
@@ -49,6 +51,7 @@ class Node {
     this.inert = false;
   }
   get id() { return this.attrs.id || ''; }
+  set id(v) { this.attrs.id = String(v); }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = String(v); }
   get classList() {
@@ -104,6 +107,17 @@ class Node {
     p.childNodes.splice(p.childNodes.indexOf(this), 1);
     this.parentNode = null;
   }
+  get firstChild() { return this.childNodes[0] || null; }
+  get firstElementChild() { return this.children[0] || null; }
+  get isConnected() { return this.ownerDocument.documentElement.contains(this); }
+  append(...cs) { cs.forEach((c) => this.appendChild(typeof c === 'string' ? this.ownerDocument.createTextNode(c) : c)); }
+  prepend(c) { this.insertBefore(c, this.firstChild); }
+  after(c) { this.parentNode.insertBefore(c, this.nextSibling); }
+  toggleAttribute(k, on) { if (on) this.setAttribute(k, ''); else this.removeAttribute(k); }
+  isEqualNode(n) {
+    return this.tagName === n.tagName && this._text === n._text && JSON.stringify(this.attrs) === JSON.stringify(n.attrs) &&
+      this.childNodes.length === n.childNodes.length && this.childNodes.every((c, i) => c.isEqualNode(n.childNodes[i]));
+  }
   before(c) { this.parentNode.insertBefore(c, this); }
   replaceWith(c) { const p = this.parentNode; p.insertBefore(c, this); this.remove(); }
   contains(n) { for (let a = n; a; a = a.parentNode) if (a === this) return true; return false; }
@@ -113,6 +127,7 @@ class Node {
   querySelectorAll(sel) { return this.descendants().filter((e) => e.matches(sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   focus() { this.ownerDocument.activeElement = this; }
   blur() { this.ownerDocument.activeElement = this.ownerDocument.body; }
   getBoundingClientRect() { return { top: 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 }; }
@@ -165,7 +180,7 @@ function build(doc, spec) {
 /* Bubble a click from *target* up to the document. */
 function click(doc, target) {
   const e = { target, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-  for (let a = target; a; a = a.parentNode) (a.listeners.click || []).forEach((fn) => fn(e));
+  for (let a = target; a; a = a.parentNode) { e.currentTarget = a; (a.listeners.click || []).forEach((fn) => fn(e)); }
   (doc.listeners.click || []).forEach((fn) => fn(e));
 }
 

@@ -7,7 +7,6 @@ in; ``/watch?view=list`` renders the same fragment inline through
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from collections.abc import Mapping
 from typing import Any, cast
@@ -21,6 +20,7 @@ from starlette.responses import Response
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import resolve_admin_page_session
+from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.library_query import (
     MAX_SEARCH_TERM_LEN,
     VALID_SORTS,
@@ -42,16 +42,14 @@ SORT_OPTIONS = (
     ("name_desc", "Title (Z–A)"),
     ("size_desc", "Size (largest)"),
     ("size_asc", "Size (smallest)"),
-    ("watched_desc", "Last watched (recent)"),
-    ("watched_asc", "Last watched (oldest)"),
+    ("watched_desc", "Last watched by anyone (recent)"),
+    ("watched_asc", "Last watched by anyone (oldest)"),
     ("deletion_asc", "Deletion (soonest)"),
     ("deletion_desc", "Deletion (latest)"),
 )
 
 # A deletion this close shows in the warning colour.
 SOON_DAYS = 14
-
-_KEY_RE = re.compile(r"[0-9]{1,18}")
 
 
 def _int(value: str | None, default: int, low: int, high: int) -> int:
@@ -62,22 +60,18 @@ def _int(value: str | None, default: int, low: int, high: int) -> int:
     return min(max(number, low), high)
 
 
-def _title_ref(item: Mapping[str, Any]) -> str | None:
-    """The detail overlay's id for a row, when the row has one."""
-    if item["is_tv"]:
-        key = str(item["show_rating_key"] or "")
-        return f"show-{key}" if item["has_rating_key"] and _KEY_RE.fullmatch(key) else None
-    key = str(item["id"])
-    return f"movie-{key}" if _KEY_RE.fullmatch(key) else None
-
-
 def _deletion_label(iso: str | None) -> str:
     when = parse_iso_strict_utc(iso)
     return f"{when.day} {when:%b}" if when else ""
 
 
-def list_context(conn: sqlite3.Connection, params: Mapping[str, str]) -> dict[str, Any]:
-    """The rows, stats and paging of the list for *params*; unknown values fall back to defaults."""
+def list_context(
+    conn: sqlite3.Connection, username: str, params: Mapping[str, str]
+) -> dict[str, Any]:
+    """The rows, stats and paging of the list for *params*; unknown values fall back to defaults.
+
+    A row's ``watched`` is *username*'s own mark, apart from the cleanup's last watched time.
+    """
     q = (params.get("q") or "").strip()[:MAX_SEARCH_TERM_LEN]
     media_type = params.get("type") or ""
     media_type = media_type if media_type in VALID_TYPES else ""
@@ -96,8 +90,9 @@ def list_context(conn: sqlite3.Connection, params: Mapping[str, str]) -> dict[st
         items, total = fetch_library(
             conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
         )
+    seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
     for item in items:
-        item["ref"] = _title_ref(item)
+        item["watched"] = item["ref"] in seen
         item["deletion_label"] = _deletion_label(cast(str | None, item["deletion_at"]))
 
     def href(**changes: object) -> str:
@@ -146,10 +141,10 @@ def watch_list(request: Request) -> Response:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    _username, conn = resolved
+    username, conn = resolved
     templates = cast(Jinja2Templates, request.app.state.templates)
     response = templates.TemplateResponse(
-        request, "_watch_list.html", list_context(conn, request.query_params)
+        request, "_watch_list.html", list_context(conn, username, request.query_params)
     )
     response.headers["Cache-Control"] = "no-store"
     return response

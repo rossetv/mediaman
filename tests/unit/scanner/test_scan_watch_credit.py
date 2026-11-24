@@ -34,6 +34,7 @@ class _StubEngine:
         self._fetcher = _StubFetcher(fetched)
         self._arr_cache = ArrDateCache()
         self._listed_keys = set()
+        self._skipped_places = set()
         self._dry_run = True
         self._grace_days = 14
         self._secret_key = "0123456789abcdef" * 4
@@ -82,7 +83,7 @@ def _credit_episode_play(conn, *, days_ago: int) -> datetime:
 
 def _scan(conn) -> dict[str, int]:
     summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0}
-    scan_tv_library(_StubEngine(conn, [_old_unwatched_season()]), "2", summary)
+    scan_tv_library(_StubEngine(conn, [_old_unwatched_season()]), "2", summary)()
     return summary
 
 

@@ -27,7 +27,6 @@ openai_recommendations = types.SimpleNamespace(
     _get_openai_key=_openai_client_mod.get_openai_key,
     _get_openai_model=_openai_client_mod.get_openai_model,
     _is_web_search_enabled=_openai_client_mod.is_web_search_enabled,
-    _is_web_search_title_safe=_openai_client_mod.is_web_search_title_safe,
     _sanitise_plex_string=_prompts_mod.sanitise_plex_string,
     _strip_season_suffix=_prompts_mod.strip_season_suffix,
     _PLEX_STRING_MAX_LEN=_prompts_mod._PLEX_STRING_MAX_LEN,
@@ -184,23 +183,23 @@ class TestWebSearchGating:
 
 
 class TestWebSearchTitleValidation:
-    """Tests for ``_is_web_search_title_safe`` and its enforcement in ``_call_openai``."""
+    """Web-search titles checked in ``_call_openai``."""
 
-    def test_clean_title_passes(self):
-        assert openai_recommendations._is_web_search_title_safe("Oppenheimer") is True
-
-    def test_markdown_link_rejected(self):
-        assert openai_recommendations._is_web_search_title_safe("[Foo](http://evil.com)") is False
-
-    def test_embedded_url_rejected(self):
-        assert (
-            openai_recommendations._is_web_search_title_safe("Title https://evil.com ignore")
-            is False
+    def test_a_letter_of_another_alphabet_does_not_reject_the_batch(
+        self, conn, monkeypatch, fake_http, fake_response
+    ):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
         )
+        text = '{"items": [{"title": "Amélie", "media_type": "movie", "reason": ""}]}'
+        output = [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        fake_http.queue("POST", fake_response(json_data={"output": output}))
 
-    def test_non_ascii_rejected(self):
-        """Titles with non-ASCII characters fail the strict ASCII-only check."""
-        assert openai_recommendations._is_web_search_title_safe("Amélie") is False
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=True)
+
+        assert [r["title"] for r in result] == ["Amélie"]
 
     def test_adversarial_batch_rejected(self, conn, monkeypatch, fake_http, fake_response):
         """When web search is active and a title fails validation, the whole batch is rejected."""

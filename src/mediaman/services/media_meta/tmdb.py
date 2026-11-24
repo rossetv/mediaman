@@ -23,8 +23,12 @@ from ._tmdb_shapes import (
     TmdbDetailsPayload,
     TmdbSearchResult,
     certificate,
+    dicts,
+    dicts_in,
     shape_card,
     shape_detail,
+    vote_of,
+    year_of,
 )
 
 __all__ = [
@@ -33,6 +37,10 @@ __all__ = [
     "TmdbDetail",
     "TmdbDetailsPayload",
     "TmdbSearchResult",
+    "dicts",
+    "dicts_in",
+    "vote_of",
+    "year_of",
 ]
 
 logger = logging.getLogger(__name__)
@@ -44,15 +52,15 @@ _BASE = "https://api.themoviedb.org/3"
 # Building a ``TmdbClient`` per request would create a brand-new
 # ``requests.Session`` each time, paying DNS + TLS handshake costs against
 # ``api.themoviedb.org`` instead of reusing the connection pool.  We cache one
-# client per (token, timeout) pair so multiple callers share the same session.
+# client per (token, timeout, retry) so multiple callers share the same session.
 #
-# Max size: 4 entries — one per timeout variant with headroom for token
+# Max size: 8 entries — one per variant with headroom for token
 # rotation (the old token's entry ages out as soon as the new one is used).
-# Beyond 4 entries the oldest is evicted so the cache cannot grow without
+# Beyond 8 entries the oldest is evicted so the cache cannot grow without
 # bound if callers vary ``timeout`` unexpectedly.  Rebuilt on process restart.
-_CLIENT_CACHE: dict[tuple[str, float], TmdbClient] = {}
+_CLIENT_CACHE: dict[tuple[str, float, bool], TmdbClient] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
-_CLIENT_CACHE_MAXSIZE = 4
+_CLIENT_CACHE_MAXSIZE = 8
 
 
 # TMDB attribution notice
@@ -72,9 +80,10 @@ class TmdbClient:
     from_db returns None when no token is configured or decryption fails.
     """
 
-    def __init__(self, read_token: str, *, timeout: float = 10.0) -> None:
-        self._token = read_token
+    def __init__(self, read_token: str, *, timeout: float = 10.0, retry: bool = True) -> None:
+        self.token = read_token
         self._timeout = timeout
+        self._retry = retry
         self._headers = {
             "Authorization": f"Bearer {read_token}",
             "Accept": "application/json",
@@ -85,7 +94,7 @@ class TmdbClient:
         self._http = SafeHTTPClient(
             _BASE,
             session=self._session,
-            default_timeout=(5.0, float(timeout)),
+            default_timeout=(min(5.0, float(timeout)), float(timeout)),
         )
 
     @classmethod
@@ -95,27 +104,28 @@ class TmdbClient:
         secret_key: str,
         *,
         timeout: float = 10.0,
+        retry: bool = True,
     ) -> TmdbClient | None:
         """Build a client from the settings table, or None when the token is missing or
         cannot be decrypted; callers must handle None.
 
-        Clients are cached per (token, timeout) so the requests.Session and its TLS pool
+        Clients are cached per (token, timeout, retry) so the requests.Session and its TLS pool
         are shared; rotating the token builds a fresh client.
         """
         token = get_string_setting(conn, "tmdb_read_token", secret_key=secret_key, default="")
         if not token:
             return None
-        cache_key = (token, float(timeout))
+        cache_key = (token, float(timeout), retry)
         with _CLIENT_CACHE_LOCK:
             cached = _CLIENT_CACHE.get(cache_key)
             if cached is not None:
                 return cached
-            client = cls(token, timeout=timeout)
+            client = cls(token, timeout=timeout, retry=retry)
             # Evict the insertion-order-oldest entry when the cache is full
             # so it cannot grow without bound if callers vary ``timeout``.
             # This is FIFO, not true LRU — cache hits do not reorder the
             # dict, so the entry evicted is the one inserted longest ago,
-            # not the least-recently accessed. With _CLIENT_CACHE_MAXSIZE=4
+            # not the least-recently accessed. With _CLIENT_CACHE_MAXSIZE=8
             # and a single token in practice, this is indistinguishable
             # from LRU; the comment is correct about the mechanism used.
             if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAXSIZE:
@@ -137,7 +147,9 @@ class TmdbClient:
         Raises ValueError on a non-JSON body (e.g. an HTML error page during an outage).
         It is not a RequestException, so callers must catch it explicitly.
         """
-        return self._http.get(path, headers=self._headers, params=params or {}).json()
+        return self._http.get(
+            path, retry=self._retry, headers=self._headers, params=params or {}
+        ).json()
 
     @staticmethod
     def _log_request_failure(label: str, exc: Exception) -> None:
@@ -178,16 +190,35 @@ class TmdbClient:
         media_type: str = "movie",
     ) -> TmdbSearchResult | None:
         """Return the first result of /search/{movie|tv}, or None on error or no match."""
-        endpoint = "movie" if media_type == "movie" else "tv"
-        params: dict[str, object] = {"query": title}
-        if year:
-            params["year" if endpoint == "movie" else "first_air_date_year"] = year
         try:
-            results = self._get(f"/search/{endpoint}", params).get("results") or []
+            results = self.search_results_or_raise(title, year=year, media_type=media_type)
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            endpoint = "movie" if media_type == "movie" else "tv"
             self._log_request_failure(f"search/{endpoint}({title!r})", exc)
             return None
         return results[0] if results else None
+
+    def search_results_or_raise(
+        self,
+        title: str,
+        *,
+        year: int | None = None,
+        media_type: str = "movie",
+    ) -> list[TmdbSearchResult]:
+        """Return the first page of /search/{movie|tv} without adult titles, best match first.
+
+        A failed request raises (SafeHTTPError, requests.RequestException or ValueError),
+        so a caller can tell a no-match from an outage.
+        """
+        endpoint = "movie" if media_type == "movie" else "tv"
+        # requests would send a bool as "False".
+        params: dict[str, object] = {"query": title, "include_adult": "false"}
+        if year:
+            params["year" if endpoint == "movie" else "first_air_date_year"] = year
+        results: list[TmdbSearchResult] = (
+            self._get(f"/search/{endpoint}", params).get("results") or []
+        )
+        return [r for r in results if not r.get("adult")]
 
     def search_multi(self, title: str) -> TmdbSearchResult | None:
         """Return the first /search/multi result, for callers that only know the title.
@@ -205,8 +236,8 @@ class TmdbClient:
     def _get_results(
         self, path: str, *, params: dict[str, object], label: str
     ) -> list[dict[str, object]]:
-        """Fetch *path* and return its results list; [] on any failure (transport, HTTP,
-        JSON decode or a non-dict payload). Never raises.
+        """Fetch *path* and return its results list, adult titles and people left out; []
+        on any failure (transport, HTTP, JSON decode or a non-dict payload). Never raises.
         """
         try:
             payload = self._get(path, params)
@@ -214,7 +245,9 @@ class TmdbClient:
             self._log_request_failure(label, exc)
             return []
         results = payload.get("results") if isinstance(payload, dict) else None
-        return results if isinstance(results, list) else []
+        if not isinstance(results, list):
+            return []
+        return [r for r in results if isinstance(r, dict) and not r.get("adult")]
 
     def search_multi_paged(self, query: str, page: int = 1) -> list[dict[str, object]]:
         """Return one page of /search/multi results; [] on error. Unlike search_multi it
@@ -222,7 +255,8 @@ class TmdbClient:
         """
         return self._get_results(
             "/search/multi",
-            params={"query": query, "include_adult": False, "page": page},
+            # requests would send a bool as "False".
+            params={"query": query, "include_adult": "false", "page": page},
             label=f"search/multi paged({query!r}, page={page})",
         )
 
@@ -259,9 +293,16 @@ class TmdbClient:
         )
 
     def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
+        """Return the raw details payload as ``details_or_raise``, or None on error."""
+        try:
+            return self.details_or_raise(media_type, tmdb_id)
+        except (SafeHTTPError, requests.RequestException, ValueError):
+            return None
+
+    def details_or_raise(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload:
         """Return the raw details payload with videos, credits and the age-rating data
-        (release_dates for movies, content_ratings and external_ids for TV) appended, or
-        None on error.
+        (release_dates for movies, content_ratings and external_ids for TV) appended.
+        Raises as find_by_tvdb does, and ValueError for a payload that is no title's.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
@@ -272,10 +313,12 @@ class TmdbClient:
                     + ("release_dates" if endpoint == "movie" else "content_ratings,external_ids")
                 },
             )
-            return result if isinstance(result, dict) else None  # type: ignore[return-value]
+            if not isinstance(result, dict):
+                raise ValueError("details answered without a title")
+            return result  # type: ignore[return-value]
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
-            return None
+            raise
 
     def find_by_tvdb(self, tvdb_id: int) -> int | None:
         """Return the TMDB TV id for a TVDB id via /find, or None when TMDB has no match.
@@ -293,6 +336,26 @@ class TmdbClient:
             tmdb_id = results[0].get("id")
             return tmdb_id if isinstance(tmdb_id, int) else None
         return None
+
+    def discover(self, media_type: str, params: dict[str, object]) -> dict[str, Any]:
+        """Return one page of /discover/{movie|tv}, adult titles not asked for. Raises as
+        find_by_tvdb does, and ValueError for a payload without a results list."""
+        # requests would send a bool as "False".
+        payload = self._get(
+            f"/discover/{'movie' if media_type == 'movie' else 'tv'}",
+            {**params, "include_adult": "false"},
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise ValueError("discover answered without results")
+        return payload
+
+    def person(self, person_id: int) -> dict[str, Any]:
+        """Return a person's raw payload with every film and TV credit appended. Raises as
+        find_by_tvdb does, and ValueError for a payload that is no person's."""
+        payload = self._get(f"/person/{person_id}", {"append_to_response": "combined_credits"})
+        if not isinstance(payload, dict) or not payload.get("name"):
+            raise ValueError("person answered without a name")
+        return payload
 
     # The implementations live in _tmdb_shapes; they are re-bound
     # here as static methods so ``TmdbClient.shape_card`` /

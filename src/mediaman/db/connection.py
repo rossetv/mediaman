@@ -96,11 +96,22 @@ _ADDED_COLUMNS = (
     ("media_items", "tmdb_id", "INTEGER"),
     ("media_items", "tvdb_id", "INTEGER"),
     ("media_items", "tracked_files", "TEXT"),
+    ("media_items", "episode_count", "INTEGER"),
+    ("media_items", "episode_keys", "TEXT"),
+    ("media_items", "year", "INTEGER"),
+    ("watch_progress", "seen_at", "TEXT"),
+    ("suggestions", "backdrop_url", "TEXT"),
     ("scheduled_actions", "removed_files", "TEXT"),
     ("admin_users", "role", "TEXT NOT NULL DEFAULT 'admin'"),
     ("download_notifications", "season_number", "INTEGER"),
+    ("download_notifications", "username", "TEXT"),
     ("delete_intents", "confirmed_at", "TEXT"),
     ("arr_searching_since", "last_seen", "TEXT"),
+    ("plex_links", "libraries", "TEXT"),
+    ("plex_links", "last_tried_at", "TEXT"),
+    ("plex_plays", "library_id", "TEXT"),
+    ("suggestions", "adult_checked", "INTEGER"),
+    ("user_picks", "adult_checked", "INTEGER"),
 )
 
 
@@ -109,6 +120,25 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
+def _take_over_plays(conn: sqlite3.Connection) -> None:
+    """Fill played_titles from the plays of a database made before it."""
+    rows = conn.execute(
+        "SELECT wp.username, CASE WHEN wp.show_rating_key IS NULL THEN 'movie' ELSE 'tv' END,"
+        " CASE WHEN wp.show_rating_key IS NULL THEN mi.title"
+        " ELSE COALESCE(mi.show_title, mi.title) END,"
+        " MAX(mi.tmdb_id), MAX(wp.credited_at)"
+        " FROM watch_progress wp JOIN media_items mi ON mi.id = wp.media_item_id"
+        " JOIN admin_users u ON u.username = wp.username"
+        " WHERE wp.credited_at IS NOT NULL GROUP BY 1, 2, 3"
+    ).fetchall()
+    if rows:
+        conn.executemany(
+            "INSERT INTO played_titles (username, media_type, title, tmdb_id, played_at)"
+            " VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            rows,
+        )
 
 
 def init_db(db_path: str) -> sqlite3.Connection:
@@ -131,6 +161,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        _take_over_plays(conn)
         conn.commit()
     except Exception:
         conn.close()

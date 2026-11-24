@@ -87,7 +87,7 @@
 
 {%- macro rec_section(label, items) -%}
 <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }}</div>
+  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }} &middot; AI picks</div>
   {% call(item) grid(items, 4, 'm50') %}
     {{ poster(item, 130, 195, true) }}
     <div class="clamp2" style="font-size:13px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:7px;">{{ item.title }}</div>
@@ -217,7 +217,7 @@
           {% if personal_items %}{{ rec_section('Based on Your Watch History', personal_items) }}{% endif %}
 
           <tr><td align="center" style="padding:24px 24px 28px;text-align:center;{{ ff }}">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ ghost(dashboard_url, 'Open Mediaman Dashboard →', pad='10px 22px', size='13px') }}</td></tr></table>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ ghost(dashboard_url, 'Open mediaman →', pad='10px 22px', size='13px') }}</td></tr></table>
             <div style="font-size:12px;color:#a1a1a6;margin-top:16px;line-height:1.6;">
               You&#39;re receiving this because you&#39;re subscribed to mediaman notifications.
               {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:#d1d1d6;text-decoration:underline;">Unsubscribe</a>{% endif %}

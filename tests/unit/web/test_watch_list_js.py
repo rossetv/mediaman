@@ -12,6 +12,15 @@ from pathlib import Path
 HARNESS = Path(__file__).parent / "js" / "watch_list_harness.js"
 
 
+# The keep the server answers a save made.
+MADE = {
+    "action": "snoozed",
+    "execute_at": "2026-12-24T12:00:00+00:00",
+    "kept_at": "2026-11-24T12:00:00+00:00",
+}
+OPEN_CHANGED = "changed while this was open"
+
+
 def _run(scenario: str) -> dict:
     result = subprocess.run(
         ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
@@ -35,8 +44,8 @@ def test_keeping_a_scheduled_movie_turns_its_pill_in_place_and_undo_brings_the_d
 def test_keeping_an_unscheduled_movie_is_undone_by_removing_the_keep() -> None:
     out = _run("keepUnscheduled")
     assert out["calls"] == [
-        ["postForm", "/api/media/m2/keep", {"duration": "forever"}],
-        ["post", "/api/media/m2/unprotect", None],
+        ["postForm", "/api/media/m2/keep", {"duration": "forever", "read_action": "none"}],
+        ["post", "/api/media/m2/unprotect", {"read": MADE}],
     ]
     assert out["toast"] == "Kept Saltmarsh forever."
 
@@ -104,7 +113,11 @@ def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place()
     assert out["call"] == [
         "post",
         "/api/show/77/keep",
-        {"duration": "30 days", "season_ids": ["s1"]},
+        {
+            "duration": "30 days",
+            "season_ids": ["s1"],
+            "read": {"show": None, "seasons": {"s1": None}},
+        },
     ]
     assert (out["closed"], out["kept"]) == (True, True)
     assert out["history"] == []
@@ -114,7 +127,7 @@ def test_the_detail_can_keep_and_delete_with_a_plain_wrapper_and_no_list_on_the_
     out = _run("detailCalls")
     assert out["keys"] == ["confirmDelete", "keep", "pickSeasonDelete", "removeKeep"]
     assert out["calls"] == [
-        ["postForm", "/api/media/42/keep", {"duration": "7 days"}],
+        ["postForm", "/api/media/42/keep", {"duration": "7 days", "read_action": "none"}],
         ["post", "/api/media/42/delete", None],
     ]
     assert out["toasts"] == ["Kept Dune for 7 days.", "Deleted Dune."]
@@ -158,7 +171,7 @@ def test_pills_pages_and_clear_change_the_list_in_place_with_history() -> None:
     assert out["afterPill"] == ["id:m3"]
     assert out["focus"] == "kept"
     assert out["afterPage"] == ["show:77", "id:m3"]
-    assert out["cleared"] == {"q": "", "clearHidden": True}
+    assert out["cleared"] == ""
     assert out["fetches"] == ["/watch/list?type=kept", "/watch/list?page=2", "/watch/list"]
     assert out["history"] == [
         ["push", "/watch?view=list&type=kept"],
@@ -301,6 +314,44 @@ def test_a_search_or_sort_asked_while_a_fetch_runs_builds_on_what_was_asked() ->
     ]
 
 
+def test_a_list_left_while_a_filter_loads_leaves_the_address_to_the_rows() -> None:
+    out = _run("leftWhileLoading")
+    assert out["history"] == [["push", "/watch"]]
+    assert out["left"] == {"list": False, "browse": True}
+    assert (out["back"], out["keys"]) == ({"list": True, "browse": False}, 4)
+
+
+def test_the_view_that_comes_is_there_while_the_one_that_goes_fades_out() -> None:
+    listed = ["hidden false ", "shown false "]
+    assert _run("overlappingViews") == {
+        "during": ["shown true absolute", "shown false "],
+        "after": listed,
+        "back": ["shown true absolute", "shown false "],
+        "end": listed,
+    }
+
+
+def test_the_list_is_out_of_the_way_before_the_search_shows_its_results() -> None:
+    out = _run("listToResults")
+    # It neither pushes the results down nor is moved by the page going to its top.
+    assert out["asResultsCame"] == "shown true absolute"
+    assert out["top"] == "-300px"
+    assert out["results"] == {"shown": True, "fadesIn": True}
+    assert (out["end"], out["browse"]) == ("hidden false ", False)
+
+
+def test_the_list_stays_where_it_was_on_screen_as_the_page_it_leaves_gets_short() -> None:
+    assert _run("listLeftOnAShortPage") == {"top": "0px", "y": 300, "padding": ""}
+
+
+def test_rows_a_category_page_s_end_brings_back_do_not_flash_under_the_list() -> None:
+    assert _run("categoryToList") == {"browse": False, "list": True, "faded": 0}
+
+
+def test_back_from_the_list_to_a_grid_leaves_the_rows_hidden() -> None:
+    assert _run("backToGrid") == {"opened": ["movies"], "browse": False, "list": False}
+
+
 def test_a_header_pill_or_page_link_of_the_list_showing_builds_on_the_list_loading() -> None:
     out = _run("linksWhileLoading")
     # A header sorts the filter that is loading, from its first page.
@@ -337,3 +388,256 @@ def test_removing_a_keep_takes_away_the_undo_of_the_keep_it_removes() -> None:
     assert out["messages"] == ["Kept Copperline for 30 days.", "Removed the keep on Copperline."]
     # The retired Undo ran nothing: no unkeep request followed.
     assert out["calls"] == ["/api/watch/keep", "/api/media/m1/unprotect"]
+
+
+def test_a_change_of_what_is_scheduled_brings_the_list_up_to_date_and_keeps_the_focus() -> None:
+    assert _run("scheduledChanged") == {
+        "focus": {"key": "id:m1", "keep": True, "fresh": True},
+        # its row is not in the list any more
+        "gone": "id:m2",
+        "first": "id:m2",
+        "summary": "summary without it",
+        "fetches": ["/watch/list", "/watch/list"],
+    }
+
+
+def test_a_change_of_what_is_scheduled_waits_for_a_list_that_loads_or_is_hidden() -> None:
+    assert _run("scheduledChangedMeanwhile") == {
+        "during": 0,
+        "after": ["/watch/list?type=movie"] * 2,
+        "hidden": 1,
+        "shown": 2,
+    }
+
+
+WATCH_KEEP = "/api/watch/keep"
+
+
+def test_the_keep_dialog_opens_with_the_season_that_leaves_and_keeps_only_that_one() -> None:
+    out = _run("keepLeavingSeason")
+    assert out["ticked"] == ["s1", "s3"]
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"]]
+    assert out["told"] == ["Kept Night Shift, Season 3 for 30 days."]
+    assert out["undone"] == [["/api/watch/unkeep", "", "s3"]]
+
+
+def test_a_season_nobody_picked_is_never_ticked_or_sent() -> None:
+    out = _run("keepNothingPicked")
+    assert out["other"] == {"ticked": [], "sent": [], "errors": 1, "busy": False}
+    assert out["kept"] == {"ticked": ["s1"], "sent": [], "errors": 1, "busy": False}
+
+
+def test_the_keep_dialog_of_a_list_row_picks_the_season_whose_date_the_row_shows() -> None:
+    out = _run("keepFromList")
+    assert out["ticked"] == ["s1", "s2"]
+    assert out["leavingOnes"] == [None, "3", "5"]
+    assert out["nothingLeaves"] == []
+    assert out["soonest"] == ["s3"]
+
+
+def test_a_keep_changes_only_by_the_button_of_its_own_season() -> None:
+    out = _run("keepChanged")
+    assert out["only"] == {"s1": True, "s2": False, "all": False}
+    assert (out["label"], out["pressed"]) == ("Set to 90 days", "true")
+    assert out["sent"] == [["/api/media/s1/keep", "90 days", ""]]
+    assert out["told"] == ["Kept Night Shift, Season 1 for 90 days."]
+    assert out["undo"] is False
+    # Unticking takes the change back with it; ticking again keeps the keep there was.
+    assert out["afterUntick"] == [[WATCH_KEEP, 30, "s3"]]
+
+
+def test_an_unticked_season_loses_its_keep_and_the_toast_names_it() -> None:
+    out = _run("keepRemoved")
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"], ["/api/media/s1/unprotect", "", ""]]
+    assert out["told"] == ["Kept Night Shift, Season 3 for 30 days. Removed the keep on Season 1."]
+    assert out["undo"] is False
+    assert out["only"] == [
+        [["/api/media/s1/unprotect", "", ""]],
+        ["Removed the keep on Night Shift, Season 1."],
+    ]
+
+
+def test_keeping_the_whole_show_leaves_the_keeps_its_seasons_have() -> None:
+    out = _run("keepWholeShow")
+    assert out["ticked"] == ["all-seasons", "s1", "s2", "s3"]
+    assert out["sent"] == [["/api/show/77/keep", "30 days", ["s2", "s3"]]]
+    assert out["told"] == ["Kept Night Shift, Season 2, Season 3 and new seasons for 30 days."]
+    assert out["allKept"] == [[], 1]
+
+
+def test_unticking_a_season_of_a_kept_show_is_one_change_on_the_server() -> None:
+    out = _run("keepShowUnticked")
+    assert out["ticked"] == ["all-seasons", "s1", "s2", "s3"]
+    sent, told = out["forever"]
+    assert [call[0] for call in sent] == ["/api/show/77/remove"]
+    assert told == ["Removed the keep on Night Shift, Season 3."]
+    assert [call[0] for call in out["days"]] == ["/api/show/77/remove"]
+
+
+def test_a_show_keep_changes_only_by_its_own_button_and_spares_a_longer_season_keep() -> None:
+    out = _run("keepShowChanged")
+    assert out["untouched"] == [[], 1]
+    assert out["seasonSet"] is False
+    assert out["sent"] == [["/api/show/77/keep", "30 days", ["s2", "s3"]]]
+
+
+def test_after_a_failure_the_dialog_offers_only_what_was_not_saved() -> None:
+    out = _run("keepPartFails")
+    assert len(out["errors"]) == 1
+    assert "Season 2" in out["errors"][0]
+    assert "Season 3" not in out["errors"][0]
+    assert out["ticked"] == ["s1", "s2", "s3"]
+    assert (out["open"], out["focus"]) == (True, "keep-dialog-confirm")
+    assert out["again"] == [[WATCH_KEEP, 30, "s2"]]
+
+
+def test_a_season_keep_is_undone_by_what_made_it_and_not_once_it_was_removed() -> None:
+    out = _run("keepUndoRetired")
+    assert out["dismissed"] is True
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"], ["/api/media/s3/unprotect", "", ""]]
+    assert out["forever"] == [[["/api/media/s3/keep", "forever", ""]], False]
+    assert out["unscheduled"] == [
+        ["/api/media/s2/keep", "forever", ""],
+        ["/api/media/s2/unprotect", "", ""],
+    ]
+
+
+def test_every_change_in_the_keep_dialog_says_which_keep_it_read() -> None:
+    out = _run("keepSaysWhatItRead")
+    forever, five, twelve = (out["expected"][name] for name in ("forever", "five", "twelve"))
+    assert out["seasons"] == [
+        [
+            "/api/media/s1/keep",
+            {
+                "duration": "30 days",
+                "read_action": "protected_forever",
+                "read_execute_at": "",
+                "read_kept_at": forever["kept_at"],
+            },
+        ],
+        ["/api/media/s3/keep", {"duration": "30 days", "read_action": "none"}],
+        ["/api/media/s2/unprotect", {"read": five}],
+    ]
+    assert out["all"] == [
+        [
+            "/api/show/77/keep",
+            {
+                "duration": "30 days",
+                "season_ids": ["s2"],
+                "read": {"show": None, "seasons": {"s1": forever, "s2": None}},
+            },
+        ]
+    ]
+    read = {"show": twelve, "seasons": {"s1": twelve, "s2": None}}
+    assert out["end"] == [["/api/show/77/remove", {"read": read, "drops": ["s2"]}]]
+    assert out["removeAll"] == [["/api/show/77/remove", {"read": read, "drops": ["s1", "s2"]}]]
+    assert out["removeOwn"] == [["/api/media/s1/unprotect", {"read": five}]]
+
+
+def test_the_keep_dialog_shows_a_keep_that_changed_while_it_was_open_and_sends_no_more() -> None:
+    out = _run("keepChangedMeanwhile")
+    for name, ticked in (
+        ("season", ["s1"]),
+        ("all", ["s1"]),
+        ("end", ["all-seasons", "s1", "s2", "s3"]),
+        ("drop", ["s1"]),
+        ("removeAll", ["all-seasons", "s1", "s2", "s3"]),
+    ):
+        case = out[name]
+        assert len(case["errors"]) == 1 and OPEN_CHANGED in case["errors"][0], name
+        # Read again: what is kept now, and nothing else ticked.
+        assert (case["open"], case["gets"], case["ticked"]) == (True, 2, ticked), name
+        assert (case["phases"], case["told"]) == (["busy", "done"], []), name
+    assert [out[n]["sent"] for n in ("season", "all", "end", "drop")] == [1, 1, 1, 1]
+    assert out["all"]["focus"] == "keep-dialog-confirm"
+    for status in ("watch404", "watch409"):
+        assert OPEN_CHANGED in out[status]["errors"][0]
+        assert out[status]["phases"] == ["busy", "done"]
+        assert out[status]["ticked"] == ["s1"]
+
+
+def test_a_film_whose_keep_changed_meanwhile_is_read_again_and_its_undo_names_its_own_keep() -> (
+    None
+):
+    out = _run("filmKeepChangedMeanwhile")
+    assert out["phases"] == ["busy", "done"] * 3
+    assert (out["errors"], out["toasts"]) == (2, 1)
+    assert out["undo"] == ["post", "/api/media/m2/unprotect", {"read": MADE}]
+
+
+def test_the_undo_of_a_season_takes_back_only_the_keep_its_save_made() -> None:
+    out = _run("seasonUndoChangedMeanwhile")
+    assert out["undo"] == ["/api/media/s2/unprotect", {"read": MADE}]
+    assert len(out["errors"]) == 1 and "Season 2" in out["errors"][0]
+    assert out["phases"] == ["busy", "done", "busy", "done"]
+    assert out["told"] == ["Kept Night Shift, Season 2 for 30 days."]
+    # The dialog is closed: nothing is read for it.
+    assert out["reads"] == 1
+    # With no word of the keep made there is nothing safe to undo.
+    assert out["unsaid"] is False
+
+
+def test_a_save_takes_away_the_undos_it_affects_as_it_starts() -> None:
+    assert _run("undoRetiredAsASaveStarts") == {
+        "same": True,
+        "other": False,
+        "all": True,
+        "show": True,
+        "removeAll": True,
+        "film": True,
+        "filmKeptAgain": True,
+    }
+
+
+def test_an_undo_holds_the_open_dialog_and_the_seasons_are_read_again_after_it() -> None:
+    assert _run("undoWithTheDialogOpen") == {
+        "before": [False, False],
+        "ticked": ["s1"],
+        "during": [True, True],
+        "after": [False, False],
+        "reads": 1,
+        "tickedAfter": [],
+    }
+
+
+def test_an_undo_waits_for_a_save_of_the_same_show() -> None:
+    out = _run("undoWaitsForASave")
+    assert out["during"] == ["/api/media/s1/keep", "/api/media/s2/keep"]
+    assert out["after"] == ["/api/media/s1/unprotect"]
+
+
+def test_remove_all_waits_for_an_undo_of_the_same_show() -> None:
+    assert _run("removeAllWaitsForAnUndo") == {"during": 2, "after": 4}
+
+
+def test_a_save_that_fails_removes_no_keep() -> None:
+    out = _run("failedKeepDropsNothing")
+    assert (out["sent"], out["phases"]) == (["/api/media/s2/keep"], ["busy", "failed"])
+    assert (out["show"], out["showPhases"]) == (["/api/show/77/remove"], ["busy", "failed"])
+    # The dialog is as it was, to try again.
+    assert (out["label"], out["ticked"], out["disabled"]) == ("Update", ["s1", "s2"], False)
+
+
+def test_what_was_saved_is_announced_though_the_rest_failed() -> None:
+    out = _run("partSavedIsAnnounced")
+    for name, phase, season in (
+        ("kept", "done", "Season 2"),
+        ("removed", "done", "Season 2"),
+        ("nothing", "failed", "Season 1"),
+    ):
+        assert out[name]["phases"] == ["busy", phase], name
+        # The failure is said and nothing is told as saved.
+        assert len(out[name]["errors"]) == 1 and season in out[name]["errors"][0], name
+        assert out[name]["told"] == [], name
+
+
+def test_setting_all_seasons_leaves_a_longer_keep_that_is_a_seasons_own() -> None:
+    out = _run("keepShowShortened")
+    assert out["forever"] == [["/api/show/77/keep", "7 days", ["s1", "s4", "s5"]]]
+    assert out["days"] == [["/api/show/77/keep", "7 days", ["s1", "s3"]]]
+    sent, errors = out["own"]
+    assert (sent, len(errors)) == ([], 1)
+
+
+def test_ctrl_z_reaches_the_undo_of_an_admin_keep_made_in_details() -> None:
+    assert _run("keepToastDialog") == ["ttl", None]

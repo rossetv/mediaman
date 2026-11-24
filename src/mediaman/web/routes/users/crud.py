@@ -13,8 +13,9 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import (
+    EmailTakenError,
     LastAdminError,
     UserExistsError,
     create_user,
@@ -30,7 +31,11 @@ from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
-from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
+from mediaman.web.routes.users.rate_limits import (
+    _USER_CREATE_LIMITER,
+    _USER_MGMT_LIMITER,
+    OWN_ACCOUNT_LIMIT_MESSAGE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -248,10 +253,10 @@ def api_set_user_role(
 def api_set_my_email(
     body: UpdateEmailBody,
     request: Request,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Set or clear the current admin's notification email. Requires a recent reauth ticket, so
+    """Set or clear the signed-in user's notification email. Requires a recent reauth ticket, so
     a stolen session cookie alone cannot redirect download alerts to an attacker's inbox.
     """
     conn = get_db()
@@ -264,9 +269,7 @@ def api_set_my_email(
             actor=admin,
             ip=client_ip,
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
@@ -277,6 +280,13 @@ def api_set_my_email(
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
         return respond_err("invalid_email", status=400, message=str(exc))
+    except EmailTakenError:
+        logger.warning("user.email_update_rejected actor=%s", _sanitise_log_field(admin))
+        return respond_err(
+            "invalid_email",
+            status=400,
+            message="This address cannot be used here. Use another, or ask an admin.",
+        )
     except sqlite3.Error:
         logger.exception("user.email_update failed actor=%s", _sanitise_log_field(admin))
         return respond_err("internal_error", status=500, message="Internal error updating email")
@@ -285,6 +295,74 @@ def api_set_my_email(
         "user.email_updated actor=%s cleared=%s", _sanitise_log_field(admin), not body.email.strip()
     )
     return respond_ok()
+
+
+@router.patch("/api/users/{user_id}/email")
+def api_set_user_email(
+    user_id: int,
+    body: UpdateEmailBody,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+    session_token: str | None = Cookie(default=None),
+) -> Response:
+    """Set or clear another user's notification email. Requires a recent reauth ticket, like a
+    role change. A newsletter subscriber's address may be given, another user's never.
+    """
+    conn = get_db()
+    client_ip = get_client_ip(request)
+    if not _USER_MGMT_LIMITER.check(admin):
+        logger.warning(
+            "user.email_update_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
+        security_event(
+            conn,
+            event="user.email_update.rate_limited",
+            actor=admin,
+            ip=client_ip,
+            detail={"target_id": user_id},
+        )
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
+        )
+    if not has_recent_reauth(conn, session_token, admin):
+        logger.warning(
+            "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
+        return _unauthorised_reauth()
+
+    target_username = find_username_by_user_id(conn, user_id)
+    if target_username is None:
+        return respond_err("not_found", status=404, message="User not found")
+    if target_username == admin:
+        return respond_err(
+            "cannot_change_own_email", status=400, message="Change your own email on your Profile"
+        )
+    try:
+        set_user_email(
+            conn,
+            target_username,
+            body.email,
+            allow_subscriber=True,
+            audit_actor=admin,
+            audit_ip=client_ip,
+        )
+    except ValueError as exc:
+        return respond_err("invalid_email", status=400, message=str(exc))
+    except EmailTakenError:
+        return respond_err("email_taken", status=409, message="Another user has this address.")
+    except sqlite3.Error:
+        logger.exception(
+            "user.email_update failed actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
+        return respond_err("internal_error", status=500, message="Internal error updating email")
+    email = body.email.strip() or None
+    logger.info(
+        "user.email_updated actor=%s target=%s cleared=%s",
+        _sanitise_log_field(admin),
+        _sanitise_log_field(target_username),
+        email is None,
+    )
+    return respond_ok({"email": email})
 
 
 @router.post("/api/users/{user_id}/unlock")

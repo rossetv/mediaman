@@ -2,11 +2,10 @@
 
 A title matches on its TMDB id: the one Plex gave the library item, or for a show the one
 its TVDB id maps to (through Sonarr, or through TMDB itself). Failing that it matches on
-its title and year together. The library keeps no year of its own, so the year is read
-from a "(2005)" in the title or in the folder Plex holds it in; without one, an exact
-title counts only when Radarr or Sonarr reports the title downloaded and the years, where
-both are known, are at most one apart, so a remake that shares a title is left out of the library rather
-than hidden.
+its title and year together, the year read from a "(2005)" in the title or in the folder
+Plex holds it in; without one, an exact title counts only when Radarr or Sonarr reports the
+title downloaded and the years, where both are known, are at most one apart, so a remake
+that shares a title is left out of the library rather than hidden.
 """
 
 from __future__ import annotations
@@ -34,6 +33,11 @@ def _year_in(text: str | None) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def folder_year(file_path: str | None) -> int | None:
+    """The year in a movie's file or its folder, or in the folder of a season's show."""
+    return _year_in("/".join((file_path or "").replace("\\", "/").split("/")[-2:]))
+
+
 def library_ids(conn: sqlite3.Connection) -> dict[str, tuple[int | None, int | None]]:
     """(TMDB id, year) of every library title by ref ("movie-<key>", "show-<key>"), either
     None when unknown. A show's TMDB id is the one any of its seasons carries; its year
@@ -42,15 +46,39 @@ def library_ids(conn: sqlite3.Connection) -> dict[str, tuple[int | None, int | N
     for row in conn.execute(
         "SELECT id, tmdb_id, file_path FROM media_items WHERE media_type = 'movie'"
     ):
-        parts = (row["file_path"] or "").replace("\\", "/").split("/")
-        found[f"movie-{row['id']}"] = (row["tmdb_id"], _year_in("/".join(parts[-2:])))
+        found[f"movie-{row['id']}"] = (row["tmdb_id"], folder_year(row["file_path"]))
     for row in conn.execute(
         "SELECT show_rating_key, MAX(tmdb_id) AS tmdb_id, MIN(file_path) AS file_path"
         " FROM media_items WHERE show_rating_key IS NOT NULL GROUP BY show_rating_key"
     ):
-        parts = (row["file_path"] or "").replace("\\", "/").split("/")
-        found[f"show-{row['show_rating_key']}"] = (row["tmdb_id"], _year_in("/".join(parts[-2:])))
+        found[f"show-{row['show_rating_key']}"] = (row["tmdb_id"], folder_year(row["file_path"]))
     return found
+
+
+class SeenTitles:
+    """The titles a row already shows. Two are the same title on one media type and TMDB
+    id; when either lacks the id, on one title, the years at most one apart where both
+    are known."""
+
+    def __init__(self) -> None:
+        self._ids: set[tuple[str, int]] = set()
+        self._named: dict[tuple[str, str], list[tuple[bool, int | None]]] = {}
+
+    def add(self, kind: str, tmdb_id: int | None, title: str, year: int | None) -> bool:
+        """Take in a title of *kind* "movie" or "tv"; False when the row shows it already."""
+        if tmdb_id and (kind, tmdb_id) in self._ids:
+            return False
+        name = normalise_title(title)
+        named = self._named.setdefault((kind, name), [])
+        if name and any(
+            not (tmdb_id and has_id) and (not year or not other or abs(year - other) <= 1)
+            for has_id, other in named
+        ):
+            return False
+        if tmdb_id:
+            self._ids.add((kind, tmdb_id))
+        named.append((bool(tmdb_id), year))
+        return True
 
 
 @dataclass(frozen=True, slots=True)

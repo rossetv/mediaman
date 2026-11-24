@@ -326,6 +326,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.library_api import router as library_api_router
+    from mediaman.web.routes.plex_link import router as plex_link_router
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.scan import router as scan_router
@@ -335,11 +336,16 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.users import router as users_router
     from mediaman.web.routes.watch.browse_api import router as watch_browse_api_router
     from mediaman.web.routes.watch.catalog_api import router as watch_catalog_api_router
+    from mediaman.web.routes.watch.explore_api import router as watch_explore_api_router
     from mediaman.web.routes.watch.image_api import router as watch_image_api_router
+    from mediaman.web.routes.watch.library_row_api import router as watch_library_row_api_router
     from mediaman.web.routes.watch.list_page import router as watch_list_page_router
+    from mediaman.web.routes.watch.marks_api import router as watch_marks_api_router
     from mediaman.web.routes.watch.pages import router as watch_pages_router
+    from mediaman.web.routes.watch.preview_api import router as watch_preview_api_router
     from mediaman.web.routes.watch.recommended_api import router as watch_recommended_api_router
     from mediaman.web.routes.watch.stream_api import router as watch_stream_api_router
+    from mediaman.web.routes.watch.title_preview_api import router as watch_title_preview_api_router
 
     app.include_router(auth_router)
     app.include_router(force_pw_router)
@@ -359,13 +365,19 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(recommended_router)
     app.include_router(users_router)
     app.include_router(account_router)
+    app.include_router(plex_link_router)
     app.include_router(watch_pages_router)
     app.include_router(watch_browse_api_router)
     app.include_router(watch_stream_api_router)
+    app.include_router(watch_preview_api_router)
+    app.include_router(watch_marks_api_router)
+    app.include_router(watch_library_row_api_router)
     app.include_router(watch_image_api_router)
     app.include_router(watch_catalog_api_router)
     app.include_router(watch_recommended_api_router)
     app.include_router(watch_list_page_router)
+    app.include_router(watch_explore_api_router)
+    app.include_router(watch_title_preview_api_router)
 
 
 def _register_probes(app: FastAPI) -> None:

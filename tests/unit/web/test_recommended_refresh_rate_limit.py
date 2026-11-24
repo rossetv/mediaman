@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, is_refresh_running, set_connection
 from mediaman.main import create_app
-from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.openai.recommendations import throttle as _throttle
 from mediaman.web.routes.recommended import api as _rec_api
 from mediaman.web.routes.recommended import refresh as _rec_refresh
@@ -141,44 +140,31 @@ class TestRefreshRateLimit:
         conn = app.state.db
         _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
 
-        # Stub the Plex client lookup so the request gets past the
-        # "Plex not configured" early-return — cooldown logic is the
-        # only thing under test here.
-        with patch(
-            "mediaman.services.arr.build.build_plex_from_db",
-            return_value=MagicMock(),
-        ):
+        with patch.object(_rec_refresh, "refresh_recommendations", return_value=1):
             resp = authed_client.post("/api/recommended/refresh")
+            _rec_refresh._refresh_thread.join(timeout=5)
 
-        assert resp.status_code == 200
-        body = resp.json()
-        # Either the background job started, or no plex configured.
-        # We only care that the 429 cooldown branch wasn't hit.
-        assert body.get("status") == "started" or "Plex" in body.get("error", "")
+        assert (resp.status_code, resp.json()) == (200, {"status": "started"})
 
-    def test_first_call_is_allowed(self, authed_client, app):
-        # Brand-new DB — no previous refresh recorded.
-        with patch(
-            "mediaman.services.arr.build.build_plex_from_db",
-            return_value=MagicMock(),
-        ):
+    def test_first_call_is_allowed_with_plex_not_set_up(self, authed_client, app):
+        # Brand-new DB — no previous refresh recorded, and no Plex settings.
+        with patch.object(_rec_refresh, "refresh_recommendations", return_value=1) as refresh:
             resp = authed_client.post("/api/recommended/refresh")
-        assert resp.status_code == 200
+            _rec_refresh._refresh_thread.join(timeout=5)
+        assert (resp.status_code, resp.json()) == (200, {"status": "started"})
+        assert refresh.call_count == 1
+        assert authed_client.get("/api/recommended/refresh/status").json()["result"] == {
+            "ok": True,
+            "count": 1,
+        }
 
-    @pytest.mark.parametrize(
-        "exc",
-        [
-            SSRFRefused("blocked"),
-            ValueError("bad url"),
-            ConfigDecryptError("plex_token", ValueError("x")),
-        ],
-    )
-    def test_plex_client_build_failure_releases_lease(self, authed_client, app, exc):
-        with patch.object(_rec_refresh, "build_plex_from_db", side_effect=exc):
-            resp = authed_client.post("/api/recommended/refresh")
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is False
+    def test_a_failed_refresh_releases_the_lease(self, authed_client, app):
+        with patch.object(_rec_refresh, "refresh_recommendations", side_effect=ValueError("x")):
+            authed_client.post("/api/recommended/refresh")
+            _rec_refresh._refresh_thread.join(timeout=5)
         assert not is_refresh_running(app.state.db)
+        result = authed_client.get("/api/recommended/refresh/status").json()["result"]
+        assert result["ok"] is False
 
     def test_unauth_call_rejected(self, app):
         # No session cookie — must not even reach the cooldown check.
@@ -215,14 +201,9 @@ class TestRefreshRateLimit:
         conn = app.state.db
 
         # No prior refresh recorded — first call should be allowed through.
-        # Stub Plex (so build_plex_from_db returns truthy) and stub
-        # refresh_recommendations to return 0 (simulating empty OpenAI output).
+        # Stub refresh_recommendations to return 0 (simulating empty OpenAI output).
         _done = threading.Event()
         with (
-            patch(
-                "mediaman.web.routes.recommended.refresh.build_plex_from_db",
-                return_value=MagicMock(),
-            ),
             patch(
                 "mediaman.web.routes.recommended.refresh.refresh_recommendations",
                 return_value=0,
@@ -271,10 +252,6 @@ class TestRefreshRateLimit:
             return 1
 
         with (
-            patch(
-                "mediaman.web.routes.recommended.refresh.build_plex_from_db",
-                return_value=MagicMock(),
-            ),
             patch(
                 "mediaman.web.routes.recommended.refresh.refresh_recommendations",
                 side_effect=slow_refresh,
@@ -332,7 +309,7 @@ class TestDownloadActionRateLimit:
             conn,
             title="Dune",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=42,
             created_at="2026-01-01T00:00:00",
         )
@@ -388,7 +365,7 @@ class TestOnDemandShareToken:
             conn,
             title="Interstellar",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=157336,
             created_at="2026-01-01T00:00:00",
         )
@@ -484,7 +461,7 @@ class TestDownloadRecommendationSuccess:
             conn,
             title="Inception",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=27205,
             created_at="2026-01-01T00:00:00",
         )
@@ -494,7 +471,7 @@ class TestDownloadRecommendationSuccess:
             conn,
             title="Breaking Bad",
             media_type="tv",
-            category="personal",
+            category="trending",
             tmdb_id=1396,
             created_at="2026-01-01T00:00:00",
         )
@@ -729,7 +706,7 @@ class TestRefreshExceptionHandling:
                 return_value=MagicMock(),
             ),
             patch(
-                "mediaman.web.routes.recommended.refresh.build_plex_from_db",
+                "mediaman.web.routes.recommended.refresh.refresh_recommendations",
                 side_effect=RuntimeError("worker failed"),
             ),
             patch(
@@ -739,30 +716,9 @@ class TestRefreshExceptionHandling:
             patch(
                 "mediaman.web.routes.recommended.refresh.heartbeat_refresh_run",
             ),
+            caplog.at_level(logging.ERROR, logger="mediaman.web.routes.recommended.refresh"),
         ):
-            # Inline the run() body logic to avoid needing a full FastAPI stack.
-            run_id = 99
-            thread_conn = MagicMock()
-            _secret_key = "testsecret"
-
-            def run_body():
-                try:
-                    plex_client = _rec_refresh.build_plex_from_db(thread_conn, _secret_key)
-                    _ = plex_client  # would continue here normally
-                except Exception as exc:
-                    _rec_refresh.logger.exception("Background recommendation refresh failed")
-                    try:
-                        _rec_refresh.finish_refresh_run(thread_conn, run_id, "error", str(exc))
-                    except sqlite3.Error:
-                        _rec_refresh.logger.exception(
-                            "Failed to mark refresh run_id=%s as error; lease may be stuck",
-                            run_id,
-                        )
-                finally:
-                    done.set()
-
-            with caplog.at_level(logging.ERROR, logger="mediaman.web.routes.recommended.refresh"):
-                run_body()
+            _rec_refresh._run_refresh("unused", "testsecret", 99, done)
 
         assert done.is_set()
         error_msgs = [r.message for r in caplog.records if r.levelno >= logging.ERROR]

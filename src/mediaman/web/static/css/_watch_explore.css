@@ -1,0 +1,104 @@
+/* Watch page: a category's or a person's own page, in the results' place. */
+
+.explore-back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: -12px 0 4px -8px; padding: 0 12px 0 6px; border-radius: var(--r-pill); color: var(--t2); font-size: 14px; transition: color var(--dur-fast) var(--ease-out); }
+.explore-back > .ico { font-size: 14px; transition: transform var(--dur) var(--ease-spring); }
+.explore-back:active { opacity: .6; }
+@media (hover: hover) {
+  .explore-back:hover { color: var(--t1); }
+  .explore-back:hover > .ico { transform: translateX(-3px); }
+}
+
+.explore-head { display: flex; align-items: center; gap: 24px; margin-bottom: 28px; }
+.explore-head__text { min-width: 0; }
+.explore-title { width: fit-content; max-width: 100%; min-height: 1.1em; font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; overflow-wrap: anywhere; transform-origin: 0 0; }
+.explore-title:focus { outline: none; }
+.explore-facts { min-height: 1.47em; margin-top: 6px; font-size: 15px; color: var(--t2); }
+/* The total comes later and may wrap: room for it from the start. */
+.explore-facts[data-room] { display: grid; }
+.explore-facts[data-room] > span,
+.explore-facts[data-room]::after { grid-area: 1 / 1; }
+.explore-facts[data-room]::after { content: attr(data-room); visibility: hidden; }
+.explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
+/* A person: what is said of them stands beside the photo where there is room, under it on a phone. */
+.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 640px) auto; grid-template-rows: auto 1fr; gap: 10px 24px; justify-content: start; align-items: start; }
+.explore--person .explore-photo { grid-row: 1 / 3; }
+.explore--person .explore-head:has(> .explore-story[hidden]) > .explore-head__text { grid-row: 1 / 3; align-self: center; }
+.explore-born { min-height: 1.47em; margin-top: 2px; font-size: 14px; color: var(--t3); }
+.explore-story { grid-area: 2 / 2; max-width: 68ch; }
+.explore-bio { font-size: 15px; line-height: 23px; color: var(--t2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.explore-bio:is(.is-whole, .is-closing) { white-space: pre-line; }
+.explore-bio.is-closing { height: 69px; overflow: visible; }
+.explore-bio:is(.is-whole, .is-closing),
+.explore-bio:has(> .skel) { display: block; }
+.explore-bio > .skel--line { height: 11px; margin: 6px 0; }
+/* Their margins collapse: three lines of text are 69px. */
+.explore-bio > .skel--line + .skel--line { margin-top: 12px; }
+.explore-born > .skel--line { height: 10px; margin: 5px 0; }
+.explore-more { min-width: 44px; min-height: 44px; margin: -8px 0 -14px -8px; padding: 0 8px; border-radius: var(--r-pill); color: var(--accent); font-size: 14px; font-weight: 500; text-align: left; }
+.explore-more.is-unknown { visibility: hidden; }
+.explore-more:hover { color: var(--accent-hi); }
+.explore-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+.explore-known { grid-area: 1 / 3 / 3; width: 344px; margin-left: 24px; }
+.explore-known > .cast-card__label { margin-bottom: 8px; }
+a.cast-card__poster:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a.cast-card__poster:active { transform: scale(.98); }
+@media (hover: hover) { a.cast-card__poster:hover { transform: scale(1.04); } }
+.explore-head.is-told > :is(.explore-story, .explore-known),
+.explore-head.is-told .explore-born { animation: cast-in var(--dur) var(--ease-out); }
+@media (max-width: 1099.98px) {
+  .explore-known { grid-area: 3 / 2; width: min(344px, 100%); margin: 6px 0 0; }
+}
+@media (max-width: 599.98px) {
+  .explore--person .explore-head { grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; }
+  .explore--person .explore-head > :is(.explore-photo, .explore-head__text) { grid-row: 1 !important; }
+  .explore--person .explore-head > .explore-head__text { align-self: center; }
+  .explore-story { grid-area: 2 / 1 / 3 / 3; }
+  .explore-known { grid-area: 3 / 1 / 4 / 3; width: min(264px, 100%); margin: 0; }
+}
+/* Who it is, until the answer is in. */
+.explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
+
+/* What could not be loaded is not on its way. */
+.explore .watch-grid.is-static:not(:has(> .watch-card)) > .watch-card--skel { display: none; }
+
+/* All of it is in the library: no card need say so. */
+.explore-grid.is-held .watch-badge--in { display: none; }
+
+/* The filters go sideways where they do not fit. */
+.explore-filters { display: flex; gap: 12px; margin: 0 calc(-1 * var(--pad)) 24px; padding: 3px var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
+.explore-filters::-webkit-scrollbar { display: none; }
+.explore-seg { position: relative; display: flex; flex: none; padding: 0 3px; border-radius: var(--r-pill); background: var(--s2); }
+.explore-seg__item { position: relative; height: 44px; padding: 0 16px; border-radius: var(--r-pill); color: var(--t2); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.explore-seg__item:is(:hover, [aria-pressed="true"]) { color: var(--t1); }
+.explore-seg__item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.explore-seg__thumb { position: absolute; inset: 4px 0; border-radius: var(--r-pill); background: var(--s4); transform-origin: 0 50%; }
+.explore-seg__label { position: relative; }
+:is(.explore-filters, .explore-grid) { transition: opacity var(--dur) var(--ease-out); }
+:is(.explore-filters, .explore-grid, .explore-gathering).is-unknown { opacity: 0; visibility: hidden; }
+.explore-gathering { margin: 0 0 24px; padding-top: 0; border-top: 0; }
+.explore-gathering__out { position: relative; color: var(--accent); font: inherit; font-weight: 500; white-space: nowrap; }
+.explore-gathering__out::after { content: ""; position: absolute; inset: -12px -6px; }
+.explore-gathering__out:hover { color: var(--accent-hi); }
+.explore-gathering__out:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xxs); }
+.explore-years { position: relative; flex: none; }
+.explore-years__select { height: 44px; padding: 0 34px 0 16px; border: 0; border-radius: var(--r-pill); background: var(--s2); color: var(--t2); font: 500 14px var(--font-text); appearance: none; -webkit-appearance: none; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.explore-years__select:hover { color: var(--t1); }
+.explore-years__select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.explore-years > .ico { position: absolute; right: 13px; top: 16px; font-size: 12px; color: var(--t3); pointer-events: none; }
+
+@media (max-width: 599.98px) {
+  .explore-head { gap: 16px; margin-bottom: 22px; }
+  .explore-title { font-size: 28px; }
+  .explore-facts { font-size: 14px; }
+  .explore-photo.watch-face { width: 88px; height: 88px; font-size: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .explore-back > .ico,
+  a.cast-card__poster:is(:hover, :active) { transform: none !important; }
+}
+@media (forced-colors: active) {
+  .explore-seg,
+  .explore-years__select { border: 1px solid ButtonText; }
+  .explore-seg__thumb { background: Highlight; }
+  .explore-seg__item[aria-pressed="true"] > .explore-seg__label { forced-color-adjust: none; color: HighlightText; }
+}

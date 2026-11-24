@@ -8,6 +8,8 @@
  *     cancelLabel: 'Cancel',              // default: 'Cancel'
  *   }) → Promise<boolean>
  *
+ *   window.UIFeedback.dismissConfirm()   any that is open answers false
+ *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
  *                          auto-dismisses after 4s.
@@ -18,7 +20,9 @@
  *                          adds a button to the toast; clicking it runs onClick
  *                          and dismisses the toast. A toast with an action stays
  *                          8s unless `duration` says otherwise, and is not
- *                          dismissed while the button has keyboard focus.
+ *                          dismissed while the button has keyboard focus. With
+ *                          `dialog`, the aria-modal it came from, Ctrl+Z presses
+ *                          the button while that one is open too.
  *
  *   window.UIFeedback.error(message)  — shorthand for toast(msg, { variant: 'error' })
  */
@@ -74,26 +78,45 @@
     removeAfterExit(node);
   }
 
+  // What is full screen hides all that is outside it. A video shows no child.
+  function toastHome() {
+    var full = document.fullscreenElement || document.webkitFullscreenElement;
+    return full && full.tagName !== 'VIDEO' ? full : document.body;
+  }
+
   function ensureToastHost() {
     var host = document.getElementById('ui-toast-host');
     if (!host) {
       host = el('div', { id: 'ui-toast-host', class: 'ui-toast-host',
                          role: 'status', 'aria-live': 'polite' });
-      document.body.appendChild(host);
+      toastHome().appendChild(host);
+      ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (name) {
+        document.addEventListener(name, rehome);
+      });
     }
     return host;
   }
 
+  function rehome() {
+    var host = document.getElementById('ui-toast-host');
+    var active = document.activeElement;
+    if (host.parentNode === toastHome()) return;
+    toastHome().appendChild(host);
+    if (active && host.contains(active)) active.focus();
+  }
+
+  var raisedFrom = new WeakMap(); // the dialog an action toast came from, by its button
   var undoListening = false;
   var undoHint = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '') ? 'Cmd+Z' : 'Ctrl+Z';
 
   // A confirm dialog or any open aria-modal dialog owns the keyboard.
-  function modalOpen() {
+  // Not *own*, the dialog a toast came from.
+  function modalOpen(own) {
     if (document.querySelector('.ui-confirm-overlay:not(.is-leaving)')) return true;
     return Array.prototype.some.call(document.querySelectorAll('[aria-modal="true"]'), function (m) {
-      if (m.getAttribute('aria-hidden') === 'true') return false;
-      var cs = getComputedStyle(m);
-      return cs.display !== 'none' && cs.visibility !== 'hidden';
+      if (m === own || m.getAttribute('aria-hidden') === 'true') return false;
+      // No box: it, or something it stands in, is not shown.
+      return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
   }
   // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
@@ -103,13 +126,13 @@
     undoListening = true;
     document.addEventListener('keydown', function (e) {
       if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-      if (modalOpen()) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
       var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
-      if (!btns.length) return;
+      var last = btns[btns.length - 1];
+      if (!last || modalOpen(raisedFrom.get(last))) return;
       e.preventDefault();
-      btns[btns.length - 1].click();
+      last.click();
     });
   }
 
@@ -127,6 +150,7 @@
       var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
                                'aria-keyshortcuts': 'Control+Z Meta+Z',
                                'aria-label': action.label + ' (' + undoHint + ')' });
+      if (opts.dialog) raisedFrom.set(btn, opts.dialog);
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
         dismissToast(node);
@@ -148,9 +172,11 @@
       btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
       listenForUndo();
     }
-    // At most three at once, and never a stack taller than the host's
-    // height budget. The new toast always stays; the oldest non-error goes
+    // At most three at once, two on a phone, and never a stack taller than the
+    // host's height budget. The new toast always stays; the oldest non-error goes
     // first, an error only (with its normal fade) when all are errors.
+    var phone = window.matchMedia('(max-width: 600px), (max-height: 420px)').matches;
+    var most = phone ? 2 : 3;
     var live = function () {
       return Array.prototype.filter.call(host.children, function (c) {
         return !c.classList.contains('is-leaving');
@@ -168,14 +194,18 @@
       return over;
     };
     var kids = live().filter(function (c) { return c !== node; });
-    while (kids.length > 0 && (kids.length >= 3 || overBudget())) {
-      // A toast with an action is never evicted while its time runs.
+    while (kids.length > 0 && (kids.length >= most || overBudget())) {
+      // A toast with an action is never evicted while its time runs, but on a
+      // phone two of them leave no room: the newer takes the older one's place.
       var plain = kids.filter(function (c) {
         return !c.classList.contains('ui-toast--action');
       });
       var victim = plain.filter(function (c) {
         return !c.classList.contains('ui-toast--error');
       })[0] || plain[0];
+      if (!victim && phone && kids.length >= most) {
+        victim = kids.filter(function (c) { return !c.contains(document.activeElement); })[0];
+      }
       if (!victim) break;
       dismissToast(victim);
       kids = live().filter(function (c) { return c !== node; });
@@ -197,10 +227,13 @@
     return node;
   }
 
+  var asked = 0;
+  var open = []; // what answers each open confirm with no, the newest last
+
   function confirmDialog(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
-      var titleId = 'ui-confirm-title-' + Date.now();
+      var titleId = 'ui-confirm-title-' + (++asked);
       var overlay = el('div', {
         class: 'ui-confirm-overlay',
         role: 'dialog',
@@ -229,6 +262,7 @@
       function cleanup(result) {
         if (closed) return;
         closed = true;
+        open.splice(open.indexOf(cancel), 1);
         if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
@@ -236,21 +270,23 @@
         overlay.classList.remove('is-visible');
         removeAfterExit(overlay);
       }
+      function cancel() { cleanup(false); }
       overlay.id = titleId;
-      cancelBtn.addEventListener('click', function () { cleanup(false); });
+      open.push(cancel);
+      cancelBtn.addEventListener('click', cancel);
       confirmBtn.addEventListener('click', function () { cleanup(true); });
       overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) cleanup(false);
+        if (e.target === overlay) cancel();
       });
 
       if (window.ModalA11y) {
-        window.ModalA11y.register(titleId, function () { cleanup(false); });
+        window.ModalA11y.register(titleId, cancel);
         window.ModalA11y.onOpened(titleId);
       } else {
         // Fallback focus + Escape
         setTimeout(function () { cancelBtn.focus(); }, 0);
         overlay.addEventListener('keydown', function (e) {
-          if (e.key === 'Escape') cleanup(false);
+          if (e.key === 'Escape') cancel();
         });
       }
       // Animate in
@@ -260,6 +296,7 @@
 
   global.UIFeedback = {
     confirm: confirmDialog,
+    dismissConfirm: function () { while (open.length) open[open.length - 1](); },
     toast: toast,
     error: function (msg) { return toast(msg, { variant: 'error' }); },
     success: function (msg) { return toast(msg, { variant: 'success' }); }

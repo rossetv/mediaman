@@ -85,6 +85,12 @@ class TestFetchRadarrQueueItems:
         cards = fetch_radarr_queue(client)
         assert cards[0]["progress"] == 50
 
+    def test_bytes_left_are_never_below_zero(self):
+        client = _client(queue=[_queue_item(size=1_000, sizeleft=-300)])
+        cards = fetch_radarr_queue(client)
+        assert cards[0]["sizeleft"] == 0
+        assert cards[0]["progress"] == 100
+
     def test_progress_zero_when_size_is_zero(self):
         """If size is 0 we must not divide by zero; progress should be 0."""
         item = _queue_item()

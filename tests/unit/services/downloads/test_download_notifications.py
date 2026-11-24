@@ -9,6 +9,7 @@ must escape every TMDB-sourced field so a malicious free-text value
 
 from __future__ import annotations
 
+import re
 from datetime import UTC
 from pathlib import Path
 
@@ -38,6 +39,7 @@ def _render(**overrides):
     defaults = {
         "title": "Example",
         "poster_src": "",
+        "backdrop_src": "",
         "meta": {
             "year": "2026",
             "media_label": "Movie",
@@ -63,9 +65,10 @@ class TestDownloadReadyTemplate:
         assert "Directed by Jane Doe" in html
         assert "READY TO WATCH" in html
 
-    def test_poster_image_alt_is_the_escaped_title(self):
-        html = _render(poster_src="https://x/p.jpg", title="A <b> & B")
-        assert 'alt="A &lt;b&gt; &amp; B"' in html
+    def test_the_title_beside_the_picture_is_not_read_out_twice(self):
+        html = _render(poster_src="https://x/p.jpg", backdrop_src="https://x/b.jpg")
+        assert "<img " in html
+        assert 'alt="Example"' not in html
 
     def test_declares_a_dark_colour_scheme(self):
         html = _render()
@@ -153,9 +156,27 @@ class TestDownloadReadyTemplate:
         assert "IMDb" not in html
         assert "&#9733;" not in html
 
-    def test_poster_rendered_when_present(self):
+    def test_a_backdrop_heads_the_card_at_the_card_width_and_the_poster_is_left_out(self):
+        html = _render(
+            backdrop_src="https://image.tmdb.org/t/p/w1280/wide.jpg",
+            poster_src="https://image.tmdb.org/t/p/w500/abc.jpg",
+        )
+        imgs = re.findall(r"<img [^>]*>", html)
+        assert len(imgs) == 1
+        assert "w1280/wide.jpg" in imgs[0]
+        assert 'width="536"' in imgs[0]
+        assert "object-fit" not in html and "max-height" not in html
+
+    def test_a_poster_alone_is_shown_whole_as_a_poster_not_cropped_to_a_strip(self):
         html = _render(poster_src="https://image.tmdb.org/t/p/w500/abc.jpg")
-        assert "https://image.tmdb.org/t/p/w500/abc.jpg" in html
+        imgs = re.findall(r"<img [^>]*>", html)
+        assert len(imgs) == 1
+        assert "w500/abc.jpg" in imgs[0]
+        assert 'width="180"' in imgs[0] and 'height="270"' in imgs[0]
+        assert "object-fit" not in html and "max-height" not in html
+
+    def test_no_picture_leaves_no_image_tag(self):
+        assert "<img " not in _render()
 
 
 class TestSonarrSeriesMatching:
@@ -1191,6 +1212,17 @@ class TestOneUnsentNoticePerRequest:
         self._record(conn)
         assert self._count(conn) == 2
 
+    def test_two_people_sharing_an_address_each_get_their_own_notice(self, conn):
+        self._record(conn, username="casey")
+        self._record(conn, username="robin")
+        assert self._count(conn) == 2
+
+    def test_a_person_the_emailed_link_already_asked_for_gets_no_second(self, conn):
+        self._record(conn)
+        self._record(conn, username="casey")
+        self._record(conn)
+        assert self._count(conn) == 1
+
     def test_another_person_title_service_or_season_gets_its_own_notice(self, conn):
         self._record(conn)
         self._record(conn, email="b@example.com")
@@ -1459,3 +1491,78 @@ class TestAvailableEmailNamesTheSeason:
 
         assert subject == "'Severance' is now available to watch"
         assert "Season" not in html
+
+
+class TestEmailBackdrop:
+    def _html(self, suggestion):
+        from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
+        from mediaman.services.downloads._notification_email import build_email_payload
+
+        row = ClaimedNotificationRow(
+            id=1,
+            email="u@x",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            tvdb_id=None,
+            service="radarr",
+            claimed_at="",
+            season_number=None,
+        )
+        return build_email_payload(row, None, {42: suggestion}, _load_template())[1]
+
+    def _meta(self, **kw):
+        from mediaman.services.downloads._notification_email import SuggestionsMeta
+
+        return SuggestionsMeta(
+            tmdb_id=42,
+            year="2021",
+            runtime="155",
+            director="",
+            description="",
+            rating="",
+            imdb_rating="",
+            rt_rating="",
+            poster_url="https://image.tmdb.org/t/p/w300/p.jpg",
+            **kw,
+        )
+
+    def test_the_stored_backdrop_is_the_picture_and_the_poster_is_not(self):
+        html = self._html(self._meta(backdrop_url="https://image.tmdb.org/t/p/w1280/wide.jpg"))
+        assert "w1280/wide.jpg" in html
+        assert "p.jpg" not in html
+
+    def test_a_title_with_no_backdrop_shows_its_poster_upgraded_to_w500(self):
+        html = self._html(self._meta())
+        assert "https://image.tmdb.org/t/p/w500/p.jpg" in html
+
+    def test_a_stored_value_that_is_no_tmdb_image_is_not_put_in_the_email(self):
+        html = self._html(self._meta(backdrop_url="https://evil.example/x.jpg"))
+        assert "evil.example" not in html
+        assert "w500/p.jpg" in html
+
+    def test_the_batch_lookup_prefers_the_newest_row_that_has_a_backdrop(self, tmp_path):
+        from mediaman.db import init_db
+        from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
+        from mediaman.services.downloads.notifications import _fetch_suggestions_batch
+        from tests.helpers.factories import insert_suggestion
+
+        conn = init_db(str(tmp_path / "m.db"))
+        wide = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+        with conn:
+            insert_suggestion(conn, tmdb_id=42, created_at="2026-02-01")
+            old = insert_suggestion(conn, tmdb_id=42, created_at="2026-01-01")
+            conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (wide, old))
+        row = ClaimedNotificationRow(
+            id=1,
+            email="u@x",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            tvdb_id=None,
+            service="radarr",
+            claimed_at="",
+            season_number=None,
+        )
+
+        assert _fetch_suggestions_batch(conn, [row])[42].backdrop_url == wide

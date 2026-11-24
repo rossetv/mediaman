@@ -121,7 +121,8 @@ def _post_with_an_email(authed_client, app, builder, arr, body):
 
 
 def _mailed(app):
-    rows = app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+    rows = app.state.db.execute("SELECT email, username FROM download_notifications").fetchall()
+    assert {r["username"] for r in rows} <= {"admin"}
     return [r["email"] for r in rows]
 
 

@@ -40,6 +40,8 @@
   {# Quick info bar #}
   <div class="dl-quick">
     <span class="type-pill{{ ' type-pill--movie' if item.media_type == 'movie' else '' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
+    {# Every download link but a re-download's was made for a recommendation. #}
+    {% if item.action == "download" %}<span class="genre-pill genre-pill--ai">{{ icon("i-sparkles") }}AI pick</span>{% endif %}
     <span class="meta-text">
       {% if item.runtime %}{{ item.runtime }} min{% endif %}
       {% if item.runtime and item.director %} &middot; {% endif %}
@@ -75,7 +77,10 @@
     <div class="dl-description">{{ item.description }}</div>
     {% endif %}
     {% if item.reason %}
-    <div class="dl-reason">{{ item.reason }}</div>
+    <div class="dl-reason">
+      <h2 class="eyebrow">Why it's here</h2>
+      <p>{{ item.reason }}</p>
+    </div>
     {% endif %}
   </div>
   {% endif %}
@@ -143,7 +148,7 @@
 
   {# Footer #}
   <div class="dl-footer">
-    <a href="/">Open Mediaman Dashboard &rarr;</a>
+    <a href="/">Open mediaman &rarr;</a>
   </div>
 
 </div>
@@ -164,7 +169,7 @@
       {% endif %}
     </div>
     <div class="dl-footer u-mt-24">
-      <a href="/">Open Mediaman Dashboard &rarr;</a>
+      <a href="/">Open mediaman &rarr;</a>
     </div>
   {% endif %}
 </div>
@@ -195,7 +200,7 @@
     </div>
     <h1 class="dl-expired-title">This download link has expired</h1>
     <div class="dl-expired-sub">Download links are valid for 14 days after the newsletter is sent.</div>
-    <div class="dl-expired-back"><a href="/">Open Mediaman Dashboard &rarr;</a></div>
+    <div class="dl-expired-back"><a href="/">Open mediaman &rarr;</a></div>
   </div>
 {% endif %}
 
@@ -211,10 +216,11 @@
   "service": ("radarr" if item.media_type == "movie" else "sonarr"),
   "tmdb_id": (item.tmdb_id or 0),
   "poster_url": (item.poster_url or ""),
+  "backdrop_url": (item.backdrop_url or ""),
   "title": (item.title or ""),
   "media_type": (item.media_type or "movie"),
   "download_state": (item.download_state or ""),
-  "notify_by_email": item.notify_by_email
+  "notify_by_email": (item.notify_by_email or false)
 } | tojson }}</script>
 <script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
 <script src="/static/js/download.js?v={{ static_v }}" defer></script>

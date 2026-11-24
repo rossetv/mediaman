@@ -15,10 +15,12 @@ from fastapi.testclient import TestClient
 from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
+from mediaman.services.media_meta.plex_watch import PlexUnavailable
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
 from mediaman.web.routes.search import _enrichment
@@ -41,7 +43,9 @@ class DictCache:
     def __init__(self) -> None:
         self.store: dict[str, object] = {}
 
-    def get_or_fetch(self, key, fresh_s, stale_s, fetch, *, allow_fetch=None):
+    def get_or_fetch(
+        self, key, fresh_s, stale_s, fetch, *, allow_fetch=None, brief=False, hold_s=None
+    ):
         if key in self.store:
             return self.store[key]
         if allow_fetch is not None and not allow_fetch():
@@ -51,6 +55,8 @@ class DictCache:
 
 
 class FakeTmdb:
+    token = "t"
+
     def __init__(self) -> None:
         self.lists = {
             "trending": [
@@ -111,6 +117,15 @@ class FakeTmdb:
 
     def details(self, media_type, tmdb_id):
         return None if self.failing else self.detail.get(tmdb_id)
+
+    def details_or_raise(self, media_type, tmdb_id):
+        if self.failing or tmdb_id not in self.detail:
+            raise SafeHTTPError(
+                status_code=500 if self.failing else 404,
+                body_snippet="",
+                url="https://tmdb.invalid",
+            )
+        return self.detail[tmdb_id]
 
     def find_by_tvdb(self, tvdb_id):
         return self.tvdb_to_tmdb.get(tvdb_id)
@@ -196,6 +211,10 @@ def plex(monkeypatch):
     return fake
 
 
+def _mark(conn, *keys: str, item: str, show: str | None = "500", user: str = "viewer") -> None:
+    mark_watched(conn, user, [MarkTarget(k, item, show, 0) for k in keys], now_utc())
+
+
 def _login(app_factory, conn, role):
     insert_admin_user(conn, username=role, role=role)
     app = app_factory(catalog_api.router, search_routes.router, recommended_api.router, conn=conn)
@@ -242,7 +261,7 @@ class TestSearchTmdb:
         resp = viewer.get("/api/watch/search/tmdb", params={"q": "glass"})
 
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "tmdb_configured": False, "items": []}
+        assert resp.json() == {"ok": True, "tmdb_configured": False, "items": [], "people": []}
 
     def test_titles_the_library_holds_are_left_out(self, viewer, tmdb, arr):
         items = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"]
@@ -250,6 +269,14 @@ class TestSearchTmdb:
         assert [(i["ref"], i["title"], i["in_library"]) for i in items] == [
             ("tmdb-movie-12", "Glass Onion", False)
         ]
+
+    def test_the_people_a_search_names_come_beside_the_titles(self, viewer, tmdb, arr):
+        tmdb.search_results.append({"id": 4, "media_type": "person", "name": "Glass Marlowe"})
+
+        body = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()
+
+        assert [(p["person_id"], p["name"]) for p in body["people"]] == [(4, "Glass Marlowe")]
+        assert [i["ref"] for i in body["items"]] == ["tmdb-movie-12"]
 
     def test_a_one_letter_query_asks_tmdb_nothing(self, viewer, tmdb, arr):
         tmdb.failing = True
@@ -312,6 +339,17 @@ class TestDiscover:
         assert rows["popular_movies"]["items"][0]["poster_url"] == "/api/watch/img/tmdb/w342/p.jpg"
         assert rows["popular_tv"]["items"][0]["library_ref"] == "show-500"
 
+    def test_a_card_the_library_holds_carries_the_viewers_own_mark(
+        self, viewer, library, tmdb, arr
+    ):
+        _mark(library, "100", item="100", show=None)
+
+        rows = {r["id"]: r for r in viewer.get("/api/watch/discover").json()["rows"]}
+
+        held, other = rows["trending"]["items"]
+        assert (held["watched"], held["mark_kind"], held["mark_key"]) == (True, "movie", "100")
+        assert (other["watched"], other["mark_kind"], other["mark_key"]) == (False, None, None)
+
     def test_a_movie_scanned_since_shows_once_the_held_library_is_out_of_date(
         self, viewer, library, tmdb, arr, monkeypatch
     ):
@@ -344,6 +382,112 @@ class TestDiscover:
         tmdb.failing = True
 
         assert viewer.get("/api/watch/discover").status_code == 502
+
+
+class TestDiscoverPages:
+    @pytest.fixture(autouse=True)
+    def _limiter(self, monkeypatch):
+        monkeypatch.setattr(catalog_api, "_PAGE_LIMITER", ActionRateLimiter(60, 60))
+
+    @pytest.fixture
+    def pages(self, tmdb, monkeypatch):
+        """TMDB's answer to a list page, by path; a status code fails."""
+        answers: dict[str, object] = {}
+        asked: list[tuple[str, int]] = []
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+
+        def get(path, params):
+            asked.append((path, params["page"]))
+            answer = answers[path]
+            if isinstance(answer, int):
+                raise SafeHTTPError(status_code=answer, body_snippet="", url="https://tmdb.invalid")
+            return answer
+
+        tmdb._get = get
+        tmdb.asked = asked
+        return answers
+
+    def _page(self, client, row="popular_movies", page=2):
+        return client.get("/api/watch/discover", params={"row": row, "page": page})
+
+    @pytest.mark.parametrize(
+        ("row", "path", "item", "ref"),
+        [
+            ("trending", "/trending/all/week", {"id": 5, "media_type": "tv"}, "tmdb-tv-5"),
+            ("popular_movies", "/movie/popular", {"id": 5}, "tmdb-movie-5"),
+            ("popular_tv", "/tv/popular", {"id": 5}, "tmdb-tv-5"),
+        ],
+    )
+    def test_a_later_page_of_each_row_has_its_cards_and_the_page_after_it(
+        self, viewer, tmdb, pages, arr, row, path, item, ref
+    ):
+        pages[path] = {"results": [item, {"id": 3, "media_type": "person"}], "total_pages": 9}
+
+        body = self._page(viewer, row).json()
+
+        assert body["items"][0]["ref"] == ref
+        assert body["next_page"] == 3
+        assert tmdb.asked == [(path, 2)]
+
+    def test_a_first_load_names_the_page_to_go_on_with(self, viewer, tmdb, arr):
+        rows = viewer.get("/api/watch/discover").json()["rows"]
+
+        assert [r["next_page"] for r in rows] == [2, 2, 2]
+
+    @pytest.mark.parametrize(
+        ("page", "answer"),
+        [
+            (9, {"results": [{"id": 5}], "total_pages": 9}),
+            (500, {"results": [{"id": 5}], "total_pages": 40000}),
+            (2, {"results": [], "total_pages": 9}),
+        ],
+    )
+    def test_the_last_page_tmdb_gives_is_the_end(self, viewer, pages, arr, page, answer):
+        pages["/movie/popular"] = answer
+
+        assert self._page(viewer, page=page).json()["next_page"] is None
+
+    def test_a_page_held_by_the_library_is_marked(self, viewer, pages, arr):
+        pages["/movie/popular"] = {"results": [{"id": 11, "title": "The Glasshouse"}]}
+
+        assert self._page(viewer).json()["items"][0]["library_ref"] == "movie-100"
+
+    @pytest.mark.parametrize(("row", "page", "status"), [("x", 2, 404), ("trending", 501, 422)])
+    def test_an_unknown_row_or_a_page_past_tmdbs_last_is_refused(
+        self, viewer, pages, arr, row, page, status
+    ):
+        assert self._page(viewer, row, page).status_code == status
+
+    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (429, 429)])
+    def test_a_tmdb_failure_is_an_error_not_the_end_of_the_row(
+        self, viewer, pages, arr, failure, status
+    ):
+        pages["/movie/popular"] = failure
+
+        assert self._page(viewer).status_code == status
+
+    def test_past_the_limit_only_a_page_tmdb_must_answer_is_refused_and_search_is_not(
+        self, viewer, pages, arr, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_PAGE_LIMITER", ActionRateLimiter(1, 60))
+        pages["/movie/popular"] = {"results": [{"id": 5}], "total_pages": 9}
+        pages["/search/multi"] = {"results": []}
+
+        codes = [self._page(viewer, page=n).status_code for n in (2, 2, 3)]
+        search = viewer.get("/api/watch/search/tmdb", params={"q": "glass"})
+
+        assert (codes, search.status_code) == ([200, 200, 429], 200)
+
+    def test_only_what_a_card_shows_is_cached(self, viewer, pages, arr):
+        pages["/movie/popular"] = {
+            "results": [{"id": 5, "title": "T", "overview": "x" * 900}],
+            "total_pages": 9,
+        }
+        self._page(viewer)
+
+        (held,) = _discover._cache().store.values()
+        assert held["items"] == [{"id": 5, "title": "T", "media_type": "movie"}]
 
 
 class TestTitleRefs:
@@ -406,6 +550,26 @@ class TestLibraryTitle:
         assert not ADMIN_KEYS & body.keys()
         assert body["keep_allowed"] is False
 
+    def test_a_show_says_which_of_its_seasons_leave_and_when(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        for item, days in (("501", 9), ("502", 3)):
+            insert_scheduled_action(
+                library,
+                media_item_id=item,
+                action="scheduled_deletion",
+                token=f"token-{item}",
+                execute_at=(now_utc() + timedelta(days=days)).isoformat(),
+            )
+
+        body = viewer.get("/api/watch/title/show-500").json()
+
+        assert [(s["season"], s["keep_id"]) for s in body["leaving_seasons"]] == [
+            (2, "502"),
+            (1, "501"),
+        ]
+        assert body["leaving"]["season"] == 2
+
     def test_a_viewer_may_keep_a_title_that_is_leaving(self, viewer, library, tmdb, arr, plex):
         insert_scheduled_action(library, media_item_id="100")
 
@@ -422,6 +586,68 @@ class TestLibraryTitle:
         assert body["keep_allowed"] is True
         assert not ADMIN_KEYS & body.keys()
 
+    def test_a_movie_says_it_was_seen_even_with_plex_down(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        _mark(library, "100", item="100", show=None)
+        insert_admin_user(library, username="cian", role="viewer")
+        _mark(library, "511", "512", "521", item="501", user="cian")
+        plex.error = PlexUnavailable("down")
+
+        movie = viewer.get("/api/watch/title/movie-100").json()
+        show = viewer.get("/api/watch/title/show-500").json()
+
+        assert (movie["watched"], movie["mark_kind"], movie["mark_key"]) == (True, "movie", "100")
+        assert (show["watched"], show["mark_kind"], show["mark_key"]) == (False, "show", "500")
+
+    def test_a_show_says_which_seasons_and_episodes_were_seen(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        _mark(library, "521", item="502")
+        _mark(library, "511", item="501")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE id = '502'")
+        library.commit()
+
+        body = viewer.get("/api/watch/title/show-500").json()
+        season = viewer.get("/api/watch/title/show-500/season/2").json()
+
+        assert body["play"]["label"] == "Play S1 · E2"
+        assert [(s["key"], s["watched"]) for s in body["seasons"]] == [
+            ("501", False),
+            ("502", True),
+        ]
+        assert [(e["key"], e["watched"]) for e in body["episodes"]] == [
+            ("511", True),
+            ("512", False),
+        ]
+        assert body["watched"] is False
+        assert (season["key"], season["watched"]) == ("502", True)
+
+    def test_a_show_is_seen_once_every_season_is(self, viewer, library, no_tmdb, arr, plex):
+        _mark(library, "511", "512", item="501")
+        _mark(library, "521", item="502")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE id = '502'")
+        library.commit()
+
+        assert viewer.get("/api/watch/title/show-500").json()["watched"] is True
+
+    def test_a_show_seen_to_the_end_is_read_without_every_seasons_list(
+        self, viewer, library, no_tmdb, arr, plex, monkeypatch
+    ):
+        plex.add_show("500", "Glass Coast", {n: (f"50{n}", [f"5{n}1"]) for n in range(1, 4)})
+        _mark(library, "511", item="501")
+        _mark(library, "521", item="502")
+        _mark(library, "531", item="503")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE show_rating_key = '500'")
+        library.commit()
+        read: list[str] = []
+        real = plex.get_season_episodes
+        monkeypatch.setattr(plex, "get_season_episodes", lambda k: read.append(k) or real(k))
+
+        viewer.get("/api/watch/title/show-500")
+
+        assert "502" not in read
+
     def test_a_season_answers_its_own_episodes(self, viewer, no_tmdb, arr, plex):
         resp = viewer.get("/api/watch/title/show-500/season/2")
 
@@ -436,6 +662,21 @@ class TestLibraryTitle:
 
 
 class TestTmdbTitle:
+    def test_the_genres_and_cast_name_what_they_lead_to(self, viewer, tmdb, arr):
+        tmdb.detail[12]["genres"] = [{"id": 27, "name": "Horror"}]
+        tmdb.detail[12]["credits"] = {"cast": [{"id": 4, "name": "Glass Marlowe"}]}
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["genre_refs"] == [{"name": "Horror", "genre": "horror"}]
+        assert [c["person_id"] for c in body["cast"]] == [4]
+
+    def test_the_director_comes_with_their_person_id(self, viewer, tmdb, arr):
+        tmdb.detail[12]["credits"] = {"crew": [{"job": "Director", "id": 9, "name": "A. Director"}]}
+
+        assert viewer.get("/api/watch/title/tmdb-movie-12").json()["director_id"] == 9
+        assert viewer.get("/api/watch/title/tmdb-movie-11").json()["director_id"] is None
+
     def test_detail_carries_director_ratings_and_a_checked_trailer(
         self, viewer, tmdb, arr, monkeypatch
     ):
@@ -465,6 +706,7 @@ class TestTmdbTitle:
             "movie-100",
             None,
         )
+        assert (body["watched"], body["mark_key"]) == (False, "100")
 
     def test_a_show_sonarr_already_tracks_says_so(self, viewer, tmdb, arr):
         arr.series = [
@@ -521,6 +763,14 @@ class TestTmdbTitle:
         assert resp.status_code == 200
         assert resp.json()["download"]["state"] is None
 
+    def test_an_adult_title_and_one_tmdb_has_not_are_not_found(self, viewer, conn, tmdb, arr):
+        tmdb.detail[12]["adult"] = True
+        rec = insert_suggestion(conn, title="Glass Onion", tmdb_id=12)
+
+        refs = ("tmdb-movie-12", "tmdb-movie-404", f"rec-{rec}")
+
+        assert [viewer.get(f"/api/watch/title/{r}").status_code for r in refs] == [404] * 3
+
     def test_a_tmdb_failure_is_502(self, viewer, tmdb, arr):
         tmdb.failing = True
 
@@ -543,6 +793,15 @@ class TestTmdbTitle:
         body = viewer.get(f"/api/watch/title/rec-{rec_id}").json()
 
         assert (body["title"], body["overview"]) == (title, description)
+
+    def test_a_pick_stored_cut_mid_sentence_ends_at_its_last_full_one(
+        self, viewer, library, tmdb, arr
+    ):
+        whole = "A lighthouse keeper finds a door in the sea wall. "
+        cut = (whole + "She goes through it " * 20)[:250]
+        rec_id = insert_suggestion(library, title="Door", description=cut, tmdb_id=None)
+
+        assert viewer.get(f"/api/watch/title/rec-{rec_id}").json()["overview"] == whole.strip()
 
     def test_past_the_limit_only_a_title_tmdb_must_answer_is_refused(
         self, viewer, tmdb, arr, monkeypatch
@@ -927,6 +1186,31 @@ class TestTitleDownloadNotify:
 
         assert self._notify(emailed, "tmdb-movie-12") is False
 
+    def test_another_persons_request_to_the_same_address_is_not_told(self, emailed, library):
+        insert_download_notification(library, email=self.OWN, username="casey", tmdb_id=12)
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+    def test_an_own_request_is_still_owed_after_the_address_changed(self, emailed, library):
+        insert_download_notification(
+            library, email="old@example.com", username="viewer", tmdb_id=12
+        )
+
+        assert self._notify(emailed, "tmdb-movie-12") is True
+
+    def test_one_that_names_nobody_is_not_told_while_two_people_hold_the_address(
+        self, emailed, library
+    ):
+        insert_download_notification(library, email=self.OWN, tmdb_id=12)
+        library.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at, email)"
+            " VALUES ('casey', 'unused', '2026', ?)",
+            (self.OWN.upper(),),
+        )
+        library.commit()
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
     def test_a_person_with_no_email_is_not_looked_up(self, viewer, tmdb, arr, monkeypatch):
         def looked_up(*_a, **_k):
             raise AssertionError("looked up")
@@ -944,6 +1228,8 @@ class TestTitleDownloadNotify:
         arr.get_movie_by_tmdb = lambda _id: None
         assert emailed.post("/api/search/download", json=body).status_code == 200
         assert self._notify(emailed, "tmdb-movie-12") is True
+        row = library.execute("SELECT username FROM download_notifications").fetchone()
+        assert row["username"] == "viewer"
 
 
 class TestDownloadForgetsHeldArrState:

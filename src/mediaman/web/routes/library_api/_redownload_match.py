@@ -27,7 +27,7 @@ def _redownload_audit_id(
     """Pick a stable audit-log media_item_id for a redownload.
 
     Prefers tmdb:<id> (universal across both Arrs), then tvdb:<id>. The
-    prefix makes the column self-describing so the dashboard cannot match an opaque integer
+    prefix makes the column self-describing so the storage panel cannot match an opaque integer
     against unrelated UUIDs. A season appends ``:s<season>`` so one season's re-download is not
     taken for another's.
     """

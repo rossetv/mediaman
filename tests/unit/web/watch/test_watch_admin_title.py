@@ -128,3 +128,22 @@ def test_a_show_with_some_seasons_kept_is_not_kept(admin, library):
 
     assert body["keep"] == {"state": "none", "label": "1 of 2 seasons kept"}
     assert body["actions"]["delete"] is not None
+
+
+def test_a_show_says_when_each_season_leaves_soonest_first(admin, library):
+    now = datetime.now(UTC)
+    for key, days in (("501", 9), ("502", 4)):
+        insert_scheduled_action(
+            library,
+            media_item_id=key,
+            execute_at=(now + timedelta(days=days)).isoformat(),
+            token=f"t-{key}",
+        )
+
+    body = _facts(admin, "show-500")
+
+    assert [(d["keep_id"], d["season"], d["days"]) for d in body["deletions"]] == [
+        ("502", 2, 4),
+        ("501", 1, 9),
+    ]
+    assert body["deletion"] == body["deletions"][0]

@@ -77,3 +77,9 @@ def test_an_unmatched_nzb_without_an_episode_marker_goes_by_its_category(categor
     nzb = {"NZBName": "Severance.1080p", "Status": "DOWNLOADING", "Category": category}
     add_unmatched_nzb_items(items, parse_nzb_queue([nzb]), 0)
     assert items[0]["media_type"] == media_type
+
+
+def test_a_download_that_fetched_more_than_its_size_is_complete_and_no_more():
+    nzb = {"NZBName": "Dune", "FileSizeMB": 1000, "RemainingSizeMB": -12}
+    parsed = parse_nzb_queue([nzb])[0]
+    assert (parsed["progress"], parsed["done_mb"], parsed["remain_mb"]) == (100, 1000, 0)

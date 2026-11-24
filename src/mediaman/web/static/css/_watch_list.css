@@ -55,6 +55,13 @@
 .wl-table td.wl-act { white-space: nowrap; }
 .wl-title { color: inherit; text-decoration: none; }
 .wl-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* The admin's own mark, beside the title: the eye alone. */
+.wl-titleline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.wl-titleline > .wl-title { min-width: 0; overflow-wrap: anywhere; }
+.wl-titleline > .watch-mark { margin-block: -10px; font-size: 13px; }
+.wl-titleline .watch-mark__word { display: none; }
+.wl-titleline .watch-mark[aria-pressed="true"] { padding: 0; }
+.wl-titleline > .watch-mark::before { inset: 8px; }
 .wl-sub-watched { display: none; }
 .wl-row--kept { background: rgba(48,209,88,.04); }
 
@@ -102,7 +109,10 @@
 .wl-skel__row .skel--line { width: 40%; }
 
 /* ── Empty states ── */
-.wl-empty .btn { margin-top: 18px; min-height: 44px; }
+.wl-empty .btn { min-height: 44px; }
+.wl-empty > .btn,
+.wl-empty .watch-actions { margin-top: 18px; }
+.wl-empty .watch-actions { justify-content: center; }
 
 /* ── Pager ── */
 .wl .pagination { margin-top: 20px; }
@@ -112,14 +122,19 @@
 /* ── Dialogs admin.js opens (TV keep, season delete) ── */
 .keep-dialog-note { margin: 14px 0 0; font-size: 12px; color: var(--t3); }
 .keep-dialog-note:empty { display: none; }
+/* A season's keep and its button stay together, on a second line when the first has no room. */
+.keep-season-item--kept { flex-wrap: wrap; }
+.keep-season-item--kept .keep-season-details { flex: 1; margin-left: 0; text-align: right; }
+.keep-season-keep { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
 .wl-dialog.active { animation: wl-dialog-scrim var(--dur) var(--ease-out); }
 .wl-dialog.active > .keep-dialog { animation: wl-dialog-in var(--dur) var(--ease-out); }
 @keyframes wl-dialog-scrim { from { opacity: 0; } }
 @keyframes wl-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 
-/* ── Tablet: last watched folds into the title's sub-line, and the
-   actions column gives the title what Keep and Delete do not need ── */
+/* ── Tablet and phone: last watched folds into the title's sub-line, and on a tablet
+   the actions column gives the title what Keep and Delete do not need ── */
 @media (max-width: 1023.98px) {
+  .wl-sub-watched { display: inline; }
   .wl-table thead th,
   .wl-table tbody td { padding-left: 8px; padding-right: 8px; }
 }
@@ -128,7 +143,6 @@
   .wl-table .col-act { width: auto; }
   .wl-table thead th:nth-child(5),
   .wl-table tbody td:nth-child(5) { display: none; }
-  .wl-sub-watched { display: inline; }
 }
 
 /* Two tiles to a line before the cards. */
@@ -139,6 +153,10 @@
 
 /* ── Phone, and narrow windows too tight for seven columns: each row is a card ── */
 @media (max-width: 699.98px) {
+  .keep-season-item--kept { padding-bottom: 8px; }
+  .keep-season-keep { flex: 0 0 100%; justify-content: flex-end; }
+  .keep-season-keep .btn { min-height: 44px; }
+
   .wl,
   .wl-skel { padding-top: 18px; }
   .wl-stat { padding: 14px 16px; }
@@ -186,4 +204,8 @@
   .wl .pagination > :not(:first-child):not(:last-child):not(.page-of):not(.page-info) { display: none; }
   .wl .page-of { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
   .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
+}
+
+@media (forced-colors: active) {
+  .wl-stat--on { outline: 2px solid Highlight; outline-offset: -2px; }
 }

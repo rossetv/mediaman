@@ -32,6 +32,7 @@ The package is split into:
   ``remove_empty_folders`` (folders those removals left bare).
 * ``disk_usage`` — the read-only queries ``get_aggregate_disk_usage``
   and ``get_directory_size``.
+* ``disk_reads`` — the deadline a request thread puts on such a read.
 
 This module is the public barrel: every name, including the private helpers
 and constants the tests reach for, is importable from
@@ -66,6 +67,7 @@ from mediaman.services.infra.storage.disk_usage import (
     get_aggregate_disk_usage,
     get_directory_size,
     get_disk_usage_for_paths,
+    is_same_disk,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,7 @@ __all__ = [
     "get_aggregate_disk_usage",
     "get_directory_size",
     "get_disk_usage_for_paths",
+    "is_same_disk",
     "path_within_delete_roots",
     "remove_empty_folders",
     "unavailable_folder",

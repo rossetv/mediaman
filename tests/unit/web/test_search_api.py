@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +13,8 @@ from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.services.arr.base import ArrClient, ArrUpstreamError, SeasonsNotListed
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, disk_cache
+from mediaman.services.watch_catalog import gate
 from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
@@ -127,7 +129,7 @@ class TestSearchEndpoint:
         pages_requested = sorted(c[2]["params"]["page"] for c in search_calls)
         assert pages_requested == [1, 2]
         assert search_calls[0][2]["params"]["query"] == "dune"
-        assert search_calls[0][2]["params"]["include_adult"] is False
+        assert search_calls[0][2]["params"]["include_adult"] == "false"
 
     def test_survives_single_page_failure(self, authed_client, fake_http, fake_response):
         page1 = {
@@ -787,6 +789,33 @@ def _tmdb_tv_payload():
 
 
 class TestDetailEndpoint:
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_an_adult_title_is_not_found(self, _ratings, authed_client, fake_http, fake_response):
+        fake_http.default(fake_response(json_data=_tmdb_movie_payload() | {"adult": True}))
+
+        resp = authed_client.get("/api/search/detail/movie/438631")
+
+        assert (resp.status_code, resp.json()["error"]) == (404, "not_found")
+
+    @pytest.mark.parametrize("date", ["²⁰¹⁹-01-01", 2019, ["2019"], "20-1-1"])
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_an_odd_date_is_no_year(
+        self, _ratings, authed_client, fake_http, fake_response, kind, date
+    ):
+        payload = _tmdb_tv_payload() if kind == "tv" else _tmdb_movie_payload()
+        payload |= {"release_date": date, "first_air_date": date, "vote_average": float("nan")}
+        for season in payload.get("seasons", []):
+            season["air_date"] = date
+        fake_http.default(fake_response(json_data=payload))
+
+        data = authed_client.get(f"/api/search/detail/{kind}/1").json()
+
+        assert (data["year"], data["rating_tmdb"]) == (None, None)
+        assert [s["year"] for s in data.get("seasons", [])] == (
+            [None, None] if kind == "tv" else []
+        )
+
     @patch("mediaman.web.routes.search.detail.fetch_ratings")
     def test_movie_detail_shape(self, mock_ratings, authed_client, fake_http, fake_response):
         fake_http.default(fake_response(json_data=_tmdb_movie_payload()))
@@ -1272,6 +1301,7 @@ class TestDiscoverSharedWithWatch:
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
         client = SimpleNamespace(
+            token="t",
             trending=lambda page: [],
             popular_movies=lambda page: [{"id": 1}],
             popular_tv=lambda page: [{"id": 2}],
@@ -1288,6 +1318,7 @@ class TestDiscoverSharedWithWatch:
 
         assert _fetch_discover_shelf("trending", lambda page: [], None, 1) == []
         client = SimpleNamespace(
+            token="t",
             trending=lambda page: [{"id": 9}],
             popular_movies=lambda page: [{"id": 1}],
             popular_tv=lambda page: [{"id": 2}],
@@ -1296,3 +1327,43 @@ class TestDiscoverSharedWithWatch:
         rows = watch_catalog.discover_shelves(client)
 
         assert [r[0] for r in rows] == ["popular_movies", "popular_tv"]
+
+
+class TestHungTmdb:
+    """A TMDB that gives no answer holds few worker threads, each once and briefly."""
+
+    @pytest.mark.parametrize("path", ["/api/search?q=dune", "/api/search/detail/movie/5"])
+    def test_one_more_than_may_wait_is_told_to_try_again(self, authed_client, monkeypatch, path):
+        monkeypatch.setattr(gate, "_free", 0)
+
+        assert authed_client.get(path).status_code == 429
+
+    @pytest.mark.parametrize(
+        "path", ["/api/search?q=dune", "/api/search/detail/movie/5", "/api/search/discover"]
+    )
+    def test_the_wait_is_short_and_not_repeated(
+        self, authed_client, monkeypatch, fake_http, fake_response, path
+    ):
+        monkeypatch.setattr("time.sleep", lambda s: pytest.fail("waited to try again"))
+        fake_http.default(fake_response(status=503))
+
+        authed_client.get(path)
+
+        assert {sum(sent["timeout"]) for _, _, sent in fake_http.calls} == {6.0}
+        assert len(fake_http.calls) == len({str((url, sent)) for _, url, sent in fake_http.calls})
+
+    def test_while_enough_wait_the_shelves_come_from_the_cache_alone(
+        self, authed_client, discover_disk_cache, monkeypatch, fake_http, fake_response
+    ):
+        film = {"id": 1, "media_type": "movie", "title": "Dune"}
+        fake_http.default(fake_response(json_data={"results": [film]}))
+        authed_client.get("/api/search/discover")
+        fake_http.calls.clear()
+        monkeypatch.setattr(gate, "_free", 0)
+
+        body = authed_client.get("/api/search/discover").json()
+
+        assert (bool(body["trending"]), fake_http.calls) == (True, [])
+        shutil.rmtree(disk_cache._root / "meta")
+        assert authed_client.get("/api/search/discover").json()["trending"] == []
+        assert fake_http.calls == []

@@ -113,6 +113,23 @@ class TestFromDb:
         _set_token(conn, "garbage-that-cant-be-decrypted", encrypted=1)
         assert TmdbClient.from_db(conn, secret_key) is None
 
+    def test_a_client_that_does_not_retry_is_not_the_one_that_does(
+        self, conn, secret_key, fake_http, fake_response, monkeypatch
+    ):
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        _set_token(conn, "token")
+        fake_http.default(fake_response(status=503))
+
+        tries = []
+        for retry in (True, False):
+            client = TmdbClient.from_db(conn, secret_key, timeout=3.0, retry=retry)
+            fake_http.calls.clear()
+            client.details("movie", 1)
+            tries.append(len(fake_http.calls))
+
+        assert tries == [3, 1]
+        assert fake_http.calls[0][2]["timeout"] == (3.0, 3.0)
+
 
 class TestSearch:
     def test_movie_search_returns_first_result(self, fake_http, fake_response):
@@ -145,6 +162,29 @@ class TestSearch:
         _, url, kwargs = fake_http.calls[0]
         assert url.endswith("/search/tv")
         assert kwargs["params"]["first_air_date_year"] == 2021
+
+    def test_search_results_or_raise_raises_on_a_failure_and_gives_every_result_or_none(
+        self, fake_http, fake_response
+    ):
+        client = TmdbClient("token")
+        fake_http.queue("GET", fake_response(json_data={"results": []}))
+        assert client.search_results_or_raise("Dune") == []
+
+        found = [{"id": 1, "title": "Dune"}, {"id": 2, "title": "Dune"}]
+        fake_http.queue("GET", fake_response(json_data={"results": found}))
+        assert client.search_results_or_raise("Dune") == found
+
+        fake_http.queue("GET", fake_response(status=500))
+        with pytest.raises(SafeHTTPError):
+            client.search_results_or_raise("Dune", year=2021)
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_a_title_search_gives_no_adult_title(self, fake_http, fake_response, media_type):
+        found = [{"id": 1, "title": "Dune", "adult": True}, {"id": 2, "title": "Dune"}]
+        fake_http.queue("GET", fake_response(json_data={"results": found}))
+        results = TmdbClient("token").search_results_or_raise("Dune", media_type=media_type)
+        assert [r["id"] for r in results] == [2]
+        assert fake_http.calls[0][2]["params"]["include_adult"] == "false"
 
     def test_returns_none_on_empty_results(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"results": []}))
@@ -183,6 +223,19 @@ class TestSearchMulti:
         fake_http.raise_on("GET", requests.ConnectionError("boom"))
         client = TmdbClient("token")
         assert client.search_multi("x") is None
+
+
+class TestLists:
+    def test_adult_titles_and_people_are_neither_asked_for_nor_listed(
+        self, fake_http, fake_response
+    ):
+        results = [{"id": 1, "adult": True}, {"id": 2, "adult": False}, {"id": 3}]
+        fake_http.queue("GET", fake_response(json_data={"results": results}))
+
+        found = TmdbClient("token").search_multi_paged("x")
+
+        assert [r["id"] for r in found] == [2, 3]
+        assert fake_http.calls[0][2]["params"]["include_adult"] == "false"
 
 
 class TestDetails:
@@ -235,6 +288,37 @@ class TestFindByTvdb:
         fake_http.raise_on("GET", requests.ConnectionError("down"))
         with pytest.raises(SafeHTTPError):
             TmdbClient("token").find_by_tvdb(1)
+
+
+class TestOddShapes:
+    @pytest.mark.parametrize(
+        "odd",
+        [float("nan"), float("inf"), pytest.param(10**400, id="huge"), "text", [None], {"a": 1}],
+    )
+    def test_a_card_and_a_detail_are_made_without_what_is_odd(self, odd):
+        names = [
+            "release_date",
+            "poster_path",
+            "vote_average",
+            "genres",
+            "credits",
+            "created_by",
+            "videos",
+        ]
+        payload = {"id": 5, **dict.fromkeys([*names, "episode_run_time"], odd), "runtime": [odd]}
+
+        card = TmdbClient.shape_card(payload)
+        detail = [TmdbClient.shape_detail(payload, media_type=m) for m in ("movie", "tv")]
+
+        assert (card["tmdb_id"], card["year"], card["poster_url"], card["rating"]) == (
+            5,
+            None,
+            None,
+            None,
+        )
+        assert [(d["runtime"], d["cast_json"], d["trailer_key"]) for d in detail] == [
+            (None, None, None)
+        ] * 2
 
 
 class TestCertificate:

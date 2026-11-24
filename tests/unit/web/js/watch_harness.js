@@ -21,7 +21,7 @@ function leavingLine(days) {
 
 function heroInfo(season, line) {
   return ['div', { class: 'watch-hero__info' },
-    ['h1', { class: 'watch-hero__title' }, 'Brightwater'],
+    ['h1', { class: 'watch-banner__title' }, 'Brightwater'],
     ...(line ? [line] : []),
     ['div', { class: 'watch-actions' }, ['a', { class: 'btn' }, 'Resume']],
     ['nav', { class: 'watch-seasons' },
@@ -31,7 +31,7 @@ function heroInfo(season, line) {
 
 function showPage(doc, season, line) {
   return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
-    ['section', { class: 'watch-hero' }, heroInfo(season, line)],
+    ['section', { class: 'watch-banner' }, heroInfo(season, line)],
     ['ol', { class: 'watch-episodes' }, ['li', {}, 'Ep ' + season]],
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
@@ -70,10 +70,13 @@ function load(opts = {}) {
     UIFeedback: { toast: (message, opts) => toasts.push({ message, opts }) },
     MM: { api: { post: () => Promise.resolve({}), get: () => Promise.resolve({ items: [] }), messageOf: (_e, f) => f } },
     addEventListener() {},
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
   };
+  const told = [];
+  doc.dispatchEvent = (e) => told.push([e.type, e.detail.id]);
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, timers, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
+  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx)) };
 }
 
@@ -110,20 +113,89 @@ function leavingRowPage(doc) {
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
 }
 
-/* The Watch page's search box and the results it swaps in for the rows. */
-function searchPage(doc) {
-  return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
-    ['div', { class: 'watch-search' },
-      ['input', { class: 'watch-search__input', id: 'watch-search' }],
-      ['button', { id: 'watch-search-clear', hidden: '' }],
-      ['span', { id: 'watch-search-status' }]],
-    ['div', { id: 'watch-browse' }],
-    ['section', { class: 'watch-results', id: 'watch-results', hidden: '' },
-      ['p', { class: 'watch-results__msg', id: 'watch-results-msg' }],
-      ['div', { class: 'watch-grid', id: 'watch-grid' }]]]);
-}
-
 const scenarios = {
+  // The card an Undo puts back in a row, and where the row is scrolled for it.
+  async undoneCardShown() {
+    const go = async (left, grid) => {
+      const page = load();
+      const body = leavingRowPage(page.doc);
+      page.doc.body.appendChild(body);
+      if (grid) body.querySelector('.watch-row').className = 'watch-all__body';
+      page.run();
+      const scroller = page.doc.querySelector('.watch-row__scroll');
+      const by = [];
+      scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
+      scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
+      const first = page.doc.querySelector('.watch-card');
+      first.getBoundingClientRect = () => ({ top: 0, bottom: 20, left, right: left, width: 0, height: 20 });
+      page.doc.activeElement = page.doc.body;
+      click(page.doc, first.querySelector('[data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const focused = [];
+      first.querySelector('[data-watch-keep]').focus = function (o) { focused.push(!!(o && o.preventScroll)); };
+      page.toasts[0].opts.action.onClick();
+      const out = { back: scroller.children[0] === first, by, focused, snap: scroller.style.scrollSnapType || '' };
+      page.timers.forEach((fn) => fn());
+      return { ...out, after: scroller.style.scrollSnapType || '' };
+    };
+    return { off: await go(-128), inView: await go(20), grid: await go(-128, true) };
+  },
+
+  // The dialog a Keep's toast says it came from, so that Ctrl+Z reaches its Undo.
+  async toastDialog() {
+    const keepOnce = async (where) => {
+      const page = load();
+      page.doc.body.appendChild(build(page.doc, ['div', { class: 'ttl', id: 'ttl' }, ['p', {},
+        ['button', { class: 'watch-keep', 'data-watch-keep': '9', 'aria-label': 'Keep Dune' }, 'Keep']]]));
+      page.doc.body.appendChild(leavingRowPage(page.doc));
+      if (where !== 'page') page.doc.documentElement.classList.add('has-ttl');
+      page.run();
+      click(page.doc, page.doc.querySelector(where === 'details' ? '#ttl [data-watch-keep]' : '.watch-card [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const d = page.toasts[0].opts.dialog;
+      return d ? d.id : null;
+    };
+    return { details: await keepOnce('details'), page: await keepOnce('page') };
+  },
+
+  // A finished Keep, a finished Undo and a Keep refused, as they are announced.
+  async keepsTold() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    const keepFirst = async () => {
+      click(page.doc, page.doc.querySelector('.watch-card [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      const early = page.told.length;
+      await settle();
+      return early;
+    };
+    const out = { early: await keepFirst(), kept: page.told.slice() };
+    page.toasts[0].opts.action.onClick();
+    await settle();
+    out.undone = page.told.slice();
+    page.ctx.MM.api.post = () => Promise.reject(new Error('no'));
+    await keepFirst();
+    out.refused = page.told.length;
+    return out;
+  },
+
+  // Keep one of two seasons of a show, its button named as the server names it.
+  async keptSeason() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    const card = page.doc.querySelector('.watch-card');
+    card.querySelector('.watch-card__link').appendChild(build(page.doc, ['span', { class: 'watch-card__sub' }, 'Season 2']));
+    card.querySelector('[data-watch-keep]').setAttribute('aria-label', 'Keep Glass Coast, Season 2');
+    page.run();
+    click(page.doc, card.querySelector('[data-watch-keep]'));
+    click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+    await settle();
+    return page.toasts.map((t) => t.message);
+  },
+
   // Keep the first card of the Leaving soon row, with motion on.
   async cardExit() {
     const page = load({ motion: true });
@@ -152,50 +224,6 @@ const scenarios = {
     };
   },
 
-  // A search that finds nothing.
-  async searchEmpty() {
-    const page = load();
-    page.doc.body.appendChild(searchPage(page.doc));
-    page.run();
-    const input = page.doc.getElementById('watch-search');
-    input.value = 'zzqx';
-    input.listeners.input.forEach((fn) => fn({}));
-    page.timers.pop()();
-    await settle();
-    const msg = page.doc.getElementById('watch-results-msg');
-    return {
-      empty: msg.classList.contains('watch-results__msg--empty'),
-      parts: msg.children.map((c) => c.textContent),
-      status: page.doc.getElementById('watch-search-status').textContent,
-    };
-  },
-
-  // A search that fails, then its Try again.
-  async searchError() {
-    const page = load();
-    let calls = 0;
-    page.ctx.MM.api.get = () => { calls += 1; return Promise.reject(new Error('down')); };
-    page.doc.body.appendChild(searchPage(page.doc));
-    page.run();
-    const input = page.doc.getElementById('watch-search');
-    input.value = 'zzqx';
-    input.listeners.input.forEach((fn) => fn({}));
-    page.timers.pop()();
-    await settle();
-    const msg = page.doc.getElementById('watch-results-msg');
-    const out = {
-      error: msg.classList.contains('watch-results__msg--error'),
-      alert: msg.getAttribute('role'),
-      line: msg.children[0] && msg.children[0].textContent,
-      status: page.doc.getElementById('watch-search-status').textContent,
-    };
-    click(page.doc, msg.querySelector('button'));
-    await settle();
-    out.retried = calls === 2;
-    out.focus = page.doc.activeElement === input;
-    return out;
-  },
-
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.
   async swap() {
     const page = load({ motion: true });
@@ -218,6 +246,49 @@ const scenarios = {
     anims.find((a) => a.node === oldNode).onfinish();
     await done;
     return { stacked, cell, faded, after: host.children.map((c) => c.id), oldGone: !host.contains(oldNode) };
+  },
+
+  // Focus put in the new view while it fades in is still there once the fade has ended and it
+  // has moved to where the old one was (a browser drops the focus of a node that moves).
+  async swapFocus() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this, cancel() {} }; anims.push(a); return a; };
+    const remove = Node.prototype.remove;
+    Node.prototype.remove = function () {
+      if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
+      remove.call(this);
+    };
+    page.run();
+    const host = build(page.doc, ['div', { id: 'host' }, ['p', { id: 'old' }, 'old']]);
+    page.doc.body.appendChild(host);
+    const fresh = build(page.doc, ['p', { id: 'new' }, ['a', { id: 'go' }, 'Go']]);
+    const done = page.ctx.MMWatch.core.swap(page.doc.getElementById('old'), fresh);
+    page.doc.getElementById('go').focus();
+    anims.find((a) => a.node !== fresh).onfinish();
+    await done;
+    return page.doc.activeElement.id;
+  },
+
+  // What has eased in, in the view that goes and in the one that comes, while both are moved into
+  // the fade's cell and once the new one is moved out of it: what would ease in again.
+  async swapEased() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this, cancel() {} }; anims.push(a); return a; };
+    page.run();
+    const doc = page.doc;
+    const host = build(doc, ['div', {}, ['p', { id: 'old', class: 'fade-in' }, ['b', { class: 'fade-in' }, 'old']]]);
+    doc.body.appendChild(host);
+    const oldNode = doc.getElementById('old');
+    const eased = (n) => [n].concat(n.descendants()).filter((x) => x.classList.contains('fade-in')).length;
+    const before = eased(host);
+    const fresh = build(doc, ['p', { class: 'fade-in' }, ['b', { class: 'fade-in' }, 'new']]);
+    const done = page.ctx.MMWatch.core.swap(oldNode, fresh);
+    const going = eased(oldNode);
+    anims.find((a) => a.node === oldNode).onfinish();
+    await done;
+    return { before, going, left: eased(host) };
   },
 
   // A drop or a newer swap while a fade runs wins: the older fade's end never puts back a dropped
@@ -343,6 +414,25 @@ const scenarios = {
     click(page.doc, pill(page.doc, 1));
     await settle();
     return { first, second, back: lineState(page.doc) };
+  },
+
+  // The season tabs as one scrolling line: where it stands at first and after a press on a tab
+  // that is cut off, then on one wholly in view.
+  async seasonLine() {
+    const page = load({ motion: true });
+    page.doc.body.appendChild(showPage(page.doc, 1, leavingLine(3)));
+    const nav = page.doc.querySelector('.watch-seasons');
+    const moves = [];
+    nav.scrollLeft = 0;
+    nav.scrollTo = (o) => { nav.scrollLeft = o.left; moves.push(o); };
+    Object.defineProperty(nav, 'clientWidth', { value: 300 });
+    [1, 2].forEach((n) => { pill(page.doc, n).offsetLeft = n === 1 ? 0 : 400; Object.defineProperty(pill(page.doc, n), 'offsetWidth', { value: 100 }); });
+    page.run();
+    const out = { row: nav.parentNode.classList.contains('watch-row__viewport') && nav.classList.contains('watch-row__scroll'), opened: moves.splice(0) };
+    click(page.doc, pill(page.doc, 2));
+    await settle();
+    out.cutOff = moves.splice(0);
+    return out;
   },
 
   // A Keep from the line, then Undo after moving to a season that is not leaving.

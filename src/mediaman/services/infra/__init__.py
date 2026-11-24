@@ -59,6 +59,7 @@ from mediaman.services.infra.storage import (
     get_aggregate_disk_usage,
     get_directory_size,
     get_disk_usage_for_paths,
+    is_same_disk,
     path_within_delete_roots,
     remove_empty_folders,
 )
@@ -91,6 +92,7 @@ __all__ = [
     "get_setting",
     "get_string_setting",
     "is_safe_outbound_url",
+    "is_same_disk",
     "parse_delete_roots_env",
     "path_within_delete_roots",
     "remove_empty_folders",

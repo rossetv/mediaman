@@ -107,6 +107,19 @@ def _clear_scanner_runner_caches():
 
 
 @pytest.fixture(autouse=True)
+def _reset_disk_reads():
+    """A folder that failed in one test must not be reported failed, unread, in the next."""
+    from mediaman.services.infra.storage import disk_reads
+
+    for reads in (
+        disk_reads.library_disk_reads,
+        disk_reads.media_root_reads,
+        disk_reads.settings_disk_reads,
+    ):
+        reads.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_db_connection_state():
     """Drop any thread-local DB connection registered by the previous test.
 
@@ -494,6 +507,15 @@ def _reset_disk_cache(monkeypatch):
     monkeypatch.setattr(disk_cache, "_root", None)
     monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "_queued", set())
+
+
+@pytest.fixture(autouse=True)
+def _reset_tmdb_gate():
+    """TMDB failing in one test must not keep the next from asking it."""
+    from mediaman.services.watch_catalog._gate import gate
+
+    gate.reset()
 
 
 @pytest.fixture(autouse=True)

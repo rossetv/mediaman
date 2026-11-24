@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from requests.exceptions import RequestException
 
@@ -19,6 +21,8 @@ from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import sign_poster_url
 from mediaman.services.infra import SafeHTTPError
+from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
 
 from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
@@ -51,7 +55,7 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     ).fetchall()
     redownload_times: dict[str, str] = {}
     for rd in redownload_rows:
-        # Lower-cased like the dashboard, so a title matches whatever its case.
+        # Lower-cased like the storage panel, so a title matches whatever its case.
         key = str(rd["media_item_id"]).lower()
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
@@ -190,6 +194,7 @@ def _load_deleted_items(
 
 def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSummary:
     from mediaman.services.infra import get_aggregate_disk_usage, get_media_path
+    from mediaman.services.infra.storage.disk_reads import media_root_reads
 
     type_rows = conn.execute(
         "SELECT media_type, SUM(file_size_bytes) AS total FROM media_items GROUP BY media_type"
@@ -210,7 +215,9 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSumma
         # container with a custom mount point still sees accurate disk
         # stats in the newsletter, instead of a hard-coded ``/media``
         # which would silently fall through to the file-size fallback.
-        disk = get_aggregate_disk_usage(get_media_path())
+        disk = media_root_reads.read(get_media_path(), get_aggregate_disk_usage)
+        if disk is None:
+            raise OSError("the media folder could not be read in time")
         total_bytes = disk["total_bytes"]
         used_bytes = disk["used_bytes"]
         free_bytes = disk["free_bytes"]
@@ -255,7 +262,8 @@ def _load_recommendations(
     *,
     check_enabled: bool = True,
 ) -> list[NewsletterRecItem]:
-    """Load the most recent suggestion batch if the feature is enabled, else [].
+    """Load the most recent batch of the shared suggestions if the feature is enabled, else [].
+    One with no TMDB id is left out: nothing vouches for what it is.
 
     Builds explicit dicts to avoid leaking internal columns via **dict(row).
     check_enabled=False skips the suggestions_enabled query when the caller already
@@ -269,7 +277,8 @@ def _load_recommendations(
             return []
 
     batch_row = conn.execute(
-        "SELECT DISTINCT batch_id FROM suggestions WHERE batch_id IS NOT NULL "
+        "SELECT DISTINCT batch_id FROM suggestions "
+        f"WHERE batch_id IS NOT NULL AND {SHARED_ONLY} "
         "ORDER BY batch_id DESC LIMIT 1"
     ).fetchone()
     if not batch_row:
@@ -278,22 +287,46 @@ def _load_recommendations(
     rows = conn.execute(
         "SELECT id, title, media_type, category, description, reason, "
         "poster_url, tmdb_id, rating, rt_rating "
-        "FROM suggestions WHERE batch_id = ? ORDER BY category DESC, id",
+        f"FROM suggestions WHERE batch_id = ? AND {SHARED_ONLY}"
+        " AND tmdb_id IS NOT NULL ORDER BY id",
         (batch_row["batch_id"],),
     ).fetchall()
+    return [_rec_item(r, r["id"]) for r in rows]
 
-    return [
-        {
-            "id": r["id"],
-            "title": r["title"],
-            "media_type": r["media_type"],
-            "category": r["category"],
-            "description": r["description"],
-            "reason": r["reason"],
-            "poster_url": r["poster_url"],
-            "tmdb_id": r["tmdb_id"],
-            "rating": r["rating"],
-            "rt_rating": r["rt_rating"],
-        }
-        for r in rows
-    ]
+
+def load_own_picks(
+    conn: sqlite3.Connection, emails: Iterable[str], now: datetime
+) -> dict[str, list[NewsletterRecItem]]:
+    """The latest own picks with a TMDB id, not over 28 days old, of each address that is
+    exactly one person's, by address.
+
+    An address of nobody, or of more than one person, has none. A card holds neither the
+    pick's id nor the titles that led to it: the email and its links can be passed on.
+    """
+    found: dict[str, list[NewsletterRecItem]] = {}
+    oldest = (now - PICKS_LAST).strftime("%Y-%m-%d")
+    for email in emails:
+        people = conn.execute(
+            "SELECT username FROM admin_users WHERE email = ? COLLATE NOCASE", (email.strip(),)
+        ).fetchall()
+        if len(people) == 1:
+            picks = fetch_picks(conn, people[0]["username"], latest_only=True)
+            found[email] = [
+                _rec_item(p, None) for p in picks if p["tmdb_id"] and str(p["batch_id"]) >= oldest
+            ]
+    return found
+
+
+def _rec_item(row: Mapping[str, Any] | sqlite3.Row, rec_id: int | None) -> NewsletterRecItem:
+    return {
+        "id": rec_id,
+        "title": row["title"],
+        "media_type": row["media_type"],
+        "category": row["category"],
+        "description": row["description"],
+        "reason": row["reason"],
+        "poster_url": row["poster_url"],
+        "tmdb_id": row["tmdb_id"],
+        "rating": row["rating"],
+        "rt_rating": row["rt_rating"],
+    }

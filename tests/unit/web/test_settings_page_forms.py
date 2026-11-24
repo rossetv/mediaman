@@ -69,11 +69,9 @@ def account_html(app_factory, authed_client, conn) -> str:
     return authed_client(app, conn).get("/account").text
 
 
-def test_account_and_team_forms_submit_with_enter(settings_html):
+def test_team_form_submits_with_enter(settings_html):
     forms = _parse(settings_html).forms
 
-    assert forms["self-password-form"] == ["btn-submit-password"]
-    assert forms["self-email-form"] == ["btn-submit-email"]
     assert forms["add-user-form"] == ["btn-submit-add-user"]
 
 

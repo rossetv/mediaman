@@ -16,12 +16,14 @@ from mediaman.services.openai.recommendations.throttle import record_manual_refr
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository import watch_library
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, recommended_api
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
     insert_settings,
     insert_suggestion,
+    insert_user_pick,
 )
 from tests.unit.web.watch.test_watch_catalog_api import DictCache, FakeArr, FakeTmdb
 
@@ -71,7 +73,7 @@ def _get(client, **params) -> dict:
 class TestBatches:
     def test_the_latest_batch_is_shown_with_personal_picks_before_trending(self, viewer, conn):
         insert_suggestion(conn, title="Trend", category="trending", batch_id="2099-01-02")
-        insert_suggestion(conn, title="Mine", category="personal", batch_id="2099-01-02")
+        insert_user_pick(conn, "viewer", title="Mine", batch_id="2099-01-02")
         insert_suggestion(conn, title="Old", batch_id="2098-12-01")
         conn.commit()
 
@@ -125,6 +127,60 @@ class TestBatches:
         assert body["batches"] == []
 
 
+class TestOlderBatches:
+    """Walking from a batch to the older ones, as the row does on scrolling."""
+
+    def _walk(self, client, start: str) -> list[list[str]]:
+        body = _get(client, batch=start)
+        shown = [[i["title"] for i in body["items"]]]
+        while body["next_batch"]:
+            body = _get(client, batch=body["next_batch"], start=start)
+            shown.append([i["title"] for i in body["items"]])
+        return shown
+
+    @pytest.fixture
+    def picks(self, conn):
+        def add(batch, *picks):
+            for tmdb_id, title, extra in picks:
+                insert_suggestion(
+                    conn, batch_id=batch, tmdb_id=tmdb_id, title=title, **{"year": 2020, **extra}
+                )
+
+        add("2099-01-05", (1, "A", {}), (2, "B", {}), (2, "B", {"category": "trending"}))
+        add("2099-01-04", (1, "A renamed", {}), (2, "B", {"media_type": "tv"}), (3, "C", {}))
+        add("2099-01-03", (1, "A", {}), (3, "C", {}))
+        add("2099-01-02", (None, "c", {"year": 2021}), (None, "D", {}), (4, "B", {}))
+        add("2099-01-01", (9, "D", {}), (1, "A", {}))
+        conn.commit()
+
+    def test_no_title_comes_twice_and_a_batch_of_repeats_is_passed_over(self, viewer, picks):
+        # A title with no id is the one of its name (years at most one apart); two ids, or a
+        # film and a show, are two titles.
+        assert self._walk(viewer, "2099-01-05") == [["A", "B"], ["B", "C"], ["D", "B"]]
+
+    def test_the_walk_starts_at_the_batch_chosen_and_leaves_newer_ones_out_of_it(
+        self, viewer, picks
+    ):
+        assert self._walk(viewer, "2099-01-03") == [["A", "C"], ["D", "B"]]
+
+    def test_the_oldest_batch_has_none_to_go_on_with(self, viewer, picks):
+        assert _get(viewer, batch="2099-01-01")["next_batch"] is None
+
+    def test_an_unknown_start_is_a_404(self, viewer, picks):
+        resp = viewer.get("/api/watch/recommended", params={"batch": "2099-01-01", "start": "nope"})
+
+        assert resp.status_code == 404
+
+    def test_a_viewer_learns_no_more_of_an_older_pick_than_of_one_in_its_own_batch(
+        self, viewer, picks
+    ):
+        older = _get(viewer, batch="2099-01-04", start="2099-01-05")
+
+        assert set(older) == set(_get(viewer))
+        assert set(older["items"][0]) == set(_get(viewer)["items"][0])
+        assert "refresh" not in older
+
+
 class TestCards:
     def test_a_pick_carries_its_ref_reason_and_proxied_poster(self, viewer, conn):
         rec_id = insert_suggestion(
@@ -144,6 +200,7 @@ class TestCards:
         assert item["ref"] == f"rec-{rec_id}"
         assert item["reason"] == "Because you like quiet sci-fi"
         assert item["kind"] == "movie"
+        assert item["tmdb_id"] == 100
         assert item["year"] == 2016
         assert item["poster_url"] == "/api/watch/img/tmdb/w342/abc.jpg"
         assert item["in_library"] is False
@@ -171,6 +228,23 @@ class TestCards:
             "movie-100",
         )
         assert item["href"] == "/watch/movie/100"
+
+    def test_a_pick_the_library_holds_carries_the_viewers_own_mark(self, viewer, conn):
+        for key, tmdb_id in (("42", 11), ("43", 12)):
+            insert_media_item(conn, id=key, plex_rating_key=key, title=f"Film {key}")
+            conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = ?", (tmdb_id, key))
+            insert_suggestion(conn, title=f"Film {key}", tmdb_id=tmdb_id, batch_id="2099-01-01")
+        insert_suggestion(conn, title="Elsewhere", tmdb_id=13, batch_id="2099-01-01")
+        conn.commit()
+        mark_watched(conn, "viewer", [MarkTarget("42", "42", None, 0)], now_utc())
+
+        items = {i["title"]: i for i in _get(viewer)["items"]}
+
+        assert {t: (i["watched"], i["mark_key"]) for t, i in items.items()} == {
+            "Film 42": (True, "42"),
+            "Film 43": (False, "43"),
+            "Elsewhere": (False, None),
+        }
 
     def test_a_remake_pick_is_not_the_older_library_title_it_shares_a_name_with(
         self, viewer, conn, arr
@@ -240,7 +314,7 @@ class TestCards:
 
         (item,) = _get(viewer)["items"]
 
-        assert item["title"] == "No Id"
+        assert (item["title"], item["tmdb_id"]) == ("No Id", None)
         assert item["ref"].startswith("rec-")
 
     def test_a_pick_radarr_is_fetching_shows_its_state(self, viewer, conn, arr):

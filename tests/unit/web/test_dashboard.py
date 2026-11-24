@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.delete_root_state import write_delete_root_state
 from mediaman.core.deleted_media import record_deleted_media
+from mediaman.web.repository.settings import write_settings
 from mediaman.web.routes.dashboard import router as dashboard_router
 from tests.helpers.factories import insert_audit_log, insert_media_item, insert_scheduled_action
 
@@ -75,6 +77,62 @@ class TestApiDashboardStats:
         _insert_audit_deleted(conn, "m1", space_bytes=500_000_000)
         resp = client.get("/api/dashboard/stats")
         assert resp.json()["reclaimed_total_bytes"] == 500_000_000
+
+    def test_stats_count_the_scheduled_titles_no_scan_has_sized(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        for n, size in enumerate((1_000_000, 0, 0)):
+            insert_media_item(
+                conn, id=f"m{n}", title=f"T{n}", plex_rating_key=f"rk{n}", file_size_bytes=size
+            )
+            insert_scheduled_action(
+                conn,
+                media_item_id=f"m{n}",
+                execute_at=(datetime.now(UTC) + timedelta(days=7)).isoformat(),
+                token=f"tok-{n}",
+            )
+
+        scheduled = client.get("/api/dashboard/stats").json()["scheduled"]
+
+        assert (scheduled["total"], scheduled["unsized_count"]) == (3, 2)
+
+    def test_an_unsized_overdue_title_is_not_counted_among_those_leaving(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        for n, (size, days) in enumerate(((1_000_000, 7), (0, -3))):
+            insert_media_item(
+                conn, id=f"m{n}", title=f"T{n}", plex_rating_key=f"rk{n}", file_size_bytes=size
+            )
+            insert_scheduled_action(
+                conn,
+                media_item_id=f"m{n}",
+                execute_at=(datetime.now(UTC) + timedelta(days=days)).isoformat(),
+                token=f"tok-{n}",
+            )
+
+        scheduled = client.get("/api/dashboard/stats").json()["scheduled"]
+
+        assert (scheduled["leaving"], scheduled["overdue"], scheduled["unsized_count"]) == (1, 1, 0)
+
+    def test_storage_spans_the_library_folders_saved_in_settings(
+        self, app_factory, authed_client, conn, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("MEDIAMAN_MEDIA_PATH", str(tmp_path / "missing"))
+        saved = {"1": {"path": str(tmp_path), "threshold": 90}}
+        write_settings(
+            conn,
+            body_dict={"disk_thresholds": saved},
+            allowed_keys=["disk_thresholds"],
+            secret_key="unused",
+            now="2026-01-01",
+        )
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+
+        storage = client.get("/api/dashboard/stats").json()["storage"]
+
+        assert storage["total_bytes"] == shutil.disk_usage(tmp_path).total
 
 
 class TestApiDashboardScheduled:
@@ -295,41 +353,8 @@ class _DataActionElements(HTMLParser):
             self.elements.append(found)
 
 
-def _buttons(html: str, action: str) -> list[dict[str, str | None]]:
-    parser = _DataActionElements()
-    parser.feed(html)
-    return [e for e in parser.elements if e.get("data-action") == action]
-
-
 class TestJsonDataAttributesRoundTrip:
     """Values encoded with tojson in data-* attributes must reach the JS intact."""
-
-    def test_dashboard_redownload_button_carries_title_with_quotes(
-        self, app_factory, authed_client, conn
-    ):
-        insert_media_item(
-            conn,
-            id="m-quote",
-            title=_AWKWARD_TEXT,
-            plex_rating_key="rk1",
-            file_path="/f",
-            file_size_bytes=0,
-            added_at="2024-01-01",
-        )
-        _insert_deleted_with_identity(conn, "m-quote", title=_AWKWARD_TEXT, tmdb_id=603)
-        app = app_factory(
-            dashboard_router,
-            conn=conn,
-            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
-        )
-        resp = authed_client(app, conn).get("/")
-        assert resp.status_code == 200
-
-        (button,) = _buttons(resp.text, "redownload")
-        assert json.loads(button["data-redownload"] or "") == {
-            "title": _AWKWARD_TEXT,
-            "tmdb_id": 603,
-        }
 
     def test_list_view_keep_and_delete_controls_carry_values_with_quotes(self):
         env = Jinja2Templates(directory=str(_TEMPLATE_DIR)).env
@@ -410,38 +435,35 @@ class TestReclaimedChartIsoWeeks:
         ]
 
 
-def _dashboard_html(app_factory, authed_client, conn) -> str:
-    app = app_factory(
-        dashboard_router,
-        conn=conn,
-        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
-    )
+def _items(app_factory, authed_client, conn, path: str = "deleted") -> list[dict]:
     conn.commit()
-    resp = authed_client(app, conn).get("/")
+    resp = authed_client(app_factory(dashboard_router, conn=conn), conn).get(
+        f"/api/dashboard/{path}"
+    )
     assert resp.status_code == 200
-    return resp.text
+    return resp.json()["items"]
 
 
-class TestRedownloadButtonByStoredId:
-    def test_movie_button_posts_title_and_tmdb_id(self, app_factory, authed_client, conn):
-        _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
-        html = _dashboard_html(app_factory, authed_client, conn)
-        (button,) = _buttons(html, "redownload")
-        assert json.loads(button["data-redownload"] or "") == {"title": "Dune", "tmdb_id": 438631}
+class TestRedownloadByStoredId:
+    def test_a_movie_carries_its_title_and_tmdb_id(self, app_factory, authed_client, conn):
+        _insert_deleted_with_identity(conn, "gone", title=_AWKWARD_TEXT, tmdb_id=438631)
+        (item,) = _items(app_factory, authed_client, conn)
+        assert item["redownload"] == {"title": _AWKWARD_TEXT, "tmdb_id": 438631}
 
-    def test_season_button_posts_tvdb_id_and_season(self, app_factory, authed_client, conn):
+    def test_a_season_carries_its_tvdb_id_and_number(self, app_factory, authed_client, conn):
         _insert_deleted_with_identity(
             conn, "gone", title="Severance", media_type="season", tvdb_id=371980, season_number=2
         )
-        html = _dashboard_html(app_factory, authed_client, conn)
-        (button,) = _buttons(html, "redownload")
-        assert json.loads(button["data-redownload"] or "") == {
+        (item,) = _items(app_factory, authed_client, conn)
+        assert item["redownload"] == {
             "title": "Severance",
             "tvdb_id": 371980,
             "season_number": 2,
         }
 
-    def test_no_button_when_stored_row_lacks_the_id(self, app_factory, authed_client, conn):
+    def test_nothing_to_post_when_the_stored_row_lacks_the_id(
+        self, app_factory, authed_client, conn
+    ):
         _insert_deleted_with_identity(conn, "a", title="NoTmdb", tmdb_id=None)
         _insert_deleted_with_identity(
             conn, "b", title="NoSeason", media_type="season", tvdb_id=5, season_number=None
@@ -449,16 +471,20 @@ class TestRedownloadButtonByStoredId:
         _insert_deleted_with_identity(
             conn, "c", title="NoTvdb", media_type="season", tvdb_id=None, season_number=1
         )
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert _buttons(html, "redownload") == []
-        assert "NoTmdb" in html
+        items = _items(app_factory, authed_client, conn)
+        assert {i["title"]: i["redownload"] for i in items} == {
+            "NoTmdb": None,
+            "NoSeason": None,
+            "NoTvdb": None,
+        }
 
-    def test_old_audit_row_renders_without_button(self, app_factory, authed_client, conn):
+    def test_an_old_audit_row_is_listed_with_nothing_to_post(
+        self, app_factory, authed_client, conn
+    ):
         insert_media_item(conn, id="old", title="Old Film", plex_rating_key="rk1")
         _insert_audit_deleted(conn, "old")
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "Old Film" in html
-        assert _buttons(html, "redownload") == []
+        (item,) = _items(app_factory, authed_client, conn)
+        assert (item["title"], item["redownload"]) == ("Old Film", None)
 
 
 def _record_redownload(conn, token: str) -> None:
@@ -478,9 +504,8 @@ class TestRedownloadedItemLeavesRecentlyDeleted:
         _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
         _insert_deleted_with_identity(conn, "other", title="Arrival", tmdb_id=329865)
         _record_redownload(conn, "tmdb:438631")
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "Dune" not in html
-        assert "Arrival" in html
+        titles = [i["title"] for i in _items(app_factory, authed_client, conn)]
+        assert titles == ["Arrival"]
 
     def test_season_redownloaded_after_deletion_is_not_listed(
         self, app_factory, authed_client, conn
@@ -489,8 +514,8 @@ class TestRedownloadedItemLeavesRecentlyDeleted:
             conn, "gone", title="Severance", media_type="season", tvdb_id=371980, season_number=2
         )
         _record_redownload(conn, "tvdb:371980")
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "Severance" not in html
+        titles = [i["title"] for i in _items(app_factory, authed_client, conn)]
+        assert titles == []
 
     def test_redownloading_one_season_keeps_the_other_seasons_button(
         self, app_factory, authed_client, conn
@@ -505,9 +530,8 @@ class TestRedownloadedItemLeavesRecentlyDeleted:
                 season_number=season,
             )
         _record_redownload(conn, "tvdb:371980:s1")
-        html = _dashboard_html(app_factory, authed_client, conn)
-        (button,) = _buttons(html, "redownload")
-        assert json.loads(button["data-redownload"] or "")["season_number"] == 2
+        (item,) = _items(app_factory, authed_client, conn)
+        assert item["redownload"]["season_number"] == 2
 
     def test_movie_deleted_again_after_a_redownload_is_listed(
         self, app_factory, authed_client, conn
@@ -519,33 +543,51 @@ class TestRedownloadedItemLeavesRecentlyDeleted:
             created_at=datetime.now(UTC) - timedelta(hours=1),
         )
         _insert_deleted_with_identity(conn, "gone", title="Dune", tmdb_id=438631)
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "Dune" in html
+        titles = [i["title"] for i in _items(app_factory, authed_client, conn)]
+        assert titles == ["Dune"]
 
 
-class TestDeleteRootBanner:
-    def test_banner_names_root_and_count(self, app_factory, authed_client, conn):
+class TestDeleteRootsWaiting:
+    def _stats(self, app_factory, authed_client, conn) -> dict:
+        conn.commit()
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        return client.get("/api/dashboard/stats").json()
+
+    def test_every_folder_is_named_with_its_count(self, app_factory, authed_client, conn):
         write_delete_root_state(conn, {"/media/movies": 3, "/media/tv": 1})
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "root-banner" in html
-        assert (
-            "/media/movies</span> is empty or not mounted: 3 scheduled deletions are waiting"
-            in html
-        )
-        assert "/media/tv</span> is empty or not mounted: 1 scheduled deletion is waiting" in html
+        assert self._stats(app_factory, authed_client, conn)["unavailable_roots"] == [
+            {"path": "/media/movies", "waiting": 3},
+            {"path": "/media/tv", "waiting": 1},
+        ]
 
-    def test_no_banner_when_state_is_empty(self, app_factory, authed_client, conn, monkeypatch):
-        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/media/movies")
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "root-banner" not in html
+    def test_none_when_nothing_waits(self, app_factory, authed_client, conn):
+        assert self._stats(app_factory, authed_client, conn)["unavailable_roots"] == []
 
-    def test_banner_escapes_paths(self, app_factory, authed_client, conn):
-        write_delete_root_state(conn, {"/m/<script>alert(1)</script>": 2})
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert "<script>alert(1)</script>" not in html
-        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    def test_the_count_drops_after_a_keep_and_the_folder_goes_at_zero(
+        self, app_factory, authed_client, conn
+    ):
+        ids = []
+        for n in (1, 2):
+            insert_media_item(conn, id=f"m{n}", title=f"F{n}", plex_rating_key=f"rk{n}")
+            ids.append(insert_scheduled_action(conn, media_item_id=f"m{n}", token=f"tok{n}"))
+        write_delete_root_state(conn, {"/media/tv": 2}, {"/media/tv": ids})
 
-    def test_page_load_logs_nothing_about_delete_roots(
+        conn.commit()
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+
+        def waiting():
+            roots = client.get("/api/dashboard/stats").json()["unavailable_roots"]
+            return {r["path"]: r["waiting"] for r in roots}
+
+        assert waiting() == {"/media/tv": 2}
+        conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (ids[0],))
+        conn.commit()
+        assert waiting() == {"/media/tv": 1}
+        conn.execute("DELETE FROM scheduled_actions")
+        conn.commit()
+        assert waiting() == {}
+
+    def test_reading_the_state_logs_nothing_about_delete_roots(
         self, app_factory, authed_client, conn, monkeypatch, caplog
     ):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", ",:")
@@ -554,7 +596,7 @@ class TestDeleteRootBanner:
             " VALUES ('delete_allowed_roots', 'not json', 0, '2026-01-01')"
         )
         with caplog.at_level("DEBUG"):
-            _dashboard_html(app_factory, authed_client, conn)
+            self._stats(app_factory, authed_client, conn)
         assert not [
             r
             for r in caplog.records
@@ -629,8 +671,8 @@ class TestScheduledSeasonRow:
         assert row["badge_class"] == "badge-anime"
 
 
-class TestScheduledSeasonPill:
-    def test_tv_season_pill_uses_the_tv_colour(self, app_factory, authed_client, conn):
+class TestScheduledTvSeason:
+    def test_a_tv_season_is_labelled_tv_with_its_number(self, app_factory, authed_client, conn):
         insert_media_item(
             conn,
             id="sea2",
@@ -649,29 +691,29 @@ class TestScheduledSeasonPill:
             execute_at=(datetime.now(UTC) + timedelta(days=5)).isoformat(),
         )
 
-        html = _dashboard_html(app_factory, authed_client, conn)
+        (item,) = _items(app_factory, authed_client, conn, "scheduled")
 
-        assert re.search(r'class="pill pill--tv">\s*TV · S3', html)
+        assert (item["type_label"], item["badge_class"]) == ("TV · S3", "badge-tv")
 
 
-class TestDeletionsOffNotice:
-    _NOTICE = "Deletions are off: set MEDIAMAN_DELETE_ROOTS"
+class TestDeletionsOff:
+    def _off(self, app_factory, authed_client, conn) -> bool:
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        return client.get("/api/dashboard/stats").json()["deletions_off"]
 
-    def test_notice_shown_when_no_delete_folders_are_set(
+    def test_said_when_no_delete_folders_are_set(
         self, app_factory, authed_client, conn, monkeypatch
     ):
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert self._NOTICE in html
+        assert self._off(app_factory, authed_client, conn) is True
 
-    def test_notice_hidden_when_env_sets_delete_folders(
+    def test_not_said_when_the_env_sets_delete_folders(
         self, app_factory, authed_client, conn, monkeypatch, tmp_path
     ):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert self._NOTICE not in html
+        assert self._off(app_factory, authed_client, conn) is False
 
-    def test_notice_hidden_when_setting_row_sets_delete_folders(
+    def test_not_said_when_the_setting_row_sets_delete_folders(
         self, app_factory, authed_client, conn, monkeypatch
     ):
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
@@ -680,5 +722,4 @@ class TestDeletionsOffNotice:
             "VALUES ('delete_allowed_roots', '[\"/media/tv\"]', 0, '2026-01-01')"
         )
         conn.commit()
-        html = _dashboard_html(app_factory, authed_client, conn)
-        assert self._NOTICE not in html
+        assert self._off(app_factory, authed_client, conn) is False

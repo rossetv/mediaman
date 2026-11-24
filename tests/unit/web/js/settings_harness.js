@@ -252,6 +252,20 @@ const scenarios = {
     return { declined, working, deletes: calls.deletes, rows: rowsNow(), toasts: calls.toasts, idleAria: declined.label };
   },
 
+  // The avatar each name gets in the Team list.
+  async avatars() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const given = JSON.parse(process.argv[3]);
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'x', users: given.map((username, id) => ({ id, username, role: 'viewer' })) }),
+    };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    return names(userList, 'usr-row').map((r) => [r.children[0].className, r.children[0].textContent]);
+  },
+
   // New rows land where the server lists them.
   async insertOrder() {
     const h = build();
@@ -292,49 +306,31 @@ const scenarios = {
     return { roleName, subs: names(subList, 'sub-row').map((r) => r.dataset.id), userRows: names(userList, 'usr-row').map((r) => String(r.dataset.userId)) };
   },
 
-  // Opening another form leaves one that is still sending where it is.
-  async busyForm() {
+  // The add user form that is sending ignores its own toggle and Cancel.
+  async busyAddForm() {
     const h = build();
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
-    const $ = (tag, id, parent, props) => h.add(tag, Object.assign({ id }, props), parent);
-    $('div', 'user-list');
-    const pwForm = $('form', 'self-password-form', null, { hidden: true });
-    $('input', 'self-old-password', pwForm, { value: 'old' });
-    $('input', 'self-new-password', pwForm, { value: 'a-long-new-password' });
-    $('input', 'self-confirm-password', pwForm, { value: 'a-long-new-password' });
-    const btnPw = $('button', 'btn-change-password');
-    const submitPw = $('button', 'btn-submit-password', pwForm);
-    $('span', 'password-result', pwForm);
-    const cancelPw = $('button', 'btn-cancel-password', pwForm);
-    const emailForm = $('form', 'self-email-form', null, { hidden: true });
-    const emailInput = $('input', 'self-email-input', emailForm, { value: 'me@x', defaultValue: 'me@x' });
-    $('span', 'email-result', emailForm);
-    $('button', 'btn-cancel-email', emailForm);
-    $('button', 'btn-submit-email', emailForm);
-    const btnEmail = $('button', 'btn-edit-email');
-    let finish;
-    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'me', users: [] }), post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
+    h.add('div', { id: 'user-list' });
+    const btnAdd = h.add('button', { id: 'btn-add-user' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    const name = h.add('input', { id: 'new-username', value: '', defaultValue: '' }, form);
+    const pw = h.add('input', { id: 'new-user-password', value: '' }, form);
+    h.add('button', { id: 'btn-submit-add-user' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
+    const cancel = h.add('button', { id: 'btn-cancel-add-user' }, form);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'me', users: [] }), post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
     h.ctx.MM.settings.users.init();
     await h.flush();
-    btnPw.fire('click');
-    pwForm.fire('submit');
-    btnEmail.fire('click');
-    const whileBusy = { pwHidden: pwForm.hidden, emailHidden: emailForm.hidden };
-    // its own toggle and Cancel do not close or reset it mid-request
-    h.doc.getElementById('self-old-password').value = 'typed';
-    btnPw.fire('click');
-    cancelPw.fire('click');
-    const ownButtons = { hidden: pwForm.hidden, value: h.doc.getElementById('self-old-password').value };
-    finish({});
-    await h.flush();
-    // a form that is idle closes, and closing puts the typed values back to their start
-    emailInput.value = 'typed@x';
+    btnAdd.fire('click');
+    name.value = 'casey';
+    pw.value = 'a-long-new-password';
+    form.fire('submit');
+    name.value = 'typed';
+    btnAdd.fire('click');
+    cancel.fire('click');
     h.drain();
-    btnPw.fire('click');
-    h.drain();
-    const afterIdle = { emailHidden: emailForm.hidden, emailValue: emailInput.value, submitDisabled: submitPw.disabled };
-    return { whileBusy, ownButtons, afterIdle };
+    return { hidden: form.hidden, value: name.value };
   },
 
   // A new user's row comes in only once the add form has folded away.
@@ -450,7 +446,7 @@ const scenarios = {
     msg.textContent = 'Working';
     form.fire('submit');
     oldPw.fire('input');
-    const whileSending = { text: msg.textContent, disabled: submit.disabled };
+    const whileSending = { text: msg.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };
     finish({});
     await h.flush();
     return { shown, afterInput, whileSending };
@@ -540,6 +536,134 @@ const scenarios = {
       focused: h.doc.activeElement === again,
       disabled: again.disabled,
     };
+  },
+
+  // An admin changes someone's email in a form that folds open in their row.
+  async userEmail() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const sent = [];
+    const errors = [];
+    let answer = () => Promise.resolve({ email: 'new@x.example' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [
+        { id: 1, username: 'ann', role: 'admin', email: 'ann@x.example' },
+        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T03' },
+      ] }),
+      patch: (u, b) => { sent.push([u, b.email]); return answer(); },
+      messageOf: (e) => e.message,
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.UIFeedback.error = (m) => errors.push(m);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const [own, row] = names(userList, 'usr-row');
+    const btn = row.querySelector('[data-user-action="email"]');
+    const form = row.querySelector('form');
+    const input = form.querySelector('input');
+    const msg = form.querySelector('.inline-form-msg');
+    const save = form.querySelector('[type="submit"]');
+    const open = () => h.ctx.MM.settings.rows.isOpen(form);
+    const sub = () => row.querySelector('.usr-sub').textContent;
+    const out = { ownHasButton: !!own.querySelector('[data-user-action="email"]'), shutAtFirst: !open() };
+    btn.fire('click');
+    out.opened = { open: open(), value: input.value, focused: h.doc.activeElement === input };
+
+    // refused: what was typed stays, with why
+    answer = () => Promise.reject({ error: 'email_taken', message: 'Another user has this address.' });
+    input.value = ' ann@x.example '; input.fire('input');
+    form.fire('submit');
+    await h.flush();
+    out.refused = { open: open(), value: input.value, msg: msg.textContent, focused: h.doc.activeElement === input, sub: sub() };
+    input.fire('input');
+    out.clearedOnInput = msg.textContent;
+
+    // turned away at the password: nothing is said
+    answer = () => Promise.reject({ error: 'reauth_cancelled', message: 'Cancelled' });
+    form.fire('submit');
+    await h.flush();
+    out.cancelled = { open: open(), msg: msg.textContent };
+
+    // while it is sent, a second submit or the button does nothing
+    let done;
+    answer = () => new Promise((r) => { done = r; });
+    const before = sent.length;
+    form.fire('submit'); form.fire('submit'); btn.fire('click');
+    out.sending = { sent: sent.length - before, open: open(), busy: save.getAttribute('aria-disabled') };
+    done({ email: 'new@x.example' });
+    await h.flush(); h.drain();
+    out.saved = { open: open(), sub: sub(), focused: h.doc.activeElement === btn, sent: sent[sent.length - 1], busy: save.getAttribute('aria-disabled') };
+
+    // an empty field takes it away; a cancelled edit is forgotten
+    btn.fire('click');
+    out.again = input.value;
+    input.value = 'typo'; form.querySelector('[type="button"]').fire('click'); h.drain();
+    btn.fire('click');
+    out.forgotten = input.value;
+    answer = () => Promise.resolve({ email: null });
+    input.value = '';
+    form.fire('submit');
+    await h.flush(); h.drain();
+    out.removed = { sub: sub(), sent: sent[sent.length - 1], errors };
+    return out;
+  },
+
+  // A click on Save focuses no button there, and the password dialog gives focus back to what had it.
+  async userEmailSavedWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-user' });
+    const dialog = h.add('input', { id: 'dialog' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, form);
+    h.add('input', { id: 'new-user-password', value: '' }, form);
+    const submit = h.add('button', { id: 'btn-submit-add-user' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }),
+      patch: () => Promise.resolve({ email: 'new@x.example' }),
+      post: () => Promise.resolve({}),
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => {
+      const opener = h.doc.activeElement;
+      dialog.focus();
+      return f().then((r) => { opener.focus(); return r; });
+    } };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(userList, 'usr-row')[0];
+    const btn = row.querySelector('[data-user-action="email"]');
+    btn.fire('click');
+    main.focus();
+    row.querySelector('form').fire('submit');
+    await h.flush();
+    const out = { email: h.doc.activeElement === btn };
+    const role = row.querySelector('[data-user-action="role"]');
+    h.ctx.MM.api.patch = () => Promise.resolve({});
+    main.focus();
+    role.fire('click');
+    await h.flush(); h.drain();
+    out.role = h.doc.activeElement === role;
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.api.delete = () => Promise.resolve({});
+    main.focus();
+    row.querySelector('[data-user-action="delete"]').fire('click');
+    await h.flush(); h.drain();
+    out.delete = h.doc.activeElement === add;
+    add.fire('click');
+    h.doc.getElementById('new-username').value = 'casey';
+    h.doc.getElementById('new-user-password').value = 'a-long-new-password';
+    main.focus();
+    form.fire('submit');
+    await h.flush();
+    out.addUser = h.doc.activeElement === submit;
+    return out;
   },
 
   // A throttled service is not counted as not connected.

@@ -12,8 +12,8 @@ _TEMPLATES = _WEB / "templates"
 _JS = _WEB / "static" / "js"
 
 _INLINE_NONE = re.compile(r"style\s*=\s*\"[^\"]*display\s*:\s*none", re.IGNORECASE)
-# These two measure a node with its box removed for a moment; they show nothing.
-_MEASURING = {"dashboard.js", "ui-feedback.js"}
+# Measures a node with its box removed for a moment; it shows nothing.
+_MEASURING = {"ui-feedback.js"}
 
 
 def _is_watch(path: Path) -> bool:

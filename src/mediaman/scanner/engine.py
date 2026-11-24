@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError
@@ -67,8 +67,15 @@ from mediaman.services.infra import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
+    prune_old_picks as _prune_old_picks,
+)
+from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
 )
+from mediaman.services.openai.recommendations.personal import (
+    refresh_people as _refresh_people,
+)
+from mediaman.services.plex_link.sync import read_plays as _read_plays
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +157,8 @@ class ScanEngine:
         self._started_at: str | None = None
         # The keys Plex lists in the current run, as far as it has been read.
         self._listed_keys: set[str] = set()
+        # The path and season of each key whose history the current scan could not fetch.
+        self._skipped_places: set[tuple[object, object]] = set()
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -275,16 +284,14 @@ class ScanEngine:
                 for f in fetched.items
             ],
         )
+        repository.carry_stranded_keeps(self._conn)
         for fetched in per_lib_fetches.values():
-            self._listed_keys.update(
-                fetched.skipped_keys, (f.item["plex_rating_key"] for f in fetched.items)
-            )
+            self._listed_keys.update(fetched.listed_keys)
         for lib_id, fetched in per_lib_fetches.items():
-            # Union the history-fetch skips into the seen set: those items
-            # are still present in Plex, just not fetched this pass, so they
-            # must never be pruned as orphans.
-            seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
-            seen_lib_keys.update(fetched.skipped_keys)
+            repository.carry_show_keeps(self._conn, fetched.seasons, self._listed_keys)
+            # Includes the history-fetch skips: those items are still present in
+            # Plex, just not fetched this pass, so they must never be pruned as orphans.
+            seen_lib_keys = fetched.listed_keys
             for f in fetched.items:
                 if not self._upsert_item_isolated(with_mediaman_play(f, credited)):
                     summary["errors"] += 1
@@ -302,6 +309,8 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
+        repository.restore_progress(self._conn)
+        self._conn.commit()
 
     def _upsert_item_isolated(self, f: PlexItemFetch) -> bool:
         """Upsert one item inside its own savepoint; return False if it failed.
@@ -337,6 +346,7 @@ class ScanEngine:
         """
         self._started_at = now_iso()
         self._listed_keys = set()
+        self._skipped_places = set()
         summary = {
             "scanned": 0,
             "scheduled": 0,
@@ -367,14 +377,19 @@ class ScanEngine:
 
         Each library commits separately (per-library commit boundary) so
         a SIGKILL mid-scan can only roll back the in-flight library, not
-        every successful upsert from earlier libraries. Libraries with
+        every successful upsert from earlier libraries. All are stored
+        before any is evaluated, so an item is judged by the watches of
+        its title in every library. Libraries with
         unknown or unsupported types are logged and skipped — an
         unmapped library would silently default to ``"movie"``, so a
         Plex library that has been re-typed (e.g. moved to ``"music"``
         or ``"photo"``) would be scanned as if it were a movie
         collection.
         """
+        repository.carry_stranded_keeps(self._conn)
+        self._conn.commit()
         seen_by_lib: dict[str, set[str]] = {}
+        evaluations: list[Callable[[], None]] = []
         for lib_id in self._library_ids:
             lib_type = self._library_types.get(lib_id)
             if lib_type is None:
@@ -396,10 +411,11 @@ class ScanEngine:
 
             seen: set[str] = set()
             seen_by_lib[lib_id] = seen
-            if lib_type == "show":
-                scan_tv_library(self, lib_id, summary, seen)
-            else:
-                scan_movie_library(self, lib_id, summary, seen)
+            scan_library = scan_tv_library if lib_type == "show" else scan_movie_library
+            evaluations.append(scan_library(self, lib_id, summary, seen))
+            self._conn.commit()
+        for evaluate in evaluations:
+            evaluate()
             self._conn.commit()
         return seen_by_lib
 
@@ -426,6 +442,7 @@ class ScanEngine:
                 )
                 continue
             summary["removed"] += self._remove_orphaned_items(seen, lib_set)
+        repository.restore_progress(self._conn)
         self._conn.commit()
 
     def _record_deletion_outcome(self, summary: dict[str, int]) -> None:
@@ -434,30 +451,37 @@ class ScanEngine:
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
 
     def _run_post_scan_followups(self) -> None:
-        """Refresh AI recommendations and send the deletion-warning newsletter.
+        """Read people's Plex plays, refresh AI recommendations and send the newsletter.
 
         Recommendations refresh runs FIRST so the newsletter reflects
         this week's picks rather than last week's stale batch — the
-        cards are loaded from the ``suggestions`` table that
-        _refresh_recommendations rewrites. Both calls are
-        wrapped in narrow exception handlers because either failing
-        must not abort a successful scan. Skipped entirely in dry-run
-        mode.
+        cards are loaded from the ``suggestions`` and ``user_picks``
+        tables that _refresh_recommendations and _refresh_people, which
+        needs the plays _read_plays brings, rewrite. A failure of any step
+        is logged and the next one still runs: none may abort a successful
+        scan. Dry-run mode only reads the plays: that also drops those of
+        libraries no longer read, whatever else is switched off.
         """
+        try:
+            _read_plays(self._conn, self._secret_key)
+        except Exception:  # rationale: what Plex holds for a person must not cost a scan
+            logger.exception("Reading Plex plays failed — scan results unaffected")
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
             return
+        try:
+            _prune_old_picks(self._conn)
+        except sqlite3.Error:
+            logger.exception("Old picks were not removed — scan results unaffected")
         if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
-                _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-            except (
-                PlexApiException,
-                requests.RequestException,
-                SafeHTTPError,
-                sqlite3.Error,
-            ):
-                # best-effort post-scan followup — must not abort scan summary
+                _refresh_recommendations(self._conn, secret_key=self._secret_key)
+            except Exception:  # rationale: what a model answers must never cost a scan
                 logger.exception("Recommendation generation failed — scan results unaffected")
+            try:
+                _refresh_people(self._conn, self._plex, secret_key=self._secret_key)
+            except Exception:  # rationale: what a model answers must never cost a scan
+                logger.exception("Own picks failed — scan results unaffected")
         try:
             _send_newsletter(
                 conn=self._conn,

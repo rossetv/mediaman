@@ -32,7 +32,7 @@ def tmdb_backdrop_url(conn: sqlite3.Connection, secret_key: str, key: str) -> st
     not asked about again for a few minutes, so a slow TMDB does not hold up each page."""
     if _unanswered.get(key, 0.0) > _clock():
         return None
-    client = TmdbClient.from_db(conn, secret_key, timeout=_TMDB_TIMEOUT_S)
+    client = TmdbClient.from_db(conn, secret_key, timeout=_TMDB_TIMEOUT_S, retry=False)
     if client is None:
         return None
     libraries = scanned_library_ids(conn)

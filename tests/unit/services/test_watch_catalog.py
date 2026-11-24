@@ -3,6 +3,7 @@ fetches through the cache, and the card and image shapes."""
 
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 
@@ -20,7 +21,9 @@ class DictCache:
     def __init__(self) -> None:
         self.store: dict[str, object] = {}
 
-    def get_or_fetch(self, key, fresh_s, stale_s, fetch, *, allow_fetch=None):
+    def get_or_fetch(
+        self, key, fresh_s, stale_s, fetch, *, allow_fetch=None, brief=False, hold_s=None
+    ):
         if key in self.store:
             return self.store[key]
         if allow_fetch is not None and not allow_fetch():
@@ -284,7 +287,7 @@ class TestDetails:
     }
 
     def test_only_the_fields_the_title_view_uses_are_cached(self, cache):
-        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+        client = SimpleNamespace(token="t", details_or_raise=lambda media_type, tmdb_id: self.RAW)
 
         answered = catalog.details(client, "movie", 5)
 
@@ -294,14 +297,110 @@ class TestDetails:
 
     def test_a_whole_payload_cached_before_is_not_read_as_the_fields(self, cache):
         cache.store["tmdb:details:movie:5"] = self.RAW
-        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+        client = SimpleNamespace(token="t", details_or_raise=lambda media_type, tmdb_id: self.RAW)
 
         assert catalog.details(client, "movie", 5) == catalog.tmdb_fields(self.RAW, "movie")
+
+    def test_one_tmdb_marks_adult_is_never_answered_not_even_once_cached(self, cache):
+        client = SimpleNamespace(token="t", details_or_raise=lambda *_: {**self.RAW, "adult": True})
+
+        for _ in range(2):
+            with pytest.raises(catalog.TitleNotFound):
+                catalog.details(client, "movie", 5)
+
+    @pytest.mark.parametrize("gone", [False, True], ids=["adult", "removed"])
+    def test_one_cached_before_tmdb_marked_or_removed_it_is_not_served_once_refreshed(
+        self, tmp_path, monkeypatch, gone
+    ):
+        disk_cache.init(tmp_path)
+        monkeypatch.setattr(disk_cache, "sync", True)
+        raw = dict(self.RAW)
+
+        def answer(*_):
+            if gone and raw.get("adult"):
+                raise SafeHTTPError(status_code=404, body_snippet="", url="https://tmdb.invalid")
+            return raw
+
+        client = SimpleNamespace(token="t", details_or_raise=answer)
+        assert catalog.details(client, "movie", 5)["title"] == "Glasshouse"
+        raw["adult"] = True
+
+        later = disk_cache.time.time() + 8 * 86400
+        monkeypatch.setattr(disk_cache.time, "time", lambda: later)
+        catalog.details(client, "movie", 5)  # old: served, and refreshed behind it
+
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+
+    def test_a_title_tmdb_does_not_have_is_asked_for_again_after_a_day(self, tmp_path, monkeypatch):
+        disk_cache.init(tmp_path)
+        monkeypatch.setattr(disk_cache, "sync", True)
+        asked, has_it = [], [False]
+
+        def answer(*_):
+            asked.append(1)
+            if not has_it[0]:
+                raise SafeHTTPError(status_code=404, body_snippet="", url="https://tmdb.invalid")
+            return dict(self.RAW)
+
+        client = SimpleNamespace(token="t", details_or_raise=answer)
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+
+        now = disk_cache.time.time()
+        has_it[0] = True
+        monkeypatch.setattr(disk_cache.time, "time", lambda: now + 3600)
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+        assert len(asked) == 1
+
+        monkeypatch.setattr(disk_cache.time, "time", lambda: now + 86400 + 60)
+        assert catalog.details(client, "movie", 5)["title"] == "Glasshouse"
+
+    def test_waiting_too_long_on_another_call_is_a_failure(self, monkeypatch):
+        def wait(*_args, **_kwargs):
+            raise TimeoutError
+
+        monkeypatch.setattr(_discover, "_cache", lambda: SimpleNamespace(get_or_fetch=wait))
+
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(SimpleNamespace(token="t"), "movie", 5, brief=True)
+
+    @pytest.mark.parametrize(
+        ("status", "raised"),
+        [
+            (404, catalog.TitleNotFound),
+            (429, catalog.TmdbBusy),
+            (500, catalog.TmdbDown),
+        ],
+    )
+    def test_no_such_title_and_a_failure_are_told_apart(self, cache, status, raised):
+        def fail(*_):
+            raise SafeHTTPError(status_code=status, body_snippet="", url="https://tmdb.invalid")
+
+        with pytest.raises(catalog.TmdbUnavailable) as caught:
+            catalog.details(SimpleNamespace(token="t", details_or_raise=fail), "movie", 5)
+
+        assert caught.type is raised
+        # That there is none is an answer, and kept as one.
+        assert bool(cache.store) == (status == 404)
+
+    def test_a_fault_in_reading_an_answer_is_a_failure_and_not_cached(self, cache, monkeypatch):
+        def fault(*_):
+            raise TypeError("unhashable")
+
+        monkeypatch.setattr(_discover, "tmdb_fields", fault)
+        client = SimpleNamespace(token="t", details_or_raise=lambda *_: self.RAW)
+
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(client, "movie", 5)
+        assert cache.store == {}
 
 
 class TestDiscoverShelves:
     def _client(self, trending, movies, tv):
         return SimpleNamespace(
+            token="t",
             trending=lambda page: trending(),
             popular_movies=lambda page: movies(),
             popular_tv=lambda page: tv(),
@@ -323,6 +422,18 @@ class TestDiscoverShelves:
         assert rows[0][2] == [{"id": 1, "media_type": "movie"}]
         assert len(calls) == 2
 
+    def test_an_adult_title_already_cached_is_left_out(self, cache):
+        cache.store["tmdb:discover:trending:1"] = [{"id": 1, "adult": True}, {"id": 2}]
+        client = self._client(list, list, list)
+
+        assert catalog.discover_shelves(client)[0][2] == [{"id": 2}]
+
+    def test_an_adult_title_of_a_later_page_is_left_out_and_does_not_end_the_row(self, cache):
+        payload = {"results": [{"id": 1, "adult": True}], "total_pages": 9}
+        client = SimpleNamespace(token="t", _get=lambda path, params: payload)
+
+        assert catalog.discover_page(client, "trending", 2) == ([], 3)
+
     def test_no_row_answered_is_tmdb_unavailable(self, cache):
         client = self._client(list, list, list)
 
@@ -336,7 +447,7 @@ class TestSearch:
             raise SafeHTTPError(status_code=500, body_snippet="", url="https://tmdb.invalid")
 
         with pytest.raises(catalog.TmdbUnavailable):
-            catalog.search(SimpleNamespace(_get=fail), "glass")
+            catalog.search(SimpleNamespace(token="t", _get=fail), "glass")
         assert cache.store == {}
 
     def test_the_same_query_in_another_case_is_served_from_the_cache(self, cache):
@@ -346,7 +457,7 @@ class TestSearch:
             calls.append(params["query"])
             return {"results": [{"id": 1, "media_type": "movie"}]}
 
-        client = SimpleNamespace(_get=get)
+        client = SimpleNamespace(token="t", _get=get)
         catalog.search(client, "Glass")
         assert catalog.search(client, "GLASS") == [{"id": 1, "media_type": "movie"}]
         assert calls == ["Glass"]
@@ -369,6 +480,8 @@ def clock(monkeypatch):
 
 class Finder:
     """TMDB's /find by TVDB id: *answers* in turn, an exception raised."""
+
+    token = "t"
 
     def __init__(self, *answers) -> None:
         self.answers = list(answers)
@@ -551,6 +664,66 @@ class TestShapes:
         assert card["in_library"] is True
         assert card["href"] == "/watch/show/500"
         assert card["download_pct"] is None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("vote_average", float("nan")),
+            ("vote_average", float("inf")),
+            pytest.param("vote_average", 10**400, id="huge"),
+            ("release_date", "²⁰¹⁹-01-01"),
+            ("release_date", 2019),
+            ("release_date", "20-1-1"),
+            ("id", 10**30),
+        ],
+    )
+    def test_a_card_is_made_without_a_value_no_title_has(self, field, value):
+        item = {"id": 5, "media_type": "movie", "title": "T"} | {field: value}
+
+        card = catalog.tmdb_card(item, catalog.LibraryIndex(), _view())
+
+        assert card is None or (card["rating"], card["year"]) == (None, None)
+        assert field != "id" or card is None
+
+    @pytest.mark.parametrize(
+        "odd", [float("nan"), "text", 7, ["x"], [None], {"results": "x"}, {"results": [None, 7]}]
+    )
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    def test_the_fields_are_made_of_wrong_shaped_parts_and_can_be_sent(self, kind, odd):
+        names = [
+            "release_dates",
+            "content_ratings",
+            "release_date",
+            "last_air_date",
+            "genres",
+            "credits",
+            "created_by",
+            "videos",
+            "seasons",
+            "number_of_seasons",
+            "external_ids",
+            "tagline",
+            "runtime",
+            "episode_run_time",
+            "vote_average",
+            "poster_path",
+        ]
+        details = {"title": "T", **dict.fromkeys(names, odd)}
+        nested = {"iso_3166_1": "US", "release_dates": odd, "rating": odd}
+
+        for payload in (
+            details,
+            {
+                "title": "T",
+                "release_dates": {
+                    "results": [nested, nested | {"release_dates": [{"certification": odd}]}]
+                },
+                "content_ratings": {"results": [nested]},
+            },
+        ):
+            fields = catalog.tmdb_fields(payload, kind)
+            assert fields["title"] == "T"
+            json.dumps(fields, allow_nan=False)
 
     def test_tmdb_fields_prefer_a_trailer_and_cap_the_cast(self):
         details = {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,7 +10,12 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
-from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
+from tests.helpers.factories import (
+    insert_kept_show,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -208,6 +214,59 @@ class TestShowRemoveAPI:
         assert resp.status_code == 200
         row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='Love/Hate'").fetchone()
         assert row is None
+
+
+class TestWhatTheSeasonsReplySaysOfEach:
+    def test_each_season_says_how_it_is_kept_and_when_it_leaves(self, authed_client, app):
+        conn = app.state.db
+        insert_settings(conn, plex_libraries='["2"]')
+        for number in (1, 2, 3, 4):
+            _insert_season(conn, f"10{number}", "Breaking Bad", number, "100")
+        now = datetime.now(UTC)
+
+        def in_days(days):
+            return (now + timedelta(days=days)).isoformat()
+
+        insert_scheduled_action(conn, media_item_id="101", action="protected_forever", token="a")
+        insert_scheduled_action(
+            conn, media_item_id="101", action="snoozed", execute_at=in_days(2), token="b"
+        )
+        insert_scheduled_action(
+            conn, media_item_id="102", action="snoozed", execute_at=in_days(20), token="c"
+        )
+        insert_scheduled_action(conn, media_item_id="103", execute_at=in_days(5), token="d")
+        insert_scheduled_action(
+            conn, media_item_id="104", action="snoozed", execute_at=in_days(-1), token="e"
+        )
+
+        body = authed_client.get("/api/show/100/seasons").json()
+        first, second, third, fourth = body["seasons"]
+
+        # Of a season's two keeps, the longer one.
+        assert first["keep"]["action"] == "protected_forever"
+        assert (first["keep"]["days"], first["keep"]["label"]) == (None, "Kept forever")
+        assert second["keep"]["execute_at"] == in_days(20)
+        assert (second["keep"]["days"], second["keep"]["label"]) == (20, "Kept for 20 more days")
+        assert third["leaving"] == {"execute_at": in_days(5), "days": 5}
+        assert (third["keep"], fourth["keep"]) == (None, None)
+        assert (first["leaving"], second["leaving"], fourth["leaving"]) == (None, None, None)
+
+    def test_the_days_of_a_show_keep_never_say_less_than_it_lasts(self, authed_client, app):
+        conn = app.state.db
+        _insert_season(conn, "101", "Breaking Bad", 1, "100")
+        ends = (datetime.now(UTC) + timedelta(days=12, hours=3)).isoformat()
+        insert_kept_show(
+            conn,
+            show_rating_key="100",
+            show_title="Breaking Bad",
+            action="snoozed",
+            execute_at=ends,
+        )
+
+        kept = authed_client.get("/api/show/100/seasons").json()["show_kept"]
+
+        assert kept["execute_at"] == ends
+        assert (kept["days"], kept["label"]) == (13, "Kept for 12 more days")
 
 
 class TestUntickingASeasonOnAShowKeep:

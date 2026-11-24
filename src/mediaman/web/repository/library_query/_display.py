@@ -7,14 +7,23 @@ no DB connection required.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from mediaman.core.format import days_ago as _days_ago_fmt
 from mediaman.core.format import format_bytes
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 from mediaman.services.scheduled_actions.days_left import days_left
+
+_REF_KEY_RE = re.compile(r"[0-9]{1,18}")
+
+
+def title_ref(kind: Literal["movie", "show"], key: str | None) -> str | None:
+    """The detail overlay's id for the movie or show with Plex *key*, when the key is usable."""
+    return f"{kind}-{key}" if key and _REF_KEY_RE.fullmatch(key) else None
 
 
 def days_ago(dt_str: str | None) -> str:
@@ -102,7 +111,7 @@ def _shape_rows(
     """Convert raw DB rows into display-ready dicts.
 
     # rationale: single cohesive loop building one output dict per row;
-    # the 18-key output dict is the natural seam and cannot be split further.
+    # the output dict is the natural seam and cannot be split further.
     """
     items = []
     now = now_utc()
@@ -141,6 +150,11 @@ def _shape_rows(
         items.append(
             {
                 "id": r["id"],
+                "ref": (
+                    title_ref("show", show_rk if r["has_rating_key"] else None)
+                    if is_tv
+                    else title_ref("movie", str(r["id"]))
+                ),
                 "title": r["title"],
                 "subtitle": " · ".join(subtitle_parts),
                 "media_type": display_type,

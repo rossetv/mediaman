@@ -1,40 +1,382 @@
-/* Watch page: search results in two groups. */
+/* Watch page: the search bar, its sheet of categories, the suggestions and the
+   results in two groups. */
 
-.results-group + .results-group,
-.results-groups > * + * { margin-top: 40px; }
-.results-groups > :empty { display: none; }
-.results-group__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.results-group__title { font-size: 19px; font-weight: 600; }
+:root {
+  --dur-open: .32s;
+  --ease-spring: var(--ease-out);
+}
+/* A slight overshoot, 1.6%. */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --ease-spring: linear(0, .06 5%, .2 11%, .42 19%, .65 28%, .84 38%, .96 48%, 1.006 56%, 1.016 64%, 1.01 76%, 1.003 88%, 1); }
+}
+
+/* ── The bar ── */
+
+.watch-page { position: relative; }
+/* The pill's two widths are lengths of the bar's own, so opening it measures nothing. */
+.watch-top { position: relative; z-index: 20; display: flex; justify-content: flex-end; align-items: center; height: 72px; padding: 20px var(--pad) 4px; container-type: inline-size; }
+.watch-search,
+.watch-sheet {
+  --open: min(680px, 100cqw);
+  --shut: min(460px, 100cqw);
+}
+.watch-top:has(> .watch-viewtoggle) > .watch-search { --shut: min(460px, 100cqw - 250px); }
+.watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 440px); }
+.watch-top > .watch-search {
+  position: absolute;
+  z-index: 1; /* over the switch and the meter while they make room */
+  left: var(--pad);
+  top: 20px;
+  display: block;
+  width: var(--shut);
+  max-width: none;
+  height: 48px;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border-radius: 24px;
+}
+.watch-top > .watch-search.is-open { width: var(--open); }
+.watch-search:focus-within { outline: none; }
+
+/* A cap that stands still and a body that slides out from under it, so it
+   widens by one transform and both ends stay round. */
+.watch-search__pill,
+.watch-search__halo { position: absolute; left: 0; top: 0; width: var(--open); height: 48px; border-radius: 24px; pointer-events: none; }
+.watch-search__pill { overflow: hidden; }
+.watch-search__pill i { position: absolute; top: 0; height: 48px; background: linear-gradient(var(--s4) 1px, var(--s3) 1px); }
+.watch-search__pill i:nth-child(1) { left: 0; right: 0; border-radius: 0 24px 24px 0; transform: translateX(calc(var(--shut) - var(--open))); transition: transform var(--dur-open) var(--ease-spring); }
+.watch-search__pill i:nth-child(2) { left: 0; width: 24px; border-radius: 24px 0 0 24px; }
+.watch-search.is-open .watch-search__pill i { transform: none; }
+/* The raised tint and the accent ring. */
+.watch-search__pill i::before,
+.watch-search__pill i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.watch-search__pill i::before { background: color-mix(in srgb, var(--t1) 5%, transparent); }
+.watch-search__pill i::after { border: 2px solid var(--accent); }
+.watch-search__pill i:nth-child(1)::after { border-left: 0; }
+.watch-search__pill i:nth-child(2)::after { border-right: 0; }
+.watch-search.is-focus .watch-search__pill i::before,
+.watch-search.is-focus .watch-search__pill i::after { opacity: 1; }
+.watch-search__halo {
+  outline: 5px solid color-mix(in srgb, var(--accent) 13%, transparent);
+  opacity: 0;
+  transform: scale(.96, .8);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-open) var(--ease-spring);
+}
+/* Its light falls below it. */
+.watch-search__halo::after { content: ""; position: absolute; inset: 10px 0 -10px; border-radius: inherit; box-shadow: 0 0 44px color-mix(in srgb, var(--accent) 20%, transparent); }
+/* After the pill has gone ahead of it. */
+.watch-search.is-focus .watch-search__halo { opacity: 1; transform: none; transition-delay: .13s, .06s; }
+
+.watch-search__lens { position: absolute; left: 16px; top: 13px; width: 22px; height: 22px; color: var(--t3); pointer-events: none; transition: transform var(--dur-slow) var(--ease-spring); }
+.watch-search__lens svg { display: block; width: 22px; height: 22px; overflow: visible; }
+.watch-search__lens :is(circle, line) { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring); }
+.watch-search__handle { transform-origin: 14px 14px; }
+.watch-search__lens .watch-search__arc { stroke: var(--accent); stroke-dasharray: 12 30; opacity: 0; transform-origin: 9.5px 9.5px; }
+.watch-search.is-focus .watch-search__lens { color: var(--t1); transform: scale(1.06); }
+/* A moment later than asked, so a quick answer shows no loader. */
+.watch-search.is-pending .watch-search__lens { transform: translate(1.5px, 1.5px); }
+.watch-search.is-pending .watch-search__handle { transform: scale(0); opacity: 0; transition-delay: .12s; }
+.watch-search.is-pending .watch-search__ring { opacity: .3; transition-delay: .12s; }
+.watch-search.is-pending .watch-search__arc { opacity: 1; transition-delay: .12s; animation: watch-search-turn .8s linear infinite; }
+@keyframes watch-search-turn { to { transform: rotate(360deg); } }
+
+.watch-search__row { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 52px 0 50px; }
+.watch-search__field { position: relative; flex: 1; min-width: 0; height: 48px; overflow: hidden; }
+.watch-search .watch-search__input { position: relative; width: 100%; height: 48px; padding: 0; letter-spacing: inherit; caret-color: var(--accent); }
+/* The words that move stand in for it. */
+.watch-search .watch-search__input::placeholder { color: transparent; }
+.watch-search__ph { position: absolute; left: 0; top: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: 48px; font-size: 16px; color: var(--t3); white-space: nowrap; pointer-events: none; }
+.watch-search.has-value .watch-search__ph { visibility: hidden; }
+
+/* The category or person whose page this is. */
+.watch-search__token { flex: none; display: flex; align-items: center; max-width: 60%; height: 44px; }
+.watch-search__token > span { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; padding: 0 14px 0 6px; border-radius: 16px; background: var(--rgba-accent-bg); color: var(--accent-hi); font-size: 14px; font-weight: 600; }
+.watch-search__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-search__token .watch-line { flex: none; width: 16px; height: 16px; margin-left: 5px; }
+.watch-search__token .watch-face { width: 24px; height: 24px; margin-left: -1px; font-size: 11px; }
+
+/* The key hint, then the cross. */
+.watch-search__end { position: absolute; top: 0; left: calc(var(--open) - 52px); width: 52px; height: 48px; pointer-events: none; transform: translateX(calc(var(--shut) - var(--open))); transition: transform var(--dur-open) var(--ease-spring); }
+.watch-search.is-open .watch-search__end { transform: none; }
+.watch-search__key {
+  position: absolute;
+  right: 13px;
+  top: 11px;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 7px;
+  font: 500 12px var(--font-text);
+  color: var(--t3);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring);
+}
+.watch-search__key--esc { font-size: 11px; opacity: 0; transform: scale(.8); }
+.watch-search.is-focus .watch-search__key--esc { opacity: 1; transform: none; }
+.watch-search:is(.is-focus, .has-value, .has-token) .watch-search__key--slash { opacity: 0; transform: translateY(-8px); }
+.watch-search:is(.has-value, .has-token) .watch-search__key--esc { opacity: 0; transform: scale(.8); }
+.watch-search .watch-search__clear {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  margin: 0;
+  color: var(--t2);
+  font-size: 17px;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(.5) rotate(-90deg);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring), visibility 0s var(--dur-fast), color var(--dur-fast) var(--ease-out);
+}
+.watch-search:is(.has-value, .has-token) .watch-search__clear { opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition-delay: 0s; }
+.watch-search .watch-search__clear:hover { color: var(--t1); }
+.watch-search:is(.has-value, .has-token) .watch-search__clear:active { transform: scale(.86); }
+@media (hover: hover) {
+  .watch-search:hover .watch-search__pill i::before { opacity: 1; }
+  .watch-search:hover:not(.is-focus, .is-pending) .watch-search__lens { transform: rotate(-10deg) scale(1.06); }
+  .watch-search:hover:not(.is-focus, .has-value, .has-token) .watch-search__key--slash { color: var(--t1); transform: translateY(-1px); }
+}
+@media (hover: none), (max-width: 599.98px) {
+  .watch-search__key { display: none; }
+  .watch-search__row { padding-right: 16px; }
+  .watch-search:is(.has-value, .has-token) .watch-search__row,
+  .is-sheet-on .watch-search__row { padding-right: 50px; }
+  /* Nothing else says how to leave the sheet. At once, or Tab would stop on it as it goes. */
+  .watch-search .watch-search__clear { transition: transform var(--dur) var(--ease-spring), color var(--dur-fast) var(--ease-out); }
+  .is-sheet-on .watch-search .watch-search__clear { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+}
+
+/* Where the open bar would cover what stands beside it, that makes room. */
+.watch-top > :is(.watch-viewtoggle, .space-meter) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, visibility 0s .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+@container (max-width: 1119.98px) {
+  .watch-search.is-open ~ .space-meter { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+}
+@container (max-width: 889.98px) {
+  .watch-search.is-open ~ .watch-viewtoggle { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+}
+/* Between a tablet's meter and the field the switch has no words. */
+@media (min-width: 700px) and (max-width: 899.98px) {
+  .watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 346px); }
+  .watch-top > .watch-viewtoggle .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .watch-top > .watch-viewtoggle .watch-viewtoggle__btn { justify-content: center; width: 44px; padding: 0; }
+  .watch-top > .watch-viewtoggle .watch-viewtoggle__btn::before { inset: 4px; }
+}
+/* The meter is in the top bar. */
+@media (max-width: 699.98px) { .watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 214px); } }
+@media (max-width: 599.98px) { .watch-top:has(> .watch-viewtoggle) > .watch-search { --shut: min(460px, 100cqw - 106px); } }
+
+/* ── The sheet ── */
+
+.watch-sheet {
+  position: absolute;
+  z-index: 1;
+  left: var(--pad);
+  top: 80px;
+  width: var(--open);
+  max-height: calc(var(--seen, 100dvh) - 150px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 17px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 20px;
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+  transform-origin: 60px 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px) scale(.975);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur);
+}
+.watch-sheet::-webkit-scrollbar { display: none; }
+.watch-sheet.is-on { opacity: 1; visibility: visible; transform: none; transition: opacity var(--dur) var(--ease-out), transform var(--dur-open) var(--ease-spring), visibility 0s; }
+.watch-sheet__title { margin: 0 4px 10px; font-size: 13px; font-weight: 600; color: var(--t2); }
+.watch-sheet__title:not(:first-child) { margin-top: 20px; }
+.watch-sheet.is-on .is-staged { animation: watch-sheet-rise var(--dur) var(--ease-out) backwards; }
+@keyframes watch-sheet-rise { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 699.98px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 210px); padding: 15px 13px; } }
+@media (max-height: 500px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 146px); } }
+
+.watch-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.watch-tile { position: relative; container-type: inline-size; display: flex; align-items: center; height: 60px; padding: 0 12px; overflow: hidden; border-radius: var(--r-lg); background: var(--s3); color: var(--t1); font-size: 14px; text-align: left; transition: transform var(--dur-fast) var(--ease-out); }
+.watch-tile > b { position: relative; z-index: 2; font-weight: 600; line-height: 1.2; }
+.watch-tile:has(> .watch-mini) > b { padding-right: 52px; }
+.watch-tile::before { content: ""; position: absolute; inset: 0; background: var(--s5); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+/* Keeps the name clear of the posters at rest. */
+.watch-tile::after { content: ""; position: absolute; z-index: 1; inset: 0 50px 0 0; background: linear-gradient(90deg, var(--s3) 60%, transparent); transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-mini { flex: none; overflow: hidden; border-radius: var(--r-xxs); background: var(--s4); }
+.watch-mini img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.watch-tile > .watch-mini { position: absolute; right: 4px; top: 13px; width: 36px; height: 54px; border-radius: 5px; box-shadow: 0 0 12px color-mix(in srgb, var(--scrim) 50%, transparent); opacity: .75; transform: rotate(7deg); transition: transform var(--dur-slow) var(--ease-spring), opacity var(--dur) var(--ease-out); }
+.watch-tile > .watch-mini + .watch-mini { z-index: 1; right: 15px; top: 19px; transform: rotate(-7deg); }
+.watch-tile > .watch-mini:has(> [data-broken]) { display: none; }
+.watch-tile:is(:hover, .is-picked)::before { opacity: 1; }
+.watch-tile:is(:hover, .is-picked)::after { opacity: 0; }
+.watch-tile:is(:hover, .is-picked) > .watch-mini { opacity: 1; transform: translate(3px, -7px) rotate(13deg); }
+.watch-tile:is(:hover, .is-picked) > .watch-mini + .watch-mini { transform: translate(-3px, -8px) rotate(-11deg); }
+/* Posters make way where a name needs the room: smaller, then one alone. A name
+   with a long word needs it first. The widths are inside the tile's padding. */
+@container (max-width: 123px) {
+  .watch-tile > .watch-mini { top: 18px; right: 2px; width: 28px; height: 42px; }
+  .watch-tile > .watch-mini + .watch-mini { top: 23px; right: 9px; }
+}
+@container (max-width: 142px) {
+  .watch-tile.is-long > b { letter-spacing: -.02em; }
+  .watch-tile.is-long > .watch-mini { top: 18px; right: 2px; width: 28px; height: 42px; }
+  .watch-tile.is-long > .watch-mini + .watch-mini { top: 23px; right: 9px; }
+}
+@container (max-width: 124px) {
+  .watch-tile.is-long > .watch-mini { right: -8px; width: 26px; height: 39px; }
+  .watch-tile.is-long > .watch-mini + .watch-mini { display: none; }
+}
+@container (max-width: 107px) {
+  .watch-tile > .watch-mini { right: -8px; width: 26px; height: 39px; }
+  .watch-tile > .watch-mini + .watch-mini { display: none; }
+  .watch-tile.is-long > b { margin-left: -3px; font-size: 12.5px; }
+}
+.watch-tile:active,
+.watch-try:active { transform: scale(.97); }
+.watch-tile.is-picked,
+.watch-try.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-tries { display: flex; flex-wrap: wrap; gap: 8px; }
+.watch-try { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 13px; border-radius: 22px; background: var(--s3); color: var(--t2); font-size: 14px; transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.watch-try > .ico { font-size: 13px; color: var(--t3); }
+.watch-try:is(:hover, .is-picked) { background: var(--s4); color: var(--t1); }
+.watch-people { display: flex; gap: 4px; margin: 0 -6px; padding: 2px 0; overflow-x: auto; scrollbar-width: none; }
+.watch-people::-webkit-scrollbar { display: none; }
+.watch-person { display: flex; flex: 1 0 92px; flex-direction: column; align-items: center; min-width: 0; padding: 8px 4px; border-radius: var(--r-lg); color: var(--t2); font-size: 12px; line-height: 1.25; text-align: center; transition: color var(--dur-fast) var(--ease-out); }
+.watch-person .watch-face { width: 56px; height: 56px; margin-bottom: 7px; font-size: 20px; transition: transform var(--dur-slow) var(--ease-spring); }
+.watch-person__name { max-width: 100%; overflow-wrap: anywhere; }
+.watch-person__count { margin-top: 2px; font-size: 11px; color: var(--t3); }
+.watch-person:is(:hover, .is-picked) { color: var(--t1); }
+.watch-person:is(:hover, .is-picked) .watch-face { transform: scale(1.07); }
+.watch-person:active .watch-face { transform: scale(.97); }
+.watch-person.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-tile--skel { height: 60px; border-radius: var(--r-lg); }
+.watch-person--skel .skel--line { width: 70%; height: 10px; margin: 2.5px 0; }
+.watch-person--skel .skel--line:last-child { width: 40%; margin: 4px 0 1.75px; }
+@media (max-width: 599.98px) { .watch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* The page settles back behind it, and holds still: where the scrollbar takes room, that stays. */
+html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
+#watch-browse { transform-origin: 50% 160px; transition: transform var(--dur-open) var(--ease-out), opacity var(--dur) var(--ease-out); }
+.watch-page.is-sheet-on #watch-browse { transform: scale(.982); }
+#watch-browse.is-off { position: absolute; left: 0; right: 0; opacity: 0; pointer-events: none; transform: scale(.97); transition-duration: var(--dur-fast); }
+.watch-veil { position: fixed; inset: 0; z-index: 10; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out); }
+.watch-page.is-sheet-on .watch-veil { opacity: .62; pointer-events: auto; }
+
+/* ── The results ── */
+
+.watch-results { position: relative; }
+.results-page { position: relative; }
+.results-page.is-leaving { position: absolute; z-index: 1; pointer-events: none; }
+.results-page--results { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 36px; align-items: start; }
+.results-page--results.has-no-suggestions { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.has-no-suggestions > .results-side { display: none; }
+.results-side,
+.results-main { position: relative; min-width: 0; }
+.results-ghosts { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.results-ghosts > * { position: absolute; margin: 0; }
+
+.watch-suggestions { position: relative; display: flex; flex-direction: column; margin: 0 -10px; }
+/* One highlight, which glides from row to row. */
+.watch-suggestions__bar { position: absolute; left: 0; right: 0; top: 0; height: 56px; border-radius: var(--r-lg); background: var(--s3); outline: 1.5px solid var(--accent); outline-offset: -1.5px; opacity: 0; pointer-events: none; transition: transform var(--dur) var(--ease-spring), opacity var(--dur-fast) var(--ease-out); }
+.watch-suggestions__bar.is-on { opacity: 1; }
+.watch-suggestion { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 56px; padding: 0 10px; border-radius: var(--r-lg); color: inherit; text-align: left; }
+.watch-suggestion::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--rgba-overlay-sm); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-suggestion > * { position: relative; }
+.watch-suggestion__pic { flex: none; display: grid; place-items: center; width: 40px; height: 40px; }
+.watch-suggestion__tag { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-md); background: var(--s3); color: var(--accent-hi); }
+.watch-line { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.watch-face { position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px; overflow: hidden; border-radius: 50%; background: var(--s4); color: var(--t3); font-size: 15px; transition: transform var(--dur) var(--ease-spring); }
+.watch-face__letters { font-size: .95em; font-weight: 600; color: var(--t2); }
+.watch-face:has(> img:not([data-broken])) > :first-child { visibility: hidden; }
+.watch-face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.watch-suggestion .watch-mini { width: 30px; height: 44px; }
+.watch-suggestion__text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.25; }
+.watch-suggestion__text b { overflow: hidden; font-size: 15px; font-weight: 500; color: var(--t2); text-overflow: ellipsis; white-space: nowrap; }
+.watch-suggestion__text em { font-style: normal; font-weight: 600; color: var(--t1); }
+.watch-suggestion__text small { overflow: hidden; font-size: 12px; color: var(--t3); text-overflow: ellipsis; white-space: nowrap; }
+.watch-suggestion > .watch-suggestion__go { font-size: 13px; color: var(--t2); opacity: 0; transform: translateX(-6px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring); }
+.watch-suggestion.is-picked .watch-face { transform: scale(1.07); }
+.watch-suggestion.is-picked > .watch-suggestion__go { opacity: 1; transform: none; }
+@media (hover: hover) {
+  .watch-suggestion:hover::before { opacity: 1; }
+  .watch-suggestion:hover .watch-face { transform: scale(1.07); }
+  .watch-suggestion:hover > .watch-suggestion__go { opacity: 1; transform: none; }
+}
+/* A sideways strip of categories and people; titles are in the results below. */
+@media (max-width: 899.98px) {
+  .results-page--results { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .watch-suggestions { flex-direction: row; gap: 8px; margin: -4px calc(-1 * var(--pad)); padding: 4px var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
+  .watch-suggestions::-webkit-scrollbar { display: none; }
+  .watch-suggestion { flex: none; gap: 10px; width: auto; max-width: min(300px, 82vw); height: 52px; padding: 0 16px 0 7px; border-radius: 26px; background: var(--s2); }
+  /* Two stand on a phone's screen. */
+  .watch-suggestion--person { max-width: min(190px, 46vw); }
+  .watch-suggestion > .watch-suggestion__go,
+  .watch-suggestions__bar,
+  .watch-suggestion--title,
+  .results-side.is-titles-only { display: none; }
+  .results-page--results:has(> .is-titles-only) { gap: 0; }
+  .watch-suggestion__pic,
+  .watch-suggestion__tag,
+  .watch-suggestion .watch-face { width: 38px; height: 38px; }
+  .watch-suggestion__tag { border-radius: 50%; }
+  .watch-suggestion__text b { font-size: 14px; }
+  .watch-suggestion.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+}
+/* Found alone, the people are the results: large, above the line that no title matches. */
+.results-page--results.is-people { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.is-people > .results-side { max-width: 640px; }
+.is-people .watch-suggestions { flex-direction: column; gap: 4px; margin: 0 -10px; padding: 0; overflow: visible; }
+.is-people .watch-suggestion { width: 100%; max-width: none; height: auto; min-height: 56px; padding: 8px 10px; border-radius: var(--r-lg); background: none; }
+.is-people .watch-suggestion--person { gap: 18px; min-height: 108px; padding: 10px; }
+.is-people .watch-suggestion--person :is(.watch-suggestion__pic, .watch-face) { width: 88px; height: 88px; font-size: 30px; }
+.is-people .watch-suggestion--person b { font-size: 22px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.is-people .watch-suggestion--person small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; margin-top: 4px; font-size: 14px; line-height: 1.35; white-space: normal; color: var(--t2); }
+.is-people .watch-suggestion > .watch-suggestion__go { display: block; }
+.is-people .watch-suggestions__bar { display: none; }
+.is-people .watch-suggestion.is-picked { background: var(--s3); outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.is-people .results-none { color: var(--t3); }
+
+.results-grid { align-content: start; }
+/* What is being replaced dims until the library answers. */
+.watch-grid.results-grid[aria-busy="true"] { opacity: .5; transition-delay: .1s; }
+.results-group__head { display: flex; grid-column: 1 / -1; align-items: baseline; gap: 10px; margin-bottom: -8px; }
+.results-group__head:not(:first-child) { margin-top: 18px; }
+.results-group__title { font-size: 19px; font-weight: 600; line-height: 1.47; }
+.results-group__title:focus { outline: none; }
 .results-group__count { font-size: 13px; color: var(--t3); }
+.results-grid .watch-card--skel .skel--line { font-size: 12px; margin-block: calc((1lh - 10px) / 2); }
 
-/* What is being replaced dims until the library answers. The page-wide grid
-   dimming in _watch.css would dim a second time inside a group. */
-.results-groups,
-.watch-results__msg { transition: opacity var(--dur) var(--ease-out); }
-.watch-results[aria-busy="true"] .results-groups,
-.watch-results[aria-busy="true"] .watch-results__msg { opacity: .5; transition-delay: .1s; }
-.watch-results .results-groups .watch-grid { opacity: 1; }
+.results-fail { display: flex; flex-wrap: wrap; grid-column: 1 / -1; align-items: center; gap: 0 14px; width: fit-content; max-width: 100%; padding: 2px 8px 2px 16px; border-radius: var(--r-lg); background: var(--rgba-danger-bg); color: var(--danger-text); font-size: 15px; line-height: 1.35; }
+.results-fail > span { min-width: 0; padding: 10px 0; }
+.results-fail > .watch-results__retry { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 0 12px; border-radius: var(--r-pill); color: var(--accent-hi); }
+.results-fail .ico { font-size: 14px; transition: transform var(--dur-slow) var(--ease-spring); }
+@media (hover: hover) { .results-fail > .watch-results__retry:hover .ico { transform: rotate(60deg); } }
 
-/* The group heading is not part of the grid, so the retry line sits under it. */
-.results-group .watch-results__msg--error { margin-bottom: 0; }
-
-/* Said above a TMDB error when the library has nothing. */
-.results-none { margin-bottom: 14px; color: var(--t2); font-size: 15px; }
+.results-none { grid-column: 1 / -1; color: var(--t2); font-size: 15px; }
+.results-empty { display: flex; flex-direction: column; grid-column: 1 / -1; align-items: center; gap: 6px; padding: 56px 0 24px; text-align: center; }
+.results-empty__lens { width: 56px; height: 56px; margin-bottom: 10px; stroke-width: 1.3; color: var(--t3); }
+.results-empty .watch-results__line { font-size: 17px; }
+.results-empty .watch-tries { justify-content: center; max-width: 520px; margin-top: 18px; }
 
 /* A quiet line, under the library results, when only the library is searched. */
 .results-hint {
   display: flex;
+  grid-column: 1 / -1;
   align-items: baseline;
   gap: 10px;
   max-width: 640px;
-  margin-top: 36px;
+  margin-top: 14px;
   padding-top: 18px;
   border-top: 1px solid var(--hair);
   font-size: 14px;
   line-height: 1.5;
   color: var(--t3);
 }
-.watch-results__msg--empty + .results-hint { margin-top: 12px; margin-inline: auto; }
+.results-empty + .results-hint { margin: 12px auto 0; justify-content: center; }
 .results-hint > .ico { flex: none; font-size: 13px; }
 .results-hint a { position: relative; color: var(--accent); font-weight: 500; white-space: nowrap; }
 /* 44px to tap without making the line taller. */
@@ -50,7 +392,50 @@
 
 @media (max-width: 599.98px) {
   .results-group__title { font-size: 17px; }
+  .is-people .watch-suggestion--person { gap: 14px; min-height: 92px; }
+  .is-people .watch-suggestion--person :is(.watch-suggestion__pic, .watch-face) { width: 72px; height: 72px; font-size: 25px; }
+  .is-people .watch-suggestion--person b { font-size: 19px; }
   .watch-badge--state { right: 6px; }
   /* Three across on a phone. */
-  .watch-results .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+  .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+}
+
+/* ── Still ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-sheet.is-on .is-staged,
+  .watch-search.is-pending .watch-search__arc { animation: none; }
+  .watch-page.is-sheet-on #watch-browse,
+  .watch-search .watch-search__lens,
+  .watch-search:hover .watch-search__key--slash,
+  .watch-suggestion .watch-face,
+  .watch-person .watch-face,
+  .results-fail .ico,
+  .watch-tile:active,
+  .watch-try:active { transform: none !important; }
+  .watch-tile > .watch-mini { transform: rotate(7deg) !important; }
+  .watch-tile > .watch-mini + .watch-mini { transform: rotate(-7deg) !important; }
+}
+
+/* The system's colours: a real border round the bar, and a highlight that shows. */
+@media (forced-colors: active) {
+  .watch-search__pill,
+  .watch-search__halo,
+  .watch-search__ph { display: none; }
+  .watch-search .watch-search__input::placeholder { color: GrayText; text-overflow: ellipsis; }
+  .watch-top > .watch-search { background: Canvas; border: 1px solid ButtonText; }
+  .watch-top > .watch-search.is-focus { outline: 2px solid Highlight; outline-offset: 1px; }
+  .watch-search__lens .watch-search__arc { stroke: Highlight; }
+  .watch-sheet,
+  .watch-tile,
+  .watch-try,
+  .watch-face,
+  .watch-search__token > span { border: 1px solid ButtonText; }
+  .watch-tile::before,
+  .watch-tile::after { content: none; }
+  .watch-option.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
+  .watch-suggestions__bar { display: none; }
+  .watch-line { color: CanvasText; }
+  .watch-veil { display: none; }
+  .results-fail { border: 1px solid CanvasText; }
 }

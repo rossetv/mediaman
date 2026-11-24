@@ -13,13 +13,9 @@ from mediaman.db import init_db
 from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.scanner.engine import ScanEngine
-from mediaman.scanner.repository import clear_pending_deletions
+from mediaman.scanner.repository import clear_pending_deletions, delete_show_scheduled_deletions
 from mediaman.services.infra.storage import deletion as storage
-from mediaman.web.repository.kept import (
-    delete_protections,
-    delete_show_scheduled_deletions,
-    set_protected_state,
-)
+from mediaman.web.repository.kept import delete_protections, set_protected_state
 from mediaman.web.repository.library_api import apply_keep_in_tx
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 

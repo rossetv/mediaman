@@ -26,10 +26,22 @@
     if (window.UIFeedback) window.UIFeedback.toast(message, opts);
   }
 
+  /* The mark of something an AI chose: the icon and the words. */
+  function aiLabel(text) {
+    var label = el('span', 'ai-label');
+    label.appendChild(window.MM.dom.icon('i-sparkles'));
+    label.appendChild(document.createTextNode(text));
+    return label;
+  }
+
   /* ── Motion ── */
 
   function reduceMotion() {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function coarsePointer() {
+    return window.matchMedia('(pointer: coarse)').matches;
   }
 
   function token(name, fallback) {
@@ -89,6 +101,14 @@
     }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
+  /* A node put in another place starts its CSS animations again, so a view
+     that has eased in must not carry .fade-in when a swap moves it: it would
+     blink back to nothing. */
+  function settle(node) {
+    node.classList.remove('fade-in');
+    toArray(node.querySelectorAll('.fade-in')).forEach(function (n) { n.classList.remove('fade-in'); });
+  }
+
   /* The cross-fades still running, by the stack that holds them: the node
      fading in, the fade-outs, and who waits for the end. */
   var _fades = new WeakMap();
@@ -107,10 +127,16 @@
       n.removeAttribute('inert');
     });
     fade.anims.forEach(function (a) { a.cancel(); });
-    if (keep) keep.style.gridArea = stack.style.gridArea;
+    if (keep) {
+      keep.style.gridArea = stack.style.gridArea;
+      settle(keep);
+    }
     if (stack.parentNode) {
+      // Moving a node takes the focus off what is in it.
+      var active = document.activeElement;
       if (keep) stack.replaceWith(keep);
       else stack.remove();
+      if (keep && keep.contains(active)) active.focus({ preventScroll: true });
     }
     fade.waiting.forEach(function (resolve) { resolve(); });
   }
@@ -138,6 +164,7 @@
       return Promise.resolve();
     }
     if (!fade) {
+      settle(oldNode);
       stack = el('div');
       stack.style.display = 'grid';
       stack.style.gridArea = oldNode.style.gridArea;
@@ -187,14 +214,135 @@
     };
   }
 
+  /* ── Watched marks ──
+     The markup of _watch_card.html's mark macros; watch/marks.js works them.
+     A mark is "<kind>/<key>": movie, episode, season or show, and its key. */
+
+  var MARK_RE = /^(movie|episode|season|show)\/[0-9]{1,18}$/;
+
+  function markOf(item) {
+    var mark = item && item.mark_kind + '/' + item.mark_key;
+    return mark && MARK_RE.test(mark) ? mark : '';
+  }
+
+  /* Put *text* in a card's caption, as _watch_card.html's caption macro does. */
+  function caption(node, text) {
+    function add(to, name, s) { return to.appendChild(el('span', 'watch-card__' + name, s)); }
+    function words(to, s) { to.appendChild(document.createTextNode(s)); }
+    /* "1 h 5 min left", drawn "1h 5m left" on a phone. */
+    function time(to, s) {
+      s.split(/( h| min)(?= |$)/).forEach(function (part) {
+        var unit = { ' h': 'h', ' min': 'm' }[part];
+        if (!unit) { if (part) words(to, part); return; }
+        add(to, 'wide', part);
+        var short = add(to, 'unit');
+        short.setAttribute('data-unit', unit);
+        short.setAttribute('aria-hidden', 'true');
+      });
+    }
+    var parts = text.split(' · ');
+    var kind = /^(Movie|TV|Anime)$/.test(parts[0]) && parts.length > 1;
+    var episode = /^S\d+$/.test(parts[0]) && /^E\d+$/.test(parts[1]);
+    node.textContent = '';
+    if (!kind && !episode && !(/^E\d+$/.test(parts[0]) && parts.length > 1)) {
+      if (text) words(node, text);
+      return node;
+    }
+    var lead = add(node, 'lead', parts[0]);
+    var rest = parts.slice(1);
+    if (episode) {
+      add(lead, 'said', ' ·');
+      words(lead, ' ' + rest.shift());
+    }
+    if (!rest.length) return node;
+    add(lead, 'said', ' · ');
+    var tail = add(node, 'tail');
+    if (rest.length > 1) add(tail, 'mid', rest.slice(0, -1).join(' · ') + ' · ');
+    var last = rest[rest.length - 1];
+    var left = !kind && / left$/.test(last);
+    time(rest.length > 1 ? add(tail, 'end') : tail, left ? last.slice(0, -5) : last);
+    if (left) add(node, 'left', ' left');
+    return node;
+  }
+
+  /* The mark on a poster. */
+  function watchedBadge() {
+    var badge = el('span', 'watch-badge watch-badge--watched');
+    badge.appendChild(window.MM.dom.icon('i-eye'));
+    badge.appendChild(el('span', 'watch-badge__word', 'Watched'));
+    return badge;
+  }
+
+  /* Give a card its mark and its More button; a title the library does not
+     hold has neither. */
+  function addMarks(card, poster, item) {
+    var mark = markOf(item);
+    if (!mark) return;
+    card.setAttribute('data-mark', mark);
+    var sub = card.querySelector('.watch-card__sub');
+    if (sub) caption(sub, sub.textContent);
+    if (item.watched) poster.appendChild(watchedBadge());
+    var more = el('button', 'watch-more');
+    more.type = 'button';
+    more.setAttribute('data-watch-more', '');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    more.setAttribute('aria-label', 'More for ' + item.title);
+    more.appendChild(window.MM.dom.icon('i-ellipsis'));
+    card.appendChild(more);
+  }
+
+  function markAction(watched) { return watched ? 'Mark as not watched' : 'Mark as watched'; }
+
+  function toggle(className, mark, watched, label, name) {
+    var b = el('button', className);
+    b.type = 'button';
+    b.setAttribute('data-mark-toggle', mark);
+    b.setAttribute('data-mark-name', name);
+    b.setAttribute('aria-pressed', watched ? 'true' : 'false');
+    b.setAttribute('aria-label', label);
+    return b;
+  }
+
+  /* An episode's toggle: the eye, and the word once watched. */
+  function markToggle(mark, watched, name) {
+    var b = toggle('watch-mark', mark, watched, 'Mark ' + name + ' as watched', name);
+    b.setAttribute('title', markAction(watched));
+    b.appendChild(window.MM.dom.icon('i-eye'));
+    b.appendChild(el('span', 'watch-mark__word', 'Watched'));
+    return b;
+  }
+
+  /* A button toggle: both its labels are laid out, so its width never changes. */
+  function markButton(className, mark, watched, name, label) {
+    var b = toggle(className + ' watch-mark-btn', mark, watched, label, name);
+    var faces = el('span', 'watch-mark-btn__faces');
+    [['off', label], ['on', 'Watched']].forEach(function (f) {
+      var face = faces.appendChild(el('span', 'watch-mark-btn__' + f[0]));
+      face.appendChild(window.MM.dom.icon('i-eye'));
+      face.appendChild(document.createTextNode(f[1]));
+    });
+    b.appendChild(faces);
+    return b;
+  }
+
   window.MMWatch = window.MMWatch || {};
   window.MMWatch.core = {
+    markOf: markOf,
+    caption: caption,
+    watchedBadge: watchedBadge,
+    addMarks: addMarks,
+    markAction: markAction,
+    markToggle: markToggle,
+    markButton: markButton,
     byId: byId,
     el: el,
+    aiLabel: aiLabel,
     toArray: toArray,
     safePath: safePath,
     toast: toast,
     reduceMotion: reduceMotion,
+    coarsePointer: coarsePointer,
     token: token,
     tokenMs: tokenMs,
     fadeIn: fadeIn,

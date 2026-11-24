@@ -31,6 +31,14 @@ def test_a_season_switch_shows_the_quiet_line_then_the_real_one_in_the_same_slot
     assert out["back"]["beforeActions"] is True
 
 
+def test_the_season_tabs_are_one_line_that_shows_the_picked_one() -> None:
+    assert _run("seasonLine") == {
+        "row": True,
+        "opened": [],
+        "cutOff": [{"left": 300, "behavior": "smooth"}],
+    }
+
+
 def test_undo_after_moving_to_another_season_leaves_that_season_line_alone() -> None:
     second = _run("undoElsewhere")["second"]
     assert (second["text"], second["other"]) == ("Season 1 leaves in 3 days", True)
@@ -43,14 +51,6 @@ def test_the_kept_line_is_marked_kept_until_undo() -> None:
     assert out["undone"]["text"].startswith("Leaving in 3 days")
 
 
-def test_an_empty_search_shows_a_hint_and_reads_out_only_the_line() -> None:
-    out = _run("searchEmpty")
-    assert out["empty"] is True
-    assert out["parts"][1] == "No matches for “zzqx”"
-    assert out["parts"][2] != ""
-    assert out["status"] == "No matches for “zzqx”"
-
-
 def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_content() -> None:
     out = _run("cardExit")
     # The whole exit fits --dur-slow (250ms); the slot starts closing at 0.6 of it.
@@ -58,14 +58,6 @@ def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_conten
     assert out["lastOpen"] == 0.6
     assert out["lastOpen"] < out["faded"] <= 1
     assert all(width == "20px" for width in out["pinned"])
-
-
-def test_a_failed_search_says_so_in_one_alert_line_and_still_read_out() -> None:
-    out = _run("searchError")
-    assert (out["error"], out["alert"]) == (True, "alert")
-    assert out["line"] == "Couldn’t search just now."
-    assert out["status"] == "Couldn’t search just now."
-    assert (out["retried"], out["focus"]) == (True, True)
 
 
 def test_a_swap_stacks_both_nodes_while_they_cross_fade_then_leaves_only_the_new_one() -> None:
@@ -101,3 +93,34 @@ def test_a_swap_with_reduced_motion_is_immediate() -> None:
 def test_flip_slides_only_the_nodes_that_moved_from_where_they_were() -> None:
     out = _run("flip")
     assert out["moved"] == [["a", "translate(-30px, -10px)", "none"]]
+
+
+def test_what_has_eased_in_does_not_ease_in_again_when_a_swap_moves_it() -> None:
+    assert _run("swapEased") == {"before": 2, "going": 0, "left": 0}
+
+
+def test_focus_put_in_the_new_view_during_a_swap_outlives_the_fade() -> None:
+    assert _run("swapFocus") == "go"
+
+
+def test_the_toast_of_a_kept_season_names_it_once() -> None:
+    assert _run("keptSeason") == ["Kept Glass Coast, Season 2 for 7 days."]
+
+
+def test_a_finished_keep_and_a_finished_undo_are_announced() -> None:
+    kept = ["mm:watch-kept", "1100"]
+    assert _run("keepsTold") == {"early": 0, "kept": [kept], "undone": [kept, kept], "refused": 2}
+
+
+def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
+    out = _run("undoneCardShown")
+    # The row does not snap back to the card it stood on, and the focus does not scroll it too.
+    shown = {"back": True, "focused": [True], "snap": "none", "after": ""}
+    assert out["off"] == {**shown, "by": [[-128, "auto"]]}
+    assert out["inView"] == {**shown, "by": []}
+    assert out["grid"]["back"] is True
+    assert (out["grid"]["by"], out["grid"]["snap"]) == ([], "")
+
+
+def test_ctrl_z_reaches_the_undo_of_a_keep_made_in_details() -> None:
+    assert _run("toastDialog") == {"details": "ttl", "page": None}

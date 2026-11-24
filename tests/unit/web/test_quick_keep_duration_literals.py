@@ -6,8 +6,7 @@
 ``name="duration" value="..."`` template literal, or a JS default fallback for
 a duration value, that still uses the short form ("7d") sends a request the
 route rejects with 400 ``invalid_duration`` — the "quick keep" buttons on the
-dashboard, Watch list and token-keep pages silently fail for every duration
-except Forever.
+Watch list and token-keep pages silently fail for every duration except Forever.
 """
 
 from __future__ import annotations
@@ -23,8 +22,8 @@ JS_DIR = REPO / "src/mediaman/web/static/js"
 
 # `data-duration="..."` / `data-keep-dur="..."` attribute literals in markup,
 # plus the `"duration": "..."` entry passed to the `c.btn` macro's
-# `data_attrs` dict (dashboard.html renders its default Keep button that
-# way), plus keep.html's plain-form `name="duration" value="..."` buttons.
+# `data_attrs` dict, plus keep.html's plain-form `name="duration" value="..."`
+# buttons.
 _TEMPLATE_LITERAL_RE = re.compile(r'data-(?:duration|keep-dur)="([^"]+)"')
 _MACRO_DURATION_RE = re.compile(r'data_attrs\s*=\s*\{[^}]*"duration":\s*"([^"]+)"')
 _BUTTON_VALUE_RE = re.compile(r'name="duration"[^>]*\svalue="([^"]+)"')
@@ -85,3 +84,11 @@ def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
                 f"{path}: default fallback {value!r} is not a key of VALID_KEEP_DURATIONS "
                 f"({sorted(VALID_KEEP_DURATIONS)}) — POST /keep will 400 invalid_duration"
             )
+
+
+def test_the_shared_keep_menu_offers_only_valid_keep_durations() -> None:
+    # watch/keep.js sends "<data-days> days" by the admins' route.
+    card = (TEMPLATES_DIR / "_watch_card.html").read_text(encoding="utf-8")
+    days = re.findall(r'data-days="(\d+)"', card)
+    assert days != []
+    assert {f"{d} days" for d in days} <= set(VALID_KEEP_DURATIONS)

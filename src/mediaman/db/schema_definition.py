@@ -54,10 +54,43 @@ CREATE TABLE IF NOT EXISTS watch_progress (
     watched INTEGER NOT NULL DEFAULT 0,
     credited_at TEXT,
     updated_at TEXT NOT NULL,
+    seen_at TEXT,
     PRIMARY KEY (username, rating_key)
 );
 CREATE INDEX IF NOT EXISTS idx_watch_progress_media_item ON watch_progress(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_user_updated ON watch_progress(username, updated_at);
+
+-- The titles a person played here, which outlive the titles' own rows: their picks are
+-- made from them.
+CREATE TABLE IF NOT EXISTS played_titles (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    tmdb_id INTEGER,
+    played_at TEXT NOT NULL,
+    PRIMARY KEY (username, media_type, title)
+);
+
+-- Titles a person hid from Continue watching; they return when played again.
+CREATE TABLE IF NOT EXISTS watch_dismissed (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    title_key TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (username, title_key)
+);
+
+-- What TMDB says of each library title: media_items has only its ids. id_type is "movie" or
+-- "tv" (TMDB ids) or "tvdb" (a show known by that id alone); details is NULL when TMDB has no
+-- such title or marks it adult.
+CREATE TABLE IF NOT EXISTS title_meta (
+    id_type TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    tmdb_id INTEGER,
+    details TEXT,
+    cast_json TEXT,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (id_type, id)
+);
 
 -- === Scanner (media items, scheduled actions, kept shows, audit log) ===
 CREATE TABLE IF NOT EXISTS media_items (
@@ -79,7 +112,12 @@ CREATE TABLE IF NOT EXISTS media_items (
     last_scanned_at TEXT,
     tmdb_id INTEGER,
     tvdb_id INTEGER,
-    tracked_files TEXT
+    tracked_files TEXT,
+    episode_count INTEGER,
+    -- JSON [{"key", "number", "path"}]: the season's episodes in Plex.
+    episode_keys TEXT,
+    -- The movie's, or the first year of a season's show.
+    year INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (
@@ -137,6 +175,49 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
 
+-- Seasons of kept shows Plex stopped listing: where a show listed under a new key is found.
+CREATE TABLE IF NOT EXISTS pruned_show_seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_show ON pruned_show_seasons(show_rating_key);
+CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_file_path ON pruned_show_seasons(file_path);
+
+-- Watch progress in items Plex stopped listing, given back if Plex lists them again.
+CREATE TABLE IF NOT EXISTS pruned_progress (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    show_rating_key TEXT,
+    position_s REAL NOT NULL,
+    duration_s REAL NOT NULL,
+    watched INTEGER NOT NULL,
+    credited_at TEXT,
+    updated_at TEXT NOT NULL,
+    seen_at TEXT,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    episode_path TEXT,
+    episode_number INTEGER,
+    pruned_at TEXT NOT NULL,
+    PRIMARY KEY (username, rating_key)
+);
+
+-- When items Plex stopped listing were last watched, for the key Plex lists them under next.
+CREATE TABLE IF NOT EXISTS pruned_watches (
+    media_item_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    show_title TEXT,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    last_watched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pruned_watches_file_path ON pruned_watches(file_path);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     media_item_id TEXT NOT NULL,
@@ -190,8 +271,94 @@ CREATE TABLE IF NOT EXISTS suggestions (
     metascore TEXT,
     batch_id TEXT,
     downloaded_at TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    backdrop_url TEXT,
+    adult_checked INTEGER
 );
+
+-- One person's own AI picks. Apart from suggestions, whose rows everyone sees.
+CREATE TABLE IF NOT EXISTS user_picks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    year INTEGER,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER,
+    imdb_id TEXT,
+    description TEXT,
+    reason TEXT,
+    -- JSON list of the titles this person played that led to the pick.
+    because_of TEXT,
+    poster_url TEXT,
+    trailer_url TEXT,
+    rating REAL,
+    rt_rating TEXT,
+    tagline TEXT,
+    runtime INTEGER,
+    genres TEXT,
+    cast_json TEXT,
+    director TEXT,
+    trailer_key TEXT,
+    imdb_rating TEXT,
+    metascore TEXT,
+    backdrop_url TEXT,
+    -- 1 when plays in Plex's own apps were among what the batch was made from.
+    uses_plex INTEGER NOT NULL DEFAULT 0,
+    batch_id TEXT NOT NULL,
+    downloaded_at TEXT,
+    created_at TEXT NOT NULL,
+    adult_checked INTEGER,
+    UNIQUE (username, batch_id, media_type, tmdb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_picks_user_batch ON user_picks(username, batch_id);
+
+-- Each try at making one person's picks, for their refresh wait and the daily cap.
+CREATE TABLE IF NOT EXISTS user_pick_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_pick_runs_user ON user_pick_runs(username, started_at);
+CREATE INDEX IF NOT EXISTS idx_user_pick_runs_started ON user_pick_runs(started_at);
+
+-- The Plex account a person linked as their own, and their plays in Plex's apps.
+CREATE TABLE IF NOT EXISTS plex_links (
+    username TEXT PRIMARY KEY REFERENCES admin_users(username) ON DELETE CASCADE,
+    plex_account_id INTEGER NOT NULL UNIQUE,
+    server_account_id INTEGER NOT NULL UNIQUE,
+    plex_name TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    last_read_at TEXT,
+    -- JSON list of the Plex libraries the plays held here cover.
+    libraries TEXT,
+    last_tried_at TEXT
+);
+
+-- When a person's link went to someone else who proved the account theirs, until they dismiss it.
+CREATE TABLE IF NOT EXISTS plex_link_moves (
+    username TEXT PRIMARY KEY REFERENCES admin_users(username) ON DELETE CASCADE,
+    moved_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS plex_plays (
+    username TEXT NOT NULL REFERENCES plex_links(username) ON DELETE CASCADE,
+    history_key TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    show_title TEXT,
+    show_rating_key TEXT,
+    season_number INTEGER,
+    episode_number INTEGER,
+    rating_key TEXT,
+    viewed_at TEXT NOT NULL,
+    library_id TEXT,
+    PRIMARY KEY (username, history_key)
+);
+CREATE INDEX IF NOT EXISTS idx_plex_plays_user_viewed ON plex_plays(username, viewed_at);
 
 CREATE TABLE IF NOT EXISTS ratings_cache (
     tmdb_id INTEGER NOT NULL,
@@ -215,7 +382,8 @@ CREATE TABLE IF NOT EXISTS download_notifications (
     created_at TEXT NOT NULL,
     tvdb_id INTEGER,
     claimed_at TEXT,
-    season_number INTEGER
+    season_number INTEGER,
+    username TEXT
 );
 
 CREATE TABLE IF NOT EXISTS recent_downloads (

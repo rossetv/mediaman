@@ -35,7 +35,11 @@ from mediaman.services.arr.state import (
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import SafeHTTPError
-from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
+from mediaman.services.media_meta.item_enrichment import (
+    enrich_redownload_item,
+    fill_backdrop,
+    tidy_summary,
+)
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.repository.download import (
     SuggestionEnrichment,
@@ -162,6 +166,13 @@ def _coerce_string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
+def _distinct(names: list[str]) -> list[str]:
+    seen: dict[str, str] = {}
+    for name in names:
+        seen.setdefault(name.strip().casefold(), name.strip())
+    return [name for name in seen.values() if name]
+
+
 def _coerce_cast(value: object) -> list[dict[str, str]]:
     """Return value as name and character pairs, dropping an entry with no plain-string name."""
     if not isinstance(value, list):
@@ -186,6 +197,7 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
         "email": payload.get("email", ""),
         "action": payload.get("act", "download"),
         "poster_url": None,
+        "backdrop_url": None,
         "year": None,
         "description": None,
         "reason": None,
@@ -253,12 +265,15 @@ def _build_item_from_payload(
             sid_int = None
         if sid_int is not None:
             enrichment = fetch_suggestion_enrichment(conn, sid_int)
-            return (
-                _build_item_from_suggestion(payload, enrichment)
-                if enrichment is not None
-                else _base_download_item(payload)
-            )
-    return _base_download_item(payload)
+            if enrichment is not None:
+                return _build_item_from_suggestion(payload, enrichment)
+    # The link of a person's own pick names no stored row, so the title's own facts are
+    # looked up. No reason comes with them: it would be one given for a shared pick.
+    item = _base_download_item(payload)
+    if payload.get("tmdb"):
+        enrich_redownload_item(item, conn, secret_key)
+        item["reason"] = None
+    return item
 
 
 def _enrich_item_fields(item: dict[str, object]) -> None:
@@ -269,7 +284,7 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
     genres_value = item.get("genres")
     if isinstance(genres_value, (str, bytes, bytearray)):
         try:
-            item["genres_list"] = _coerce_string_list(json.loads(genres_value))
+            item["genres_list"] = _distinct(_coerce_string_list(json.loads(genres_value)))
         except (json.JSONDecodeError, TypeError):
             item["genres_list"] = []
     cast_value = item.get("cast_json")
@@ -441,6 +456,8 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     item = _build_item_from_payload(payload, conn, config.secret_key)
     _enrich_item_fields(item)
+    item["description"] = tidy_summary(cast("str | None", item["description"]))
+    fill_backdrop(item, conn, config.secret_key)
     season = deleted_season(conn, payload)
     item["season_number"] = season.season_number if season else None
 
@@ -472,5 +489,6 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "token": token,
             "poll_token": poll_token,
             "hero_item": hero_item,
+            "hero_backdrop": item["backdrop_url"],
         },
     )

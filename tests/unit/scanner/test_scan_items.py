@@ -1,4 +1,4 @@
-"""Tests for scan_items per-item error isolation.
+"""Tests for store_items and evaluate_items per-item error isolation.
 
 Verifies that:
   - a single failing item is counted in summary["errors"] and does not abort
@@ -17,7 +17,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner import repository
-from mediaman.scanner._scan_library import scan_items
+from mediaman.scanner._scan_library import evaluate_items, store_items
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
@@ -57,12 +57,13 @@ def _make_fetch(rk: str, days_old: int = 60) -> PlexItemFetch:
 
 
 class _StubEngine:
-    """Minimal engine-like stub satisfying the attributes scan_items reads."""
+    """Minimal engine-like stub satisfying the attributes the scan reads."""
 
     def __init__(self, conn, *, dry_run: bool = True):
         self._conn = conn
         self._arr_cache = ArrDateCache()
         self._listed_keys = set()
+        self._skipped_places = set()
         self._dry_run = dry_run  # dry-run avoids needing a real secret_key / HMAC
         self._grace_days = 14
         self._secret_key = "0123456789abcdef" * 4
@@ -76,6 +77,11 @@ class _StubEngine:
         from mediaman.core.time import parse_iso_utc
 
         return parse_iso_utc(str(raw)) or datetime.now(UTC)
+
+
+def _scan_items(engine, fetched, *, evaluate_fn, summary):
+    stored = store_items(engine, fetched, lambda f: "movie", "Movie", summary)
+    evaluate_items(engine, stored, evaluate_fn, "Movie", summary)
 
 
 class TestScanItemsErrorIsolation:
@@ -93,12 +99,10 @@ class TestScanItemsErrorIsolation:
             "mediaman.scanner._scan_library._evaluate_scan_item",
             side_effect=RuntimeError("injected failure"),
         ):
-            scan_items(
+            _scan_items(
                 engine,
                 fetched,
-                media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
-                item_label="Movie",
                 summary=summary,
             )
 
@@ -114,12 +118,12 @@ class TestScanItemsErrorIsolation:
 
         call_count = 0
 
-        def _failing_then_succeeding(engine, f, media_type_fn, evaluate_fn, seen_keys, guards):
+        def _failing_then_succeeding(engine, f, evaluate_fn, guards):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise ValueError("first item dies")
-            # Return a decision that scan_items treats as skip
+            # Return a decision that the scan treats as skip
             from mediaman.scanner._scan_library import ScanDecision
 
             return (f.item["plex_rating_key"], ScanDecision.SKIP_GUARD)
@@ -130,12 +134,10 @@ class TestScanItemsErrorIsolation:
             "mediaman.scanner._scan_library._evaluate_scan_item",
             side_effect=_failing_then_succeeding,
         ):
-            scan_items(
+            _scan_items(
                 engine,
                 fetched,
-                media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
-                item_label="Movie",
                 summary=summary,
             )
 
@@ -154,12 +156,10 @@ class TestScanItemsErrorIsolation:
             "mediaman.scanner._scan_library._evaluate_scan_item",
             return_value=("rk-ok", ScanDecision.SKIP_GUARD),
         ):
-            scan_items(
+            _scan_items(
                 engine,
                 [_make_fetch("ok-1")],
-                media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
-                item_label="Movie",
                 summary=summary,
             )
 
@@ -187,7 +187,7 @@ class TestBatchingProtectionParity:
     """The hot loop now builds the protection / already-scheduled
     sets in two batched queries instead of per-item SELECTs. This must
     not change the protection decision: a protected, a snoozed, an
-    already-scheduled, and a plain item run through ``scan_items`` must
+    already-scheduled, and a plain item run through the scan must
     produce EXACTLY the same outcome the per-item guards would — the
     protected/snoozed/scheduled items skipped, only the plain item
     newly scheduled.
@@ -250,12 +250,10 @@ class TestBatchingProtectionParity:
             _make_fetch("plain"),
         ]
 
-        scan_items(
+        _scan_items(
             engine,
             fetched,
-            media_type_fn=lambda f: "movie",
             evaluate_fn=_movie_evaluate(engine),
-            item_label="Movie",
             summary=summary,
         )
 
@@ -299,12 +297,10 @@ class TestAnItemIsWrittenWholeOrNotAtAll:
         )
         summary = {"scanned": 0, "skipped": 0, "scheduled": 0, "errors": 0}
 
-        scan_items(
+        _scan_items(
             _StubEngine(conn, dry_run=False),
             [_make_fetch("bad"), _make_fetch("good")],
-            media_type_fn=lambda f: "movie",
             evaluate_fn=lambda f, added_at, history: "schedule_deletion",
-            item_label="Movie",
             summary=summary,
         )
         conn.commit()

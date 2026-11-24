@@ -182,7 +182,7 @@ def test_empty_scheduled_and_deleted(env: Environment) -> None:
     assert "scheduled for deletion" not in html
     assert "Deleted Since Last Report" not in html
     assert "Trending This Week" in html
-    assert "Open Mediaman Dashboard" in html
+    assert "Open mediaman" in html
 
 
 def test_dry_run_banner_renders(env: Environment) -> None:

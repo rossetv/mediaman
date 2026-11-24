@@ -16,6 +16,7 @@
   var toast = core.toast;
 
   var KEEP_URL = '/api/watch/keep';
+  var FOREVER = 'forever';
   var UNKEEP_URL = '/api/watch/unkeep';
   var EXIT_FALLBACK_MS = 400; // past the slowest motion token, for a transition that never runs
 
@@ -87,8 +88,8 @@
   }
 
   /* Grow a node that was just put back from nothing to its own size: the
-     same motion played backwards. */
-  function growIn(node, sideways) {
+     same motion played backwards. *done*: called once it has its size. */
+  function growIn(node, sideways, done) {
     if (reduceMotion() || !node.animate) return;
     var motion = shrinkMotion(node, sideways);
     var frames = motion.frames.reverse().map(function (f) {
@@ -97,7 +98,19 @@
     var unpin = pinContent(node, sideways);
     node.style.overflow = 'hidden';
     var anim = node.animate(frames, { duration: motion.duration });
-    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; unpin(); };
+    anim.onfinish = anim.oncancel = function () {
+      node.style.overflow = '';
+      unpin();
+      if (done) done();
+    };
+  }
+
+  /* The same for a card of *row*: its See all is fitted to the cards' width,
+     which the new one has only at the end. */
+  function growCard(card, row) {
+    growIn(card, true, function () {
+      if (window.MMWatch.expand) window.MMWatch.expand.row(row);
+    });
   }
 
   /* Where a node is: its parent and every node after it, so it can go back
@@ -131,21 +144,21 @@
      any scroll and closes once the trigger is out of sight. */
 
   /* Whether the trigger can still be seen: on the screen, and inside the
-     visible part of its row. */
+     visible part of its row or list. */
   function inView(trigger) {
     if (!document.body.contains(trigger)) return false;
     var r = trigger.getBoundingClientRect();
     if (r.bottom <= 0 || r.top >= window.innerHeight || r.right <= 0 || r.left >= window.innerWidth) {
       return false;
     }
-    var row = trigger.closest('.watch-row__scroll');
-    if (!row) return true;
-    var box = row.getBoundingClientRect();
-    return r.right > box.left && r.left < box.right;
+    var box = trigger.closest('.watch-row__scroll, .space-pane');
+    if (!box) return true;
+    var b = box.getBoundingClientRect();
+    return r.right > b.left && r.left < b.right && r.bottom > b.top && r.top < b.bottom;
   }
 
   /* *opts*: trigger (selector), choose(trigger, item), canOpen(trigger),
-     spare() (where focus goes when the trigger has left the page). */
+     fill(trigger) (what the menu holds for it), spare() (where focus goes when the trigger has left the page). */
   function makeMenu(node, opts) {
     var openTrigger = null;
     var hideTimer = null;
@@ -177,7 +190,8 @@
         node.scrollTop = scrolled;
       }
       var top = above ? rect.top - gap - h : rect.bottom + gap;
-      var left = Math.max(edge, Math.min(rect.left, window.innerWidth - w - edge));
+      var at = trigger.closest('.space-pane') ? rect.right - w : rect.left;
+      var left = Math.max(edge, Math.min(at, window.innerWidth - w - edge));
       node.classList.toggle('is-above', above);
       node.style.top = top + 'px';
       node.style.left = left + 'px';
@@ -214,6 +228,7 @@
       close(false);
       clearTimeout(hideTimer);
       openTrigger = trigger;
+      if (opts.fill) opts.fill(trigger);
       node.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
       place(trigger);
@@ -315,15 +330,16 @@
 
   /* Where focus goes when a kept card leaves its row: the next card's Keep,
      else the one before's, so a run of Keeps needs no Tab between them; when
-     the row goes, the next row, else the search box. */
-  function focusAfterCard(card) {
+     the row goes, the next row, else the search box. *control*: the button
+     that was pressed, as the other cards have it. */
+  function focusAfterCard(card, control) {
     var sibling = card.nextElementSibling;
     while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.nextElementSibling;
     if (!sibling) {
       sibling = card.previousElementSibling;
       while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.previousElementSibling;
     }
-    return sibling ? sibling.querySelector('[data-watch-keep]') || sibling.querySelector('.watch-card__link') : null;
+    return sibling ? sibling.querySelector(control) || sibling.querySelector('.watch-card__link') : null;
   }
 
   function focusAfterRow(row) {
@@ -343,15 +359,19 @@
     return noop;
   }
 
-  /* Shrink a kept card out of its Leaving soon row, or the row out of the
+  /* Shrink a kept (or dismissed) card out of its row, or the row out of the
      page when it was the last. Behind search results the row is hidden: it
      just goes. Returns { undo, focus } as applyKept does. */
-  function keepFromRow(card, row, shown) {
+  function keepFromRow(card, row, shown, control) {
+    // In a row opened as a grid, the grid closes up around it.
+    var grid = window.MMWatch.grid;
+    var taken = grid && grid.take && grid.take(card, control);
+    if (taken) return taken;
     var scroller = card.parentNode;
     var left = toArray(scroller.children).filter(function (c) {
       return c !== card && !c.classList.contains('is-kept');
     });
-    var focus = left.length ? focusAfterCard(card) : focusAfterRow(row);
+    var focus = left.length ? focusAfterCard(card, control) : focusAfterRow(row);
     var spot = spotOf(card);
     var state = { cancel: noop, holdsRow: !left.length };
     card.classList.add('is-kept');
@@ -390,11 +410,33 @@
         if (rowBack) {
           if (row.getClientRects().length) growIn(row, false);
         } else if (cardBack && card.getClientRects().length) {
-          growIn(card, true);
+          growCard(card, row);
         }
-        return card.querySelector('[data-watch-keep]');
+        var twin = grid && grid.bring && grid.bring(card);
+        return (twin || card).querySelector(control);
       }
     };
+  }
+
+  /* Shrink *node* out of the page. Returns what puts it back. */
+  function foldAway(node) {
+    var spot = spotOf(node);
+    var cancel = away(node, false, node.getClientRects().length > 0);
+    return function () {
+      cancel();
+      if (node.parentNode) return;
+      putBack(spot);
+      growIn(node, false);
+    };
+  }
+
+  /* Put a kept card back, and scroll its row to it if it is out of sight there. */
+  function backInRow(row, card, undo) {
+    var marks = window.MMWatch.marks;
+    if (!marks || !row.classList.contains('watch-row')) return undo(); // not in a grid
+    var back = null;
+    marks.showInRow(row, card, function () { back = undo(); });
+    return back;
   }
 
   function seasonShown() {
@@ -415,12 +457,25 @@
     else info.appendChild(line);
   }
 
+  function span(days) { return days === FOREVER ? FOREVER : 'for ' + days + ' days'; }
+
+  /* The storage panel, which lists what is scheduled:
+     kept(id, trigger) takes a title off its list, as { undo, focus } or null;
+     started() and settled(saved) go round each request. */
+  var panel = null;
+
   /* Take what a Keep ends off the page. Returns { undo, focus }: undo puts it
-     all back (and returns the Keep button to focus), focus is where focus
-     should go now. */
+     all back (and returns the Keep button to focus, one that is shown), focus
+     is where focus should go now. */
   function applyKept(id, days, trigger) {
     var undos = [];
     var focus = null;
+
+    var listed = panel && panel.kept(id, trigger);
+    if (listed) {
+      undos.push(listed.undo);
+      focus = listed.focus;
+    }
 
     // A title page's "Leaving in N days · Keep" line says how long it is kept.
     triggersFor(id).forEach(function (button) {
@@ -429,7 +484,7 @@
       var parts = toArray(line.childNodes);
       var season = seasonShown();
       parts.forEach(function (n) { n.remove(); });
-      line.textContent = 'Kept for ' + days + ' days';
+      line.textContent = 'Kept ' + span(days);
       line.classList.add('watch-leaving--kept');
       line.tabIndex = -1;
       focus = line;
@@ -443,14 +498,16 @@
       });
     });
 
-    // The card the Keep was pressed in comes first, so focus stays there.
+    // The card the Keep was pressed in comes first, so focus stays there; an open
+    // grid's, the rows hidden behind it, last, so an Undo has it back before the row's.
     var own = trigger && trigger.closest('.watch-card');
-    cardsFor(id).sort(function (a, b) { return (b === own) - (a === own); }).forEach(function (card) {
+    function rank(card) { return card.closest('.watch-grid') ? 1 : card === own ? -1 : 0; }
+    cardsFor(id).sort(function (a, b) { return rank(a) - rank(b); }).forEach(function (card) {
       var shown = card.getClientRects().length > 0;
       var row = card.closest('[data-watch-leaving-row]');
       if (row) {
-        var taken = keepFromRow(card, row, shown);
-        undos.push(taken.undo);
+        var taken = keepFromRow(card, row, shown, '[data-watch-keep]');
+        undos.push(function () { return backInRow(row, card, taken.undo); });
         if (!focus && shown) focus = taken.focus;
         return;
       }
@@ -470,9 +527,8 @@
     return {
       focus: focus,
       undo: function () {
-        var back = null;
-        undos.forEach(function (fn) { var b = fn(); if (!back) back = b; });
-        return back;
+        var backs = undos.slice().reverse().map(function (fn) { return fn(); }).reverse().filter(Boolean);
+        return backs.filter(function (b) { return b.getClientRects().length && !b.closest('[inert]'); })[0] || backs[0] || null;
       }
     };
   }
@@ -485,39 +541,75 @@
       (menu && menu.contains(active)) || !document.body.contains(active);
   }
 
-  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>".
-     A season keep adds the season: from the card's subtitle, or the season tab shown. */
+  /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>", with
+     the season of a season's. The title page's line adds the season of the tab shown. */
   function titleOf(button) {
     var label = button.getAttribute('aria-label');
     var title = label ? label.replace(/^Keep /, '') : '';
     if (!title) return '';
     var season = '';
-    var sub = button.closest('.watch-card') && button.closest('.watch-card').querySelector('.watch-card__sub');
-    if (sub && /^Season \d+$/.test(sub.textContent)) season = sub.textContent;
-    else if (button.closest('[data-watch-leaving]')) {
+    if (button.closest('[data-watch-leaving]')) {
       var tab = document.querySelector('.watch-seasons a.watch-pill.on');
       if (tab) season = tab.textContent.trim();
     }
     return season ? title + ', ' + season : title;
   }
 
+  /* Watch's own Keep can be undone. Forever, and a title whose day has come
+     (data-keep-late), go by the admins' route, which has no Undo. */
+  function canUndo(trigger, days) {
+    return days !== FOREVER && !trigger.hasAttribute('data-keep-late');
+  }
+
+  function send(id, days, undoable) {
+    if (undoable) return MM.api.post(KEEP_URL, { media_item_id: id, days: days });
+    var form = { duration: days === FOREVER ? FOREVER : days + ' days' };
+    // A Keep shows on a title with no keep; one made meanwhile must not be shortened.
+    if (days !== FOREVER) form.read_action = 'none';
+    return MM.api.postForm('/api/media/' + encodeURIComponent(id) + '/keep', form);
+  }
+
+  function started(id) {
+    setBusy(id, true);
+    if (panel) panel.started();
+  }
+
+  function settled(id, saved) {
+    setBusy(id, false);
+    if (panel) panel.settled(saved);
+    if (saved) document.dispatchEvent(new CustomEvent('mm:watch-kept', { detail: { id: id } }));
+  }
+
+  function moveTo(node) {
+    if (!node.closest('.space-pane')) { focusSoftly(node); return; }
+    node.focus({ preventScroll: true });
+    node.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
+  }
+
   function keep(trigger, days) {
     var id = trigger.getAttribute('data-watch-keep');
     if (busy[id]) return;
     var name = titleOf(trigger);
-    setBusy(id, true);
-    MM.api.post(KEEP_URL, { media_item_id: id, days: days }).then(function () {
+    var undoable = canUndo(trigger, days);
+    var dialog = trigger.closest('.space__panel, #ttl');
+    started(id);
+    send(id, days, undoable).then(function (data) {
       var moveFocus = focusLost(trigger);
       var done = applyKept(id, days, trigger);
-      if (moveFocus && done.focus) focusSoftly(done.focus);
-      toast('Kept ' + (name || 'this') + ' for ' + days + ' days.', {
-        variant: 'success',
-        action: { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } }
-      });
-      setBusy(id, false);
+      if (moveFocus && done.focus) moveTo(done.focus);
+      if (data && data.deletion_running && data.message) {
+        toast(data.message, { duration: 8000 });
+      } else {
+        toast('Kept ' + (name || 'this') + ' ' + span(days) + '.', {
+          variant: 'success',
+          dialog: dialog,
+          action: undoable ? { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } } : null
+        });
+      }
+      settled(id, true);
     }).catch(function (err) {
       toast(MM.api.messageOf(err, 'Could not keep ' + (name || 'this') + '. Try again.'), { variant: 'error' });
-      setBusy(id, false);
+      settled(id, false);
     });
   }
 
@@ -530,29 +622,32 @@
       return;
     }
     var back = done.undo();
-    setBusy(id, true);
+    started(id);
     var active = document.activeElement;
     if (back && (!active || active === document.body || active === done.focus ||
                  (active.closest && active.closest('.ui-toast')))) {
-      back.focus();
+      moveTo(back);
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
       toast('Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
-      setBusy(id, false);
+      settled(id, true);
     }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];
       var moveFocus = trigger ? focusLost(trigger) : false;
       var again = applyKept(id, days, trigger);
-      if (moveFocus && again.focus) focusSoftly(again.focus);
+      if (moveFocus && again.focus) moveTo(again.focus);
       toast(MM.api.messageOf(err, 'Could not undo' + (name ? ' for ' + name : '') + '. It stays kept for ' + days + ' days.'), { variant: 'error' });
-      setBusy(id, false);
+      settled(id, false);
     });
   }
 
   var keepMenu = menu ? makeMenu(menu, {
     trigger: '[data-watch-keep]',
     canOpen: function (trigger) { return !busy[trigger.getAttribute('data-watch-keep')]; },
-    choose: function (trigger, item) { keep(trigger, parseInt(item.getAttribute('data-days'), 10)); },
+    choose: function (trigger, item) {
+      var days = item.getAttribute('data-days');
+      keep(trigger, days === FOREVER ? FOREVER : parseInt(days, 10));
+    },
     spare: function () {
       return document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
     }
@@ -560,7 +655,13 @@
 
   window.MMWatch.keep = {
     menu: makeMenu,
+    fromRow: keepFromRow,
+    foldAway: foldAway,
+    growIn: growIn,
+    growCard: growCard,
+    menuTrigger: function () { return keepMenu && keepMenu.trigger(); },
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
-    isBusy: function (id) { return !!busy[id]; }
+    isBusy: function (id) { return !!busy[id]; },
+    joinPanel: function (joined) { panel = joined; }
   };
 })();

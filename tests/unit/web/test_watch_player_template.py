@@ -9,6 +9,9 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from mediaman.services.media_meta.plex_quality import quality_rows
+from mediaman.services.media_meta.plex_watch import PlexItem
+
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
 
@@ -108,6 +111,12 @@ def test_data_attributes_carry_the_context(name):
     assert json.loads(root["data-leaving"]) == ctx["leaving"]
 
 
+@pytest.mark.parametrize("state", ["next", "end", "unknown"])
+def test_the_page_says_whether_the_next_episode_is_known(state):
+    _, page = _render({**EPISODE, "next_state": state})
+    assert page.player()["data-next-state"] == state
+
+
 def test_hostile_title_stays_data():
     title = """It's "<script>alert(1)</script>" & more"""
     ctx = {**MOVIE, "item": {**MOVIE["item"], "title": title}}
@@ -146,7 +155,32 @@ def test_there_is_no_audio_or_subtitle_choice(name):
     assert "subtitle" not in labels
 
 
-def test_quality_menu_offers_the_three_choices():
-    _, page = _render(EPISODE)
-    choices = [a["data-quality"] for t, a in page.elements if "data-quality" in a]
-    assert choices == ["best", "medium", "low"]
+def test_an_item_without_media_details_offers_the_three_basic_qualities():
+    item = PlexItem("episode", "501", "Low Water", "", None, 3000, "2", None, False)
+    _, page = _render({**EPISODE, "qualities": quality_rows(item)})
+    offered = json.loads(page.player()["data-qualities"])
+    assert [r["id"] for r in offered] == ["best", "medium", "low"]
+
+
+@pytest.mark.parametrize("name", CONTEXTS)
+def test_icon_controls_show_no_words_but_carry_a_name_and_a_tooltip(name):
+    _, page = _render(CONTEXTS[name])
+    icons = [
+        (i, a)
+        for i, (t, a) in enumerate(page.elements)
+        if t in ("button", "a") and {"player-btn", "player-back"} & set(a["class"].split())
+    ]
+    assert any("data-fullscreen" in a for _, a in icons)
+    for i, a in icons:
+        assert page.text.get(i, "").strip() == ""
+        assert a["title"].startswith(a["aria-label"])
+
+
+def test_the_next_episode_carries_its_still_and_the_show_s_backdrop_in_its_place():
+    next_episode = {"href": "/watch/play/502?from=%2Fwatch", "label": "S2 · E5"}
+    _, page = _render({**EPISODE, "next": next_episode})
+    still = next(a for t, a in page.elements if t == "img" and "data-still" in a and "src" in a)
+    assert still["src"] == "/api/watch/thumb/502"
+    assert still["data-fallback"] == "/api/poster/77?kind=art"
+    # Nothing of it shows until it is there.
+    assert "hidden" in still

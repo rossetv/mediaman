@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.audit import security_event
@@ -15,9 +15,11 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.models.users import ChangePasswordBody
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.plex_link import carry_attempt
 from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
+    OWN_ACCOUNT_LIMIT_MESSAGE,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ def api_change_password(
     request: Request,
     body: ChangePasswordBody,
     admin: str = Depends(get_current_user),
+    session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
     """Change the current user's password. Per-actor (_PASSWORD_CHANGE_LIMITER) and per-IP
     (_PASSWORD_CHANGE_IP_LIMITER) throttles stop a stolen cookie being replayed unbounded
@@ -39,18 +42,14 @@ def api_change_password(
     request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):
         logger.warning("password.change_throttled actor=%s scope=actor", _sanitise_log_field(admin))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
     if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
         logger.warning(
             "password.change_throttled actor=%s scope=ip ip=%s",
             _sanitise_log_field(admin),
             request_ip,
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
 
     old_password = body.old_password
     new_password = body.new_password
@@ -89,6 +88,7 @@ def api_change_password(
             user_agent=request.headers.get("user-agent", ""),
             client_ip=client_ip,
         )
+        carry_attempt(session_token, new_token)
         response = respond_ok({"message": "Password changed. You will be re-authenticated."})
         set_session_cookie(response, new_token, secure=is_request_secure(request))
         return response

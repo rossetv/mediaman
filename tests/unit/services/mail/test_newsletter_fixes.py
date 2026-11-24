@@ -239,3 +239,26 @@ class TestEmptyRecipientsNotFallthrough:
 
         mock_mailgun_instance.send.assert_called_once()
         assert mock_mailgun_instance.send.call_args.kwargs["to"] == "subscriber@example.com"
+
+
+def test_a_hung_media_folder_does_not_hold_up_the_storage_summary(conn, monkeypatch):
+    import threading
+
+    from mediaman.core.time import now_utc
+    from mediaman.services.infra.storage import disk_reads
+    from mediaman.services.mail.newsletter.summary import _load_storage_stats
+
+    monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.1)
+    release = threading.Event()
+
+    def hang(_path):
+        release.wait(5)
+        return {"total_bytes": 9, "used_bytes": 9, "free_bytes": 9}
+
+    monkeypatch.setattr("mediaman.services.infra.get_aggregate_disk_usage", hang)
+    try:
+        summary = _load_storage_stats(conn, now_utc())
+    finally:
+        release.set()
+
+    assert summary.stats["total_bytes"] == 0

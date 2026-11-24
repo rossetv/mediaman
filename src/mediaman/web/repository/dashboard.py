@@ -31,10 +31,12 @@ class ScheduledDeletionRow:
     title: str
     media_type: str
     show_title: str | None
+    show_rating_key: str | None
     season_number: int | None
     plex_rating_key: str | None
     added_at: str | None
     file_size_bytes: int
+    deleting: bool
 
 
 @dataclass(frozen=True)
@@ -76,10 +78,12 @@ def fetch_scheduled_deletions(
             mi.title,
             mi.media_type,
             mi.show_title,
+            mi.show_rating_key,
             mi.season_number,
             mi.plex_rating_key,
             mi.added_at,
-            mi.file_size_bytes
+            mi.file_size_bytes,
+            sa.delete_status = 'deleting' AS deleting
         FROM scheduled_actions sa
         JOIN media_items mi ON mi.id = sa.media_item_id
         WHERE sa.action = ?
@@ -97,10 +101,12 @@ def fetch_scheduled_deletions(
             title=r["title"],
             media_type=r["media_type"] or "movie",
             show_title=r["show_title"],
+            show_rating_key=r["show_rating_key"],
             season_number=r["season_number"],
             plex_rating_key=r["plex_rating_key"],
             added_at=r["added_at"],
             file_size_bytes=r["file_size_bytes"] or 0,
+            deleting=bool(r["deleting"]),
         )
         for r in rows
     ]
@@ -109,8 +115,8 @@ def fetch_scheduled_deletions(
 def fetch_redownload_audit_rows(conn: sqlite3.Connection) -> list[RedownloadAuditRow]:
     """Return recent audit_log entries for ``re_downloaded`` and ``downloaded`` actions.
 
-    Bounded to the last `_REDOWNLOAD_WINDOW_DAYS` days so the dashboard
-    render does not load an ever-growing audit_log into memory. ``created_at``
+    Bounded to the last `_REDOWNLOAD_WINDOW_DAYS` days so the storage
+    panel does not load an ever-growing audit_log into memory. ``created_at``
     is stored as ISO-8601 UTC, so the lexicographic ``>`` comparison is a
     correct chronological cutoff.
     """

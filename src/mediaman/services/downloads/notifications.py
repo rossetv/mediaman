@@ -72,13 +72,15 @@ def record_download_notification(
     tmdb_id: int | None = None,
     tvdb_id: int | None = None,
     season_number: int | None = None,
+    username: str | None = None,
 ) -> None:
     """Insert a pending notification; the library sync sends it once the item has a file.
 
     Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. With a
     *season_number* the notification waits for a file of that season. A request that
-    already has an unsent notification gets no second one. Does not commit; the caller
-    owns the transaction.
+    already has an unsent notification gets no second one. *username* is the signed-in
+    person asking; an emailed link has none. Does not commit; the caller owns the
+    transaction.
     """
     from mediaman.core.time import now_iso
 
@@ -86,13 +88,14 @@ def record_download_notification(
     conn.execute(
         "INSERT INTO download_notifications "
         "(email, title, media_type, tmdb_id, tvdb_id, service, season_number, notified, "
-        "created_at) SELECT ?, ?, ?, ?, ?, ?, ?, 0, ? WHERE NOT EXISTS ("
+        "created_at, username) SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ? WHERE NOT EXISTS ("
         "SELECT 1 FROM download_notifications "
         "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
-        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?))",
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?) "
+        "AND (username IS NULL OR ? IS NULL OR username = ?))",
         (
-            *(email, title, media_type, tmdb_id, tvdb_id, service, season_number, now),
-            *(email, service, season_number, tmdb_id, tvdb_id),
+            *(email, title, media_type, tmdb_id, tvdb_id, service, season_number, now, username),
+            *(email, service, season_number, tmdb_id, tvdb_id, username, username),
         ),
     )
 
@@ -105,16 +108,26 @@ def has_unsent_notification(
     tmdb_id: int,
     tvdb_id: int | None = None,
     season_number: int | None = None,
+    username: str | None = None,
 ) -> bool:
     """Whether a notification for the title is still to be sent to *email*. A Sonarr row
     may carry only its TVDB id. Without *season_number* only a whole-show row counts, so a
     pending notice for one season does not read as covering the show.
+
+    With *username* it is that person's own: one that names nobody is theirs only while
+    no other user has the address.
     """
     row = conn.execute(
         "SELECT 1 FROM download_notifications "
-        "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
-        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
-        (email, service, season_number, tmdb_id, tvdb_id),
+        "WHERE service = ? AND notified != 1 "
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?) "
+        "AND (username = ? OR (email = ? COLLATE NOCASE AND (? IS NULL OR (username IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM admin_users u "
+        "WHERE u.email = ? COLLATE NOCASE AND u.username != ?))))) LIMIT 1",
+        (
+            *(service, season_number, tmdb_id, tvdb_id),
+            *(username, email, username, email, username),
+        ),
     ).fetchone()
     return row is not None
 
@@ -233,14 +246,15 @@ def _fetch_suggestions_batch(
         placeholders = ",".join("?" * len(tmdb_ids))
         sugg_rows = conn.execute(
             f"SELECT tmdb_id, year, runtime, director, description, rating, "
-            f"imdb_rating, rt_rating, poster_url "
-            f"FROM suggestions WHERE tmdb_id IN ({placeholders})",
+            f"imdb_rating, rt_rating, poster_url, backdrop_url "
+            f"FROM suggestions WHERE tmdb_id IN ({placeholders}) "
+            f"ORDER BY backdrop_url IS NULL, created_at DESC",
             tmdb_ids,
         ).fetchall()
         for sr in sugg_rows:
             # Multiple suggestion rows may exist for the same tmdb_id
-            # across batches — keep the first hit (any row contains the
-            # same metadata aside from rating timing).
+            # across batches — keep the first hit: the newest row that has a backdrop (an
+            # older batch may have none), else the newest row.
             tid = int(sr["tmdb_id"])
             if tid not in suggestions_by_tmdb:
                 suggestions_by_tmdb[tid] = SuggestionsMeta(
@@ -253,6 +267,7 @@ def _fetch_suggestions_batch(
                     imdb_rating=str(sr["imdb_rating"]) if sr["imdb_rating"] else "",
                     rt_rating=str(sr["rt_rating"]) if sr["rt_rating"] else "",
                     poster_url=str(sr["poster_url"]) if sr["poster_url"] else "",
+                    backdrop_url=str(sr["backdrop_url"]) if sr["backdrop_url"] else "",
                 )
     return suggestions_by_tmdb
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import sqlite3
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,6 +59,7 @@ def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
     job_ids = [c.kwargs.get("id") for c in mock_instance.add_job.call_args_list]
     assert "cleanup_recent_downloads" in job_ids
     assert "trigger_pending_searches" in job_ids
+    assert "fill_title_meta" in job_ids
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
@@ -373,3 +376,55 @@ class TestValidateScanTime:
 
         with pytest.raises(ValueError):
             _validate_scan_time("24:00")
+
+
+def test_the_title_fill_works_while_the_scheduler_runs_and_not_after(conn, monkeypatch, tmp_path):
+    from mediaman.db import set_connection
+    from mediaman.services.infra import disk_cache
+    from mediaman.services.media_meta.tmdb import TmdbClient
+    from mediaman.services.watch_catalog import _title_meta
+    from tests.helpers.factories import insert_media_item, insert_settings
+
+    disk_cache.init(tmp_path)
+    set_connection(conn)
+    monkeypatch.setattr(_title_meta, "_resume_at", 0.0)
+    monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: TmdbClient("token"))
+    monkeypatch.setattr(TmdbClient, "_get", lambda *_a, **_k: {"title": "A film"})
+    insert_settings(conn, plex_libraries='["1"]')
+    insert_media_item(conn, id="1", plex_rating_key="1", title="A film")
+    conn.execute("UPDATE media_items SET tmdb_id = 1")
+    conn.commit()
+    job = start_scheduler(scan_fn=lambda: None, secret_key="test").get_job("fill_title_meta").func
+
+    job()
+    filled = conn.execute("SELECT COUNT(*) FROM title_meta").fetchone()[0]
+    conn.execute("DELETE FROM title_meta")
+    conn.commit()
+    monkeypatch.setattr(_sched_module, "_close_tracked_connections", lambda: None)
+    stop_scheduler()
+    job()
+
+    assert (filled, conn.execute("SELECT COUNT(*) FROM title_meta").fetchone()[0]) == (1, 0)
+    _sched_module._scheduler_connections.clear()
+
+
+def test_a_connection_used_by_many_jobs_is_tracked_once(monkeypatch):
+    monkeypatch.setattr(_sched_module, "_scheduler_connections", [])
+    conn = MagicMock()
+
+    _sched_module._track_connection(conn)
+    _sched_module._track_connection(conn)
+
+    assert _sched_module._scheduler_connections == [conn]
+
+
+def test_stopping_leaves_a_connection_to_its_thread_without_an_error(monkeypatch, caplog):
+    made = []
+    thread = threading.Thread(target=lambda: made.append(sqlite3.connect(":memory:")))
+    thread.start()
+    thread.join()
+    monkeypatch.setattr(_sched_module, "_scheduler_connections", made)
+
+    _sched_module._close_tracked_connections()
+
+    assert [r for r in caplog.records if r.levelname == "ERROR"] == []

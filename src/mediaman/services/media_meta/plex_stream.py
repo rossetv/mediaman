@@ -24,7 +24,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
+from xml.etree.ElementTree import ParseError
 
+import defusedxml.ElementTree as ET
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -36,6 +38,7 @@ from mediaman.services.infra.http.streaming import (
     _read_capped,
     _SizeCapExceeded,
 )
+from mediaman.services.media_meta.plex_quality import ORIGINAL, QUALITY_PRESETS
 from mediaman.services.media_meta.plex_watch import (
     _RATING_KEY_RE,
     PlexError,
@@ -44,13 +47,6 @@ from mediaman.services.media_meta.plex_watch import (
 )
 
 logger = logging.getLogger(__name__)
-
-#: ``(videoResolution, maxVideoBitrate kbps)``; Plex keeps the aspect ratio within the box.
-QUALITY_PRESETS: dict[str, tuple[str, int]] = {
-    "best": ("1920x1080", 8000),
-    "medium": ("1280x720", 4000),
-    "low": ("854x480", 1500),
-}
 
 SESSION_PREFIX = "mediaman-"
 IDLE_TIMEOUT_SECONDS = 180.0
@@ -77,6 +73,10 @@ VIEWING_KEEP_SECONDS = 24 * 3600.0
 # How long a reaped stream is remembered, so a stop or progress beacon that lost the race with
 # the reaper still saves the position.
 REAPED_KEEP_SECONDS = 600.0
+# How long Plex's word on whether it would copy a file's video is kept.
+COPY_VERDICT_KEEP_SECONDS = 3600.0
+# How long a question Plex failed to answer is not asked again.
+COPY_FAILURE_KEEP_SECONDS = 60.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
@@ -116,6 +116,10 @@ class StreamGone(Exception):
     """The stream is unknown, belongs to someone else, or was stopped or reaped."""
 
 
+class _Unservable(PlexUnavailable):
+    """Plex answered, and what it answered cannot be played: asking again soon changes nothing."""
+
+
 class TooManyStreams(Exception):
     """The user, or mediaman as a whole, already has as many live streams as allowed."""
 
@@ -134,6 +138,29 @@ class StreamInfo:
     info: Mapping[str, Any]
     #: Seconds since the viewing of this item began; it carries across restarts of the stream.
     elapsed_s: float = 0.0
+    #: The viewing's played time as last saved.
+    saved_played_s: float = 0.0
+    #: The viewing's place as last saved, or None before its first save.
+    saved_position_s: float | None = None
+
+
+@dataclass
+class _Viewing:
+    """One user's viewing of one item, across restarts of its stream."""
+
+    began: float
+    touched: float
+    saved_played_s: float = 0.0
+    saved_position_s: float | None = None
+
+
+@dataclass
+class _CopyVerdict:
+    """Whether Plex would copy a file's video; *known* is False while Plex has not answered."""
+
+    copied: bool
+    known: bool
+    until: float
 
 
 @dataclass
@@ -176,10 +203,12 @@ class StreamManager:
         # Plex session ids handed out and not yet stopped, including ones whose Plex session is
         # still opening and so not yet in ``_streams``; the startup tidy must leave them alone.
         self._issued: set[str] = set()
-        # (user, rating_key) -> (when the viewing began, when it was last touched).
-        self._viewings: dict[tuple[str, str], tuple[float, float]] = {}
+        # (user, rating_key) -> the viewing.
+        self._viewings: dict[tuple[str, str], _Viewing] = {}
         # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
+        # (rating_key, file) -> Plex's word on copying its video.
+        self._copies: dict[tuple[str, str], _CopyVerdict] = {}
 
     def start(
         self,
@@ -188,25 +217,31 @@ class StreamManager:
         quality: str,
         burn_subtitles: bool,
         info: Mapping[str, Any] | None = None,
+        *,
+        fallback: str | None = None,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
         A failed start is retried once with a fresh session, since Plex intermittently refuses
-        a start right after another one for the same item. The user's other streams of the same
-        item are stopped first, since the player starts a new one on a quality change or restart.
+        a start right after another one for the same item. An original that Plex would not copy
+        or could not start is retried as the *fallback* quality. The user's other streams of the
+        same item are stopped first, since the player starts a new one on a quality change or
+        restart.
         Raises ``ValueError`` for an unknown quality or a malformed rating key, and
         ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
-        if quality not in QUALITY_PRESETS:
+        if quality not in QUALITY_PRESETS and quality != ORIGINAL:
             raise ValueError(f"unknown quality {quality!r}")
         if not _RATING_KEY_RE.fullmatch(rating_key):
             raise ValueError("rating key must be numeric")
+        asked = quality
         base, token = self._creds()
         for session_id in self._drop_same_item(user, rating_key):
             self._call_quietly("stop", session_id)
         with self._lock:
             self._check_room(user)
         deadline = self._clock() + START_DEADLINE_SECONDS
+        refused = False
         for attempt in range(2):
             session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
             with self._lock:
@@ -216,17 +251,26 @@ class StreamManager:
                     base, token, session_id, rating_key, quality, burn_subtitles, deadline
                 )
                 break
-            except PlexUnavailable:
+            except PlexUnavailable as exc:
+                refused = isinstance(exc, _Unservable)
                 self._call_quietly("stop", session_id)
                 if attempt == 1 or self._clock() >= deadline:
                     raise
                 logger.info("plex_stream: start failed, retrying once")
+                if quality == ORIGINAL and fallback is not None:
+                    quality = fallback
             except BaseException:
                 # Whatever failed, the Plex session may already be open: give it back.
                 self._call_quietly("stop", session_id)
                 raise
         stream_id = secrets.token_urlsafe(16)
         with self._lock:
+            if quality != asked:
+                keep = COPY_VERDICT_KEEP_SECONDS if refused else COPY_FAILURE_KEEP_SECONDS
+                until = self._clock() + keep
+                for key in self._copies:
+                    if key[0] == rating_key:
+                        self._copies[key] = _CopyVerdict(False, refused, until)
             # A concurrent start of the same item may have stored its stream meanwhile.
             twins = [
                 sid
@@ -242,10 +286,12 @@ class StreamManager:
                 full = False
                 now = self._clock()
                 self._viewings = {
-                    k: v for k, v in self._viewings.items() if now - v[1] <= VIEWING_KEEP_SECONDS
+                    k: v
+                    for k, v in self._viewings.items()
+                    if now - v.touched <= VIEWING_KEEP_SECONDS
                 }
-                began = self._viewings.get((user, rating_key), (now, now))[0]
-                self._viewings[(user, rating_key)] = (began, now)
+                viewing = self._viewings.setdefault((user, rating_key), _Viewing(now, now))
+                viewing.touched = now
                 self._streams[stream_id] = _Stream(
                     user=user,
                     rating_key=rating_key,
@@ -253,7 +299,7 @@ class StreamManager:
                     session_id=session_id,
                     child_path=child_path,
                     last_access=now,
-                    viewing_started=began,
+                    viewing_started=viewing.began,
                     info=dict(info or {}),
                 )
         for old_session in replaced:
@@ -308,12 +354,80 @@ class StreamManager:
 
     def get(self, stream_id: str, user: str) -> StreamInfo:
         stream = self._touch(stream_id, user)
+        with self._lock:
+            return self._info(stream, self._clock())
+
+    def _info(self, stream: _Stream, until: float) -> StreamInfo:
+        """*stream* as callers see it, its time counted to *until*; the lock must be held."""
+        viewing = self._viewings.get((stream.user, stream.rating_key))
         return StreamInfo(
             rating_key=stream.rating_key,
             quality=stream.quality,
             info=dict(stream.info),
-            elapsed_s=self._clock() - stream.viewing_started,
+            elapsed_s=until - stream.viewing_started,
+            saved_played_s=viewing.saved_played_s if viewing else 0.0,
+            saved_position_s=viewing.saved_position_s if viewing else None,
         )
+
+    def note_saved(self, user: str, rating_key: str, position_s: float, played_s: float) -> None:
+        """Remember the place and played time just saved for *user*'s viewing of the item."""
+        with self._lock:
+            viewing = self._viewings.get((user, rating_key))
+            if viewing is not None:
+                viewing.saved_position_s = position_s
+                viewing.saved_played_s = played_s
+
+    def peek(self, stream_id: str, user: str) -> StreamInfo:
+        """As ``get``, without counting as use of the stream, so an idle one still ends on time."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise StreamGone("stream is gone")
+            return self._info(stream, stream.last_access)
+
+    def copies_video(self, rating_key: str, file: str, user: str = "") -> bool:
+        """Whether Plex would send this item's video as it is, remembered per *file* for a while.
+
+        A restart of *user*'s viewing keeps the answer it has, however old. Only asks Plex for
+        its decision, and stops the session the question named. When Plex cannot say, its
+        earlier answer stands; without one, False.
+        """
+        if not _RATING_KEY_RE.fullmatch(rating_key):
+            return False
+        now = self._clock()
+        with self._lock:
+            held = self._copies.get((rating_key, file))
+            viewing = self._viewings.get((user, rating_key))
+        if held is not None:
+            restart = viewing is not None and now - viewing.touched <= IDLE_TIMEOUT_SECONDS
+            if now <= held.until or (held.known and restart):
+                return held.copied
+        session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
+        try:
+            base, token = self._creds()
+            body = self._get(
+                base,
+                token,
+                f"{_TRANSCODE}/decision",
+                op="decision",
+                params=_session_params(session_id, rating_key, ORIGINAL, False),
+                extra_headers={"X-Plex-Session-Identifier": session_id},
+                max_bytes=_PLAYLIST_MAX_BYTES,
+                timeout=_QUIET_TIMEOUT,
+            )
+        except PlexError:
+            known = held is not None and held.known
+            until = self._clock() + COPY_FAILURE_KEEP_SECONDS
+            verdict = _CopyVerdict(held is not None and held.copied, known, until)
+        else:
+            self._call_quietly("stop", session_id)
+            verdict = _CopyVerdict(_video_copied(body), True, now + COPY_VERDICT_KEEP_SECONDS)
+        with self._lock:
+            self._copies = {
+                k: v for k, v in self._copies.items() if now - v.until <= VIEWING_KEEP_SECONDS
+            }
+            self._copies[(rating_key, file)] = verdict
+        return verdict.copied
 
     def reaped(self, stream_id: str, user: str) -> StreamInfo:
         """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.
@@ -334,12 +448,7 @@ class StreamManager:
                 )
             ):
                 raise StreamGone("stream is gone")
-            return StreamInfo(
-                rating_key=stream.rating_key,
-                quality=stream.quality,
-                info=dict(stream.info),
-                elapsed_s=stream.last_access - stream.viewing_started,
-            )
+            return self._info(stream, stream.last_access)
 
     def stop(self, stream_id: str, user: str) -> None:
         with self._lock:
@@ -433,7 +542,10 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise StreamGone("stream is gone")
             stream.last_access = self._clock()
-            self._viewings[(user, stream.rating_key)] = (stream.viewing_started, stream.last_access)
+            viewing = self._viewings.setdefault(
+                (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
+            )
+            viewing.touched = stream.last_access
             return stream
 
     def _creds(self) -> tuple[str, str]:
@@ -460,21 +572,7 @@ class StreamManager:
         burn_subtitles: bool,
         deadline: float,
     ) -> str:
-        resolution, bitrate = QUALITY_PRESETS[quality]
-        params = {
-            "path": f"/library/metadata/{rating_key}",
-            "protocol": "hls",
-            "directPlay": "0",
-            "directStream": "1",
-            "fastSeek": "1",
-            "mediaIndex": "0",
-            "partIndex": "0",
-            "offset": "0",
-            "videoResolution": resolution,
-            "maxVideoBitrate": str(bitrate),
-            "subtitles": "burn" if burn_subtitles else "none",
-            "session": session_id,
-        }
+        params = _session_params(session_id, rating_key, quality, burn_subtitles)
         session_header = {"X-Plex-Session-Identifier": session_id}
         # start.m3u8 answers 400 unless a decision for the same session came first.
         for action in ("decision", "start.m3u8"):
@@ -488,6 +586,8 @@ class StreamManager:
                 max_bytes=_PLAYLIST_MAX_BYTES,
                 deadline=deadline,
             )
+            if action == "decision" and quality == ORIGINAL and not _video_copied(body):
+                raise _Unservable("Plex would not copy the video")
         variant = next(
             (
                 line.strip()
@@ -497,12 +597,15 @@ class StreamManager:
             "",
         )
         if not _VARIANT_RE.fullmatch(variant):
-            raise PlexUnavailable("Plex sent a start playlist without a usable variant")
+            raise _Unservable("Plex sent a start playlist without a usable variant")
         child_path = f"{_TRANSCODE}/{variant}"
         # Plex answers 404 for every segment until the child playlist has been read once.
-        self._get(
+        playlist = self._get(
             base, token, child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES, deadline=deadline
         )
+        if quality == ORIGINAL:
+            # A copied video may be packaged in a way mediaman does not serve: know it now.
+            _rewrite_playlist(playlist.decode("utf-8", "replace"), "")
         return child_path
 
     def _call_quietly(self, action: str, session_id: str) -> None:
@@ -594,6 +697,44 @@ class StreamManager:
             raise PlexUnavailable("Plex sent an unusable response") from None
 
 
+def _session_params(
+    session_id: str, rating_key: str, quality: str, burn_subtitles: bool
+) -> dict[str, str]:
+    params = {
+        "path": f"/library/metadata/{rating_key}",
+        "protocol": "hls",
+        "directPlay": "0",
+        "directStream": "1",
+        "fastSeek": "1",
+        "mediaIndex": "0",
+        "partIndex": "0",
+        "offset": "0",
+        "subtitles": "burn" if burn_subtitles else "none",
+        "session": session_id,
+    }
+    if quality != ORIGINAL:
+        resolution, bitrate = QUALITY_PRESETS[quality]
+        params |= {"videoResolution": resolution, "maxVideoBitrate": str(bitrate)}
+    return params
+
+
+def _video_copied(body: bytes) -> bool:
+    """True when a decision says the chosen version's video is copied, with nothing burned in."""
+    try:
+        root = ET.fromstring(body)
+    except (ParseError, ValueError):
+        return False
+    media = list(root.iter("Media"))
+    chosen = [m for m in media if m.get("selected") == "1"] or media
+    streams = [s for m in chosen for s in m.iter("Stream")]
+    video = [s for s in streams if s.get("streamType") == "1"]
+    return (
+        bool(video)
+        and all(s.get("decision") == "copy" for s in video)
+        and not any(s.get("decision") == "burn" for s in streams)
+    )
+
+
 def _rewrite_playlist(text: str, stream_id: str) -> str:
     """Rewrite a Plex media playlist so it names only mediaman segment routes.
 
@@ -602,7 +743,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
     """
     lines = [line.strip() for line in text.splitlines()]
     if not lines or lines[0] != "#EXTM3U":
-        raise PlexUnavailable("Plex sent something that is not a playlist")
+        raise _Unservable("Plex sent something that is not a playlist")
     out: list[str] = []
     for line in lines:
         if not line:
@@ -616,14 +757,14 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
         if line.startswith("#EXT-X-MAP"):
             map_tag = _MAP_RE.fullmatch(line)
             if map_tag is None:
-                raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+                raise _Unservable("Plex sent a playlist mediaman cannot serve")
             out.append(f'#EXT-X-MAP:URI="{_segment_url(map_tag.group(1), stream_id)}"')
             continue
         if line == "#EXT-X-KEY:METHOD=NONE":
             out.append(line)
             continue
         if "URI=" in line:
-            raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+            raise _Unservable("Plex sent a playlist mediaman cannot serve")
         tag, _, value = line.partition(":")
         if tag in _PLAIN_TAGS and _PLAIN_TAG_VALUE_RE.fullmatch(value):
             out.append(line)
@@ -632,7 +773,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
 
 def _segment_url(name: str, stream_id: str) -> str:
     if not _SEGMENT_NAME_RE.fullmatch(name):
-        raise PlexUnavailable("Plex sent a playlist mediaman cannot serve")
+        raise _Unservable("Plex sent a playlist mediaman cannot serve")
     return f"{SEGMENT_URL_PREFIX}/{stream_id}/seg/{name}"
 
 

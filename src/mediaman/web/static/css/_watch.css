@@ -78,23 +78,7 @@
 .watch-bar:not([value="0"])::-moz-progress-bar { min-width: 6px; }
 
 /* Search box, top of the content. */
-.watch-top { padding: 20px var(--pad) 4px; }
-.watch-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 460px;
-  min-height: 44px;
-  padding: 0 16px;
-  background: var(--s3);
-  border-radius: var(--r-pill);
-  color: var(--t3);
-}
-.watch-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .watch-search__input {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
   background: none;
   border: 0;
   outline: none;
@@ -104,34 +88,19 @@
   -webkit-appearance: none;
   appearance: none;
 }
-.watch-search__input::placeholder { color: var(--t3); }
 .watch-search__input::-webkit-search-cancel-button { -webkit-appearance: none; }
-/* While a search runs a spinner stands in for the magnifier, in a box of
-   the same width so the text does not move. */
-.watch-search__icon { flex: none; width: 22px; text-align: center; }
-.watch-search__spinner { flex: none; margin-inline: 3px; }
-.watch-search.is-pending .watch-search__icon { display: none; }
-.watch-search.is-pending .watch-search__spinner { display: block; }
-/* 44px to tap; the negative margin lines the cross up with the box's padding. */
 .watch-search__clear {
-  flex: none;
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
-  margin-right: -14px;
   border-radius: 50%;
-  color: var(--t3);
-  font-size: 15px;
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.watch-search__clear:hover { color: var(--t1); }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 
 /* Top bar: the search field, and for admins the Browse / List switch at the
    far right; below 600px the switch is two 44px icon buttons. */
 .watch-top { display: flex; align-items: center; gap: 12px; }
-.watch-top > .watch-search { flex: 1 1 0; min-width: 0; }
 .watch-viewtoggle {
   flex: none;
   margin-left: auto;
@@ -458,18 +427,17 @@
 /* Posters and the banner backdrop fade in as they arrive; watch-rows.js sets
    the classes, so without it they simply appear. */
 .watch-card__poster > img,
-.watch-hero__poster > img,
 .watch-ep__thumb > img { transition: opacity var(--dur) var(--ease-out); }
 .watch-banner__bg { transition: opacity var(--dur-slow) var(--ease-out); }
 .has-poster-fade .watch-card__poster > img:not(.is-loaded),
-.has-poster-fade .watch-hero__poster > img:not(.is-loaded),
 .has-poster-fade .watch-ep__thumb > img:not(.is-loaded),
 .has-poster-fade .watch-banner__bg:not(.is-loaded) { opacity: 0; }
 .watch-card__poster::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent) 0%, transparent 25%, transparent 50%, color-mix(in srgb, var(--scrim) 85%, transparent) 100%);
+  /* A title of four lines reaches a third of the way up, so the dark is already half there. */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent) 0%, transparent 25%, transparent 42%, color-mix(in srgb, var(--scrim) 52%, transparent) 62%, color-mix(in srgb, var(--scrim) 72%, transparent) 78%, color-mix(in srgb, var(--scrim) 88%, transparent) 100%);
   pointer-events: none;
 }
 .watch-card__title {
@@ -504,22 +472,187 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.watch-badge__short { display: none; }
-/* Opaque and darkened so white text holds 4.5:1 over any poster. */
-.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); font-weight: 600; }
-.watch-badge--watched { right: 8px; background: color-mix(in srgb, var(--scrim) 65%, transparent); color: color-mix(in srgb, var(--t1) 85%, transparent); }
-.watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
-@media (max-width: 1279.98px) {
-  .watch-badge__long { display: none; }
-  .watch-badge__short { display: inline; }
+.watch-badge__long { display: none; }
+/* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red. */
+.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--scrim) 72%, transparent); font-weight: 600; }
+.watch-badge--leaving-now { background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
+/* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
+.watch-badge--watched {
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, var(--scrim) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t1) 28%, transparent);
+  font-weight: 600;
+}
+.watch-badge--watched > .ico { flex: none; font-size: 13px; }
+.watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
+.watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
+/* A caption of two parts is one line. Where both do not fit, the lines are laid out from the foot up
+   and the one that shows is the tail; the lead is clipped and still read out. So it is inside a tail of two. */
+.watch-card__sub:has(> .watch-card__lead),
+.watch-card__tail:has(> .watch-card__end) {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-content: flex-end;
+  height: 1lh;
+  white-space: nowrap;
+}
+.watch-card__lead,
+.watch-card__tail { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.watch-card__lead:not(:last-child)::after { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
+/* Search results mix films and shows, and an episode is told by its number, so there the lead is
+   the part that stays. "left" is a part of its own, the first to go. */
+.results-grid .watch-card__sub:has(> .watch-card__lead),
+.watch-card__sub:has(> .watch-card__left) { flex-wrap: wrap; align-content: flex-start; }
+.results-grid .watch-card__lead:not(:last-child)::after,
+.watch-card__sub:has(> .watch-card__left) > .watch-card__lead::after { content: none; }
+.watch-card__left { white-space: pre; }
+.results-grid .watch-card__tail::before,
+.watch-card__sub:has(> .watch-card__left) > .watch-card__tail::before { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
+.watch-card__mid { white-space: pre; }
+.watch-card__said,
+.results-grid .watch-card__mid { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
+@media (max-width: 599.98px) {
+  .watch-card__mid,
+  .watch-card__wide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
+  .watch-card__unit::after { content: attr(data-unit); }
 }
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { --card-pad: 8px; }
-  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
+  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); max-width: calc(100% - 12px); }
   .watch-badge--leaving { left: 6px; }
-  .watch-badge--watched { right: 6px; }
+  .watch-badge--watched { right: 6px; gap: 4px; }
+  .watch-badge--watched > .ico { font-size: 12px; }
 }
+/* Three columns here have no room for the word. */
+@media (max-width: 359.98px) {
+  .watch-badge--watched { gap: 0; }
+  .watch-badge__word { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+}
+
+/* What an AI chose: the icon and the words. */
+.ai-label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--rgba-purple-bg);
+  color: color-mix(in srgb, var(--purple) 55%, var(--t1));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.ai-label > .ico { font-size: 12px; }
+
+/* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
+   percentage is of the card's width, so it finds the poster's foot at every size. */
+.watch-card { position: relative; }
+.watch-card[data-mark] .watch-card__sub { padding-right: 26px; min-height: 1lh; }
+.watch-more {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -8px;
+  margin-top: calc(150% - 8px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--t3);
+  font-size: 14px;
+  transition: color var(--dur-fast) var(--ease-out);
+  isolation: isolate;
+}
+.watch-more::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--s4);
+  opacity: 0;
+  transform: scale(.85);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-more:hover,
+.watch-more[aria-expanded="true"] { color: var(--t1); }
+.watch-more:hover::before,
+.watch-more[aria-expanded="true"]::before { opacity: 1; transform: none; }
+.watch-more:active::before { opacity: 1; transform: scale(.92); }
+.watch-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; color: var(--t1); }
+.watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
+/* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
+@media (max-width: 599.98px) {
+  .watch-card[data-mark] .watch-card__sub { padding-right: 18px; }
+  .watch-more { place-items: center end; padding-right: 7px; }
+  .watch-more::before { inset: 8px 2px 8px 14px; }
+  .watch-more:focus-visible { outline: none; }
+  .watch-more:focus-visible::before { opacity: 1; transform: none; outline: 2px solid var(--accent); }
+}
+.watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
+.watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
+
+/* The eye of the Watched marks: an outline until it is seen, then solid with a check in it. The
+   symbol's two drawings show by variables, which reach into what <use> draws. */
+.eye-open { display: var(--eye-open, inline); }
+.eye-seen { display: var(--eye-seen, none); }
+.watch-badge--watched,
+.watch-pill__mark,
+.watch-mark[aria-pressed="true"],
+.watch-mark-btn__on { --eye-open: none; --eye-seen: inline; }
+
+/* A toggle of the person's own mark: an empty ring, filled once watched, with the word beside it
+   where there is room. */
+.watch-mark {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 44px;
+  height: 44px;
+  color: var(--t3);
+  font-size: 15px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.watch-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair-strong);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-mark__word { font-size: 12px; font-weight: 600; }
+.watch-mark:not([aria-pressed="true"]) .watch-mark__word { display: none; }
+.watch-mark:hover { color: var(--t1); }
+.watch-mark:hover::before { border-color: var(--hair-hover); }
+.watch-mark[aria-pressed="true"] { padding-inline: 18px; color: var(--bg); }
+.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 60%, transparent); border-color: transparent; }
+.watch-mark[aria-pressed="true"]:hover::before { background: color-mix(in srgb, var(--t1) 76%, transparent); }
+.watch-mark:active::before { transform: scale(.94); }
+.watch-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-pill); }
+.watch-mark[aria-busy="true"],
+.watch-mark-btn[aria-busy="true"] { opacity: .55; cursor: progress; }
+
+/* A button toggle: both its faces, each an eye and a label, share one cell, so its width never changes. */
+.watch-mark-btn { display: inline-flex; align-items: center; justify-content: center; }
+.watch-mark-btn__faces { display: grid; }
+.watch-mark-btn__faces > * { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; gap: 9px; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-mark-btn__faces .ico { flex: none; font-size: 16px; }
+.watch-mark-btn[aria-pressed="true"] .watch-mark-btn__off,
+.watch-mark-btn:not([aria-pressed="true"]) .watch-mark-btn__on { opacity: 0; visibility: hidden; }
+.watch-mark-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--t1) 34%, transparent); border-color: color-mix(in srgb, var(--t1) 60%, transparent); }
 
 /* Keep trigger. The pill is drawn by ::before so the button itself can be a
    44px touch target on a phone without the pill looking bulky. */
@@ -597,16 +730,6 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
-/* Nothing found: a small centred block, not a bare sentence. */
-.watch-results__msg--empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 48px 0 24px;
-  text-align: center;
-}
-.watch-results__icon { font-size: 28px; color: var(--t3); margin-bottom: 8px; }
 .watch-results__line { font-size: 16px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
 .watch-results__hint { font-size: 14px; color: var(--t3); }
 .watch-results__msg--error {
@@ -643,6 +766,13 @@
 .watch-state__title { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
 .watch-state__text { color: var(--t2); }
 
+/* An empty library: a short centred block above whatever Discover rows load. */
+.watch-empty { max-width: 520px; margin: 0 auto; padding: 56px var(--pad) 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.watch-empty__icon { font-size: 32px; color: var(--t3); margin-bottom: 6px; }
+.watch-empty__title { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.watch-empty__text { color: var(--t2); text-wrap: balance; }
+.watch-empty .watch-actions { justify-content: center; margin-top: 10px; }
+
 /* Show and movie pages */
 .watch-detail {
   background: radial-gradient(ellipse at 80% 0%, var(--hero-lo) 0%, var(--bg) 60%) no-repeat;
@@ -651,23 +781,7 @@
 .watch-detail__top { padding: 20px var(--pad) 0; }
 .watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .watch-back:hover { color: var(--accent-hi); }
-.watch-hero {
-  display: flex;
-  gap: 40px;
-  padding: 8px var(--pad) 24px;
-}
-.watch-hero__poster {
-  position: relative;
-  flex: 0 0 220px;
-  height: 330px;
-  overflow: hidden;
-  border-radius: var(--r-lg);
-  background: linear-gradient(160deg, var(--s4), var(--s1));
-}
-.watch-hero__poster > img { width: 100%; height: 100%; object-fit: cover; }
 .watch-hero__info { display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
-.watch-hero__title { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.08; overflow-wrap: anywhere; }
-.watch-hero__meta { font-size: 14px; color: var(--t3); }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
 /* The line keeps the Keep button's height when it is kept or empty (a season
    that is not leaving), so Resume and the season tabs never move under a tap. */
@@ -679,6 +793,15 @@
 .watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 
 .watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+/* With scripts the seasons stand on one line that scrolls, its gutters holding the arrows so
+   that they never stand on a season. */
+.watch-seasons__line { --pad: clamp(20px, 4vw, 32px); min-width: 0; margin: 6px calc(-1 * var(--pad)) 0; }
+.watch-seasons.watch-row__scroll { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
+.watch-seasons > .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
+.watch-seasons__line > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
+.watch-seasons__line > .watch-row__arrow--prev { left: 2px; }
+.watch-seasons__line > .watch-row__arrow--next { right: 2px; }
+.watch-pill__mark { margin-left: 8px; font-size: 13px; opacity: .75; }
 .watch-pill {
   display: inline-flex;
   align-items: center;
@@ -693,8 +816,17 @@
 .watch-pill:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
 
-.watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
+.watch-episodes { padding: 8px var(--pad) 0; max-width: 1100px; }
 @media (min-width: 900px) { .watch-episodes { margin-left: 260px; } }
+.watch-episodes__list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.watch-episodes__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; padding-inline: 16px; }
+.watch-episodes__title { font-size: 19px; font-weight: 600; margin-right: auto; }
+.watch-episodes__head .btn { min-height: 44px; padding-inline: 18px; font-size: 14px; }
+/* The toggle stands beside the link, in a column that has room for it either way. */
+.watch-eprow { display: grid; grid-template-columns: minmax(0, 1fr) 116px; align-items: center; border-radius: var(--r-md); transition: background-color var(--dur-fast) var(--ease-out); }
+.watch-eprow > .watch-mark { justify-self: end; }
+.watch-eprow:has(> .watch-ep:hover),
+.watch-eprow:has(> .watch-ep--in-progress) { background: var(--s1); }
 .watch-ep {
   display: grid;
   grid-template-columns: 24px 176px minmax(0, 1fr) auto;
@@ -705,8 +837,6 @@
   border-radius: var(--r-md);
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.watch-ep:hover { background: var(--s1); }
-.watch-ep--in-progress { background: var(--s1); }
 .watch-ep__num { grid-area: num; font-size: 18px; color: var(--t3); text-align: right; }
 .watch-ep__thumb {
   grid-area: thumb;
@@ -724,17 +854,8 @@
 .watch-ep__state { grid-area: state; font-size: 12px; padding: 4px 10px; border-radius: var(--r-pill); color: var(--t2); background: var(--rgba-overlay-sm); }
 .watch-ep__state--active { color: var(--accent); background: var(--rgba-accent-bg); }
 
-/* Tablet */
-@media (max-width: 899.98px) {
-  .watch-hero { gap: 28px; }
-  .watch-hero__poster { flex-basis: 170px; height: 255px; }
-  .watch-hero__title { font-size: 36px; }
-}
-
 /* Phone */
 @media (max-width: 599.98px) {
-  .watch-top { padding-top: 12px; }
-  .watch-search { max-width: none; }
   .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
   /* Above the title, in the room the padding keeps for it. */
   .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; max-height: 132px; transform: none; border-radius: var(--r-sm); }
@@ -763,9 +884,6 @@
   .watch-rows { gap: 22px; padding-top: 18px; }
   .watch-row__title { font-size: 17px; margin-bottom: 10px; }
 
-  .watch-hero { flex-direction: column; gap: 18px; }
-  .watch-hero__poster { flex-basis: auto; width: 140px; height: 210px; }
-  .watch-hero__title { font-size: 30px; }
   .watch-state { padding-top: 56px; }
   .watch-state__title { font-size: 24px; }
 
@@ -778,6 +896,12 @@
   }
   .watch-ep__num { font-size: 14px; padding-top: 2px; }
   .watch-ep__state { justify-self: start; align-self: end; }
+  /* The eye alone beside an episode: its filled ring says it. */
+  .watch-episodes__head { padding-inline: 8px; }
+  .watch-eprow { grid-template-columns: minmax(0, 1fr) 44px; gap: 0; }
+  .watch-eprow .watch-mark__word { display: none; }
+  .watch-eprow .watch-mark[aria-pressed="true"] { padding: 0; }
+  .watch-eprow .watch-mark::before { inset: 4px; }
 }
 
 /* A phone held sideways: a shorter banner that leaves its buttons on screen. */
@@ -790,22 +914,42 @@
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
 }
-/* One narrower than 600px too: the dark beside the text, not above it, and the buttons in a row. */
-@media (max-width: 599.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  /* Its tab bar leaves little height: no taller than the text and its buttons need. */
-  .watch-banner { --banner-poster-w: 92px; min-height: 0; margin-top: 0; padding-block: 12px 14px; }
-  .watch-banner__poster { --banner-poster-w: 92px; max-height: calc(100% - 24px); }
+/* One that has the tab bar too: the dark beside the text, not above it. */
+@media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  /* Its tab bar leaves little height, so the buttons stand beside the text, at its top, in place of
+     the poster: however long the title, they stay on screen. */
+  .watch-banner { min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner__poster { display: none; }
+  .watch-banner__body { width: 100%; max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 6px 16px; }
+  .watch-banner__body > * { grid-column: 1; }
   .watch-banner__title--longest { font-size: 18px; line-height: 1.1; }
   .watch-banner::after { background: var(--banner-foot), var(--banner-side); }
   .watch-banner__body::before { inset: -100vh -160px -100px calc(-1 * var(--pad)); background: var(--banner-text-side); }
-  .watch-banner .watch-actions .btn,
-  .watch-banner .watch-actions .watch-btn--play { flex: none; padding-inline: 22px; }
+  .watch-banner .watch-actions { grid-column: 2; grid-row: 1 / span 6; align-self: start; align-content: start; gap: 8px; margin: 0; }
+  .watch-banner .watch-actions .btn { flex: 1 1 0; padding-inline: 12px; order: 1; }
+  .watch-banner .watch-actions .watch-btn--play { flex: 1 1 130px; padding-inline: 12px; order: 0; }
+  .watch-banner .watch-actions .watch-banner__dismiss { flex: 0 0 44px; padding: 0; order: 0; }
+  .watch-banner__dismiss > span { display: none; }
   .watch-bar--banner { width: min(320px, 100%); }
 }
 
 /* The system's colours: no picture behind the text, and a bar whose value still shows. */
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
+  /* With no picture there is nothing to leave room for. */
+  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: 24px; }
+  .watch-viewtoggle__btn[aria-current="page"],
+  .watch-pill.on { forced-color-adjust: none; color: HighlightText; }
+  .watch-viewtoggle__btn[aria-current="page"]::before,
+  .watch-pill.on { background: Highlight; }
+  .watch-keep::before { border: 1px solid ButtonText; }
+  .ai-label { border: 1px solid CanvasText; }
+  .watch-badge--leaving { background: Canvas; outline: 1px solid CanvasText; }
+  .watch-badge--watched { background: Canvas; border-color: CanvasText; }
+  .watch-mark[aria-pressed="true"],
+  .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }
+  .watch-mark-btn[aria-pressed="true"],
+  .watch-mark[aria-pressed="true"]::before { background: Highlight; }
   progress.watch-bar,
   .watch-card__poster > .watch-bar,
   .watch-ep__thumb > .watch-bar { forced-color-adjust: none; height: 6px; border: 1px solid CanvasText; background: Canvas; }
@@ -835,7 +979,6 @@
 .watch-pill:active { transform: scale(.97); background: color-mix(in srgb, var(--t1) 30%, transparent); }
 .watch-pill.on:active { background: color-mix(in srgb, var(--t1) 82%, transparent); }
 .watch-ep:active { background: var(--s2); transform: scale(.985); }
-.watch-search__clear:active { color: var(--t1); transform: scale(.9); }
 .watch-keep:active { transform: scale(.97); }
 .watch-keep:active::before { background: color-mix(in srgb, var(--success) 30%, transparent); }
 .watch-keep-menu__item:active { background: var(--s4); color: var(--t1); }
@@ -848,8 +991,9 @@
   .watch-card__link:active .watch-card__poster,
   .watch-pill:active,
   .watch-ep:active,
-  .watch-search__clear:active,
   .watch-keep:active,
+  .watch-more::before,
+  .watch-mark:active::before,
   .watch-btn--play:active,
   .watch-btn--grey:active { transform: none; }
 }

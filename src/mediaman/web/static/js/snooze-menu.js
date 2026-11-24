@@ -1,4 +1,4 @@
-/* Snooze-menu: dropdown used on Library (whole pill) and Dashboard (caret).
+/* Snooze-menu: the keep menu of the Watch list.
  *
  * Markup shape expected:
  *   <div class="keep-wrapper">

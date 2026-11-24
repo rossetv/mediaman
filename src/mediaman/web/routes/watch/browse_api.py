@@ -40,7 +40,7 @@ from mediaman.web.routes.watch.pages import (
     is_valid_key,
     movie_cards,
     open_plex,
-    show_card,
+    show_cards,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,10 +108,14 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         m.key: c
         for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
     }
+    shows = [f for f in found if isinstance(f, lib.LibraryShow)]
+    show_by_key = {
+        s.key: c for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
+    }
     items: list[dict[str, Any]] = [
         {**by_key[f.key], "ref": f"movie-{f.key}"}
         if isinstance(f, lib.LibraryMovie)
-        else {**show_card(f), "ref": f"show-{f.key}"}
+        else {**show_by_key[f.key], "ref": f"show-{f.key}"}
         for f in found
     ]
     return JSONResponse({"items": items})

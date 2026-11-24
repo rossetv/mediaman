@@ -19,6 +19,14 @@ def test_a_viewer_is_sent_to_watch_from_each_admin_page(app_factory, viewer_clie
     assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
 
 
+def test_an_admin_is_sent_on_to_watch_from_the_root(app_factory, authed_client, conn):
+    app = app_factory(dashboard_router, conn=conn)
+
+    resp = authed_client(app, conn).get("/", follow_redirects=False)
+
+    assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+
+
 @pytest.mark.parametrize("path", ["/", "/library", "/history", "/settings"])
 def test_no_session_still_goes_to_login(app_factory, conn, path):
     from fastapi.testclient import TestClient

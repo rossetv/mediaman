@@ -27,6 +27,12 @@ class PlexTrackedFile(TypedDict):
     size: int
 
 
+class PlexEpisodeFile(TypedDict):
+    key: str
+    number: int | None
+    path: str
+
+
 class PlexMovieItem(TypedDict):
     plex_rating_key: str
     title: str
@@ -35,6 +41,7 @@ class PlexMovieItem(TypedDict):
     file_path: str
     file_size_bytes: int
     poster_path: str
+    year: int | None
     tmdb_id: int | None
     tracked_files: list[PlexTrackedFile]
 
@@ -50,9 +57,11 @@ class PlexSeasonItem(TypedDict):
     file_size_bytes: int
     poster_path: str
     episode_count: int
+    episodes: list[PlexEpisodeFile]
     show_rating_key: str
     is_anime: bool
-    tmdb_id: int | None  # the show's
+    year: int | None  # the show's, as are the ids
+    tmdb_id: int | None
     tvdb_id: int | None
     tracked_files: list[PlexTrackedFile]
 
@@ -118,6 +127,12 @@ def _external_id(item: Any, scheme: str, legacy_prefix: str) -> int | None:
     return None
 
 
+def _year(item: Any) -> int | None:
+    # Not item.year: reading an empty one makes plexapi reload the item from the server.
+    year = vars(item).get("year")
+    return year if isinstance(year, int) and 0 < year < 10000 else None
+
+
 def _part_files(media_lists: Iterable[Any]) -> list[PlexTrackedFile]:
     """Every part file of every media version, each path once.
 
@@ -151,6 +166,7 @@ def _movie_to_item(movie: Any) -> PlexMovieItem:
         "file_path": file_path,
         "file_size_bytes": file_size,
         "poster_path": movie.thumb,
+        "year": _year(movie),
         "tmdb_id": _external_id(movie, "tmdb", _LEGACY_TMDB_PREFIX),
         "tracked_files": _part_files([movie.media]),
     }
@@ -182,8 +198,18 @@ def _season_to_item(show: Any, season: Any) -> PlexSeasonItem:
         "file_size_bytes": file_size,
         "poster_path": show.thumb,
         "episode_count": len(episodes),
+        "episodes": [
+            {
+                "key": str(ep.ratingKey),
+                "number": ep.index if isinstance(ep.index, int) else None,
+                # Plex may list the versions of an episode in any order.
+                "path": min((f["path"] for f in _part_files([ep.media])), default=""),
+            }
+            for ep in episodes
+        ],
         "show_rating_key": str(show.ratingKey),
         "is_anime": _is_anime_show(show),
+        "year": _year(show),
         "tmdb_id": _external_id(show, "tmdb", _LEGACY_TMDB_PREFIX),
         "tvdb_id": _external_id(show, "tvdb", _LEGACY_TVDB_PREFIX),
         "tracked_files": _part_files(ep.media for ep in episodes),

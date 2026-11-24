@@ -7,6 +7,7 @@ import requests
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.plex_watch import (
+    PlexItem,
     PlexItemNotFound,
     PlexNotConfigured,
     PlexUnavailable,
@@ -33,9 +34,11 @@ class _FakeHTTP:
     def __init__(self, routes: dict[str, _Resp | Exception]) -> None:
         self.routes = routes
         self.calls: list[tuple[str, dict[str, str]]] = []
+        self.options: list[dict[str, object]] = []
 
-    def get(self, url: str, *, headers: dict[str, str], **_: object) -> _Resp:
+    def get(self, url: str, *, headers: dict[str, str], **options: object) -> _Resp:
         self.calls.append((url, headers))
+        self.options.append(options)
         result = self.routes[url.removeprefix(BASE)]
         if isinstance(result, Exception):
             raise result
@@ -314,3 +317,156 @@ def test_a_token_straddling_the_log_cut_is_still_hidden(caplog: pytest.LogCaptur
     ):
         watch.fetch_image(path)
     assert TOKEN[:5] not in caplog.text
+
+
+MARKS = "?includeMarkers=1&includeChapters=1"
+
+
+def _marked_movie(inner: str, duration: str = "600000") -> PlexItem:
+    xml = _container(
+        f'<Video ratingKey="7" type="movie" title="Film" duration="{duration}">{inner}</Video>',
+        librarySectionID="1",
+    )
+    watch, http = _watch({f"/library/metadata/7{MARKS}": xml})
+    item = watch.get_item("7", marks=True)
+    assert len(http.calls) == 1
+    return item
+
+
+def _marker(kind: str, start: object, end: object, extra: str = "") -> str:
+    return f'<Marker type="{kind}" startTimeOffset="{start}" endTimeOffset="{end}" {extra}/>'
+
+
+def test_both_spellings_of_credits_are_read_and_other_markers_are_not() -> None:
+    item = _marked_movie(
+        _marker("credits", 500000, 600000, 'final="1"')
+        + _marker("credit", 300000, 310000)
+        + _marker("commercial", 100000, 130000)
+        + _marker("intro", 5000, 65500)
+    )
+    assert [(m.kind, m.start_s, m.end_s, m.final) for m in item.markers] == [
+        ("intro", 5.0, 65.5, False),
+        ("credits", 300.0, 310.0, False),
+        ("credits", 500.0, 600.0, True),
+    ]
+
+
+def test_markers_are_clamped_to_the_item_and_unusable_ones_dropped() -> None:
+    item = _marked_movie(
+        _marker("intro", -4000, 30000)
+        + _marker("intro", 60000, 50000)
+        + _marker("intro", 700000, 800000)
+        + _marker("intro", "nan", "inf")
+        + _marker("intro", "1", "9" * 400)
+    )
+    assert [(m.start_s, m.end_s) for m in item.markers] == [(0.0, 30.0), (0.001, 600.0)]
+
+
+def test_chapters_get_plain_titles_and_a_name_when_plex_has_none() -> None:
+    title = "The&#10;  Crossing " + "x" * 200
+    item = _marked_movie(
+        f'<Chapter tag="{title}" startTimeOffset="0" endTimeOffset="60000"/>'
+        '<Chapter tag=" " startTimeOffset="60000" endTimeOffset="120000"/>'
+    )
+    first, second = item.chapters
+    assert first.title.startswith("The Crossing x")
+    assert len(first.title) == 120
+    assert (second.title, second.start_s, second.end_s) == ("Chapter 2", 60.0, 120.0)
+
+
+def test_a_flood_of_markers_and_chapters_is_cut() -> None:
+    item = _marked_movie(
+        "".join(_marker("intro", n, 500000) for n in range(50))
+        + "".join(f'<Chapter startTimeOffset="{n}" endTimeOffset="500000"/>' for n in range(500))
+    )
+    assert len(item.markers) == 20
+    assert len(item.chapters) == 200
+
+
+def test_the_plain_item_read_asks_for_no_markers() -> None:
+    watch, http = _watch({"/library/metadata/7": _movie_with_streams("")})
+    watch.get_item("7")
+    assert http.calls[0][0] == f"{BASE}/library/metadata/7"
+
+
+def _movie_with_part(part: str, duration: str = "62000") -> PlexItem:
+    xml = _container(
+        f'<Video ratingKey="7" type="movie" title="Film" duration="{duration}">'
+        f'<Media><Part size="9" {part}/></Media></Video>'
+    )
+    return _watch({"/library/metadata/7": xml})[0].get_item("7")
+
+
+@pytest.mark.parametrize(
+    ("part", "duration", "count"),
+    [
+        ('id="3" indexes="sd"', "62000", 12),
+        ('id="3" indexes="hd,sd"', "62000", 12),
+        ('id="3" indexes="sd" duration="51000"', "62000", 10),
+        ('id="3" indexes="sd" duration="90000"', "62000", 12),
+        ('id="3" indexes="sd" duration="59900"', "59900", 11),
+        ('id="3" indexes="sd"', "3000", 1),
+        ('id="3"', "62000", 0),
+        ('id="../x" indexes="sd"', "62000", 0),
+        ('id="3" indexes="sd"', "", 0),
+        ('id="3" indexes="sd"', "9" * 15, 17280),
+    ],
+    ids=[
+        "sd",
+        "among others",
+        "file shorter than the title",
+        "file longer than the title",
+        "title rounded up",
+        "under one interval",
+        "none made",
+        "odd part id",
+        "no duration",
+        "absurd duration",
+    ],
+)
+def test_preview_frames_are_counted_up_to_the_last_whole_interval(part, duration, count) -> None:
+    assert _movie_with_part(part, duration).preview_count == count
+
+
+@pytest.mark.parametrize(
+    ("stream", "plain"),
+    [
+        ('codec="h264" bitDepth="8"', True),
+        ('codec="h264" bitDepth="8" scanType="progressive" chromaSubsampling="4:2:0"', True),
+        ('codec="hevc" bitDepth="8"', False),
+        ('codec="h264" bitDepth="10"', False),
+        ('codec="h264"', False),
+        ('codec="h264" bitDepth="8" scanType="interlaced"', False),
+        ('codec="h264" bitDepth="8" colorTrc="smpte2084"', False),
+        ('codec="h264" bitDepth="8" DOVIPresent="1"', False),
+        ('codec="h264" bitDepth="8" chromaSubsampling="4:2:2"', False),
+    ],
+)
+def test_only_eight_bit_sdr_progressive_h264_counts_as_plain(stream, plain) -> None:
+    watch, _ = _watch(
+        {"/library/metadata/7": _movie_with_streams(f'<Stream streamType="1" {stream}/>')}
+    )
+    media = watch.get_item("7").media
+    assert media is not None
+    assert media.plain_h264 is plain
+
+
+def test_a_preview_frame_is_read_from_the_frames_plex_already_made() -> None:
+    frame = b"\xff\xd8\xff\xe0frame"
+    watch, http = _watch({"/library/parts/31/indexes/sd/65000": _Resp(frame, "image/jpeg")})
+    assert watch.fetch_preview("31", 65000) == frame
+    assert http.options[0]["max_bytes"] == 256 * 1024
+    assert http.options[0]["expected_content_type"] == "image/jpeg"
+
+
+def test_a_preview_that_is_not_a_jpeg_is_refused() -> None:
+    watch, _ = _watch({"/library/parts/31/indexes/sd/0": _Resp(b"<html>", "image/jpeg")})
+    with pytest.raises(PlexUnavailable):
+        watch.fetch_preview("31", 0)
+
+
+def test_a_preview_of_an_odd_part_id_never_reaches_plex() -> None:
+    watch, http = _watch({})
+    with pytest.raises(PlexItemNotFound):
+        watch.fetch_preview("31/../..", 0)
+    assert http.calls == []

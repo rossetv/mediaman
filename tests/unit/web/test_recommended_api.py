@@ -149,10 +149,11 @@ class TestDownloadRecommendationAdminEmail:
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         row = conn.execute(
-            "SELECT email FROM download_notifications WHERE tmdb_id = 27205"
+            "SELECT email, username FROM download_notifications WHERE tmdb_id = 27205"
         ).fetchone()
         assert row is not None
         assert row["email"] == "admin@example.com"
+        assert row["username"] == "admin"
 
     def test_movie_skips_notification_when_admin_has_no_email(self, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)
@@ -193,10 +194,11 @@ class TestDownloadRecommendationAdminEmail:
 
         assert resp.status_code == 200
         row = conn.execute(
-            "SELECT email FROM download_notifications WHERE tmdb_id = 136315"
+            "SELECT email, username FROM download_notifications WHERE tmdb_id = 136315"
         ).fetchone()
         assert row is not None
         assert row["email"] == "admin@example.com"
+        assert row["username"] == "admin"
 
     def test_tv_skips_notification_when_admin_has_no_email(self, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)

@@ -1,26 +1,65 @@
 /* HISTORY — audit log rows on the history page. Owns the `.hist*`
-   grid used in cards. */
+   rows: a one-line summary that opens into the full event details. */
 
-.hist {
+/* Opaque, so a row moving over an opening one covers its details until it has passed. */
+.hist { border-bottom: 1px solid var(--hair); background: var(--s1); }
+.hist-sum {
   display: grid;
-  grid-template-columns: 140px 1fr auto;
+  grid-template-columns: 140px minmax(0, 1fr) auto 20px;
   gap: 20px;
   padding: 16px 0;
-  border-bottom: 1px solid var(--hair);
   align-items: center;
+  cursor: pointer;
+  list-style: none;
 }
+.hist-sum::-webkit-details-marker { display: none; }
+.hist-sum:focus-visible { outline-offset: -2px; }
 /* Card variant for history list — no top/bottom padding so rows extend edge-to-edge */
 .card--hist { padding: 0 24px; }
 .hist-date { font-family: var(--font-text); font-size: 13px; color: var(--t3); letter-spacing: -.01em; white-space: nowrap; }
-.hist-msg { font-size: 14px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+/* One line: a long title ends in an ellipsis, the full text is in the details. */
+.hist-msg { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-msg b { font-weight: 500; }
 .hist-type { color: var(--t3); font-size: 13px; }
 /* The badge column never takes more than this, whatever the action name. */
-.hist > .hist-type { min-width: 0; max-width: min(240px, 100%); }
+.hist-pill { min-width: 0; max-width: min(240px, 100%); }
+.hist-chev { color: var(--t3); display: inline-flex; transition: transform var(--dur) var(--ease-out); }
+.hist-sum:hover .hist-chev { color: var(--t1); }
+.hist[open] .hist-chev { transform: rotate(180deg); }
 
-/* Phone: date and badge share a row; the message takes the full width below. */
+.hist-body { padding: 0 0 18px; }
+.hist[open] > .hist-body { animation: hist-open var(--dur) var(--ease-out); }
+.hist.is-closing > .hist-body { animation: hist-close var(--dur-fast) ease-in forwards; }
+@keyframes hist-open  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes hist-close { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-6px); } }
+
+.hist-fields { margin: 0 0 14px; display: grid; gap: 10px; }
+.hist-field { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 20px; font-size: 14px; }
+.hist-field dt { color: var(--t3); font-size: 13px; }
+.hist-field dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.hist-field dd.is-empty { color: var(--t3); }
+
+/* Phone: date, badge and arrow share a row; the message and the details take the full width below. */
 @media (max-width: 639.98px) {
-  .hist { grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: start; }
-  .hist > .hist-type { justify-self: end; }
-  .hist-msg { grid-column: 1 / -1; grid-row: 2; }
+  .hist-sum { grid-template-columns: auto minmax(0, 1fr) auto 20px; gap: 6px 12px; align-items: start; }
+  .hist-date { grid-area: 1 / 1; }
+  .hist-pill { grid-area: 1 / 3; }
+  .hist-pill .pill { white-space: normal; text-align: center; }
+  .hist-chev { grid-area: 1 / 4; }
+  .hist-msg { grid-area: 2 / 1 / 3 / -1; }
+  .hist-field { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* Too narrow for the date and a badge of several words side by side: the badge goes last. */
+@media (max-width: 389.98px) {
+  .hist-sum { grid-template-columns: minmax(0, 1fr) 20px; }
+  .hist-chev { grid-area: 1 / 2; }
+  .hist-pill { grid-area: 3 / 1 / 4 / -1; }
+}
+
+@media (forced-colors: active) {
+  .hist { border-bottom-color: CanvasText; }
+  .hist-chev, .hist-sum:hover .hist-chev { color: ButtonText; }
+  .hist-sum:focus-visible { outline: 2px solid Highlight; }
+  .hist-field dt, .hist-field dd.is-empty, .hist-date, .hist-type { color: CanvasText; }
 }

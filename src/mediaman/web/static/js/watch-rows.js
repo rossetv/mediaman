@@ -15,7 +15,7 @@
 
   /* ── Posters fade in ── */
 
-  var POSTER_SELECTOR = '.watch-card__poster > img, .watch-hero__poster > img, .watch-ep__thumb > img, .watch-banner__bg';
+  var POSTER_SELECTOR = '.watch-card__poster > img, .watch-ep__thumb > img, .watch-banner__bg';
 
   function markLoaded(event) {
     var img = event.target;
@@ -37,23 +37,24 @@
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
   }
 
-  function cards(scroller) {
-    return scroller.querySelectorAll('.watch-card');
+  /* The first card of a poster row, or pill of a season line. */
+  function firstCard(scroller) {
+    return scroller.querySelector('.watch-card, .watch-pill');
   }
 
   /* Distance from one card's start to the next. */
   function cardStep(scroller) {
-    var list = cards(scroller);
-    if (!list.length) return 0;
-    if (list.length > 1) return list[1].offsetLeft - list[0].offsetLeft;
-    return list[0].offsetWidth;
+    var first = firstCard(scroller);
+    if (!first) return 0;
+    var second = first.nextElementSibling;
+    return second ? second.offsetLeft - first.offsetLeft : first.offsetWidth;
   }
 
   /* How many whole cards fit side by side. */
   function cardsInView(scroller, step) {
     var style = getComputedStyle(scroller);
     var inner = scroller.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    var gap = step - cards(scroller)[0].offsetWidth;
+    var gap = step - firstCard(scroller).offsetWidth;
     return Math.max(1, Math.floor((inner + gap) / step));
   }
 
@@ -85,14 +86,48 @@
     scroller.scrollTo({ left: left, behavior: behavior });
   }
 
-  /* Scroll so the card *by* places from the current first card leads the row. */
+  /* Scroll so the card *by* places from the current first card leads the row (on a line of pills, the next one that way). */
   function moveBy(scroller, by) {
+    if (isLine(scroller)) { moveLine(scroller, by, false); return; }
     var step = cardStep(scroller);
     if (!step) return;
     var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
     var index = Math.round(from / step) + by;
     var max = scroller.scrollWidth - scroller.clientWidth;
+    if (by > 0 && scroller.scrollLeft >= max - EDGE_SLACK) askForMore(scroller);
     goTo(scroller, Math.max(0, Math.min(max, index * step)));
+  }
+
+  /* Season pills are not all one width, so their line goes by where each one
+     stands: *whole* a lineful, to the first not wholly in view, else one pill. */
+  function moveLine(scroller, direction, whole) {
+    var style = getComputedStyle(scroller);
+    var padLeft = parseFloat(style.paddingLeft);
+    var padRight = parseFloat(style.paddingRight);
+    var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
+    var pills = Array.prototype.slice.call(scroller.querySelectorAll('.watch-pill'));
+    function start(p) { return p.offsetLeft - padLeft; }
+    function end(p) { return p.offsetLeft + p.offsetWidth + padRight - scroller.clientWidth; }
+    var ahead = pills.filter(function (p) { return direction > 0 ? start(p) > from + EDGE_SLACK : start(p) < from - EDGE_SLACK; });
+    if (direction < 0) ahead.reverse();
+    if (whole && direction > 0) ahead = ahead.filter(function (p) { return end(p) > from + EDGE_SLACK; });
+    var to = ahead[0];
+    if (!to) return;
+    // Back by a lineful: to the first pill beside which the one cut off at the start still fits whole. Always
+    // to a pill's start: a line that snaps to one would go on to the next and leave a pill out.
+    if (whole && direction < 0) to = ahead.filter(function (p) { return start(p) >= end(to) - EDGE_SLACK; }).pop() || to;
+    goTo(scroller, Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, start(to))));
+  }
+
+  function isLine(scroller) {
+    var first = firstCard(scroller);
+    return !!first && first.classList.contains('watch-pill');
+  }
+
+  /* Forward from the very end: the row's loader (watch/rows-load.js) may have more. */
+  function askForMore(scroller) {
+    var loader = window.MMWatch && window.MMWatch.rowsLoad;
+    if (loader) loader.forward(scroller.parentNode);
   }
 
   function moveTo(scroller, left) {
@@ -102,6 +137,7 @@
   }
 
   function pageBy(scroller, direction) {
+    if (isLine(scroller)) { moveLine(scroller, direction, true); return; }
     var step = cardStep(scroller);
     if (step) moveBy(scroller, direction * cardsInView(scroller, step));
   }
@@ -109,7 +145,8 @@
   function refresh(viewport, scroller) {
     var max = scroller.scrollWidth - scroller.clientWidth;
     viewport.classList.toggle('has-prev', scroller.scrollLeft > EDGE_SLACK);
-    viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK);
+    // data-row-more: more cards will load past the last one.
+    viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK || viewport.hasAttribute('data-row-more'));
   }
 
   function arrow(direction, label) {
@@ -170,8 +207,9 @@
     });
     if ('ResizeObserver' in window) new ResizeObserver(schedule).observe(scroller);
     else window.addEventListener('resize', schedule);
-    // Keep takes cards out of a row.
+    // Keep takes cards out of a row, the loader adds them.
     new MutationObserver(schedule).observe(scroller, { childList: true });
+    new MutationObserver(schedule).observe(viewport, { attributes: true, attributeFilter: ['data-row-more'] });
     refresh(viewport, scroller);
   }
 

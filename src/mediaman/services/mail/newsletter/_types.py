@@ -40,10 +40,10 @@ class DeletedNewsletterItem(TypedDict):
 
 class NewsletterRecItem(TypedDict):
     """A recommendation card; download_state is injected later by
-    _annotate_rec_download_states.
+    _annotate_rec_download_states. id is None on a person's own pick, which no link may name.
     """
 
-    id: int
+    id: int | None
     title: str
     media_type: str
     category: str

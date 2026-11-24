@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from typing import cast
 
 from mediaman.core.time import now_iso
-from mediaman.scanner.repository import book_removed_files, fetch_protected_media_ids
+from mediaman.scanner.repository import (
+    book_removed_files,
+    book_removed_files_where,
+    fetch_protected_media_ids,
+    is_show_kept_pure,
+)
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -36,19 +41,21 @@ class ProtectedRow:
 
 
 @dataclass(frozen=True)
+class KeepRow:
+    action: str
+    execute_at: str | None
+    kept_at: str | None = None
+
+
+@dataclass(frozen=True)
 class SeasonRow:
     id: str
     season_number: int | None
     title: str
     kept: bool
+    keep: KeepRow | None
     file_size_bytes: int
     last_watched_at: str | None
-
-
-@dataclass(frozen=True)
-class ShowKeptRow:
-    action: str
-    execute_at: str | None
 
 
 def resolve_show_rating_key(
@@ -148,7 +155,9 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
         (show_rating_key, *ALL_SEASON_TYPES),
     ).fetchall()
 
-    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now_iso())
+    now = now_iso()
+    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now)
+    keeps = _longest_keeps(conn, sorted(kept_set), now)
 
     return [
         SeasonRow(
@@ -156,6 +165,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
             season_number=r["season_number"],
             title=r["title"],
             kept=r["id"] in kept_set,
+            keep=keeps.get(r["id"]),
             file_size_bytes=r["file_size_bytes"] or 0,
             last_watched_at=r["last_watched_at"],
         )
@@ -163,14 +173,45 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ]
 
 
-def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> ShowKeptRow | None:
+def _longest_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> dict[str, KeepRow]:
+    """The keep in force of each of *media_ids* that has one: of several, the longest."""
+    keeps: dict[str, KeepRow] = {}
+    # rationale: placeholders is purely "?" * len(media_ids); every value is bound
+    placeholders = ",".join("?" * len(media_ids))
+    for r in conn.execute(
+        "SELECT media_item_id, action, execute_at, snoozed_at FROM scheduled_actions "
+        f"WHERE media_item_id IN ({placeholders}) AND (action = 'protected_forever' "
+        "OR (action = 'snoozed' AND execute_at >= ?)) "
+        "ORDER BY action = 'protected_forever', execute_at",
+        (*media_ids, now),
+    ).fetchall():
+        keeps[r["media_item_id"]] = KeepRow(r["action"], r["execute_at"], r["snoozed_at"])
+    return keeps
+
+
+def fetch_keep(conn: sqlite3.Connection, media_id: str) -> KeepRow | None:
+    """The keep in force of one item: of several, the longest."""
+    return _longest_keeps(conn, [media_id], now_iso()).get(media_id)
+
+
+def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> KeepRow | None:
+    """The show's keep in force; a lapsed one is none, though its row waits for the next scan."""
     row = conn.execute(
-        "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
+        "SELECT action, execute_at, created_at FROM kept_shows WHERE show_rating_key = ?",
         (show_rating_key,),
     ).fetchone()
-    if row is None:
+    if row is None or not is_show_kept_pure(conn, show_rating_key):
         return None
-    return ShowKeptRow(action=row["action"], execute_at=row["execute_at"])
+    return KeepRow(row["action"], row["execute_at"], row["created_at"])
+
+
+def same_keep(read: KeepRow | None, keep: KeepRow | None) -> bool:
+    """True when *keep* is still what a person read; when it was made counts where they say it."""
+    if read is None or keep is None:
+        return read is keep
+    return (read.action, read.execute_at) == (keep.action, keep.execute_at) and (
+        read.kept_at is None or read.kept_at == keep.kept_at
+    )
 
 
 def fetch_existing_actions_for_seasons(
@@ -270,21 +311,11 @@ def delete_protections(conn: sqlite3.Connection, media_item_id: str) -> int:
         "media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
         "AND delete_status IS NOT 'deleting'"
     )
+    book_removed_files_where(conn, where, (media_item_id,))
     # rationale: the interpolated condition is a fixed string; every value is bound
-    _book_removed(conn, where, (media_item_id,))
     return conn.execute(  # nosec B608
         f"DELETE FROM scheduled_actions WHERE {where}", (media_item_id,)
     ).rowcount
-
-
-def _book_removed(conn: sqlite3.Connection, where: str, params: Sequence[object]) -> None:
-    """Book what the matching rows record as removed; *where* is a fixed condition."""
-    # rationale: the interpolated condition is a fixed string; every value is bound
-    rows = conn.execute(  # nosec B608
-        f"SELECT id FROM scheduled_actions WHERE {where} AND removed_files IS NOT NULL", params
-    ).fetchall()
-    if rows:
-        book_removed_files(conn, [row["id"] for row in rows])
 
 
 def upsert_kept_show(
@@ -302,39 +333,14 @@ def upsert_kept_show(
         "(show_rating_key, show_title, action, execute_at, snooze_duration, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(show_rating_key) DO UPDATE SET action=excluded.action, "
-        "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration",
+        "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration, "
+        "created_at=excluded.created_at",
         (show_rating_key, show_title, action, execute_at, snooze_duration, created_at),
     )
 
 
 def delete_kept_show(conn: sqlite3.Connection, kept_show_id: int) -> None:
     conn.execute("DELETE FROM kept_shows WHERE id = ?", (kept_show_id,))
-
-
-def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: str) -> bool:
-    """Delete the show's unused ``scheduled_deletion`` rows the deletion pass has not claimed.
-
-    Returns True when one of them is being removed by the deletion pass right
-    now. That row is left in place: the pass, or crash recovery, needs it to
-    book a removal that may already have taken the files. What a deleted row
-    records as removed is booked first.
-    """
-    where = (
-        "action = 'scheduled_deletion' AND token_used = 0 "
-        "AND media_item_id IN (SELECT id FROM media_items WHERE show_rating_key = ?)"
-    )
-    # rationale: the interpolated condition is a fixed string; every value is bound
-    running = conn.execute(  # nosec B608
-        f"SELECT 1 FROM scheduled_actions WHERE {where} AND delete_status = 'deleting' LIMIT 1",
-        (show_rating_key,),
-    ).fetchone()
-    _book_removed(conn, where, (show_rating_key,))
-    conn.execute(  # nosec B608
-        f"DELETE FROM scheduled_actions WHERE {where} "
-        "AND (delete_status IS NULL OR delete_status != 'deleting')",
-        (show_rating_key,),
-    )
-    return running is not None
 
 
 def set_protected_state(

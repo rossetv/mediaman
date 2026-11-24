@@ -8,8 +8,11 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from mediaman.services.arr.state import ACTION_DOWNLOADING, ACTION_QUEUED
+from mediaman.services.media_meta.tmdb import vote_of
 
 _TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/"
+# A ref has at most ten digits.
+_ID_END = 10**10
 _IMAGE_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp)")
 
 
@@ -63,16 +66,9 @@ def discover_card(
     }
 
 
-def year_of(value: object) -> int | None:
-    text = value if isinstance(value, str) else ""
-    return int(text[:4]) if text[:4].isdigit() else None
-
-
 def tmdb_rating(value: object) -> float | None:
     """TMDB's vote average to one decimal; None when it has no votes."""
-    if isinstance(value, bool) or not isinstance(value, int | float) or not value:
-        return None
-    return round(float(value), 1)
+    return vote_of(value) or None
 
 
 def tmdb_kind(item: Mapping[str, Any]) -> Literal["movie", "tv"] | None:
@@ -82,4 +78,5 @@ def tmdb_kind(item: Mapping[str, Any]) -> Literal["movie", "tv"] | None:
 
 def tmdb_id_of(item: Mapping[str, Any]) -> int | None:
     value = item.get("id")
-    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+    valid = isinstance(value, int) and not isinstance(value, bool) and 0 < value < _ID_END
+    return value if valid else None

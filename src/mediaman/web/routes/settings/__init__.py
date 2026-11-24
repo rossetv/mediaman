@@ -29,7 +29,6 @@ from mediaman.services.infra import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
 from mediaman.web.auth.middleware import resolve_admin_page_session
-from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.repository.settings import (
     fetch_encrypted_key_set as _encrypted_keys,
 )
@@ -154,15 +153,12 @@ def settings_page(request: Request) -> Response:
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
-    self_email = _get_user_email(conn, username)
-
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "username": username,
-            "email": self_email,
             "nav_active": "settings",
             "settings": settings,
             "plex_libraries_selected": plex_libraries_selected,
