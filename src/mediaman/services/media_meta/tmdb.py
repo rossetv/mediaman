@@ -178,15 +178,30 @@ class TmdbClient:
         media_type: str = "movie",
     ) -> TmdbSearchResult | None:
         """Return the first result of /search/{movie|tv}, or None on error or no match."""
+        try:
+            return self.search_or_raise(title, year=year, media_type=media_type)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            endpoint = "movie" if media_type == "movie" else "tv"
+            self._log_request_failure(f"search/{endpoint}({title!r})", exc)
+            return None
+
+    def search_or_raise(
+        self,
+        title: str,
+        *,
+        year: int | None = None,
+        media_type: str = "movie",
+    ) -> TmdbSearchResult | None:
+        """Return the first result of /search/{movie|tv}, or None when TMDB has no match.
+
+        A failed request raises (SafeHTTPError, requests.RequestException or ValueError),
+        so a caller can tell a no-match from an outage.
+        """
         endpoint = "movie" if media_type == "movie" else "tv"
         params: dict[str, object] = {"query": title}
         if year:
             params["year" if endpoint == "movie" else "first_air_date_year"] = year
-        try:
-            results = self._get(f"/search/{endpoint}", params).get("results") or []
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            self._log_request_failure(f"search/{endpoint}({title!r})", exc)
-            return None
+        results = self._get(f"/search/{endpoint}", params).get("results") or []
         return results[0] if results else None
 
     def search_multi(self, title: str) -> TmdbSearchResult | None:

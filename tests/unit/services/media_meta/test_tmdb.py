@@ -146,6 +146,17 @@ class TestSearch:
         assert url.endswith("/search/tv")
         assert kwargs["params"]["first_air_date_year"] == 2021
 
+    def test_search_or_raise_raises_on_a_failure_and_answers_none_for_no_match(
+        self, fake_http, fake_response
+    ):
+        client = TmdbClient("token")
+        fake_http.queue("GET", fake_response(json_data={"results": []}))
+        assert client.search_or_raise("Dune") is None
+
+        fake_http.queue("GET", fake_response(status=500))
+        with pytest.raises(SafeHTTPError):
+            client.search_or_raise("Dune", year=2021)
+
     def test_returns_none_on_empty_results(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"results": []}))
         client = TmdbClient("token")
