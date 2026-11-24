@@ -495,6 +495,16 @@ class TestEnrichRatingsHelpers:
     def test_one_bad_title_among_answers_does_not_pause(self):
         assert self._drain([self._done(1, {"imdb": "8.0"}), self._done(2, None)]) == 0.0
 
+    def test_every_lookup_raising_pauses(self):
+        from concurrent.futures import Future
+
+        from mediaman.services.infra import SafeHTTPError
+
+        fut: Future = Future()
+        fut.set_exception(SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"))
+
+        assert self._drain([fut]) > 0.0
+
     def test_a_budget_overrun_with_some_answers_does_not_pause(self):
         assert self._drain([self._done(1, {"imdb": "8.0"})], overrun=True) == 0.0
 
