@@ -966,9 +966,17 @@ def test_the_count_is_handed_on_to_a_page_opened_by_itself_alone(markup):
     assert (out["byItself"], out["byHand"]) == ([1, True], False)
 
 
+def test_leaving_full_screen_cancels_the_countdown(markup, season):
+    out = run(markup, "countdown_fullscreen", pages=season)
+    assert out["entered"] == {"counts": True, "leaving": False}
+    assert out["left"] == {"counts": False, "leaving": True}
+    assert out["went"] is False
+
+
 def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     out = run(markup, "upnext_spoken")
-    said = "Next episode in 10 seconds. Escape cancels."
+    # In full screen the browser keeps Escape for itself.
+    said = "Next episode in 10 seconds. Space or Escape cancels."
     assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
     assert (out["counting"], out["later"], out["again"]) == (said, said, said)
     # Nothing begins by itself then, so there is nothing to cancel.

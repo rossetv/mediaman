@@ -1562,8 +1562,13 @@
   video.addEventListener('dblclick', function () {
     if (lastPointer === 'mouse' && !startedElsewhere) toggleFullscreen();
   });
-  document.addEventListener('fullscreenchange', showFullscreen);
-  document.addEventListener('webkitfullscreenchange', showFullscreen);
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (name) {
+    document.addEventListener(name, function () {
+      showFullscreen();
+      /* Escape leaves full screen without a word to the page: it says the same there. */
+      if (!fullscreenElement() && countdownTimer !== null) hideUpnext();
+    });
+  });
 
   /* ---- controls hiding ------------------------------------------------ */
 
@@ -1874,7 +1879,7 @@
     els.upnext.classList.toggle('is-counting', counts);
     els.upnext.hidden = false;
     els.upnextStatus.textContent = counts
-      ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Escape cancels.'
+      ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Space or Escape cancels.'
       : 'Next episode: ' + next.label;
     showControls();
     if (!counts) return;

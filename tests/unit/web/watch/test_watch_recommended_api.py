@@ -200,6 +200,7 @@ class TestCards:
         assert item["ref"] == f"rec-{rec_id}"
         assert item["reason"] == "Because you like quiet sci-fi"
         assert item["kind"] == "movie"
+        assert item["tmdb_id"] == 100
         assert item["year"] == 2016
         assert item["poster_url"] == "/api/watch/img/tmdb/w342/abc.jpg"
         assert item["in_library"] is False
@@ -313,7 +314,7 @@ class TestCards:
 
         (item,) = _get(viewer)["items"]
 
-        assert item["title"] == "No Id"
+        assert (item["title"], item["tmdb_id"]) == ("No Id", None)
         assert item["ref"].startswith("rec-")
 
     def test_a_pick_radarr_is_fetching_shows_its_state(self, viewer, conn, arr):

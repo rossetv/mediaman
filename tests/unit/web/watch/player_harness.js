@@ -2151,6 +2151,21 @@ const scenarios = {
     return out;
   },
 
+  /* Full screen is entered, and then left, as the card counts down: Escape never reaches the page there. */
+  async countdown_fullscreen(p) {
+    const change = (el) => { doc.fullscreenElement = el; fire(doc, 'fullscreenchange'); };
+    const card = () => ({ counts: playState(p).label === 'Pause', leaving: p.q('[data-upnext]').classList.contains('is-leaving') });
+    await streamPlays(p, 0);
+    endsNow(p);
+    change(p.root);
+    const entered = card();
+    change(null);
+    const left = card();
+    p.tick(20000);
+    await settle();
+    return { entered: entered, left: left, went: p.calls.some((c) => c.page) };
+  },
+
   /* What a screen reader hears of the next-episode card. */
   async upnext_spoken(p) {
     const status = p.q('[data-upnext-status]');
