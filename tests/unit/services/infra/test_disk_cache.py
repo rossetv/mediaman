@@ -158,7 +158,17 @@ def test_a_refused_miss_does_not_fetch_and_a_hit_is_not_asked():
     assert store.get_or_fetch("k", DAY, DAY, fetch, allow_fetch=never) == "v"
 
 
-def test_concurrent_misses_share_one_fetch():
+def test_concurrent_misses_share_one_fetch(monkeypatch):
+    claim = disk_cache._claim
+    joined = threading.Event()
+
+    def noting_claim(flight):
+        future, owner = claim(flight)
+        if not owner:
+            joined.set()
+        return future, owner
+
+    monkeypatch.setattr(disk_cache, "_claim", noting_claim)
     started = threading.Event()
     release = threading.Event()
     calls = []
@@ -178,12 +188,59 @@ def test_concurrent_misses_share_one_fetch():
         target=lambda: results.append(store.get_or_fetch("k", DAY, DAY, slow))
     )
     second.start()
+    assert joined.wait(5)
     release.set()
     first.join(5)
     second.join(5)
 
     assert results == ["v", "v"]
     assert len(calls) == 1
+
+
+def test_a_caller_whose_miss_was_stored_before_it_could_fetch_shares_that_value():
+    store = disk_cache.meta()
+    other, late = Fetcher("v"), Fetcher("again")
+
+    def while_another_fetches():
+        # Asked after the miss was read and before the fetch is claimed.
+        return store.get_or_fetch("k", DAY, DAY, other) == "v"
+
+    value = store.get_or_fetch("k", DAY, DAY, late, allow_fetch=while_another_fetches)
+
+    assert value == "v"
+    assert (other.calls, late.calls) == (1, 0)
+
+
+def test_a_caller_whose_key_failed_before_it_could_fetch_does_not_ask_again():
+    store = disk_cache.meta()
+    late = Fetcher("again")
+
+    def while_another_fails():
+        with pytest.raises(RuntimeError):
+            store.get_or_fetch("k", DAY, DAY, Fetcher(RuntimeError("down")))
+        return True
+
+    with pytest.raises(RuntimeError, match="down"):
+        store.get_or_fetch("k", DAY, DAY, late, allow_fetch=while_another_fails)
+    assert late.calls == 0
+
+
+def test_a_refresh_whose_key_was_stored_before_it_could_fetch_does_not_ask_again(monkeypatch):
+    store = disk_cache.meta()
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    other, late = Fetcher("new"), Fetcher("again")
+    claim = disk_cache._claim
+
+    def claim_after_another(flight):
+        monkeypatch.setattr(disk_cache, "_claim", claim)
+        store.get_or_fetch("k", 0.0, 0.0, other)
+        return claim(flight)
+
+    monkeypatch.setattr(disk_cache, "_claim", claim_after_another)
+
+    assert store.get_or_fetch("k", 0.0, DAY, late) == "old"
+    assert store.get_or_fetch("k", DAY, DAY, late) == "new"
+    assert (other.calls, late.calls) == (1, 0)
 
 
 def test_an_unreadable_entry_is_refetched(cache):

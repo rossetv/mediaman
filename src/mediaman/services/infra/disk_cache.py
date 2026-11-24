@@ -128,6 +128,7 @@ class Store[T]:
         if hold_s is None:
             hold_s = BACKOFF_S
         path = self._path(directory, key)
+        asked_at = time.time()
         hit = self._hit(key, path, fresh_s, stale_s, fetch, brief, hold_s)
         if hit is not None:
             return hit[0]
@@ -136,7 +137,7 @@ class Store[T]:
             raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
-        return self._fetch_once(key, path, fetch, brief, hold_s)
+        return self._fetch_once(key, path, fetch, brief, hold_s, asked_at)
 
     def peek(
         self,
@@ -206,13 +207,19 @@ class Store[T]:
             return None
 
     def _fetch_once(
-        self, key: str, path: Path, fetch: Callable[[], T], brief: bool, hold_s: float
+        self,
+        key: str,
+        path: Path,
+        fetch: Callable[[], T],
+        brief: bool,
+        hold_s: float,
+        asked_at: float,
     ) -> T:
         flight = (self.name, key)
         while True:
             future, owner = _claim(flight)
             if owner:
-                return self._fill(flight, future, path, fetch, brief, hold_s)
+                return self._fill(flight, future, path, fetch, brief, hold_s, asked_at)
             try:
                 result: T = future.result(BRIEF_WAIT_S if brief else WAIT_S)
             except TimeoutError as exc:
@@ -239,16 +246,25 @@ class Store[T]:
         fetch: Callable[[], T],
         brief: bool,
         hold_s: float,
+        asked_at: float,
     ) -> T:
         """Fetch into the claimed *future* and store the value; the future is always
-        settled, so no waiter is left blocked."""
+        settled, so no waiter is left blocked. Nothing is fetched when another fetch, ended
+        before the claim, has stored a value since *asked_at* or failed and is held."""
         try:
+            held = _backoff(flight)
+            if held is not None:
+                raise _bare(held)
+            cached = self._read(path)
+            if cached is not None and cached[0] < time.time() - asked_at:
+                future.set_result(cached[1])
+                return cached[1]
             value = fetch()
         except Exception as exc:
             with _guard:
                 # Before the waiters wake: one that fetches anew must not join this again.
                 _inflight.pop(flight, None)
-                if not brief:
+                if not brief and flight not in _failed:
                     if len(_failed) >= _BACKOFF_MAX_KEYS:
                         _failed.clear()
                     _failed[flight] = (time.monotonic() + hold_s, _bare(exc))
@@ -281,14 +297,11 @@ class Store[T]:
             # Claimed only now: a caller who needs the key meanwhile fetches it at once.
             with _guard:
                 _queued.discard(flight)
-            cached = self._read(path)
-            if cached is not None and cached[0] < time.time() - queued_at:
-                return
             future, owner = _claim(flight)
             if not owner:
                 return
             try:
-                self._fill(flight, future, path, fetch, brief, hold_s)
+                self._fill(flight, future, path, fetch, brief, hold_s, queued_at)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 
