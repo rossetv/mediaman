@@ -139,3 +139,14 @@ def test_the_spinner_over_a_held_frame_waits_for_a_new_quality_alone() -> None:
         ".player.is-held.is-loading:not(.is-switching) .player-spinner"
     ]
     assert re.fullmatch(r"\s*transition-delay:\s*\.6s;\s*", rules[0][1])
+
+
+def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
+    css = _text("_player.css")
+
+    def level(selector: str) -> int:
+        m = re.search(r"z-index:\s*(\d+)", _rule(css, selector))
+        return int(m.group(1)) if m else 0
+
+    assert level(".player-band") < level(".player-seek-played") < level(".player-gap")
+    assert level(".player-gap") <= level(".player-seek-thumb")
