@@ -250,20 +250,24 @@ const scenarios = {
     const edit = (v) => { input.value = v; input.fire('input'); };
     const now = () => ({ on: bar.classList.contains('on'), button: save.textContent, disabled: save.disabled });
     edit('first');
+    status.textContent = 'standing';
     save.focus();
     save.fire('click', { detail: 0 });
+    const emptied = status.textContent === '';
     const discardWhileSending = discard.disabled;
     input.focus();
     edit('during');
     reply();
     await h.flush();
     const status1 = status.textContent;
+    const partial = [bar.classList.contains('is-partial')];
     h.drain();
     const during = now();
     const keptPlace = h.doc.activeElement === input;
     discard.fire('click');
     await h.flush();
     const discarded = input.value;
+    partial.push(bar.classList.contains('is-partial'));
     // the moment between the reply and the bar hiding
     edit('second');
     save.fire('click');
@@ -278,7 +282,7 @@ const scenarios = {
     reply();
     await h.flush();
     h.drain();
-    return { discardWhileSending, during, status: status1, keptPlace, discarded, said, after, quiet: now(), discardAfter: discard.disabled };
+    return { partial, emptied, discardWhileSending, during, status: status1, keptPlace, discarded, said, after, quiet: now(), discardAfter: discard.disabled };
   },
 
   // After a failed save any edit, a switch included, puts the bar back to unsaved.

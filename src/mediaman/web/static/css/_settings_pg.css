@@ -349,9 +349,6 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
   .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
-  /* Collapse the sub caption on mobile — the warning dot + "Unsaved changes"
-     label is enough; the caption eats room the buttons need. */
-  .setg-pg .savebar .sb-sub { display: none; }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }

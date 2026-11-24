@@ -478,8 +478,14 @@
 
 @media (max-width: 699.98px) {
   .setg-pg .savebar .btn { min-height: 44px; }
-  /* A save error is how the person learns what to fix, so it keeps its own line; the standing caption stays hidden. */
-  .setg-pg .savebar:not(.is-error) .sb-sub,
-  .setg-pg .savebar .sb-sub:empty { display: none; }
-  .setg-pg .savebar.is-error .sb-sub { display: block; order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
+  /* What a save could not or did not cover keeps its own line. The other captions are read out but take no room. */
+  .setg-pg .savebar:not(.is-error) .sb-sub {
+    position: absolute; width: 1px; height: 1px; margin: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .setg-pg .savebar.is-error .sb-sub,
+  .setg-pg .savebar.is-partial .sb-sub { order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
+  .setg-pg .savebar.is-partial .sb-sub {
+    position: static; width: auto; height: auto; clip-path: none; white-space: normal;
+  }
 }

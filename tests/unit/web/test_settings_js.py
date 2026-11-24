@@ -51,6 +51,9 @@ def test_an_edit_made_during_a_save_stays_unsaved() -> None:
     unsaved = {"on": True, "button": "Save Settings", "disabled": False}
     assert out["during"] == unsaved
     assert "since" in out["status"]
+    # the notice has a class the phone layout shows it by, and its live region stays in the page
+    assert out["partial"] == [True, False]
+    assert out["emptied"] is False
     assert out["keptPlace"] is True
     # Discard waits for the reply, then goes back to what was sent
     assert (out["discardWhileSending"], out["discardAfter"]) == (True, False)

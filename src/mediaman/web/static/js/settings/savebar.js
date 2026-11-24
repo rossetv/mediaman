@@ -233,7 +233,7 @@
     }
 
     function clearSaveError() {
-      if (savebar) savebar.classList.remove('is-error');
+      if (savebar) savebar.classList.remove('is-error', 'is-partial');
       if (saveBtn) {
         saveBtn.classList.remove('btn--danger');
         saveBtn.classList.add('btn--primary');
@@ -261,6 +261,7 @@
       if (clean && successTimers.length) return;
       if (successTimers.length || clean) {
         endSuccess();
+        savebar.classList.remove('is-partial');
         if (statusEl) statusEl.textContent = STANDING_TEXT;
       }
       savebar.classList.toggle('on', !clean);
@@ -285,7 +286,6 @@
       var payload = {};
       changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
       saveBtn.textContent = 'Saving…';
-      if (statusEl) statusEl.textContent = '';
 
       // The button is the way back in, so give it focus again.
       function reenable() {
@@ -310,6 +310,7 @@
             refreshOverviewHero();
             if (changedKeys(sent, snapshot()).length) {
               saveBtn.textContent = SAVE_LABEL;
+              savebar.classList.add('is-partial');
               if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';
               reenable();
               return;

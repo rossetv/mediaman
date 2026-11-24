@@ -68,6 +68,17 @@ def test_save_error_stays_visible_on_phones() -> None:
     assert ".setg-pg .savebar .btn { min-height: 44px; }" in phone
 
 
+def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phones() -> None:
+    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
+    assert "display: none" not in phone
+    partial = re.findall(r"([^{}]*\.savebar\.is-partial \.sb-sub[^{}]*)\{([^{}]*)\}", phone)
+    # the notice that newer edits are unsaved is shown, after and over the rule that folds captions away
+    assert any("position: static" in body and "clip-path: none" in body for _, body in partial)
+    assert phone.index("clip-path: inset(50%)") < phone.index("clip-path: none")
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    assert not re.search(r"\.savebar \.sb-sub \{\s*display: none", css)
+
+
 def test_small_buttons_are_44px_on_phones() -> None:
     phone = _phone_block_with(".setg-pg .btn--sm")
     assert re.search(r"\.setg-pg \.btn--sm,[^{}]*\{[^{}]*min-height:\s*44px", phone)
