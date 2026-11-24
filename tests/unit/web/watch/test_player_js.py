@@ -1410,8 +1410,9 @@ def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is
     assert out["after"] == {"streams": 0, "message": None, "stopped": True}
 
 
-def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all(markup):
-    out = run(markup, "start_unanswered_in_drop")
+@pytest.mark.parametrize("way", ["pressed", "unpressed"])
+def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all(markup, way):
+    out = run(markup, "start_unanswered_in_drop", plays=way)
     assert out["message"] == LOST
     assert out["after"] == {"streams": 0, "stopped": True}
 
@@ -1453,6 +1454,9 @@ def test_a_connection_lost_after_a_refusal_is_said_as_lost_and_comes_back(markup
 
 def test_refusals_on_either_side_of_a_drop_are_not_one_long_one(markup):
     out = run(markup, "busy_once", plays="lost for a while")
+    assert out == {"message": None, "starts": 1}
+    # Nor is one before a drop that was said, once it is tried again.
+    out = run(markup, "busy_once", plays="lost for long")
     assert out == {"message": None, "starts": 1}
 
 

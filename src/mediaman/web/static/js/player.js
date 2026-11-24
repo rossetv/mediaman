@@ -243,7 +243,7 @@
   var starting = false;
   var startsOpen = 0;        // starts not answered yet, dropped ones included
   var ownRival = false;      // one of them may have replaced the stream now playing
-  var noneSince = null;      // since when no request was taken, refused or lost, with nothing left to play
+  var noneSince = null;      // the first refusal since a request was taken, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
@@ -717,7 +717,6 @@
     }
     if (lost.over) return;
     lost.again = again;
-    if (noneTooLong()) { giveUp(); return; }
     clearTimeout(lost.tryTimer);
     lost.tryTimer = setTimeout(tryUnattended, lost.wait);
     lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
@@ -815,7 +814,7 @@
       /* Less is a stall too. */
       if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) noneSince = null;
     }
-    if (rolling || noneSince === null) noneSince = Date.now();
+    if (noneSince === null) noneSince = Date.now();
     return Date.now() - noneSince >= NONE_FOR_MS;
   }
 
@@ -1148,7 +1147,6 @@
     generation++;
     starting = false;
     endLost();
-    noneSince = null;
     dropAim();
     stopRolling();
     destroyHls();
@@ -2610,7 +2608,6 @@
     streamId = null;
     generation++;
     endLost();
-    noneSince = null;
     dropAim();
     if (switching) showSubtitle(item.subtitle);
     switching = false;

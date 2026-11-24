@@ -1666,6 +1666,14 @@ const scenarios = {
       for (let i = 0; i < 10; i++) { refuse(); p.tick(2000); await settle(); }
       return { message: messageState(p), starts: p.starts().length };
     }
+    if (way === 'lost for long') {
+      h.emit('hlsError', loadError('fragLoadError', 0));
+      await failFor(p, 130000, failingLoads(h, () => loadError('fragLoadError', 0)));
+      press(p.q('[data-retry]'));
+      refuse();
+      await settle();
+      return { message: messageState(p), starts: p.starts().length };
+    }
     if (way === 'lost') {
       p.hlsList[0].emit('hlsError', loadError('fragLoadError', 0));
       const fail = failingLoads(h, () => loadError('fragLoadError', 0));
@@ -1740,7 +1748,7 @@ const scenarios = {
     playOn(p, 5);
     loadedTo(p, 140);
     p.video.pause();
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 80; i++) {
       p.hlsList[0].emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
       p.tick(2000);
       await settle();
@@ -1774,11 +1782,13 @@ const scenarios = {
     p.replies.push(answer('1080p-8000'));
     press(p.q('[data-retry]'));
     await settle();
+    refuse();
     out.again = { message: messageState(p), starts: p.starts().length, at: p.hlsList[p.hlsList.length - 1].config.startPosition };
     return out;
   },
 
-  /* In a drop one try is never answered; the next, by Try again, is, and then the first after all. */
+  /* In a drop one try is never answered; the next, if there is one by Try again, is, and then the
+     first after all. */
   async start_unanswered_in_drop(p) {
     await streamPlays(p, 100);
     playOn(p, 5);
@@ -1788,9 +1798,11 @@ const scenarios = {
     await settle();
     for (let i = 0; i < 250; i++) { p.tick(500); await settle(); }
     const out = { message: messageState(p) };
-    p.replies.push(answer('1080p-8000'));
-    press(p.q('[data-retry]'));
-    await streamPlays(p, 105);
+    if (p.win.serverPlays !== 'unpressed') {
+      p.replies.push(answer('1080p-8000'));
+      press(p.q('[data-retry]'));
+      await streamPlays(p, 105);
+    }
     const streams = p.hlsList.length;
     first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     await settle();
