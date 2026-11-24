@@ -126,6 +126,14 @@ ON_DISK = {
 }
 
 
+#: Three episodes left of eight: an unmonitored episode with no file is not counted.
+PART_LEFT = {
+    "seasonNumber": 2,
+    "monitored": False,
+    "statistics": {"episodeFileCount": 3, "episodeCount": 3, "totalEpisodeCount": 8},
+}
+
+
 def _sonarr(series):
     sonarr = MagicMock()
     sonarr.get_series_by_tvdb.return_value = series
@@ -155,6 +163,27 @@ class TestSubmit:
         sonarr.remonitor_season.assert_called_once_with(3, 2)
         sonarr.add_series.assert_not_called()
         sonarr.add_series_with_seasons.assert_not_called()
+
+    def test_a_season_already_complete_is_already_there_and_frees_the_link(
+        self, client, link, secret_key
+    ):
+        sonarr = _sonarr(_series(ON_DISK))
+
+        resp = _post(client, link, sonarr)
+
+        assert resp.status_code == 409
+        assert "Season 2" in resp.json()["error"]
+        assert validate_poll_token(resp.json()["poll_token"], secret_key)["mid"] == (
+            "sonarr-season:2:Fargo"
+        )
+        sonarr.remonitor_season.assert_not_called()
+        assert _post(client, link, _sonarr(_series(UNMONITORED))).status_code == 200
+
+    def test_a_season_with_some_episodes_left_is_fetched(self, client, link):
+        sonarr = _sonarr(_series(PART_LEFT))
+
+        assert _post(client, link, sonarr).status_code == 200
+        sonarr.remonitor_season.assert_called_once_with(3, 2)
 
     def test_a_show_sonarr_no_longer_holds_is_added_with_that_season_alone(self, client, link):
         sonarr = _sonarr(None)
@@ -261,7 +290,12 @@ class TestScannedSeason:
 class TestPage:
     @pytest.mark.parametrize(
         ("season_two", "state"),
-        [(UNMONITORED, ""), (MONITORED, "queued"), (ON_DISK, "in_library")],
+        [
+            (UNMONITORED, ""),
+            (PART_LEFT, ""),
+            (MONITORED, "queued"),
+            (ON_DISK, "in_library"),
+        ],
     )
     def test_it_goes_by_the_season_not_the_rest_of_the_show(
         self, client, secret_key, season_two, state

@@ -42,7 +42,7 @@ from mediaman.web.responses import respond_failure
 from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
 from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
 
-from ._season import deleted_season, sonarr_media_id
+from ._season import deleted_season, season_on_disk, sonarr_media_id
 from ._tokens import _mark_token_used, _unmark_token_used
 from .confirm import drop_arr_cache
 
@@ -135,6 +135,10 @@ class _HeldNotFetched(SafeHTTPError):
     link is released rather than burned."""
 
 
+class _SeasonOnDisk(_HeldNotFetched):
+    """The 409 for a season Sonarr has complete."""
+
+
 def _held_error(exc: SafeHTTPError, fetched: bool) -> SafeHTTPError:
     """The 409 for a refused add of a title the Arr holds."""
     cls = SafeHTTPError if fetched else _HeldNotFetched
@@ -202,7 +206,8 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
 def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) -> bool:
     """Re-monitor and search the season of a series Sonarr holds; False when it holds none.
 
-    Only an add may answer "already there", so an HTTP error here is raised as ArrError.
+    A season Sonarr has complete is a 409. Only that and an add may answer "already there",
+    so an HTTP error here is raised as ArrError.
     """
     try:
         series = client.get_series_by_tvdb(tvdb_id)
@@ -211,10 +216,13 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
         series_id = series.get("id")
         if series_id is None:
             raise ArrError("Sonarr holds the series with no usable id")
-        was_unmonitored = any(
-            s.get("seasonNumber") == season_number and not s.get("monitored")
-            for s in series.get("seasons") or []
+        season = next(
+            (s for s in series.get("seasons") or [] if s.get("seasonNumber") == season_number),
+            None,
         )
+        if season is not None and season_on_disk(season):
+            raise _SeasonOnDisk(409, "already on disk", "sonarr/api/v3/series")
+        was_unmonitored = season is not None and not season.get("monitored")
         try:
             client.remonitor_season(series_id, season_number)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
@@ -223,6 +231,8 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
             if was_unmonitored:
                 _put_back_unmonitored(client, series_id, season_number)
             raise
+    except _SeasonOnDisk:
+        raise
     except SafeHTTPError as exc:
         raise ArrError(f"Sonarr season re-monitor failed: HTTP {exc.status_code}") from exc
     return True
@@ -401,6 +411,7 @@ def _handle_already_exists_error(
     tmdb_id: int | None,
     is_redownload: bool,
     secret_key: str,
+    season_number: int | None,
 ) -> JSONResponse:
     """Handle Arr 409/422 (item already exists) and non-recoverable transport errors.
 
@@ -430,14 +441,19 @@ def _handle_already_exists_error(
         poll_token = None
         if tmdb_id:
             poll_token = generate_poll_token(
-                media_item_id=f"{service_name}:{title}",
+                media_item_id=(
+                    sonarr_media_id(title, season_number)
+                    if service_name == "sonarr"
+                    else f"radarr:{title}"
+                ),
                 service=service_name,
                 tmdb_id=tmdb_id,
                 secret_key=secret_key,
             )
         extra: dict[str, object] = {"poll_token": poll_token} if poll_token else {}
+        what = f"'{title}'" if season_number is None else f"Season {season_number} of '{title}'"
         return respond_failure(
-            f"'{title}' already exists in your {svc_label} library", status=409, **extra
+            f"{what} already exists in your {svc_label} library", status=409, **extra
         )
     # Phase 2 (failure): release the reservation so the user can
     # retry once the upstream recovers.
@@ -499,6 +515,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             tmdb_id,
             is_redownload or isinstance(exc, _HeldNotFetched),
             config.secret_key,
+            dl_payload["season"].season_number if dl_payload["season"] else None,
         )
     except (requests.RequestException, ArrError, ValueError, sqlite3.Error) as exc:
         # ``ArrError`` covers the Arr-domain failures (``ArrConfigError`` from

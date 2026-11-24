@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from typing import Any
 
 from mediaman.core.deleted_media import DeletedMedia, fetch_deleted_media
 from mediaman.crypto.tokens import DownloadTokenPayload
+from mediaman.services.arr._types import ArrSeason
 
 _SEASON_MEDIA_ID_RE = re.compile(r"sonarr-season:(\d{1,9}):")
 
@@ -39,3 +41,17 @@ def sonarr_media_id(title: str, season_number: int | None) -> str:
 def season_of_media_id(media_item_id: str) -> int | None:
     found = _SEASON_MEDIA_ID_RE.match(media_item_id)
     return int(found.group(1)) if found else None
+
+
+def season_on_disk(season: ArrSeason) -> bool:
+    """Whether Sonarr has every episode of *season*.
+
+    ``episodeCount`` leaves out an unmonitored episode with no file, so it says nothing of
+    a season that is not monitored: there only the total does.
+    """
+    stats: dict[str, Any] = {**(season.get("statistics") or {})}
+    wanted: int = stats.get("episodeCount", 0)
+    if not season.get("monitored"):
+        wanted = max(wanted, stats.get("totalEpisodeCount", 0))
+    files: int = stats.get("episodeFileCount", 0)
+    return files > 0 and files >= wanted

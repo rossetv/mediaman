@@ -40,7 +40,7 @@ from mediaman.web.repository.download import (
     fetch_suggestion_enrichment,
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
-from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
+from mediaman.web.routes.download._season import deleted_season, season_on_disk, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -285,9 +285,7 @@ def _season_state(series: SonarrSeries, season_number: int) -> str | None:
     for season in series.get("seasons") or []:
         if season.get("seasonNumber") != season_number:
             continue
-        stats = season.get("statistics") or {}
-        files = stats.get("episodeFileCount", 0)
-        if files > 0 and files >= stats.get("episodeCount", 0):
+        if season_on_disk(season):
             return ACTION_IN_LIBRARY
         if series.get("monitored", True) and season.get("monitored"):
             return ACTION_QUEUED
