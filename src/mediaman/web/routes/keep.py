@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
+from mediaman.core.format import normalise_media_type
 from mediaman.core.time import now_utc
 from mediaman.crypto import sign_poster_url
 from mediaman.db import get_db
@@ -46,6 +47,7 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.download._season import season_name
 
 router = APIRouter()
 
@@ -182,6 +184,11 @@ def _keep_context(
     # consumes ``item.<field>`` attribute access, so the dataclass is
     # converted to a plain dict here and the derived display field added.
     item_dict = asdict(row)
+    item_dict["kind"] = kind = normalise_media_type(row.media_type)
+    item_dict["heading"] = (row.show_title if kind != "movie" else None) or row.title
+    item_dict["season_label"] = (
+        season_name(row.season_number) if kind != "movie" and row.season_number is not None else ""
+    )
     item_dict["added_display"] = format_added_display(item_dict["added_at"])
     watched = (
         get_db()

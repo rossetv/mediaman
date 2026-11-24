@@ -7,6 +7,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
@@ -114,6 +115,32 @@ class TestKeepPageMessages:
 
     def test_unwatched_item_is_labelled_never_watched(self, conn):
         assert "Never watched" in self._active_page(conn, last_watched_at=None)
+
+    @pytest.mark.parametrize(
+        ("media_type", "season", "kind", "label"),
+        [
+            ("tv_season", 2, "TV", "Season 2"),
+            ("anime_season", 1, "Anime", "Season 1"),
+            ("tv_season", 0, "TV", "Specials"),
+        ],
+    )
+    def test_a_season_is_named_by_its_show_its_number_and_its_kind(
+        self, conn, media_type, season, kind, label
+    ):
+        text = self._active_page(
+            conn, media_type=media_type, show_title="Harrow Lane", season_number=season
+        )
+
+        assert re.search(r"<h1[^>]*>\s*Harrow Lane\s*</h1>", text)
+        assert f'<div class="item-season">{label}</div>' in text
+        assert re.search(rf'<span class="pill pill--{kind.lower()}">{kind}</span>', text)
+        assert re.search(r"<title>\s*Keep · Harrow Lane", text)
+
+    def test_the_year_it_was_added_does_not_stand_as_its_release_year(self, conn):
+        text = self._active_page(conn, added_at="2019-03-02T10:00:00+00:00")
+
+        assert "Added 2 March 2019" in text
+        assert not re.search(r">\s*2019\s*<", text)
 
     def test_rate_limited_get_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_GET_LIMITER
