@@ -78,6 +78,25 @@ class TestApiDashboardStats:
         resp = client.get("/api/dashboard/stats")
         assert resp.json()["reclaimed_total_bytes"] == 500_000_000
 
+    def test_stats_count_the_scheduled_titles_no_scan_has_sized(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+        for n, size in enumerate((1_000_000, 0, 0)):
+            insert_media_item(
+                conn, id=f"m{n}", title=f"T{n}", plex_rating_key=f"rk{n}", file_size_bytes=size
+            )
+            insert_scheduled_action(
+                conn,
+                media_item_id=f"m{n}",
+                execute_at=(datetime.now(UTC) + timedelta(days=7)).isoformat(),
+                token=f"tok-{n}",
+            )
+
+        scheduled = client.get("/api/dashboard/stats").json()["scheduled"]
+
+        assert (scheduled["total"], scheduled["unsized_count"]) == (3, 2)
+
     def test_storage_spans_the_library_folders_saved_in_settings(
         self, app_factory, authed_client, conn, monkeypatch, tmp_path
     ):

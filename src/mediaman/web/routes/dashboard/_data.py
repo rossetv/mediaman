@@ -149,6 +149,8 @@ def _scheduled_summary(items: list[dict[str, object]]) -> dict[str, object]:
         "leaving": len(leaving),
         "leaving_bytes": total_bytes(leaving),
         "leaving_size": format_bytes(total_bytes(leaving)),
+        # Rows no scan has sized yet: the totals above are at least what they say.
+        "unsized_count": sum(not item["file_size_bytes"] for item in items),
         "overdue": sum(item["state"] == "overdue" for item in items),
         "deleting": sum(item["state"] == "deleting" for item in items),
     }
