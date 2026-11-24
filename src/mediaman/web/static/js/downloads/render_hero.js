@@ -12,7 +12,6 @@
  * Exposes:
  *   MM.downloads.renderHero.updateHero(container, item)
  *   MM.downloads.renderHero.updateSearchHint(card, item)
- *   MM.downloads.renderHero.buildEpisodeRow(ep)
  */
 (function () {
   'use strict';
@@ -80,131 +79,6 @@
     }
     pill.className = 'pill pill--' + (isMovie ? 'movie' : 'tv');
     d.setText(pill, isMovie ? 'Movie' : 'TV');
-  }
-
-  function buildEpisodeRow(ep) {
-    var row = document.createElement('div');
-    row.className = 'dl-ep-row' + (ep.is_pack_episode ? ' dl-ep-row-pack' : '');
-    row.setAttribute('data-ep', ep.label);
-
-    var num = document.createElement('span');
-    num.className = 'dl-ep-number';
-    num.textContent = ep.label;
-    row.appendChild(num);
-
-    var title = document.createElement('span');
-    title.className = 'dl-ep-title';
-    title.textContent = ep.title || '';
-    row.appendChild(title);
-
-    if (ep.is_pack_episode) {
-      var packPill = document.createElement('span');
-      packPill.className = 'dl-ep-status-pill downloading';
-      packPill.textContent = 'In pack';
-      row.appendChild(packPill);
-      return row;
-    }
-
-    var miniBar = document.createElement('div');
-    miniBar.className = 'dl-ep-mini-bar';
-    var miniFill = document.createElement('div');
-    miniFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-    miniFill.setAttribute('data-v', 'ep-fill');
-    miniFill.style.width = (ep.progress || 0) + '%';
-    miniBar.appendChild(miniFill);
-    row.appendChild(miniBar);
-
-    var statePill = document.createElement('span');
-    statePill.className = 'dl-ep-status-pill ' + (ep.state || '');
-    if (ep.state === 'ready') statePill.textContent = 'Ready';
-    else if (ep.state === 'downloading') statePill.textContent = (ep.progress || 0) + '%';
-    else if (ep.state === 'queued') statePill.textContent = 'Queued';
-    else statePill.textContent = 'Searching';
-    row.appendChild(statePill);
-
-    return row;
-  }
-
-  function buildEpisodeToggle(count, hasPack) {
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'dl-hero-episodes-toggle';
-    btn.setAttribute('data-v', 'ep-toggle');
-    btn.appendChild(MM.dom.icon('i-chevron-right'));
-    var label = document.createElement('span');
-    label.textContent = count + ' episode' + (count !== 1 ? 's' : '') + (hasPack ? ' · pack download' : '');
-    btn.appendChild(label);
-    return btn;
-  }
-
-  /* The episodes section is present only when the item is a series
-        with episodes. Add the whole section when missing, remove it when
-        the new hero is a movie, and rebuild it when the episode set has
-        changed (different show, or pack contents changed). */
-  function syncEpisodes(card, item) {
-    var d = dom();
-    var info = d.q('.dl-hero-info', card);
-    var existingToggle = d.q('[data-v="ep-toggle"]', card);
-    var existingList = d.q('[data-v="ep-list"]', card);
-    var episodes = item.episodes;
-
-    if (!episodes || !episodes.length || !info) {
-      if (existingToggle && existingToggle.parentNode) existingToggle.parentNode.removeChild(existingToggle);
-      if (existingList && existingList.parentNode) existingList.parentNode.removeChild(existingList);
-      return;
-    }
-
-    var count = episodes.length;
-    var toggleText = count + ' episode' + (count !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '');
-    if (!existingToggle) {
-      existingToggle = buildEpisodeToggle(count, !!item.has_pack);
-      info.appendChild(existingToggle);
-    } else {
-      var lbl = existingToggle.querySelector('span');
-      if (lbl) lbl.textContent = toggleText;
-    }
-
-    if (!existingList) {
-      existingList = document.createElement('div');
-      existingList.className = 'dl-hero-episodes';
-      existingList.setAttribute('data-v', 'ep-list');
-      existingList.hidden = true;
-      info.appendChild(existingList);
-    }
-
-    /* Rebuild the list when the set of episode labels differs from what
-       we already rendered; otherwise patch each row in place to keep the
-       toggle state and progress transitions smooth. */
-    var existingRows = existingList.querySelectorAll('[data-ep]');
-    var needsRebuild = existingRows.length !== count;
-    if (!needsRebuild) {
-      for (var i = 0; i < count; i++) {
-        if (existingRows[i].getAttribute('data-ep') !== episodes[i].label) { needsRebuild = true; break; }
-      }
-    }
-    if (needsRebuild) {
-      while (existingList.firstChild) existingList.removeChild(existingList.firstChild);
-      for (var bi = 0; bi < count; bi++) existingList.appendChild(buildEpisodeRow(episodes[bi]));
-      return;
-    }
-    for (var ui = 0; ui < count; ui++) {
-      var ep = episodes[ui];
-      var epRow = d.findByEp(card, ep.label);
-      if (!epRow) continue;
-      var epFill = d.q('[data-v="ep-fill"]', epRow);
-      if (epFill) {
-        epFill.style.width = ep.progress + '%';
-        epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-      }
-      var epPill = d.q('.dl-ep-status-pill', epRow);
-      if (epPill && !ep.is_pack_episode) {
-        epPill.className = 'dl-ep-status-pill ' + ep.state;
-        if (ep.state === 'ready') d.setText(epPill, 'Ready');
-        else if (ep.state === 'downloading') d.setText(epPill, ep.progress + '%');
-        else if (ep.state === 'queued') d.setText(epPill, 'Queued');
-        else d.setText(epPill, 'Searching');
-      }
-    }
   }
 
   function updateHero(container, item) {
@@ -288,7 +162,7 @@
     d.updateEtaStat(card, item.eta);
 
     /* Episodes — create, refresh, or remove the toggle + list section. */
-    syncEpisodes(card, item);
+    d.syncEpisodes(card, item);
 
     d.syncAbandon(card, item, 'hero');
 
@@ -302,7 +176,5 @@
     updateHero: updateHero,
     updateSearchHint: updateSearchHint,
     updateTypePill: updateTypePill,
-    syncEpisodes: syncEpisodes,
-    buildEpisodeRow: buildEpisodeRow,
   };
 })();

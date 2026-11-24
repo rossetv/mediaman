@@ -12,7 +12,6 @@
  *   MM.downloads.buildDom.q(sel, ctx)              → MM.dom.q
  *   MM.downloads.buildDom.setText(el, txt)         → MM.dom.setText
  *   MM.downloads.buildDom.findByDlId(c, dlId)      → MM.dom.findByAttr(c, 'data-dl-id', dlId)
- *   MM.downloads.buildDom.findByEp(container, label)
  *   MM.downloads.buildDom.buildHero(item)          shared hero card builder (item.hero_backdrop fills its background)
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
@@ -23,6 +22,8 @@
  *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, dim the held, say how many
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
+ *   MM.downloads.buildDom.buildEpisodeRow(ep)
+ *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
  *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
  *   MM.downloads.buildDom.collapse(el, done)       shrink it away, then call done
@@ -34,16 +35,6 @@
 
   window.MM = window.MM || {};
   MM.downloads = MM.downloads || {};
-
-  /* Find element by data-ep without selector injection. */
-  function findByEp(container, label) {
-    if (!container) return null;
-    var rows = container.querySelectorAll('[data-ep]');
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-ep') === label) return rows[i];
-    }
-    return null;
-  }
 
   function reducedMotion() {
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -397,6 +388,96 @@
     }
   }
 
+  /* Mirrors the episode rows in _dl_hero_card.html and _dl_compact_row.html. */
+  function buildEpisodeRow(ep) {
+    var row = el('div', 'dl-ep-row' + (ep.is_pack_episode ? ' dl-ep-row-pack' : ''));
+    row.setAttribute('data-ep', ep.label);
+    row.appendChild(el('span', 'dl-ep-number', ep.label));
+    row.appendChild(el('span', 'dl-ep-title', ep.title || ''));
+
+    if (ep.is_pack_episode) {
+      row.appendChild(el('span', 'dl-ep-status-pill downloading', 'In pack'));
+      return row;
+    }
+
+    var miniBar = el('div', 'dl-ep-mini-bar');
+    var miniFill = el('div', 'dl-ep-mini-fill');
+    miniFill.setAttribute('data-v', 'ep-fill');
+    miniBar.appendChild(miniFill);
+    row.appendChild(miniBar);
+    row.appendChild(el('span', 'dl-ep-status-pill'));
+    patchEpisodeRow(row, ep);
+    return row;
+  }
+
+  function patchEpisodeRow(row, ep) {
+    MM.dom.setText(row.querySelector('.dl-ep-title'), ep.title || '');
+    if (ep.is_pack_episode) return;
+    var state = ep.state || 'searching';
+    var fill = row.querySelector('[data-v="ep-fill"]');
+    fill.style.width = (ep.progress || 0) + '%';
+    fill.className = 'dl-ep-mini-fill' + (state === 'ready' ? ' green' : '');
+    var pill = row.querySelector('.dl-ep-status-pill');
+    pill.className = 'dl-ep-status-pill ' + state;
+    MM.dom.setText(pill, state === 'ready' ? 'Ready'
+      : state === 'downloading' ? (ep.progress || 0) + '%'
+      : state === 'queued' ? 'Queued' : 'Searching');
+  }
+
+  function episodeCount(episodes) {
+    return episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
+  }
+
+  /* The episodes button and list of a hero or queue row exist only while the
+     item has episodes. The list is rebuilt when their set has changed and
+     patched otherwise, so it stays open as the person left it. */
+  function syncEpisodes(card, item) {
+    var episodes = item.episodes || [];
+    var toggle = card.querySelector('[data-v="ep-toggle"]');
+    var list = card.querySelector('[data-v="ep-list"]');
+    var count = card.querySelector('[data-v="ep-count"]');
+    if (count) {
+      MM.dom.setText(count, episodes.length ? episodeCount(episodes) : '');
+      count.hidden = !episodes.length;
+    }
+
+    if (!episodes.length) {
+      if (toggle) toggle.parentNode.removeChild(toggle);
+      if (list) list.parentNode.removeChild(list);
+      return;
+    }
+
+    if (!toggle) {
+      var info = card.querySelector('.dl-hero-info');
+      var prefix = info ? 'dl-hero' : 'dl-compact';
+      toggle = el('button', prefix + '-episodes-toggle');
+      toggle.type = 'button';
+      toggle.setAttribute('data-v', 'ep-toggle');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.appendChild(MM.dom.icon('i-chevron-right'));
+      toggle.appendChild(el('span'));
+      list = el('div', prefix + '-episodes');
+      list.setAttribute('data-v', 'ep-list');
+      list.hidden = true;
+      (info || card).appendChild(toggle);
+      (info || card).appendChild(list);
+    }
+    MM.dom.setText(toggle.querySelector('span'),
+      episodeCount(episodes) + (item.has_pack ? ' · pack download' : ''));
+
+    var rows = list.querySelectorAll('[data-ep]');
+    var same = rows.length === episodes.length && episodes.every(function (ep, i) {
+      return rows[i].getAttribute('data-ep') === ep.label &&
+        rows[i].classList.contains('dl-ep-row-pack') === !!ep.is_pack_episode;
+    });
+    if (same) {
+      episodes.forEach(function (ep, i) { patchEpisodeRow(rows[i], ep); });
+      return;
+    }
+    while (list.firstChild) list.removeChild(list.firstChild);
+    episodes.forEach(function (ep) { list.appendChild(buildEpisodeRow(ep)); });
+  }
+
   /* Build a queue row, mirroring _dl_compact_row.html. */
   function buildCompactRow(item) {
     var card = el('div', 'dl-compact');
@@ -432,11 +513,9 @@
     sizeInfo.appendChild(document.createTextNode(' of '));
     sizeInfo.appendChild(total);
     meta.appendChild(sizeInfo);
-    var episodes = item.episodes || [];
-    if (episodes.length) {
-      meta.appendChild(el('span', '',
-        episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '')));
-    }
+    var count = el('span');
+    count.setAttribute('data-v', 'ep-count');
+    meta.appendChild(count);
     info.appendChild(meta);
 
     var hint = el('div', 'dl-search-hint');
@@ -454,7 +533,8 @@
     row.appendChild(info);
 
     var right = el('div', 'dl-compact-right');
-    var pct = el('div', 'dl-compact-pct dl-row-pct', item.progress > 0 ? item.progress + '%' : '—');
+    var pct = el('div', 'dl-compact-pct dl-row-pct' + (item.progress > 0 ? '' : ' dl-compact-pct--muted'),
+      item.progress > 0 ? item.progress + '%' : '—');
     pct.setAttribute('data-v', 'pct');
     right.appendChild(pct);
     var eta = el('div', 'dl-compact-eta', item.eta || '');
@@ -464,24 +544,7 @@
 
     syncAbandon(card, item, 'row');
 
-    if (episodes.length) {
-      var toggle = el('button', 'dl-compact-episodes-toggle');
-      toggle.type = 'button';
-      toggle.setAttribute('data-v', 'ep-toggle');
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.appendChild(MM.dom.icon('i-chevron-right'));
-      toggle.appendChild(el('span', '', episodes.length + ' episode' +
-        (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '')));
-      card.appendChild(toggle);
-      var list = el('div', 'dl-compact-episodes');
-      list.setAttribute('data-v', 'ep-list');
-      list.hidden = true;
-      for (var i = 0; i < episodes.length; i++) {
-        list.appendChild(MM.downloads.renderHero.buildEpisodeRow(episodes[i]));
-      }
-      card.appendChild(list);
-    }
-
+    syncEpisodes(card, item);
     updateHint(card, item);
     return card;
   }
@@ -628,7 +691,6 @@
     q:                    function (sel, ctx)        { return MM.dom.q(sel, ctx); },
     setText:              function (el, txt)         { return MM.dom.setText(el, txt); },
     findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
-    findByEp:             findByEp,
     buildHero:            buildHero,
     buildEtaStat:         buildEtaStat,
     updateEtaStat:        updateEtaStat,
@@ -641,6 +703,8 @@
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
+    buildEpisodeRow:      buildEpisodeRow,
+    syncEpisodes:         syncEpisodes,
     syncAbandon:          syncAbandon,
     reveal:               function (el)              { fold(el, true); },
     collapse:             function (el, done)        { fold(el, false, done); },

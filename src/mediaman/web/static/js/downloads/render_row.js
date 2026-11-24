@@ -36,7 +36,10 @@
       fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
     }
     var pct = d.q('[data-v="pct"]', row);
-    if (pct) d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
+    if (pct) {
+      d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
+      pct.classList.toggle('dl-compact-pct--muted', !(item.progress > 0));
+    }
     var sizeInfo = d.q('[data-v="size-info"]', row);
     if (sizeInfo) sizeInfo.hidden = (item.state === 'searching');
     var sizeDone = d.q('[data-v="size-done"]', row);
@@ -48,27 +51,7 @@
 
     d.syncAbandon(row, item, 'row');
 
-    /* Update episode rows (same shape as hero) */
-    if (item.episodes) {
-      for (var i = 0; i < item.episodes.length; i++) {
-        var ep = item.episodes[i];
-        var epRow = d.findByEp(row, ep.label);
-        if (!epRow) continue;
-        var epFill = d.q('[data-v="ep-fill"]', epRow);
-        if (epFill) {
-          epFill.style.width = ep.progress + '%';
-          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-        }
-        var epPill = d.q('.dl-ep-status-pill', epRow);
-        if (epPill) {
-          epPill.className = 'dl-ep-status-pill ' + ep.state;
-          if (ep.state === 'ready') d.setText(epPill, 'Ready');
-          else if (ep.state === 'downloading') d.setText(epPill, ep.progress + '%');
-          else if (ep.state === 'queued') d.setText(epPill, 'Queued');
-          else d.setText(epPill, 'Searching');
-        }
-      }
-    }
+    d.syncEpisodes(row, item);
   }
 
   function updateUpcomingRow(row, item) {
