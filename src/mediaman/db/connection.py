@@ -124,14 +124,18 @@ _ADDED_COLUMNS = (
     ("pruned_progress", "tmdb_id", "INTEGER"),
     ("pruned_progress", "tvdb_id", "INTEGER"),
     ("pruned_watches", "last_tmdb_id", "INTEGER"),
+    ("media_items", "last_tvdb_id", "INTEGER"),
+    ("pruned_watches", "last_tvdb_id", "INTEGER"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
 _ADDED_INDEXES = """
-CREATE INDEX IF NOT EXISTS idx_media_items_tvdb_id ON media_items(tvdb_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_tvdb_id
+    ON media_items(COALESCE(tvdb_id, last_tvdb_id));
 CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id
     ON media_items(COALESCE(tmdb_id, last_tmdb_id));
-CREATE INDEX IF NOT EXISTS idx_pruned_watches_tvdb_id ON pruned_watches(tvdb_id);
+CREATE INDEX IF NOT EXISTS idx_pruned_watches_tvdb_id
+    ON pruned_watches(COALESCE(tvdb_id, last_tvdb_id));
 CREATE INDEX IF NOT EXISTS idx_pruned_watches_tmdb_id
     ON pruned_watches(COALESCE(tmdb_id, last_tmdb_id));
 """

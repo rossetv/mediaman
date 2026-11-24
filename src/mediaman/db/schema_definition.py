@@ -118,8 +118,9 @@ CREATE TABLE IF NOT EXISTS media_items (
     episode_keys TEXT,
     -- The movie's, or the first year of a season's show.
     year INTEGER,
-    -- What tmdb_id last was, for keeps: Plex may lose a match and find it again.
-    last_tmdb_id INTEGER
+    -- What each id last was, for keeps: Plex may lose a match and find it again.
+    last_tmdb_id INTEGER,
+    last_tvdb_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (
@@ -230,7 +231,8 @@ CREATE TABLE IF NOT EXISTS pruned_watches (
     tmdb_id INTEGER,
     tvdb_id INTEGER,
     last_watched_at TEXT NOT NULL,
-    last_tmdb_id INTEGER
+    last_tmdb_id INTEGER,
+    last_tvdb_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_watches_file_path ON pruned_watches(file_path);
 

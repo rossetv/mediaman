@@ -301,7 +301,9 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
         f"plex_library_id, {_KEEP_COLUMNS}) "
         "SELECT mi.id, mi.file_path, mi.season_number, "
         # The show's ids do not tell a season that has no number.
-        "CASE WHEN (mi.media_type = 'movie') = (mi.season_number IS NULL) THEN mi.tvdb_id END, "
+        "CASE WHEN (mi.media_type = 'movie') = (mi.season_number IS NULL) "
+        "  THEN CASE WHEN COALESCE(mi.tmdb_id, mi.last_tmdb_id) IS NULL "
+        "    THEN COALESCE(mi.tvdb_id, mi.last_tvdb_id) ELSE mi.tvdb_id END END, "
         "CASE WHEN (mi.media_type = 'movie') = (mi.season_number IS NULL) "
         "  THEN COALESCE(mi.tmdb_id, mi.last_tmdb_id) END, "
         f"mi.plex_library_id, {_KEEP_COLUMNS} "

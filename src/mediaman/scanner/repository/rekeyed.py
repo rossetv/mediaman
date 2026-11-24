@@ -3,8 +3,8 @@
 Plex gives a title it removed and found again a new key. The same title is one
 at the same path, of the same season; an episode also has the same number. One
 with the same id is the same title too: its TVDB id, or its TMDB id where one of
-the two has no TVDB id; a film's or season's TMDB id is the one it last had while
-Plex has none for it. Two that Plex lists in two libraries are two titles, until
+the two has no TVDB id. Its TMDB id is the one it last had while Plex has none for
+it; so is its TVDB id, if it never had a TMDB id. Two that Plex lists in two libraries are two titles, until
 it lists one of them no more.
 Nothing here commits: each caller runs it in the transaction that adds or
 removes the title.
@@ -73,7 +73,8 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
 
 _TITLE = (
     "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
-    "tracked_files, episode_keys, plex_library_id, last_tmdb_id, media_type, last_scanned_at"
+    "tracked_files, episode_keys, plex_library_id, last_tmdb_id, last_tvdb_id, media_type, "
+    "last_scanned_at"
 )
 
 
@@ -115,13 +116,19 @@ Ids = tuple[int | None, int | None]
 
 
 def title_ids(title: sqlite3.Row | Mapping[str, Any]) -> Ids:
-    """Return the ids of a title, its TMDB id the one it last had if it has none."""
+    """Return the ids of a title, or those it last had.
+
+    A TVDB id it last had may be of a match before the TMDB id it has.
+    """
+    tvdb_id = title["tvdb_id"]
     tmdb_id = title["last_tmdb_id"] if title["tmdb_id"] is None else title["tmdb_id"]
-    tvdb_id, tmdb_id = (
-        value if isinstance(value, int) and value > 0 else None
-        for value in (title["tvdb_id"], tmdb_id)
-    )
-    return tvdb_id, tmdb_id
+    if tvdb_id is None and tmdb_id is None:
+        tvdb_id = title["last_tvdb_id"]
+    return _known_id(tvdb_id), _known_id(tmdb_id)
+
+
+def _known_id(value: object) -> int | None:
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def ids_match(one: Ids, other: Ids) -> bool:
@@ -138,7 +145,7 @@ def _titles_with_ids(
     # rationale: the interpolated columns and condition are fixed strings; every value is bound
     rows = conn.execute(  # nosec B608
         f"SELECT {_TITLE} FROM media_items "
-        "WHERE (tvdb_id = ? OR COALESCE(tmdb_id, last_tmdb_id) = ?) "
+        "WHERE (COALESCE(tvdb_id, last_tvdb_id) = ? OR COALESCE(tmdb_id, last_tmdb_id) = ?) "
         f"  AND {where}",
         (*ids, *params),
     )
@@ -462,7 +469,7 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
 
 
 def _pruned_ids(pruned: sqlite3.Row) -> Ids:
-    return title_ids({**dict(pruned), "last_tmdb_id": None})
+    return title_ids({**dict(pruned), "last_tmdb_id": None, "last_tvdb_id": None})
 
 
 def _give_nearest(
@@ -745,7 +752,7 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
     )
     seasons = conn.execute(  # nosec B608
         "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number, mi.tvdb_id, "
-        "COALESCE(mi.tmdb_id, mi.last_tmdb_id) AS tmdb_id, mi.plex_library_id "
+        "mi.tmdb_id, mi.last_tvdb_id, mi.last_tmdb_id, mi.plex_library_id "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP}",
         (now,),
@@ -767,8 +774,7 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
                     season["season_id"],
                     season["file_path"],
                     season["season_number"],
-                    season["tvdb_id"],
-                    season["tmdb_id"],
+                    *title_ids(season),
                     season["plex_library_id"],
                 ),
             )
@@ -876,7 +882,7 @@ def save_pruned_progress(conn: sqlite3.Connection, media_ids: Collection[str]) -
             continue
         title = conn.execute(
             "SELECT file_path, season_number, media_type, episode_keys, tvdb_id, "
-            "COALESCE(tmdb_id, last_tmdb_id) AS tmdb_id FROM media_items WHERE id = ?",
+            "tmdb_id, last_tvdb_id, last_tmdb_id FROM media_items WHERE id = ?",
             (media_id,),
         ).fetchone()
         places = {key: place for place, key in _keys_by_place(title["episode_keys"]).items()}
@@ -899,8 +905,7 @@ def save_pruned_progress(conn: sqlite3.Connection, media_ids: Collection[str]) -
                     title["season_number"],
                     *place,
                     now.isoformat(),
-                    title["tvdb_id"],
-                    title["tmdb_id"],
+                    *title_ids(title),
                 ),
             )
 

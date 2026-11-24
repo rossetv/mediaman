@@ -123,7 +123,7 @@ def carry_last_watched(
         for gone in conn.execute(
             "SELECT * FROM pruned_watches WHERE media_item_id = ? "
             "OR (file_path = ? AND file_path != '' AND season_number IS ?) "
-            "OR (tvdb_id = ? AND season_number IS ?) "
+            "OR (COALESCE(tvdb_id, last_tvdb_id) = ? AND season_number IS ?) "
             "OR (COALESCE(tmdb_id, last_tmdb_id) = ? AND season_number IS ?)",
             (
                 media_id,
@@ -187,9 +187,9 @@ def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) ->
     conn.executemany(  # nosec B608
         "INSERT OR REPLACE INTO pruned_watches"
         " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_tmdb_id,"
-        " last_watched_at)"
+        " last_tvdb_id, last_watched_at)"
         " SELECT o.id, o.file_path, o.season_number, o.show_title, o.tmdb_id, o.tvdb_id,"
-        f" o.last_tmdb_id, {_LATEST} FROM media_items o"
+        f" o.last_tmdb_id, o.last_tvdb_id, {_LATEST} FROM media_items o"
         f" WHERE o.id = ? AND {_LATEST} != ''",
         [(media_id,) for media_id in media_ids],
     )

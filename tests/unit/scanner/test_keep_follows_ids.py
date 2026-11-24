@@ -183,6 +183,45 @@ class TestKeptTitleMoves:
 
         assert _actions(conn, "new") == ["protected_forever"]
 
+    @_SEQUENCES
+    @_KEPT
+    @_season(*_MOVES)
+    def test_a_tvdb_id_plex_lost_still_tells_a_show_that_never_had_another(
+        self, conn, freezer, library, kept, lists
+    ):
+        library.ids["old"] = {"tvdb_id": 8}
+        library.sync("old")
+        library.ids["old"] = {}
+        library.sync("old")
+        library.sync("old")
+        _keep_either(conn, library, kept)
+        for keys in lists:
+            freezer.tick(60)
+            library.sync(*keys)
+
+        freezer.tick(60)
+        library.scan("new")
+
+        assert "scheduled_deletion" not in _actions(conn, "new")
+        assert _is_kept(conn, kept, "new")
+
+    @_season()
+    def test_a_tvdb_id_lost_beside_a_tmdb_id_does_not_hide_that_one(self, conn, freezer, library):
+        """The TVDB id may be of the match before, so the TMDB id alone tells the season."""
+        library.ids["old"] = {"tvdb_id": 18}
+        library.sync("old")
+        for ids in ({"tmdb_id": 7}, {}):
+            library.ids["old"] = ids
+            library.sync("old")
+        _keep(conn, "old")
+
+        library.scan("old", "new")
+        assert _actions(conn, "new") == []
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == ["protected_forever"]
+
     @_KEPT
     @_season()
     def test_a_season_plex_matches_later_is_kept_then(self, conn, freezer, library, kept):
@@ -374,6 +413,50 @@ class TestRemovedKeep:
 
 
 class TestAnotherTitle:
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_KEPT
+    @pytest.mark.parametrize("matches", [[18, 9], [8, 18], [8, 18, None], [0], [""]], ids=str)
+    @_season()
+    def test_is_scheduled_though_its_tvdb_id_was_that_of_an_earlier_match(
+        self, conn, freezer, library, kept, matches, lists
+    ):
+        library.ids["new"] = {"tvdb_id": 8 if matches[-1] not in (0, "") else matches[-1]}
+        for tvdb_id in matches:
+            library.ids["old"] = {"tvdb_id": tvdb_id}
+            library.sync("old")
+        library.ids["old"] = {}
+        library.sync("old")
+        _keep_either(conn, library, kept)
+        for keys in lists:
+            freezer.tick(60)
+            library.scan(*keys)
+
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_KEPT
+    @pytest.mark.parametrize("after", [{"tmdb_id": 17}, None])
+    @_season()
+    def test_is_scheduled_though_its_tvdb_id_was_had_before_another_tmdb_id(
+        self, conn, freezer, library, kept, after, lists
+    ):
+        library.ids["new"] = {"tvdb_id": 8}
+        for ids in ({"tvdb_id": 8}, {"tmdb_id": 17}, after or {}):
+            library.ids["old"] = ids
+            library.sync("old")
+        _keep_either(conn, library, kept)
+        for keys in lists:
+            freezer.tick(60)
+            library.scan(*keys)
+
+        freezer.tick(60)
+        library.scan("new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
     @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
     @_KEPT
     @pytest.mark.parametrize(
@@ -605,8 +688,13 @@ class TestWatchedLately:
 
         assert _actions(conn, "new") == []
 
-    @_season("season", "film")
-    def test_a_match_plex_lost_still_tells_the_title(self, conn, freezer, library):
+    @pytest.mark.parametrize(
+        ("library", "ids"),
+        [("season", {}), ("season", {"tmdb_id": None, "tvdb_id": 8}), ("film", {})],
+        indirect=["library"],
+    )
+    def test_a_match_plex_lost_still_tells_the_title(self, conn, freezer, library, ids):
+        library.ids["old"] |= ids
         library.watched = {"old": _NOW - timedelta(days=1)}
         library.sync("old")
         library.ids["old"] = {}
