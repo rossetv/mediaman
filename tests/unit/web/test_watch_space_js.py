@@ -166,6 +166,13 @@ class TestStorage:
         assert out["rows"] == ["Big", "Small"]
         assert out["focused"] == "Back to all space"
 
+    def test_the_whole_list_is_a_press_away_while_the_heaviest_load_and_after_they_fail(self):
+        every = ["See all 312 by size", "/watch?view=list&type=movie&sort=size_desc"]
+        assert _run("seeAllMeanwhile") == {
+            "loading": [False, every, False, None],
+            "failed": [True, every, True, None],
+        }
+
     def test_titles_that_add_up_to_more_than_is_used_share_what_is(self):
         out = _run("segments")
         assert out["names"] == ["movies", "tv", "free"]

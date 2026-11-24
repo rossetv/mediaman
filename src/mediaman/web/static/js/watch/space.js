@@ -1066,10 +1066,12 @@
   function headLine(h, k) {
     var old = h.querySelector('.space-all');
     if (old) old.remove();
-    if (heavy[k].total <= heavy[k].items.length) return;
+    var got = heavy[k] && heavy[k].state === 'ok' ? heavy[k] : null;
+    var total = got ? got.total : count(k);
+    if (total <= (got ? got.items.length : HEAVIEST)) return;
     var all = el('a', 'space-all');
     all.href = '/watch?view=list&type=' + TYPES[k].list + '&sort=size_desc';
-    h.append(add(all, document.createTextNode('See all ' + heavy[k].total + ' by size'), MM.dom.icon('i-chevron-right')));
+    h.append(add(all, document.createTextNode('See all ' + total + ' by size'), MM.dom.icon('i-chevron-right')));
   }
 
   function notes(l, k) {
@@ -1148,8 +1150,8 @@
     l.append(s);
   }
 
-  function loading(l) {
-    backLine(l, 'Heaviest first');
+  function loading(l, k) {
+    headLine(backLine(l, 'Heaviest first'), k);
     var box = el('div', 'space-heavy');
     box.setAttribute('aria-busy', 'true');
     for (var i = 0; i < 7; i++) box.append(add(el('div', 'space-skel__heavy'), el('span', 'skel'), el('span', 'skel'), el('span', 'skel')));
@@ -1158,7 +1160,7 @@
   }
 
   function failing(l, k) {
-    backLine(l, 'Heaviest first');
+    headLine(backLine(l, 'Heaviest first'), k);
     l.append(failure('Couldn’t load the titles.', function () {
       heavy[k] = { state: 'loading' };
       stage(0);

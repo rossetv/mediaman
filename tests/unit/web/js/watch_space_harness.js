@@ -370,6 +370,18 @@ const scenarios = {
     old.forEach((h) => h.go()); await settle();
     return { waiting, now, after: p.heads() };
   },
+  async seeAllMeanwhile() {
+    const all = (p) => { const a = p.one('.space-layer:not([inert]) .space-all'); return a && [a.textContent, a.href]; };
+    const of = async (setup) => {
+      const p = await page(undefined, setup);
+      await p.click(p.$('meter'));
+      const out = [];
+      for (const k of ['movies', 'tv']) { await p.click(p.seg(k)); out.push(p.one('.space-layer:not([inert]) [role="alert"]') !== null, all(p)); }
+      return out;
+    };
+    const few = (s) => { s.storage = storage({ counts: { movies: 312, tv: 8, anime: 0 } }); };
+    return { loading: await of((s) => { few(s); s.holding = '/api/library'; }), failed: await of((s) => { few(s); s.fail = { '/api/library': 'down' }; }) };
+  },
   async listFails() {
     const p = await page(undefined, (s) => { s.fail = { 'type=movie': 'down' }; });
     await p.click(p.$('meter'));
