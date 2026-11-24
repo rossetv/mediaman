@@ -21,6 +21,7 @@
   var foot = root.querySelector('.space__foot');
   var ink = root.querySelector('.space__ink');
   var live = byId('space-live');
+  var scan = byId('space-scan');
 
   var TYPES = {
     movies: { name: 'Movies', unit: 'film', list: 'movie', cls: 'space-c--movies' },
@@ -268,19 +269,21 @@
   function meters() { return toArray(document.querySelectorAll('[data-space-open]')); }
 
   function renderMeters() {
+    var busy = scan.classList.contains('is-busy');
     toArray(document.querySelectorAll('.space-meter')).forEach(function (b) {
       var base = 'space-meter' + (b.classList.contains('space-meter--phone') ? ' space-meter--phone' : '');
       if (!stats && !failed.stats) return;
       b.removeAttribute('aria-busy');
       b.textContent = '';
-      b.className = base;
+      b.className = base + (busy ? ' space-meter--scanning' : '');
+      if (busy) b.setAttribute('aria-busy', 'true');
       if (!stats || !stats.storage.readable) {
         var text = !stats || !stats.show_storage ? 'Storage' : 'Can’t read storage';
         if (text !== 'Storage' || !stats) b.classList.add('space-meter--off');
         var words = el('span', 'space-meter__free', text === 'Storage' ? text : 'Can’t read');
         if (text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
         add(b, MM.dom.icon('i-hard-drive'), words);
-        b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded'
+        b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded' + leavingLabel()
           : (text === 'Storage' ? text : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
         return;
       }
@@ -316,7 +319,7 @@
   }
 
   function leavingLabel() {
-    return leaving() ? '. ' + plural(leaving(), 'title') + ' scheduled for deletion' : '';
+    return (scan.classList.contains('is-busy') ? ', scanning' : '') + (leaving() ? '. ' + plural(leaving(), 'title') + ' scheduled for deletion' : '');
   }
 
   /* Beside Leaving soon's heading. */
@@ -1605,7 +1608,6 @@
   var STATUS_LINGER_MS = 5000;
   var IDLE = 'A scan looks for titles to clear';
 
-  var scan = byId('space-scan');
   var scanStatus = byId('space-scan-status');
   var scanStart = 0;
   var lingerTimer = null;
@@ -1627,8 +1629,18 @@
     return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
   }
 
+  /* A scan's end, where nobody sees the words beside the button. */
+  function tellClosed(text, variant) {
+    if (!isOpen) core.toast(text, { variant: variant });
+  }
+
+  function scanBusy(on) {
+    scan.classList.toggle('is-busy', on);
+    renderMeters();
+  }
+
   function scanStopped(reason, opts) {
-    scan.classList.remove('is-busy');
+    scanBusy(false);
     scan.removeAttribute('aria-disabled');
     scanLabel(opts.retry ? 'Retry scan' : 'Scan now');
     scan.classList.toggle('is-error', !!opts.retry);
@@ -1639,20 +1651,24 @@
       scanStatus.append(a);
     }
     live.textContent = reason;
+    tellClosed(reason, opts.retry ? 'error' : undefined);
   }
 
   function scanDone() {
     var took = 'Finished in ' + elapsed();
-    scan.classList.remove('is-busy');
+    scanBusy(false);
     scan.classList.add('is-success');
     scanLabel('Scan complete', 'i-check');
     scanSays(took, 'ok');
     live.textContent = 'Scan ' + took.toLowerCase();
     tellList();
     refresh().then(function () {
+      tellClosed('Scan ' + took.toLowerCase(), 'success');
       lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
     }, function () {
-      scanSays(took + '. Refresh the page to see the results.', 'ok');
+      var late = '. Refresh the page to see the results.';
+      tellClosed('Scan ' + took.toLowerCase() + late, 'success');
+      scanSays(took + late, 'ok');
     }).then(function () {
       setTimeout(function () {
         scan.classList.remove('is-success');
@@ -1699,7 +1715,7 @@
     if (scan.getAttribute('aria-disabled') === 'true') return;
     scan.setAttribute('aria-disabled', 'true');
     scan.classList.remove('is-error', 'is-success');
-    scan.classList.add('is-busy');
+    scanBusy(true);
     scanLabel('Scanning');
     scanStart = Date.now();
     scanSays('Starting scan…');

@@ -53,6 +53,7 @@
 .space-meter--off .space-meter__free,
 .space-meter--off > .ico { color: var(--t3); }
 .space-meter > .ico.space-meter__warn { color: var(--warning); }
+.space-meter--scanning > :is(.space-meter__bar, .ico:first-child) { animation: loading-pulse 1.6s ease-in-out infinite; }
 .space-meter--phone { display: none; }
 @media (max-width: 1099.98px) { .space-meter__leaving { display: none; } }
 @media (max-width: 699.98px) {
@@ -537,6 +538,7 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
 @media (prefers-reduced-motion: reduce) {
   .space__panel,
   .space-pane { transform: none; }
+  .space-meter--scanning > :is(.space-meter__bar, .ico:first-child),
   .space__scan.is-busy > .ico { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
 @media (prefers-reduced-motion: reduce) and (max-width: 699.98px) {
