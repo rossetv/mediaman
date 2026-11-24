@@ -16,7 +16,7 @@ from datetime import timedelta
 from urllib.parse import quote as urlquote
 
 from mediaman.core.time import now_utc
-from mediaman.services.openai.client import call_openai, is_web_search_enabled
+from mediaman.services.openai.client import DOMAIN_RE, call_openai, is_web_search_enabled
 from mediaman.services.openai.recommendations._types import RecommendationItem
 
 # Picks asked for; more than are kept, to leave room for those dropped as already known.
@@ -121,11 +121,13 @@ Return one JSON object and nothing else:
 {"items":[{"title":"official English title","year":2024,"media_type":"movie","reason":"..."}]}
 "media_type" is "movie" or "tv". "year" is the first release year as an integer, or null."""
 
-# Longest reason shown to people, and what none may hold: an address, markdown or "you".
+# Longest reason shown to people, and what none may hold: an address, an id or source in
+# brackets, markdown or "you".
 _REASON_MAX_LEN = 200
 _REASON_REFUSED = re.compile(
-    r"https?://|www\.|\w\.(?:com|net|org|co|tv|io|info)\b"
-    r"|\[[^\]]*\]\(|[*`]|__|^\s*(?:#|>|- )"
+    rf"https?://|www\.|{DOMAIN_RE.pattern}|@"
+    r"|[\[\]【】†]|\(\s*#?\d{1,3}(?:\s*,\s*#?\d{1,3})*\s*\)"
+    r"|[*`]|__|^\s*(?:#|>|- )"
     r"|\b(?:you|your|yours|yourself|because)\b",
     re.IGNORECASE,
 )
@@ -185,7 +187,7 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
 
 def _checked_reason(reason: str, sent_titles: Iterable[str]) -> str:
     """*reason* as it may be shown, cut to whole sentences; empty when it holds an address,
-    markdown or second-person wording, names one of *sent_titles*, or cannot be cut.
+    an id, markdown or second-person wording, names one of *sent_titles*, or cannot be cut.
     """
     if _REASON_REFUSED.search(reason):
         return ""

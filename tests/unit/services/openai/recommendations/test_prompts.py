@@ -144,6 +144,14 @@ class TestReasons:
             "A **bold** heist.",
             "# A heist",
             "A thief like those in Heat plans one job.",
+            "A heist. See evil.xyz/free for more.",
+            "A heist, as told on films.xyz",
+            "A heist (see evil.academy).",
+            "A heist told by @thief.",
+            "A heist [H3] in the rain.",
+            "A heist [12] in the rain.",
+            "A heist (12) in the rain.",
+            "A heist\u30104\u2020source\u3011 in the rain.",
         ],
     )
     def test_a_reason_that_may_not_be_shown_is_blanked_and_the_pick_kept(self, reason):
@@ -154,6 +162,17 @@ class TestReasons:
     )
     def test_a_title_inside_another_word_or_in_small_letters_names_nothing(self, reason):
         assert _reason(reason, sent_titles=["Heat"]) == reason
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "Agents of S.H.I.E.L.D. chase one man. Suits fans of slow plots.",
+            "Mr. Reed, a St. Louis vet, vs. the U.S. state at 9.30 a.m. on a 2.5 acre farm.",
+            "Told by J. J. Abrams in one long night... and one short day.",
+        ],
+    )
+    def test_dots_that_make_no_address_are_kept(self, reason):
+        assert _reason(reason) == reason
 
     def test_a_long_reason_ends_at_a_whole_sentence(self):
         first = "A thief trains three strangers for one job."

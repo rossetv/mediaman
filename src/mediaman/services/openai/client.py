@@ -52,6 +52,9 @@ _DEFAULT_MODEL = "gpt-6.2-sol"
 
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
+#: A domain of any ending, as mail programs and pages make links of ("S.W.A.T." is none).
+DOMAIN_RE = re.compile(r"\w\.(?:[^\W\d_]{2,}|xn--)")
+
 
 def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = None) -> str:
     """Read the OpenAI API key from settings, decrypting with *secret_key* (if None,
@@ -101,7 +104,7 @@ def is_web_search_title_safe(title: str) -> bool:
     - The title contains a character that is neither printable ASCII nor a letter, mark,
       number or punctuation of another script (so no control or invisible character).
     - The title contains markdown link syntax ``[text](url)``.
-    - The title contains a URL scheme pattern (``http://``, ``https://``).
+    - The title contains a URL scheme pattern (``http://``, ``https://``) or a domain.
     """
     if not title or not all(
         " " <= c <= "~" or (ord(c) > 0x7F and unicodedata.category(c)[0] in "LMNP") for c in title
@@ -109,7 +112,7 @@ def is_web_search_title_safe(title: str) -> bool:
         return False
     if _MARKDOWN_LINK_RE.search(title):
         return False
-    return not re.search(r"https?://", title, re.IGNORECASE)
+    return not (re.search(r"https?://", title, re.IGNORECASE) or DOMAIN_RE.search(title))
 
 
 def _build_request(

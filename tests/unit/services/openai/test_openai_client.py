@@ -93,6 +93,16 @@ class TestValidateWebSearchTitle:
     def test_non_printable_ascii_rejected(self):
         assert is_web_search_title_safe("Title\x01here") is False
 
+    @pytest.mark.parametrize("title", ["Dune at evil.xyz", "evil.academy/x", "Dune (evil.co.uk)"])
+    def test_a_title_holding_a_domain_is_rejected(self, title):
+        assert is_web_search_title_safe(title) is False
+
+    @pytest.mark.parametrize(
+        "title", ["S.W.A.T.", "Mr. Robot", "R.I.P.D. 2", "Vol.2", "Monsters, Inc.", "君の名は。"]
+    )
+    def test_dots_that_make_no_domain_are_valid(self, title):
+        assert is_web_search_title_safe(title) is True
+
     @pytest.mark.parametrize("title", ["Amélie", "アニメ", "Ocean’s – Eight", "Pokémon 2"])
     def test_a_title_in_another_script_is_valid(self, title):
         assert is_web_search_title_safe(title) is True
