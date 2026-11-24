@@ -61,7 +61,7 @@ def test_a_failed_sign_in_says_why_and_whether_plex_signed_out() -> None:
     assert refused["note"] is True
     assert (again["note"], again["said"][-1:]) == (False, ["No access here."])
     assert (ran_out["shown"], ran_out["note"]) == ("failed", False)
-    assert "ran out" in ran_out["text"]
+    assert ran_out["text"] == "It ran out; see Authorized Devices."
     assert ran_out["focus"] == "plex-retry"
 
 
@@ -147,7 +147,13 @@ def test_a_person_whose_link_moved_sees_it_until_they_dismiss_it() -> None:
     assert out["first"]["shown"] == "unlinked"
     assert "1 Mar 2026" in out["first"]["when"]
     assert out["failed"] == {"note": True, "error": "Unreachable."}
+    assert "2 Mar 2026" in out["newer"]
     assert (out["after"]["note"], out["after"]["focus"]) == (False, "plex-start")
+
+
+def test_dismissing_where_plex_is_not_set_up_keeps_the_focus_in_the_card() -> None:
+    out = _run("movedUnset")
+    assert (out["shown"], out["note"], out["focus"]) == ("unset", False, "plex")
 
 
 def test_a_card_left_open_shows_the_move_once_it_hears_of_it() -> None:

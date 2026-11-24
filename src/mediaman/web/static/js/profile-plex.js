@@ -7,7 +7,6 @@
   var SLOW_POLL_MS = 10000;
   var READING_MS = 3000;
   var APPROVAL_PAGE = 'https://app.plex.tv/auth#?';
-  var RAN_OUT = 'The sign-in ran out. Start again.';
   var MOVES = 'This Plex account is linked to another person here; linking moves it to you.';
   var NOT_ANSWERING = 'Plex is slow to answer. Still waiting…';
   /* What focus moves to when a panel replaces the one that held it. */
@@ -53,6 +52,7 @@
     var errorLine = byId('plex-error');
     var current = 'loading';
     var attempt = null;
+    var movedAt = null;
     /* Whether Try again loads the card again rather than starts a sign-in. */
     var reloads = false;
     var timer = null;
@@ -98,7 +98,7 @@
       MM.api.post('/api/account/plex/check').then(function (data) {
         if (mine !== turn) return;
         MM.dom.setText(byId('plex-wait'), 'Waiting for Plex…');
-        render(data.attempt);
+        if (data.attempt) render(data.attempt); else recover(data.message);
       }, function (err) {
         if (mine !== turn) return;
         if (err.status !== 429) MM.dom.setText(byId('plex-wait'), NOT_ANSWERING);
@@ -122,7 +122,6 @@
     }
 
     function render(next, quiet) {
-      if (!next) { recover(RAN_OUT); return; }
       attempt = next;
       byId('plex-signout-note').hidden = attempt.signed_out;
       if (attempt.state === 'failed') {
@@ -152,6 +151,7 @@
 
     /* Kept over every panel until the person dismisses it or links an account. */
     function showMoved(iso) {
+      movedAt = iso;
       byId('plex-moved').hidden = !iso;
       if (iso) byId('plex-moved-when').textContent = when(iso);
     }
@@ -230,11 +230,11 @@
       if (isBusy(button)) return;
       errorLine.textContent = '';
       busy(button, true);
-      MM.api.delete('/api/account/plex?notice=true').then(function () {
+      MM.api.delete('/api/account/plex/notice?moved_at=' + encodeURIComponent(movedAt)).then(function (data) {
         busy(button, false);
         var held = MM.dom.focusStillIn(holder);
-        showMoved(null);
-        if (held && MAIN[current]) byId(MAIN[current]).focus();
+        showMoved(data.moved_at);
+        if (held && !data.moved_at) (byId(MAIN[current]) || holder).focus();
       }, function (err) {
         busy(button, false);
         errorLine.textContent = MM.api.messageOf(err, 'Could not dismiss it. Try again.');

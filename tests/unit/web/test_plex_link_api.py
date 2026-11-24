@@ -116,6 +116,10 @@ def cancel(client, attempt: dict):
     return client.post("/api/account/plex/cancel", json={"attempt": attempt["id"]})
 
 
+def dismiss(client, moved_at: str):
+    return client.delete("/api/account/plex/notice", params={"moved_at": moved_at})
+
+
 def audit(conn) -> list[str]:
     rows = conn.execute("SELECT action, detail FROM audit_log WHERE action LIKE 'sec:plex%'")
     return [f"{r['action']} {r['detail']}" for r in rows]
@@ -174,6 +178,7 @@ def test_linking_needs_a_recent_password(client_for, plex):
         ("DELETE", "/api/account/plex"),
         ("POST", "/api/account/plex/check"),
         ("POST", "/api/account/plex/cancel"),
+        ("DELETE", "/api/account/plex/notice?moved_at=2026"),
         ("GET", "/api/users/plex-links"),
         ("DELETE", "/api/users/1/plex-link"),
     ],
@@ -361,7 +366,10 @@ def test_a_sign_in_runs_out_and_one_approved_too_late_is_signed_out_unused(
     clock.now += 600
     failed = check(amy)
     assert (failed["reason"], failed["signed_out"]) == ("expired", True)
-    assert check(amy) is None
+    gone = amy.post("/api/account/plex/check").json()
+    assert gone["attempt"] is None
+    assert gone["message"] == failed["message"]
+    assert "Authorized Devices" in gone["message"]
     assert plex.signed_out() == 1
     assert repository.get_link(conn, "amy") is None
     assert any("link_failed" in line and "expired" in line for line in audit(conn))
@@ -592,15 +600,32 @@ def test_the_person_whose_link_moved_is_told_when_and_not_by_whom_until_they_dis
     confirm(amy, check(amy), move=True)
     for _ in range(2):
         told = bob.get("/api/account/plex")
-        assert told.json()["moved_at"] is not None
         assert "amy" not in told.text.replace("amyplex", "")
+    moved_at = told.json()["moved_at"]
+    assert moved_at is not None
     assert amy.get("/api/account/plex").json()["moved_at"] is None
 
-    amy.delete("/api/account/plex?notice=true")
-    assert bob.get("/api/account/plex").json()["moved_at"] is not None
+    dismiss(amy, moved_at)
+    assert bob.get("/api/account/plex").json()["moved_at"] == moved_at
     assert repository.get_link(conn, "amy") is not None
-    assert bob.delete("/api/account/plex?notice=true").status_code == 200
+    assert dismiss(bob, moved_at).json()["moved_at"] is None
     assert bob.get("/api/account/plex").json()["moved_at"] is None
+
+
+def test_dismissing_an_old_notice_leaves_the_one_made_since(client_for, conn):
+    bob = client_for("bob")
+    conn.execute("INSERT INTO plex_link_moves VALUES ('bob', '2026-03-02T00:00:00+00:00')")
+    conn.commit()
+    answer = dismiss(bob, "2026-03-01T00:00:00+00:00")
+    assert answer.json()["moved_at"] == "2026-03-02T00:00:00+00:00"
+    assert bob.get("/api/account/plex").json()["moved_at"] == "2026-03-02T00:00:00+00:00"
+
+
+def test_dismissing_a_notice_never_unlinks(client_for, conn):
+    bob = client_for("bob")
+    linked(conn, "bob")
+    dismiss(bob, "2026-03-01T00:00:00+00:00")
+    assert repository.get_link(conn, "bob") is not None
 
 
 def test_taking_the_account_back_ends_the_notice_and_tells_the_other(client_for, plex, conn):

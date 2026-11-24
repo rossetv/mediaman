@@ -79,6 +79,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("DELETE", "/api/account/plex"),
         ("POST", "/api/account/plex/check"),
         ("POST", "/api/account/plex/cancel"),
+        ("DELETE", "/api/account/plex/notice"),
         ("POST", "/api/users/change-password"),
         ("PATCH", "/api/users/me/email"),
         ("GET", "/api/users/sessions"),

@@ -8,7 +8,7 @@ import sqlite3
 import time
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Cookie, Depends, Request
+from fastapi import APIRouter, Cookie, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -294,16 +294,16 @@ def api_check(
     session = hash_token(session_token or "")
     attempt = _attempts.get(session, username)
     if attempt is None:
-        return respond_ok({"attempt": None})
+        return respond_ok({"attempt": None, "message": _MESSAGES["expired"]})
     advance(attempt, may_poll=lambda: _SHARED_POLL_LIMITER.check(_EVERYONE))
     conn = get_db()
     view = _attempt_view(conn, attempt)
     if attempt.state == "failed":
         if not _attempts.drop(session, attempt):
-            return respond_ok({"attempt": None})
+            return respond_ok({"attempt": None, "message": _MESSAGES["expired"]})
         _audit_failure(conn, request, username, attempt.reason or "")
     elif _attempts.get(session, username) is not attempt:
-        return respond_ok({"attempt": None})
+        return respond_ok({"attempt": None, "message": _MESSAGES["expired"]})
     return respond_ok({"attempt": view})
 
 
@@ -322,17 +322,24 @@ def api_cancel(
 
 
 @router.delete("/api/account/plex")
-def api_unlink(
-    request: Request, notice: bool = False, username: str = Depends(get_current_user)
-) -> JSONResponse:
-    """Unlink; with ``notice`` only dismiss the word that the link went to someone else."""
+def api_unlink(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     if not _CHANGE_LIMITER.check(username):
         return _refuse("too_many_requests")
-    if notice:
-        repository.dismiss_move(get_db(), username)
-        return respond_ok()
     repository.unlink(get_db(), username, actor=username, ip=get_client_ip(request), reason="self")
     return respond_ok()
+
+
+@router.delete("/api/account/plex/notice")
+def api_dismiss_notice(
+    moved_at: str = Query(min_length=1, max_length=64),
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
+    """Dismiss the word that the link went to someone else, as it was shown."""
+    if not _CHANGE_LIMITER.check(username):
+        return _refuse("too_many_requests")
+    conn = get_db()
+    repository.dismiss_move(conn, username, moved_at)
+    return respond_ok({"moved_at": repository.moved_at(conn, username)})
 
 
 @router.get("/api/users/plex-links")

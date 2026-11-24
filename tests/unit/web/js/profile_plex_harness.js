@@ -166,14 +166,28 @@ const scenarios = {
     });
   },
   async moved() {
-    await load({ ...NONE, moved_at: '2026-03-01T12:00:00Z' });
+    await load({ ...NONE, moved_at: '2026-03-01T12:00:00+00:00' });
     const first = { shown: shown(), note: !at('plex-moved').hidden, when: at('plex-moved-when').textContent };
-    answers['DELETE /api/account/plex?notice=true'] = [{ error: 'network_error', status: 0, message: 'Unreachable.' }, {}];
+    const url = 'DELETE /api/account/plex/notice?moved_at=2026-03-01T12%3A00%3A00%2B00%3A00';
+    answers[url] = [
+      { error: 'network_error', status: 0, message: 'Unreachable.' },
+      { moved_at: '2026-03-02T12:00:00+00:00' },
+    ];
+    answers['DELETE /api/account/plex/notice?moved_at=2026-03-02T12%3A00%3A00%2B00%3A00'] = [{ moved_at: null }];
     at('plex-moved-dismiss').focus();
     await click('plex-moved-dismiss');
     const failed = { note: !at('plex-moved').hidden, error: at('plex-error').textContent };
     await click('plex-moved-dismiss');
-    return { first, failed, after: { note: !at('plex-moved').hidden, ...state() } };
+    const newer = at('plex-moved-when').textContent;
+    await click('plex-moved-dismiss');
+    return { first, failed, newer, after: { note: !at('plex-moved').hidden, ...state() } };
+  },
+  async movedUnset() {
+    await load({ ...NONE, configured: false, moved_at: '2026-03-01T12:00:00Z' });
+    answers['DELETE /api/account/plex/notice?moved_at=2026-03-01T12%3A00%3A00Z'] = [{ moved_at: null }];
+    at('plex-moved-dismiss').focus();
+    await click('plex-moved-dismiss');
+    return { note: !at('plex-moved').hidden, ...state() };
   },
   async lostWhileOpen() {
     await load({ configured: true, link: { ...LINK, reading: false }, attempt: null });
@@ -290,7 +304,7 @@ const scenarios = {
       { id: 'a1', state: 'failed', reason: 'not_on_server', message: 'No access here.', signed_out: true },
       null,
     ]) {
-      answers[CHECK] = [{ attempt }];
+      answers[CHECK] = [{ attempt, message: attempt ? undefined : 'It ran out; see Authorized Devices.' }];
       await click(out.length ? 'plex-retry' : 'plex-start');
       await tick();
       out.push({ ...state(), said: said.splice(0), text: at('plex-failed').textContent, note: !at('plex-signout-note').hidden });

@@ -103,9 +103,12 @@ def moved_at(conn: sqlite3.Connection, username: str) -> str | None:
     return None if row is None else str(row["moved_at"])
 
 
-def dismiss_move(conn: sqlite3.Connection, username: str) -> None:
+def dismiss_move(conn: sqlite3.Connection, username: str, seen: str) -> None:
+    """Dismiss the move that was shown as made at *seen*, not one made since."""
     with conn:
-        conn.execute("DELETE FROM plex_link_moves WHERE username = ?", (username,))
+        conn.execute(
+            "DELETE FROM plex_link_moves WHERE username = ? AND moved_at = ?", (username, seen)
+        )
 
 
 def linked_users(conn: sqlite3.Connection) -> list[dict[str, object]]:

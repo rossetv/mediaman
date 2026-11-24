@@ -61,6 +61,7 @@ _VIEWER_MAY_REACH = {
     ("DELETE", "/api/account/plex"),
     ("POST", "/api/account/plex/check"),
     ("POST", "/api/account/plex/cancel"),
+    ("DELETE", "/api/account/plex/notice"),
     ("POST", "/api/users/change-password"),
     ("PATCH", "/api/users/me/email"),
     ("GET", "/api/users/sessions"),
