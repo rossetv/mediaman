@@ -1490,7 +1490,7 @@
 
   els.fullscreen.addEventListener('click', toggleFullscreen);
   video.addEventListener('dblclick', function () {
-    if (lastPointer === 'mouse') toggleFullscreen();
+    if (lastPointer === 'mouse' && !startedElsewhere) toggleFullscreen();
   });
   document.addEventListener('fullscreenchange', showFullscreen);
   document.addEventListener('webkitfullscreenchange', showFullscreen);
@@ -1536,8 +1536,13 @@
   /* A click on the picture plays or pauses; a tap shows or hides the controls.
      With a menu open either only closes it; at the end of the video neither
      starts it over, and neither tries again after an error: only Play and
-     Space do. The second click of a double one only undoes the first. */
+     Space do. The second click of a double one only undoes the first, and does
+     nothing where the first was on a button that has gone since. */
   var clickToggled = false;
+  var startedElsewhere = false;
+  document.addEventListener('mousedown', function (e) {
+    if (!(e.detail > 1)) startedElsewhere = e.target !== video;
+  }, true);
   video.addEventListener('click', function (e) {
     var undoes = clickToggled;
     clickToggled = false;
@@ -1548,7 +1553,7 @@
       hideUpnext();
       showControls();
     } else if (lastPointer === 'mouse') {
-      if (els.message.hidden && (undoes || !(e.detail > 1))) {
+      if (els.message.hidden && !startedElsewhere && (undoes || !(e.detail > 1))) {
         togglePlay();
         clickToggled = true;
       }
@@ -1563,7 +1568,14 @@
 
   /* ---- keyboard ------------------------------------------------------- */
 
+  var heldOn;                // where the key now held down went down
   document.addEventListener('keydown', function (e) {
+    if (!e.repeat) {
+      heldOn = e.target;
+    } else if (e.key === 'Enter' && (e.target !== heldOn || e.target === els.play)) {
+      e.preventDefault();
+      return;
+    }
     if (els.ask && els.ask.open) return;
     showControls();
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1590,7 +1602,7 @@
         e.target.blur();
       }
       e.preventDefault();
-      togglePlay();
+      if (!e.repeat) togglePlay();
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       if (tag === 'INPUT' || menuOpen()) return;
       e.preventDefault();
@@ -1683,6 +1695,7 @@
     switching = true;
     swapping = true;
     wantPlaying = true;
+    clickToggled = false;
     hideUpnext();
     hideMessage();
     holdFrame();

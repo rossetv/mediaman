@@ -823,6 +823,30 @@ def test_a_jump_is_a_sign_of_somebody_and_a_nudge_is_not(markup, seconds, asked)
     assert run(markup, "ask_restarted", plays=seconds) == {"asked": asked}
 
 
+def test_the_second_press_of_a_double_one_on_the_card_does_nothing_to_the_next_episode(
+    markup, season
+):
+    out = run(markup, "next_pressed_twice", pages=season)
+    assert out["double"] == {"plays": True, "fullscreens": 0}
+    assert (out["doublePaused"], out["own"], out["across"]) == (False, 1, True)
+
+
+def test_a_key_held_on_continue_does_not_pause_the_next_episode(markup, season):
+    out = run(markup, "next_pressed_twice", pages=season)
+    assert (out["asked"], out["focus"], out["held"]) == (True, True, True)
+    # A press of its own still pauses, and a held Space does so once.
+    assert (out["enter"], out["space"]) == (False, False)
+
+
+def test_a_held_enter_goes_on_skipping_but_plays_or_pauses_once_and_presses_nothing_else(markup):
+    assert run(markup, "key_held") == {
+        "skipped": 20,
+        "paused": True,
+        "back": True,
+        "muted": False,
+    }
+
+
 @pytest.mark.parametrize(("goes_on", "asked"), [(True, True), (False, False)])
 def test_only_a_page_opened_by_itself_carries_the_count_on(markup, goes_on, asked):
     held = json.dumps({"count": 3, "lastActivity": 0, "goes_on": goes_on})

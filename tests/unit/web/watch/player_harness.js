@@ -157,8 +157,8 @@ class Canvas extends Element {
 
 class Dialog extends Element {
   get open() { return 'open' in this.attrs; }
-  showModal() { this.attrs.open = ''; this.querySelector('button').focus(); }
-  close() { delete this.attrs.open; doc.activeElement = doc.body; }
+  showModal() { this.before = doc.activeElement; this.attrs.open = ''; this.querySelector('button').focus(); }
+  close() { delete this.attrs.open; doc.activeElement = this.before || doc.body; }
 }
 
 function make(tag, attrs) {
@@ -208,6 +208,7 @@ function click(el) { fire(el, 'click', { bubbles: true, button: 0 }); }
 function press(el, pointerType, count) {
   doc.lastInput = 'pointer';
   fire(el, 'pointerdown', { bubbles: true, button: 0, pointerType: pointerType || 'mouse', pointerId: 1, clientX: 0 });
+  fire(el, 'mousedown', { bubbles: true, button: 0, detail: count || 1 });
   if (/^(BUTTON|A|INPUT)$/.test(el.tagName)) el.focus();
   else doc.activeElement = doc.body;
   fire(el, 'click', { bubbles: true, button: 0, detail: count || 1 });
@@ -219,13 +220,14 @@ function doubleClick(el) {
   fire(el, 'dblclick', { bubbles: true });
 }
 
-/* A key, sent to what has the focus; Space and Enter press a button, unless the page says no. */
-function key(k) {
+/* A key, sent to what has the focus; Space and Enter press a button, unless the page says no.
+   A key held down `repeat`s; Space presses a button once, as it is let go. */
+function key(k, repeat) {
   doc.lastInput = 'key';
   const target = doc.activeElement;
   let prevented = false;
-  fire(target, 'keydown', { bubbles: true, key: k, preventDefault() { prevented = true; } });
-  const presses = k === 'Enter' || k === ' ';
+  fire(target, 'keydown', { bubbles: true, key: k, repeat: !!repeat, preventDefault() { prevented = true; } });
+  const presses = k === 'Enter' || (k === ' ' && !repeat);
   if (presses && !prevented && target.tagName === 'BUTTON' && doc.activeElement === target) click(target);
 }
 
@@ -1737,6 +1739,82 @@ const scenarios = {
     fire(p.video, 'seeking');
     fire(p.video, 'playing');
     return { at: at, asked: asks() };
+  },
+
+  /* The second press of a double one, or the repeats of a held key, land on what the first left there. */
+  async next_pressed_twice(p) {
+    let fullscreens = 0;
+    p.root.requestFullscreen = () => { fullscreens++; return Promise.resolve(); };
+    const out = {};
+    const wants = () => playState(p).busy === 'true';
+    const taken = async () => {
+      p.replies.push(answer('1080p-8000'));
+      await settle();
+      await streamPlays(p, 0);
+      return p.video.paused;
+    };
+    await streamPlays(p, 0);
+    /* The last press on the picture, long ago, paused. */
+    press(p.video);
+    endsNow(p);
+    press(p.q('[data-upnext-play]'), 'mouse', 1);
+    p.video.ended = false;
+    press(p.video, 'mouse', 2);
+    fire(p.video, 'dblclick', { bubbles: true });
+    out.double = { plays: wants(), fullscreens: fullscreens };
+    out.doublePaused = await taken();
+    doubleClick(p.video);
+    out.own = fullscreens;
+    p.video.paused = false;
+    /* A press on the picture and one that comes after the next episode was asked for. */
+    press(p.video, 'mouse', 1);
+    click(p.q('[data-next-btn]'));
+    press(p.video, 'mouse', 2);
+    out.across = wants();
+    await taken();
+    p.sleep(7200000);
+    tabTo(p.q('[data-play]'));
+    p.sleep(7200000);
+    endsNow(p);
+    p.sleep(11000);
+    p.tick(250);
+    out.asked = p.q('[data-ask]').open;
+    /* The browser presses Continue as Enter goes down, and gives Play the focus back. */
+    key('Enter');
+    out.focus = doc.activeElement === p.q('[data-play]');
+    key('Enter', true);
+    out.held = wants();
+    key('Enter');
+    out.enter = wants();
+    key('Enter');
+    doc.activeElement = doc.body;
+    key(' ');
+    key(' ', true);
+    out.space = wants();
+    return out;
+  },
+
+  /* Enter held on a control, on Play, and on Continue with the focus then back on Mute. */
+  async key_held(p) {
+    await streamPlays(p, 0);
+    const seek = p.video.currentTime;
+    tabTo(p.q('[data-fwd10]'));
+    key('Enter');
+    key('Enter', true);
+    const skipped = p.video.currentTime - seek;
+    tabTo(p.q('[data-play]'));
+    key('Enter');
+    key('Enter', true);
+    const paused = p.video.paused;
+    tabTo(p.q('[data-mute]'));
+    p.sleep(7200000);
+    endsNow(p);
+    p.sleep(11000);
+    p.tick(250);
+    key('Enter');
+    const back = doc.activeElement === p.q('[data-mute]');
+    key('Enter', true);
+    return { skipped: skipped, paused: paused, back: back, muted: p.video.muted };
   },
 
   /* The episode ends; is the question there? */
