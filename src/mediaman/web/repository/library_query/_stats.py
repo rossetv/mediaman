@@ -178,7 +178,7 @@ def count_deletions_due(conn: sqlite3.Connection, *, now: str, until: str) -> in
 
 
 def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return counts, sizes, the stale count and the deletions due soon for the library page.
+    """Return counts, sizes, the stale count and the deletions due soon for the Watch list.
 
     TV/anime totals group like fetch_library's display_items CTE, by
     COALESCE(show_rating_key, show_title). COUNT(DISTINCT NULL) counts 0 while the CTE's

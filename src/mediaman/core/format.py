@@ -49,7 +49,7 @@ def title_from_audit_detail(detail: str | None, *, strict: bool = False) -> str:
     Returns ``"Unknown"`` only when *detail* is empty. When *detail* is
     non-empty but does not match either pattern, the (length-capped) input
     is echoed back unchanged — a best-effort title is more useful to the
-    dashboard/newsletter than a generic placeholder for a row that simply
+    storage panel and newsletter than a generic placeholder for a row that simply
     used an unrecognised wording.
 
     ``"Not deleted: A \u2014 B \u2014 reason"`` yields ``"A"``: the text is ambiguous, so the

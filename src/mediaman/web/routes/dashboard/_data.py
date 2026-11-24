@@ -46,7 +46,7 @@ from mediaman.web.repository.dashboard import (
 from mediaman.web.repository.library_query import count_titles, title_ref
 from mediaman.web.repository.watch_library import pending_deletions, scanned_library_ids
 
-# Bounded scan size so the dashboard render doesn't degenerate into a
+# Bounded scan size so the Deleted tab doesn't degenerate into a
 # long table walk on a heavy audit_log. 5 batches × 50 rows = 250
 # candidates is enough headroom for any realistic mix of re-downloaded
 # and orphan-titled deletions.
@@ -54,7 +54,7 @@ _RECENT_DELETED_BATCH = 50
 _RECENT_DELETED_MAX_BATCHES = 5
 
 # Cache window for the disk-usage stat. statvfs() is cheap but a busy
-# dashboard on a slow filesystem could still spend tens of milliseconds
+# page on a slow filesystem could still spend tens of milliseconds
 # per render hitting it; 30s is well below the granularity at which a
 # user notices stale "free space" numbers.
 _DISK_USAGE_CACHE_TTL_SECONDS = 30.0
@@ -415,7 +415,7 @@ def _fetch_disks(conn: sqlite3.Connection) -> list[dict[str, object]]:
 
 
 def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return storage stats for the dashboard template. Disk usage spans every configured
+    """Return storage stats for the storage panel. Disk usage spans every configured
     library drive; falls back to the media root when none can be read, and to zeroes on a
     filesystem error. ``readable`` is False for a fallback from drives that are set.
     """

@@ -55,7 +55,7 @@ def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str
     ).fetchall()
     redownload_times: dict[str, str] = {}
     for rd in redownload_rows:
-        # Lower-cased like the dashboard, so a title matches whatever its case.
+        # Lower-cased like the storage panel, so a title matches whatever its case.
         key = str(rd["media_item_id"]).lower()
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]

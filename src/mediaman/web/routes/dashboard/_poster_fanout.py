@@ -12,7 +12,7 @@ from mediaman.services.infra import SafeHTTPError
 logger = logging.getLogger(__name__)
 
 
-#: TMDB poster image base URL — w200 thumbnail size used for dashboard tiles.
+#: TMDB poster image base URL — w200 thumbnail size used for the storage panel.
 #: Callers elsewhere that use w300 keep their own URL deliberately distinct.
 _TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 

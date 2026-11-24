@@ -118,7 +118,7 @@ class TitleFacts:
     show_keep: Keep | None  # a show keep in force
 
 
-# Matches the Dashboard's recently-deleted window (5 batches of 50).
+# Matches the storage panel's recently-deleted window (5 batches of 50).
 _DELETED_POSTER_WINDOW = 250
 
 
@@ -491,7 +491,7 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
 
     True for the key of a movie or season in the scanned libraries, or of
     the show such a season belongs to, and for an item the audit log records
-    as deleted (the Dashboard still shows those, from the poster cache).
+    as deleted (the storage panel still shows those, from the poster cache).
     """
     lib_sql, params = _in_libraries(libraries)
     # rationale: only the fixed library filter and "?" placeholders are interpolated
@@ -503,7 +503,7 @@ def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: s
     if row is not None:
         return True
     # The audit row keeps the rating key only inside its detail text, so look at the newest
-    # deleted rows (the window the Dashboard shows) rather than every audit row.
+    # deleted rows (the window the storage panel shows) rather than every audit row.
     row = conn.execute(
         "SELECT 1 FROM audit_log WHERE action = 'deleted' AND media_item_id = ? LIMIT 1",
         (key,),

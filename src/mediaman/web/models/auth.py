@@ -2,7 +2,7 @@
 
 ``LoginRequest`` is the credentials payload accepted by the login
 route; ``KeepRequest`` is the snooze-or-keep submission body used by
-the digest links and the kept page.
+the digest links and the keep page.
 """
 
 from __future__ import annotations

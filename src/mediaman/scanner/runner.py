@@ -415,7 +415,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
 
     A lightweight operation that updates media_items from Plex. No
     eligibility checks, no deletions, no newsletter. Designed to run
-    frequently (every N minutes) to keep the Library page current.
+    frequently (every N minutes) to keep the library current.
     """
     from mediaman.scanner.engine import ScanEngine
 

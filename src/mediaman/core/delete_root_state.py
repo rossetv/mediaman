@@ -1,6 +1,6 @@
 """Which delete roots the last deletion pass found unavailable.
 
-Stored as one ``settings`` row so the dashboard can show a banner without
+Stored as one ``settings`` row so Watch can show a notice without
 probing a mount itself. Only the deletion pass writes it. Nothing here
 commits: the caller owns the transaction.
 """

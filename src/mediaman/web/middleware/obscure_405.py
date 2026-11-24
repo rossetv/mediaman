@@ -20,7 +20,7 @@ class Obscure405Middleware(BaseHTTPMiddleware):
     surface is not readable pre-auth.
 
     We deliberately scope this to ``/api/*`` only.  HTML pages at
-    ``/login``, ``/dashboard``, ``/force-password-change`` etc. can
+    ``/login``, ``/watch``, ``/force-password-change`` etc. can
     legitimately return 405 (form misposted with the wrong verb) and
     UX callers / browsers expect that shape — converting to 401 there
     would either trigger a credential prompt or hide a genuine

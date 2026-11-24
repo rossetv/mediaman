@@ -261,7 +261,7 @@
 
 .u-mt-24 { margin-top: 24px; }
 
-/* Phone: 44px tap area on the brand and dashboard links. */
+/* Phone: 44px tap area on the brand and the links back. */
 @media (max-width: 699.98px) {
   .dl-nav .nav-brand,
   .dl-footer a,

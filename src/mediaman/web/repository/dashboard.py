@@ -115,8 +115,8 @@ def fetch_scheduled_deletions(
 def fetch_redownload_audit_rows(conn: sqlite3.Connection) -> list[RedownloadAuditRow]:
     """Return recent audit_log entries for ``re_downloaded`` and ``downloaded`` actions.
 
-    Bounded to the last `_REDOWNLOAD_WINDOW_DAYS` days so the dashboard
-    render does not load an ever-growing audit_log into memory. ``created_at``
+    Bounded to the last `_REDOWNLOAD_WINDOW_DAYS` days so the storage
+    panel does not load an ever-growing audit_log into memory. ``created_at``
     is stored as ISO-8601 UTC, so the lexicographic ``>`` comparison is a
     correct chronological cutoff.
     """
