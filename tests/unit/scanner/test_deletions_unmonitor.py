@@ -597,6 +597,82 @@ def test_the_titles_given_no_answer_are_asked_about_last_the_next_time(conn, roo
     assert _asked(radarr) == [3, 4, 1, 2]
 
 
+def _pass_days(monkeypatch, days):
+    later = now_utc() + timedelta(days=days)
+    monkeypatch.setattr(deletions, "now_utc", lambda: later)
+
+
+def _marks(conn):
+    return conn.execute("SELECT COUNT(*) FROM pending_unmonitors").fetchone()[0]
+
+
+@pytest.mark.parametrize(("days", "unmonitored", "skips"), [(6, [1], []), (8, [], ["m1"])])
+def test_a_title_is_left_as_it_is_once_radarr_was_out_of_reach_for_a_week(
+    conn, root, monkeypatch, days, unmonitored, skips
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _pass_days(monkeypatch, days)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == unmonitored
+    assert _marks(conn) == 0
+    assert _skips(conn) == skips
+
+
+def test_a_mark_whose_lookup_always_fails_goes_after_a_week_with_one_audit(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    log_audit(conn, "tmdb:601", "re_downloaded", "again")
+    conn.commit()
+    radarr = _radarr_stuck_on(root, 1, failure=ValueError("not json"))
+    _sync(conn, monkeypatch, radarr)
+    assert _marks(conn) == 1
+    _pass_days(monkeypatch, 8)
+
+    for _ in range(2):
+        _sync(conn, monkeypatch, radarr)
+
+    assert _marks(conn) == 0
+    assert _skips(conn) == ["m1"]
+
+
+def test_a_radarr_whose_key_cannot_be_read_for_a_week_has_its_marks_dropped(
+    conn, root, monkeypatch
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _pass_days(monkeypatch, 8)
+    monkeypatch.setattr(runner, "_build_plex_client", lambda *a: None)
+    monkeypatch.setattr(
+        runner,
+        "_build_radarr",
+        MagicMock(side_effect=ConfigDecryptError("radarr_api_key", ValueError())),
+    )
+
+    runner.run_library_sync(conn, "secret")
+
+    assert _marks(conn) == 0
+    assert _skips(conn) == ["m1"]
+
+
+def test_a_rescan_not_asked_for_within_a_week_is_given_up_with_one_audit(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    radarr = _radarr(root)
+    radarr.rescan_movie.side_effect = _SLOW
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+    _pass_days(monkeypatch, 8)
+
+    for _ in range(2):
+        _sync(conn, monkeypatch, radarr)
+
+    assert _rescanned(radarr) == [1]
+    assert _marks(conn) == 0
+    assert _skips(conn) == ["m1"]
+
+
 def test_a_radarr_that_refuses_the_unmonitor_is_not_asked_again(conn, root):
     _due(conn, root, 1)
     refusing = _radarr(root)

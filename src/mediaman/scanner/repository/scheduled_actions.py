@@ -55,6 +55,7 @@ __all__ = [
     "DELETION_ACTION",
     "ClearedDeletions",
     "DeletionRow",
+    "OldMark",
     "await_rescan",
     "book_deletion",
     "book_removed_files",
@@ -71,6 +72,7 @@ __all__ = [
     "fetch_deletion",
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
+    "fetch_old_marks",
     "fetch_pending_deletions",
     "fetch_pending_rescans",
     "fetch_pending_unmonitors",
@@ -726,6 +728,24 @@ def mark_unanswered(conn: sqlite3.Connection, audit_id: int) -> None:
         "WHERE audit_id = ? AND json_valid(removed_files)",
         (now_iso(), audit_id),
     )
+
+
+class OldMark(NamedTuple):
+    """A mark left too long: its booked deletion, and whether it waited for a rescan only."""
+
+    row: DeletionRow
+    rescan: bool
+
+
+def fetch_old_marks(conn: sqlite3.Connection, booked_before: str) -> list[OldMark]:
+    """Return each mark of a deletion booked before *booked_before*; a row's ``id`` is its audit's."""
+    # rationale: the interpolated fragments are fixed strings; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_MARK_COLUMNS}, {_RESCAN_ID} IS NOT NULL AS rescan {_MARKS} "
+        "WHERE a.created_at < ? ORDER BY p.audit_id",
+        (booked_before,),
+    ).fetchall()
+    return [OldMark(_row_to_deletion_row(row), bool(row["rescan"])) for row in rows]
 
 
 def finish_unmonitor(conn: sqlite3.Connection, audit_id: int) -> bool:

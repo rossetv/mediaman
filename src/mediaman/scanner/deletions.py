@@ -23,6 +23,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
@@ -44,6 +45,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletions_under,
     fetch_deletion,
     fetch_media_held_outside_pass,
+    fetch_old_marks,
     fetch_pending_rescans,
     fetch_pending_unmonitors,
     fetch_tracked_paths_in_folders,
@@ -436,6 +438,8 @@ def _is_down(exc: Exception) -> bool:
 
 # The time one pass may spend waiting for answers a service does not give.
 _MAX_WAIT_SECONDS = 120.0
+# A mark left longer is dropped: the title may have been added back in Radarr/Sonarr since.
+_MARK_MAX_AGE = timedelta(days=7)
 
 
 @dataclass
@@ -715,6 +719,33 @@ def _tell(
     return _Told(rescan_id=outcome) if isinstance(outcome, int) else _Told(note=outcome)
 
 
+def _drop_old_marks(
+    conn: sqlite3.Connection,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+    turn: ArrTurn,
+) -> None:
+    """Drop, auditing each, the marks older than _MARK_MAX_AGE of a service that is set up."""
+    for row, rescan in fetch_old_marks(conn, (now_utc() - _MARK_MAX_AGE).isoformat()):
+        service = _service(row)
+        client = radarr_client if row.media_type == "movie" else sonarr_client
+        if client is None and service not in turn.unusable:
+            continue
+        waited = f"within {_MARK_MAX_AGE.days} days of its deletion"
+        note = (
+            f"Not rescanned in {service}: {row.title} — {service} could not be asked to {waited}; "
+            "it may still list the deleted files"
+            if rescan
+            else f"Left monitored in {service}: {row.title} — {service} could not be told "
+            f"{waited}, so it may download it again"
+        )
+        logger.warning("engine.delete.mark_dropped media_id=%s — %s", row.media_item_id, note)
+        with conn:
+            if finish_unmonitor(conn, row.id):
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", note)
+
+
 def unmonitor_deleted(
     conn: sqlite3.Connection,
     *,
@@ -737,6 +768,7 @@ def unmonitor_deleted(
     that came back meanwhile is left monitored; one asked for again is only
     rescanned, as Radarr/Sonarr would not fetch files it still lists.
     """
+    _drop_old_marks(conn, radarr_client=radarr_client, sonarr_client=sonarr_client, turn=turn)
     for row in fetch_pending_unmonitors(conn):
         if row.id in turn.unanswered:
             continue
