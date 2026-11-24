@@ -1031,6 +1031,20 @@ const scenarios = {
     await h.pass(1000);
     return h.text('.pv__first');
   },
+  /* Many titles rested on: the first is asked about again, the latest is still held. */
+  async many() {
+    const api = {};
+    for (let i = 0; i < 120; i++) api['movie-' + (100 + i)] = FILM;
+    const h = load({ api });
+    const row = h.doc.querySelector('.watch-row__scroll');
+    const visit = async (i) => { if (!h.doc.querySelector('#m' + i)) row.appendChild(build(h.doc, card('m' + i, 'M' + i, { ref: 'movie-' + (100 + i) }))); await h.rest('m' + i, 450); h.away(); await h.pass(400); };
+    for (let i = 0; i < 120; i++) await visit(i);
+    const asked = h.gets.length;
+    await visit(119);
+    const latest = h.gets.length - asked;
+    await visit(0);
+    return { asked, latest, first: h.gets.length - asked - latest };
+  },
   /* A trailer that keeps changing state takes longer than one that is silent. */
   async trailerBuffers() {
     const h = await trailer();

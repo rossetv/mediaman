@@ -38,6 +38,7 @@
   var HOLD_MS = 1500;       // how long the detail keeps the preview's picture, at most
   var FAILED_FOR_MS = 60000;
   var KEPT_FOR_MS = 300000; // what a title says of its progress and download goes stale
+  var HELD = 100;           // titles remembered
   var SLACK_MS = 60;        // past a motion's own length, for one a busy page starts late
 
   var live = null;     // the preview open
@@ -51,13 +52,20 @@
   var pos = null;      // where the mouse was last, unless the view has changed since
   var trail = [];
   var flight = null;   // the one request on its way: { ref, ctrl, promise }
-  var kept = {};       // replies by ref: { data, at }
-  var keptBy = {};     // the title each keep id met in a reply is of
-  var failedAt = {};
+  var kept = new Map();   // replies by ref: { data, at }
+  var keptBy = new Map(); // the title each keep id met in a reply is of
+  var failedAt = new Map();
   var refusedAt = 0;   // the server asked for a pause
-  var badTrailers = {};
+  var badTrailers = new Map();
 
   function now() { return performance.now(); }
+
+  /* A page may be open for days: the latest of each are enough. */
+  function hold(map, key, value) {
+    map.delete(key);
+    map.set(key, value);
+    if (map.size > HELD) map.delete(map.keys().next().value);
+  }
 
   function mouse() { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; }
 
@@ -121,9 +129,9 @@
   function drop(error) { return Promise.reject(error || new Error('not asked')); }
 
   function ask(ref) {
-    var had = kept[ref];
+    var had = kept.get(ref);
     if (had && Date.now() - had.at < KEPT_FOR_MS) return Promise.resolve(had.data);
-    var since = Math.max(failedAt[ref] || 0, refusedAt);
+    var since = Math.max(failedAt.get(ref) || 0, refusedAt);
     if (since && Date.now() - since < FAILED_FOR_MS) return drop();
     if (flight && flight.ref === ref) return flight.promise;
     forget();
@@ -132,14 +140,14 @@
     f.promise = MM.api.get('/api/watch/preview/' + encodeURIComponent(ref), { signal: f.ctrl.signal }).then(function (data) {
       if (flight !== f) return drop();
       flight = null;
-      (data.leaving_seasons || []).concat(data.leaving || []).forEach(function (l) { keptBy[l.keep_id] = data.library_ref; });
+      (data.leaving_seasons || []).concat(data.leaving || []).forEach(function (l) { hold(keptBy, String(l.keep_id), data.library_ref); });
       if (f.stale) return ask(ref);
-      kept[ref] = { data: data, at: Date.now() };
+      hold(kept, ref, { data: data, at: Date.now() });
       return data;
     }, function (err) {
       if (flight === f) {
         flight = null;
-        failedAt[ref] = Date.now();
+        hold(failedAt, ref, Date.now());
         if (err && err.status === 429) refusedAt = Date.now();
       }
       throw err;
@@ -156,8 +164,8 @@
   }
 
   function unkeep(ref) {
-    Object.keys(kept).forEach(function (key) {
-      if (key === ref || kept[key].data.library_ref === ref) delete kept[key];
+    kept.forEach(function (had, key) {
+      if (key === ref || had.data.library_ref === ref) kept.delete(key);
     });
   }
 
@@ -165,7 +173,7 @@
      Returns the preview open of it that is to say it again. */
   function outOfDate(ref) {
     if (ref) unkeep(ref);
-    else kept = {};
+    else kept.clear();
     if (flight) flight.stale = true;
     var p = live;
     if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return null;
@@ -176,7 +184,7 @@
 
   /* A Keep or an Undo has finished: it offers none until it is known again what leaves. */
   function keptOrUndone(id) {
-    var p = outOfDate(keptBy[id]);
+    var p = outOfDate(keptBy.get(String(id)));
     if (!p) return;
     sayAgain(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
     ask(askedOf(p.link)).then(function (data) {
@@ -1000,7 +1008,7 @@
   function planTrailer(p) {
     clearTimeout(p.trailerTimer);
     var saving = window.navigator.connection && window.navigator.connection.saveData;
-    if (!p.data || !trailerKey(p.data) || !trailersOn() || badTrailers[p.card.ref] || core.reduceMotion() || saving) return;
+    if (!p.data || !trailerKey(p.data) || !trailersOn() || badTrailers.has(p.card.ref) || core.reduceMotion() || saving) return;
     p.trailerTimer = setTimeout(function () { if (live === p) startTrailer(p); }, TRAILER_AFTER_MS);
   }
 
@@ -1052,7 +1060,7 @@
 
   /* It cannot play here, so it is not tried again by itself. */
   function badTrailer(p) {
-    badTrailers[p.card.ref] = true;
+    hold(badTrailers, p.card.ref, true);
     stopTrailer(p);
   }
 
