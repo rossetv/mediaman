@@ -174,3 +174,29 @@ def test_a_title_monitored_before_a_failed_search_stays_monitored(app_factory, a
         _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
     assert radarr.entry["monitored"] is True
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
+
+
+def test_a_failed_re_download_still_drops_the_emailed_pages_arr_lists(
+    app_factory, authed_client, conn, monkeypatch
+):
+    from mediaman.web.routes.download import confirm
+
+    monkeypatch.setitem(confirm._RADARR_CACHE, "held", (0.0, MagicMock()))
+    monkeypatch.setitem(confirm._SONARR_CACHE, "held", (0.0, MagicMock()))
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = {"id": 7}
+    radarr.remonitor_movie.side_effect = _err(500)
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.return_value = {"id": 3}
+    sonarr.remonitor_season.side_effect = _err(500)
+    client = _client(app_factory, authed_client, conn)
+
+    with patch(RADARR, return_value=radarr):
+        _post(client, {"title": "Dune", "tmdb_id": 42})
+    assert confirm._RADARR_CACHE == {} and confirm._SONARR_CACHE == {}
+
+    monkeypatch.setitem(confirm._RADARR_CACHE, "held", (0.0, MagicMock()))
+    monkeypatch.setitem(confirm._SONARR_CACHE, "held", (0.0, MagicMock()))
+    with patch(SONARR, return_value=sonarr):
+        _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 1})
+    assert confirm._RADARR_CACHE == {} and confirm._SONARR_CACHE == {}

@@ -78,6 +78,35 @@ class TestAbandonEndpoint:
         assert body["ok"] is True
         assert body["abandoned"]["kind"] == "movie"
 
+    def test_a_failed_abandon_still_drops_the_emailed_pages_arr_lists(
+        self, db_path, secret_key, monkeypatch
+    ):
+        from mediaman.services.downloads.abandon import AbandonResult
+        from mediaman.web.routes.download import confirm
+
+        monkeypatch.setitem(confirm._RADARR_CACHE, "held", (0.0, MagicMock()))
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.abandon_movie",
+            lambda conn, sk, *, arr_id, dl_id: AbandonResult(
+                kind="movie", failed=[arr_id], dl_id=dl_id
+            ),
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.build_downloads_response",
+            lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+        )
+
+        resp = self._make_client(db_path, secret_key).post(
+            "/api/downloads/radarr%3ATenet/abandon", json={}
+        )
+
+        assert resp.status_code == 502
+        assert confirm._RADARR_CACHE == {}
+
     def test_series_happy_path(self, db_path, secret_key, monkeypatch):
         """POST with seasons on a series item → 200, abandon_seasons called with correct numbers."""
         called = {}

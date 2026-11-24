@@ -20,6 +20,7 @@ from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.routes.download import drop_arr_cache
 
 router = APIRouter()
 
@@ -141,6 +142,9 @@ def downloads_abandon(
             dl_id=dl_id,
         )
 
+    # The emailed page must not offer again what was just unmonitored; a failed abandon may
+    # have changed the Arr too.
+    drop_arr_cache()
     refreshed = build_downloads_response(conn, secret_key)
     return JSONResponse(
         {
