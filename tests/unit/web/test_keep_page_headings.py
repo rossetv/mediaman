@@ -142,6 +142,12 @@ class TestKeepPageMessages:
         assert "Added 2 March 2019" in text
         assert not re.search(r">\s*2019\s*<", text)
 
+    def test_a_long_word_wraps_inside_the_card(self):
+        css = (_TEMPLATE_DIR.parent / "static/css/_keep.css").read_text(encoding="utf-8")
+
+        rule = re.search(r"\.keep-container \{([^}]*)\}", css)
+        assert rule and "overflow-wrap: anywhere" in rule[1]
+
     def test_rate_limited_get_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_GET_LIMITER
 

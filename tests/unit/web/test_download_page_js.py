@@ -122,3 +122,9 @@ def test_the_answer_shows_where_the_button_is_and_is_read_out() -> None:
     button, footer = html.index('id="btn-download"'), html.index('class="dl-footer"')
 
     assert button < html.index('id="download-result" class="dl-result" role="alert"') < footer
+
+
+def test_a_long_word_wraps_on_the_page_and_on_its_card() -> None:
+    css = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_download_page.css"
+
+    assert ".dl-content,\n#dl-hero-wrapper { overflow-wrap: anywhere; }" in css.read_text()

@@ -97,6 +97,8 @@
   letter-spacing: -.01em;
 }
 
+.dl-content,
+#dl-hero-wrapper { overflow-wrap: anywhere; }
 .dl-content {
   width: min(720px, 92vw);
   margin: 32px auto 0;
