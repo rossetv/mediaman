@@ -670,15 +670,25 @@ const scenarios = {
       items: [
         { ...TM, ref: 'tmdb-movie-1', title: 'One', download_state: 'downloading', download_pct: 95 },
         { ...TM, ref: 'tmdb-movie-2', title: 'Two', download_state: 'downloading' },
-        { ...TM, ref: 'tmdb-movie-3', title: 'Three', download_state: 'partial' },
       ],
     });
     const badges = p.doc.querySelectorAll('.watch-badge--state');
     return {
-      classes: badges.map((b) => b.className),
       texts: badges.map((b) => b.textContent),
       said: badges.map((b) => b.querySelectorAll('.sr-only').map((n) => n.textContent)),
     };
+  },
+
+  // What Radarr has, or Sonarr has some of, has nothing to download, also before Plex has it.
+  async heldByArr() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [], total: 0 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: ['in_library', 'partial', null].map((state, i) => (
+      { ...TM, ref: 'tmdb-movie-' + i, title: String(state), in_library: false, library_ref: null, download_state: state })) });
+    const badge = (item) => p.ctx.MMWatch.search.tmdbCard({ ...TM, ...item }).querySelector('.watch-badge--in');
+    return { heads: p.heads(), titles: p.titles('.watch-card'), counts: p.doc.querySelectorAll('.results-group__count').map((n) => n.textContent),
+      badge: badge({ download_state: 'partial' }).textContent };
   },
 
   // A poster both searches found is the same node before and after, so it never blinks; one whose state changed is drawn anew.

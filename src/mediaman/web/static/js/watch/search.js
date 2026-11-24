@@ -175,6 +175,9 @@
     return card;
   }
 
+  /* Whether there is nothing to download of it, though Plex may not have it yet. */
+  function isHeld(item) { return !!item.in_library || /^(in_library|partial)$/.test(item.download_state || ''); }
+
   function kindLine(item) {
     return (item.kind === 'show' ? 'TV' : 'Movie') + (item.year ? ' · ' + item.year : '');
   }
@@ -1199,7 +1202,7 @@
           var key = item.library_ref || item.ref;
           if (seen.has(key) || seen.has(item.ref)) return;
           seen.add(key).add(item.ref);
-          if (item.in_library) {
+          if (isHeld(item)) {
             lib.push({ item: item, key: key, build: buildHeldCard });
             // One that matches by name too is among those found and not shown.
             if (folded(item.title).indexOf(folded(c.q)) === -1) total++;

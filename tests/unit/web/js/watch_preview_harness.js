@@ -1065,6 +1065,18 @@ const scenarios = {
     await h.pass(1000);
     return h.text('.pv__first');
   },
+  /* Radarr or Sonarr has files of it, by the reply or by the card's own badge: there is no Download. */
+  async heldByArr() {
+    const of = async (data, badged) => {
+      const h = load({ api: { [data.ref]: data } });
+      const id = data.kind === 'movie' ? 'outside' : 'show';
+      if (badged) h.doc.querySelector('#' + id + ' .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      await h.rest(id, 1000);
+      return h.text('.pv__first');
+    };
+    const at = (data, state) => ({ ...data, download: { ...data.download, state } });
+    return [await of(at(OUTSIDE, 'in_library')), await of(OUTSIDE, true), await of(at(showOf([season(1, true), season(2, false)]), 'partial')), await of(OUTSIDE)];
+  },
   /* Many titles rested on: the first is asked about again, the latest is still held. */
   async many() {
     const api = {};

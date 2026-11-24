@@ -495,6 +495,10 @@ def test_a_title_queued_while_its_reply_is_on_the_way_is_shown_queued() -> None:
     assert _run("queuedOnItsWay") == "Queued"
 
 
+def test_a_title_radarr_or_sonarr_has_files_of_is_not_offered_for_download() -> None:
+    assert _run("heldByArr") == ["In library", "In library", "In library", "Download"]
+
+
 def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:
     assert _run("many") == {"asked": 120, "latest": 0, "first": 1}
 

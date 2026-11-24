@@ -745,6 +745,7 @@
   function stateOf(p) {
     var dl = p.data.download;
     if (dl.state === 'downloading') return 'Downloading' + (typeof dl.pct === 'number' ? ' ' + dl.pct + '%' : '');
+    if (/^(in_library|partial)$/.test(dl.state || '') || posterOf(p.link).querySelector('.watch-badge--in')) return 'In library';
     if (dl.state === 'queued' || posterOf(p.link).querySelector('.watch-badge--queued')) return 'Queued';
     return '';
   }

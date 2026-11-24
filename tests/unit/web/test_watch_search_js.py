@@ -227,11 +227,18 @@ def test_a_search_in_the_address_opens_on_its_results_with_the_rows_never_shown(
     assert out["none"] == {"skeleton": 0, "line": "No matches for “zzqx”"}
 
 
-def test_a_download_badge_names_its_percentage_and_a_part_owned_title_is_in_the_library() -> None:
+def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> None:
+    out = _run("heldByArr")
+    assert out["heads"] == ["In your library", "Available to download"]
+    assert out["titles"] == ["in_library", "partial", "null"]
+    assert out["counts"] == ["2 titles", "1 title"]
+    assert out["badge"] == "In library"
+
+
+def test_a_download_badge_names_its_percentage() -> None:
     out = _run("stateBadges")
-    assert out["texts"] == ["Downloading 95%", "Downloading", "In library"]
-    assert out["said"] == [["Downloading "], [], []]
-    assert out["classes"][2].endswith("watch-badge--in")
+    assert out["texts"] == ["Downloading 95%", "Downloading"]
+    assert out["said"] == [["Downloading "], []]
 
 
 def test_a_poster_both_searches_found_stays_and_one_whose_state_changed_is_drawn_anew() -> None:
