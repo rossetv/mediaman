@@ -625,9 +625,10 @@ const scenarios = {
     const btnAdd = h.add('button', { id: 'btn-add-user' });
     const form = h.add('form', { id: 'add-user-form', hidden: true });
     const name = h.add('input', { id: 'new-username' }, form);
+    const msg = h.add('span', { id: 'new-username-why', className: 'fld-why' }, form);
     h.add('input', { id: 'new-user-password' }, form);
     h.add('button', { id: 'btn-submit-add-user' }, form);
-    const msg = h.add('span', { id: 'create-user-result' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
     const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
     const recipients = h.add('div', { id: 'newsletter-recipient-list' }, panel);
     const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
@@ -665,6 +666,7 @@ const scenarios = {
     const h = build();
     const form = h.add('form', { id: 'account-password-form' });
     const oldPw = h.add('input', { id: 'account-old-password', type: 'password' }, form);
+    const why = h.add('span', { id: 'account-old-password-why', className: 'fld-why' }, form);
     h.add('input', { id: 'account-new-password', type: 'password' }, form);
     h.add('input', { id: 'account-confirm-password', type: 'password' }, form);
     const submit = h.add('button', { id: 'account-submit-password' }, form);
@@ -672,12 +674,12 @@ const scenarios = {
     let finish;
     h.ctx.MM.api = { post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
-    h.load('account.js');
+    h.load('core/dom.js'); h.load('account.js');
     form.fire('submit');
-    const shown = msg.textContent;
+    const shown = why.textContent;
     oldPw.value = 'a';
     oldPw.fire('input');
-    const afterInput = msg.textContent;
+    const afterInput = why.textContent;
     // a send under way keeps its message
     h.doc.getElementById('account-old-password').value = 'old';
     h.doc.getElementById('account-new-password').value = 'a-long-enough-password';
@@ -1686,7 +1688,16 @@ const scenarios = {
       const token = p.page.querySelector('#plex_token');
       token.setAttribute('aria-label', 'Plex Token');
       p.asked = [];
-      p.h.ctx.UIFeedback.confirm = (o) => { p.asked.push(o.title); p.atAsk = { button: p.saveBtn.textContent, sent: p.sent.length }; return Promise.resolve(ok); };
+      const dialog = p.h.add('button', {});
+      // as the real one, it gives the focus back to what had it, if that can take it
+      p.h.ctx.UIFeedback.confirm = (o) => {
+        p.asked.push(o.title);
+        p.atAsk = { button: p.saveBtn.textContent, sent: p.sent.length };
+        const opener = p.h.doc.activeElement;
+        const gone = !opener || opener.disabled;
+        dialog.focus();
+        return Promise.resolve().then(() => { if (!gone) opener.focus(); return ok; });
+      };
       const type = (v) => { token.value = v; token.fire('input'); };
       return Object.assign(p, { token, empty: type });
     };
@@ -1836,7 +1847,7 @@ const scenarios = {
       add('input', 'elsewhere'); add('div', 'user-list'); add('div', 'subscriber-list');
       add('button', 'btn-add-user');
       const form = add('form', 'add-user-form', null, { hidden: true });
-      add('input', 'new-username', form, { value: '' }); add('input', 'new-user-password', form, { value: 'a-long-password-1' });
+      add('input', 'new-username', form, { value: '' }); add('span', 'new-username-why', form, { className: 'fld-why' }); add('input', 'new-user-password', form, { value: 'a-long-password-1' });
       add('button', 'btn-submit-add-user', form); add('span', 'create-user-result', form);
       add('button', 'btn-send-newsletter');
       const panel = add('div', 'newsletter-send-panel', null, { hidden: true });

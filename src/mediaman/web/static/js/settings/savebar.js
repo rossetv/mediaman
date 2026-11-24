@@ -498,8 +498,11 @@
       var cleared = clearedSecrets(sent);
       if (!cleared.length) { deliver(sent, fromKeyboard, hadFocus, done, kept); return; }
       saveBtn.textContent = SAVE_LABEL;
+      // The dialog gives the focus back to what has it now.
+      reenable(hadFocus);
       confirmClear(cleared).then(function (ok) {
         if (ok) {
+          startAsking();
           saveBtn.textContent = 'Saving…';
           deliver(sent, fromKeyboard, hadFocus, done, kept);
           return;
@@ -508,7 +511,6 @@
         var back = {};
         cleared.forEach(function (key) { back[key] = saved.values[key]; });
         put(back);
-        reenable(hadFocus);
         markDirty();
         if (!savebar.classList.contains('on')) settleAfterHide(fromKeyboard);
       });
