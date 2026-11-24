@@ -106,15 +106,28 @@
         });
       }
 
+      // The same initials and colour as _avatar.html gives the name.
+      function avatar(name) {
+        var words = name.split('@')[0].split(/[\s._-]+/).filter(Boolean);
+        var first = Array.from(words[0] || name || '?')[0];
+        var last = words.length > 1 ? Array.from(words[words.length - 1])[0] : '';
+        var n = 0;
+        Array.from(name.toLowerCase()).forEach(function (ch) {
+          n = (n * 31 + 'abcdefghijklmnopqrstuvwxyz0123456789._-@'.indexOf(ch) + 2) % 9973;
+        });
+        var el = document.createElement('span');
+        el.className = 'avatar avatar--' + (n % 6);
+        el.setAttribute('aria-hidden', 'true');
+        el.textContent = (first + last).toUpperCase();
+        return el;
+      }
+
       function buildRow(user) {
         var row = document.createElement('div');
         row.className = 'usr-row';
         row.dataset.userId = user.id;
 
-        var av = document.createElement('div');
-        av.className = 'av';
-        av.textContent = (user.username || '?').charAt(0).toUpperCase();
-        row.appendChild(av);
+        row.appendChild(avatar(user.username || ''));
 
         var meta = document.createElement('div');
         meta.className = 'usr-meta';

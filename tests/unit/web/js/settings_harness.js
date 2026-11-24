@@ -252,6 +252,20 @@ const scenarios = {
     return { declined, working, deletes: calls.deletes, rows: rowsNow(), toasts: calls.toasts, idleAria: declined.label };
   },
 
+  // The avatar each name gets in the Team list.
+  async avatars() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const given = JSON.parse(process.argv[3]);
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'x', users: given.map((username, id) => ({ id, username, role: 'viewer' })) }),
+    };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    return names(userList, 'usr-row').map((r) => [r.children[0].className, r.children[0].textContent]);
+  },
+
   // New rows land where the server lists them.
   async insertOrder() {
     const h = build();

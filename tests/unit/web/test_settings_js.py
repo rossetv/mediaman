@@ -7,15 +7,20 @@ the page ends up showing, not how the scripts are written.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
+
+from jinja2 import Environment, FileSystemLoader
+
+from mediaman.app_factory import _TEMPLATE_DIR
 
 HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
 
 
-def _run(scenario: str) -> dict:
+def _run(scenario: str, *args: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario, *args], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -61,6 +66,13 @@ def test_new_rows_land_where_the_server_lists_them() -> None:
     assert out["userRows"] == ["1", "2", "3", "4", "5"]
     # the accessible name starts with the visible text
     assert out["roleName"] == {"text": "Make admin", "aria": "Make admin: bob"}
+
+
+def test_a_person_has_the_same_avatar_in_the_team_list_as_everywhere_else() -> None:
+    people = ["viewer", "casey.lane@example.com", "Jo_de-Vries", "İnci", "ßeta", "...", "7"]
+    macro = Environment(loader=FileSystemLoader(_TEMPLATE_DIR)).get_template("_avatar.html").module
+    drawn = [re.search(r'class="(.+?)".*>(.*)<', str(macro.avatar(n))) for n in people]
+    assert _run("avatars", json.dumps(people)) == [list(m.groups()) for m in drawn]
 
 
 def test_add_user_form_that_is_sending_stays_open_with_what_was_typed() -> None:
