@@ -125,6 +125,8 @@ _ADDED_COLUMNS = (
     ("pruned_progress", "tvdb_id", "INTEGER"),
     ("pruned_watches", "last_tmdb_id", "INTEGER"),
     ("media_items", "last_tvdb_id", "INTEGER"),
+    ("media_items", "first_listed_at", "TEXT"),
+    ("media_items", "unlisted", "INTEGER NOT NULL DEFAULT 0"),
     ("pruned_watches", "last_tvdb_id", "INTEGER"),
 )
 

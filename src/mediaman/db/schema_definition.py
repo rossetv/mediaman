@@ -120,7 +120,10 @@ CREATE TABLE IF NOT EXISTS media_items (
     year INTEGER,
     -- What each id last was, for keeps: Plex may lose a match and find it again.
     last_tmdb_id INTEGER,
-    last_tvdb_id INTEGER
+    last_tvdb_id INTEGER,
+    first_listed_at TEXT,
+    -- 1 when its library was read and it was not in it.
+    unlisted INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (

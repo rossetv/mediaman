@@ -5,7 +5,7 @@ at the same path, of the same season; an episode also has the same number. One
 with the same id is the same title too: its TVDB id, or its TMDB id where one of
 the two has no TVDB id. Its TMDB id is the one it last had while Plex has none for
 it; so is its TVDB id, if it never had a TMDB id. Two that Plex lists in two libraries are two titles, until
-it lists one of them no more.
+it lists one of them no more; only a library that was read tells that.
 Nothing here commits: each caller runs it in the transaction that adds or
 removes the title.
 """
@@ -74,7 +74,7 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
 _TITLE = (
     "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
     "tracked_files, episode_keys, plex_library_id, last_tmdb_id, last_tvdb_id, media_type, "
-    "last_scanned_at"
+    "last_scanned_at, first_listed_at, unlisted"
 )
 
 
@@ -174,8 +174,8 @@ def copies(
 ) -> list[sqlite3.Row]:
     """Return the library's other films or seasons with the ids of *title*.
 
-    Of those in other libraries, only the ones Plex lists no more: until every
-    library of a run is read nothing tells which they are.
+    Of those in other libraries, only the ones that may be it: until every library
+    of a run is read nothing tells which they are.
     """
     if not is_film_or_numbered(title):
         return []
@@ -185,17 +185,32 @@ def copies(
         if other["id"] != title["id"]
         and (
             other["plex_library_id"] == title["plex_library_id"]
-            or (every_library_read and _unlisted_since(title, other["last_scanned_at"]))
+            or (
+                every_library_read
+                and _may_be_moved(
+                    other["unlisted"], other["last_scanned_at"], title["first_listed_at"]
+                )
+            )
         )
     ]
 
 
-def _unlisted_since(title: sqlite3.Row, last_scanned_at: str | None) -> bool:
-    """Return True if Plex listed *title* in a run after the one of *last_scanned_at*.
+def _may_be_moved(unlisted: bool, last_listed_at: str | None, first_listed_at: str | None) -> bool:
+    """Return True if a title of another library may be the one first listed at *first_listed_at*.
 
-    Within a run mark_listed_copies leaves none listed with an earlier time.
+    It is *unlisted*, or nobody has seen it listed since the other is.
     """
-    return (last_scanned_at or "") < (title["last_scanned_at"] or "")
+    return unlisted or (last_listed_at or "") < (first_listed_at or "")
+
+
+def _in_other_libraries(conn: sqlite3.Connection, title: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return the films with the ids of *title*, or the seasons of its show, of other libraries."""
+    return _titles_with_ids(
+        conn,
+        title_ids(title),
+        "(media_type = 'movie') = (? = 'movie') AND plex_library_id != ?",
+        (title["media_type"], title["plex_library_id"]),
+    )
 
 
 def mark_listed_copies(conn: sqlite3.Connection, media_id: str, listed: Collection[str]) -> None:
@@ -206,20 +221,65 @@ def mark_listed_copies(conn: sqlite3.Connection, media_id: str, listed: Collecti
     title = fetch_title(conn, media_id)
     if title is None:
         return
-    others = _titles_with_ids(
-        conn,
-        title_ids(title),
-        "(media_type = 'movie') = (? = 'movie') AND plex_library_id != ?",
-        (title["media_type"], title["plex_library_id"]),
-    )
     conn.executemany(
         "UPDATE media_items SET last_scanned_at = ? WHERE id = ? AND last_scanned_at < ?",
         [
             (title["last_scanned_at"], other["id"], title["last_scanned_at"])
-            for other in others
+            for other in _in_other_libraries(conn, title)
             if other["id"] in listed
         ],
     )
+
+
+def note_listing(
+    conn: sqlite3.Connection,
+    library_id: int,
+    listed: Collection[str],
+    touched: Collection[str],
+    since: str,
+) -> None:
+    """Note which titles of a library Plex lists, as it was read in the run begun at *since*.
+
+    One whose history failed is stored by no run, but is listed. Of one in *touched*
+    that is not, nothing is known. A copy of one that is not listed, scheduled in
+    this run as if both were, is left to the next.
+    """
+    for row in conn.execute(
+        "SELECT id, unlisted, last_scanned_at FROM media_items WHERE plex_library_id = ?",
+        (library_id,),
+    ).fetchall():
+        if row["id"] in listed:
+            if row["unlisted"] or (row["last_scanned_at"] or "") < since:
+                conn.execute(
+                    "UPDATE media_items SET unlisted = 0, last_scanned_at = ? WHERE id = ?",
+                    (now_iso(), row["id"]),
+                )
+        elif not row["unlisted"] and row["id"] not in touched:
+            conn.execute("UPDATE media_items SET unlisted = 1 WHERE id = ?", (row["id"],))
+            _unschedule_copies(conn, row["id"], since)
+
+
+def _unschedule_copies(conn: sqlite3.Connection, media_id: str, since: str) -> None:
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return
+    whole_show = is_show_kept_pure(conn, title["show_rating_key"])
+    for other in _in_other_libraries(conn, title):
+        if not whole_show and other["season_number"] != title["season_number"]:
+            continue
+        if _delete_unclaimed(
+            conn,
+            "media_item_id = ? AND action = 'scheduled_deletion' AND token_used = 0 "
+            "AND scheduled_at >= ?",
+            (other["id"], since),
+        ):
+            log_audit(
+                conn,
+                other["id"],
+                "delete_refused",
+                "Not deleted: it may be a title Plex lists no more in another library, "
+                "so the next scan decides",
+            )
 
 
 def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) -> bool:
@@ -548,7 +608,7 @@ def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sql
     """Return the live keeps of the other keys of the show of *season*.
 
     Such a key has a season where this one has it, or its ids: in another library,
-    only if Plex lists none of its seasons any more.
+    only if it may be the same show.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
@@ -575,19 +635,25 @@ def _other_show_keeps_by_ids(conn: sqlite3.Connection, season: sqlite3.Row) -> l
         (other["show_rating_key"], other["plex_library_id"])
         for other in _titles_with_ids(conn, title_ids(season), "media_type != 'movie'", ())
     }
+    first_listed_at = conn.execute(
+        "SELECT MIN(COALESCE(first_listed_at, '')) AS at FROM media_items "
+        "WHERE show_rating_key = ?",
+        (season["show_rating_key"],),
+    ).fetchone()["at"]
     keeps = []
     for show_key, library_id in others:
         # rationale: the interpolated condition is a fixed string; every value is bound
         keep = conn.execute(  # nosec B608
-            "SELECT ks.*, (SELECT MAX(mi.last_scanned_at) FROM media_items mi "
-            "  WHERE mi.show_rating_key = ks.show_rating_key) AS last_scanned_at "
-            f"FROM kept_shows ks WHERE ks.show_rating_key = ? AND {_LIVE_KEEP}",
+            "SELECT ks.*, MAX(mi.last_scanned_at) AS last_scanned_at, "
+            "MIN(mi.unlisted) AS unlisted FROM kept_shows ks "
+            "JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
+            f"WHERE ks.show_rating_key = ? AND {_LIVE_KEEP} GROUP BY ks.id",
             (show_key, now_iso()),
         ).fetchone()
         if keep is None or show_key == season["show_rating_key"]:
             continue
-        if library_id == season["plex_library_id"] or _unlisted_since(
-            season, keep["last_scanned_at"]
+        if library_id == season["plex_library_id"] or _may_be_moved(
+            keep["unlisted"], keep["last_scanned_at"], first_listed_at
         ):
             keeps.append(keep)
     return keeps

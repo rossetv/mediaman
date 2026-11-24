@@ -68,7 +68,7 @@ def upsert_media_item(
     ``tracked_files`` is stored as a JSON array of ``{"path", "size"}``,
     or NULL when Plex reported no files. ``episode_count`` is NULL for a
     movie and where Plex names no episode. ``last_tmdb_id`` and
-    ``last_tvdb_id`` outlive an id Plex no longer has.
+    ``last_tvdb_id`` outlive an id Plex no longer has. ``first_listed_at`` stays as first stored.
     """
     now = now_iso()
     tracked = item.get("tracked_files")
@@ -94,8 +94,9 @@ def upsert_media_item(
             plex_library_id, plex_rating_key, show_rating_key,
             added_at, file_path, file_size_bytes, poster_path, last_scanned_at,
             tmdb_id, tvdb_id, tracked_files, radarr_id, sonarr_id,
-            episode_count, episode_keys, year, last_tmdb_id, last_tvdb_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            episode_count, episode_keys, year, last_tmdb_id, last_tvdb_id,
+            first_listed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             media_type = excluded.media_type,
@@ -114,6 +115,7 @@ def upsert_media_item(
             episode_count = excluded.episode_count,
             episode_keys = excluded.episode_keys,
             year = excluded.year,
+            unlisted = 0,
             last_tmdb_id = COALESCE(
                 excluded.tmdb_id, media_items.tmdb_id, media_items.last_tmdb_id
             ),
@@ -147,6 +149,7 @@ def upsert_media_item(
             item.get("year"),
             item.get("tmdb_id"),
             item.get("tvdb_id"),
+            now,
             set_radarr_id,
             set_sonarr_id,
         ),

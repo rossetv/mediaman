@@ -18,6 +18,7 @@ import sqlite3
 
 from mediaman.core.time import now_iso
 from mediaman.scanner import repository
+from mediaman.scanner.repository.rekeyed import note_listing
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,8 @@ def remove_orphans(
     An item whose deletion removed files that are not booked yet stays until
     that is done: its rows are the only record of them.
 
+    Which items are listed is noted whether or not any is removed.
+
     An item another run saw, or anyone scheduled or kept, after the run began
     stays too: the run's list may be from before the item came to Plex.
 
@@ -177,6 +180,14 @@ def remove_orphans(
     """
     if not scanned_libs:
         return 0
+
+    with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        since = listed_since or now_iso()
+        touched = repository.fetch_ids_touched_since(conn, since)
+        for library_id in scanned_libs:
+            note_listing(conn, library_id, seen_keys, touched, since)
 
     previous_count = repository.count_items_in_libraries(conn, list(scanned_libs))
     current_count = len(seen_keys)

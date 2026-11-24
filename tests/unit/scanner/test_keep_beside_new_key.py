@@ -32,6 +32,7 @@ class _Library:
         self.names = {}
         self.watched = {}
         self.failing = set()
+        self.down = set()
 
     def file(self, key):
         name = "film.mkv" if self.kind == "film" else "E1.mkv"
@@ -76,17 +77,22 @@ class _Library:
         there = [i for i in items if i["plex_rating_key"] in self.elsewhere]
         films = (here, there) if self.kind == "film" else ([], [])
         seasons = (here, there) if self.kind == "season" else ([], [])
-        plex.get_movie_items.side_effect = {"1": others + films[0], "3": films[1]}.get
-        plex.get_show_seasons.side_effect = {"2": seasons[0], "4": seasons[1]}.get
+        listed = {"1": others + films[0], "2": seasons[0], "3": films[1], "4": seasons[1]}
+
+        def items(library):
+            if library in self.down:
+                raise requests.ConnectionError
+            return listed[library]
+
+        plex.get_movie_items.side_effect = plex.get_show_seasons.side_effect = items
         plex.get_watch_history.side_effect = self._history
         plex.get_season_watch_history.side_effect = self._history
         engine = ScanEngine(
             conn=self._conn,
             plex_client=plex,
-            library_ids=["1", "2", "3", "4"],
             library_types={"1": "movie", "2": "show", "3": "movie", "4": "show"},
             secret_key="0123456789abcdef" * 4,
-            **options,
+            **{"library_ids": ["1", "2", "3", "4"]} | options,
         )
         getattr(engine, run)()
 
