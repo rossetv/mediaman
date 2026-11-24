@@ -218,7 +218,8 @@
 
   /* Open the title *ref*. opts: origin (the card), title (what the card
      already knows), pick (the AI pick it was listed as, when *ref* is the
-     library's), push (add a history entry), atEpisodes (show its episodes). */
+     library's), push (add a history entry), atEpisodes (show its episodes),
+     season (the number of the season it opens on, if not the show's own choice). */
   function open(ref, opts) {
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
@@ -242,6 +243,7 @@
       pick: null,          // why it is a pick, once known: { reason, because }
       onPick: null,
       atEpisodes: !!opts.atEpisodes,
+      opensOn: opts.season,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
       picks: null,
       season: null,
@@ -425,13 +427,28 @@
       }
       showPictures(data);
       afterPictures(function () {
-        afterPick(c, function () { if (c === cur && isOpen) arrive(c, data); });
+        afterPick(c, function () {
+          afterSeason(c, data, function () { if (c === cur && isOpen) arrive(c, data); });
+        });
       });
     }).catch(function (err) {
       if (err && err.name === 'AbortError') return;
       if (c !== cur || !isOpen) return;
       renderFailed(err);
     });
+  }
+
+  /* The episodes of the season the link named, where the show opens on another: on its
+     own one if they cannot be had. */
+  function afterSeason(c, data, then) {
+    var s = (data.seasons || []).filter(function (one) { return one.number === c.opensOn && !one.selected; })[0];
+    if (!s) { then(); return; }
+    get(apiUrl(c.ref) + '/season/' + s.number, c.ctrl).then(function (got) {
+      c.season = s.number;
+      c.picked = got.episodes || [];
+      s.key = got.key;
+      s.watched = got.watched;
+    }).catch(function () {}).then(then);
   }
 
   /* A TMDB title found in the library opens as the library title. */
@@ -2331,8 +2348,9 @@
     var ref = card.getAttribute('data-title-ref');
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
+    var season = /[?&]season=([0-9]{1,4})(?:&|$)/.exec(card.getAttribute('href') || '');
     open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'),
-      atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
+      season: season ? Number(season[1]) : undefined, atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
   });
 
   /* ── The address ── */

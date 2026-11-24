@@ -1988,6 +1988,22 @@ const scenarios = {
     });
   },
 
+  // Opened by a link that names a season: the one on show and its episodes.
+  async openOnSeason() {
+    const run = async (href, season, seasons) => {
+      const p = load({ routes: { '/api/watch/title/show-300': seasons ? { ...LIB_SHOW, seasons } : LIB_SHOW, '/api/watch/title/show-300/season/1': season } });
+      const link = p.doc.body.appendChild(build(p.doc, ['a', { 'data-title-ref': 'show-300', 'data-title-at': 'episodes', href }, 'Episodes']));
+      p.run();
+      click(p.doc, link);
+      await settle();
+      return { on: p.doc.querySelectorAll('.ttl .watch-pill').filter((n) => n.classList.contains('on')).map((n) => n.textContent),
+        first: p.q('.ttl .watch-episodes').textContent.includes('One One'), asked: p.gets.filter((c) => c.includes('/season/')).length };
+    };
+    const one = { key: '301', episodes: [{ ...LIB_SHOW.episodes[0], title: 'One One' }] };
+    return { named: await run('/watch/show/300?season=1', one), own: await run('/watch/show/300?season=2', one),
+      none: await run('/watch/show/300', one), gone: await run('/watch/show/300?season=9', one), failed: await run('/watch/show/300?season=1', new APIError(503, 'x')) };
+  },
+
   // Opened by a link to its episodes: where it is scrolled and what has the focus once it has come;
   // then where the person scrolled it while it loaded, and a film's, which has none.
   async openAtEpisodes() {

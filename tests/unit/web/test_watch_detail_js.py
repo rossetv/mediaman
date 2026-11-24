@@ -776,6 +776,14 @@ def test_the_bar_of_close_is_marked_anew_when_the_window_turns() -> None:
     assert _run("turnedPastHead") == [True, False, True]
 
 
+def test_a_link_that_names_a_season_opens_the_show_on_it() -> None:
+    out = _run("openOnSeason")
+    assert out["named"] == {"on": ["Season 1"], "first": True, "asked": 1}
+    own = {"on": ["Season 2"], "first": False, "asked": 0}
+    assert (out["own"], out["none"], out["gone"]) == (own, own, own)
+    assert out["failed"] == {**own, "asked": 1}
+
+
 def test_a_link_to_a_shows_episodes_opens_it_at_them_unless_the_person_has_moved_on() -> None:
     out = _run("openAtEpisodes")
     assert out["show"] == {"to": 876, "focus": "Episodes", "hash": "#title=show-300"}
