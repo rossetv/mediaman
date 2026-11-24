@@ -40,6 +40,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.downloads.notifications import (
     record_download_notification,
     record_notification_on_its_way,
+    remember_tvdb_id,
 )
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -126,6 +127,8 @@ def _record_and_respond(
                 service=service,
                 season_number=season_number,
             )
+        if tmdb_id is not None and tvdb_id is not None:
+            remember_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
 
     poll_token = generate_poll_token(
         media_item_id=(
@@ -204,6 +207,8 @@ def _note_if_unanswered(
                 service=service,
                 season_number=season.season_number if season else None,
             )
+        if payload["tmdb_id"] is not None and tvdb_id is not None:
+            remember_tvdb_id(conn, tmdb_id=payload["tmdb_id"], tvdb_id=tvdb_id)
         # Commits both: a retry finding the note asks for no second email.
         note_unanswered_add(conn, payload["token"], payload["exp"])
 
@@ -252,6 +257,9 @@ def _already_there_error(
                 tvdb_id=tvdb_id,
                 season_number=season_number,
             )
+    if held is not None and tvdb_id is not None and not held.get("tmdbId"):
+        with conn:
+            remember_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
     return _AlreadyThere(exc, state, mail_to_come=mail_to_come)
 
 

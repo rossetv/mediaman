@@ -176,6 +176,23 @@ def requested_tvdb_id(conn: sqlite3.Connection, tmdb_id: int) -> int | None:
     return row[0] if row else None
 
 
+def remember_tvdb_id(conn: sqlite3.Connection, *, tmdb_id: int, tvdb_id: int) -> None:
+    """Keep the TVDB id of a show asked for with nobody to mail, for requested_tvdb_id. Does
+    not commit.
+
+    The row has no address, nothing to send and no title, so that it is no request for one.
+    """
+    from mediaman.core.time import now_iso
+
+    if requested_tvdb_id(conn, tmdb_id) != tvdb_id:
+        conn.execute(
+            "INSERT INTO download_notifications "
+            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+            "VALUES ('', '', 'tv', ?, ?, 'sonarr', 1, ?)",
+            (tmdb_id, tvdb_id, now_iso()),
+        )
+
+
 def has_unsent_notification(
     conn: sqlite3.Connection,
     *,

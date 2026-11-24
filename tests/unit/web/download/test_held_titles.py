@@ -15,6 +15,7 @@ from mediaman.core.deleted_media import record_deleted_media
 from mediaman.crypto import generate_download_token
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.scanner.repository.scheduled_actions import DeletionRow, was_requested_since
 from mediaman.services.arr import ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download import confirm as confirm_module
@@ -42,9 +43,9 @@ def client(db_path, secret_key):
     conn.close()
 
 
-def _token(secret_key, media_type, tmdb_id=500):
+def _token(secret_key, media_type, tmdb_id=500, email="viewer@example.com"):
     return generate_download_token(
-        email="viewer@example.com",
+        email=email,
         action="download",
         title="Far Shore" if media_type == "tv" else "Dune",
         media_type=media_type,
@@ -745,17 +746,73 @@ class TestAlreadyThereAnswer:
 
         assert self._post(client, token, held, "tv") == "queued"
         assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
+        reopened, polled = self._reopened_and_polled(client, token, held)
+        assert '"download_state": "queued"' in reopened
+        assert "be notified by email" in reopened
+        assert polled == "ready"
 
+    @pytest.mark.parametrize("was_held", [True, False], ids=["held", "added"])
+    def test_a_show_known_by_its_tvdb_id_alone_shows_its_state_to_a_link_with_no_address(
+        self, client, secret_key, was_held
+    ):
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+        del held["tmdbId"]
+        token = _token(secret_key, "tv", email=None)
+        if was_held:
+            assert self._post(client, token, held, "tv") == "queued"
+        else:
+            added = self._answer(client, token, {**held, "tvdbId": 1}, "tv")
+            assert added.status_code == 200
+
+        reopened, polled = self._reopened_and_polled(client, token, held)
+
+        assert '"download_state": "queued"' in reopened
+        assert "be notified by email" not in reopened
+        assert polled == "ready"
+
+    def test_a_refused_link_with_no_address_is_no_request_that_keeps_a_deleted_season_monitored(
+        self, client, secret_key
+    ):
+        conn = client.app.state.db
+        audit_id = insert_audit_log(
+            conn,
+            media_item_id="gone",
+            action="deleted",
+            created_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+        del held["tmdbId"]
+
+        self._post(client, _token(secret_key, "tv", email=None), held, "tv")
+
+        gone = DeletionRow(
+            id=audit_id,
+            media_item_id="gone",
+            action="deleted",
+            file_path=None,
+            file_size_bytes=None,
+            title="Far Shore",
+            plex_rating_key=None,
+            radarr_id=None,
+            sonarr_id=None,
+            season_number=1,
+            media_type="tv_season",
+            tmdb_id=500,
+            tvdb_id=999,
+        )
+        assert not was_requested_since(conn, gone)
+
+    def _reopened_and_polled(self, client, token, held):
         sonarr = MagicMock()
         sonarr.get_series.return_value = [held]
-        sonarr.get_series_by_tvdb.return_value = held
+        sonarr.get_series_by_tvdb.side_effect = lambda tvdb: held if tvdb == 999 else None
         sonarr.get_queue.return_value = []
         with patch(f"{_CONFIRM}.build_sonarr_from_db", return_value=sonarr):
             reopened = client.get(f"/download/{token}").text
-        assert '"download_state": "queued"' in reopened
-        assert "be notified by email" in reopened
-
-        poll = json.loads(re.search(r'"poll_token": ("[^"]+")', reopened)[1])
+        found = re.search(r'"poll_token": ("[^"]+")', reopened)
+        if found is None:
+            return reopened, None
+        poll = json.loads(found[1])
         sonarr.get_series.return_value = [{**held, "seasons": [self.WHOLE]}]
         status = "mediaman.web.routes.download.status.build_sonarr_from_db"
         with patch(status, return_value=sonarr):
@@ -763,7 +820,7 @@ class TestAlreadyThereAnswer:
                 "/api/download/status",
                 params={"service": "sonarr", "tmdb_id": 500, "poll_token": poll},
             )
-        assert polled.json()["state"] == "ready"
+        return reopened, polled.json()["state"]
 
     @pytest.mark.parametrize(
         ("media_type", "held", "state"),
