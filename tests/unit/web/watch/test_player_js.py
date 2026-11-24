@@ -744,6 +744,10 @@ def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
     assert out["start"] == {"rating_key": "501", "quality": "low"}
 
 
+def test_a_next_episode_that_is_gone_is_not_offered_again(markup):
+    assert run(markup, "next_gone") == {"message": True, "retry": False, "back": True}
+
+
 def test_the_new_stream_waits_for_the_old_to_stop_but_not_for_ever(markup, season):
     out = run(markup, "next_waits", pages=season)
     assert (out["before"], out["whileWaiting"], out["after"]) == (1, 1, ["auto", "low"])

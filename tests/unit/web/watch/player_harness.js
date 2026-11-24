@@ -1523,6 +1523,15 @@ const scenarios = {
     return { start: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body };
   },
 
+  /* The next episode is no longer there. */
+  async next_gone(p) {
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = { status: 404, html: '' };
+    press(p.q('[data-next-btn]'));
+    await settle();
+    return { message: !p.q('[data-message]').hidden, retry: !p.q('[data-retry]').hidden, back: doc.activeElement.hasAttribute('data-back') };
+  },
+
   /* The old stream counts against the limit until the server has stopped it. */
   async next_waits(p) {
     await streamPlays(p, 100);

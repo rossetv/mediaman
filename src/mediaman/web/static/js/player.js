@@ -1639,7 +1639,7 @@
     var timer = setTimeout(function () { abort.abort(); }, PAGE_WAIT_MS);
     return fetch(href, { credentials: 'same-origin', signal: abort.signal })
       .then(function (resp) {
-        if (!resp.redirected && !resp.ok) throw new Error('HTTP ' + resp.status);
+        if (!resp.redirected && !resp.ok) throw Object.assign(new Error('HTTP ' + resp.status), { status: resp.status });
         return resp.redirected ? '' : resp.text();
       })
       .then(function (html) {
@@ -1718,12 +1718,12 @@
         setTimeout(nextUnreached, PAGE_WAIT_MS);
       });
 
-    function nextUnreached() {
+    function nextUnreached(err) {
       if (gen !== generation) return;
       switching = false;
       saveSitting(false);
       leaveNative();
-      showMessage(MSG_NEXT_UNREACHED, function () { goNext(false); });
+      showMessage(MSG_NEXT_UNREACHED, err && err.status === 404 ? null : function () { goNext(false); });
     }
   }
 
