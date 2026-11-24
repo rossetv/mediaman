@@ -376,3 +376,8 @@
   .player-wide { display: none; }
   .player-upnext { left: 12px; right: 12px; width: auto; bottom: 120px; max-width: none; }
 }
+
+/* A phone on its side: the next-episode card keeps to the right. */
+@media (max-height: 420px) {
+  .player-upnext { left: auto; width: 300px; }
+}

@@ -192,6 +192,35 @@
   }
 }
 
+/* The player: under its title, where no control, menu or card of it ever is.
+   On a phone Keep comes between, and its open menu is let through. */
+body:has(.player) .ui-toast-host {
+  --toast-top: calc(max(26px, env(safe-area-inset-top)) + 60px);
+  top: var(--toast-top);
+  bottom: auto;
+  left: max(32px, env(safe-area-inset-left));
+  right: auto;
+  justify-content: flex-start;
+  max-height: calc(100dvh - var(--toast-top) - 130px);
+}
+@media (max-width: 600px) {
+  body:has(.player) .ui-toast-host {
+    --toast-top: calc(max(12px, env(safe-area-inset-top)) + 60px);
+    left: 12px;
+    right: 12px;
+  }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  body:has(.player) .ui-toast-host { --toast-top: calc(max(12px, env(safe-area-inset-top)) + 104px); }
+  body:has(.player-keep [aria-expanded="true"]) .ui-toast-host {
+    --toast-top: calc(max(12px, env(safe-area-inset-top)) + 268px);
+  }
+}
+/* A phone on its side: beside the next-episode card. */
+@media (max-height: 420px) {
+  body:has(.player) .ui-toast-host { right: auto; max-width: 220px; }
+}
+
 /* Settings: up to 960 px the section chips form a sticky bar under the top
    bar (it ends near 112 px); drop the toasts below it, clear of the chips. */
 @media (max-width: 960px) {
