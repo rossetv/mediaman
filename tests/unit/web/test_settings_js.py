@@ -376,7 +376,18 @@ def test_an_undo_never_overrides_what_another_page_has_set_since() -> None:
     # what else was edited is still sent
     assert (higher["sent"], higher["limit"]) == ([{"base_url": "b"}], ["/a", "95"])
     assert (days["sent"], days["days"][2]) == ([], "30")
-    for case, name in ((library, "L3"), (limit, "L1"), (higher, "L1"), (days, "Grace days")):
+    # a value that lets more be deleted than the one put back is the other page's all the same
+    lower, address = out["otherLowerDays"], out["otherAddress"]
+    assert (lower["sent"], lower["days"][2]) == ([], "10")
+    assert (address["sent"], address["url"]) == ([], "c")
+    for case, name in (
+        (library, "L3"),
+        (limit, "L1"),
+        (higher, "L1"),
+        (days, "Grace days"),
+        (lower, "Grace days"),
+        (address, "Base url"),
+    ):
         assert name in case["told"]
         assert case["on"] is False
 

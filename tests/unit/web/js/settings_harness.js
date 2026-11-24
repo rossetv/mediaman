@@ -175,10 +175,11 @@ async function openLibraries(answer, opts) {
   h.add('input', { id: 'plex_token', value: '****', type: 'password' }, page);
   h.add('button', { className: 'inp-reveal' }, page).setAttribute('data-reveal-target', 'plex_token');
   const bar = h.add('div', { id: 'setg-savebar' });
+  const msg = h.add('span', { className: 'sb-msg', textContent: 'Unsaved changes' }, bar);
   const status = h.add('span', { id: 'save-status' }, bar);
   const discard = h.add('button', { id: 'btn-discard' }, bar);
-  const save = h.add('button', { id: 'btn-save' }, bar);
-  const p = { h, page, rows, field, days, bar, status, sent: [], toasts: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
+  const save = h.add('button', { id: 'btn-save', textContent: 'Save Settings' }, bar);
+  const p = { h, page, saveBtn: save, discardBtn: discard, rows, field, days, bar, status, sent: [], toasts: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
   h.ctx.MM.api = {
     get: (u) => (u === '/api/plex/libraries' ? answer() : u === '/api/settings' ? p.stored() : Promise.reject({})),
     put: (u, b) => { p.sent.push(JSON.parse(JSON.stringify(b))); return p.reply(b); },
@@ -197,6 +198,7 @@ async function openLibraries(answer, opts) {
   return Object.assign(p, {
     card, input,
     on: () => bar.classList.contains('on'),
+    says: () => ({ msg: msg.textContent, status: status.textContent, button: save.textContent, partial: bar.classList.contains('is-partial') }),
     type: (id, path, threshold) => { input(id, 'path').value = path; input(id, 'threshold').value = threshold; input(id, 'path').fire('input'); },
     edit: (v) => { field.value = v; field.fire('input'); },
     day: (v, id) => { const el = days[id || 'grace_days']; el.value = v; el.fire('input'); },
@@ -1478,6 +1480,9 @@ const scenarios = {
     out.otherLimit = await run(one, type('/a', '80'), type('', '0'), { plex_libraries: ['1'], disk_thresholds: { 1: limit(90) } });
     out.otherHigher = await run(Object.assign({ diskThresholds: { 1: limit(80) } }, one), type('/a', '85'), each(type('/a', '80'), (p) => p.edit('b')), { plex_libraries: ['1'], disk_thresholds: { 1: limit(95) } });
     out.otherDays = await run({}, day('3'), day('14'), { grace_days: 30 });
+    // also to a less safe value than the one put back
+    out.otherLowerDays = await run({}, day('3'), day('14'), { grace_days: 10 });
+    out.otherAddress = await run({}, (p) => p.edit('b'), (p) => p.edit('a'), { base_url: 'c' });
 
     // the save never arrived
     const all = each(day('20'), (p) => p.edit('b'), pill(3), type('/a', '85'));
@@ -1727,7 +1732,7 @@ const scenarios = {
     item.setAttribute('href', '#setg-integrations');
     const pill = (svc) => { const p = h.add('span', { className: 'conn' }); p.setAttribute('data-conn', svc); return p; };
     pill('plex'); pill('sonarr');
-    h.ctx.MM.api = { post: (u) => Promise.reject(u.endsWith('plex') ? { status: 429 } : { status: 502, error: 'x' }), messageOf: () => 'Connection failed' };
+    h.ctx.MM.api = { post: (u) => Promise.reject(u.includes('/plex') ? { status: 429 } : { status: 502, error: 'x' }), messageOf: () => 'Connection failed' };
     ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key'].forEach((id) => h.add('input', { id, value: 'v' }));
     h.ctx.MM.settings.integrations.init();
     h.timers.forEach((t) => t.fn());
