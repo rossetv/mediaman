@@ -846,7 +846,8 @@
     restartStream(true);
   }
 
-  function togglePlay() {
+  /* Where the next-episode card waits only the Play button plays this one again. */
+  function togglePlay(byButton) {
     if (!els.message.hidden) {
       if (tryAgain) tryAgain();
       return;
@@ -856,6 +857,7 @@
       hideUpnext();
       return;
     }
+    if (!byButton && upnextOpen()) return;
     if (swapping) {
       /* No video to pause yet: the new stream starts the way this leaves it. */
       wantPlaying = !wantPlaying;
@@ -1385,7 +1387,7 @@
 
   /* ---- buttons -------------------------------------------------------- */
 
-  els.play.addEventListener('click', togglePlay);
+  els.play.addEventListener('click', function () { togglePlay(true); });
   els.retry.addEventListener('click', function () { tryAgain(); });
   els.back10.addEventListener('click', function () { skip(-SKIP_S); });
   els.fwd10.addEventListener('click', function () { skip(SKIP_S); });
@@ -1627,7 +1629,7 @@
       showControls();
     } else if (lastPointer === 'mouse') {
       if (els.message.hidden && !startedElsewhere && (undoes || !(e.detail > 1))) {
-        togglePlay();
+        togglePlay(false);
         clickToggled = true;
       }
       showControls();
@@ -1674,7 +1676,7 @@
         e.target.blur();
       }
       e.preventDefault();
-      if (!e.repeat) togglePlay();
+      if (!e.repeat) togglePlay(false);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       if (tag === 'INPUT' || menuOpen()) return;
       e.preventDefault();
@@ -1839,12 +1841,16 @@
       showHref ? { title: item.subtitle, artist: item.title } : { title: item.title });
   }
 
+  function upnextOpen() {
+    return !!els.upnext && !els.upnext.hidden && !els.upnext.classList.contains('is-leaving');
+  }
+
   /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
     stopCountdown();
     els.upnextStatus.textContent = '';
     var card = els.upnext;
-    if (!card || card.hidden || card.classList.contains('is-leaving')) return;
+    if (!upnextOpen()) return;
     card.classList.remove('is-counting');
     if (card.contains(document.activeElement)) els.play.focus();
     if (reducedMotion && reducedMotion.matches) card.hidden = true;
@@ -1888,7 +1894,7 @@
     autoplay = !autoplay;
     saveSetting(AUTOPLAY_KEY, autoplay);
     q('[data-autoplay]').setAttribute('aria-checked', String(autoplay));
-    if (els.upnext && !els.upnext.hidden && !els.upnext.classList.contains('is-leaving')) {
+    if (upnextOpen()) {
       showUpnext();
       showPlayState();
     }

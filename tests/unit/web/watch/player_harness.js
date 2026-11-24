@@ -1993,6 +1993,38 @@ const scenarios = {
     return out;
   },
 
+  /* The card waits: by `serverPlays`, with Autoplay off, or after the question was closed. */
+  async upnext_waits(p) {
+    await streamPlays(p, 0);
+    if (p.win.serverPlays === 'question') {
+      p.sleep(7200000);
+      endsNow(p);
+      p.sleep(11000);
+      p.tick(250);
+      p.video.ended = false;
+      p.video.currentTime = 0;
+      p.q('[data-ask]').close();
+      await settle();
+    } else {
+      click(p.q('[data-autoplay]'));
+      endsNow(p);
+    }
+    const did = () => [p.video.plays - plays, p.starts().length - starts];
+    const plays = p.video.plays;
+    const starts = p.starts().length;
+    const out = { card: !p.q('[data-upnext]').hidden };
+    key(' ');
+    press(p.video);
+    await settle();
+    out.space = did();
+    out.still = !p.q('[data-upnext]').classList.contains('is-leaving');
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-play]'));
+    await settle();
+    out.button = did();
+    return out;
+  },
+
   /* The second press of a double one, or the repeats of a held key, land on what the first left there. */
   async next_pressed_twice(p) {
     let fullscreens = 0;
