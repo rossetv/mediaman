@@ -97,11 +97,11 @@ class _UnkeepBody(BaseModel):
 def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> JSONResponse:
     term = q.strip()
     if not term:
-        return JSONResponse({"items": []})
+        return JSONResponse({"items": [], "total": 0})
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
-    found = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
+    found, total = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
     movies = [f for f in found if isinstance(f, lib.LibraryMovie)]
     pending = lib.pending_deletions(conn, libraries, now)
     by_key = {
@@ -118,7 +118,7 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         else {**show_by_key[f.key], "ref": f"show-{f.key}"}
         for f in found
     ]
-    return JSONResponse({"items": items})
+    return JSONResponse({"items": items, "total": total})
 
 
 @router.post("/api/watch/keep")

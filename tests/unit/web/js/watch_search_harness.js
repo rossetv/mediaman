@@ -227,6 +227,25 @@ const scenarios = {
     return out;
   },
 
+  // More titles match than the answer holds; a category named in full adds its own.
+  async someOfMany() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB, { ...LIB, ref: 'movie-2', title: 'Orchard Two' }], total: 297 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const count = () => p.doc.querySelector('.results-group__count').textContent;
+    const out = { count: count(), status: p.status.textContent };
+    await p.search('orchard');
+    out.again = count();
+    const a = await ready(ADMIN);
+    await a.search('action');
+    await a.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Action One' }], total: 297 });
+    await a.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    await a.answer('/api/watch/explore?', { items: ['Action Two', 'Held'].map((title, i) => ({ ...TM, ref: 'tmdb-movie-' + i, title, in_library: true, library_ref: 'movie-8' + i })) });
+    out.category = a.doc.querySelector('.results-group__count').textContent;
+    return out;
+  },
+
   // A reply for an older query, or for one shorter than TMDB takes, never reaches the page.
   async staleReply() {
     const p = load(ADMIN);

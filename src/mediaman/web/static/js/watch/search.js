@@ -377,14 +377,14 @@
 
   /* ── Pieces of the results ── */
 
-  function groupHead(title, count) {
+  function groupHead(title, count, of) {
     var head = el('div', 'results-group__head');
     var h = el('h2', 'results-group__title', title);
     // Takes focus after a retry has replaced the button that had it.
     h.tabIndex = -1;
     head.appendChild(h);
     head.appendChild(el('span', 'results-group__count'));
-    setCount(head, count);
+    setCount(head, count, of);
     return head;
   }
 
@@ -393,8 +393,10 @@
   /* A category's name inside a sentence: "action", "TV movie". */
   function lower(name) { return name.replace(/\S*[a-z]\S*/g, function (word) { return word.toLowerCase(); }); }
 
-  function setCount(head, count) {
-    head.querySelector('.results-group__count').textContent = typeof count === 'number' ? titleCount(count) : '';
+  /* "3 titles", or "60 of 297 titles" where more were found than are shown. */
+  function setCount(head, count, of) {
+    head.querySelector('.results-group__count').textContent =
+      typeof count !== 'number' ? '' : (of > count ? count + ' of ' : '') + titleCount(of > count ? of : count);
   }
 
   function times(n, make) {
@@ -1159,15 +1161,19 @@
     function gather(c) {
       var lib = (c.lib.items || []).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
       var out = (c.tmdb.items || []).map(function (item) { return { item: item, key: item.ref, build: buildTmdbCard }; });
+      var total = c.lib.total || 0;
       var seen = new Set(lib.concat(out).map(function (x) { return x.key; }));
       ((c.cat && c.cat.items) || []).forEach(function (item) {
         var key = item.library_ref || item.ref;
         if (seen.has(key) || seen.has(item.ref)) return;
         seen.add(key);
-        if (item.in_library) lib.push({ item: item, key: key, build: buildHeldCard });
-        else out.push({ item: item, key: key, build: buildTmdbCard });
+        if (item.in_library) {
+          lib.push({ item: item, key: key, build: buildHeldCard });
+          // One that matches by name too is among those found and not shown.
+          if (String(item.title || '').toLowerCase().indexOf(c.q.toLowerCase()) === -1) total++;
+        } else out.push({ item: item, key: key, build: buildTmdbCard });
       });
-      return { lib: lib, out: out };
+      return { lib: lib, out: out, total: Math.max(total, lib.length) };
     }
 
     function suggestionCount() {
@@ -1177,22 +1183,22 @@
 
     function readOut(c, all) {
       var parts = [];
-      if (c.lib.state === 'ok' && all.lib.length) parts.push(all.lib.length + ' in your library');
+      if (c.lib.state === 'ok' && all.lib.length) parts.push((all.total > all.lib.length ? all.lib.length + ' of ' : '') + all.total + ' in your library');
       if (all.out.length) parts.push(all.out.length + ' available to download');
       status.textContent = [parts.length
         ? parts.join(', ') + ' for “' + c.q + '”'
         : 'No matches in your library for “' + c.q + '”', suggestionCount()].filter(Boolean).join('. ');
     }
 
-    function headRow(key, title, count) {
+    function headRow(key, title, count, of) {
       return {
         key: 'head-' + key,
         make: function () {
-          var head = groupHead(title, count);
+          var head = groupHead(title, count, of);
           head.setAttribute('data-results-head', key);
           return head;
         },
-        update: function (node) { setCount(node, count); }
+        update: function (node) { setCount(node, count, of); }
       };
     }
 
@@ -1262,7 +1268,7 @@
         rows.push(headRow('lib', 'In your library'), failRow(c, 'lib', lib.text, function () { fetchLibrary(c); paint(c); }));
         rows = rows.concat(cardRows(all.lib));
       } else if (all.lib.length) {
-        rows = rows.concat(headRow('lib', 'In your library', all.lib.length), cardRows(all.lib));
+        rows = rows.concat(headRow('lib', 'In your library', all.lib.length, all.total), cardRows(all.lib));
       } else if (tmdb.state === 'failed') {
         rows.push(plain('none', function () { return el('p', 'results-none', 'Nothing in your library matches'); }));
       }
@@ -1311,7 +1317,7 @@
 
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */
     function ask(c, part, url, read, failed) {
-      c[part] = { state: 'loading', items: c[part] && c[part].items };
+      c[part] = { state: 'loading', items: c[part] && c[part].items, total: c[part] && c[part].total };
       MM.api.get(url, { signal: c.ctrl.signal }).then(function (reply) {
         if (current !== c) return;
         c[part] = read(reply || {});
@@ -1325,7 +1331,7 @@
 
     function fetchLibrary(c) {
       ask(c, 'lib', SEARCH_URL + encodeURIComponent(c.q), function (reply) {
-        return { state: 'ok', items: reply.items || [] };
+        return { state: 'ok', items: reply.items || [], total: reply.total };
       }, function (err) {
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
       });
@@ -1395,7 +1401,7 @@
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
-        lib: known && { items: known.lib.items }, tmdb: known && { items: known.tmdb.items }, cat: null,
+        lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
       };

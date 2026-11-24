@@ -98,6 +98,48 @@ class TestSearch:
 
         assert len(_search(client, "film")) == browse_api.SEARCH_LIMIT
 
+    def test_the_number_found_is_told_past_the_cap(self, client, conn):
+        for n in range(browse_api.SEARCH_LIMIT):
+            _movie(conn, str(1000 + n), f"Film {n:03d}")
+        for n in range(3):
+            _season(conn, str(5000 + n), str(6000 + n), f"Film show {n}")
+
+        body = client.get("/api/watch/search", params={"q": "film"}).json()
+
+        assert (len(body["items"]), body["total"]) == (browse_api.SEARCH_LIMIT, 63)
+
+    def test_a_title_that_starts_with_the_words_is_not_pushed_out_by_ones_that_hold_them(
+        self, client, conn
+    ):
+        for n in range(70):
+            _movie(conn, str(1000 + n), f"A{n:02d} the end")
+        _season(conn, "501", "500", "The Thing")
+
+        assert _search(client, "the")[0]["title"] == "The Thing"
+
+    def test_the_closest_titles_come_first(self, client, conn):
+        titles = [
+            "Anything",
+            "Old Thing",
+            "A New Thing",
+            "Thing Zero",
+            "Thing Again",
+            "The Thing",
+            "Thing",
+        ]
+        for n, title in enumerate(titles):
+            _movie(conn, str(100 + n), title)
+
+        assert [i["title"] for i in _search(client, "thing")] == [
+            "Thing",
+            "The Thing",
+            "Thing Again",
+            "Thing Zero",
+            "A New Thing",
+            "Old Thing",
+            "Anything",
+        ]
+
     def test_a_show_seen_to_the_end_is_marked(self, client, conn):
         _season(conn, "501", "500", "Glass Coast")
         conn.execute("UPDATE media_items SET episode_count = 1 WHERE id = '501'")
