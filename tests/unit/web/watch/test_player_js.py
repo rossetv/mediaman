@@ -187,7 +187,8 @@ def test_volume_and_mute_carry_to_the_next_video(markup):
         "volume",
         saved={"mediaman.watch.volume": "0.6", "mediaman.watch.muted": "true"},
     )
-    assert out["start"] == {"volume": 0.6, "muted": True, "mute": "Unmute"}
+    start = out["start"]
+    assert (start["volume"], start["muted"], start["mute"]) == (0.6, True, "Unmute")
     assert out["unmuted"] == {"mediaman.watch.volume": "0.25", "mediaman.watch.muted": "false"}
     assert out["muted"] == {"mediaman.watch.volume": "0.25", "mediaman.watch.muted": "true"}
 
@@ -223,3 +224,8 @@ def test_full_screen_is_an_icon_that_follows_the_state(markup):
 def test_the_button_f_and_a_double_click_ask_for_full_screen_but_a_double_tap_does_not(markup):
     out = run(markup, "fullscreen")
     assert (out["asked"], out["askedAfterTouch"]) == (3, 3)
+
+
+def test_the_volume_track_fills_to_the_volume_heard(markup):
+    out = run(markup, "volume", saved={"mediaman.watch.volume": "0.6"})
+    assert (out["start"]["fill"], out["unmutedFill"], out["mutedFill"]) == ("60%", "25%", "0%")

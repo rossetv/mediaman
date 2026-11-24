@@ -243,10 +243,39 @@
 @keyframes player-fill { to { transform: scaleX(1); } }
 
 .player-volume { display: flex; align-items: center; }
+/* Drawn here like the seek bar: Safari draws no track of its own on a dark page. */
 .player-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
   width: 90px;
-  accent-color: var(--accent);
+  height: 44px;
+  background: none;
   cursor: pointer;
+}
+.player-volume-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: var(--r-xxs);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 100%), color-mix(in srgb, var(--t1) 30%, transparent) 0);
+}
+.player-volume-slider::-moz-range-track {
+  height: 5px;
+  border-radius: var(--r-xxs);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 100%), color-mix(in srgb, var(--t1) 30%, transparent) 0);
+}
+.player-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--t1);
+}
+.player-volume-slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--t1);
 }
 
 /* Small menus: quality (opens up) and keep (opens down). */

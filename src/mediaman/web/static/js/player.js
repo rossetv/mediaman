@@ -682,7 +682,9 @@
     var silent = video.muted || video.volume === 0;
     setName(els.mute, silent ? 'Unmute' : 'Mute');
     MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
-    els.volume.value = video.muted ? 0 : video.volume;
+    var level = video.muted ? 0 : video.volume;
+    els.volume.value = level;
+    els.volume.style.setProperty('--fill', level * 100 + '%');
   }
   els.mute.addEventListener('click', function () {
     video.muted = !video.muted;

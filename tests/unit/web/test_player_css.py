@@ -81,3 +81,12 @@ def test_a_quiet_button_in_a_card_stands_out_from_the_card() -> None:
 
     pill = _rule(css, ".player-card .player-pill:not(.player-pill--primary)::before")
     assert _contrast(grey(pill), grey(_rule(css, ".player-card"))) >= 1.4
+
+
+@pytest.mark.parametrize("track", ["::-webkit-slider-runnable-track", "::-moz-range-track"])
+def test_the_volume_slider_draws_its_own_track(track: str) -> None:
+    # Safari draws no track of its own on a dark page.
+    css = _text("_player.css")
+    assert re.search(r"(?<!-)appearance:\s*none", _rule(css, ".player-volume-slider"))
+    body = _rule(css, f".player-volume-slider{track}")
+    assert "height" in body and "background" in body
