@@ -212,28 +212,34 @@ def _drain_futures(
     """
     global _paused_until
     pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
+    answered = unanswered = False
     try:
         for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
             try:
                 key, group, data = fut.result()
             except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
+                unanswered = True
                 continue
             if data is None:
-                _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
+                unanswered = True
                 continue
+            answered = True
             rt = data.get("rt")
             imdb = data.get("imdb")
             meta = data.get("metascore")
             _apply_ratings(group, rt=rt, imdb=imdb)
             pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
     except TimeoutError:
-        _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
+        unanswered = True
         logger.debug(
             "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
             _ENRICH_BUDGET_SECONDS,
             sum(1 for f in futures if f.done()),
             len(futures),
         )
+    # One bad title, or a slow but answering OMDb, is not an outage: pause only on no answer at all.
+    if unanswered and not answered:
+        _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
     return pending_writes
 
 

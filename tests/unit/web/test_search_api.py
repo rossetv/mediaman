@@ -465,6 +465,45 @@ class TestEnrichRatingsHelpers:
     "a bad fetch must not abort the fan-out" degradation, and the
     "drop incomplete, still keep the completed misses" timeout path."""
 
+    @pytest.fixture(autouse=True)
+    def _no_pause(self, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+
+    @staticmethod
+    def _done(tmdb_id, data):
+        from concurrent.futures import Future
+
+        fut: Future = Future()
+        fut.set_result(((tmdb_id, "movie"), [{"tmdb_id": tmdb_id}], data))
+        return fut
+
+    @staticmethod
+    def _drain(futures, *, overrun=False):
+        from mediaman.web.routes.search import _enrichment
+
+        def fake_as_completed(fs, timeout=None):
+            yield from (f for f in fs if f.done())
+            if overrun:
+                raise TimeoutError
+
+        with patch.object(_enrichment, "as_completed", fake_as_completed):
+            _enrichment._drain_futures(futures, now_iso="2026-05-14T00:00:00")
+        return _enrichment._paused_until
+
+    def test_one_bad_title_among_answers_does_not_pause(self):
+        assert self._drain([self._done(1, {"imdb": "8.0"}), self._done(2, None)]) == 0.0
+
+    def test_a_budget_overrun_with_some_answers_does_not_pause(self):
+        assert self._drain([self._done(1, {"imdb": "8.0"})], overrun=True) == 0.0
+
+    def test_a_budget_overrun_with_no_answer_pauses(self):
+        assert self._drain([], overrun=True) > 0.0
+
+    def test_every_lookup_giving_no_answer_pauses(self):
+        assert self._drain([self._done(1, None), self._done(2, None)]) > 0.0
+
     def _row(self, tmdb_id, media_type, *, fetched_at, rt="80%", imdb="7.5"):
         from mediaman.web.repository.search import RatingsCacheRow
 
