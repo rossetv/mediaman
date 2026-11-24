@@ -373,7 +373,7 @@
       root.hidden = true;
       root.classList.remove('is-leaving', 'is-aside', 'ttl--admin');
       root.removeAttribute('aria-busy');
-      body.textContent = '';
+      emptyBody();
       lockPage(false);
     });
     var to = aside ? null : origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
@@ -602,6 +602,11 @@
 
   /* ── Rendering ── */
 
+  function emptyBody() {
+    cast.drop(); // it stands on the people in there
+    body.textContent = '';
+  }
+
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
     root.classList.remove('ttl--admin', 'is-short', 'is-late');
@@ -619,7 +624,7 @@
     player.textContent = '';
     statusEl.textContent = '';
 
-    body.textContent = '';
+    emptyBody();
     body.style.marginBottom = '';
     var lead = el('div', 'ttl__lead');
     var main = el('div', 'ttl__main');
@@ -657,7 +662,7 @@
     hide(taglineEl, true);
     metaEl.textContent = '';
     if (!cur.title) titleEl.textContent = 'Details';
-    body.textContent = '';
+    emptyBody();
     var box = el('div', 'ttl__failed fade-in');
     box.setAttribute('role', 'alert');
     box.appendChild(icon('i-circle-exclamation'));
@@ -838,7 +843,7 @@
     var lineAt = line ? line.scrollLeft : null;
     root.removeAttribute('aria-busy');
     renderHead(d, fresh);
-    body.textContent = '';
+    emptyBody();
     var lead = el('div', 'ttl__lead');
     var main = el('div', 'ttl__main');
     lead.appendChild(main);

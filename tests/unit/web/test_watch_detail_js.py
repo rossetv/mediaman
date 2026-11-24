@@ -852,3 +852,9 @@ def test_a_mark_loads_the_title_again_with_the_season_on_show_and_keeps_the_focu
 
 def test_a_card_that_is_gone_is_let_go_with_the_page_it_stood_on() -> None:
     assert _run("cardsThatGo") == {"held": 0}
+
+
+def test_a_persons_card_goes_with_the_title_it_stands_on() -> None:
+    out = _run("cardOfAPersonGoes")
+    assert out["title"] == [True, False]
+    assert out["closed"] == [True, False]

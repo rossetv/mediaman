@@ -1851,6 +1851,27 @@ const scenarios = {
     vm.runInNewContext('gc')();
     return { held: held.filter((r) => r.deref()).length };
   },
+
+  // A person's card open in the strip when the title goes: for another, or closed.
+  async cardOfAPersonGoes() {
+    const cast = [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }];
+    const out = {};
+    for (const how of ['title', 'closed']) {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { cast }), '/api/watch/title/show-300': () => new Promise(() => {}) } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      p.q('.cast-card').style.setProperty = () => {};
+      p.ttl().listeners.pointermove.forEach((fn) => fn({ target: p.q('.ttl-cast__item'), pointerType: 'mouse' }));
+      p.tick();
+      const look = () => p.q('.cast-card').classList.contains('is-open');
+      const was = look();
+      if (how === 'title') p.ctx.MMWatch.detail.open('show-300');
+      else p.ctx.MMWatch.detail.close();
+      await settle();
+      out[how] = [was, look()];
+    }
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => {
