@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 
 import pytest
@@ -113,3 +114,16 @@ def test_settings_users_links_to_profile(settings_html):
     section = settings_html.split('id="setg-users"', 1)[1].split('id="user-list"', 1)[0]
 
     assert 'href="/account"' in section
+
+
+def test_what_the_ai_service_and_admins_get_is_in_sight_before_linking(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account").text
+
+    panel = html.split('data-plex-panel="unlinked"')[1].split('id="plex-start"')[0]
+    in_sight = re.sub(r"<details.*?</details>", "", panel, flags=re.S)
+    assert "AI service" in in_sight
+    assert "Admins can see" in in_sight
+    assert panel.count("AI service") == panel.count("Admins can see") == 1
