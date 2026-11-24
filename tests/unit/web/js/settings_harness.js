@@ -1352,6 +1352,18 @@ const scenarios = {
     return { shown, unsaved, next: await p.save() };
   },
 
+  // Unreadable thresholds: the refusal is shown, and a selected library that Plex lacks can be taken out.
+  async mendThresholds() {
+    const p = await openLibraries(plexLists(1), { selectedLibs: ['1', '9'], diskThresholds: 'odd' });
+    p.reply = () => Promise.reject({ status: 409, data: { error: 'x', message: 'why it was refused' } });
+    p.type(1, '/a', '80');
+    await p.save();
+    const refused = { on: p.on(), says: p.status.textContent };
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    p.pill(9);
+    return { refused, sent: await p.save(), on: p.on() };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

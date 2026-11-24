@@ -461,9 +461,57 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         self, app_factory, authed_client, conn
     ):
         """The scanner scans no library while they cannot be read."""
-        insert_settings(conn, disk_thresholds="[1]")
+        insert_settings(conn, disk_thresholds="[1]", plex_libraries='["1"]')
         put = self._put_thresholds(_client(app_factory, authed_client, conn))
         assert put({"1": None}) == [1]
+
+    @pytest.mark.parametrize("stored", ['"odd"', "[1]", "true", "not json"])
+    @pytest.mark.parametrize(
+        ("sent", "others"),
+        [
+            ({"1": {"path": "/a", "threshold": 80}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 0}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": {"path": " ", "threshold": 80}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": None}, {}),
+            # the selection as this same save leaves it
+            (
+                {"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 70}},
+                {"plex_libraries": ["1", "2", "3"], "plex_libraries_base": ["1", "2"]},
+            ),
+        ],
+    )
+    def test_put_refuses_to_mend_unreadable_thresholds_for_some_of_the_libraries(
+        self, app_factory, authed_client, conn, stored, sent, others
+    ):
+        """No library is scanned while they cannot be read; mended, one with no limit always is."""
+        insert_settings(conn, plex_libraries='["1", "2"]', disk_thresholds=stored, grace_days="30")
+        client = _client(app_factory, authed_client, conn)
+        before = client.get("/api/settings").json()
+        resp = client.put(
+            "/api/settings", json={"disk_thresholds": sent, "grace_days": 20, **others}
+        )
+        assert resp.status_code == 409
+        assert "disk thresholds" in resp.json()["message"]
+        assert client.get("/api/settings").json() == before
+
+    @pytest.mark.parametrize(
+        ("selected", "others"),
+        [
+            ('["1", "2"]', {}),
+            # a library the same save takes out needs no limit
+            (
+                '["1", "2", "3"]',
+                {"plex_libraries": ["1", "2"], "plex_libraries_base": ["1", "2", "3"]},
+            ),
+        ],
+    )
+    def test_put_mends_unreadable_thresholds_with_a_limit_for_every_library(
+        self, app_factory, authed_client, conn, selected, others
+    ):
+        insert_settings(conn, plex_libraries=selected, disk_thresholds='"odd"')
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        both = {"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 70}}
+        assert put(both, **others) == both
 
     @pytest.mark.parametrize("cleared", [None, {}, {"path": "", "threshold": 0}])
     def test_put_removes_a_threshold_that_was_cleared(

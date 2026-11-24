@@ -354,6 +354,17 @@ def test_thresholds_stored_as_no_object_do_not_stop_the_page_saving() -> None:
     assert out == {"odd": saved, "5": saved, "true": saved}
 
 
+def test_unreadable_thresholds_can_be_mended_from_the_page() -> None:
+    out = _run("mendThresholds")
+    assert out["refused"] == {"on": True, "says": "why it was refused"}
+    assert out["sent"] == {
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 80}},
+        "plex_libraries": ["1"],
+        "plex_libraries_base": ["1", "9"],
+    }
+    assert out["on"] is False
+
+
 def test_a_limit_typed_during_a_save_outlives_a_library_chosen_during_it() -> None:
     out = _run("pillDuringSave")
     assert out["shown"] == ["/a", "80"]

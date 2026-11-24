@@ -31,6 +31,8 @@
   var SELECTED_LIBS = [];
   // Every library's entry: what was saved, with what is typed kept over it.
   var DISK_THRESHOLDS = {};
+  // What is stored is no object of entries, which keeps every library from being scanned.
+  var UNREADABLE = false;
 
   function markDirty() {
     if (MM.settings.savebar && MM.settings.savebar.markDirty) {
@@ -316,6 +318,7 @@
       .then(function (data) {
         PLEX_LIBRARIES = data.libraries || [];
         LOADED = true;
+        if (UNREADABLE && PLEX_LIBRARIES.length) offerMissingLibraries();
         renderLibraryPills();
         renderDiskRows();
       })
@@ -333,19 +336,28 @@
       });
   }
 
+  // Unreadable thresholds are mended only by a limit for every selected library, so one Plex
+  // no longer lists has to be there to be taken out.
+  function offerMissingLibraries() {
+    var listed = PLEX_LIBRARIES.map(function (lib) { return String(lib.id); });
+    SELECTED_LIBS.forEach(function (id) {
+      if (listed.indexOf(id) === -1) {
+        PLEX_LIBRARIES.push({ id: id, title: 'Library ' + id + ' (not in Plex)' });
+      }
+    });
+  }
+
   function init(opts) {
+    var stored = (opts && opts.diskThresholds) || {};
     SELECTED_LIBS = ((opts && opts.selectedLibs) || []).map(String);
-    DISK_THRESHOLDS = readable((opts && opts.diskThresholds) || {});
+    UNREADABLE = !isObject(stored);
+    DISK_THRESHOLDS = UNREADABLE ? {} : copy(stored);
     loadPlexLibraries();
   }
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
-  // Every library's entry, or none when what is stored is not one object of them.
-  function readable(thresholds) {
-    var object = thresholds && typeof thresholds === 'object' && !Array.isArray(thresholds);
-    return object ? copy(thresholds) : {};
-  }
+  function isObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
 
   // The library selection and thresholds as they stand, for a save to send and Discard to go back to.
   function state() {

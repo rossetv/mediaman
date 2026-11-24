@@ -260,6 +260,27 @@ def _merge_disk_thresholds(
     return merged if merged or isinstance(stored, dict) else None
 
 
+def _leaves_a_library_unlimited(
+    conn: sqlite3.Connection, sent: dict[str, object], selected: object
+) -> bool:
+    """Return whether saving *sent* mends unreadable thresholds and leaves a selected library with no limit.
+
+    While they cannot be read no library is scanned; once they can, one with no limit always is.
+    """
+    stored = get_setting(conn, "disk_thresholds", default={})
+    if not stored or isinstance(stored, dict):
+        return False
+    entries = {library: cfg for library, cfg in sent.items() if isinstance(cfg, dict)}
+    if not any(cfg.get("path") or cfg.get("threshold") for cfg in entries.values()):
+        return False
+    limited = {
+        library
+        for library, cfg in entries.items()
+        if str(cfg.get("path") or "").strip() and int(cfg.get("threshold") or 0) > 0
+    }
+    return isinstance(selected, list) and not limited.issuperset(str(v) for v in selected)
+
+
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
@@ -298,6 +319,16 @@ def api_update_settings(
                 conn, body.plex_libraries, body.plex_libraries_base
             )
         if body.disk_thresholds is not None:
+            selected = body_dict.get("plex_libraries")
+            if selected is None:
+                selected = get_setting(conn, "plex_libraries", default=[])
+            if _leaves_a_library_unlimited(conn, body.disk_thresholds, selected):
+                return respond_err(
+                    "disk_thresholds_unreadable",
+                    status=409,
+                    message="The stored disk thresholds can't be read, so no library is scanned. "
+                    "Give every selected library a path and a Scan above limit, then save.",
+                )
             thresholds = _merge_disk_thresholds(conn, body.disk_thresholds)
             if thresholds is None:
                 del body_dict["disk_thresholds"]
