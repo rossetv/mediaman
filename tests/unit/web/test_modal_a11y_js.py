@@ -64,6 +64,10 @@ def test_a_dialog_with_its_own_focus_has_the_page_back_before_it_hands_the_focus
     }
 
 
+def test_a_dialog_closed_at_once_does_not_take_the_focus_afterwards() -> None:
+    assert _run("closedAtOnce") == "opener"
+
+
 def test_tab_goes_round_every_control_in_the_dialog_and_never_by_the_browser_s_own_step() -> None:
     out = _run("tab")
     assert out["on"] == ["field", "low-yes", "low-no"]

@@ -125,6 +125,16 @@ const scenarios = {
     m.close();
     return { open, closed: p.inert(), focused: p.focused() };
   },
+  // A confirm answered before its first focus, which comes a moment after it opens.
+  closedAtOnce() {
+    const p = page();
+    const later = [];
+    p.ctx.setTimeout = (fn, ms) => { if (!ms) later.push(fn); };
+    p.confirm();
+    p.ctx.UIFeedback.dismissConfirm();
+    later.forEach((fn) => fn());
+    return p.focused();
+  },
   // Tab and Shift+Tab, each stopped from the browser's own step, which in Safari skips buttons.
   tab() {
     const p = page();
