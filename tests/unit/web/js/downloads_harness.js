@@ -90,7 +90,7 @@ function build(pollGet) {
   const add = (id, parent) => { const e = new El('div', doc); e.setAttribute('id', id); (parent || root).appendChild(e); return e; };
   const ph = new El('div', doc); ph.className = 'ph'; root.appendChild(ph);
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise,
+    document: doc, console, JSON, Array, Object, String, Math, Promise, AbortController,
     setTimeout: (fn) => { fn.tid = ++ctx.timerSeq; ctx.timers.push(fn); return fn.tid; },
     clearTimeout: (id) => { ctx.timers = ctx.timers.filter((f) => f.tid !== id); }, timerSeq: 0, CustomEvent: class {},
     timers: [], MM: {}, MM_API: pollGet, reduce: false,

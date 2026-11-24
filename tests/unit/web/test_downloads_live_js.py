@@ -200,3 +200,18 @@ def test_a_link_to_radarr_keeps_the_focus_while_its_line_changes() -> None:
     assert out["hero"] == out["row"] == followed
     assert out["noLink"] == [True, True]
     assert out["built"] == "Searched once · View in Radarr ↗"
+
+
+def test_a_page_that_hears_nothing_says_so_and_goes_on_asking() -> None:
+    out = _run("lost", hero=_item("h"), recent=[_item("r")], subtitle="1 item in progress")
+    # subtitle, dimmed cards, recently added titles
+    live = ["1 item in progress", 0, 1]
+    cut_off = ["1 item in progress · can't reach mediaman", 1, 1]
+    assert out["once"] == live, "one failed poll is no news"
+    assert out["twice"] == cut_off
+    assert out["back"] == live
+    assert out["late"] == cut_off
+    assert out["retried"], "a poll that hangs is given up and another sent"
+    assert out["backAgain"] == live
+    # a poll the hidden tab was waiting for does not hold up the next
+    assert out["shownAgain"] == [7, 0]

@@ -233,9 +233,19 @@
     renderRecent().updateUpcomingList(root, data);
 
     /* Recent */
-    renderRecent().updateRecent(recentContainer, data.recent);
+    if (data.recent) renderRecent().updateRecent(recentContainer, data.recent);
 
     if (header) updateSubtitle(dom, header, subtitleFor(dom, data));
+  }
+
+  /* mediaman itself does not answer: all that is shown is held as what was last
+     known, as it is for a service that does not. */
+  function lost() {
+    var line = 'Can\'t reach mediaman';
+    update({
+      hero: null, queue: [], upcoming: [], subtitle: line,
+      unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: line,
+    });
   }
 
   document.addEventListener('click', function (e) {
@@ -255,5 +265,5 @@
   });
 
   /* Kick off the polling loop. */
-  MM.downloads.poll.start(update);
+  MM.downloads.poll.start(update, lost);
 }());

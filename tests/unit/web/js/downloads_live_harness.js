@@ -174,6 +174,38 @@ const scenarios = {
     return out;
   },
 
+  // polls that fail, hang or are never heard back from
+  async lost() {
+    const calls = [];
+    const p = page(spec, { get: (_url, o) => new Promise((resolve, reject) => {
+      calls.push({ resolve, reject });
+      if (o && o.signal) o.signal.addEventListener('abort', () => reject(Object.assign(new Error('x'), { name: 'AbortError' })));
+    }) });
+    const run = async (ms) => { const t = p.timers.find((x) => x.ms === ms); if (!t) return false; p.timers.splice(p.timers.indexOf(t), 1); t.fn(); await settle(); return true; };
+    const answer = async (n, data) => { calls[n].resolve({ subtitle: '1 item in progress', hero: item('h', { eta: '5 min' }), queue: [], upcoming: [], recent: [], unreachable: [], outage: '', ...data }); await settle(); };
+    const fail = async (n) => { calls[n].reject(new Error('down')); await settle(); };
+    const look = () => [p.text('.ph p'), p.qa('.is-held').length, p.qa('.dl-recent-item').length];
+    const out = {};
+    await run(2000); await fail(0);
+    out.once = look();
+    await run(4000); await fail(1);
+    out.twice = look();
+    await run(8000); await answer(2, { recent: undefined });
+    out.back = look();
+    await run(2000); await run(20000);
+    out.late = look();
+    await run(120000);
+    out.retried = await run(4000) && calls.length === 5;
+    await answer(4, { recent: undefined });
+    out.backAgain = look();
+    // put away while a poll is out, and taken out again
+    await run(2000);
+    p.doc.hidden = true; p.doc.listeners.visibilitychange.forEach((f) => f()); await settle();
+    p.doc.hidden = false; p.doc.listeners.visibilitychange.forEach((f) => f()); await settle();
+    out.shownAgain = [calls.length, look()[1]];
+    return out;
+  },
+
   // everything coming soon gives way to something else in one poll
   async upcomingReplaced() {
     const p = page(spec);
