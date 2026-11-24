@@ -197,6 +197,16 @@ class TestArrClientRadarr:
         assert payload["qualityProfileId"] == 6
         assert result["id"] == 42
 
+    @pytest.mark.parametrize("answer", [{"message": "busy"}, ["/media"], [None]])
+    @pytest.mark.parametrize("listed_first", [[], [[{"path": "/media"}]]])
+    def test_add_movie_raises_an_upstream_error_for_a_list_of_the_wrong_shape(
+        self, client, fake_http, fake_response, listed_first, answer
+    ):
+        for body in [*listed_first, answer]:
+            fake_http.queue("GET", fake_response(json_data=body))
+        with pytest.raises(ArrUpstreamError):
+            client.add_movie(tmdb_id=1, title="Test")
+
     def test_add_movie_raises_when_no_root_folder(self, client, fake_http, fake_response):
         """Empty rootfolder list fails loudly instead of inventing /movies."""
         fake_http.queue("GET", fake_response(json_data=[]))
