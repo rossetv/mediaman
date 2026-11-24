@@ -202,7 +202,6 @@ def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
         "button": "Make viewer",
         "focused": True,
         "disabled": False,
-        "busy": False,
     }
 
 
@@ -247,6 +246,19 @@ def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
 def test_a_role_change_or_delete_is_sent_once_from_a_button_that_keeps_the_focus() -> None:
     once = {"dropped": False, "busy": "true", "runs": 1, "again": None, "label": True}
     assert _run("rowActions") == {"role": once, "delete": once}
+
+
+def test_a_press_just_after_a_role_change_does_not_reverse_it() -> None:
+    out = _run("roleQuiet")
+    assert out["quiet"] == {
+        "sent": ["admin"],
+        "label": "Make viewer",
+        "focused": True,
+        "wait": [1000],
+    }
+    assert out["later"] == ["admin", "viewer"]
+    # a held Enter presses the button once
+    assert (out["held"], out["first"]) == (True, False)
 
 
 def test_the_password_dialog_for_a_delete_names_the_delete() -> None:

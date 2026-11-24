@@ -54,6 +54,8 @@
 
   // The dialog's fade out (--dur is 200 ms), with a little to spare.
   var REAUTH_FADE_MS = 220;
+  // How long a changed role's button, which now undoes the change, ignores a press meant for the dialog.
+  var ROLE_QUIET_MS = 1000;
 
   MM.settings.users = {
 
@@ -170,6 +172,8 @@
           roleBtn.type = 'button';
           roleBtn.className = 'btn btn--ghost btn--sm';
           roleBtn.dataset.userAction = 'role';
+          // A held Enter must not change the role back and forth.
+          roleBtn.addEventListener('keydown', function (e) { if (e.repeat) e.preventDefault(); });
           roleBtn.addEventListener('click', function () {
             changeRoleFlow(user, isAdmin(user) ? 'viewer' : 'admin', roleBtn, function () {
               paintRole(user, roleLabel, roleBtn);
@@ -331,8 +335,8 @@
           function apply() {
             var keepFocus = MM.dom.focusStillIn(btn);
             user.role = role;
-            setBusy(btn, false);
             changed();
+            setTimeout(function () { setBusy(btn, false); }, ROLE_QUIET_MS);
             if (keepFocus) btn.focus();
           }
           if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();

@@ -840,7 +840,6 @@ const scenarios = {
     await h.flush();
     const again = row.querySelector('[data-user-action="role"]');
     return {
-      busy: btn.getAttribute('aria-disabled') === 'true',
       sameRow: userList.querySelector('.usr-row') === row,
       pill: row.querySelector('.pill').textContent,
       button: again.textContent,
@@ -1007,6 +1006,36 @@ const scenarios = {
       out[action] = { dropped, busy, runs, again: btn.getAttribute('aria-disabled'), label: btn.textContent === before };
     }
     return out;
+  },
+
+  // A press just after a role was changed does not change it back; a later one does.
+  async roleQuiet() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const sent = [];
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }),
+      patch: (u, b) => { sent.push(b.role); return Promise.resolve({}); },
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const btn = userList.querySelector('[data-user-action="role"]');
+    const press = async () => { btn.fire('click'); await h.flush(); };
+    btn.focus();
+    await press();
+    await press();
+    const quiet = { sent: sent.slice(), label: btn.textContent, focused: h.doc.activeElement === btn, wait: h.timers.map((t) => t.ms) };
+    h.drain();
+    await press();
+    let held = false;
+    btn.fire('keydown', { key: 'Enter', repeat: true, preventDefault: () => { held = true; } });
+    let first = false;
+    btn.fire('keydown', { key: 'Enter', repeat: false, preventDefault: () => { first = true; } });
+    return { quiet, later: sent, held, first };
   },
 
   // The words of the password dialog when a user is deleted.
