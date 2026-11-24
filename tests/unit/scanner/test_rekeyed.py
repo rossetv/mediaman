@@ -708,6 +708,17 @@ class TestLastWatched:
 
         assert _scheduled(conn) == set()
 
+    def test_the_same_key_listed_again_at_another_path_is_still_watched(self, conn, freezer):
+        _sync(conn, films=_FILM)
+        _set_watched(conn, "f1", _YESTERDAY)
+        for films in ([], []):
+            freezer.tick(60)
+            _sync(conn, films=films)
+
+        _scan(conn, films=[_film("f1", "moved")])
+
+        assert _scheduled(conn) == set()
+
     def test_a_new_key_first_listed_beside_the_old_one_is_not_scheduled(self, conn):
         _sync(conn, films=_FILM)
         _set_watched(conn, "f1", _YESTERDAY)

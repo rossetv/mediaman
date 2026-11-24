@@ -92,7 +92,9 @@ def keep_credited_plays(conn: sqlite3.Connection, username: str) -> None:
 
 
 def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
-    """Give *media_id* the last watch of the same title under another key, if it is later.
+    """Give *media_id* the last watch of the same title under another key, or its own set aside.
+
+    Only if it is later.
 
     Plex gives a title it removed and found again a new key, and its plays stay
     with the old one. The old key is in the library, or set aside by
@@ -104,8 +106,9 @@ def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
         f" SELECT {_LATEST} AS at FROM media_items mi"
         f" JOIN media_items o ON {_SURELY_THE_SAME} AND o.id != mi.id WHERE mi.id = ?"
         " UNION ALL SELECT o.last_watched_at FROM media_items mi"
-        f" JOIN pruned_watches o ON {_SURELY_THE_SAME} WHERE mi.id = ?)",
-        (media_id, media_id),
+        f" JOIN pruned_watches o ON {_SURELY_THE_SAME} WHERE mi.id = ?"
+        " UNION ALL SELECT last_watched_at FROM pruned_watches WHERE media_item_id = ?)",
+        (media_id, media_id, media_id),
     ).fetchone()
     if row["at"]:
         conn.execute(
