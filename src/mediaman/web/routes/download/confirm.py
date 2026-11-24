@@ -258,12 +258,15 @@ def _build_item_from_payload(
             sid_int = None
         if sid_int is not None:
             enrichment = fetch_suggestion_enrichment(conn, sid_int)
-            return (
-                _build_item_from_suggestion(payload, enrichment)
-                if enrichment is not None
-                else _base_download_item(payload)
-            )
-    return _base_download_item(payload)
+            if enrichment is not None:
+                return _build_item_from_suggestion(payload, enrichment)
+    # The link of a person's own pick names no stored row, so the title's own facts are
+    # looked up. No reason comes with them: it would be one given for a shared pick.
+    item = _base_download_item(payload)
+    if payload.get("tmdb"):
+        enrich_redownload_item(item, conn, secret_key)
+        item["reason"] = None
+    return item
 
 
 def _enrich_item_fields(item: dict[str, object]) -> None:

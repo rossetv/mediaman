@@ -40,6 +40,8 @@
   {# Quick info bar #}
   <div class="dl-quick">
     <span class="type-pill{{ ' type-pill--movie' if item.media_type == 'movie' else '' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
+    {# Every download link but a re-download's was made for a recommendation. #}
+    {% if item.action == "download" %}<span class="genre-pill genre-pill--ai">{{ icon("i-sparkles") }}AI pick</span>{% endif %}
     <span class="meta-text">
       {% if item.runtime %}{{ item.runtime }} min{% endif %}
       {% if item.runtime and item.director %} &middot; {% endif %}

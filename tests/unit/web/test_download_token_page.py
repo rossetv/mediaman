@@ -15,7 +15,7 @@ from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
 from mediaman.web.routes.download import submit as _download_submit
-from tests.helpers.factories import insert_suggestion
+from tests.helpers.factories import insert_admin_user, insert_suggestion, insert_user_pick
 
 
 def _valid_token(
@@ -874,6 +874,63 @@ class TestDownloadPageReason:
 
         assert ("A quiet heist." in page) is shown
         assert "D. V." in page
+
+
+class TestDownloadPageOfAnOwnPick:
+    """Its link names the title and no stored pick."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_it_has_the_titles_facts_and_neither_a_reason_nor_anyones_name(
+        self, app_factory, conn, secret_key
+    ):
+        insert_suggestion(
+            conn,
+            title="Dune",
+            tmdb_id=42,
+            poster_url="https://image.tmdb.org/t/p/w500/p.jpg",
+            description="A desert planet.",
+            reason="A reason of a shared pick.",
+        )
+        insert_admin_user(conn, username="amyowner", role="viewer")
+        insert_user_pick(conn, "amyowner", title="Dune", tmdb_id=42, reason="Amys reason.")
+
+        page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
+
+        assert "https://image.tmdb.org/t/p/w500/p.jpg" in page
+        assert "A desert planet." in page
+        assert "AI pick" in page
+        for private in ("A reason of a shared pick.", "Amys reason.", "amyowner"):
+            assert private not in page
+
+    def test_a_title_not_stored_is_asked_of_tmdb_by_its_id(self, app_factory, conn, secret_key):
+        insert_suggestion(conn, title="Dune", tmdb_id=7, description="Another Dune.")
+        tmdb = MagicMock(**{"details.return_value": {"id": 42, "overview": "From TMDB."}})
+        tmdb.search.side_effect = AssertionError("a title can be a namesake's")
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            page = _render_queued_page(app_factory, conn, secret_key, email=None)
+
+        assert "From TMDB." in page
+        assert "Another Dune." not in page
+        assert {c.args for c in tmdb.details.call_args_list} == {("movie", 42)}
+
+    def test_a_redownload_is_no_ai_pick(self, app_factory, conn, secret_key):
+        insert_suggestion(conn, title="Dune", tmdb_id=42, poster_url="https://x/p.jpg")
+        token = generate_download_token(
+            email="a@example.com",
+            action="redownload",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=secret_key,
+        )
+        page = TestClient(_app_with_real_templates(app_factory, conn)).get(f"/download/{token}")
+        assert "Dune" in page.text
+        assert "AI pick" not in page.text
 
 
 class TestRateLimitedPage:
