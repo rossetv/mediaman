@@ -601,6 +601,42 @@ const scenarios = {
     return { film: await go(card('movie/1', 'Fieldwork', 'Movie'), 0), show: await go(card('show/2', 'Brightwater', 'TV'), 1) };
   },
 
+  // An episode marked and its show dismissed before the Watch page answers, or before what it asks of a show past the page does.
+  async dismissedMeanwhile() {
+    const lib = (sub) => row('lib', [card('show/2', 'Brightwater', sub)]);
+    const go = async (next, api, send) => {
+      const p = load(watchPage([banner('show-2', 'Brightwater', '/watch/play/22'), row('cont', CONTINUE), lib('TV · 9 left')]), { next, api });
+      await p.pick(p.cards('cont')[1], 'mark');
+      p.dismissed('show-2');
+      await settle();
+      send();
+      await settle();
+      const sub = () => p.look('lib')[0][2];
+      const dismissed = sub();
+      await p.undo();
+      return [dismissed, sub()];
+    };
+    const page = later();
+    const search = later();
+    const cont = [CONTINUE[0], CONTINUE[2]];
+    return {
+      page: await go((n) => (n === 1 ? page.answer : watchPage([row('cont', cont), lib('TV · 8 left')])), {}, () => page.send(watchPage([row('cont', CONTINUE), lib('TV · 9 left')]))),
+      show: await go(() => watchPage([row('cont', cont)]), { 'GET /api/watch/search?q=Brightwater': () => search.answer, 'GET /api/watch/title/show-2': { watched: false } },
+        () => search.send({ items: [{ ref: 'show-2', subtitle: 'TV · 8 left' }] })),
+    };
+  },
+
+  // An episode marked, then its whole show as not watched, before the Watch page answers. The show's card stands past the page's.
+  async wholeShowMeanwhile() {
+    const first = later();
+    const p = load(watchPage([row('cont', CONTINUE), row('lib', [card('show/2', 'Brightwater', 'TV · 1 left', { watched: true })])]),
+      { next: (n) => (n === 1 ? first.answer : watchPage([row('cont', CONTINUE)])),
+        api: { 'GET /api/watch/search?q=Brightwater': { items: [{ ref: 'show-2', subtitle: 'TV' }] }, 'GET /api/watch/title/show-2': { watched: false } } });
+    await p.pick(p.cards('cont')[1], 'mark');
+    await p.pick(p.cards('lib')[0], 'mark');
+    return p.look('lib')[0].slice(1, 3);
+  },
+
   // What a show's page leaves alone when the server's page arrives.
   async leftAlone() {
     const next = episodesPage([21], '/watch/play/22');

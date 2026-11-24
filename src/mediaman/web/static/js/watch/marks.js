@@ -286,21 +286,25 @@
   }
 
   var changes = 0; // every change and Undo that is in: a page asked for before the latest is out of date
-  var latest = {}; // each title's latest change
-  var owed = {}; // the titles changed since the rows last followed, with their latest change
+  var latest = {}; // each title's latest mark or Undo of one
+  var owed = {}; // the titles changed since the rows last followed: their latest change, and the one to follow the show's cards for
 
   /* The Watch page's cards and banner of the title *ref*, after a change of it, and of any
      other whose page was dropped. */
   function followRows(ref, done) {
-    latest[ref] = done;
-    if (bannerOf(ref) || continueCards(document, ref).length || done.part || done.redraw) owed[ref] = done;
+    if (bannerOf(ref) || continueCards(document, ref).length || done.part || done.redraw) {
+      owed[ref] = { done: done, part: done.part ? done : owed[ref] && owed[ref].part };
+    }
     if (!Object.keys(owed).length) return;
     var asked = changes;
     fetchPage('/watch').then(function (doc) {
       if (asked !== changes) return;
       var due = owed;
       owed = {};
-      Object.keys(due).forEach(function (one) { followRef(one, doc, due[one]); });
+      Object.keys(due).forEach(function (one) {
+        followRef(one, doc, due[one].done);
+        if (due[one].part) followShow(one, doc, due[one].part);
+      });
     }).catch(function () {
       // The mark is saved; the rows show the rest on the next load.
     });
@@ -324,7 +328,6 @@
     var own = isBannerOf(banner, ref) && (whole || now || !here.length);
     if (own || isBannerOf(fresh, ref)) replaceBanner(banner, fresh, done);
     if (done.seek && focusLost(null)) refocus(controlOf(ref, done.fromBanner));
-    if (done.part) followShow(ref, doc, done);
   }
 
   /* Bring one card up to date with what the server now says of its title. */
@@ -350,8 +353,9 @@
       return !fresh;
     });
     if (!past.length) return;
+    var asked = latest[ref];
     Promise.all([tryGet(TITLE_URL + ref), tryGet(SEARCH_URL + encodeURIComponent(titleOf(past[0])))]).then(function (got) {
-      if (latest[ref] !== done) return;
+      if (latest[ref] !== asked) return;
       var found = ((got[1] && got[1].items) || []).filter(function (item) { return item.ref === ref; })[0];
       past.forEach(function (card) {
         var mark = card.getAttribute('data-mark');
@@ -417,6 +421,7 @@
   }
 
   function follow(ref, done) {
+    latest[ref] = done;
     if (byId('watch-browse')) followRows(ref, done);
     else followTitle();
   }

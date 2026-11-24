@@ -321,3 +321,14 @@ def test_a_title_marked_as_not_watched_again_comes_back_to_continue_watching() -
     row = ["movie/1", "episode/22", "movie/3"]
     assert out["film"] == {"marked": ["episode/22", "movie/3"], "again": row}
     assert out["show"] == {"marked": ["movie/1", "movie/3"], "again": row}
+
+
+def test_dismissing_a_show_meanwhile_loses_nothing_of_its_episode_s_mark() -> None:
+    assert _run("dismissedMeanwhile") == {
+        "page": ["TV · 8 left", "TV · 8 left"],
+        "show": ["TV · 8 left", "TV · 8 left"],
+    }
+
+
+def test_marking_the_whole_show_meanwhile_still_says_what_is_left_of_it() -> None:
+    assert _run("wholeShowMeanwhile") == [False, "TV"]
