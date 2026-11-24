@@ -4,7 +4,7 @@
  * Responsibilities:
  *   - Connection-status pills (shared updater for intg-card + ov-status)
  *   - Manual test buttons (<button data-test-service="…">), which test the saved settings
- *   - Auto-test configured services on page load
+ *   - Auto-test configured services on page load, and those a save has changed
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
  *   - Rail badge counting the services whose check failed
  *
@@ -19,12 +19,73 @@
  *   MM.settings.integrations.setConnStatus(service, tone, label)
  *   MM.settings.integrations.paintRailCount()
  *   MM.settings.integrations.paintTests()   — called by savebar.js
+ *   MM.settings.integrations.recheck(keys, values) — called by savebar.js: the settings just stored
  */
 (function () {
   'use strict';
 
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
+
+  /* `fields` are what a service must have to be checked, `also` what else its check reads. */
+  var AUTO_CHECKS = [
+    { service: 'plex',    fields: ['plex_url', 'plex_token'] },
+    { service: 'sonarr',  fields: ['sonarr_url', 'sonarr_api_key'] },
+    { service: 'radarr',  fields: ['radarr_url', 'radarr_api_key'] },
+    { service: 'nzbget',  fields: ['nzbget_url'], also: ['nzbget_username', 'nzbget_password'] },
+    { service: 'mailgun', fields: ['mailgun_domain', 'mailgun_api_key'], also: ['mailgun_from_address'] },
+    { service: 'openai',  fields: ['openai_api_key'] },
+    { service: 'tmdb',    fields: ['tmdb_read_token'] },
+    { service: 'omdb',    fields: ['omdb_api_key'] },
+  ];
+
+  /* The newest check of each service: an older one answers for settings since replaced. */
+  var newest = {};
+  function begin(service) {
+    newest[service] = (newest[service] || 0) + 1;
+    return newest[service];
+  }
+  function isNewest(service, run) { return newest[service] === run; }
+
+  function fieldValue(id) {
+    var el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  // A throttled service is not a disconnected one, so a 429 gets the
+  // warning tone, which the rail badge does not count. Returns the label.
+  function setFailedStatus(service, err) {
+    var label = (err && err.status === 429)
+      ? 'Rate limited'
+      : MM.api.messageOf(err, 'Connection failed');
+    MM.settings.integrations.setConnStatus(service, (err && err.status === 429) ? 'warn' : 'err', label);
+    return label;
+  }
+
+  /* Stagger requests by 200 ms per service to avoid blowing the per-admin
+     rate-limit burst cap when all 8 checks fire simultaneously on page load. */
+  function autoTest(checks, valueOf) {
+    checks.forEach(function (c, idx) {
+      var run = begin(c.service);
+      if (!c.fields.every(valueOf)) {
+        MM.settings.integrations.setConnStatus(c.service, 'off', 'Not configured');
+        return;
+      }
+      MM.settings.integrations.setConnStatus(c.service, 'untested', 'Testing…');
+      setTimeout(function () {
+        if (!isNewest(c.service, run)) return;
+        MM.api.post('/api/settings/test/' + encodeURIComponent(c.service) + '?auto=1')
+          .then(function () {
+            if (isNewest(c.service, run)) MM.settings.integrations.setConnStatus(c.service, 'ok', 'Connected');
+          })
+          .catch(function (err) {
+            // 429 is the common case here; staggering above reduces
+            // occurrences, but it is still shown distinctly if it fires.
+            if (isNewest(c.service, run)) setFailedStatus(c.service, err);
+          });
+      }, idx * 200);
+    });
+  }
 
   MM.settings.integrations = {
 
@@ -93,6 +154,14 @@
       });
     },
 
+    /* Checks each service that reads one of `keys`. `values` are the settings as now stored:
+       a field may hold a newer edit. */
+    recheck: function (keys, values) {
+      autoTest(AUTO_CHECKS.filter(function (c) {
+        return c.fields.concat(c.also || []).some(function (key) { return keys.indexOf(key) !== -1; });
+      }), function (id) { return values[id]; });
+    },
+
     init: function () {
       var self = MM.settings.integrations;
 
@@ -101,17 +170,8 @@
         return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
       }
 
-      // A throttled service is not a disconnected one, so a 429 gets the
-      // warning tone, which the rail badge does not count. Returns the label.
-      function setFailedStatus(service, err) {
-        var label = (err && err.status === 429)
-          ? 'Rate limited'
-          : MM.api.messageOf(err, 'Connection failed');
-        self.setConnStatus(service, (err && err.status === 429) ? 'warn' : 'err', label);
-        return label;
-      }
-
       function testService(service, btn) {
+        var run = begin(service);
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) self.announce(service, '');
         if (btn) {
@@ -120,10 +180,12 @@
         }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
           .then(function () {
+            if (!isNewest(service, run)) return;
             self.setConnStatus(service, 'ok', 'Connected');
             if (btn) { btn.textContent = 'OK ✓'; self.announce(service, serviceName(btn) + ': Connected'); }
           })
           .catch(function (err) {
+            if (!isNewest(service, run)) return;
             // MM.api rejects on ok:false too, so a failed test lands here.
             var label = setFailedStatus(service, err);
             // A throttled test did not fail; the button says to try again later.
@@ -147,43 +209,7 @@
         });
       });
 
-      var AUTO_CHECKS = [
-        { service: 'plex',    fields: ['plex_url', 'plex_token'] },
-        { service: 'sonarr',  fields: ['sonarr_url', 'sonarr_api_key'] },
-        { service: 'radarr',  fields: ['radarr_url', 'radarr_api_key'] },
-        { service: 'nzbget',  fields: ['nzbget_url'] },
-        { service: 'mailgun', fields: ['mailgun_domain', 'mailgun_api_key'] },
-        { service: 'openai',  fields: ['openai_api_key'] },
-        { service: 'tmdb',    fields: ['tmdb_read_token'] },
-        { service: 'omdb',    fields: ['omdb_api_key'] },
-      ];
-
-      function fieldHasValue(id) {
-        var el = document.getElementById(id);
-        return !!(el && el.value && el.value !== '');
-      }
-
-      function autoTest() {
-        /* Stagger requests by 200 ms per service to avoid blowing the per-admin
-           rate-limit burst cap when all 8 checks fire simultaneously on page load. */
-        AUTO_CHECKS.forEach(function (c, idx) {
-          var configured = c.fields.every(fieldHasValue);
-          if (!configured) { self.setConnStatus(c.service, 'off', 'Not configured'); return; }
-          self.setConnStatus(c.service, 'untested', 'Testing…');
-          setTimeout(function () {
-            MM.api.post('/api/settings/test/' + encodeURIComponent(c.service))
-              .then(function () {
-                self.setConnStatus(c.service, 'ok', 'Connected');
-              })
-              .catch(function (err) {
-                // 429 is the common case here; staggering above reduces
-                // occurrences, but it is still shown distinctly if it fires.
-                setFailedStatus(c.service, err);
-              });
-          }, idx * 200);
-        });
-      }
-      autoTest();
+      autoTest(AUTO_CHECKS, fieldValue);
 
       var syncBtn = document.getElementById('btn-sync-library');
       if (syncBtn) syncBtn.addEventListener('click', function () {

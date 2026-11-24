@@ -17,6 +17,7 @@
  *   MM.settings.diskThresholds / MM.settings.toggles (Discard puts their
  *                     state back; a save takes in what the server stored)
  *   MM.settings.integrations.paintTests (told of every edit, save and discard)
+ *   MM.settings.integrations.recheck (told what a save has stored)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
@@ -94,6 +95,14 @@
   var unsure = {};
 
   function isUnsure() { return Object.keys(unsure).length > 0; }
+
+  // The settings of saves with no answer: their services are checked once it is known what is stored.
+  var unchecked = [];
+
+  function recheck(keys) {
+    if (MM.settings.integrations) MM.settings.integrations.recheck(unchecked.concat(keys), saved.values);
+    unchecked = [];
+  }
 
   function settingsControls() {
     return Array.prototype.filter.call(
@@ -473,6 +482,7 @@
             var merged = sent.disk && 'plex_libraries' in data;
             saved = { values: sent.values, disk: merged ? MM.settings.diskThresholds.fromServer(data) : sent.disk };
             show(saved, sent);
+            recheck(Object.keys(payload));
             refreshOverviewHero();
             if (changedKeys(saved, snapshot()).length) {
               saveBtn.textContent = SAVE_LABEL;
@@ -513,7 +523,10 @@
             return;
           }
           // With no answer, or the server's own failure, the settings may be stored all the same.
-          if (!err || !err.status || err.status >= 500) rememberUnsure(sent);
+          if (!err || !err.status || err.status >= 500) {
+            unchecked = unchecked.concat(Object.keys(payload));
+            rememberUnsure(sent);
+          }
           if (err && err.status) {
             // Reconstruct a minimal data envelope so summariseSaveError can
             // read detail / error fields that MM.api.APIError already parsed.
@@ -553,6 +566,7 @@
         askToCheck(unexpected(saved, Object.keys(unsure)));
         unsure = {};
         putBackSaved(fromKeyboard);
+        recheck([]);
       });
     }
 

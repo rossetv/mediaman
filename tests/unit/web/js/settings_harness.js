@@ -1627,6 +1627,93 @@ const scenarios = {
     return out;
   },
 
+  // Which services are checked again after a save, and what their pills end up saying.
+  async recheck() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const f = {};
+    ['plex_url', 'plex_token', 'plex_public_url', 'sonarr_url', 'sonarr_api_key', 'nzbget_url', 'nzbget_username', 'base_url'].forEach((id) => { f[id] = h.add('input', { id, value: 'v', type: 'text' }, page); });
+    const pills = {};
+    ['plex', 'sonarr', 'nzbget'].forEach((s) => {
+      pills[s] = h.add('span', { className: 'conn' }, page);
+      pills[s].setAttribute('data-conn', s);
+      h.add('span', {}, pills[s]).setAttribute('data-conn-label', '');
+    });
+    const btn = h.add('button', {}, page);
+    btn.setAttribute('data-test-service', 'plex');
+    let checks = [];
+    let check = () => Promise.resolve({});
+    let put = () => Promise.resolve({ status: 'saved' });
+    h.ctx.MM.api = {
+      post: (u) => { checks.push(u.split('/').pop()); return check(); },
+      put: () => put(),
+      get: () => Promise.resolve({}),
+      messageOf: (e, words) => words,
+    };
+    h.ctx.MM.reauth = { run: (fn) => fn() };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast() {}, confirm: () => Promise.resolve(true) };
+    ['savebar', 'general', 'integrations'].forEach((n) => h.load('settings/' + n + '.js'));
+    const m = h.ctx.MM.settings;
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    m.integrations.init();
+    h.drain(); await h.flush();
+    const edit = (id, v) => { f[id].value = v; f[id].fire('input'); };
+    const saveNow = async () => { checks = []; save.fire('click'); await h.flush(); h.drain(); await h.flush(); return checks; };
+    const look = (s) => [pills[s].className.split(' ').pop(), pills[s].textContent];
+    const out = { atLoad: checks };
+
+    checks = [];
+    btn.fire('click');
+    await h.flush(); h.drain();
+    out.pressed = checks;
+    check = () => Promise.reject({ status: 502 });
+    edit('sonarr_api_key', 'wrong');
+    edit('nzbget_username', 'other');
+    out.written = [await saveNow(), look('plex'), look('sonarr'), look('nzbget')];
+    check = () => Promise.resolve({});
+    edit('base_url', 'b');
+    edit('plex_public_url', 'p');
+    out.elsewhere = await saveNow();
+    edit('sonarr_url', '');
+    out.emptied = [await saveNow(), look('sonarr')];
+
+    // a check of what was stored before answers after the new one
+    const answers = [];
+    check = () => new Promise((res, rej) => answers.push({ res, rej }));
+    btn.fire('click');
+    edit('plex_url', 'new');
+    await saveNow();
+    answers[1].res({});
+    await h.flush();
+    answers[0].rej({ status: 502 });
+    await h.flush();
+    out.late = [answers.length, look('plex'), btn.textContent];
+    h.drain();
+
+    // a save with no answer may have changed them; nothing is asked until that is known
+    check = () => Promise.resolve({});
+    put = () => Promise.reject({ status: 0 });
+    edit('plex_url', 'lost');
+    out.lost = [await saveNow()];
+    put = () => Promise.resolve({ status: 'saved' });
+    out.lost.push(await saveNow());
+    put = () => Promise.reject({ status: 0 });
+    edit('plex_url', 'again');
+    await saveNow();
+    checks = [];
+    discard.fire('click');
+    await h.flush(); h.drain(); await h.flush();
+    out.discarded = checks;
+    put = () => Promise.reject({ status: 422, data: {} });
+    edit('plex_url', 'bad');
+    out.refused = await saveNow();
+    return out;
+  },
+
   // What each form brings into view: itself once it has unfolded, then its status.
   async revealed() {
     const out = {};

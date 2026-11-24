@@ -516,6 +516,31 @@ def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_b
     assert out["gone"] == ["", 1]
 
 
+def test_a_save_checks_again_only_the_services_it_changed() -> None:
+    out = _run("recheck")
+    failed = ["err", "Connection failed"]
+    assert out["written"] == [["sonarr?auto=1", "nzbget?auto=1"], ["ok", "Connected"], failed, failed]
+    assert out["elsewhere"] == out["refused"] == []
+    assert out["emptied"] == [[], ["off", "Not configured"]]
+
+
+def test_only_checks_nobody_pressed_are_marked_automatic() -> None:
+    out = _run("recheck")
+    assert out["atLoad"] == ["plex?auto=1", "sonarr?auto=1", "nzbget?auto=1"]
+    assert out["pressed"] == ["plex"]
+
+
+def test_a_service_whose_lost_save_is_settled_is_checked_again() -> None:
+    out = _run("recheck")
+    assert out["lost"] == [[], ["plex?auto=1"]]
+    assert out["discarded"] == ["plex?auto=1"]
+
+
+def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> None:
+    late = _run("recheck")["late"]
+    assert late == [2, ["ok", "Connected"], "Testing…"]
+
+
 def test_the_page_loads_each_script_once() -> None:
     pages = [
         (_TEMPLATE_DIR / name).read_text(encoding="utf-8") for name in ("base.html", "settings.html")
