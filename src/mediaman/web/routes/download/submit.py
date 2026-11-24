@@ -27,6 +27,7 @@ from mediaman.services.arr.add_outcome import movie_add_landed, series_add_lande
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ACTION_QUEUED,
     ExistingMovieError,
     add_or_remonitor_movie,
     is_series_already_tracked,
@@ -35,7 +36,10 @@ from mediaman.services.arr.state import (
     sonarr_fetches_series,
     sonarr_tracks_series,
 )
-from mediaman.services.downloads.notifications import record_download_notification
+from mediaman.services.downloads.notifications import (
+    record_download_notification,
+    record_notification_on_its_way,
+)
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.responses import respond_failure
@@ -55,7 +59,7 @@ from ._tokens import (
     add_went_unanswered,
     note_unanswered_add,
 )
-from .confirm import drop_arr_cache
+from .confirm import drop_arr_cache, read_download_state
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +159,17 @@ class _SeasonOnDisk(SafeHTTPError):
     """The 409 for a season Sonarr has complete."""
 
 
+class _AlreadyThere(SafeHTTPError):
+    """A refused add of a title the Arr holds, with the state the emailed page names it by and
+    whether an email about it is to come."""
+
+    def __init__(self, exc: SafeHTTPError, state: str | None, *, mail_to_come: bool) -> None:
+        super().__init__(exc.status_code, exc.body_snippet, exc.url)
+        self.state = state
+        self.mail_to_come = mail_to_come
+        self.releases_link = isinstance(exc, _HeldNotFetched)
+
+
 def _held_error(exc: SafeHTTPError, fetched: bool) -> SafeHTTPError:
     """The 409 for a refused add of a title the Arr holds."""
     cls = SafeHTTPError if fetched else _HeldNotFetched
@@ -191,6 +206,53 @@ def _note_if_unanswered(
             )
         # Commits both: a retry finding the note asks for no second email.
         note_unanswered_add(conn, payload["token"], payload["exp"])
+
+
+def _already_there_error(
+    payload: DownloadPayload,
+    conn: sqlite3.Connection,
+    exc: SafeHTTPError,
+    *,
+    media_type: str,
+    service: str,
+    tvdb_id: int | None = None,
+) -> SafeHTTPError:
+    """*exc*, or what the title it was refused for is doing: one on its way is mailed to the
+    person when it is ready, as if their request had gone through. Raises ArrError when that
+    cannot be read, so the link can be tried again.
+    """
+    tmdb_id = payload["tmdb_id"]
+    if exc.status_code not in (409, 422) or not tmdb_id:
+        return exc
+    season = payload["season"]
+    season_number = season.season_number if season else None
+    drop_arr_cache()
+    try:
+        state, held = read_download_state(
+            conn,
+            payload["secret_key"],
+            media_type,
+            tmdb_id=tmdb_id,
+            season_number=season_number,
+            tvdb_id=tvdb_id,
+        )
+    except SafeHTTPError as unread:
+        raise ArrError(f"{service} state read failed: HTTP {unread.status_code}") from unread
+    mail_to_come = False
+    if state == ACTION_QUEUED and held is not None and payload["email"]:
+        with conn:
+            mail_to_come = record_notification_on_its_way(
+                conn,
+                held,
+                email=payload["email"],
+                title=payload["title"],
+                media_type=media_type,
+                service=service,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                season_number=season_number,
+            )
+    return _AlreadyThere(exc, state, mail_to_come=mail_to_come)
 
 
 def _landed_late(payload: DownloadPayload, conn: sqlite3.Connection, exc: SafeHTTPError) -> bool:
@@ -240,6 +302,9 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         if not movie_add_landed(error, client, tmdb_id):
             if not _landed_late(payload, conn, error):
                 _note_if_unanswered(payload, conn, error, media_type="movie", service="radarr")
+                error = _already_there_error(
+                    payload, conn, error, media_type="movie", service="radarr"
+                )
                 if error is exc:
                     raise
                 raise error from exc
@@ -378,6 +443,9 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
                 _note_if_unanswered(
                     payload, conn, error, media_type="tv", service="sonarr", tvdb_id=tvdb_id
                 )
+                error = _already_there_error(
+                    payload, conn, error, media_type="tv", service="sonarr", tvdb_id=tvdb_id
+                )
                 if error is exc:
                     raise
                 raise error from exc
@@ -497,7 +565,7 @@ def _handle_already_exists_error(
     """Handle Arr 409/422 (item already exists) and non-recoverable transport errors.
 
     For 409/422: release the token reservation for re-download links, mint
-    a poll token, and return a 409. For other HTTP errors: release the
+    a poll token, and return a 409 naming the title's state. For other HTTP errors: release the
     reservation and return a 502.
     """
     status = exc.status_code
@@ -532,6 +600,9 @@ def _handle_already_exists_error(
                 secret_key=secret_key,
             )
         extra: dict[str, object] = {"poll_token": poll_token} if poll_token else {}
+        if isinstance(exc, _AlreadyThere) and exc.state:
+            extra["download_state"] = exc.state
+            extra["notify_by_email"] = exc.mail_to_come
         said = f"'{title}' already exists"
         if season_number is not None:
             said = already_there(season_number, title)
@@ -594,7 +665,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             title,
             media_type,
             tmdb_id,
-            is_redownload or isinstance(exc, _HeldNotFetched),
+            is_redownload or (isinstance(exc, _AlreadyThere) and exc.releases_link),
             config.secret_key,
             dl_payload["season"].season_number if dl_payload["season"] else None,
         )

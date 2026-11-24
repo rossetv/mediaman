@@ -20,22 +20,33 @@ Object.defineProperty(Node.prototype, 'disabled', {
   },
 });
 
+// What was scrolled into view, and how.
+const revealed = [];
+Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && how.block]); };
+
+// On screen, between the page's bars, unless a scenario says otherwise.
+Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
+
 function page(api) {
   const doc = makeDocument();
   doc.readyState = 'complete';
-  doc.body.appendChild(build(doc, ['main', {},
+  doc.documentElement.clientHeight = 600;
+  doc.body.appendChild(build(doc, ['main', { id: 'main-content' },
     ['form', { id: 'account-password-form' },
       ['input', { id: 'account-old-password' }], ['input', { id: 'account-new-password' }], ['input', { id: 'account-confirm-password' }],
       ['button', { id: 'account-submit-password' }], ['span', { id: 'account-password-result' }]],
     ['form', { id: 'account-email-form' },
       ['input', { id: 'account-email' }], ['button', { id: 'account-submit-email' }], ['span', { id: 'account-email-result' }]],
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
-    ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]));
+    ['div', {},
+      ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]]));
   const $ = (id) => doc.getElementById(id);
   $('account-password-form').reset = () => {};
   const MM = { api: { messageOf: (e, d) => e.message || d, ...api }, reauth: { run: (f) => f() } };
   class FixedDate extends Date { static now() { return NOW; } }
-  const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate });
+  // A top bar of 64px and a bottom bar of 72px.
+  const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
+  const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate, getComputedStyle });
   vm.runInContext(fs.readFileSync(path.join(JS, 'account.js'), 'utf8'), ctx);
   return {
     $,
@@ -93,8 +104,69 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     p.fire('account-password-form', 'submit');
     const whileSending = p.focused();
+    p.fire('account-password-form', 'input');
+    const working = p.say('account-password-result');
     await settle();
-    return { posts, whileSending, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
+    const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
+    out.revealed = revealed.splice(0);
+    p.$('account-new-password').value = 'short';
+    p.fire('account-password-form', 'submit');
+    out.revealedRefusal = revealed.splice(0);
+    p.fire('account-password-form', 'input');
+    return { ...out, revealedEmptied: revealed.splice(0) };
+  },
+  // for each form, what an answer brings into view when the reader is still there (with the keyboard on what is around
+  // the button too, as Safari leaves a clicked one), has scrolled its status out of view or under a bar, or has the keyboard in something else
+  async lateAnswer() {
+    const ids = { email: 'account-submit-email', password: 'account-submit-password', sessions: 'account-revoke-others' };
+    const results = { email: 'account-email-result', password: 'account-password-result', sessions: 'account-revoke-result' };
+    const late = async (which, refused, { top = 300, focus } = {}) => {
+      let give;
+      const pending = () => new Promise((resolve, reject) => { give = refused ? () => reject(new Error('No')) : () => resolve({ ok: true }); });
+      const p = page({ get: () => Promise.resolve({ sessions: [session(5), session(9)] }), patch: pending, post: pending });
+      await settle();
+      p.$('account-email').value = 'vic@example.com';
+      ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+      if (which === 'sessions') p.press(ids.sessions);
+      else { p.$(ids[which]).focus(); p.fire('account-' + which + '-form', 'submit'); }
+      const onPress = revealed.splice(0).map(([id]) => id).join() === results[which];
+      p.$(results[which]).getBoundingClientRect = () => ({ top, bottom: top + 20 });
+      if (focus === 'around') p.$('main-content').focus();
+      else if (focus) p.$(which === 'email' ? 'account-old-password' : 'account-email').focus();
+      give();
+      await settle();
+      const answered = revealed.splice(0).map(([id]) => id).join() === results[which];
+      return [onPress, answered];
+    };
+    const each = async (which, refused) => ({
+      there: await late(which, refused),
+      around: await late(which, refused, { focus: 'around' }),
+      below: await late(which, refused, { top: 700 }),
+      above: await late(which, refused, { top: -300 }),
+      underTheBottomBar: await late(which, refused, { top: 540 }),
+      underTheTopBar: await late(which, refused, { top: 20 }),
+      elsewhere: await late(which, refused, { focus: 'elsewhere' }),
+    });
+    return {
+      email: await each('email'), password: await each('password'), sessions: await each('sessions'),
+      sessionsRefused: await each('sessions', true),
+      // the cursor goes to the fix, so its reason does too
+      emailRefused: await late('email', true, { top: 700 }), passwordRefused: await late('password', true, { top: 700 }),
+    };
+  },
+  // how the focus goes to the list of sign-ins once the others are signed out
+  async focusOnTheList() {
+    let list = [session(5), session(9)];
+    const p = page({
+      get: () => Promise.resolve({ sessions: list }),
+      post: () => { list = [session(9)]; return Promise.resolve({ ok: true }); },
+    });
+    await settle();
+    let how = null;
+    p.$('account-sessions').focus = (opts) => { how = opts || {}; };
+    p.press('account-revoke-others');
+    await settle();
+    return how;
   },
   async strength() {
     const doc = makeDocument();

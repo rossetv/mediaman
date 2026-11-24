@@ -32,7 +32,7 @@
 
   {% if queue %}
   <div id="dl-queue-container">
-    <div class="dl-compact-header">Also downloading</div>
+    <h2 class="dl-compact-header">Also downloading</h2>
     <div class="dl-compact-list" id="dl-queue-list">
       {% for item in queue %}
       {% include "_dl_compact_row.html" %}
@@ -54,7 +54,7 @@
 
   {% if upcoming %}
   <div id="dl-upcoming-container">
-    <div class="dl-compact-header">Coming soon</div>
+    <h2 class="dl-compact-header">Coming soon</h2>
     <div class="dl-compact-list" id="dl-upcoming-list">
       {% for item in upcoming %}
       {% include "_dl_upcoming_row.html" %}

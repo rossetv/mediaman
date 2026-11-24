@@ -2191,8 +2191,9 @@
       delBtn.setAttribute('data-ttl-act', 'admin-delete');
       if (del.kind !== 'movie') delBtn.setAttribute('aria-haspopup', 'dialog');
       delBtn.addEventListener('click', function () {
+        delBtn.focus({ preventScroll: true }); // as Safari does not on a click, for when the dialog closes
         if (del.kind === 'movie') api.confirmDelete(del.id, del.title, { kind: 'movie', size: f.size });
-        else api.pickSeasonDelete(del.show_rk, del.title);
+        else api.pickSeasonDelete(del.show_rk, del.title, (actions.keep_wrapper || {}).seasons);
       });
       foot.appendChild(delBtn);
     }

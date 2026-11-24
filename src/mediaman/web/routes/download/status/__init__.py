@@ -23,6 +23,7 @@ from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.download_format._types import DownloadItem
+from mediaman.services.downloads.notifications import requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
@@ -131,12 +132,15 @@ def _sonarr_status(
         return _UNKNOWN_ITEM
 
     queue = client.get_queue()
-    series_title, series_poster, ep_entries = _sonarr_queue_entries(queue, tmdb_id, season_number)
+    tvdb_id = requested_tvdb_id(conn, tmdb_id)
+    series_title, series_poster, ep_entries = _sonarr_queue_entries(
+        queue, tmdb_id, season_number, tvdb_id
+    )
 
     if ep_entries:
         return _sonarr_aggregate(series_title, series_poster, ep_entries)
 
-    return _sonarr_series_fallback(client, tmdb_id, season_number)
+    return _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
 
 
 def _cached_status(

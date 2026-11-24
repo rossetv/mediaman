@@ -28,6 +28,34 @@ def test_form_message_line_is_never_hidden_so_nothing_below_jumps() -> None:
     assert "line-height: 1.4" in _declarations(".setg-pg .inline-form-msg")
 
 
+def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
+    margin = re.search(
+        r"scroll-margin-bottom:\s*(\d+)px", _declarations(".setg-pg .inline-form-msg")
+    )
+    # a 44px button centred on one 18px line reaches 13px below it
+    assert margin and int(margin.group(1)) >= 13
+
+
+def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
+    css = (CSS / "_settings_pg.css").read_text()
+
+    def kept(state: str, start: str) -> int:
+        head = f"html:has(.setg-pg .savebar.on{state}) {{ scroll-padding-bottom: "
+        found = re.match(
+            r"(?:calc\()?(\d+)px", css[css.index(head, css.index(start)) + len(head) :]
+        )
+        assert found
+        return int(found.group(1))
+
+    # the bar's height with its tab bar, and with the longest message it shows, 44px buttons included
+    narrow, either = "@media (max-width: 380px)", ":is(.is-error, .is-partial)"
+    assert kept("", ".setg-pg .savebar {") >= 73
+    assert kept(".is-error", ".setg-pg .savebar {") >= 86
+    phone = ".setg-pg .savebar { bottom:"
+    assert (kept("", phone) >= 129, kept(either, phone) >= 196) == (True, True)
+    assert (kept("", narrow) >= 176, kept(either, narrow) >= 259) == (True, True)
+
+
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
     for part in (".usr-name", ".usr-sub"):
         for at in (".usr-row", ".usr-self-head"):
@@ -49,9 +77,32 @@ def test_buttons_whose_label_changes_have_a_minimum_width() -> None:
     assert "min-width" in _declarations(".setg-pg #btn-send-newsletter")
 
 
+def _narrow_phone_rule(selector: str) -> str:
+    """The last declarations under 360px for `selector`, which must come after the phone ones."""
+    start = PANELS.rindex("@media (max-width: 359.98px)")
+    assert start > PANELS.rindex("@media (max-width: 520px)")
+    match = re.search(re.escape(selector) + r"\s*\{([^{}]*)\}", PANELS[start:])
+    assert match
+    return match.group(1)
+
+
+def test_the_longest_subscriber_state_leaves_remove_on_its_line_on_a_narrow_phone() -> None:
+    assert "margin-left: 0" in _narrow_phone_rule(".setg-pg .sub-row .sub-stat")
+
+
+def test_a_service_header_has_room_for_its_chevron_on_a_narrow_phone() -> None:
+    assert "padding-left: 0" in _narrow_phone_rule(".setg-pg .intg-card-hd .hd-actions")
+
+
+def test_a_long_user_name_wraps_in_the_password_dialog() -> None:
+    css = (CSS / "_settings_pg.css").read_text()
+    title = re.search(r"\.reauth-title \{([^{}]*)\}", css)
+    assert title and "overflow-wrap: anywhere" in title.group(1)
+
+
 def _phone_block_with(selector: str) -> str:
     """The body of the phone `@media` block that holds a rule for `selector`."""
-    for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):
+    for m in re.finditer(r"@media \(max-width: 699\.98px\)(?:, \(pointer: coarse\))?\s*\{", PANELS):
         depth, i = 1, m.end()
         while depth:
             depth += {"{": 1, "}": -1}.get(PANELS[i], 0)
@@ -68,6 +119,71 @@ def test_save_error_stays_visible_on_phones() -> None:
     assert ".setg-pg .savebar .btn { min-height: 44px; }" in phone
 
 
+def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phones() -> None:
+    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
+    assert "display: none" not in phone
+    partial = re.findall(r"([^{}]*\.savebar\.is-partial \.sb-sub[^{}]*)\{([^{}]*)\}", phone)
+    # the notice that newer edits are unsaved is shown, after and over the rule that folds captions away
+    assert any("position: static" in body and "clip-path: none" in body for _, body in partial)
+    assert phone.index("clip-path: inset(50%)") < phone.index("clip-path: none")
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    assert not re.search(r"\.savebar \.sb-sub \{\s*display: none", css)
+
+
+def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    (block,) = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", css)
+    rules: dict[str, str] = {}
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
+        for part in head.split(","):
+            rules[part.strip()] = rules.get(part.strip(), "") + body
+    for dot in (".conn-dot", ".sb-dot", ".chip-dot"):
+        assert "forced-color-adjust: none" in rules[f".setg-pg {dot}"]
+        assert "solid CanvasText" in rules[f".setg-pg {dot}"]
+    for bar in (".ov-storage .bar span", ".lp-bar2 span"):
+        assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
+    assert "background: Highlight" in rules[".setg-pg .setg-rail-item.on"]
+
+
+def test_a_selected_library_shows_in_forced_colours() -> None:
+    # after the pill's own colours, which would otherwise win
+    own = PANELS.index(".setg-pg .lib-pill.on")
+    forced = re.search(
+        r"@media \(forced-colors: active\) \{\s*\.setg-pg \.lib-pill\.on \{([^{}]*)\}", PANELS
+    )
+    assert forced and forced.start() > own and "background: Highlight" in forced.group(1)
+
+
+def test_a_card_heading_is_not_squeezed_by_its_button() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", css))
+    rules = {head.strip(): body for head, body in rules.items()}
+    assert "flex-wrap: wrap" in rules[".setg-pg .setg-card-hd"]
+    assert "flex: 1 1 130px" in rules[".setg-pg .setg-card-hd .head-info"]
+
+
+def test_touch_screens_of_any_width_get_the_phone_targets() -> None:
+    for sheet, targets in (
+        ("_settings_pg_panels.css", (".btn--sm", ".link-danger")),
+        (
+            "_settings_pg.css",
+            (".setg-rail-item", ".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
+        ),
+        ("_settings.css", (".btn-test",)),
+    ):
+        css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
+        blocks = re.findall(r"@media [^{]*\(pointer: coarse\)[^{]*\{((?:[^{}]*\{[^{}]*\})*)", css)
+        tall = [
+            part.strip()
+            for block in blocks
+            for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+            if "min-height: 44px" in body
+            for part in head.split(",")
+        ]
+        for target in targets:
+            assert any(part.endswith(target) for part in tall), (sheet, target)
+
+
 def test_small_buttons_are_44px_on_phones() -> None:
     phone = _phone_block_with(".setg-pg .btn--sm")
     assert re.search(r"\.setg-pg \.btn--sm,[^{}]*\{[^{}]*min-height:\s*44px", phone)
@@ -76,6 +192,23 @@ def test_small_buttons_are_44px_on_phones() -> None:
 def test_integration_chevron_uses_the_motion_tokens() -> None:
     chev = _declarations(".setg-pg .intg-card-hd .intg-chev")
     assert "var(--dur)" in chev and "var(--ease-out)" in chev
+
+
+def test_overview_dots_take_the_colour_of_their_service() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    coloured = {
+        part.strip(): body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        for part in head.split(",")
+    }
+    for tone, token in (("ok", "success"), ("warn", "warning"), ("err", "danger")):
+        assert f"background: var(--{token})" in coloured[f".setg-pg .conn-dot.{tone}"]
+
+
+def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    page = re.search(r"\.setg-pg\s*\{([^{}]*)\}", css)
+    assert page and "color-scheme: dark" in page.group(1)
 
 
 def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:

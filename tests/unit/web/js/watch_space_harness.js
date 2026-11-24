@@ -171,7 +171,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     top: () => 'storage',
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Date, parseInt, parseFloat, Error, RegExp, encodeURIComponent,
+    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Date, performance, parseInt, parseFloat, Error, RegExp, encodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     setInterval: (fn, ms) => { intervals.set(intervals.size + 1, { fn, ms }); return intervals.size; },

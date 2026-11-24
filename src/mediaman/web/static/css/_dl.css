@@ -6,7 +6,8 @@
 .dl-hero {
   position: relative;
   border-radius: var(--r-lg);
-  overflow: hidden;
+  overflow: hidden; /* where clip is not known */
+  overflow: clip;   /* hidden would let the bled background be scrolled into view */
   min-height: 360px;
   padding: 32px;
   display: flex;
@@ -14,6 +15,7 @@
   gap: 28px;
   background: var(--s2);
   box-shadow: var(--shadow-card);
+  transition: height var(--dur-slow) var(--ease-out); /* the script sets one while a title takes another's place */
 }
 .dl-hero-bg {
   position: absolute;
@@ -32,7 +34,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: linear-gradient(135deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.55) 45%, rgba(0,0,0,.75) 100%);
+  background: linear-gradient(135deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,.64) 45%, rgba(0,0,0,.75) 100%);
 }
 .dl-hero-content {
   position: relative;
@@ -64,7 +66,7 @@
   line-height: 1.05;
   margin-bottom: 8px;
 }
-.dl-hero-ep-summary { color: var(--t3); font-size: 13px; margin-bottom: 12px; }
+.dl-hero-ep-summary { color: var(--t2); font-size: 13px; margin-bottom: 12px; }
 .dl-hero-status { margin-bottom: 16px; }
 
 .dl-state-pill {
@@ -80,17 +82,27 @@
   color: var(--t1);
 }
 .dl-state-searching     { background: var(--rgba-warning-bg); color: var(--warning); }
-.dl-state-downloading   { background: var(--rgba-accent-chip); color: var(--accent); }
+.dl-state-downloading   { background: var(--rgba-accent-chip); color: var(--accent-text); }
 .dl-state-almost_ready  { background: var(--rgba-success-chip); color: var(--success); }
 .dl-state-ready         { background: var(--rgba-success-bg-hover); color: var(--success); }
 .dl-state-upcoming      { background: var(--rgba-overlay-md); color: var(--t2); }
-.dl-state-pill--xs      { padding: 2px 8px; font-size: 9px; }
+.dl-state-pill--xs      { padding: 2px 8px; white-space: nowrap; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
-.dl-arr-link { color: var(--accent); }
+.dl-arr-link { position: relative; display: inline-block; white-space: nowrap; color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
-@media (max-width: 699.98px) {
-  .dl-arr-link { display: inline-flex; align-items: center; min-height: 44px; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  .dl-arr-link::after { content: ""; position: absolute; inset: -15px -6px; }
+}
+/* On the hero's art, which a bright poster makes light: the pills have a base of their own
+   under their tint, and the link and the line it is in are a step brighter. */
+:is(.dl-hero, .dl-hero-ghost) :is(.pill, .dl-state-pill) { background: color-mix(in srgb, currentColor 18%, var(--s1)); }
+:is(.dl-hero, .dl-hero-ghost) .dl-search-hint { color: var(--t2); }
+:is(.dl-hero, .dl-hero-ghost) .dl-arr-link { color: var(--accent-text); }
+/* On phones the link has a line of its own, with nothing to set it off from. */
+@media (max-width: 479.98px) {
+  .dl-arr-link { display: block; width: fit-content; margin-top: 4px; }
+  .dl-hint-sep { display: none; }
 }
 
 .dl-bar,
@@ -138,7 +150,6 @@
 .dl-stats b, .dl-hero-pct { color: var(--t1); font-weight: 500; }
 
 /* Compact row */
-.dl-compact { margin-bottom: 8px; }
 .dl-compact-row,
 .dl-row {
   display: grid;
@@ -231,6 +242,7 @@
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
+  line-height: 1.47;
   letter-spacing: -.025em;
   margin-top: var(--section);
   margin-bottom: 18px;
@@ -239,6 +251,11 @@
 
 /* The "nothing downloading" empty state uses the shared .empty primitive
    (the c.empty() macro) — no bespoke rule here. */
+
+/* A row with an episodes button is further from the next than from its button. The space
+   is the next row's and folds away with either of the two: `:where` lets .is-folded win. */
+:where(.dl-compact:has(> .dl-compact-episodes-toggle):not(.is-folded)) + .dl-compact { margin-top: 8px; }
+.dl-compact { transition: margin var(--dur-slow) var(--ease-out); }
 
 /* Episodes drawer */
 .dl-hero-episodes-toggle,
@@ -259,6 +276,7 @@
   white-space: nowrap;
   transition: background var(--dur-fast) var(--ease-out);
 }
+.dl-compact-episodes-toggle { margin-top: 8px; }
 .dl-hero-episodes-toggle:hover,
 .dl-compact-episodes-toggle:hover { background: rgba(255,255,255,.14); color: var(--t1); }
 .dl-hero-episodes-toggle:active,
@@ -276,14 +294,16 @@
   background: rgba(0,0,0,.4);
   border-radius: var(--r-sm);
   padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 58px 1fr auto auto; /* the rows' own padding is in the first */
+  gap: 4px 10px;
 }
 
 .dl-ep-row {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 48px 1fr auto auto;
+  grid-template-columns: subgrid; /* where it is known, the bars and pills line up down the list */
   gap: 10px;
   align-items: center;
   padding: 6px 10px;
@@ -291,9 +311,9 @@
   border-radius: var(--r-xs);
 }
 .dl-ep-row:hover { background: var(--rgba-overlay-xs); }
-.dl-ep-row-pack { opacity: .7; }
 .dl-ep-number   { color: var(--t3); font-variant-numeric: tabular-nums; }
 .dl-ep-title    { color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-ep-row-pack .dl-ep-title { color: var(--t2); }
 .dl-ep-mini-bar {
   width: 60px;
   height: 3px;
@@ -304,17 +324,22 @@
 .dl-ep-mini-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
 .dl-ep-mini-fill.green { background: var(--success); }
 .dl-ep-status-pill {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--r-pill);
   background: var(--rgba-overlay-md);
   color: var(--t2);
   white-space: nowrap;
+  grid-column: 4;
+  justify-self: end;
 }
 .dl-ep-status-pill.ready { background: var(--rgba-success-chip); color: var(--success); }
-.dl-ep-status-pill.downloading { background: var(--rgba-accent-chip); color: var(--accent); }
+.dl-ep-status-pill.downloading { background: var(--rgba-accent-chip); color: var(--accent-text); }
 .dl-ep-status-pill.queued { background: var(--rgba-warning-bg); color: var(--warning); }
+
+/* The heading takes the focus of a row that went; the ring is as wide as its words. */
+#dl-root h1 { width: fit-content; }
 
 /* Recently added (downloads page bottom) */
 .dl-recent-section { margin-top: var(--section); }
@@ -322,6 +347,7 @@
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
+  line-height: 1.47;
   letter-spacing: -.025em;
   margin-bottom: 18px;
 }
@@ -374,6 +400,27 @@
 
 .dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
 @keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }
+#dl-hero-container { position: relative; }
+/* As tall as the card gets, around the old card as tall as it was. */
+.dl-hero-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: var(--r-lg);
+  overflow: clip;
+  pointer-events: none;
+  animation: dl-hero-out var(--dur-slow) var(--ease-out) forwards;
+}
+.dl-hero-ghost__card {
+  position: absolute;
+  inset: 0 0 auto;
+  min-height: 100%; /* its art goes on to the foot of a card that grows */
+  display: flex;
+  align-items: flex-end;
+  padding: 32px;
+  background: var(--s2);
+}
+@keyframes dl-hero-out { to { opacity: 0; } }
 
 /* Rows, sections and episode lists that come and go: the script pins the
    height and these carry it, with the padding and margins, to the new size
@@ -403,14 +450,16 @@
 .dl-row--has-abandon { position: relative; }
 .dl-row-abandon {
   position: absolute;
-  top: 8px;
+  inset-block: 0;
   right: 8px;
   z-index: 2;
+  display: flex;
+  align-items: center;
 }
 .dl-row--has-abandon .dl-compact-right { padding-right: 44px; }
 /* Upcoming rows have no .dl-compact-right; pad the row itself so the
    "Scheduled" pill doesn't sit underneath the abandon button. */
-.dl-upcoming-row.dl-row--has-abandon { padding-right: 52px; }
+.dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
 
 /* Multi-season picker inside the confirm modal — list of toggle rows. */
 .dl-abandon-list {
@@ -455,24 +504,52 @@
 /* Phone: the hero poster sits above the info so long titles get the full
    width, and a row's abandon button gets its own column beside the percentage. */
 @media (max-width: 639.98px) {
-  .dl-hero { padding: 20px; }
-  .dl-hero-content { flex-direction: column; align-items: flex-start; gap: 16px; }
+  /* Held by its top, so that a card on its way to another height shows its poster from the
+     start; the content is as tall as the card at its least, and sits at its foot. */
+  .dl-hero,
+  .dl-hero-ghost__card { padding: 20px; align-items: flex-start; }
+  .dl-hero-content { flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 16px; min-height: 320px; }
   .dl-hero-poster { width: 110px; }
-  .dl-hero-info { width: 100%; }
+  .dl-hero-info { flex: none; width: 100%; }
   .dl-hero-title { overflow-wrap: anywhere; }
   .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
-  .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
-  .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -22px; }
+  /* The dash would take the room the search state needs to stay on one line. */
+  .dl-row--has-abandon .dl-compact-pct--muted { display: none; }
+}
+
+/* Narrow phones: a state on one line needs more than the column beside the poster, so the
+   row's lines run under the poster instead. */
+@media (max-width: 374.98px) {
+  .dl-compact > .dl-row { row-gap: 8px; }
+  .dl-compact > .dl-row > .dl-row-info { display: contents; }
+  .dl-compact > .dl-row .dl-row-title { margin-bottom: 0; }
+  .dl-compact > .dl-row .dl-compact-right { grid-area: 1 / 3; }
+  .dl-compact > .dl-row .dl-row-meta,
+  .dl-compact > .dl-row .dl-search-hint,
+  .dl-compact > .dl-row .dl-row-bar { grid-column: 1 / -1; margin-top: 0; }
+  /* The pill says the percentage; the name needs the room. */
+  .dl-ep-mini-bar { display: none; }
+  .dl-ep-status-pill { grid-column: 3 / -1; }
+}
+
+/* A release date on one line leaves the title no room beside "Scheduled". */
+@media (max-width: 429.98px) {
+  .dl-upcoming-row { grid-template-columns: 48px 1fr; gap: 6px 10px; }
+  .dl-upcoming-row > .dl-row-poster { grid-row: 1 / 3; }
+  .dl-upcoming-row > .pill { grid-column: 2; justify-self: start; align-self: start; }
+  .dl-upcoming-row > .dl-row-info { align-self: end; }
 }
 
 /* Phones: match the confirm dialog, with full-width 44px buttons stacked,
    Cancel first, and the same title size. */
-@media (max-width: 699.98px) {
+@media (max-width: 699.98px), (pointer: coarse) {
   .dl-hero-abandon .btn.btn--icon,
   .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
   .dl-hero-episodes-toggle,
   .dl-compact-episodes-toggle { min-height: 44px; }
+}
+@media (max-width: 699.98px) {
   .abandon-modal-body h2 { font-size: 18px; }
   .abandon-modal-actions { flex-direction: column; }
   .abandon-modal-actions .btn { width: 100%; min-height: 44px; }
@@ -485,6 +562,7 @@
   .dl-hero-scrim,
   .dl-hero-poster { display: none; }
   .dl-hero { min-height: 0; border: 1px solid CanvasText; }
+  .dl-hero-content { min-height: 0; }
   .dl-bar,
   .dl-hero-bar,
   .dl-row-bar,

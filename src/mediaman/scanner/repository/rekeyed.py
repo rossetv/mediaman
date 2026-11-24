@@ -1,7 +1,9 @@
 """SQL that carries keeps and Watch progress to the new key Plex gives a title.
 
 Plex gives a title it removed and found again a new key. The same title is one
-at the same path, of the same season; an episode also has the same number.
+at the same path, of the same season; an episode also has the same number. For
+keeps, films of one library with the same TMDB id are the same title too, or
+with the one they last had while Plex has none for them.
 Nothing here commits: each caller runs it in the transaction that adds or
 removes the title.
 """
@@ -16,9 +18,14 @@ from typing import Any
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso, now_utc
-from mediaman.scanner.repository._protection import is_protected, restore_keeps
+from mediaman.scanner.repository._protection import (
+    is_protected,
+    is_show_kept_pure,
+    restore_keeps,
+)
 from mediaman.scanner.repository.scheduled_actions import (
     book_removed_files_where,
+    delete_scheduled_action,
     delete_show_scheduled_deletions,
 )
 from mediaman.scanner.repository.settings import read_setting
@@ -64,7 +71,7 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
 
 _TITLE = (
     "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
-    "tracked_files, episode_keys"
+    "tracked_files, episode_keys, plex_library_id, last_tmdb_id"
 )
 
 
@@ -156,8 +163,95 @@ _LIVE_ITEM_KEEP = (
 
 
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
-    """Return True if a kept film or season of the library has the files of *media_id*."""
-    return any(is_protected(conn, other["id"]) for other in other_keys(conn, media_id, ()))
+    """Return True if a kept film, season or show of the library is the title *media_id*.
+
+    A film or season with its files keeps it. So does another copy of the film, or
+    another key of the season's show, unless someone removed its own keep since.
+    """
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return False
+    return (
+        any(is_protected(conn, other["id"]) for other in other_keys(conn, media_id, ()))
+        or any(not _keep_removed_since(conn, keep, media_id) for keep in _copy_keeps(conn, title))
+        or any(
+            not _show_keep_removed_since(conn, keep, title["show_rating_key"])
+            for keep in _other_show_keeps(conn, title)
+        )
+    )
+
+
+def _copy_keeps(conn: sqlite3.Connection, film: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return the live keeps of the library's other films with the TMDB id of *film*."""
+    tmdb_id = film["last_tmdb_id"] if film["tmdb_id"] is None else film["tmdb_id"]
+    if tmdb_id is None:
+        return []
+    # CROSS JOIN reads the few keeps first, as no index finds a film by its TMDB id.
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    return conn.execute(  # nosec B608
+        "SELECT sa.* FROM scheduled_actions sa "
+        "CROSS JOIN media_items mi ON mi.id = sa.media_item_id "
+        f"WHERE {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie' "
+        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = ? AND mi.plex_library_id = ? "
+        "  AND mi.id != ?",
+        (now_iso(), tmdb_id, film["plex_library_id"], film["id"]),
+    ).fetchall()
+
+
+def is_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
+    """Return True if a keep the scan honours covers the item of the deletion row.
+
+    The scan's own rule decides (is_protected, is_show_kept_pure,
+    is_kept_under_another_key), so the pass never removes what a scan would
+    keep. A pure read.
+    """
+    row = conn.execute(
+        "SELECT sa.media_item_id, mi.show_rating_key FROM scheduled_actions sa "
+        "LEFT JOIN media_items mi ON sa.media_item_id = mi.id WHERE sa.id = ?",
+        (action_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    return (
+        is_protected(conn, row["media_item_id"])
+        or is_show_kept_pure(conn, row["show_rating_key"], now_iso_str=now_iso)
+        or is_kept_under_another_key(conn, row["media_item_id"])
+    )
+
+
+def cancel_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
+    """Delete the deletion row if is_kept_deletion says its item is kept; return True if it did.
+
+    Run it after the claim, inside the claim's transaction, so a keep
+    committed before the claim wins.
+    """
+    if not is_kept_deletion(conn, action_id, now_iso):
+        return False
+    delete_scheduled_action(conn, action_id)
+    return True
+
+
+def cancel_deletions_kept_under_another_key(conn: sqlite3.Connection) -> None:
+    """Cancel each scheduled deletion of a title another key keeps, but for one being carried out.
+
+    The deletion pass would when it is due; until then the title would read as leaving.
+    """
+    rows = conn.execute(
+        "SELECT sa.id, sa.media_item_id, mi.title FROM scheduled_actions sa "
+        "JOIN media_items mi ON mi.id = sa.media_item_id "
+        "WHERE sa.action = 'scheduled_deletion' AND sa.token_used = 0 "
+        "  AND sa.delete_status IS NOT 'deleting'"
+    ).fetchall()
+    for row in rows:
+        if not is_kept_under_another_key(conn, row["media_item_id"]):
+            continue
+        _delete_unclaimed(conn, "id = ?", (row["id"],))
+        log_audit(
+            conn,
+            row["media_item_id"],
+            "delete_refused",
+            f"Not deleted: {row['title']} — it is kept, so its scheduled deletion is cancelled",
+        )
 
 
 def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> None:
@@ -168,20 +262,26 @@ def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object
     conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", params)  # nosec B608
 
 
-def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> None:
-    """Keep *media_id* for as long as *keep* of pruned_keeps says, unless it already is for longer.
-
-    Either way its scheduled deletion is cancelled, but for one being carried out.
-    A keep someone removed from it since *keep* was made is not given again.
-    """
+def _keep_removed_since(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> bool:
+    """Return True if someone removed a keep from *media_id* since *keep* was made."""
     # Undoing a Keep is audited as 'unprotected' too, but only puts back the deletion it replaced.
     removed_since = conn.execute(
         "SELECT 1 FROM audit_log WHERE media_item_id = ? AND action = 'unprotected' "
         "AND detail LIKE 'Protection removed %' AND created_at > ? LIMIT 1",
         (media_id, keep["snoozed_at"] or keep["scheduled_at"]),
     ).fetchone()
-    if removed_since:
-        return
+    return removed_since is not None
+
+
+def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> bool:
+    """Keep *media_id* for as long as *keep* of pruned_keeps says, unless it already is for longer.
+
+    Either way its scheduled deletion is cancelled, but for one being carried out.
+    Return False if it was refused: a keep someone removed from it since *keep* was
+    made is not given again.
+    """
+    if _keep_removed_since(conn, keep, media_id):
+        return False
     now = now_iso()
     forever = keep["action"] == "protected_forever"
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -205,6 +305,7 @@ def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> No
         "media_item_id = ? AND action = 'scheduled_deletion' AND token_used = 0",
         (media_id,),
     )
+    return True
 
 
 def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
@@ -225,6 +326,26 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
         if others:
             conn.execute("UPDATE pruned_keeps SET file_path = '' WHERE id = ?", (keep["id"],))
     _set_carried_up_to(conn)
+
+
+def carry_film_keeps(conn: sqlite3.Connection) -> None:
+    """Give the keeps save_pruned_keeps set aside to the library's films with their TMDB ids.
+
+    A film replaced by another file has a new path and a new key, and Plex may
+    match it only after it lists it. Its own key and one at its path still take
+    its keep; no other does once a film has it. Run it once the items set aside
+    are removed, and once a run has stored all Plex lists.
+    """
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    keeps = conn.execute(  # nosec B608
+        "SELECT sa.*, mi.id AS film_id FROM pruned_keeps sa CROSS JOIN media_items mi "
+        "ON mi.plex_library_id = sa.plex_library_id "
+        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = sa.tmdb_id "
+        f"WHERE sa.tmdb_id IS NOT NULL AND {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie'",
+        (now_iso(),),
+    ).fetchall()
+    given = [keep["id"] for keep in keeps if _give_keep(conn, keep, keep["film_id"])]
+    conn.executemany("UPDATE pruned_keeps SET tmdb_id = NULL WHERE id = ?", [(i,) for i in given])
 
 
 def carry_stranded_keeps(conn: sqlite3.Connection) -> None:
@@ -270,19 +391,49 @@ def _set_carried_up_to(conn: sqlite3.Connection) -> None:
 _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 
 
-def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) -> None:
-    """Keep *show_key* for as long as *keep* says, unless it is already kept for longer.
+def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return the live keeps of the other keys of the show of *season*.
 
-    Either way its scheduled deletions are cancelled, but for one being carried out.
-    A keep the new key was removed from after the old one got it is not given again.
+    Such a key has a season where this one has it.
     """
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT ks.*, own.id AS own_id, other.id AS other_id FROM media_items own "
+        "JOIN media_items other ON other.file_path = own.file_path AND own.file_path != '' "
+        "  AND other.season_number IS own.season_number "
+        "JOIN kept_shows ks ON ks.show_rating_key = other.show_rating_key "
+        "WHERE (own.id = ? OR own.show_rating_key = ?) "
+        f"  AND ks.show_rating_key IS NOT ? AND {_LIVE_KEEP}",
+        (season["id"], season["show_rating_key"], season["show_rating_key"], now_iso()),
+    ).fetchall()
+    keeps = []
+    for row in rows:
+        own, other = fetch_title(conn, row["own_id"]), fetch_title(conn, row["other_id"])
+        if own is not None and other is not None and not _is_another_title(other, own):
+            keeps.append(row)
+    return keeps
+
+
+def _show_keep_removed_since(
+    conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str | None
+) -> bool:
+    """Return True if someone removed the keep of *show_key* after the show of *keep* got it."""
     removed_since = conn.execute(
         "SELECT 1 FROM audit_log WHERE media_item_id = ? AND action = 'removed_show_keep' "
         "AND created_at > MAX(?, COALESCE((SELECT MAX(created_at) FROM audit_log "
         "  WHERE media_item_id = ? AND action = 'kept_show'), '')) LIMIT 1",
         (show_key, keep["created_at"], keep["show_rating_key"]),
     ).fetchone()
-    if removed_since:
+    return removed_since is not None
+
+
+def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) -> None:
+    """Keep *show_key* for as long as *keep* says, unless it is already kept for longer.
+
+    Either way its scheduled deletions are cancelled, but for one being carried out.
+    A keep the new key was removed from after the old one got it is not given again.
+    """
+    if _show_keep_removed_since(conn, keep, show_key):
         return
     given = conn.execute(
         "INSERT INTO kept_shows "

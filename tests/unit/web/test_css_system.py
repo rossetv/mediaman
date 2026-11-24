@@ -118,6 +118,31 @@ def test_toggles_reach_44px_on_phones_without_growing() -> None:
     )
 
 
+def test_nav_links_reach_44px_on_tablets_without_growing_their_pill() -> None:
+    rules = [
+        rule
+        for block in _media_blocks(_text(CSS_DIR / "_nav.css"), "(max-width: 1023.98px)")
+        for rule in _rules(block)
+    ]
+    assert any(".nav-btn::after" in s and "inset: -6px" in body for s, body in rules)
+    assert not any(".nav-btn" in s and "height" in body for s, body in rules)
+
+
+def test_what_is_scrolled_into_view_on_a_phone_stops_above_the_bottom_bar() -> None:
+    css = _text(CSS_DIR / "_nav.css")
+    bar = int(re.search(r"\.nav-tabs \{[^}]*?height: calc\((\d+)px", css).group(1))
+    held = [
+        body
+        for block in _media_blocks(css, PHONE)
+        for heads, body in _rules(block)
+        if "html:has(.nav-tabs)" in heads
+    ]
+    kept = re.search(
+        r"scroll-padding-bottom: calc\((\d+)px \+ env\(safe-area-inset-bottom", held[0]
+    )
+    assert int(kept.group(1)) >= bar
+
+
 def test_no_control_drops_back_to_40px_on_phones() -> None:
     for path in SHARED:
         css = _text(path)
@@ -186,7 +211,8 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
 
 
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    assert _phone_sets(".dl-arr-link", "min-height", "44px")
+    # A 15px line of text, reached 15px above and below.
+    assert _phone_sets(".dl-arr-link::after", "inset", "-15px -6px")
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 

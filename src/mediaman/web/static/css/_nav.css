@@ -57,7 +57,7 @@
               transform var(--dur-fast) var(--ease-out);
   font-family: var(--font-text);
 }
-/* A 44px link leaves 3.5px of the bar above and below it: keep the ring within. */
+/* The bar's edges clip it: keep the ring near the link. */
 .nav-links a:focus-visible,
 .nav-links button:focus-visible { outline-offset: 1px; }
 .nav-btn:hover,
@@ -335,6 +335,8 @@
   .nav-topbar { display: flex; }
   .nav-topbar .brand { display: inline-block; line-height: 44px; }
   .nav-tabs   { display: flex; }
+  /* What is scrolled into view, a focused field included, stops above the bottom tab bar. */
+  html:has(.nav-tabs) { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   /* Reserve room for the bottom tab bar so content isn't hidden under it. */
   .container,
   .keep-page,
@@ -346,9 +348,9 @@
 }
 
 
-/* Rail links keep a 44px touch target on tablets and touch screens. */
+/* Rail links keep a 44px touch target on tablets and touch screens; the pill itself does
+   not grow, as a short name in one that tall is nearly a circle. */
 @media (min-width: 700px) and (max-width: 1023.98px), (pointer: coarse) {
-  .nav-btn,
-  .nav-links a,
-  .nav-links button { min-height: 44px; }
+  .nav-btn { position: relative; }
+  .nav-btn::after { content: ""; position: absolute; inset: -6px 0; }
 }

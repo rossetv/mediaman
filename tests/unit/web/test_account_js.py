@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -56,6 +57,44 @@ def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() 
     assert out["whileSending"] == out["focused"] == "account-submit-password"
     assert out["say"][0].endswith(" ok")
     assert out["rows"] == 1
+
+
+def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words() -> None:
+    tone, words = _run("password")["working"]
+    assert tone == "inline-form-msg" and words
+
+
+def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
+    # on a narrow phone the words wrap under the button, where the bottom bar may cover them
+    out = _run("password")
+    words = ["account-password-result", "nearest"]
+    assert out["revealed"] == [words, words]  # being sent, then updated
+    assert out["revealedRefusal"] == [words]
+    assert out["revealedEmptied"] == []
+
+
+def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    rule = css.split(".profile-pg .inline-form-actions .inline-form-msg {")[1].split("}")[0]
+    margin = re.search(r"scroll-margin-bottom: (\d+)px", rule)
+    # a 44px button centred on one 18px line reaches 13px below it
+    assert margin and int(margin.group(1)) >= 13
+
+
+def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
+    out = _run("lateAnswer")
+    for which in ("email", "password", "sessions", "sessionsRefused"):
+        assert {where for where, seen in out[which].items() if seen[0]} == set(out[which])
+        assert [where for where, seen in out[which].items() if seen[1]] == ["there", "around"]
+
+
+def test_a_refusal_that_moves_the_cursor_is_brought_into_view_wherever_the_reader_is() -> None:
+    out = _run("lateAnswer")
+    assert (out["emailRefused"], out["passwordRefused"]) == ([True, True], [True, True])
+
+
+def test_the_list_of_sign_ins_takes_the_focus_without_pulling_the_page_to_it() -> None:
+    assert _run("focusOnTheList") == {"preventScroll": True}
 
 
 def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:

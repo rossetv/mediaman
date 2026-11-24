@@ -8,11 +8,13 @@
  *   - Newsletter send panel (#newsletter-send-panel)
  *     - Open/close toggle (#btn-send-newsletter, #btn-cancel-newsletter)
  *     - Recipient checkbox list with Select all / Select none
- *     - Send confirmation (#btn-confirm-newsletter → POST /api/newsletter/send)
+ *     - Send (#btn-confirm-newsletter, a dialog naming how many people get it,
+ *       then POST /api/newsletter/send)
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
  *   MM.dom  (core/dom.js)
+ *   window.UIFeedback (confirm dialog, toasts)
  *   MM.settings.rows (settings/rows.js)
  *
  * Exposes:
@@ -36,6 +38,7 @@
         return el;
       }
 
+      var rows = MM.settings.rows;
       var subList = document.getElementById('subscriber-list');
 
       function showEmpty() {
@@ -93,8 +96,8 @@
         row.appendChild(em);
 
         var stat = document.createElement('span');
-        stat.className = 'sub-stat' + (s.active ? ' active' : ' bounced');
-        stat.textContent = s.active ? 'Active' : 'Bounced';
+        stat.className = 'sub-stat' + (s.active ? ' active' : '');
+        stat.textContent = s.active ? 'Active' : 'Unsubscribed';
         row.appendChild(stat);
 
         var rm = document.createElement('button');
@@ -108,6 +111,7 @@
       }
 
       function removeSubscriber(s, row, btn) {
+        rows.holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Remove ' + s.email + '?',
           body: 'They stop getting the newsletter. You can add them again later.',
@@ -169,7 +173,10 @@
           });
       }
 
-      if (addSubBtn) addSubBtn.addEventListener('click', submitSubscriber);
+      if (addSubBtn) addSubBtn.addEventListener('click', function () {
+        rows.holdFocus(addSubBtn);
+        submitSubscriber();
+      });
       if (addSubInp) addSubInp.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); submitSubscriber(); }
       });
@@ -180,23 +187,31 @@
       var btnConfirmNL      = document.getElementById('btn-confirm-newsletter');
       var newsletterStatus  = document.getElementById('newsletter-send-status');
 
-      var rows = MM.settings.rows;
-
       function clearStatus() {
         if (!newsletterStatus) return;
         newsletterStatus.textContent = '';
         newsletterStatus.className = 'inline-form-msg';
       }
 
+      function paintToggle(open) {
+        if (!btnSendNL) return;
+        btnSendNL.textContent = open ? 'Close' : 'Select recipients';
+        btnSendNL.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      if (btnSendNL && newsletterPanel) {
+        btnSendNL.setAttribute('aria-controls', newsletterPanel.id);
+        paintToggle(false);
+      }
+
       function openNewsletter() {
         if (!newsletterPanel) return;
-        rows.open(newsletterPanel);
-        if (btnSendNL) btnSendNL.textContent = 'Close';
+        rows.openInView(newsletterPanel);
+        paintToggle(true);
         renderRecipientCheckboxes();
       }
       function closeNewsletter() {
         if (!newsletterPanel) return;
-        if (btnSendNL) btnSendNL.textContent = 'Select recipients';
+        paintToggle(false);
         rows.close(newsletterPanel, clearStatus);
       }
 
@@ -204,11 +219,13 @@
       function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
       if (btnSendNL) btnSendNL.addEventListener('click', function () {
         if (sending()) return;
+        rows.holdFocus(btnSendNL);
         rows.isOpen(newsletterPanel) ? closeNewsletter() : openNewsletter();
       });
       if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
         if (sending()) return;
         closeNewsletter();
+        if (btnSendNL) btnSendNL.focus();
       });
       // A changed choice of recipients makes the last message stale, unless a send is under way.
       function clearUnlessSending() { if (!sending()) clearStatus(); }
@@ -233,6 +250,8 @@
               list.appendChild(makeMsg('No active subscribers.'));
               return;
             }
+            var there = rows.inView(newsletterPanel) &&
+              (document.activeElement === btnSendNL || MM.dom.focusStillIn(newsletterPanel));
             var toggleRow = document.createElement('div');
             toggleRow.className = 'recipient-toggles';
             [['Select all', true], ['Select none', false]].forEach(function (pair) {
@@ -262,6 +281,7 @@
               item.appendChild(lbl);
               list.appendChild(item);
             });
+            if (there) rows.bringIntoView(newsletterPanel);
           })
           .catch(function () {
             if (token !== _recipientFetchToken) return;
@@ -270,43 +290,70 @@
           });
       }
 
+      // Says how a send went, which the new words may make taller.
+      function answer(text, tone) {
+        var there = rows.stillAt(newsletterStatus, newsletterPanel);
+        newsletterStatus.textContent = text;
+        newsletterStatus.className = 'inline-form-msg ' + tone;
+        if (there) rows.reveal(newsletterStatus);
+      }
+
+      function enableConfirm() {
+        var keepFocus = MM.dom.focusStillIn(newsletterPanel);
+        btnConfirmNL.disabled = false;
+        if (keepFocus) btnConfirmNL.focus({ preventScroll: true });
+      }
+
+      var asking = false;
       if (btnConfirmNL) btnConfirmNL.addEventListener('click', function () {
         var list = document.getElementById('newsletter-recipient-list');
         var recipients = [];
         list.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) { recipients.push(cb.value); });
+        rows.holdFocus(btnConfirmNL, newsletterPanel);
         if (!recipients.length) {
           newsletterStatus.textContent = 'Select at least one recipient';
           newsletterStatus.className = 'inline-form-msg err';
+          rows.reveal(newsletterStatus);
           return;
         }
+        if (asking) return;
+        asking = true;
+        window.UIFeedback.confirm({
+          title: 'Send the newsletter to ' + recipients.length + (recipients.length === 1 ? ' person?' : ' people?'),
+          body: 'It goes out now. The scheduled newsletter is still sent as usual.',
+          confirmLabel: 'Send newsletter',
+        }).then(function (ok) {
+          asking = false;
+          if (ok) sendNewsletter(recipients);
+        });
+      });
+
+      function sendNewsletter(recipients) {
         btnConfirmNL.disabled = true;
         btnConfirmNL.textContent = 'Sending…';
         newsletterStatus.textContent = '';
+        rows.reveal(newsletterStatus);
         MM.api.post('/api/newsletter/send', { recipients: recipients })
           .then(function (data) {
-            btnConfirmNL.disabled = false;
+            enableConfirm();
             if (data.sent_to === 0) {
               btnConfirmNL.textContent = 'Send newsletter';
-              newsletterStatus.textContent = data.message || 'Nothing to send';
-              newsletterStatus.className = 'inline-form-msg ok';
+              answer(data.message || 'Nothing to send', 'ok');
             } else if (data.failed) {
               btnConfirmNL.textContent = 'Send newsletter';
-              newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' of ' + (data.sent_to + data.failed) + ' (' + data.failed + ' failed)';
-              newsletterStatus.className = 'inline-form-msg err';
+              answer('Sent to ' + data.sent_to + ' of ' + (data.sent_to + data.failed) + ' (' + data.failed + ' failed)', 'err');
             } else {
               btnConfirmNL.textContent = 'Sent ✓';
-              newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' recipient' + (data.sent_to !== 1 ? 's' : '');
-              newsletterStatus.className = 'inline-form-msg ok';
+              answer('Sent to ' + data.sent_to + ' recipient' + (data.sent_to !== 1 ? 's' : ''), 'ok');
               setTimeout(function () { btnConfirmNL.textContent = 'Send newsletter'; }, 2400);
             }
           })
           .catch(function (err) {
-            btnConfirmNL.disabled = false;
+            enableConfirm();
             btnConfirmNL.textContent = 'Send newsletter';
-            newsletterStatus.textContent = MM.api.messageOf(err, "Couldn't send. Try again.");
-            newsletterStatus.className = 'inline-form-msg err';
+            answer(MM.api.messageOf(err, "Couldn't send. Try again."), 'err');
           });
-      });
+      }
 
       loadSubscribers();
     },

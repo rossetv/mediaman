@@ -65,7 +65,7 @@
     section.className = 'dl-recent-section';
     section.id = 'dl-recent';
 
-    var header = document.createElement('div');
+    var header = document.createElement('h2');
     header.className = 'dl-recent-header';
     header.textContent = 'Recently added';
     section.appendChild(header);
@@ -98,7 +98,7 @@
     if (!container) {
       container = document.createElement('div');
       container.id = 'dl-upcoming-container';
-      var header = document.createElement('div');
+      var header = document.createElement('h2');
       header.className = 'dl-compact-header';
       header.textContent = 'Coming soon';
       container.appendChild(header);
@@ -132,7 +132,7 @@
         if (!opening) d.reveal(rowEl);
       }
     }
-    d.dropAbsent(shown, present, data);
+    d.dropAbsent(listEl.querySelectorAll('.dl-upcoming-row'), present, data);
     if (opening) d.reveal(container);
   }
 

@@ -409,15 +409,16 @@
     button.setAttribute('aria-expanded', 'false');
     button.setAttribute('aria-controls', 'watch-picks-menu');
     button.setAttribute('aria-label', 'Picks: ' + chosen.label + (chosen.date_label ? ', ' + chosen.date_label : '') + '. Choose another batch');
+    // One box: the space between its two parts would be lost between flex items.
+    var name = el('span');
     if (chosen.date_label) {
-      button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
-      button.appendChild(document.createTextNode(chosen.date_label));
+      name.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
+      name.appendChild(document.createTextNode(chosen.date_label));
     } else {
-      // One box: the space between its two parts would be lost between flex items.
-      var name = el('span', '', chosen.label.replace(/ picks$/, ''));
+      name.textContent = chosen.label.replace(/ picks$/, '');
       name.appendChild(el('span', 'row-tool__long', chosen.label.slice(name.textContent.length)));
-      button.appendChild(name);
     }
+    button.appendChild(name);
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
   }
@@ -522,20 +523,28 @@
   function olderPicks(payload) {
     var ids = payload.batches.map(function (b) { return b.id; });
     var start = payload.batch;
-    return function load(batch) {
-      return fetchRec(batch, start).then(function (older) {
-        return { cards: pickCards(older), next: older.next_batch };
-      }, function (err) {
-        if (!err || err.status !== 404) throw err;
-        // Deleted meanwhile, the one the row starts at or the batch: on without the first, then without both.
-        if (start !== null) {
-          start = null;
-          return load(batch);
-        }
-        var after = ids.indexOf(batch) + 1;
-        return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+    function gone(err) { if (!err || err.status !== 404) throw err; }
+    function page(older) { return { cards: pickCards(older), next: older.next_batch }; }
+    function skip(batch) {
+      var after = ids.indexOf(batch) + 1;
+      return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+    }
+    function load(batch) {
+      return fetchRec(batch, start).then(page, function (err) {
+        gone(err);
+        // With no start the second request would repeat the first.
+        if (!start) return skip(batch);
+        // Deleted meanwhile: the one the row starts at, so it starts at this one now, or this one.
+        return fetchRec(batch).then(function (older) {
+          start = batch;
+          return page(older);
+        }, function (err) {
+          gone(err);
+          return skip(batch);
+        });
       });
-    };
+    }
+    return load;
   }
 
   function recBody(payload) {
@@ -562,10 +571,17 @@
   /* Recommended's grid: each batch under its date, from the one the row starts at. */
   function recGrid(at) {
     var shown = null; // the batch of the last card
+    var had = new Set();
+    /* A date stands over a title the grid does not have yet: the others are not added. */
+    function isNew(card) {
+      var link = card.querySelector('[data-title-ref]');
+      var title = link.getAttribute('data-kind') + (link.getAttribute('data-tmdb-id') || link.textContent);
+      return !had.has(title) && had.add(title);
+    }
     function lines(cards, payload) {
       return cards.reduce(function (out, c) {
         var id = c.getAttribute('data-batch');
-        if (id !== shown) {
+        if (isNew(c) && id !== shown) {
           out.push(batchLine(id, payload));
           shown = id;
         }

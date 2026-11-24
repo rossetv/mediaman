@@ -29,79 +29,114 @@
   var _notifyByEmail = boot.notify_by_email === true;
   var _pollInterval = null;
   var _pollStopped = false;
+  var _pollsSent = 0;
+  var _pollDrawn = 0;
 
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
-    btn.textContent = 'Adding…';
-    btn.disabled = true;
-    btn.style.opacity = '0.6';
+    /* Not the disabled attribute: that would drop the keyboard's focus. */
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    btn.style.minWidth = btn.offsetWidth + 'px';
+    btn.setAttribute('aria-disabled', 'true');
+    var spin = document.createElement('span');
+    spin.className = 'btn-spinner';
+    spin.setAttribute('aria-hidden', 'true');
+    btn.replaceChildren(spin, document.createTextNode('Adding…'));
+    /* Safari gives a clicked button no focus, and what comes next goes by where it is. */
+    btn.focus();
 
-    MM.api.post('/download/' + _token)
-      .then(function(data) {
-        _service = data.service;
-        _tmdbId = data.tmdb_id;
-        if (data.poll_token) {
-          _pollToken = data.poll_token;
-          /* A fresh token means polling can authenticate again. */
-          _pollStopped = false;
-        }
-
-        /* Hide cinematic metadata, show hero card wrapper */
-        var cinema = document.getElementById('dl-cinema');
-        var content = document.getElementById('dl-content');
-        if (cinema) cinema.hidden = true;
-        if (content) content.hidden = true;
-
-        var wrapper = document.getElementById('dl-hero-wrapper');
-        buildHeroCard(wrapper, {
-          id: _service + ':' + _title,
-          title: _title,
-          media_type: _mediaType,
-          poster_url: _posterUrl,
-          hero_backdrop: _backdropUrl,
-          state: 'searching',
-          progress: 0,
-          eta: '',
-          size_done: '',
-          size_total: '',
-          episodes: null,
-          episode_summary: ''
-        });
-        wrapper.hidden = false;
-
-        document.getElementById('download-action').hidden = true;
-
-        /* A 401 already stopped polling and told the visitor to reload. */
-        if (!_pollStopped) {
-          pollStatus();
-          _startPolling();
-        }
-      })
-      .catch(function(err) {
-        showResult(false, MM.api.messageOf(err, 'Something went wrong. Try again.'));
-      });
+    MM.api.post('/download/' + _token).then(function(data) {
+      _service = data.service;
+      _tmdbId = data.tmdb_id;
+      showOnItsWay(data.poll_token, false, _notifyByEmail);
+    }, function(err) {
+      showRefusal(err);
+    });
   }
 
-  /* buildHeroCard delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
-     duplicating the .dl-hero tree. Values are set via
-     textContent / DOM properties — safe by default. */
-  function buildHeroCard(wrapper, item) {
+  /* Trade the title's page for the progress card. */
+  function showOnItsWay(pollToken, already, notify) {
+    if (pollToken) {
+      _pollToken = pollToken;
+      /* A fresh token means polling can authenticate again. */
+      _pollStopped = false;
+    }
+    var keepsFocus = focusStillOnAction();
+
+    var cinema = document.getElementById('dl-cinema');
+    var content = document.getElementById('dl-content');
+    if (cinema) cinema.hidden = true;
+    if (content) content.hidden = true;
+
+    var wrapper = document.getElementById('dl-hero-wrapper');
+    var heading = buildHeroCard(wrapper, {
+      id: _service + ':' + _title,
+      title: _title,
+      media_type: _mediaType,
+      poster_url: _posterUrl,
+      hero_backdrop: _backdropUrl,
+      state: 'searching',
+      state_label: 'Searching',
+      progress: 0,
+      eta: '',
+      size_done: '',
+      size_total: '',
+      episodes: null,
+      episode_summary: ''
+    }, already, notify);
+    wrapper.hidden = false;
+    if (keepsFocus) heading.focus();
+
+    /* A 401 already stopped polling and told the visitor to reload. */
+    if (!_pollStopped) {
+      pollStatus();
+      _startPolling();
+    }
+  }
+
+  function focusStillOnAction() {
+    return MM.dom.focusStillIn(document.getElementById('download-action'));
+  }
+
+  /* The card, with what _dl_hero_card.html and download.html put around it. Returns the
+     page's heading. */
+  function buildHeroCard(wrapper, item, already, notify) {
     var hero = MM.downloads.buildDom.buildHero(item);
 
-    /* Hint text — page-specific copy using the media type from the bootstrap. */
+    /* The h1 of the page went with the cinema, and the card's title is no h1. */
+    var heading = document.createElement('h1');
+    heading.className = 'sr-only';
+    heading.tabIndex = -1;
+    heading.textContent = item.title;
+    heading.setAttribute('aria-describedby', 'dl-hint');
+
+    var status = document.createElement('div');
+    status.setAttribute('role', 'status');
     var hint = document.createElement('div');
     hint.className = 'dl-hint';
-    hint.textContent = 'You may close this page — the download will continue in the background. ';
+    hint.id = 'dl-hint';
+    hint.textContent = (already ? 'This was already on its way. ' : '')
+      + 'You may close this page — the download will continue in the background. ';
     /* A link minted without an email gets no notification, so promise none. */
-    if (_notifyByEmail) {
+    if (notify) {
       hint.appendChild(document.createElement('br'));
       hint.appendChild(document.createTextNode(
         'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
       ));
     }
 
-    /* Clear wrapper and append */
-    wrapper.replaceChildren(hero, hint);
+    status.appendChild(hint);
+
+    var footer = document.createElement('div');
+    footer.className = 'dl-footer u-mt-24';
+    var link = document.createElement('a');
+    link.href = '/';
+    link.textContent = 'Open mediaman →';
+    footer.appendChild(link);
+
+    [hero, status, footer].forEach(function(part) { part.classList.add('dl-card-enter'); });
+    wrapper.replaceChildren(heading, hero, status, footer);
+    return heading;
   }
 
   // State labels come from the server (item.state_label). Fall back to the
@@ -137,16 +172,17 @@
     /* Use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
       + '&poll_token=' + encodeURIComponent(_pollToken);
+    var poll = ++_pollsSent;
+    /* One that a newer answer has overtaken, or that comes once the title is ready. */
+    function late() { return poll < _pollDrawn || _downloadState === 'ready'; }
     MM.api.get(url)
       .then(function(data) {
+        if (late()) return;
         /* The server hands out a replacement before the current poll token expires. */
         if (data.poll_token) _pollToken = data.poll_token;
-        if (data.state === 'ready') {
-          _downloadState = 'ready';
-          _stopPolling();
-          showResult(true, 'Ready to watch!');
-          return;
-        }
+        /* The service did not answer: what is drawn is the last it said. */
+        if (data.state === 'unknown') return;
+        _pollDrawn = poll;
 
         /* Update the hero card in-place */
         var wrapper = document.getElementById('dl-hero-wrapper');
@@ -159,43 +195,95 @@
         }
 
         var progressWrap = wrapper.querySelector('[data-v="progress-wrap"]');
-        if (progressWrap) {
-          progressWrap.hidden = (data.state === 'searching');
-        }
+        var running = data.state !== 'searching' && data.state !== 'ready';
+        /* One that closes keeps its last figures while it does. */
+        if (running) drawProgress(wrapper, data);
+        if (progressWrap) showPart(progressWrap, running);
 
-        var fill = wrapper.querySelector('[data-v="fill"]');
-        if (fill) {
-          fill.style.width = (data.progress || 0) + '%';
-          if (data.state === 'almost_ready') fill.classList.add('green');
-          else fill.classList.remove('green');
-        }
-
-        var pct = wrapper.querySelector('[data-v="pct"]');
-        if (pct) pct.textContent = (data.progress || 0) + '%';
-
-        var sizeDone = wrapper.querySelector('[data-v="size-done"]');
-        if (sizeDone) sizeDone.textContent = data.size_done || '';
-        var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
-        if (sizeTotal) sizeTotal.textContent = data.size_total || '';
-
-        MM.downloads.buildDom.updateEtaStat(wrapper, data.eta);
-
-        /* Episode rows for series */
-        if (data.episodes && data.episodes.length) {
-          updateEpisodeRows(wrapper, data.episodes);
-        }
-
-        /* Update episode summary */
+        drawEpisodes(wrapper, data);
         updateEpisodeSummary(wrapper, data.episode_summary);
+
+        if (data.state === 'ready') {
+          _downloadState = 'ready';
+          _stopPolling();
+          showReady(wrapper);
+        }
       })
       .catch(function(err) {
         /* Other failures are transient; the next tick retries. */
-        if (err instanceof MM.api.APIError && err.status === 401) {
+        if (err instanceof MM.api.APIError && err.status === 401 && !late()) {
           _pollStopped = true;
           _stopPolling();
           showReloadNotice();
         }
       });
+  }
+
+  function drawProgress(wrapper, data) {
+    var buildDom = MM.downloads.buildDom;
+    var fill = wrapper.querySelector('[data-v="fill"]');
+    if (fill) {
+      buildDom.setProgress(fill, data.progress || 0);
+      if (data.state === 'almost_ready') fill.classList.add('green');
+      else fill.classList.remove('green');
+    }
+
+    var pct = wrapper.querySelector('[data-v="pct"]');
+    if (pct) pct.textContent = (data.progress || 0) + '%';
+
+    var sizeDone = wrapper.querySelector('[data-v="size-done"]');
+    if (sizeDone) sizeDone.textContent = data.size_done || '';
+    var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
+    if (sizeTotal) sizeTotal.textContent = data.size_total || '';
+
+    buildDom.updateEtaStat(wrapper, data.eta);
+  }
+
+  /* The episodes button opens and closes like the card's other parts. Episodes that come
+     back while it closes open it again, with the list as the person left it. */
+  function drawEpisodes(wrapper, data) {
+    var buildDom = MM.downloads.buildDom;
+    var toggle = wrapper.querySelector('[data-v="ep-toggle"]');
+    var list = wrapper.querySelector('[data-v="ep-list"]');
+    if (toggle && !(data.episodes && data.episodes.length)) {
+      var heading = wrapper.querySelector('h1');
+      if (heading && document.activeElement === toggle) {
+        heading.tabIndex = -1;
+        heading.focus();
+      }
+      if (list && !list.hidden) buildDom.collapseAway(list);
+      buildDom.collapse(toggle, function() {
+        removeNode(toggle);
+        removeNode(list);
+      });
+      return;
+    }
+    if (toggle && !list) {
+      removeNode(toggle);
+      toggle = null;
+    }
+    buildDom.syncEpisodes(wrapper, data);
+    if (!toggle) {
+      var drawn = wrapper.querySelector('[data-v="ep-toggle"]');
+      if (drawn) buildDom.reveal(drawn);
+    } else if (buildDom.isCollapsing(toggle)) {
+      buildDom.reveal(toggle);
+      if (toggle.getAttribute('aria-expanded') === 'true') buildDom.reveal(list);
+    }
+  }
+
+  function removeNode(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function showPart(el, shown) {
+    var buildDom = MM.downloads.buildDom;
+    if (!shown) {
+      if (!el.hidden) buildDom.collapse(el, function() { el.hidden = true; });
+    } else if (el.hidden || buildDom.isCollapsing(el)) {
+      el.hidden = false;
+      buildDom.reveal(el);
+    }
   }
 
   /* Polling can no longer authenticate: keep the last progress on screen and
@@ -204,145 +292,109 @@
     var wrapper = document.getElementById('dl-hero-wrapper');
     if (!wrapper) return;
     var hint = wrapper.querySelector('.dl-hint');
-    if (!hint) {
-      hint = document.createElement('div');
-      hint.className = 'dl-hint';
-      wrapper.appendChild(hint);
-    }
-    hint.setAttribute('role', 'status');
+    if (!hint) return;
     hint.textContent = 'Progress updates have stopped. Reload this page to see the latest status.';
   }
 
-  function updateEpisodeRows(wrapper, episodes) {
-    var epToggle = wrapper.querySelector('[data-v="ep-toggle"]');
-    var epList = wrapper.querySelector('[data-v="ep-list"]');
-    if (!epToggle && !epList) {
-      /* Build episode rows dynamically using DOM methods */
-      var hero = wrapper.querySelector('.dl-hero');
-      if (!hero) return;
-
-      var toggle = document.createElement('div');
-      toggle.className = 'dl-hero-episodes-toggle';
-      toggle.setAttribute('data-v', 'ep-toggle');
-      toggle.appendChild(MM.dom.icon('i-chevron-right'));
-      var countSpan = document.createElement('span');
-      countSpan.textContent = episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
-      toggle.appendChild(countSpan);
-      hero.appendChild(toggle);
-
-      var list = document.createElement('div');
-      list.className = 'dl-hero-episodes';
-      list.setAttribute('data-v', 'ep-list');
-      list.hidden = true;
-      for (var i = 0; i < episodes.length; i++) {
-        list.appendChild(buildEpisodeRow(episodes[i]));
-      }
-      hero.appendChild(list);
-
-      toggle.addEventListener('click', function() {
-        list.hidden = !list.hidden;
-      });
-    } else {
-      /* Update existing episode rows */
-      for (var j = 0; j < episodes.length; j++) {
-        var ep = episodes[j];
-        var row = MM.dom.findByAttr(wrapper, 'data-ep', ep.label);
-        if (!row) continue;
-        var epFill = row.querySelector('[data-v="ep-fill"]');
-        if (epFill) {
-          epFill.style.width = (ep.progress || 0) + '%';
-          if (ep.state === 'ready') epFill.classList.add('green');
-        }
-        var epPill = row.querySelector('.dl-ep-status-pill');
-        if (epPill) {
-          epPill.className = 'dl-ep-status-pill ' + ep.state;
-          epPill.textContent = ep.state === 'ready' ? 'Ready' : (ep.state === 'downloading' ? (ep.progress || 0) + '%' : 'Searching');
-        }
-      }
-      if (epToggle) {
-        var cs = epToggle.querySelector('span');
-        if (cs) cs.textContent = episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
-      }
-    }
-  }
-
-  function buildEpisodeRow(ep) {
-    var epState = ep.state || 'searching';
-    var row = document.createElement('div');
-    row.className = 'dl-ep-row';
-    row.setAttribute('data-ep', ep.label);
-
-    var num = document.createElement('span');
-    num.className = 'dl-ep-number';
-    num.textContent = ep.label;
-    row.appendChild(num);
-
-    var title = document.createElement('span');
-    title.className = 'dl-ep-title';
-    title.textContent = ep.title;
-    row.appendChild(title);
-
-    var miniBar = document.createElement('div');
-    miniBar.className = 'dl-ep-mini-bar';
-    var miniFill = document.createElement('div');
-    miniFill.className = 'dl-ep-mini-fill' + (epState === 'ready' ? ' green' : '');
-    miniFill.setAttribute('data-v', 'ep-fill');
-    miniFill.style.width = (ep.progress || 0) + '%';
-    miniBar.appendChild(miniFill);
-    row.appendChild(miniBar);
-
-    var pill = document.createElement('span');
-    pill.className = 'dl-ep-status-pill ' + epState;
-    pill.textContent = epState === 'ready' ? 'Ready' : (epState === 'downloading' ? (ep.progress || 0) + '%' : 'Searching');
-    row.appendChild(pill);
-
-    return row;
-  }
-
+  /* Where _dl_hero_card.html draws it: between the title and the state. */
   function updateEpisodeSummary(wrapper, summary) {
-    var epSummary = wrapper.querySelector('.dl-hero-ep-summary');
-    if (summary) {
-      if (!epSummary) {
-        var titleEl = wrapper.querySelector('.dl-hero-title');
-        if (titleEl) {
-          var sumDiv = document.createElement('div');
-          sumDiv.className = 'dl-hero-ep-summary';
-          sumDiv.textContent = summary;
-          titleEl.parentNode.insertBefore(sumDiv, titleEl.nextSibling);
-        }
-      } else {
-        epSummary.textContent = summary;
-      }
+    var line = wrapper.querySelector('.dl-hero-ep-summary');
+    var buildDom = MM.downloads.buildDom;
+    if (!summary) {
+      if (line) buildDom.collapseAway(line);
+      return;
     }
+    if (line) {
+      MM.dom.setText(line, summary);
+      if (buildDom.isCollapsing(line)) buildDom.reveal(line);
+      return;
+    }
+    line = document.createElement('div');
+    line.className = 'dl-hero-ep-summary';
+    line.textContent = summary;
+    var status = wrapper.querySelector('.dl-hero-status');
+    status.parentNode.insertBefore(line, status);
+    buildDom.reveal(line);
   }
 
-  function showResult(success, message) {
-    var actionEl = document.getElementById('download-action');
-    if (actionEl) actionEl.hidden = true;
-    var heroWrapper = document.getElementById('dl-hero-wrapper');
-    if (heroWrapper) heroWrapper.hidden = true;
-
-    var resultEl = document.getElementById('download-result');
-    resultEl.replaceChildren();
-
-    resultEl.appendChild(success
-      ? MM.dom.icon('i-circle-check', 'dl-result-icon dl-result-icon--success')
-      : MM.dom.icon('i-circle-xmark', 'dl-result-icon dl-result-icon--error'));
-
+  function fillResult(box, ok, title, detail) {
     var titleDiv = document.createElement('div');
-    titleDiv.className = 'dl-result-title';
-    titleDiv.style.color = success ? 'var(--success)' : 'var(--danger-text)';
-    titleDiv.textContent = success ? message : 'Download failed';
-    resultEl.appendChild(titleDiv);
+    titleDiv.className = 'dl-result-title dl-result-title--' + (ok ? 'success' : 'error');
+    titleDiv.textContent = title;
+    var detailDiv = document.createElement('div');
+    detailDiv.className = 'dl-result-detail';
+    detailDiv.textContent = detail;
 
-    var detail = document.createElement('div');
-    detail.className = 'dl-result-detail';
-    detail.textContent = success ? 'It will appear in your Plex library shortly.' : message;
-    resultEl.appendChild(detail);
+    box.className = 'dl-result dl-card-enter' + (ok ? '' : ' dl-result--error');
+    box.replaceChildren(
+      ok ? MM.dom.icon('i-circle-check', 'dl-result-icon dl-result-icon--success')
+        : MM.dom.icon('i-circle-xmark', 'dl-result-icon dl-result-icon--error'),
+      titleDiv,
+      detailDiv
+    );
+    return detailDiv;
+  }
 
-    resultEl.hidden = false;
-    resultEl.style.borderColor = success ? 'color-mix(in srgb, var(--success) 10%, transparent)' : 'color-mix(in srgb, var(--danger) 10%, transparent)';
-    resultEl.style.background = success ? 'color-mix(in srgb, var(--success) 4%, transparent)' : 'color-mix(in srgb, var(--danger) 4%, transparent)';
+  /* The card stays, so the page keeps its heading and its link; the words under it change. */
+  function showReady(wrapper) {
+    var hint = wrapper.querySelector('.dl-hint');
+    if (!hint) return;
+    var box = document.createElement('div');
+    fillResult(box, true, 'Ready to watch!', 'It will appear in your Plex library shortly.');
+    box.className = 'dl-result';
+    hint.parentNode.appendChild(box);
+    MM.downloads.buildDom.reveal(box);
+    MM.downloads.buildDom.collapseAway(hint);
+  }
+
+  /* The request did not go through: say why where the button is. */
+  function showRefusal(err) {
+    var said = err.data || {};
+    var status = err.status || 0;
+    if (status === 409 && said.poll_token) {
+      if (said.download_state === 'queued') {
+        showOnItsWay(said.poll_token, true, said.notify_by_email === true);
+      } else if (said.download_state === 'in_library') {
+        endWith(true, 'Already in your library', 'This title is available to watch in Plex.');
+      } else if (said.download_state === 'tracked') {
+        endWith(true, 'Already tracked by Sonarr', 'Sonarr has nothing to download for it right now.');
+      } else {
+        endWith(true, 'Already in ' + (_service === 'radarr' ? 'Radarr' : 'Sonarr'), MM.api.messageOf(err, ''));
+      }
+      return;
+    }
+    if (status === 409) {
+      var detail = endWith(false, 'This link has already been used', '');
+      var reload = document.createElement('a');
+      reload.href = '';
+      reload.textContent = 'Reload this page to see where the download is';
+      detail.appendChild(reload);
+      return;
+    }
+    if (status && status !== 429 && status < 500) {
+      endWith(false, 'Download failed', MM.api.messageOf(err, 'This link could not start the download.'));
+      return;
+    }
+
+    var btn = document.getElementById('btn-download');
+    btn.removeAttribute('aria-disabled');
+    btn.textContent = 'Try again';
+    var box = document.getElementById('download-result');
+    fillResult(box, false, 'Download failed', MM.api.messageOf(err, 'Something went wrong. Try again.'));
+    box.hidden = false;
+    btn.setAttribute('aria-describedby', box.id);
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* The last word: the button goes and the answer takes its place. */
+  function endWith(ok, title, detail) {
+    var keepsFocus = focusStillOnAction();
+    var box = document.getElementById('download-result');
+    var detailEl = fillResult(box, ok, title, detail);
+    box.hidden = false;
+    document.getElementById('download-action').hidden = true;
+    if (keepsFocus) box.focus();
+    return detailEl;
   }
 
   var dlBtn = document.getElementById('btn-download');
@@ -350,19 +402,23 @@
     dlBtn.addEventListener('click', triggerDownload);
   }
 
-  (function() {
-    var toggle = document.querySelector('#dl-hero-wrapper [data-v="ep-toggle"]');
-    if (toggle) {
-      toggle.addEventListener('click', function() {
-        var list = document.querySelector('#dl-hero-wrapper [data-v="ep-list"]');
-        if (!list) return;
-        var opening = list.hidden;
-        list.hidden = !opening;
-        toggle.classList.toggle('open', opening);
-        toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
-      });
-    }
-  })();
+  var heroWrapper = document.getElementById('dl-hero-wrapper');
+  if (heroWrapper) {
+    heroWrapper.addEventListener('click', function(e) {
+      var toggle = e.target.closest('[data-v="ep-toggle"]');
+      if (!toggle) return;
+      var opening = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      toggle.classList.toggle('open', opening);
+      var list = toggle.nextElementSibling;
+      if (opening) {
+        list.hidden = false;
+        MM.downloads.buildDom.reveal(list);
+      } else {
+        MM.downloads.buildDom.collapse(list, function() { list.hidden = true; });
+      }
+    });
+  }
 
   if (_downloadState === 'queued' && _tmdbId) {
     pollStatus();

@@ -2,9 +2,9 @@
 {% import "_components.html" as c %}
 
 {% block title %}
-  {% if state == "active" %}Keep · {{ item.title }} · Mediaman
-  {% elif state == "already_kept" %}Protected · {{ item.title }} · Mediaman
-  {% elif state == "deleting" %}Being deleted · {{ item.title }} · Mediaman
+  {% if state == "active" %}Keep · {{ item.heading }} · Mediaman
+  {% elif state == "already_kept" %}Protected · {{ item.heading }} · Mediaman
+  {% elif state == "deleting" %}Being deleted · {{ item.heading }} · Mediaman
   {% elif state == "error" %}{{ error_heading or "Could not keep" }} · Mediaman
   {% elif state == "invalid" %}Invalid link · Mediaman
   {% else %}Expired · Mediaman
@@ -41,18 +41,12 @@
       </div>
 
       <h1 class="item-title">
-        {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
+        {{ item.heading }}
       </h1>
-      <div class="item-year">
-        {% if item.media_type == "tv" and item.season_number %}Season {{ item.season_number }}
-        {% elif item.added_at %}{{ item.added_at[:4] }}{% endif %}
-      </div>
+      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
 
       <div class="meta-row">
-        {% if item.media_type == "movie" %}{{ c.pill("Movie", variant="movie") }}
-        {% elif item.media_type == "tv" %}{{ c.pill("TV", variant="tv") }}
-        {% else %}{{ c.pill(item.media_type | title, variant="neutral") }}
-        {% endif %}
+        {{ c.pill({"movie": "Movie", "tv": "TV", "anime": "Anime"}[item.kind], variant=item.kind) }}
         {% if item.last_watched_display %}{{ c.pill("Last watched " ~ item.last_watched_display, variant="neutral") }}
         {% else %}{{ c.pill("Never watched", variant="stale") }}{% endif %}
         {% if item.file_size_bytes %}
@@ -119,12 +113,9 @@
       </div>
 
       <h1 class="item-title">
-        {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
+        {{ item.heading }}
       </h1>
-      <div class="item-year">
-        {% if item.media_type == "tv" and item.season_number %}Season {{ item.season_number }}
-        {% elif item.added_at %}{{ item.added_at[:4] }}{% endif %}
-      </div>
+      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
 
       <div class="info-box">
         <div class="label">Status</div>
@@ -171,8 +162,9 @@
       </div>
 
       <h1 class="item-title">
-        {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
+        {{ item.heading }}
       </h1>
+      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
 
       <div class="expired-msg">
         <div class="expired-title">This is being deleted now.</div>
@@ -217,8 +209,8 @@
             {{ c.icon("i-image") }}
           </div>
         </div>
-        <h1 class="item-title item-title--secondary">{{ item.title }}</h1>
-        <div class="item-year">{% if item.added_at %}{{ item.added_at[:4] }}{% endif %}</div>
+        <h1 class="item-title item-title--secondary">{{ item.heading }}</h1>
+        {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
       {% endif %}
 
       <div class="expired-msg">

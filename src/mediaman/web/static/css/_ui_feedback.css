@@ -122,6 +122,24 @@
 }
 .ui-confirm-overlay.is-visible { opacity: 1; }
 
+/* The page does not scroll behind an open dialog (confirm, password, keep and season,
+   abandon). A title's page and the storage panel hold the html already. */
+html:not(.has-space, .has-ttl) body:has(
+  > .ui-confirm-overlay:not(.is-leaving),
+  > .reauth-backdrop:not([aria-hidden="true"]),
+  > .keep-dialog-overlay.active:not(.is-closing),
+  #abandon-modal[aria-hidden="false"]
+) {
+  overflow: hidden;
+}
+/* The scrollbar that goes with the scrolling keeps its room on a page that had one
+   (MM.dom.holdPage marks it), so nothing moves sideways, what is fixed to the screen
+   included. A browser that cannot keep the room keeps the page's width at least. */
+html.page-bar { scrollbar-gutter: stable; }
+@supports not (scrollbar-gutter: stable) {
+  html.page-bar body { padding-right: var(--page-bar, 0); }
+}
+
 .ui-confirm-card {
   background: var(--s2);
   border: 1px solid var(--hair-strong);
@@ -145,6 +163,7 @@
   line-height: 1.2;
   margin-bottom: 8px;
   color: var(--t1);
+  overflow-wrap: anywhere;
 }
 
 .ui-confirm-body {

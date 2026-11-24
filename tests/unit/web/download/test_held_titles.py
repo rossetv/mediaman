@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.core.deleted_media import record_deleted_media
 from mediaman.crypto import generate_download_token
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.services.arr import ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download import confirm as confirm_module
 from mediaman.web.routes.download import reset_used_tokens
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
 from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
+from tests.helpers.factories import insert_audit_log
 
 _CONFIRM = "mediaman.web.routes.download.confirm"
 _SUBMIT = "mediaman.web.routes.download.submit"
@@ -427,12 +433,17 @@ class TestRetryOfAnAddThatLandedLate:
         arr.get_movie_by_tmdb.side_effect = lambda _: held[0] if held else None
         arr.get_series.side_effect = lambda: list(held)
         arr.add_movie.side_effect = arr.add_series.side_effect = self.NO_ANSWER
-        arr.landed = {"id": 7, "tvdbId": 999, "monitored": True}
+        arr.landed = {"id": 7, "tmdbId": 500, "tvdbId": 999, "monitored": True}
         return arr
 
     def _post(self, client, token, media_type, arr):
         builder = "build_radarr_from_db" if media_type == "movie" else "build_sonarr_from_db"
-        with patch(f"{_SUBMIT}.{builder}", return_value=arr):
+        arr.get_movies.side_effect = lambda: list(arr.held)
+        arr.get_queue.return_value = []
+        with (
+            patch(f"{_SUBMIT}.{builder}", return_value=arr),
+            patch(f"{_CONFIRM}.{builder}", return_value=arr),
+        ):
             return client.post(f"/download/{token}")
 
     def _mails(self, client):
@@ -549,7 +560,9 @@ class TestRetryOfAnAddThatLandedLate:
         assert self._post(client, token, media_type, arr).status_code == 200
         assert self._mails(client) == ["viewer@example.com"]
 
-    def test_another_link_for_the_title_is_already_exists(self, client, secret_key):
+    def test_another_persons_link_for_the_title_is_already_on_its_way_and_mails_them_too(
+        self, client, secret_key
+    ):
         arr = self._arr("movie")
         self._post(client, _token(secret_key, "movie"), "movie", arr)
         arr.held.append(arr.landed)
@@ -563,8 +576,11 @@ class TestRetryOfAnAddThatLandedLate:
             secret_key=secret_key,
         )
 
-        assert self._post(client, other, "movie", arr).status_code == 409
-        assert self._mails(client) == ["viewer@example.com"]
+        resp = self._post(client, other, "movie", arr)
+
+        assert resp.status_code == 409
+        assert resp.json()["download_state"] == "queued"
+        assert self._mails(client) == ["viewer@example.com", "other@example.com"]
 
     def test_an_add_that_was_answered_with_a_refusal_is_no_late_landing(self, client, secret_key):
         arr, token = self._arr("movie"), _token(secret_key, "movie")
@@ -572,5 +588,193 @@ class TestRetryOfAnAddThatLandedLate:
         assert self._post(client, token, "movie", arr).status_code == 502
         arr.held.append(arr.landed)
 
+        # Held by now through somebody else: refused, and mailed once when it is ready.
         assert self._post(client, token, "movie", arr).status_code == 409
+        assert self._mails(client) == ["viewer@example.com"]
+
+
+class TestAlreadyThereAnswer:
+    """What a refused request says of the title, and whether the person is mailed about it."""
+
+    MOVIE = {"id": 7, "tmdbId": 500, "title": "Dune", "monitored": True}
+    SHOW = {"id": 3, "tmdbId": 500, "tvdbId": 999, "title": "Far Shore", "monitored": True}
+    MISSING = {"seasonNumber": 1, "monitored": True, "statistics": {"episodeCount": 2}}
+    WHOLE = {
+        "seasonNumber": 1,
+        "monitored": True,
+        "statistics": {
+            "episodeCount": 2,
+            "episodeFileCount": 2,
+            "previousAiring": "2020-01-01T00:00:00Z",
+        },
+    }
+
+    def _answer(self, client, token, held, media_type="movie", unread=None):
+        arr = MagicMock()
+        arr.get_movies.return_value = arr.get_series.return_value = [held]
+        arr.get_movie_by_tmdb.return_value = arr.get_series_by_tvdb.return_value = held
+        if unread:
+            arr.get_movies.side_effect = unread
+        arr.get_queue.return_value = []
+        arr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        builder = "build_radarr_from_db" if media_type == "movie" else "build_sonarr_from_db"
+        with (
+            patch(f"{_SUBMIT}.{builder}", return_value=arr),
+            patch(f"{_CONFIRM}.{builder}", return_value=arr),
+        ):
+            return client.post(f"/download/{token}")
+
+    def _post(self, client, token, held, media_type="movie"):
+        resp = self._answer(client, token, held, media_type)
+        assert resp.status_code == 409
+        return resp.json()["download_state"]
+
+    def _mails(self, client):
+        rows = client.app.state.db.execute(
+            "SELECT email, service, tmdb_id, tvdb_id FROM download_notifications"
+        )
+        return [tuple(r) for r in rows]
+
+    def test_a_movie_on_its_way_mails_the_person(self, client, secret_key):
+        assert self._post(client, _token(secret_key, "movie"), self.MOVIE) == "queued"
+        assert self._mails(client) == [("viewer@example.com", "radarr", 500, None)]
+
+    def test_a_show_on_its_way_mails_the_person(self, client, secret_key):
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+
+        assert self._post(client, _token(secret_key, "tv"), held, "tv") == "queued"
+        assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
+
+    def test_a_second_link_for_the_same_person_asks_for_no_second_email(self, client, secret_key):
+        for recommendation in (1, 2):
+            self._post(client, self._link(secret_key, recommendation), self.MOVIE)
+
+        assert len(self._mails(client)) == 1
+
+    def _link(self, secret_key, recommendation, action="download", media_type="movie"):
+        return generate_download_token(
+            email="viewer@example.com",
+            action=action,
+            title="Far Shore" if media_type == "tv" else "Dune",
+            media_type=media_type,
+            tmdb_id=500,
+            recommendation_id=recommendation,
+            secret_key=secret_key,
+        )
+
+    def _mark_sent(self, client, days_ago=0):
+        asked = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+        with client.app.state.db as conn:
+            conn.execute("UPDATE download_notifications SET notified = 1, created_at = ?", (asked,))
+
+    @pytest.mark.parametrize("action", ["download", "redownload"])
+    def test_a_show_that_is_part_there_promises_and_sends_nothing(self, client, secret_key, action):
+        part = {"seasonNumber": 1, "monitored": True}
+        part["statistics"] = {
+            "episodeCount": 2,
+            "episodeFileCount": 1,
+            "previousAiring": "2020-01-01T00:00:00Z",
+        }
+        held = {**self.SHOW, "seasons": [part], "statistics": {"episodeFileCount": 1}}
+
+        for number in range(3):
+            answer = self._answer(
+                client, self._link(secret_key, number, action, "tv"), held, "tv"
+            ).json()
+            assert (answer["download_state"], answer["notify_by_email"]) == ("queued", False)
+
+        assert self._mails(client) == []
+
+    @pytest.mark.parametrize("action", ["download", "redownload"])
+    def test_a_wait_that_was_mailed_about_is_not_mailed_about_again(
+        self, client, secret_key, action
+    ):
+        link = self._link(secret_key, 1, action)
+        assert self._answer(client, link, self.MOVIE).json()["notify_by_email"] is True
+        self._mark_sent(client, days_ago=1)
+
+        for again in (2, 3):
+            # A re-download link is freed by its 409 and can be pressed again itself.
+            link = link if action == "redownload" else self._link(secret_key, again)
+            assert self._answer(client, link, self.MOVIE).json()["notify_by_email"] is False
+
+        assert len(self._mails(client)) == 1
+
+    @pytest.mark.parametrize("since", ["long ago", "added again", "deleted"])
+    def test_a_title_asked_for_anew_is_mailed_about_anew(self, client, secret_key, since):
+        self._post(client, self._link(secret_key, 1), self.MOVIE)
+        self._mark_sent(client, days_ago=60 if since == "long ago" else 2)
+        held = dict(self.MOVIE)
+        if since == "added again":
+            held["added"] = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        if since == "deleted":
+            with client.app.state.db as conn:
+                audit_id = insert_audit_log(conn, media_item_id="gone", action="deleted")
+                record_deleted_media(
+                    conn,
+                    audit_id,
+                    media_type="movie",
+                    tmdb_id=500,
+                    tvdb_id=None,
+                    season_number=None,
+                    title="Dune",
+                )
+
+        answer = self._answer(client, self._link(secret_key, 2), held).json()
+
+        assert answer["notify_by_email"] is True
+        assert len(self._mails(client)) == 2
+
+    @pytest.mark.parametrize("unread", [SafeHTTPError(500, "", "radarr/m"), ArrError("bad")])
+    def test_a_title_whose_state_cannot_be_read_can_be_tried_again(
+        self, client, secret_key, unread
+    ):
+        token = _token(secret_key, "movie")
+
+        assert self._answer(client, token, self.MOVIE, unread=unread).status_code == 502
+        assert not _consumed(token)
+        assert self._post(client, token, self.MOVIE) == "queued"
+        assert len(self._mails(client)) == 1
+
+    def test_a_show_sonarr_knows_by_its_tvdb_id_alone_is_on_its_way_all_the_same(
+        self, client, secret_key
+    ):
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+        del held["tmdbId"]
+        token = _token(secret_key, "tv")
+
+        assert self._post(client, token, held, "tv") == "queued"
+        assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
+
+        sonarr = MagicMock()
+        sonarr.get_series.return_value = [held]
+        sonarr.get_series_by_tvdb.return_value = held
+        sonarr.get_queue.return_value = []
+        with patch(f"{_CONFIRM}.build_sonarr_from_db", return_value=sonarr):
+            reopened = client.get(f"/download/{token}").text
+        assert '"download_state": "queued"' in reopened
+        assert "be notified by email" in reopened
+
+        poll = json.loads(re.search(r'"poll_token": ("[^"]+")', reopened)[1])
+        sonarr.get_series.return_value = [{**held, "statistics": {"episodeFileCount": 2}}]
+        status = "mediaman.web.routes.download.status.build_sonarr_from_db"
+        with patch(status, return_value=sonarr):
+            polled = client.get(
+                "/api/download/status",
+                params={"service": "sonarr", "tmdb_id": 500, "poll_token": poll},
+            )
+        assert polled.json()["state"] == "ready"
+
+    @pytest.mark.parametrize(
+        ("media_type", "held", "state"),
+        [
+            ("movie", {**MOVIE, "hasFile": True}, "in_library"),
+            ("tv", {**SHOW, "seasons": [WHOLE]}, "in_library"),
+            ("tv", {**SHOW, "monitored": False, "seasons": [MISSING]}, "tracked"),
+        ],
+    )
+    def test_a_title_that_is_not_on_its_way_mails_nobody(
+        self, client, secret_key, media_type, held, state
+    ):
+        assert self._post(client, _token(secret_key, media_type), held, media_type) == state
         assert self._mails(client) == []

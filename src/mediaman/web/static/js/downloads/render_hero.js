@@ -7,12 +7,10 @@
  *
  * Cross-module dependencies:
  *   MM.downloads.buildDom
- *   window.DLPoster   (optional — used to apply background image safely)
  *
  * Exposes:
  *   MM.downloads.renderHero.updateHero(container, item)
  *   MM.downloads.renderHero.updateSearchHint(card, item)
- *   MM.downloads.renderHero.buildEpisodeRow(ep)
  */
 (function () {
   'use strict';
@@ -33,177 +31,36 @@
     var hint = d.q('[data-v="search-hint"]', card);
     if (!hint) return;
     if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
+      d.passFocus(hint);
       hint.hidden = true;
       return;
     }
     hint.hidden = false;
-    while (hint.firstChild) hint.removeChild(hint.firstChild);
-    if (item.search_hint) {
-      var text = document.createElement('span');
+    /* The parts are kept from poll to poll, so a link with the focus keeps it. */
+    var text = d.q('[data-v="search-hint-text"]', hint);
+    var sep = d.q('[data-v="search-hint-sep"]', hint);
+    var a = d.q('[data-v="arr-link"]', hint);
+    if (!text) {
+      text = document.createElement('span');
       text.setAttribute('data-v', 'search-hint-text');
-      text.textContent = item.search_hint;
-      hint.appendChild(text);
-    }
-    if (item.arr_link) {
-      if (item.search_hint) hint.appendChild(document.createTextNode(' · '));
-      var a = document.createElement('a');
+      sep = document.createElement('span');
+      sep.className = 'dl-hint-sep';
+      sep.setAttribute('data-v', 'search-hint-sep');
+      sep.textContent = ' · ';
+      a = document.createElement('a');
       a.className = 'dl-arr-link';
       a.setAttribute('data-v', 'arr-link');
-      a.href = item.arr_link;
       a.target = '_blank';
       a.rel = 'noopener';
-      a.textContent = 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗';
-      hint.appendChild(a);
+      [text, sep, a].forEach(function (part) { hint.appendChild(part); });
     }
-  }
-
-  /* The type pill is kept in sync because the hero can swap
-        between a series and a movie item between polls. The server-rendered
-        pill belongs to whichever item was hero at SSR time; once polling
-        promotes a different item to hero we have to repaint this pill or
-        the user sees a "TV" badge on a movie until they hard-refresh. */
-  function updateTypePill(card, mediaType) {
-    var d = dom();
-    var info = d.q('.dl-hero-info', card);
-    if (!info) return;
-    var pillRow = info.querySelector('.pill-row');
-    if (!pillRow) {
-      pillRow = document.createElement('div');
-      pillRow.className = 'pill-row u-mb-12';
-      info.insertBefore(pillRow, info.firstChild);
-    }
-    var isMovie = mediaType === 'movie';
-    var pill = pillRow.querySelector('.pill');
-    if (!pill) {
-      pill = document.createElement('span');
-      pillRow.appendChild(pill);
-    }
-    pill.className = 'pill pill--' + (isMovie ? 'movie' : 'tv');
-    d.setText(pill, isMovie ? 'Movie' : 'TV');
-  }
-
-  function buildEpisodeRow(ep) {
-    var row = document.createElement('div');
-    row.className = 'dl-ep-row' + (ep.is_pack_episode ? ' dl-ep-row-pack' : '');
-    row.setAttribute('data-ep', ep.label);
-
-    var num = document.createElement('span');
-    num.className = 'dl-ep-number';
-    num.textContent = ep.label;
-    row.appendChild(num);
-
-    var title = document.createElement('span');
-    title.className = 'dl-ep-title';
-    title.textContent = ep.title || '';
-    row.appendChild(title);
-
-    if (ep.is_pack_episode) {
-      var packPill = document.createElement('span');
-      packPill.className = 'dl-ep-status-pill downloading';
-      packPill.textContent = 'In pack';
-      row.appendChild(packPill);
-      return row;
-    }
-
-    var miniBar = document.createElement('div');
-    miniBar.className = 'dl-ep-mini-bar';
-    var miniFill = document.createElement('div');
-    miniFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-    miniFill.setAttribute('data-v', 'ep-fill');
-    miniFill.style.width = (ep.progress || 0) + '%';
-    miniBar.appendChild(miniFill);
-    row.appendChild(miniBar);
-
-    var statePill = document.createElement('span');
-    statePill.className = 'dl-ep-status-pill ' + (ep.state || '');
-    if (ep.state === 'ready') statePill.textContent = 'Ready';
-    else if (ep.state === 'downloading') statePill.textContent = (ep.progress || 0) + '%';
-    else if (ep.state === 'queued') statePill.textContent = 'Queued';
-    else statePill.textContent = 'Searching';
-    row.appendChild(statePill);
-
-    return row;
-  }
-
-  function buildEpisodeToggle(count, hasPack) {
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'dl-hero-episodes-toggle';
-    btn.setAttribute('data-v', 'ep-toggle');
-    btn.appendChild(MM.dom.icon('i-chevron-right'));
-    var label = document.createElement('span');
-    label.textContent = count + ' episode' + (count !== 1 ? 's' : '') + (hasPack ? ' · pack download' : '');
-    btn.appendChild(label);
-    return btn;
-  }
-
-  /* The episodes section is present only when the item is a series
-        with episodes. Add the whole section when missing, remove it when
-        the new hero is a movie, and rebuild it when the episode set has
-        changed (different show, or pack contents changed). */
-  function syncEpisodes(card, item) {
-    var d = dom();
-    var info = d.q('.dl-hero-info', card);
-    var existingToggle = d.q('[data-v="ep-toggle"]', card);
-    var existingList = d.q('[data-v="ep-list"]', card);
-    var episodes = item.episodes;
-
-    if (!episodes || !episodes.length || !info) {
-      if (existingToggle && existingToggle.parentNode) existingToggle.parentNode.removeChild(existingToggle);
-      if (existingList && existingList.parentNode) existingList.parentNode.removeChild(existingList);
-      return;
-    }
-
-    var count = episodes.length;
-    var toggleText = count + ' episode' + (count !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '');
-    if (!existingToggle) {
-      existingToggle = buildEpisodeToggle(count, !!item.has_pack);
-      info.appendChild(existingToggle);
-    } else {
-      var lbl = existingToggle.querySelector('span');
-      if (lbl) lbl.textContent = toggleText;
-    }
-
-    if (!existingList) {
-      existingList = document.createElement('div');
-      existingList.className = 'dl-hero-episodes';
-      existingList.setAttribute('data-v', 'ep-list');
-      existingList.hidden = true;
-      info.appendChild(existingList);
-    }
-
-    /* Rebuild the list when the set of episode labels differs from what
-       we already rendered; otherwise patch each row in place to keep the
-       toggle state and progress transitions smooth. */
-    var existingRows = existingList.querySelectorAll('[data-ep]');
-    var needsRebuild = existingRows.length !== count;
-    if (!needsRebuild) {
-      for (var i = 0; i < count; i++) {
-        if (existingRows[i].getAttribute('data-ep') !== episodes[i].label) { needsRebuild = true; break; }
-      }
-    }
-    if (needsRebuild) {
-      while (existingList.firstChild) existingList.removeChild(existingList.firstChild);
-      for (var bi = 0; bi < count; bi++) existingList.appendChild(buildEpisodeRow(episodes[bi]));
-      return;
-    }
-    for (var ui = 0; ui < count; ui++) {
-      var ep = episodes[ui];
-      var epRow = d.findByEp(card, ep.label);
-      if (!epRow) continue;
-      var epFill = d.q('[data-v="ep-fill"]', epRow);
-      if (epFill) {
-        epFill.style.width = ep.progress + '%';
-        epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-      }
-      var epPill = d.q('.dl-ep-status-pill', epRow);
-      if (epPill && !ep.is_pack_episode) {
-        epPill.className = 'dl-ep-status-pill ' + ep.state;
-        if (ep.state === 'ready') d.setText(epPill, 'Ready');
-        else if (ep.state === 'downloading') d.setText(epPill, ep.progress + '%');
-        else if (ep.state === 'queued') d.setText(epPill, 'Queued');
-        else d.setText(epPill, 'Searching');
-      }
+    d.setText(text, item.search_hint || '');
+    sep.hidden = !item.search_hint || !item.arr_link;
+    if (!item.arr_link) d.passFocus(a);
+    a.hidden = !item.arr_link;
+    if (item.arr_link) {
+      a.href = item.arr_link;
+      d.setText(a, 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗');
     }
   }
 
@@ -212,33 +69,21 @@
     var d = dom();
     var card = container.querySelector('.dl-hero');
     if (!card) return;
+    var ease = null;
+    if (card.getAttribute('data-dl-id') !== item.id) {
+      ease = d.easeHeight(card);
+      /* The controls become another title's, which nobody on one of them asked for. */
+      d.passFocus(card);
+      d.fadeOver(card);
+      d.closeEpisodes(card);
+      card.setAttribute('data-dl-id', item.id);
+    }
     d.unmarkHeld(card);
 
-    /* Update poster backdrop */
-    var bg = d.q('.dl-hero-bg', card);
-    if (bg && item.poster_url) {
-      /* Set via DLPoster.apply to avoid CSS string injection. */
-      bg.setAttribute('data-bg-url', item.poster_url);
-      if (window.DLPoster) window.DLPoster.apply(bg);
-    }
+    d.syncArt(card, item);
 
-    /* Update poster img */
-    var posterDiv = d.q('.dl-hero-poster', card);
-    if (posterDiv && item.poster_url) {
-      var img = posterDiv.querySelector('img');
-      if (img) { if (img.src !== item.poster_url) img.src = item.poster_url; }
-      else {
-        var ph = posterDiv.querySelector('.dl-hero-poster-placeholder');
-        if (ph) posterDiv.removeChild(ph);
-        img = document.createElement('img');
-        img.src = item.poster_url;
-        img.alt = '';
-        posterDiv.appendChild(img);
-      }
-    }
-
-    /* Type pill before the title — must be kept in sync per updateTypePill's note. */
-    updateTypePill(card, item.media_type);
+    /* The hero can go from a film to a show between polls. */
+    d.syncTypePill(d.q('.dl-hero-info', card), item.media_type);
 
     /* Title */
     d.setText(d.q('.dl-hero-title', card), item.title);
@@ -274,7 +119,8 @@
     /* Progress bar */
     var fill = d.q('[data-v="fill"]', card);
     if (fill) {
-      fill.style.width = item.progress + '%';
+      d.setProgress(fill, item.progress);
+      fill.parentNode.setAttribute('aria-label', item.title);
       fill.className = 'dl-hero-fill' + (item.state === 'almost_ready' ? ' green' : '');
     }
 
@@ -288,21 +134,14 @@
     d.updateEtaStat(card, item.eta);
 
     /* Episodes — create, refresh, or remove the toggle + list section. */
-    syncEpisodes(card, item);
+    d.syncEpisodes(card, item);
 
     d.syncAbandon(card, item, 'hero');
-
-    /* Update data-dl-id if hero changed */
-    if (card.getAttribute('data-dl-id') !== item.id) {
-      card.setAttribute('data-dl-id', item.id);
-    }
+    if (ease) ease();
   }
 
   MM.downloads.renderHero = {
     updateHero: updateHero,
     updateSearchHint: updateSearchHint,
-    updateTypePill: updateTypePill,
-    syncEpisodes: syncEpisodes,
-    buildEpisodeRow: buildEpisodeRow,
   };
 })();

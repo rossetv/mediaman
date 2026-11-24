@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *   - Connection-status pills (shared updater for intg-card + ov-status)
- *   - Manual test buttons (<button data-test-service="…">)
+ *   - Manual test buttons (<button data-test-service="…">), which test the saved settings
  *   - Auto-test configured services on page load
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
  *   - Rail badge counting the services whose check failed
@@ -11,11 +11,14 @@
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
  *   MM.dom  (core/dom.js)
+ *   MM.settings.savebar.isEdited (settings/savebar.js)
+ *   window.UIFeedback (toasts)
  *
  * Exposes:
  *   MM.settings.integrations.init()
  *   MM.settings.integrations.setConnStatus(service, tone, label)
  *   MM.settings.integrations.paintRailCount()
+ *   MM.settings.integrations.paintTests()   — called by savebar.js
  */
 (function () {
   'use strict';
@@ -67,6 +70,21 @@
       item.setAttribute('aria-label', 'Integrations, ' + failed + ' not connected');
     },
 
+    /* A test reads the saved settings, so its button says so while its card holds other values. */
+    hasEdits: function (btn) {
+      var card = btn.closest('.intg-card');
+      return !!(card && MM.settings.savebar) &&
+        Array.prototype.some.call(card.querySelectorAll('input[id], select[id]'), MM.settings.savebar.isEdited);
+    },
+
+    paintTests: function () {
+      document.querySelectorAll('[data-test-service]').forEach(function (btn) {
+        var label = MM.settings.integrations.hasEdits(btn) ? 'Test saved' : 'Test';
+        // Leaving a field for this button repaints it mid-press, and Safari drops the click if the text is replaced.
+        if (!btn.disabled && btn.textContent !== label) btn.textContent = label;
+      });
+    },
+
     /* The pill label changes on the page-load auto-check too, so only this
        separate region is announced, and only for a pressed Test. */
     announce: function (service, text) {
@@ -96,7 +114,10 @@
       function testService(service, btn) {
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) self.announce(service, '');
-        if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+        if (btn) {
+          if (self.hasEdits(btn)) window.UIFeedback.toast('Testing ' + serviceName(btn) + ' as last saved. Save to test your changes.');
+          btn.disabled = true; btn.textContent = 'Testing…';
+        }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
           .then(function () {
             self.setConnStatus(service, 'ok', 'Connected');
@@ -113,7 +134,8 @@
             if (!btn) return;
             setTimeout(function () {
               var keepFocus = MM.dom.focusStillIn(btn);
-              btn.textContent = 'Test'; btn.disabled = false;
+              btn.disabled = false;
+              self.paintTests();
               if (keepFocus) btn.focus();
             }, 1600);
           });

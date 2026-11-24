@@ -211,6 +211,7 @@ def remove_orphans(
         repository.save_pruned_watches(conn, orphan_ids)
         repository.delete_actions_for_media_items(conn, orphan_ids)
         repository.delete_media_items(conn, orphan_ids)
+        repository.carry_film_keeps(conn)
     if not orphan_ids:
         return 0
     logger.info(

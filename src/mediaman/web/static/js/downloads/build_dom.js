@@ -12,8 +12,10 @@
  *   MM.downloads.buildDom.q(sel, ctx)              → MM.dom.q
  *   MM.downloads.buildDom.setText(el, txt)         → MM.dom.setText
  *   MM.downloads.buildDom.findByDlId(c, dlId)      → MM.dom.findByAttr(c, 'data-dl-id', dlId)
- *   MM.downloads.buildDom.findByEp(container, label)
  *   MM.downloads.buildDom.buildHero(item)          shared hero card builder (item.hero_backdrop fills its background)
+ *   MM.downloads.buildDom.syncArt(card, item)       a hero's poster and background
+ *   MM.downloads.buildDom.syncPoster(box, url)
+ *   MM.downloads.buildDom.syncTypePill(info, mediaType)  the Movie or TV pill above a hero's title
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
@@ -23,7 +25,15 @@
  *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, dim the held, say how many
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
+ *   MM.downloads.buildDom.setProgress(fill, percent)  a bar's width and its spoken value
+ *   MM.downloads.buildDom.buildEpisodeRow(ep)
+ *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
+ *   MM.downloads.buildDom.closeEpisodes(card)
+ *   MM.downloads.buildDom.easeHeight(card)          a function that eases the card from this height to its next
+ *   MM.downloads.buildDom.fadeOver(card)            the hero as it is fades out over what it becomes
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
+ *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
+ *   MM.downloads.buildDom.passFocus(el)             move focus on from an element that is about to go
  *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
  *   MM.downloads.buildDom.collapse(el, done)       shrink it away, then call done
  *   MM.downloads.buildDom.collapseAway(el)          shrink it away, then remove it
@@ -35,18 +45,31 @@
   window.MM = window.MM || {};
   MM.downloads = MM.downloads || {};
 
-  /* Find element by data-ep without selector injection. */
-  function findByEp(container, label) {
-    if (!container) return null;
-    var rows = container.querySelectorAll('[data-ep]');
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-ep') === label) return rows[i];
-    }
-    return null;
-  }
-
   function reducedMotion() {
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function focusHeading() {
+    var h1 = document.querySelector('#dl-root h1');
+    if (!h1) return;
+    h1.setAttribute('tabindex', '-1');
+    h1.focus({ preventScroll: true });
+  }
+
+  /* Focus inside what is about to go moves on: from an abandon button to the one
+     of the next row or the one before, else to the top of the page. */
+  function passFocus(node) {
+    var active = document.activeElement;
+    if (!active || !node.contains(active)) return;
+    var row = active.closest('[data-abandon-trigger]') && node.closest('.dl-compact, .dl-upcoming-row');
+    var dirs = ['nextElementSibling', 'previousElementSibling'];
+    for (var i = 0; row && i < dirs.length; i++) {
+      for (var at = row[dirs[i]]; at; at = at[dirs[i]]) {
+        var btn = !isCollapsing(at) && at.querySelector('[data-abandon-trigger]');
+        if (btn) { btn.focus(); return; }
+      }
+    }
+    focusHeading();
   }
 
   var FOLD_PROPS = ['opacity', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'];
@@ -60,6 +83,7 @@
     if (running && running.open === open) return;
     var token = { open: open };
     el._dlFold = token;
+    if (!open) passFocus(el);
 
     function finish() {
       if (el._dlFold !== token) return;
@@ -68,6 +92,7 @@
       el.classList.remove('dl-fold');
       el.classList.remove('is-folded');
       el.style.height = '';
+      if (!open) passFocus(el);
       if (done) done();
     }
     function onEnd(e) {
@@ -111,6 +136,50 @@
   /* State labels come from the server (item.state_label). The canonical map
      lives in services/downloads/download_format/_types.py. */
 
+  function buildBar(cls, label) {
+    var bar = document.createElement('div');
+    bar.className = cls;
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-label', label || '');
+    return bar;
+  }
+
+  /* Fill a bar to `percent`, and say so to a screen reader. */
+  function setProgress(fill, percent) {
+    if (!fill) return;
+    fill.style.width = (percent || 0) + '%';
+    fill.parentNode.setAttribute('aria-valuenow', String(percent || 0));
+  }
+
+  function buildPoster(url) {
+    var img = document.createElement('img');
+    img.alt = '';
+    img.setAttribute('data-broken-on-error', '');
+    img.src = url;
+    return img;
+  }
+
+  /* Show an item's poster in `box`; with none it is left empty. */
+  function syncPoster(box, url) {
+    if (!box) return;
+    var img = box.querySelector('img');
+    if ((img ? img.getAttribute('src') : '') === (url || '')) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    if (url) box.appendChild(buildPoster(url));
+  }
+
+  /* The hero's poster and blurred background are its item's, or none. */
+  function syncArt(card, item) {
+    var url = item.poster_url || '';
+    syncPoster(card.querySelector('.dl-hero-poster'), url);
+    var bg = card.querySelector('.dl-hero-bg');
+    if (!bg || (bg.getAttribute('data-bg-url') || '') === url) return;
+    bg.setAttribute('data-bg-url', url);
+    if (window.DLPoster) window.DLPoster.apply(bg);
+  }
+
   /* Build a recent item element safely. */
   function buildRecentItem(r) {
     var item = document.createElement('div');
@@ -118,12 +187,7 @@
 
     var poster = document.createElement('div');
     poster.className = 'dl-recent-poster';
-    if (r.poster_url) {
-      var img = document.createElement('img');
-      img.src = r.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (r.poster_url) poster.appendChild(buildPoster(r.poster_url));
     var badge = document.createElement('div');
     badge.className = 'dl-recent-badge';
     badge.appendChild(MM.dom.icon('i-check'));
@@ -171,20 +235,6 @@
     return el;
   }
 
-  /**
-   * Build a hero card DOM element.
-   *
-   * Shared builder used by both the per-token download page (download.js)
-   * and the downloads list page (buildHeroPlaceholder). Produces the full
-   * .dl-hero tree with all data-v hooks required by render_hero.js and
-   * download.js polling.
-   *
-   * @param {Object|null} item  Download item. When null/falsy a blank card is
-   *   returned (all text empty, progress at 0%, state pill unstyled). Pass a
-   *   real item to pre-populate title, poster, state pill, and progress.
-   *   Shape: { id, title, poster_url, state, state_label, progress, eta }
-   * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
-   */
   function buildEtaStat(text) {
     var wrap = document.createElement('span');
     wrap.appendChild(document.createTextNode('ETA '));
@@ -209,6 +259,40 @@
     }
   }
 
+  function buildTypeRow() {
+    var row = el('div', 'pill-row u-mb-12');
+    row.appendChild(el('span'));
+    return row;
+  }
+
+  function showType(row, mediaType) {
+    var isMovie = mediaType === 'movie';
+    var pill = row.children[0];
+    pill.className = 'pill pill--' + (isMovie ? 'movie' : 'tv');
+    MM.dom.setText(pill, isMovie ? 'Movie' : 'TV');
+  }
+
+  function syncTypePill(info, mediaType) {
+    if (!info) return;
+    var row = info.querySelector('.pill-row');
+    if (!row) row = info.insertBefore(buildTypeRow(), info.firstChild);
+    showType(row, mediaType);
+  }
+
+  /**
+   * Build a hero card DOM element.
+   *
+   * Shared builder used by both the per-token download page (download.js)
+   * and the downloads list page (buildHeroPlaceholder). Produces the full
+   * .dl-hero tree with all data-v hooks required by render_hero.js and
+   * download.js polling.
+   *
+   * @param {Object|null} item  Download item. When null/falsy a blank card is
+   *   returned (all text empty, progress at 0%, state pill unstyled). Pass a
+   *   real item to pre-populate title, poster, state pill, and progress.
+   *   Shape: { id, title, media_type, poster_url, state, state_label, progress, eta }
+   * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
+   */
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
@@ -242,10 +326,7 @@
     var posterWrap = document.createElement('div');
     posterWrap.className = 'dl-hero-poster';
     if (bgUrl) {
-      var posterImg = document.createElement('img');
-      posterImg.src = bgUrl;
-      posterImg.alt = '';
-      posterWrap.appendChild(posterImg);
+      posterWrap.appendChild(buildPoster(bgUrl));
     } else {
       var posterPh = document.createElement('div');
       posterPh.className = 'dl-hero-poster-placeholder';
@@ -257,7 +338,13 @@
     var info = document.createElement('div');
     info.className = 'dl-hero-info';
 
-    var titleEl = document.createElement('div');
+    if (item.media_type) {
+      var typeRow = buildTypeRow();
+      showType(typeRow, item.media_type);
+      info.appendChild(typeRow);
+    }
+
+    var titleEl = document.createElement('h2');
     titleEl.className = 'dl-hero-title';
     if (item.title) titleEl.textContent = item.title;
     info.appendChild(titleEl);
@@ -285,13 +372,12 @@
     progressWrap.setAttribute('data-v', 'progress-wrap');
     if (state === 'searching') progressWrap.hidden = true;
 
-    var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar dl-bar';
+    var bar = buildBar('dl-hero-bar dl-bar', item.title);
     var fill = document.createElement('div');
     fill.className = 'dl-hero-fill dl-bar-fill' + (state === 'almost_ready' ? ' green' : '');
     fill.setAttribute('data-v', 'fill');
-    fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
+    setProgress(fill, item.progress);
     progressWrap.appendChild(bar);
 
     /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", "ETA x". */
@@ -377,7 +463,10 @@
     var wrap = host.querySelector('.' + wrapClass);
     var want = canAbandonHere() && !!item.abandon_visible;
     if (!want) {
-      if (wrap) wrap.parentNode.removeChild(wrap);
+      if (wrap) {
+        passFocus(wrap);
+        wrap.parentNode.removeChild(wrap);
+      }
       if (!isHero) host.classList.remove('dl-row--has-abandon');
       return;
     }
@@ -397,6 +486,151 @@
     }
   }
 
+  /* Mirrors the episode rows in _dl_hero_card.html and _dl_compact_row.html. */
+  function buildEpisodeRow(ep) {
+    var row = el('div', 'dl-ep-row' + (ep.is_pack_episode ? ' dl-ep-row-pack' : ''));
+    row.setAttribute('data-ep', ep.label);
+    row.appendChild(el('span', 'dl-ep-number', ep.label));
+    row.appendChild(el('span', 'dl-ep-title', ep.title || ''));
+
+    if (ep.is_pack_episode) {
+      row.appendChild(el('span', 'dl-ep-status-pill downloading', 'In pack'));
+      return row;
+    }
+
+    var miniBar = buildBar('dl-ep-mini-bar', ep.label);
+    var miniFill = el('div', 'dl-ep-mini-fill');
+    miniFill.setAttribute('data-v', 'ep-fill');
+    miniBar.appendChild(miniFill);
+    row.appendChild(miniBar);
+    row.appendChild(el('span', 'dl-ep-status-pill'));
+    patchEpisodeRow(row, ep);
+    return row;
+  }
+
+  function patchEpisodeRow(row, ep) {
+    MM.dom.setText(row.querySelector('.dl-ep-title'), ep.title || '');
+    if (ep.is_pack_episode) return;
+    var state = ep.state || 'searching';
+    var fill = row.querySelector('[data-v="ep-fill"]');
+    setProgress(fill, ep.progress);
+    fill.className = 'dl-ep-mini-fill' + (state === 'ready' ? ' green' : '');
+    var pill = row.querySelector('.dl-ep-status-pill');
+    pill.className = 'dl-ep-status-pill ' + state;
+    MM.dom.setText(pill, state === 'ready' ? 'Ready'
+      : state === 'downloading' ? (ep.progress || 0) + '%'
+      : state === 'queued' ? 'Queued' : 'Searching');
+  }
+
+  function episodeCount(episodes) {
+    return episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
+  }
+
+  function closeEpisodes(card) {
+    var toggle = card.querySelector('[data-v="ep-toggle"]');
+    if (!toggle) return;
+    toggle.classList.remove('open');
+    toggle.setAttribute('aria-expanded', 'false');
+    card.querySelector('[data-v="ep-list"]').hidden = true;
+  }
+
+  /* A copy of the card as it is, drawn over it to fade out while the card turns into
+     another title's. It is a picture alone, and beside the card, so no poll that looks for
+     a part of the card finds one of the copy's. */
+  function fadeOver(card) {
+    var box = card.parentNode;
+    var old = box.querySelector('.dl-hero-ghost');
+    if (old) box.removeChild(old);
+    if (reducedMotion()) return;
+    var ghost = el('div', 'dl-hero-ghost' + (card.classList.contains('is-held') ? ' is-held' : ''));
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.setAttribute('inert', '');
+    var copy = el('div', 'dl-hero-ghost__card');
+    copy.style.height = card.getBoundingClientRect().height + 'px';
+    Array.prototype.forEach.call(card.children, function (part) { copy.appendChild(part.cloneNode(true)); });
+    ghost.appendChild(copy);
+    ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
+      Array.prototype.forEach.call(ghost.querySelectorAll('[' + hook + ']'), function (part) { part.removeAttribute(hook); });
+    });
+    box.appendChild(ghost);
+    /* Longer than the fade, which may never end in a tab that is hidden. */
+    setTimeout(function () { if (ghost.parentNode) box.removeChild(ghost); }, 400);
+  }
+
+  /* Read a card's height before it turns into another title's; the function returned is
+     called after, and brings it to its new one from there. A swap while one still moves
+     starts from where the card is. */
+  function easeHeight(card) {
+    if (reducedMotion()) return function () {};
+    var from = card.getBoundingClientRect().height;
+    return function () {
+      var run = card._dlEase = {};
+      card.style.transition = 'none';
+      card.style.height = '';
+      var to = card.getBoundingClientRect().height;
+      if (Math.abs(to - from) >= 1) {
+        card.style.height = from + 'px';
+        void card.offsetHeight;
+        setTimeout(function () { if (card._dlEase === run) card.style.height = ''; }, 400);
+      }
+      card.style.transition = '';
+      if (card.style.height) card.style.height = to + 'px';
+    };
+  }
+
+  /* The episodes button and list of a hero or queue row exist only while the
+     item has episodes. The list is rebuilt when their set has changed and
+     patched otherwise, so it stays open as the person left it. */
+  function syncEpisodes(card, item) {
+    var episodes = item.episodes || [];
+    var toggle = card.querySelector('[data-v="ep-toggle"]');
+    var list = card.querySelector('[data-v="ep-list"]');
+    var count = card.querySelector('[data-v="ep-count"]');
+    if (count) {
+      MM.dom.setText(count, episodes.length ? episodeCount(episodes) : '');
+      count.hidden = !episodes.length;
+    }
+
+    if (!episodes.length) {
+      if (toggle) {
+        passFocus(toggle);
+        toggle.parentNode.removeChild(toggle);
+      }
+      if (list) list.parentNode.removeChild(list);
+      return;
+    }
+
+    if (!toggle) {
+      var info = card.querySelector('.dl-hero-info');
+      var prefix = info ? 'dl-hero' : 'dl-compact';
+      toggle = el('button', prefix + '-episodes-toggle');
+      toggle.type = 'button';
+      toggle.setAttribute('data-v', 'ep-toggle');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.appendChild(MM.dom.icon('i-chevron-right'));
+      toggle.appendChild(el('span'));
+      list = el('div', prefix + '-episodes');
+      list.setAttribute('data-v', 'ep-list');
+      list.hidden = true;
+      (info || card).appendChild(toggle);
+      (info || card).appendChild(list);
+    }
+    MM.dom.setText(toggle.querySelector('span'),
+      episodeCount(episodes) + (item.has_pack ? ' · pack download' : ''));
+
+    var rows = list.querySelectorAll('[data-ep]');
+    var same = rows.length === episodes.length && episodes.every(function (ep, i) {
+      return rows[i].getAttribute('data-ep') === ep.label &&
+        rows[i].classList.contains('dl-ep-row-pack') === !!ep.is_pack_episode;
+    });
+    if (same) {
+      episodes.forEach(function (ep, i) { patchEpisodeRow(rows[i], ep); });
+      return;
+    }
+    while (list.firstChild) list.removeChild(list.firstChild);
+    episodes.forEach(function (ep) { list.appendChild(buildEpisodeRow(ep)); });
+  }
+
   /* Build a queue row, mirroring _dl_compact_row.html. */
   function buildCompactRow(item) {
     var card = el('div', 'dl-compact');
@@ -405,12 +639,7 @@
     card.appendChild(row);
 
     var poster = el('div', 'dl-compact-poster dl-row-poster');
-    if (item.poster_url) {
-      var img = el('img');
-      img.src = item.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
     row.appendChild(poster);
 
     var info = el('div', 'dl-compact-info dl-row-info');
@@ -432,11 +661,9 @@
     sizeInfo.appendChild(document.createTextNode(' of '));
     sizeInfo.appendChild(total);
     meta.appendChild(sizeInfo);
-    var episodes = item.episodes || [];
-    if (episodes.length) {
-      meta.appendChild(el('span', '',
-        episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '')));
-    }
+    var count = el('span');
+    count.setAttribute('data-v', 'ep-count');
+    meta.appendChild(count);
     info.appendChild(meta);
 
     var hint = el('div', 'dl-search-hint');
@@ -444,17 +671,18 @@
     hint.hidden = true;
     info.appendChild(hint);
 
-    var bar = el('div', 'dl-compact-bar dl-row-bar');
+    var bar = buildBar('dl-compact-bar dl-row-bar', item.title);
     var fill = el('div', 'dl-compact-fill dl-row-bar-fill' +
       (item.state === 'almost_ready' ? ' green' : ''));
     fill.setAttribute('data-v', 'fill');
-    fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
+    setProgress(fill, item.progress);
     info.appendChild(bar);
     row.appendChild(info);
 
     var right = el('div', 'dl-compact-right');
-    var pct = el('div', 'dl-compact-pct dl-row-pct', item.progress > 0 ? item.progress + '%' : '—');
+    var pct = el('div', 'dl-compact-pct dl-row-pct' + (item.progress > 0 ? '' : ' dl-compact-pct--muted'),
+      item.progress > 0 ? item.progress + '%' : '—');
     pct.setAttribute('data-v', 'pct');
     right.appendChild(pct);
     var eta = el('div', 'dl-compact-eta', item.eta || '');
@@ -464,24 +692,7 @@
 
     syncAbandon(card, item, 'row');
 
-    if (episodes.length) {
-      var toggle = el('button', 'dl-compact-episodes-toggle');
-      toggle.type = 'button';
-      toggle.setAttribute('data-v', 'ep-toggle');
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.appendChild(MM.dom.icon('i-chevron-right'));
-      toggle.appendChild(el('span', '', episodes.length + ' episode' +
-        (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : '')));
-      card.appendChild(toggle);
-      var list = el('div', 'dl-compact-episodes');
-      list.setAttribute('data-v', 'ep-list');
-      list.hidden = true;
-      for (var i = 0; i < episodes.length; i++) {
-        list.appendChild(MM.downloads.renderHero.buildEpisodeRow(episodes[i]));
-      }
-      card.appendChild(list);
-    }
-
+    syncEpisodes(card, item);
     updateHint(card, item);
     return card;
   }
@@ -518,7 +729,10 @@
   function markHeld(card) {
     card.classList.add('is-held');
     var hint = card.querySelector('[data-v="search-hint"]');
-    if (hint) hint.hidden = true;
+    if (hint) {
+      passFocus(hint);
+      hint.hidden = true;
+    }
     if (card.classList.contains('dl-hero')) { updateEtaStat(card, ''); return; }
     var eta = card.querySelector('[data-v="eta"]');
     if (eta) eta.textContent = '';
@@ -564,12 +778,7 @@
 
     var poster = document.createElement('div');
     poster.className = 'dl-compact-poster dl-row-poster';
-    if (item.poster_url) {
-      var img = document.createElement('img');
-      img.src = item.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
+    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
     row.appendChild(poster);
 
     var info = document.createElement('div');
@@ -628,8 +837,10 @@
     q:                    function (sel, ctx)        { return MM.dom.q(sel, ctx); },
     setText:              function (el, txt)         { return MM.dom.setText(el, txt); },
     findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
-    findByEp:             findByEp,
     buildHero:            buildHero,
+    syncArt:              syncArt,
+    syncPoster:           syncPoster,
+    syncTypePill:         syncTypePill,
     buildEtaStat:         buildEtaStat,
     updateEtaStat:        updateEtaStat,
     buildHeroPlaceholder: buildHeroPlaceholder,
@@ -641,7 +852,15 @@
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
+    setProgress:          setProgress,
+    buildEpisodeRow:      buildEpisodeRow,
+    syncEpisodes:         syncEpisodes,
+    closeEpisodes:        closeEpisodes,
+    fadeOver:             fadeOver,
+    easeHeight:           easeHeight,
     syncAbandon:          syncAbandon,
+    focusHeading:         focusHeading,
+    passFocus:            passFocus,
     reveal:               function (el)              { fold(el, true); },
     collapse:             function (el, done)        { fold(el, false, done); },
     collapseAway:         collapseAway,

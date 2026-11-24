@@ -400,6 +400,51 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("plex_libraries") == ["1", "2", "3"]
 
+    @pytest.mark.parametrize(
+        ("sent", "stored"),
+        [
+            # another page has since taken 1 and 3 out and put 4 in
+            (["1", "2", "3"], ["2", "4"]),
+            (["2", "3"], ["2", "4"]),
+            (["2", "3", "5"], ["2", "4", "5"]),
+            ([], ["4"]),
+        ],
+    )
+    def test_put_does_to_the_stored_libraries_only_what_the_page_changed(
+        self, app_factory, authed_client, conn, sent, stored
+    ):
+        """A selected library is scanned, so an old page may not select one again."""
+        insert_settings(conn, plex_libraries='["2", "4"]')
+        data = self._put_and_get(
+            app_factory,
+            authed_client,
+            conn,
+            {"plex_libraries": sent, "plex_libraries_base": ["1", "2", "3"]},
+        )
+        assert data["plex_libraries"] == stored
+        assert "plex_libraries_base" not in data
+
+    def test_put_replies_with_the_libraries_and_thresholds_now_stored(
+        self, app_factory, authed_client, conn
+    ):
+        """A save is laid over what another page stored, so the page cannot tell the outcome alone."""
+        movies = {"path": "/media/movies", "threshold": 85}
+        anime = {"path": "/media/anime", "threshold": 90}
+        insert_settings(conn, plex_libraries='["1", "4"]', disk_thresholds=json.dumps({"4": anime}))
+        client = _client(app_factory, authed_client, conn)
+        payload = {
+            "plex_libraries": ["1", "2"],
+            "plex_libraries_base": ["1"],
+            "disk_thresholds": {"1": movies},
+        }
+        merged = client.put("/api/settings", json=payload).json()
+        assert merged["plex_libraries"] == ["1", "4", "2"]
+        assert merged["disk_thresholds"] == {"4": anime, "1": movies}
+        # whatever was saved
+        other = client.put("/api/settings", json={"grace_days": 20}).json()
+        assert other["plex_libraries"] == merged["plex_libraries"]
+        assert other["disk_thresholds"] == merged["disk_thresholds"]
+
     def test_put_persists_disk_thresholds(self, app_factory, authed_client, conn):
         """disk_thresholds (nested {lib_id: {path, threshold}}) round-trips."""
         payload = {
@@ -410,6 +455,93 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         }
         data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("disk_thresholds") == payload["disk_thresholds"]
+
+    @staticmethod
+    def _put_thresholds(client):
+        def put(thresholds, **others):
+            resp = client.put("/api/settings", json={"disk_thresholds": thresholds, **others})
+            assert resp.status_code == 200, resp.json()
+            return client.get("/api/settings").json()["disk_thresholds"]
+
+        return put
+
+    def test_put_keeps_the_threshold_of_a_library_it_does_not_name(
+        self, app_factory, authed_client, conn
+    ):
+        """A library without a threshold is always scanned, so a save may not lose one."""
+        movies = {"path": "/media/movies", "threshold": 85}
+        anime = {"path": "/media/anime", "threshold": 90}
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        put({"1": movies})
+        both = put({"2": anime})
+        assert both == {"1": movies, "2": anime}
+        assert put({}) == both
+        assert put(None, grace_days=20) == both
+
+    def test_put_that_clears_nothing_leaves_unreadable_thresholds_alone(
+        self, app_factory, authed_client, conn
+    ):
+        """The scanner scans no library while they cannot be read."""
+        insert_settings(conn, disk_thresholds="[1]", plex_libraries='["1"]')
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        assert put({"1": None}) == [1]
+
+    @pytest.mark.parametrize("stored", ['"odd"', "[1]", "true", "not json"])
+    @pytest.mark.parametrize(
+        ("sent", "others"),
+        [
+            ({"1": {"path": "/a", "threshold": 80}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 0}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": {"path": " ", "threshold": 80}}, {}),
+            ({"1": {"path": "/a", "threshold": 80}, "2": None}, {}),
+            # the selection as this same save leaves it
+            (
+                {"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 70}},
+                {"plex_libraries": ["1", "2", "3"], "plex_libraries_base": ["1", "2"]},
+            ),
+        ],
+    )
+    def test_put_refuses_to_mend_unreadable_thresholds_for_some_of_the_libraries(
+        self, app_factory, authed_client, conn, stored, sent, others
+    ):
+        """No library is scanned while they cannot be read; mended, one with no limit always is."""
+        insert_settings(conn, plex_libraries='["1", "2"]', disk_thresholds=stored, grace_days="30")
+        client = _client(app_factory, authed_client, conn)
+        before = client.get("/api/settings").json()
+        resp = client.put(
+            "/api/settings", json={"disk_thresholds": sent, "grace_days": 20, **others}
+        )
+        assert resp.status_code == 409
+        assert "disk thresholds" in resp.json()["message"]
+        assert client.get("/api/settings").json() == before
+
+    @pytest.mark.parametrize(
+        ("selected", "others"),
+        [
+            ('["1", "2"]', {}),
+            # a library the same save takes out needs no limit
+            (
+                '["1", "2", "3"]',
+                {"plex_libraries": ["1", "2"], "plex_libraries_base": ["1", "2", "3"]},
+            ),
+        ],
+    )
+    def test_put_mends_unreadable_thresholds_with_a_limit_for_every_library(
+        self, app_factory, authed_client, conn, selected, others
+    ):
+        insert_settings(conn, plex_libraries=selected, disk_thresholds='"odd"')
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        both = {"1": {"path": "/a", "threshold": 80}, "2": {"path": "/b", "threshold": 70}}
+        assert put(both, **others) == both
+
+    @pytest.mark.parametrize("cleared", [None, {}, {"path": "", "threshold": 0}])
+    def test_put_removes_a_threshold_that_was_cleared(
+        self, app_factory, authed_client, conn, cleared
+    ):
+        kept = {"path": "/media/anime", "threshold": 90}
+        put = self._put_thresholds(_client(app_factory, authed_client, conn))
+        put({"1": {"path": "/media/movies", "threshold": 85}, "2": kept})
+        assert put({"1": cleared}) == {"2": kept}
 
     def test_put_rejects_unknown_key_with_422(self, app_factory, authed_client, conn):
         """Unknown key must be rejected at the Pydantic layer (HTTP 422)."""

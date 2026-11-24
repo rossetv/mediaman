@@ -668,3 +668,86 @@ class TestHistoryBadgesAndSecurityRows:
         assert ">Keep removed<" in html
         assert "Unprotected" not in html
         assert "Removed Show Keep" not in html
+
+
+class TestHistoryPageMarkup:
+    def _page(self, app_factory, authed_client, conn, query: str) -> str:
+        app = app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get(f"/history{query}")
+        assert resp.status_code == 200
+        return resp.text
+
+    def test_the_pager_names_its_buttons_and_marks_the_current_page(
+        self, app_factory, authed_client, conn
+    ):
+        for i in range(_PER_PAGE_DEFAULT * 2 + 1):
+            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "?page=2")
+        nav = re.search(
+            r'<nav class="pagination hist-pager" aria-label="([^"]+)">(.*?)</nav>', html, re.S
+        )
+        assert nav
+        buttons = nav.group(2)
+        assert 'aria-label="Previous page"' in buttons
+        assert 'aria-label="Next page"' in buttons
+        assert re.search(r'role="link" aria-current="page"[^>]*>2<', buttons)
+        assert 'aria-label="Page 1"' in buttons
+
+    def test_a_disabled_arrow_is_a_link_role_so_its_name_and_state_are_read(
+        self, app_factory, authed_client, conn
+    ):
+        for i in range(_PER_PAGE_DEFAULT + 1):
+            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "")
+        assert 'role="link" aria-label="Previous page" aria-disabled="true"' in html
+
+    def test_on_a_phone_only_the_arrows_and_the_page_count_remain(
+        self, app_factory, authed_client, conn
+    ):
+        for i in range(_PER_PAGE_DEFAULT * 9):
+            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "?page=5")
+        nav = re.search(r'<nav class="pagination hist-pager".*?</nav>', html, re.S)[0]
+        classes = re.findall(r'<(?:a|span)[^>]*class="(page-btn[^"]*)"', nav)
+        shown_on_phone = [c for c in classes if "page-btn--num" not in c]
+        assert [("page-next" in c) for c in shown_on_phone] == [False, True]
+        assert len(classes) > 6  # numbers and an ellipsis are in the page, for wider screens
+        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
+        assert re.search(
+            r"max-width: 699\.98px\)\s*\{[^@]*\.hist-pager \.page-btn--num \{ display: none", css
+        )
+
+    def test_pills_by_touch_keep_rows_apart_by_twice_their_reach_band(self):
+        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
+        block = re.search(
+            r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(.*?)\n\}", css, re.S
+        )[1]
+        band = float(
+            re.search(r"\.hist-filters \.fpill::after \{[^}]*inset: -([\d.]+)px", block)[1]
+        )
+        gap = float(re.search(r"\.pill-row\.hist-filters \{ row-gap: ([\d.]+)px", block)[1])
+        assert gap >= 2 * band
+
+    def test_the_last_row_does_not_double_the_card_border(self):
+        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
+        assert re.search(r"\.hist:last-child\s*\{\s*border-bottom:\s*0", css)
+
+    def test_the_event_count_is_styled_as_a_quiet_count(self, app_factory, authed_client, conn):
+        insert_audit_log(conn, media_item_id="m1", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "")
+        assert 'class="hist-count ' in html
+
+    def test_an_old_link_to_a_show_keep_removal_lights_the_keep_removed_pill(
+        self, app_factory, authed_client, conn
+    ):
+        insert_audit_log(conn, media_item_id="m1", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "?action=removed_show_keep")
+        assert re.search(
+            r'class="fpill on" href="/history\?action=unkept" aria-current="page"', html
+        )
+        assert 'No "keep removed" events on record.' in html
+        assert "removed show keep" not in html

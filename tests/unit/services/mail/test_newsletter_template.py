@@ -278,7 +278,7 @@ def test_buttons_carry_their_own_background_and_padding(env: Environment) -> Non
 
     for href in ("https://example/keep/tok1", "https://example/download/d1"):
         cell = re.search(r'<td[^>]*>(?=<a href="' + re.escape(href) + '")', html).group(0)
-        assert "background:#2997ff" in cell
+        assert "background:#0071e3" in cell
         assert "border-radius:6px" in cell
         link = re.search(r'<a href="' + re.escape(href) + r'"[^>]*>', html).group(0)
         assert "padding:" in link
@@ -323,3 +323,98 @@ def test_footer_text_and_unsubscribe_link_are_readable(env: Environment) -> None
     link = re.search(r'<a href="https://example/unsubscribe\?token=xyz"[^>]*>', footer).group(0)
     assert "color:#d1d1d6" in link
     assert "underline" in link
+
+
+def _luminance(hex_colour: str) -> float:
+    def channel(i: int) -> float:
+        c = int(hex_colour[i : i + 2], 16) / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+
+
+def test_button_text_reads_at_the_aa_contrast(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    link = re.search(r'<a href="https://example/keep/tok1"[^>]*>', html).group(0)
+    cell = re.search(
+        r'<td[^>]*background:(#[0-9a-f]{6})[^>]*>(?=<a href="https://example/keep)', html
+    )
+    text = re.search(r"color:(#[0-9a-f]{6})", link).group(1)
+    light, dark = sorted([_luminance(text), _luminance(cell.group(1))], reverse=True)
+    assert (light + 0.05) / (dark + 0.05) >= 4.5
+
+
+def test_every_button_is_a_thumb_tall(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["unsubscribe_url"] = ""
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    links = re.findall(r'<a href="[^"]*" class="btn[^"]*" style="([^"]*)"', html)
+    assert len(links) >= 4  # keep, download, re-download, open
+    for style in links:
+        pad = int(re.search(r"padding:(\d+)px", style).group(1))
+        line = int(re.search(r"line-height:(\d+)px", style).group(1))
+        assert 2 * pad + line >= 44, style
+
+
+def test_the_unsubscribe_link_is_a_thumb_tall(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["unsubscribe_url"] = "https://mm.example/unsubscribe/abc"
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    style = re.search(r'<a href="https://mm.example/unsubscribe/abc" style="([^"]*)"', html)[1]
+    pad = int(re.search(r"padding:(\d+)px", style).group(1))
+    line = int(re.search(r"line-height:(\d+)px", style).group(1))
+    assert 2 * pad + line >= 44, style
+
+
+def test_a_long_unbroken_title_may_break_instead_of_widening_the_message(
+    env: Environment,
+) -> None:
+    ctx = _full_context()
+    ctx["scheduled_items"][0]["title"] = "Extended_Cut_2160p_Remux" * 4
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    title = re.search(r"<div[^>]*>Extended_Cut[^<]*</div>", html).group(0)
+    assert "overflow-wrap:anywhere" in title
+
+
+@pytest.mark.parametrize(
+    ("size", "shown"),
+    [
+        (500_000, "488 KB"),
+        (900, "900 B"),
+        (1024**2 - 1, "1 MB"),
+        (1024**3 - 1, "1.0 GB"),
+        (int(1023.96 * 1024**3), "1.0 TB"),
+        (int(1023.9 * 1024**3), "1023.9 GB"),
+    ],
+)
+def test_sizes_hand_over_to_the_next_unit_before_they_read_1024(
+    env: Environment, size: int, shown: str
+) -> None:
+    ctx = _full_context()
+    ctx["scheduled_items"][0]["file_size_bytes"] = size
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    card = html[html.index('class="item-title">Ad Astra') : html.index("keep/tok1")]
+    assert f">{shown}</div>" in card
+
+
+@pytest.mark.parametrize(
+    ("days", "shown"),
+    [(335, "Added 335 days ago"), (1, "Added 1 day ago"), (0, "Added today")],
+)
+def test_a_scheduled_card_says_how_long_ago_it_was_added(
+    env: Environment, days: int, shown: str
+) -> None:
+    ctx = _full_context()
+    ctx["scheduled_items"][0]["added_days_ago"] = days
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert shown in html
+    assert f"Added {days}d" not in html

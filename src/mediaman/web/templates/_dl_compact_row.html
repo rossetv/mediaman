@@ -4,7 +4,7 @@
 <div class="dl-compact dl-card-enter" data-dl-id="{{ item.id }}">
   <div class="dl-compact-row dl-row{% if can_abandon and item.abandon_visible %} dl-row--has-abandon{% endif %}">
     <div class="dl-compact-poster dl-row-poster">
-      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
+      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}
     </div>
     <div class="dl-compact-info dl-row-info">
       <div class="dl-compact-title dl-row-title">{{ item.title }}</div>
@@ -13,23 +13,19 @@
         <span data-v="size-info" {% if item.state == 'searching' %}hidden{% endif %}>
           <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
         </span>
-        {% if item.episodes %}<span>{{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}</span>{% endif %}
+        <span data-v="ep-count" {% if not item.episodes %}hidden{% endif %}>{% if item.episodes %}{{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% endif %}</span>
       </div>
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>
-        {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}{% endif %}
+        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span><span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>
       </div>
-      <div class="dl-compact-bar dl-row-bar">
+      <div class="dl-compact-bar dl-row-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
         <div class="dl-compact-fill dl-row-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
       </div>
     </div>
     <div class="dl-compact-right">
-      {% if item.progress > 0 %}
-      <div class="dl-compact-pct dl-row-pct" data-v="pct">{{ item.progress }}%</div>
-      {% else %}
-      <div class="dl-compact-pct dl-row-pct dl-compact-pct--muted">—</div>
-      {% endif %}
-      {% if item.eta %}<div class="dl-compact-eta" data-v="eta">{{ item.eta }}</div>{% endif %}
+      <div class="dl-compact-pct dl-row-pct{% if not item.progress > 0 %} dl-compact-pct--muted{% endif %}" data-v="pct">{% if item.progress > 0 %}{{ item.progress }}%{% else %}—{% endif %}</div>
+      <div class="dl-compact-eta" data-v="eta">{{ item.eta or '' }}</div>
     </div>
     {% if can_abandon and item.abandon_visible %}
     <div class="dl-row-abandon">
@@ -54,7 +50,7 @@
       {% if ep.is_pack_episode %}
       <span class="dl-ep-status-pill downloading">In pack</span>
       {% else %}
-      <div class="dl-ep-mini-bar"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
+      <div class="dl-ep-mini-bar" role="progressbar" aria-label="{{ ep.label }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ ep.progress }}"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
       <span class="dl-ep-status-pill {{ ep.state }}">
         {% if ep.state == 'ready' %}Ready
         {% elif ep.state == 'downloading' %}{{ ep.progress }}%

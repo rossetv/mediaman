@@ -18,9 +18,12 @@
    */
   function applyPosterBg(bgEl) {
     var url = bgEl.getAttribute('data-bg-url');
-    if (!url) return;
-    /* Validate scheme before applying — only http / https are acceptable. */
-    if (!/^https?:\/\//i.test(url)) return;
+    /* Only http / https, or a path of this host, are acceptable. A browser reads a
+       backslash as a slash and skips tabs, so either after the first leads elsewhere. */
+    if (!url || !/^(https?:\/\/|\/(?![\/\\\s]))/i.test(url)) {
+      bgEl.style.removeProperty('background-image');
+      return;
+    }
     bgEl.style.setProperty('background-image', 'url(' + JSON.stringify(url) + ')');
   }
 

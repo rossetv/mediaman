@@ -6,21 +6,27 @@
 <meta name="color-scheme" content="dark">
 <meta name="supported-color-schemes" content="dark">
 <title>{{ title }}{% if season_label %}, {{ season_label }}{% endif %} is ready to watch</title>
+<style>
+  @media (max-width: 520px) {
+    .mm-ready .pad { padding-left:16px !important; padding-right:16px !important; }
+    .mm-ready .card { padding:20px 18px !important; }
+  }
+</style>
 </head>
 <body style="margin:0;padding:0;background:#000000;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="background:#000000;">
-<tr><td align="center" style="padding:32px 16px;">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif;color:#ffffff;background:#000000;">
-<tr><td style="padding:24px 32px 20px;text-align:center;"><div style="font-size:20px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div></td></tr>
-{% if backdrop_src %}<tr><td style="padding:0 32px;"><img src="{{ backdrop_src }}" alt="" width="536" height="302" style="display:block;width:100%;max-width:536px;height:auto;background:#1a1a1c;border-radius:16px 16px 0 0;"></td></tr>{% endif %}
-<tr><td style="padding:0 32px;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#1a1a1c;border-radius:{% if backdrop_src %}0 0 16px 16px{% else %}16px{% endif %};">
+<tr><td align="center" style="padding:32px 12px;">
+<table class="mm-ready" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif;color:#ffffff;background:#000000;">
+<tr><td class="pad" style="padding:24px 32px 20px;text-align:center;"><div style="font-size:20px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div></td></tr>
+{% if backdrop_src %}<tr><td class="pad" style="padding:0 32px;"><img src="{{ backdrop_src }}" alt="" width="536" height="302" style="display:block;width:100%;max-width:536px;height:auto;background:#1a1a1c;border-radius:16px 16px 0 0;"></td></tr>{% endif %}
+<tr><td class="pad" style="padding:0 32px;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;background:#1a1a1c;border-radius:{% if backdrop_src %}0 0 16px 16px{% else %}16px{% endif %};">
 {% if poster_src and not backdrop_src %}<tr><td align="center" style="padding:24px 24px 0;"><img src="{{ poster_src }}" alt="" width="180" height="270" style="display:block;width:180px;height:auto;background:#2c2c2e;border-radius:10px;"></td></tr>
-{% endif %}<tr><td style="padding:24px;">
+{% endif %}<tr><td class="card" style="padding:24px;">
 <div style="margin-bottom:14px;"><span style="display:inline-block;padding:5px 14px;border-radius:980px;font-size:12px;font-weight:700;letter-spacing:0.3px;background:rgba(48,209,88,0.12);color:#30d158;">&#10003; READY TO WATCH</span></div>
-<div style="font-size:28px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.15;">{{ title }}</div>{% if season_label %}
-<div style="font-size:16px;font-weight:600;color:#ffffff;margin-top:6px;">{{ season_label }}</div>{% endif %}
-<div style="font-size:14px;color:#8e8e8e;margin-top:6px;">
+<div style="font-size:28px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.15;overflow-wrap:anywhere;word-break:break-word;">{{ title }}</div>{% if season_label %}
+<div style="font-size:16px;font-weight:600;color:#ffffff;margin-top:6px;overflow-wrap:anywhere;word-break:break-word;">{{ season_label }}</div>{% endif %}
+<div style="font-size:14px;color:#8e8e8e;margin-top:6px;line-height:1.5;overflow-wrap:anywhere;word-break:break-word;">
 {%- set _parts = [] -%}
 {%- if meta.year %}{% set _ = _parts.append(meta.year) %}{% endif -%}
 {%- set _ = _parts.append(meta.media_label) -%}
@@ -36,11 +42,11 @@
 {%- if ratings.imdb_rating %}<td style="padding-right:6px;"><span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(245,197,24,0.15);color:#f5c518;">IMDb {{ ratings.imdb_rating }}</span></td>{% endif -%}
 {%- if ratings.rt_rating %}<td><span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(255,69,58,0.15);color:#ff453a;">&#127813; {{ ratings.rt_rating }}</span></td>{% endif -%}
 </tr></table>{% endif %}
-{% if description %}<div style="font-size:14px;color:#a1a1a6;margin-top:16px;line-height:1.6;">{{ description }}</div>{% endif %}
+{% if description %}<div style="font-size:14px;color:#a1a1a6;margin-top:16px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word;">{{ description }}</div>{% endif %}
 <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:15px;color:#a1a1a6;text-align:center;">Open Plex and enjoy! &#127909;</div>
 </td></tr></table>
 </td></tr>
-<tr><td style="padding:24px 32px 32px;text-align:center;"><div style="font-size:12px;color:#a1a1a6;line-height:1.6;">You requested this download from mediaman.</div></td></tr>
+<tr><td class="pad" style="padding:24px 32px 32px;text-align:center;"><div style="font-size:12px;color:#a1a1a6;line-height:1.6;">You requested this download from mediaman.</div></td></tr>
 </table>
 </td></tr></table>
 </body>

@@ -19,12 +19,15 @@ import json
 import logging
 import shutil
 import sqlite3
+import threading
 from collections.abc import Callable
+from typing import Annotated
 
 import requests as _requests
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 from plexapi.exceptions import PlexApiException
+from pydantic import Field
 from starlette.responses import Response
 
 from mediaman.bootstrap.scan_jobs import SCHEDULE_SETTING_KEYS, reschedule_scan_jobs
@@ -40,6 +43,7 @@ from mediaman.services.infra import (
     disk_usage_allowed_roots,
     resolve_safe_readonly_path,
 )
+from mediaman.services.infra.settings_reader import get_setting
 from mediaman.services.infra.storage.disk_reads import settings_disk_reads
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
@@ -177,7 +181,8 @@ def _persist_settings(
     admin: str,
     now: str,
 ) -> Response:
-    """Write the settings rows and audit entry; return the saved/ignored envelope.
+    """Write the settings rows and audit entry; return the saved/ignored envelope, with the
+    libraries and thresholds as they are now stored, which may be more than was sent.
     Encrypt-on-write happens inside the repository so plaintext never escapes it, and the
     audit row shares the BEGIN IMMEDIATE so a failure rolls every mutation back together.
     """
@@ -210,13 +215,85 @@ def _persist_settings(
         # rationale: the save is already committed and the scheduler reads it at the next restart.
         except Exception:
             logger.warning("settings.reschedule_failed", exc_info=True)
-    return respond_ok({"status": "saved", "written": written, "ignored": ignored})
+    return respond_ok(
+        {
+            "status": "saved",
+            "written": written,
+            "ignored": ignored,
+            "plex_libraries": get_setting(conn, "plex_libraries", default=[]),
+            "disk_thresholds": get_setting(conn, "disk_thresholds", default={}),
+        }
+    )
+
+
+#: Held while the libraries and thresholds are read, merged and written, so two saves cannot undo each other's.
+_LIBRARY_MERGE_LOCK = threading.Lock()
+
+
+class _SettingsPut(SettingsUpdate):
+    """A settings save, with the library selection its ``plex_libraries`` was changed from."""
+
+    plex_libraries_base: Annotated[list[str] | None, Field(max_length=128)] = None
+
+
+def _merge_libraries(conn: sqlite3.Connection, sent: list[str], base: list[str]) -> list[str]:
+    """Return the stored selection with what *sent* adds to and takes from *base* done to it.
+
+    A page opened before another one's save still shows the old selection; sent whole, it
+    would select again, and so scan, a library someone has since taken out.
+    """
+    stored = get_setting(conn, "plex_libraries", default=[])
+    current = [str(v) for v in stored] if isinstance(stored, list) else []
+    kept = [v for v in current if v in sent or v not in base]
+    return kept + [v for v in sent if v not in base and v not in kept]
+
+
+def _merge_disk_thresholds(
+    conn: sqlite3.Connection, sent: dict[str, object]
+) -> dict[str, object] | None:
+    """Return the stored thresholds with *sent* laid over them, or None when nothing was sent.
+
+    A library without a threshold is always scanned, so one that was not sent keeps its
+    own; only an entry sent with neither a path nor a threshold removes it.
+    """
+    if not sent:
+        return None
+    stored = get_setting(conn, "disk_thresholds", default={})
+    merged: dict[str, object] = dict(stored) if isinstance(stored, dict) else {}
+    for library, cfg in sent.items():
+        if isinstance(cfg, dict) and (cfg.get("path") or cfg.get("threshold")):
+            merged[library] = cfg
+        else:
+            merged.pop(library, None)
+    # A setting the scanner cannot read keeps every library from being scanned; clearing nothing must not mend it.
+    return merged if merged or isinstance(stored, dict) else None
+
+
+def _leaves_a_library_unlimited(
+    conn: sqlite3.Connection, sent: dict[str, object], selected: object
+) -> bool:
+    """Return whether saving *sent* mends unreadable thresholds and leaves a selected library with no limit.
+
+    While they cannot be read no library is scanned; once they can, one with no limit always is.
+    """
+    stored = get_setting(conn, "disk_thresholds", default={})
+    if not stored or isinstance(stored, dict):
+        return False
+    entries = {library: cfg for library, cfg in sent.items() if isinstance(cfg, dict)}
+    if not any(cfg.get("path") or cfg.get("threshold") for cfg in entries.values()):
+        return False
+    limited = {
+        library
+        for library, cfg in entries.items()
+        if str(cfg.get("path") or "").strip() and int(cfg.get("threshold") or 0) > 0
+    }
+    return isinstance(selected, list) and not limited.issuperset(str(v) for v in selected)
 
 
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
-    body: SettingsUpdate,
+    body: _SettingsPut,
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
@@ -228,7 +305,9 @@ def api_update_settings(
     one BEGIN IMMEDIATE transaction via security_event_or_raise, so a high-impact change
     never lacks an audit trail.
     """
-    body_dict: dict[str, object] = body.model_dump(exclude_none=True)
+    body_dict: dict[str, object] = body.model_dump(
+        exclude_none=True, exclude={"plex_libraries_base"}
+    )
     conn = get_db()
     throttled = _settings_write_throttled(request, conn, admin, body_dict)
     if throttled is not None:
@@ -243,7 +322,28 @@ def api_update_settings(
         return reauth_err
 
     config = request.app.state.config
-    return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
+    with _LIBRARY_MERGE_LOCK:
+        if body.plex_libraries is not None and body.plex_libraries_base is not None:
+            body_dict["plex_libraries"] = _merge_libraries(
+                conn, body.plex_libraries, body.plex_libraries_base
+            )
+        if body.disk_thresholds is not None:
+            selected = body_dict.get("plex_libraries")
+            if selected is None:
+                selected = get_setting(conn, "plex_libraries", default=[])
+            if _leaves_a_library_unlimited(conn, body.disk_thresholds, selected):
+                return respond_err(
+                    "disk_thresholds_unreadable",
+                    status=409,
+                    message="The stored disk thresholds can't be read, so no library is scanned. "
+                    "Give every selected library a path and a Scan above limit, then save.",
+                )
+            thresholds = _merge_disk_thresholds(conn, body.disk_thresholds)
+            if thresholds is None:
+                del body_dict["disk_thresholds"]
+            else:
+                body_dict["disk_thresholds"] = thresholds
+        return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
 
 
 def _resolve_tester_dispatch(

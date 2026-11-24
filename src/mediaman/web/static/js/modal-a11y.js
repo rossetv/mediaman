@@ -3,7 +3,8 @@
  *   - Tab-focus trap inside any element with data-modal="true"
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
- *   - On open, first focusable element inside the modal receives focus
+ *   - On open, the element marked data-modal-focus (a control, or a heading with
+ *     tabindex="-1") receives focus, or else the first focusable one inside the modal
  *   - On close, focus returns to the element that was focused when the
  *     modal opened (the trigger)
  *
@@ -50,8 +51,7 @@
   }
 
   function focusFirst(modal) {
-    var focusables = getFocusable(modal);
-    var target = focusables[0] || modal;
+    var target = modal.querySelector('[data-modal-focus]:not([disabled])') || getFocusable(modal)[0] || modal;
     if (target && typeof target.focus === 'function') {
       // Ensure the modal itself is focusable as a last resort
       if (target === modal && !modal.hasAttribute('tabindex')) {
@@ -71,10 +71,13 @@
     }
     var first = focusables[0];
     var last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
+    var active = document.activeElement;
+    // A marked heading stands before the first control and is no tab stop itself.
+    var onHeading = !!active && active.hasAttribute('data-modal-focus') && focusables.indexOf(active) === -1;
+    if (e.shiftKey && (active === first || onHeading)) {
       e.preventDefault();
       last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
+    } else if (!e.shiftKey && (active === last || onHeading)) {
       e.preventDefault();
       first.focus();
     }

@@ -12,7 +12,8 @@
  *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
- *                          auto-dismisses after 4s.
+ *                          auto-dismisses after 4s; an error stays while the
+ *                          pointer is on it.
  *
  *   window.UIFeedback.toast('Removed', {
  *     action: { label: 'Undo', onClick: function () { ... } }
@@ -25,6 +26,8 @@
  *                          the button while that one is open too.
  *
  *   window.UIFeedback.error(message)  — shorthand for toast(msg, { variant: 'error' })
+ *
+ * Requires: core/dom.js (MM.dom.holdPage), for confirm().
  */
 (function (global) {
   'use strict';
@@ -214,10 +217,11 @@
     requestAnimationFrame(function () { node.classList.add('is-visible'); });
     var duration = opts.duration || (action ? 8000 : 4000);
     function expire() {
-      // Never take the button away from someone about to press it. A touch
-      // screen's sticky :hover after a tap does not count as a pointer.
+      // Never take the button away from someone about to press it, nor an
+      // error from under the pointer of someone reading it. A touch screen's
+      // sticky :hover after a tap does not count as a pointer.
       var pointerHover = window.matchMedia('(hover: hover)').matches && node.matches(':hover');
-      if (action && (node.contains(document.activeElement) || pointerHover)) {
+      if ((action && node.contains(document.activeElement)) || ((action || variant === 'error') && pointerHover)) {
         setTimeout(expire, 2000);
         return;
       }
@@ -233,7 +237,9 @@
   function confirmDialog(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
-      var titleId = 'ui-confirm-title-' + (++asked);
+      var id = 'ui-confirm-' + (++asked);
+      var titleId = id + '-title';
+      var bodyId = id + '-body';
       var overlay = el('div', {
         class: 'ui-confirm-overlay',
         role: 'dialog',
@@ -242,8 +248,11 @@
       });
       var card = el('div', { class: 'ui-confirm-card' });
       var h = el('h3', { id: titleId, class: 'ui-confirm-title', text: opts.title || 'Are you sure?' });
-      var p = el('p', { class: 'ui-confirm-body' });
-      if (opts.body) p.textContent = opts.body;
+      var p = el('p', { id: bodyId, class: 'ui-confirm-body' });
+      if (opts.body) {
+        p.textContent = opts.body;
+        overlay.setAttribute('aria-describedby', bodyId);
+      }
       var actions = el('div', { class: 'ui-confirm-actions' });
       var cancelBtn = el('button', { type: 'button', class: 'btn btn--ghost',
                                      text: opts.cancelLabel || 'Cancel' });
@@ -256,6 +265,7 @@
       if (opts.body) card.appendChild(p);
       card.appendChild(actions);
       overlay.appendChild(card);
+      var letGo = window.MM.dom.holdPage();
       document.body.appendChild(overlay);
 
       var closed = false;
@@ -263,25 +273,36 @@
         if (closed) return;
         closed = true;
         open.splice(open.indexOf(cancel), 1);
-        if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
+        if (window.ModalA11y) window.ModalA11y.onClosed(id);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
         overlay.classList.add('is-leaving');
         overlay.classList.remove('is-visible');
+        letGo();
         removeAfterExit(overlay);
       }
       function cancel() { cleanup(false); }
-      overlay.id = titleId;
+      overlay.id = id;
       open.push(cancel);
-      cancelBtn.addEventListener('click', cancel);
-      confirmBtn.addEventListener('click', function () { cleanup(true); });
+      // The rest of a double click on what asked lands on the dialog, and a slow
+      // one comes before it could be read: neither answers yes, nor no by the backdrop.
+      var openedAt = performance.now();
+      // A click that begins a run of its own here makes the run the dialog's.
+      var begun = false;
+      function stray(e) {
+        if (!(e.detail > 1)) begun = true;
+        return !begun;
+      }
+      function early() { return performance.now() - openedAt < 300; }
+      cancelBtn.addEventListener('click', function (e) { if (!stray(e)) cancel(); });
+      confirmBtn.addEventListener('click', function (e) { if (!stray(e) && !early()) cleanup(true); });
       overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) cancel();
+        if (!stray(e) && e.target === overlay && !early()) cancel();
       });
 
       if (window.ModalA11y) {
-        window.ModalA11y.register(titleId, cancel);
-        window.ModalA11y.onOpened(titleId);
+        window.ModalA11y.register(id, cancel);
+        window.ModalA11y.onOpened(id);
       } else {
         // Fallback focus + Escape
         setTimeout(function () { cancelBtn.focus(); }, 0);

@@ -40,6 +40,16 @@ def test_the_library_group_shows_before_tmdb_answers_and_tmdb_fills_its_own_plac
     )
 
 
+def test_a_library_group_that_shows_only_some_of_what_was_found_says_of_how_many() -> None:
+    out = _run("someOfMany")
+    assert out["count"] == "2 of 297 titles"
+    assert out["status"].startswith("2 of 297 in your library for")
+    # Asked again, it says so until the answer is in.
+    assert out["again"] == "2 of 297 titles"
+    # Of a category's own titles, one that matches by name was counted already.
+    assert out["category"] == "3 of 298 titles"
+
+
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]
@@ -630,7 +640,7 @@ def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() 
     assert _run("placeHeldForPeople") == [
         [True, False],
         [True, False],
-        [True, False],
+        [False, False],
         [False, True],
         [True, False],
         [False, False],

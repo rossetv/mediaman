@@ -54,6 +54,8 @@
 
   // The dialog's fade out (--dur is 200 ms), with a little to spare.
   var REAUTH_FADE_MS = 220;
+  // How long a changed role's button, which now undoes the change, ignores a press meant for the dialog.
+  var ROLE_QUIET_MS = 1000;
 
   MM.settings.users = {
 
@@ -67,6 +69,8 @@
         return el;
       }
 
+      var rows = MM.settings.rows;
+      var holdFocus = rows.holdFocus;
       var userList = document.getElementById('user-list');
       var currentUser = '';
 
@@ -168,6 +172,8 @@
           roleBtn.type = 'button';
           roleBtn.className = 'btn btn--ghost btn--sm';
           roleBtn.dataset.userAction = 'role';
+          // A held Enter must not change the role back and forth.
+          roleBtn.addEventListener('keydown', function (e) { if (e.repeat && e.key === 'Enter') e.preventDefault(); });
           roleBtn.addEventListener('click', function () {
             changeRoleFlow(user, isAdmin(user) ? 'viewer' : 'admin', roleBtn, function () {
               paintRole(user, roleLabel, roleBtn);
@@ -193,18 +199,13 @@
         return row;
       }
 
-      // Safari focuses no button that is clicked, and a dialog returns the focus to what had it.
-      function holdFocus(btn, within) {
-        if (!(within || btn).contains(document.activeElement)) btn.focus({ preventScroll: true });
-      }
-
       function isAdmin(user) { return user.role !== 'viewer'; }
 
       function paintSub(user, sub) {
         var emailPart = user.email ? user.email : 'No email';
-        sub.textContent = user.created_at
-          ? emailPart + ' · joined ' + String(user.created_at).slice(0, 10)
-          : emailPart;
+        var joined = new Date(user.created_at || NaN);
+        sub.textContent = isNaN(joined) ? emailPart : emailPart + ' · joined ' +
+          joined.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
       }
 
       function buildEmailForm(user, opener, sub) {
@@ -247,8 +248,6 @@
         inner.appendChild(actions);
         form.appendChild(inner);
 
-        // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
-        function isBusy() { return save.getAttribute('aria-disabled') === 'true'; }
         function say(text, tone) {
           msg.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
           msg.textContent = text;
@@ -258,7 +257,7 @@
           if (open) {
             input.value = user.email || '';
             say('');
-            rows.open(form);
+            rows.openInView(form);
             input.focus();
             return;
           }
@@ -268,30 +267,39 @@
 
         opener.setAttribute('aria-expanded', 'false');
         opener.setAttribute('aria-controls', form.id);
-        opener.addEventListener('click', function () { if (!isBusy()) toggle(!rows.isOpen(form)); });
-        cancel.addEventListener('click', function () { if (!isBusy()) toggle(false); });
-        form.addEventListener('input', function () { if (!isBusy()) say(''); });
+        opener.addEventListener('click', function () {
+          if (isBusy(save)) return;
+          holdFocus(opener);
+          toggle(!rows.isOpen(form));
+        });
+        cancel.addEventListener('click', function () {
+          if (isBusy(save)) return;
+          holdFocus(cancel, form);
+          toggle(false);
+        });
+        form.addEventListener('input', function () { if (!isBusy(save)) say(''); });
         form.addEventListener('submit', function (e) {
           e.preventDefault();
-          if (isBusy()) return;
+          if (isBusy(save)) return;
           var email = input.value.trim();
           holdFocus(save, form);
-          save.setAttribute('aria-disabled', 'true');
+          setBusy(save, true);
           say('Saving…');
+          rows.reveal(msg);
           MM.reauth.run(function () {
             return MM.api.patch('/api/users/' + user.id + '/email', { email: email });
           }).then(function (res) {
-            save.removeAttribute('aria-disabled');
+            setBusy(save, false);
             user.email = res.email;
             paintSub(user, sub);
             say('');
             toggle(false);
             window.UIFeedback.success(user.username + (user.email ? "'s email is now " + user.email : ' has no email now'));
           }).catch(function (err) {
-            save.removeAttribute('aria-disabled');
+            setBusy(save, false);
             if (err && err.error === 'reauth_cancelled') { say(''); return; }
             say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-            input.focus();
+            rows.refuse(input, msg);
           });
         });
         return form;
@@ -307,10 +315,17 @@
         btn.setAttribute('aria-label', btn.textContent + ': ' + user.username);
       }
 
+      // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
+      function isBusy(btn) { return btn.getAttribute('aria-disabled') === 'true'; }
+      function setBusy(btn, busy) {
+        if (busy) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled');
+      }
+
       function changeRoleFlow(user, role, btn, changed) {
+        if (isBusy(btn)) return;
         var label = btn.textContent;
         holdFocus(btn);
-        btn.disabled = true;
+        setBusy(btn, true);
         btn.textContent = 'Saving…';
         btn.setAttribute('aria-label', 'Saving…: ' + user.username);
         MM.reauth.run(function () {
@@ -321,15 +336,15 @@
           function apply() {
             var keepFocus = MM.dom.focusStillIn(btn);
             user.role = role;
-            btn.disabled = false;
             changed();
+            setTimeout(function () { setBusy(btn, false); }, ROLE_QUIET_MS);
             if (keepFocus) btn.focus();
           }
           if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
           var keepFocus = MM.dom.focusStillIn(btn);
-          btn.disabled = false;
+          setBusy(btn, false);
           btn.textContent = label;
           btn.setAttribute('aria-label', label + ': ' + user.username);
           if (keepFocus) btn.focus();
@@ -344,6 +359,7 @@
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
       function deleteUserFlow(user, row, btn) {
+        if (isBusy(btn)) return;
         holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
@@ -352,11 +368,16 @@
           confirmVariant: 'danger',
         }).then(function (ok) {
           if (!ok) return;
-          btn.disabled = true;
+          setBusy(btn, true);
           btn.textContent = 'Deleting…';
           btn.setAttribute('aria-label', 'Deleting…: ' + user.username);
           MM.reauth.run(function () {
             return MM.api.delete('/api/users/' + user.id);
+          }, {
+            title: 'Re-authenticate to delete ' + user.username,
+            descText: 'mediaman asks for your own password before it deletes a user.',
+            confirmLabel: 'Confirm & delete',
+            confirmVariant: 'danger',
           }).then(function () {
             MM.settings.rows.leave(row, {
               focusSelector: '[data-user-action="delete"]',
@@ -365,7 +386,7 @@
             window.UIFeedback.success('Deleted ' + user.username);
           }).catch(function (err) {
             var keepFocus = MM.dom.focusStillIn(btn);
-            btn.disabled = false;
+            setBusy(btn, false);
             btn.textContent = 'Delete';
             btn.setAttribute('aria-label', 'Delete: ' + user.username);
             if (keepFocus) btn.focus();
@@ -376,8 +397,6 @@
           });
         });
       }
-
-      var rows = MM.settings.rows;
 
       function clearMsg(target) {
         if (!target) return;
@@ -399,7 +418,7 @@
       function failOn(target, text, field) {
         target.className = 'inline-form-msg err';
         target.textContent = text;
-        if (field) field.focus();
+        rows.refuse(field, target);
       }
 
       var addUserForm      = document.getElementById('add-user-form');
@@ -426,12 +445,21 @@
         if (b) selectRole(b.dataset.role);
       });
 
+      function paintAddToggle(open) {
+        if (btnAddUser) btnAddUser.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      if (btnAddUser && addUserForm) {
+        btnAddUser.setAttribute('aria-controls', addUserForm.id);
+        paintAddToggle(false);
+      }
+
       // Closing folds the form away first and resets it once it is out of sight.
       function toggleAddUser(open, closed) {
         if (!addUserForm) return;
         var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
+        paintAddToggle(wantOpen);
         if (wantOpen) {
-          rows.open(addUserForm);
+          rows.openInView(addUserForm);
           document.getElementById('new-username').focus();
           return;
         }
@@ -445,6 +473,7 @@
       // A form that is sending cannot be closed or reset from its own buttons.
       if (btnAddUser)       btnAddUser.addEventListener('click', function () {
         if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        holdFocus(btnAddUser);
         toggleAddUser();
       });
       if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {
@@ -473,11 +502,14 @@
         btnSubmitAddUser.disabled = true;
         createResult.className = 'inline-form-msg';
         createResult.textContent = 'Creating…';
+        rows.reveal(createResult);
         MM.reauth.run(function () {
           return MM.api.post('/api/users', { username: username, password: password, role: selectedRole() });
         }).then(function () {
+          var there = rows.stillAt(createResult, addUserForm);
           createResult.className = 'inline-form-msg ok';
           createResult.textContent = 'User "' + username + '" created.';
+          if (there) rows.reveal(createResult);
           var listed = loadUsers().catch(function () { return null; });
           // Submit stays disabled until the form has closed, so a second Enter cannot create twice.
           // The new row comes in only then, so the list does not jump under it.
@@ -509,7 +541,7 @@
           createResult.className = 'inline-form-msg err';
           renderApiError(createResult, err);
           var field = err && err.issues && err.issues.length ? pwInput : nameInput;
-          field.focus();
+          rows.refuse(field, createResult);
         });
       });
 

@@ -52,12 +52,13 @@ def test_keeping_an_unscheduled_movie_is_undone_by_removing_the_keep() -> None:
 
 def test_changing_an_existing_keep_offers_no_undo() -> None:
     out = _run("keepAgain")
-    assert out["call"] == ["postForm", "/api/media/m3/keep", {"duration": "30 days"}]
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert out["call"] == ["postForm", "/api/media/m3/keep", {"duration": "30 days", **read}]
     assert out["undo"] is False
 
 
 def test_a_second_press_while_a_keep_runs_sends_nothing() -> None:
-    assert _run("keepTwice") == {"calls": 1}
+    assert _run("keepTwice") == {"calls": 1, "told": True}
 
 
 def test_a_failed_keep_says_why_and_reads_nothing_again() -> None:
@@ -68,7 +69,7 @@ def test_a_failed_keep_says_why_and_reads_nothing_again() -> None:
 
 def test_removing_a_keep_turns_the_row_back_in_place() -> None:
     out = _run("removeKeep")
-    assert out["call"] == ["post", "/api/media/m3/unprotect", None]
+    assert out["call"] == ["post", "/api/media/m3/unprotect", {"read": MADE}]
     assert out["toast"] == "Removed the keep on Glass Harbour."
     assert out["kept"] is False
     assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
@@ -95,7 +96,8 @@ def test_a_refused_delete_puts_the_row_and_its_button_back() -> None:
 
 
 def test_cancelling_the_confirm_deletes_nothing() -> None:
-    assert _run("deleteCancelled") == {"calls": [], "busy": False}
+    # Focused by the script: a click does not focus a button in every browser.
+    assert _run("deleteCancelled") == {"calls": [], "busy": False, "focus": True}
 
 
 def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_row() -> None:
@@ -105,6 +107,50 @@ def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_row() -> N
     assert out["call"] == ["post", "/api/media/s1/delete", None]
     assert out["title"] == "Night Shift (1 season)"
     assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_the_season_delete_list_can_be_read_again_and_stays_after_a_cancelled_delete() -> None:
+    out = _run("seasonDeleteCancelledAndRetried")
+    assert (out["failed"], out["retry"], out["focus"]) == (True, "Retry", True)
+    failed, loading, inside, loaded = out["heard"]
+    assert ("load" in failed, "Loading" in loading, inside, loaded) == (True, True, False, "")
+    assert out["back"] == ["Delete", True]
+    # A browser that does not focus what is clicked has somewhere to go back to.
+    assert (out["parked"], out["refocused"]) == (True, True)
+    assert out["cancelled"] == {"open": True, "deletes": 1, "posts": 0}
+
+
+def test_the_season_delete_opens_at_its_heading_and_the_focus_never_leaves_it() -> None:
+    title = "season-delete-title"
+    assert _run("seasonDeleteOpens") == {
+        "opened": title,
+        "loaded": title,
+        "tab": ["Delete", True],
+        "shiftTab": "Close",
+        "failed": "season-delete-retry",
+        "retrying": title,
+        "retried": "Delete",
+    }
+
+
+def test_the_season_delete_opens_from_a_row_with_no_keep_control() -> None:
+    assert _run("seasonDeleteWithNoKeep") is True
+
+
+def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() -> None:
+    out = _run("keepDialogOpens")
+    assert out["title"] == "Keep Harbour Lights"
+    assert (out["pressed"], out["focus"]) == (["Forever"], "Forever")
+    assert out["waiting"] == {"rows": 5, "busy": "true"}
+    assert out["loaded"] == {"rows": 0, "busy": None}
+    # The width the page's scrollbar leaves is held only while it is open.
+    assert out["bar"] == ["15px", ""]
+
+
+def test_the_keep_dialog_of_a_title_page_holds_a_row_for_each_season_and_one_for_all() -> None:
+    out = _run("keepDialogFromATitle")
+    assert out["out"] == [1, 2, 3, 13]
+    assert (out["missing"], out["none"]) == (3, 3)
 
 
 def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place() -> None:
@@ -133,6 +179,14 @@ def test_the_detail_can_keep_and_delete_with_a_plain_wrapper_and_no_list_on_the_
     assert out["toasts"] == ["Kept Dune for 7 days.", "Deleted Dune."]
     assert out["deleted"] is True
     assert out["fetches"] == []
+
+
+def test_a_title_page_sends_back_the_keep_it_was_given() -> None:
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert _run("detailKeepAsRead") == [
+        ["postForm", "/api/media/42/keep", {"duration": "7 days", **read}],
+        ["post", "/api/media/42/unprotect", {"read": MADE}],
+    ]
 
 
 def test_the_switch_swaps_to_the_list_in_place_and_back_and_forward_follow() -> None:
@@ -238,7 +292,11 @@ def test_after_a_season_delete_focus_is_on_the_show_delete_or_the_next_row() -> 
 
 def test_keeping_a_scheduled_movie_forever_offers_no_undo_that_would_lose_its_date() -> None:
     out = _run("keepForeverScheduled")
-    assert out["call"] == ["postForm", "/api/media/m1/keep", {"duration": "forever"}]
+    assert out["call"] == [
+        "postForm",
+        "/api/media/m1/keep",
+        {"duration": "forever", "read_action": "none"},
+    ]
     assert (out["toast"], out["undo"]) == ("Kept Copperline forever.", False)
 
 
@@ -563,6 +621,95 @@ def test_a_film_whose_keep_changed_meanwhile_is_read_again_and_its_undo_names_it
     assert out["phases"] == ["busy", "done"] * 3
     assert (out["errors"], out["toasts"]) == (2, 1)
     assert out["undo"] == ["post", "/api/media/m2/unprotect", {"read": MADE}]
+
+
+def test_the_arrow_pressed_keeps_the_focus_and_at_the_last_page_the_other_one_has_it() -> None:
+    assert _run("pageArrows") == [
+        ["2", "Next page", True],
+        ["3", "Previous page", True],
+        ["2", "Previous page", True],
+    ]
+
+
+def test_an_action_that_fails_while_the_rows_show_lets_go_of_its_row() -> None:
+    assert _run("failsOutOfSight") == {
+        "before": True,
+        "busy": False,
+        "label": "Keep",
+        "disabled": False,
+    }
+
+
+def test_a_row_stays_busy_through_a_sort_until_its_last_action_ends() -> None:
+    out = _run("busyThroughASort")
+    assert (out["during"], out["after"]) == ([True, True], [False, False])
+    assert (out["oneLeft"], out["noneLeft"]) == (True, False)
+    assert out["unkeepLeft"] == [["Removing…", True, True], ["Delete", True, False]]
+    assert out["bothFailed"] == [["Keep", False, False], ["Delete", False, False]]
+    assert out["unreadStillBusy"] == [True, True, False]
+    # The list that was on its way when the keep was saved is read again.
+    assert out["lateListReads"] == 2
+
+
+def test_an_action_done_while_the_rows_show_lets_go_of_its_row() -> None:
+    assert _run("doneOutOfSight") == {"busy": False, "label": "Keep"}
+
+
+def test_a_list_read_before_a_change_is_read_again_though_it_lands_out_of_sight() -> None:
+    assert _run("lateListOutOfSight") == {"mm:watch-admin": 2, "mm:watch-scheduled": 2}
+
+
+def test_a_list_that_could_not_be_read_out_of_sight_is_read_when_it_is_shown() -> None:
+    out = _run("lateListFailsOutOfSight")
+    assert out["whileRows"] == [2, []]
+    assert out["back"] == 3
+    assert (out["row"], out["rowBack"]) == ([], 1)
+
+
+def test_a_dialog_s_status_line_is_there_empty_before_it_says_anything() -> None:
+    loading = ["status", "", "Loading the seasons…"]
+    assert _run("dialogsSayAfter") == [loading, loading, ""]
+
+
+def test_a_row_that_could_not_be_read_again_holds_the_keep_that_was_saved() -> None:
+    out = _run("unreadRowHoldsItsKeep")
+    assert (out["kept"], out["removed"], out["undone"], out["scheduled"]) == (
+        MADE,
+        None,
+        None,
+        MADE,
+    )
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert out["next"] == ["postForm", "/api/media/m1/keep", {"duration": "forever", **read}]
+
+
+def test_an_undo_that_came_too_late_reads_its_title_again() -> None:
+    assert _run("undoTooLate") == {"film": ["busy", "done"], "season": ["busy", "done"]}
+
+
+def test_the_search_field_says_what_back_and_forward_lead_to() -> None:
+    out = _run("textFollowsBack")
+    assert out["otherList"] == ["", [""]]
+    assert (out["rows"], out["forward"]) == ("", ["ab", ["ab"]])
+
+
+def test_a_sort_is_told_to_a_screen_reader_and_a_reload_of_its_own_is_not() -> None:
+    told = "57 titles, Title (A–Z)."
+    assert _run("listSaid") == ["", told, told, ""]
+
+
+def test_a_row_whose_keep_changed_meanwhile_is_left_alone_read_again_and_said_so() -> None:
+    out = _run("staleRow")
+    for name in ("keep", "remove", "scheduled"):
+        case = out[name]
+        assert [phase for phase, _ in case["phases"]] == ["busy", "done"], name
+        assert (case["toasts"], case["busy"], case["kept"]) == (0, False, True), name
+        assert case["read"] == out["forever"], name
+        assert len(case["errors"]) == 1 and "changed meanwhile" in case["errors"][0], name
+    assert out["remove"]["call"] == ["post", "/api/media/m3/unprotect", {"read": MADE}]
+    assert out["keptWithNoKeep"]["call"][2] == {"read": {"action": "none"}}
+    # Read again in vain: nothing was saved, so it does not read as kept.
+    assert (out["unread"]["busy"], out["unread"]["kept"]) == (False, False)
 
 
 def test_the_undo_of_a_season_takes_back_only_the_keep_its_save_made() -> None:

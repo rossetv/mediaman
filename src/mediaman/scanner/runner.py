@@ -165,6 +165,14 @@ def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
         return []
 
 
+def _warn_bad_threshold(cfg: object, lib_id: str, lib_titles: dict[str, str]) -> None:
+    logger.warning(
+        "Invalid disk threshold %r for library '%s' — not scanning it",
+        cfg,
+        lib_titles.get(lib_id, lib_id),
+    )
+
+
 def _filter_libraries_by_disk(
     conn: sqlite3.Connection,
     lib_ids: list[str],
@@ -172,8 +180,10 @@ def _filter_libraries_by_disk(
 ) -> list[str]:
     """Remove libraries whose disk usage is below their configured threshold.
 
-    Libraries with no threshold, threshold of 0, or any exception from
-    ``get_disk_usage`` are always included (fail open).
+    Libraries with no threshold, threshold of 0, or any OSError from
+    ``get_disk_usage`` are always included (fail open). One whose threshold
+    cannot be read is left out: scanning it may schedule what the threshold
+    was set to keep.
     """
     raw = repository.read_setting(conn, "disk_thresholds")
     if not raw:
@@ -181,39 +191,37 @@ def _filter_libraries_by_disk(
 
     try:
         thresholds = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError:
+        thresholds = raw
+    if not thresholds:
         return lib_ids
-
-    # Fail open on a corrupt non-dict value (e.g. a JSON array or string):
-    # the next line indexes ``thresholds.get(lib_id)``, which would raise
-    # AttributeError and abort the whole scan. Mirror the isinstance guard
-    # ``_load_library_ids`` applies to its list payload.
     if not isinstance(thresholds, dict):
-        logger.warning(
-            "disk_thresholds setting is not a JSON object — scanning all "
-            "libraries (disk filter disabled for this run)."
-        )
-        return lib_ids
+        logger.warning("disk_thresholds setting is not a JSON object — scanning no libraries")
+        return []
 
     filtered = []
     for lib_id in lib_ids:
         cfg = thresholds.get(lib_id)
-        if not cfg or not cfg.get("path") or not cfg.get("threshold"):
+        if not cfg:
+            filtered.append(lib_id)
+            continue
+        if not isinstance(cfg, dict):
+            _warn_bad_threshold(cfg, lib_id, lib_titles)
+            continue
+        if not cfg.get("path") or not cfg.get("threshold"):
             filtered.append(lib_id)
             continue
 
         try:
             threshold_pct = int(cfg["threshold"])
-        except (ValueError, TypeError):
-            logger.warning(
-                "Invalid threshold '%s' for library '%s' — scanning anyway",
-                cfg["threshold"],
-                lib_titles.get(lib_id, lib_id),
-            )
-            filtered.append(lib_id)
+        except (ValueError, TypeError, OverflowError):
+            _warn_bad_threshold(cfg, lib_id, lib_titles)
             continue
         if threshold_pct <= 0:
             filtered.append(lib_id)
+            continue
+        if not isinstance(cfg["path"], str):
+            _warn_bad_threshold(cfg, lib_id, lib_titles)
             continue
 
         try:
@@ -228,6 +236,9 @@ def _filter_libraries_by_disk(
                 cfg["path"],
             )
             filtered.append(lib_id)
+            continue
+        except ValueError:  # a path no disk can have, such as one with a null byte
+            _warn_bad_threshold(cfg, lib_id, lib_titles)
             continue
 
         if current_pct >= threshold_pct:

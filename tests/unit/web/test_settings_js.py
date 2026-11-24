@@ -46,6 +46,36 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
+def test_an_edit_made_during_a_save_stays_unsaved() -> None:
+    out = _run("editDuringSave")
+    unsaved = {"on": True, "button": "Save Settings", "disabled": False}
+    assert out["during"] == unsaved
+    assert "since" in out["status"]
+    # the notice has a class the phone layout shows it by, and its live region stays in the page
+    assert out["partial"] == [True, False]
+    assert out["emptied"] is False
+    assert out["keptPlace"] is True
+    # Discard waits for the reply, then goes back to what was sent
+    assert (out["discardWhileSending"], out["discardAfter"]) == (True, False)
+    assert out["discarded"] == "first"
+    assert (out["said"], out["after"]) == ("Saved ✓", unsaved)
+    assert out["quiet"] == {"on": False, "button": "Save Settings", "disabled": False}
+
+
+def test_any_edit_after_a_failed_save_puts_the_bar_back_to_unsaved() -> None:
+    out = _run("editAfterFailure")
+    failed = out["failed"]
+    assert (failed["button"], failed["error"]) == ("Try again", True)
+    assert failed["status"] == "Too many saves — slow down for a moment."
+    for edited in ("typed", "switched"):
+        assert out[edited] == {
+            "button": "Save Settings",
+            "primary": True,
+            "error": False,
+            "status": "Edits apply to every section at once.",
+        }
+
+
 def test_subscriber_is_removed_only_after_confirming() -> None:
     out = _run("remove")
     assert out["declined"] == {
@@ -58,6 +88,10 @@ def test_subscriber_is_removed_only_after_confirming() -> None:
     assert out["deletes"] == ["/api/subscribers/1"]
     assert out["rows"] == ["2"]
     assert out["toasts"] == ["Removed a@x"]
+
+
+def test_a_subscriber_who_opted_out_is_called_unsubscribed() -> None:
+    assert _run("subscriberStates") == ["Active", "Unsubscribed"]
 
 
 def test_new_rows_land_where_the_server_lists_them() -> None:
@@ -115,13 +149,38 @@ def test_form_message_clears_when_the_person_types_again() -> None:
 def test_account_message_clears_on_edit_but_not_while_sending() -> None:
     out = _run("accountClearOnInput")
     assert out["shown"] and out["afterInput"] == ""
-    assert out["whileSending"] == {"text": "Working", "disabled": True}
+    assert out["whileSending"] == {"text": "Updating…", "disabled": True}
 
 
 def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
     out = _run("newsletterBusy")
     assert out["whileSending"] == {"hidden": False, "toggle": "Close", "disabled": True}
     assert out["afterwards"] == {"toggle": "Select recipients"}
+
+
+def test_newsletter_is_sent_only_after_confirming_how_many_people_get_it() -> None:
+    out = _run("newsletterConfirm")
+    assert len(out["asked"]) == 1 and "3 people" in out["asked"][0]
+    assert out["sentBefore"] == 0
+    assert out["declined"] == {"sent": 0, "disabled": False}
+    assert "1 person?" in out["one"]
+    assert out["sent"] == [["a@x"]]
+    assert out["asks"] == 3
+
+
+def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
+    out = _run("panelToggles")
+    ids = ("newsletter-send-panel", "add-user-form")
+    shut = [["false", i] for i in ids]
+    assert out["shut"] == out["shutAgain"] == shut
+    assert out["open"] == [["true", i] for i in ids]
+    assert (out["taken"], out["sentFocus"], out["cancelFocus"]) == (True, True, True)
+    # someone who went elsewhere during the send keeps their place
+    assert out["movedOn"] is True
+
+
+def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none() -> None:
+    assert _run("newsletterWithoutFocus") == dict.fromkeys(("open", "close", "add", "next"), True)
 
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
@@ -153,21 +212,21 @@ def test_an_admin_changes_someones_email_in_their_row() -> None:
         "value": " ann@x.example ",
         "msg": "Another user has this address.",
         "focused": True,
-        "sub": "old@x.example · joined 2026-01-02",
+        "sub": "old@x.example · joined 2 Jan 2026",
     }
     assert out["clearedOnInput"] == ""
     assert out["cancelled"] == {"open": True, "msg": ""}
     assert out["sending"] == {"sent": 1, "open": True, "busy": "true"}
     assert out["saved"] == {
         "open": False,
-        "sub": "new@x.example · joined 2026-01-02",
+        "sub": "new@x.example · joined 2 Jan 2026",
         "focused": True,
         "sent": ["/api/users/2/email", "ann@x.example"],
         "busy": None,
     }
     assert out["again"] == out["forgotten"] == "new@x.example"
     assert out["removed"] == {
-        "sub": "No email · joined 2026-01-02",
+        "sub": "No email · joined 2 Jan 2026",
         "sent": ["/api/users/2/email", ""],
         "errors": [],
     }
@@ -179,6 +238,352 @@ def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
         "role": True,
         "delete": True,
         "addUser": True,
+    }
+
+
+def test_a_role_change_or_delete_is_sent_once_from_a_button_that_keeps_the_focus() -> None:
+    once = {"dropped": False, "busy": "true", "runs": 1, "again": None, "label": True}
+    assert _run("rowActions") == {"role": once, "delete": once}
+
+
+def test_a_press_just_after_a_role_change_does_not_reverse_it() -> None:
+    out = _run("roleQuiet")
+    assert out["quiet"] == {
+        "sent": ["admin"],
+        "label": "Make viewer",
+        "focused": True,
+        "wait": [1000],
+    }
+    assert out["later"] == ["admin", "viewer"]
+    # a held Enter presses the button once
+    assert (out["held"], out["first"], out["tab"]) == (True, False, False)
+
+
+def test_the_password_dialog_for_a_delete_names_the_delete() -> None:
+    words = _run("deleteWords")
+    assert "delete bob" in words["title"]
+    assert words["confirmVariant"] == "danger"
+    assert "delete" in words["confirmLabel"] and "save" not in json.dumps(words)
+
+
+def test_a_form_shut_by_a_click_hands_the_focus_to_what_opened_it() -> None:
+    assert _run("shutWithoutFocus") == {
+        "emailCancel": True,
+        "emailAgain": True,
+        "addCancel": True,
+        "addAgain": True,
+    }
+
+
+def test_library_count_never_says_more_are_selected_than_plex_has() -> None:
+    assert _run("libraryCount") == {
+        "unreachable": "3 selected",
+        "none": "3 selected",
+        "oneGone": "2 of 3 selected",
+    }
+
+
+def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> None:
+    out = _run("testWhileUnsaved")
+    plain = ["Test", "Test"]
+    assert out["clean"] == out["putBack"] == out["saved"] == out["discarded"] == plain
+    assert out["quiet"] == 0
+    # only the card that was edited
+    assert out["edited"] == out["afterTest"] == ["Test saved", "Test"]
+    assert out["textKept"] is True
+    assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
+
+
+def test_a_save_sends_only_the_settings_that_were_changed() -> None:
+    out = _run("changedOnly")
+    # text the browser kept from before the page was left is an unsaved edit
+    assert out["leftTyped"] is True
+    # and a switch is saved as it is drawn
+    assert out["hidden"] == "false"
+    assert out["restored"] == {"scan_time": "10:00"}
+    assert out["one"] == {"grace_days": 20}
+    assert out["two"] == {"base_url": "http://b", "openai_model": "other"}
+
+
+def test_an_edit_that_is_put_back_leaves_nothing_unsaved() -> None:
+    out = _run("putBack")
+    assert out["start"] is False
+    for edited in ("text", "path", "pill"):
+        assert out[edited] == [True, False], edited
+    assert out["failed"] == [True, False, False]
+    assert (out["whileSaving"], out["saved"], out["after"]) == (True, "Saved ✓", False)
+
+
+def test_a_retry_after_the_password_sends_what_was_first_sent() -> None:
+    out = _run("retryAfterPassword")
+    assert out["sent"] == [["1", "2"], ["1", "2"]]
+    # with the selection it was changed from, so the server can tell what was changed
+    assert out["bases"] == [["1"], ["1"]]
+    # what was chosen while the dialog was open is still unsaved
+    assert out["unsaved"] is True
+    assert out["discarded"] == ["1", "2"]
+
+
+def test_a_library_loses_its_threshold_only_when_the_person_clears_it() -> None:
+    out = _run("diskRows")
+    a, b = ["/a", "80"], ["/b", "60"]
+    assert out["firstSave"] == {"1": {"path": "/a", "threshold": 80}}
+    assert out["afterAnotherPill"] == a
+    assert out["typedBeforeSaving"] == out["selectedAgain"] == b
+    assert out["restored"] == a
+    assert out["discarded"] == [["", "0"], b]
+    assert out["afterFailure"] == ["/new", "50"]
+    assert out["late"] == a
+    # nothing is sent of a library whose fields were not changed
+    assert out["deselectedSave"] == {"2": {"path": "/b", "threshold": 60}}
+    assert out["clearedSave"] == {"1": {"path": "", "threshold": 0}}
+    assert out["afterFailureSave"] == {"2": {"path": "/new", "threshold": 50}}
+    for untouched in (
+        "afterAnotherPillSave",
+        "discardedSave",
+        "beforeListSave",
+        "unreadableSave",
+        "unreachableSave",
+    ):
+        assert out[untouched] is None
+
+
+def test_thresholds_stored_as_no_object_do_not_stop_the_page_saving() -> None:
+    out = _run("strayThresholds")
+    saved = {"base_url": "b", "disk_thresholds": {"1": {"path": "/a", "threshold": 80}}}
+    assert out == {"odd": saved, "5": saved, "true": saved}
+
+
+def test_what_a_failed_save_may_have_stored_stays_unsaved_until_one_is_answered() -> None:
+    out = _run("unanswered")
+    unsaved, refused = [True, True], [False, False]
+    assert out["on"] == {"undefined": unsaved, "0": unsaved, "503": unsaved, "422": refused}
+    assert "may have been stored" in out["says"][0]
+    # with the class by which phones show it
+    assert out["says"][1] is True
+    assert out["refused"] is True
+    assert out["next"] == {"base_url": "a"}
+    assert (out["answered"], out["forgotten"]) == (False, False)
+
+
+def test_an_undo_never_overrides_what_another_page_has_set_since() -> None:
+    out = _run("undo")
+    library, limit, higher, days = (
+        out[c] for c in ("otherLibrary", "otherLimit", "otherHigher", "otherDays")
+    )
+    assert (library["sent"], library["pills"]) == ([], ["4"])
+    assert (limit["sent"], limit["limit"]) == ([], ["/a", "90"])
+    # what else was edited is still sent
+    assert (higher["sent"], higher["limit"]) == ([{"base_url": "b"}], ["/a", "95"])
+    assert (days["sent"], days["days"][2]) == ([], "30")
+    for case, name in ((library, "L3"), (limit, "L1"), (higher, "L1"), (days, "Grace days")):
+        assert name in case["told"]
+        assert case["on"] is False
+
+
+def test_an_undo_of_a_save_that_never_arrived_sends_nothing() -> None:
+    out = _run("undo")["notStored"]
+    assert (out["sent"], out["told"], out["on"]) == ([], "", False)
+    assert (out["pills"], out["limit"], out["days"][2], out["url"]) == (
+        ["1"],
+        ["/a", "80"],
+        "14",
+        "a",
+    )
+
+
+def test_an_undo_that_lets_no_more_be_deleted_is_sent_over_what_the_lost_save_stored() -> None:
+    out = _run("undo")["undone"]
+    (sent,) = out["sent"]
+    assert sorted(sent.pop("plex_libraries")) == ["1", "4"]
+    assert sorted(sent.pop("plex_libraries_base")) == ["1", "3", "4"]
+    assert sent == {
+        "grace_days": 14,
+        "base_url": "a",
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 80}},
+    }
+    # 4 was selected by another page
+    assert (out["pills"], out["told"], out["on"]) == (["1", "4"], "", False)
+
+
+def test_an_undo_that_lets_more_be_deleted_is_left_to_the_person() -> None:
+    out = _run("undo")
+    safer = out["safer"]
+    assert (safer["sent"], safer["on"]) == ([], False)
+    assert (safer["pills"], safer["limit"], safer["days"]) == (["1"], ["/a", "85"], ["30"] * 3)
+    for name in ("L3", "L1", "Grace days", "Min age days", "Inactivity days"):
+        assert name in safer["told"]
+    # no limit, or one with no path, lets everything be deleted
+    for case in ("toBlank", "toNoPath", "unreadable"):
+        assert (out[case]["sent"], out[case]["limit"]) == ([], ["/a", "80"]), case
+        assert "L1" in out[case]["told"]
+    assert out["chosenAgain"] == {
+        "plex_libraries": ["4", "3"],
+        "plex_libraries_base": ["4"],
+    }
+    assert out["oldValueChosen"] == {"grace_days": 14}
+
+
+def test_a_stored_value_its_field_cannot_hold_leaves_nothing_unsaved() -> None:
+    out = _run("undo")["held"]
+    assert (out["sent"], out["url"], out["on"]) == ([], "", False)
+
+
+def test_an_edit_a_lost_save_sent_that_is_not_put_back_is_sent_again() -> None:
+    out = _run("undo")["kept"]
+    (sent,) = out["sent"]
+    assert sorted(sent.pop("plex_libraries")) == ["1", "3", "4"]
+    assert sorted(sent.pop("plex_libraries_base")) == ["1", "4"]
+    assert sent == {
+        "grace_days": 20,
+        "base_url": "b",
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 85}},
+    }
+    assert (out["told"], out["on"]) == ("", False)
+
+
+def test_an_undo_whose_own_save_is_lost_still_gives_way_to_another_page() -> None:
+    out = _run("undo")["undoLost"]
+    assert (out["sent"], out["days"][2], out["on"]) == ([], "30", False)
+    assert "Grace days" in out["told"]
+
+
+def test_nothing_is_saved_while_the_server_cannot_be_asked_about_a_lost_save() -> None:
+    out = _run("undo")["unknown"]
+    assert (out["sent"], out["days"][2], out["on"], out["error"]) == ([], "14", True, True)
+    assert "nothing was saved" in out["says"]
+
+
+def test_what_is_typed_while_the_server_is_asked_about_a_lost_save_stays_unsaved() -> None:
+    out = _run("undo")["meanwhile"]
+    assert out["sent"] == [{"base_url": "b"}]
+    assert (out["limit"], out["url"], out["on"]) == (["/mid ", "0"], "typing", True)
+    # beside what the server has
+    assert (out["pills"], out["days"][2]) == (["1", "2"], "30")
+
+
+def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
+    out = _run("discardUnanswered")
+    assert out["notStored"] == {
+        "on": False,
+        "field": "a",
+        "pills": ["1"],
+        "limit": ["", "0"],
+        "toasts": 0,
+        "puts": 1,
+    }
+    assert out["stored"] == {
+        "on": False,
+        "field": "b",
+        "pills": ["1", "2"],
+        "limit": ["/a", "80"],
+        "toasts": 1,
+        "puts": 1,
+    }
+    for name in ("Base url", "scanning of L2", "disk threshold of L1"):
+        assert name in out["told"]
+    assert out["forgotten"] is False
+    assert out["after"] == [True, {"base_url": "a"}]
+    # nothing is thrown away while the server cannot be asked
+    assert out["unknown"] == {
+        "on": True,
+        "field": "b",
+        "pills": ["1", "2"],
+        "limit": ["/a", "80"],
+        "toasts": 0,
+        "puts": 1,
+    }
+    assert out["error"] is True
+
+
+def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
+    out = _run("unansweredSecret")
+    ((told,), puts) = out["putBack"]
+    assert "Plex token" in told and puts == 0
+    assert out["savedAgain"] == [{"plex_token": "new"}, []]
+    assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
+    assert out["gone"] == ["", 1]
+
+
+def test_a_form_comes_into_view_once_it_has_unfolded() -> None:
+    out = _run("revealed")
+    assert out["email"]["unfolding"] == []
+    assert out["email"]["open"] == [["user-email-2", "nearest", "smooth"]]
+    assert out["add"]["open"] == [["add-user-form", "nearest", "smooth"]]
+    # and again with the recipients, which come when they come
+    assert out["newsletter"]["opened"] == [["newsletter-send-panel", "nearest", "smooth"]] * 2
+    # with reduced motion there is nothing to wait for
+    assert out["calm"]["unfolding"] == [["user-email-2", "nearest", "auto"]]
+
+
+def test_a_forms_status_comes_into_view_when_it_changes() -> None:
+    out = _run("revealed")
+    # a refusal brings the field it puts the cursor in, then its reason
+    assert [what for what, *_ in out["email"]["refused"]] == [
+        "inline-form-msg",
+        "inp",
+        "inline-form-msg err",
+    ]
+    field = ["new-username", "nearest", "auto"]
+    created = ["create-user-result", "nearest", "auto"]
+    assert out["add"]["tooShort"] == [field, created]
+    assert out["add"]["refused"] == [created, field, created]
+    # Safari would scroll to the field later, and the reason out of view
+    assert out["add"]["focus"] == {"preventScroll": True}
+    sent = ["newsletter-send-status", "nearest", "auto"]
+    assert out["newsletter"]["sending"] == [sent]
+    assert out["newsletter"]["none"] == [sent]
+
+
+def test_a_late_answer_comes_into_view_only_for_a_reader_still_there() -> None:
+    out = _run("revealed")
+    # a button clicked in Safari takes no focus: what is around it has it
+    assert out["there"] == out["around"] == {"created": 1, "sent": 1, "listed": 1}
+    for away in ("elsewhere", "above", "underTheBottomBar"):
+        assert out[away] == {"created": 0, "sent": 0, "listed": 0}, away
+
+
+def test_a_save_shows_what_another_page_stored_and_keeps_what_is_being_typed() -> None:
+    out = _run("mergedReply")
+    assert out["quiet"] == {
+        "pills": ["1", "3"],
+        "rows": [["/a", "60"], None, ["/c", "50"], None],
+        "on": False,
+    }
+    assert out["busy"] == {
+        "pills": ["1", "2", "4"],
+        "rows": [["/typed ", "60"], ["/b", "70"], None, ["", "0"]],
+        "on": True,
+    }
+    assert out["sameCard"] is True
+    # the next save says what this page changed from what is stored now
+    assert out["next"] == {
+        "plex_libraries": ["1", "2", "4"],
+        "plex_libraries_base": ["1", "2"],
+        "disk_thresholds": {"1": {"path": "/typed", "threshold": 60}},
+    }
+    assert out["discarded"] == [["1", "2", "4"], ["/b", "70"]]
+
+
+def test_unreadable_thresholds_can_be_mended_from_the_page() -> None:
+    out = _run("mendThresholds")
+    assert out["refused"] == {"on": True, "says": "why it was refused"}
+    assert out["sent"] == {
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 80}},
+        "plex_libraries": ["1"],
+        "plex_libraries_base": ["1", "9"],
+    }
+    assert out["on"] is False
+
+
+def test_a_limit_typed_during_a_save_outlives_a_library_chosen_during_it() -> None:
+    out = _run("pillDuringSave")
+    assert out["shown"] == ["/a", "80"]
+    assert out["unsaved"] is True
+    assert out["next"] == {
+        "disk_thresholds": {"1": {"path": "/a", "threshold": 80}},
+        "plex_libraries": ["1", "2"],
+        "plex_libraries_base": ["1"],
     }
 
 

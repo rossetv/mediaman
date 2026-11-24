@@ -1,6 +1,7 @@
 /* Plex account card of the Profile page. */
 .plex-link p,
-.plex-link li { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
+.plex-link li,
+#plex-others p { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
 .plex-link-more { margin-top: 4px; }
 .plex-link-more > summary {
   display: inline-flex; align-items: center; gap: 6px;

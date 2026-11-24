@@ -22,21 +22,24 @@
   function updateCompactRow(row, item) {
     var d = dom();
     d.unmarkHeld(row);
+    d.syncPoster(d.q('.dl-compact-poster', row), item.poster_url);
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('.dl-state-pill', row);
     if (pill) {
       pill.className = pill.className.replace(/\bdl-state-(?!pill)\S*/g, '').trim() + ' dl-state-' + item.state;
-      pill.style.fontSize = '9px';
       d.setText(pill, item.state_label || item.state);
     }
     if (hero().updateSearchHint) hero().updateSearchHint(row, item);
     var fill = d.q('[data-v="fill"]', row);
     if (fill) {
-      fill.style.width = item.progress + '%';
+      d.setProgress(fill, item.progress);
       fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
     }
     var pct = d.q('[data-v="pct"]', row);
-    if (pct) d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
+    if (pct) {
+      d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
+      pct.classList.toggle('dl-compact-pct--muted', !(item.progress > 0));
+    }
     var sizeInfo = d.q('[data-v="size-info"]', row);
     if (sizeInfo) sizeInfo.hidden = (item.state === 'searching');
     var sizeDone = d.q('[data-v="size-done"]', row);
@@ -48,32 +51,13 @@
 
     d.syncAbandon(row, item, 'row');
 
-    /* Update episode rows (same shape as hero) */
-    if (item.episodes) {
-      for (var i = 0; i < item.episodes.length; i++) {
-        var ep = item.episodes[i];
-        var epRow = d.findByEp(row, ep.label);
-        if (!epRow) continue;
-        var epFill = d.q('[data-v="ep-fill"]', epRow);
-        if (epFill) {
-          epFill.style.width = ep.progress + '%';
-          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-        }
-        var epPill = d.q('.dl-ep-status-pill', epRow);
-        if (epPill) {
-          epPill.className = 'dl-ep-status-pill ' + ep.state;
-          if (ep.state === 'ready') d.setText(epPill, 'Ready');
-          else if (ep.state === 'downloading') d.setText(epPill, ep.progress + '%');
-          else if (ep.state === 'queued') d.setText(epPill, 'Queued');
-          else d.setText(epPill, 'Searching');
-        }
-      }
-    }
+    d.syncEpisodes(row, item);
   }
 
   function updateUpcomingRow(row, item) {
     var d = dom();
     d.unmarkHeld(row);
+    d.syncPoster(d.q('.dl-compact-poster', row), item.poster_url);
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('[data-v="release-label"]', row);
     if (pill) d.setText(pill, item.release_label || '');

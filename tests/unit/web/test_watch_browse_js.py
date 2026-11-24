@@ -309,6 +309,13 @@ def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
     assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
 
 
+def test_the_narrowest_phones_keep_the_icon_of_the_ai_mark() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    narrow = "".join(re.findall(r"@media \(max-width: 359\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
+    assert ".rec-line > .ai-label" in narrow
+    assert ".ico" not in narrow
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
@@ -409,13 +416,22 @@ def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> No
     assert "14 Nov" in out["pill"]
 
 
-def test_a_row_whose_first_batch_is_gone_still_shows_the_older_one() -> None:
-    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9"]
+def test_a_row_whose_first_batch_is_gone_starts_at_the_older_one_it_goes_on_to() -> None:
+    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9", "rec-10"]
+
+
+def test_the_date_on_the_picks_button_is_in_one_box_with_its_name() -> None:
+    # Two boxes would take the button's gap between them, after the dot alone.
+    assert _run("picksPill") == ["Latest picks · 21 Nov", ""]
 
 
 def test_a_row_whose_older_batches_are_gone_ends() -> None:
     out = _run("goneBatches")
     assert out == {"refs": ["rec-7", "rec-8"], "asked": 4, "more": False}
+
+
+def test_a_gone_batch_is_not_asked_for_twice_when_the_row_has_no_start() -> None:
+    assert _run("goneWithoutStart") == ["GET /api/watch/recommended?batch=2026-11-14"]
 
 
 def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> None:

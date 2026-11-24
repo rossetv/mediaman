@@ -64,7 +64,63 @@ def test_cancelling_the_dialog_returns_focus_to_the_control_that_asked() -> None
     assert _run("focusReturn") == {"restored": True}
 
 
+def test_pressing_enter_again_sends_the_password_and_the_protected_request_no_second_time() -> None:
+    # the protected request runs twice: refused for want of the password, then with it
+    assert _run("again") == {"passwords": 1, "runs": 2}
+
+
+def test_enter_held_down_presses_nothing_after_the_dialog_until_it_is_let_go() -> None:
+    # the focus goes back to the button that asked, which the repeats would press again
+    assert _run("heldKey") == {
+        "enter": True,
+        "space": True,
+        "aNewPress": False,
+        "otherKey": False,
+        "afterRelease": False,
+    }
+
+
+def test_a_key_held_down_on_a_button_of_the_dialog_presses_nothing_until_it_is_let_go() -> None:
+    stopped_while_held = [True, False, False]
+    assert _run("heldOnAButton") == {
+        "confirmEnter": stopped_while_held,
+        "cancelEnter": stopped_while_held,
+        "confirmSpace": stopped_while_held,
+        "spaceInTheField": [False, False, False],
+    }
+
+
+def test_enter_held_down_after_a_refusal_sends_the_password_no_second_time() -> None:
+    assert _run("heldAfterRefusal") == {"held": 1, "pressedAgain": 2}
+
+
+def test_an_answer_or_a_second_close_after_the_dialog_was_closed_does_nothing() -> None:
+    quiet = {"keyboardStays": True, "cancels": 1, "said": ""}
+    assert _run("lateAnswer") == {"refused": quiet, "accepted": quiet, "closedAgain": quiet}
+
+
 def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() -> None:
     out = _run("words")
     assert out["own"] == ["T", "D", "C"]
     assert (out["none"][0], out["none"][2]) == ("Re-authenticate to save", "Confirm & save")
+
+
+def test_a_request_can_ask_for_the_danger_look_on_the_dialog_s_main_button() -> None:
+    out = _run("variant")
+    assert "btn--danger" in out["danger"].split() and "btn--primary" not in out["danger"].split()
+    assert "btn--primary" in out["usual"].split() and "btn--danger" not in out["usual"].split()
+
+
+def test_the_dialog_is_named_by_its_title_and_described_by_its_reason() -> None:
+    out = _run("named")
+    assert out["name"] == "Re-authenticate to save"
+    assert "password" in out["about"]
+
+
+def test_the_dialog_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
+    assert _run("bar") == {"held": "15px", "after": None}
+
+
+def test_a_closed_dialog_leaves_the_keyboard_on_no_field_of_its_own() -> None:
+    # Safari scrolls the page to its end when a field is removed with the keyboard in it
+    assert _run("letGo") == {"had": True, "kept": False}

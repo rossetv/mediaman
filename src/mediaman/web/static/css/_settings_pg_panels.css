@@ -152,6 +152,11 @@
   background: rgba(41,151,255,.12); color: var(--accent);
   border-color: rgba(41,151,255,.4);
 }
+@media (forced-colors: active) {
+  .setg-pg .lib-pill.on {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+}
 
 .setg-pg .lp-card {
   border: 1px solid var(--hair);
@@ -250,7 +255,6 @@
   flex-shrink: 0; white-space: nowrap;
 }
 .setg-pg .sub-row .sub-stat.active  { color: var(--success); background: var(--rgba-success-bg); }
-.setg-pg .sub-row .sub-stat.bounced { color: var(--danger-text);  background: var(--rgba-danger-bg-soft); }
 .setg-pg .sub-row .link-danger {
   font-size: 11px; color: var(--danger-text); padding: 0 8px;
   border-radius: var(--r-pill); background: transparent;
@@ -287,6 +291,8 @@
   font-family: var(--font-text);
   letter-spacing: -.005em;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* A tap anywhere along the row reaches the name's box. */
+  padding: 12px 0; margin: -12px 0;
 }
 .setg-pg .recipient-item input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
@@ -364,6 +370,9 @@
 }
 .setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
 .setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
+/* Brought into view, a status brings the rest of the button beside it, and a panel keeps off the edge. */
+.setg-pg .inline-form-msg { scroll-margin-bottom: 20px; }
+.setg-pg .setg-fold { scroll-margin-block: 12px; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
 .setg-pg .inline-form-msg.err { color: var(--danger-text); }
@@ -425,6 +434,9 @@
 }
 .setg-pg .link-danger:hover { background: var(--rgba-danger-bg-soft); }
 
+/* A pressed button that is working keeps the focus, so it is dimmed instead of disabled. */
+.setg-pg .usr-row [aria-disabled="true"] { opacity: .55; cursor: progress; }
+
 /* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
 .setg-pg .sub-row.is-entering,
 .setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
@@ -465,7 +477,14 @@
   .setg-pg .intg-card-hd .intg-chev { margin-left: auto; }
 }
 
-@media (max-width: 699.98px) {
+@media (max-width: 359.98px) {
+  /* "Unsubscribed" gives up its indent, so Remove stays on its line. */
+  .setg-pg .sub-row .sub-stat { margin-left: 0; }
+  /* The Test button and the chevron need the indent's room. */
+  .setg-pg .intg-card-hd .hd-actions { padding-left: 0; }
+}
+
+@media (max-width: 699.98px), (pointer: coarse) {
   .setg-pg .btn--sm,
   .setg-pg .recipient-toggles .btn { min-height: 44px; }
   .setg-pg .link-danger,
@@ -473,14 +492,20 @@
   .setg-pg .usr-actions .btn { min-height: 44px; }
 }
 
-/* Wide enough for "Testing…" and "Select recipients", so the label changing moves nothing. */
-.setg-pg .btn-test[data-test-service] { min-width: 7em; }
+/* Wide enough for "Test saved" and "Select recipients", so the label changing moves nothing. */
+.setg-pg .btn-test[data-test-service] { min-width: 7.75em; }
 .setg-pg #btn-send-newsletter { min-width: 10.75em; }
 
 @media (max-width: 699.98px) {
   .setg-pg .savebar .btn { min-height: 44px; }
-  /* A save error is how the person learns what to fix, so it keeps its own line; the standing caption stays hidden. */
-  .setg-pg .savebar:not(.is-error) .sb-sub,
-  .setg-pg .savebar .sb-sub:empty { display: none; }
-  .setg-pg .savebar.is-error .sb-sub { display: block; order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
+  /* What a save could not or did not cover keeps its own line. The other captions are read out but take no room. */
+  .setg-pg .savebar:not(.is-error) .sb-sub {
+    position: absolute; width: 1px; height: 1px; margin: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .setg-pg .savebar.is-error .sb-sub,
+  .setg-pg .savebar.is-partial .sb-sub { order: 3; flex: 1 0 100%; max-width: none; margin: 0; }
+  .setg-pg .savebar.is-partial .sb-sub {
+    position: static; width: auto; height: auto; clip-path: none; white-space: normal;
+  }
 }

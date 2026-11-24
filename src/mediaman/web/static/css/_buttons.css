@@ -27,7 +27,7 @@
 .btn--lg { min-height: 44px; padding: 0 22px; font-size: 15px; }
 
 .btn--primary { background: var(--accent-cta); color: var(--t1); }
-.btn--primary:hover { background: var(--accent-hi); }
+.btn--primary:hover { background: var(--accent-cta-hover); }
 
 .btn--secondary { background: var(--s3); color: var(--t1); }
 .btn--secondary:hover { background: var(--s4); }
@@ -38,7 +38,7 @@
 .btn--danger { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn--danger:hover { background: var(--rgba-danger-bg-hover); }
 
-.btn--accent-soft { background: var(--rgba-accent-bg); color: var(--accent); }
+.btn--accent-soft { background: var(--rgba-accent-bg); color: var(--accent-text); }
 .btn--accent-soft:hover { background: var(--rgba-accent-bg-hover); }
 
 .btn--icon { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0; }
@@ -59,7 +59,7 @@
   min-height: 32px;
   padding: 0 12px;
   background: var(--rgba-accent-bg);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: -.01em;
@@ -102,7 +102,7 @@
   font-size: 10px;
   border-radius: var(--r-pill);
   background: var(--rgba-accent-bg);
-  color: var(--accent);
+  color: var(--accent-text);
   transition: background var(--dur-fast) var(--ease-out);
 }
 .btn-sm-caret:hover { background: var(--rgba-accent-bg-hover); }
@@ -122,8 +122,8 @@
   vertical-align: middle;
 }
 .pill--movie  { background: var(--rgba-orange-bg); color: var(--orange); }
-.pill--tv     { background: var(--rgba-accent-chip); color: var(--accent); }
-.pill--anime  { background: var(--rgba-purple-bg); color: var(--purple); }
+.pill--tv     { background: var(--rgba-accent-chip); color: var(--accent-text); }
+.pill--anime  { background: var(--rgba-purple-bg); color: var(--purple-text); }
 .pill--kept   { background: var(--rgba-success-chip); color: var(--success); }
 .pill--stale  { background: var(--rgba-danger-chip); color: var(--danger-text); }
 .pill--queued { background: var(--rgba-warning-bg); color: var(--warning); }
@@ -169,6 +169,12 @@
   /* Links inside empty-state text get a larger hit area without moving the text. */
   .empty p a { position: relative; }
   .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
+}
+
+/* On tablets and touch screens a button keeps its size and is reached from 44px. */
+@media (min-width: 700px) and (max-width: 1023.98px), (pointer: coarse) {
+  .btn { position: relative; }
+  .btn::after { content: ""; position: absolute; inset: min(0px, calc((100% - 44px) / 2)) 0; }
 }
 
 /* The system's colours: an edge where the fill was, and the choice that is on. */

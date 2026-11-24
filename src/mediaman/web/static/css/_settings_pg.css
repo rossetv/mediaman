@@ -10,7 +10,8 @@
 
 /* SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
    Scoped under .setg-pg so the primitives do not leak elsewhere. */
-.setg-pg { --rail-w: 236px; }
+/* The scheme turns the browser's own parts (clock icon, time picker, spinners, list scrollbars) light on dark. */
+.setg-pg { --rail-w: 236px; color-scheme: dark; }
 .setg-pg .container { max-width: 1180px; }
 
 .setg-pg .setg-shell {
@@ -171,7 +172,8 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 }
 .setg-pg .setg-card + .setg-card { margin-top: 24px; }
 .setg-pg .setg-card-hd {
-  display: flex; align-items: center; gap: 14px;
+  /* A heading left with less than its 130px takes the line, and its button the next. */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--hair);
 }
@@ -180,7 +182,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   font-family: var(--font-text);
 }
 .setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 12px; margin-top: 3px; }
-.setg-pg .setg-card-hd .head-info { flex: 1; min-width: 0; }
+.setg-pg .setg-card-hd .head-info { flex: 1 1 130px; min-width: 0; }
 .setg-pg .setg-card-hd .head-actions { display: flex; gap: 10px; align-items: center; }
 .setg-pg .setg-card-hd .btn { font-size: 12px; padding: 0 14px; }
 .setg-pg .setg-card-bd { padding: 6px 24px; }
@@ -290,9 +292,9 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   transition: background var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
-.setg-pg .conn.ok       .conn-dot { background: var(--success); box-shadow: var(--glow-success); }
-.setg-pg .conn.warn     .conn-dot { background: var(--warning); box-shadow: var(--glow-warning); }
-.setg-pg .conn.err      .conn-dot { background: var(--danger);  box-shadow: var(--glow-danger);  }
+.setg-pg .conn.ok   .conn-dot, .setg-pg .conn-dot.ok   { background: var(--success); box-shadow: var(--glow-success); }
+.setg-pg .conn.warn .conn-dot, .setg-pg .conn-dot.warn { background: var(--warning); box-shadow: var(--glow-warning); }
+.setg-pg .conn.err  .conn-dot, .setg-pg .conn-dot.err  { background: var(--danger);  box-shadow: var(--glow-danger);  }
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
 
@@ -344,22 +346,26 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   max-width: 60ch;
   line-height: 1.35;
 }
+/* What is scrolled into view stops above the bar while it is up, which a message makes taller. */
+html:has(.setg-pg .savebar.on) { scroll-padding-bottom: 84px; }
+html:has(.setg-pg .savebar.on.is-error) { scroll-padding-bottom: 112px; }
 @media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
   .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
-  /* Collapse the sub caption on mobile — the warning dot + "Unsaved changes"
-     label is enough; the caption eats room the buttons need. */
-  .setg-pg .savebar .sb-sub { display: none; }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }
+  html:has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(137px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { scroll-padding-bottom: calc(212px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so
      neither label ("Discard" / "Save Settings") truncates. */
   .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
   .setg-pg .savebar .btn { flex: 1 1 0; }
+  html:has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(184px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { scroll-padding-bottom: calc(272px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Reauth modal — narrow variant of .modal-sheet for the savebar
@@ -372,6 +378,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   font-size: 22px; font-weight: 600; line-height: 1.19;
   letter-spacing: -.011em; color: var(--t1);
   margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 .reauth-sheet .reauth-desc {
   font-size: 14px; line-height: 1.43; letter-spacing: -.224px;
@@ -413,10 +420,14 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .disk-badge.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .disk-badge.crit { color: var(--danger-text);  background: var(--rgba-danger-bg); }
 
-/* Phone tap targets: a 44px hit area on the settings controls, with the look
+/* Phone and touch targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */
-@media (max-width: 699.98px) {
-  .setg-pg .setg-rail-item { min-height: 44px; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  .setg-pg .setg-rail-item,
+  .setg-pg .fpill { min-height: 44px; }
+  .setg-pg .tog::before { content: ""; position: absolute; inset: -9px -4px; }
+  .setg-pg .lib-pill { display: inline-flex; align-items: center; min-height: 44px; }
+  .reauth-sheet .reauth-actions .btn { min-height: 44px; }
   .setg-pg .inp { min-height: 44px; }
   .setg-pg .inp-reveal::before,
   .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -9px -4px; }
@@ -425,4 +436,18 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   .setg-pg .setg-row-sub a { position: relative; }
   .setg-pg .fld-sub a::before,
   .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
+}
+
+/* Forced colours drop backgrounds, which is all that dots, bars and a current choice are. */
+@media (forced-colors: active) {
+  .setg-pg .conn-dot, .setg-pg .sb-dot, .setg-pg .chip-dot {
+    forced-color-adjust: none; border: 1px solid CanvasText;
+  }
+  .setg-pg .ov-storage .bar, .setg-pg .lp-bar2 { border: 1px solid CanvasText; }
+  .setg-pg .ov-storage .bar span, .setg-pg .lp-bar2 span { forced-color-adjust: none; }
+  .setg-pg .setg-rail-item.on {
+    forced-color-adjust: none; background: Highlight; color: HighlightText;
+  }
+  .setg-pg .setg-rail-item.on > .ico { color: inherit; }
+  .setg-pg .setg-rail-item.on .rail-count { color: inherit; background: none; }
 }

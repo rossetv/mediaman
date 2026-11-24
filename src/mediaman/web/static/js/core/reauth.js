@@ -4,11 +4,12 @@
  *
  * Public surface (global MM.reauth):
  *
- *   MM.reauth.openModal({ onSubmit, onCancel, title, descText, confirmLabel })
+ *   MM.reauth.openModal({ onSubmit, onCancel, title, descText, confirmLabel, confirmVariant })
  *       Open the centred modal, "Re-authenticate to save" unless worded otherwise. onSubmit(pw)
  *       returns Promise<{ok, error?}>; resolving ok=true closes the
  *       modal, ok=false surfaces the error inline and keeps it open.
- *       onCancel runs on Cancel / Escape / backdrop click.
+ *       onCancel runs on Cancel / Escape / backdrop click. confirmVariant
+ *       'danger' gives the main button the danger look, as in UIFeedback.confirm.
  *
  *   MM.reauth.run(requestFn, words)
  *       Call requestFn() and return its promise. If it rejects with an
@@ -18,10 +19,11 @@
  *       the user cancels the modal, reject with an APIError carrying
  *       error code 'reauth_cancelled' so callers can distinguish
  *       "backed out" from "request failed". `words` may hold the modal's
- *       title, descText and confirmLabel, for what is not a save.
+ *       title, descText, confirmLabel and confirmVariant, for what is not a save.
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
+ *   MM.dom          (core/dom.js — holdPage)
  *   MM.modal        (core/modal.js — Escape, backdrop click and the fade out)
  *
  * Load after core/api.js, before any consumer (settings/savebar.js,
@@ -34,6 +36,25 @@
 
   /* Closes the dialog that is open, so a second one cancels the first instead of orphaning it. */
   var closeOpen = null;
+
+  /* A key still down as the dialog goes would press whatever gets the focus next, the
+     button that asked first of all: its repeats do nothing until it is let go. */
+  var held = {};
+  function quietUntilReleased(key) {
+    if (held[key]) return;
+    held[key] = true;
+    function down(e) {
+      if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
+    }
+    function up(e) {
+      if (e.key !== key) return;
+      held[key] = false;
+      document.removeEventListener('keydown', down, true);
+      document.removeEventListener('keyup', up, true);
+    }
+    document.addEventListener('keydown', down, true);
+    document.addEventListener('keyup', up, true);
+  }
 
   function openModal(opts) {
     opts = opts || {};
@@ -64,6 +85,8 @@
 
     var desc = document.createElement('p');
     desc.className = 'reauth-desc';
+    desc.id = 'reauth-desc';
+    sheet.setAttribute('aria-describedby', 'reauth-desc');
     desc.textContent = opts.descText ||
       'mediaman requires a recent password confirmation before changing credentials or other sensitive options.';
     sheet.appendChild(desc);
@@ -94,24 +117,31 @@
     actions.appendChild(cancelBtn);
     var confirmBtn = document.createElement('button');
     confirmBtn.type = 'button';
-    confirmBtn.className = 'btn btn--primary btn--sm';
+    confirmBtn.className = 'btn ' + (opts.confirmVariant === 'danger' ? 'btn--danger' : 'btn--primary') + ' btn--sm';
     confirmBtn.textContent = opts.confirmLabel || 'Confirm & save';
     actions.appendChild(confirmBtn);
     sheet.appendChild(actions);
 
     backdrop.appendChild(sheet);
+    var letGo = MM.dom.holdPage();
     document.body.appendChild(backdrop);
     setTimeout(function () { input.focus(); }, 0);
 
     /* The shared modal owns Escape, backdrop clicks and the fade out; its
        onClose runs for every route, so a close that is not a success is a cancel. */
     var done = false;
+    var closed = false;
     var modal = MM.modal.setupDetail(backdrop, {
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, /* _ui_feedback.css holds the page */
       useModalA11y: false,
       onClose: function () {
+        if (closed) return;
+        closed = true;
         input.value = '';
+        letGo();
         if (opener && opener !== document.body && opener.focus) opener.focus();
+        /* Safari scrolls the page to its end when the field that has the keyboard is removed. */
+        if (document.activeElement === input) input.blur();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
         setTimeout(function () { backdrop.remove(); }, 400);
@@ -140,16 +170,19 @@
     }
 
     function submit() {
+      if (confirmBtn.disabled) return;
       var pw = input.value;
       if (!pw) { say('Password required.'); return; }
       confirmBtn.disabled = true;
       say('');
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
-        confirmBtn.disabled = false;
+        /* Closed while the password was checked: the answer is for nobody. */
+        if (closed) return;
         if (res && res.ok) {
           done = true;
           modal.close();
         } else {
+          confirmBtn.disabled = false;
           say((res && res.error) || 'Failed');
           input.focus();
           input.select();
@@ -158,7 +191,12 @@
     }
     confirmBtn.addEventListener('click', submit);
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') submit();
+      if (e.key === 'Enter' && !e.repeat) submit();
+    });
+    /* Space in the field is typing. */
+    sheet.addEventListener('keydown', function (e) {
+      if (e.repeat) return;
+      if (e.key === 'Enter' || (e.key === ' ' && e.target !== input)) quietUntilReleased(e.key);
     });
   }
 
@@ -181,6 +219,7 @@
             title: words.title,
             descText: words.descText,
             confirmLabel: words.confirmLabel,
+            confirmVariant: words.confirmVariant,
             onSubmit: function (pw) {
               return MM.api.post('/api/auth/reauth', { password: pw })
                 .then(function () {

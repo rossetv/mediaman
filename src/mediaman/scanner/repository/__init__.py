@@ -46,6 +46,8 @@ from mediaman.scanner.repository.media_items import (
     upsert_media_item,
 )
 from mediaman.scanner.repository.rekeyed import (
+    cancel_deletions_kept_under_another_key,
+    carry_film_keeps,
     carry_pruned_keeps,
     carry_show_keeps,
     carry_stranded_keeps,
@@ -103,6 +105,8 @@ __all__ = [
     "book_deletion",
     "book_removed_files",
     "book_removed_files_where",
+    "cancel_deletions_kept_under_another_key",
+    "carry_film_keeps",
     "carry_last_watched",
     "carry_pruned_keeps",
     "carry_show_keeps",

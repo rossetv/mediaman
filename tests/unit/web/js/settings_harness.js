@@ -105,11 +105,14 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   dispatchEvent(e) {
-    for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f(e));
+    for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f.call(n, e));
     (this.doc.listeners[e.type] || []).forEach((f) => f(e));
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
   focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
+  // What was scrolled into view, and how. A test that scrolls gives an element its place.
+  scrollIntoView(how) { this.doc.revealed.push([this.id || this.className, how.block, how.behavior || 'auto']); }
+  getBoundingClientRect() { return this.place || { top: 300, bottom: 318 }; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => matches(e, sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -127,15 +130,19 @@ function build() {
     querySelector: (s) => body.querySelector(s),
     querySelectorAll: (s) => body.querySelectorAll(s),
     listeners: docListeners,
+    revealed: [],
+    documentElement: { clientHeight: 844 },
     addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
   };
   const body = new El('body', doc);
   doc.body = body;
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Set, Event: class { constructor(t) { this.type = t; } },
-    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-    clearTimeout() {}, MM: {}, UIFeedback: {},
+    setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
+    clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
+    getComputedStyle: () => ({ scrollPaddingTop: '125px', scrollPaddingBottom: '72px' }),
+    addEventListener: (t, fn) => { (docListeners['window:' + t] = docListeners['window:' + t] || []).push(fn); },
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -143,6 +150,9 @@ function build() {
   const add = (tag, props, parent) => {
     const e = new El(tag, doc);
     Object.assign(e, props || {});
+    // what the page was served with, unless the test says the browser put something else over it
+    if (props && !('defaultValue' in props) && 'value' in props) e.defaultValue = props.value;
+    if (props && !('defaultChecked' in props)) e.defaultChecked = e.checked;
     if (props && props.id) e.setAttribute('id', props.id);
     (parent || body).appendChild(e);
     return e;
@@ -152,6 +162,53 @@ function build() {
   const drain = () => { while (timers.length) timers.shift().fn(); };
   return { ctx, doc, body, load, add, timers, flush, drain, docListeners };
 }
+
+// The libraries part of the settings page, with a save bar and a server that answers as `reply` says.
+async function openLibraries(answer, opts) {
+  const h = build();
+  const page = h.add('div', { className: 'setg-pg' });
+  const pills = h.add('div', { id: 'plex-library-pills' }, page);
+  const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+  const field = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+  const days = {};
+  ['min_age_days', 'inactivity_days', 'grace_days'].forEach((id) => { days[id] = h.add('input', { id, value: '14', type: 'number' }, page); });
+  h.add('input', { id: 'plex_token', value: '****', type: 'password' }, page);
+  h.add('button', { className: 'inp-reveal' }, page).setAttribute('data-reveal-target', 'plex_token');
+  const bar = h.add('div', { id: 'setg-savebar' });
+  const status = h.add('span', { id: 'save-status' }, bar);
+  const discard = h.add('button', { id: 'btn-discard' }, bar);
+  const save = h.add('button', { id: 'btn-save' }, bar);
+  const p = { h, page, rows, field, days, bar, status, sent: [], toasts: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
+  h.ctx.MM.api = {
+    get: (u) => (u === '/api/plex/libraries' ? answer() : u === '/api/settings' ? p.stored() : Promise.reject({})),
+    put: (u, b) => { p.sent.push(JSON.parse(JSON.stringify(b))); return p.reply(b); },
+    messageOf: (e, words) => words,
+  };
+  h.ctx.MM.reauth = { run: (f) => f() };
+  h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+  h.ctx.UIFeedback.toast = (m) => p.toasts.push(m);
+  ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+  const m = h.ctx.MM.settings;
+  m.diskThresholds.init(opts);
+  m.savebar.init({ getPayload: m.general.collectSettings });
+  await h.flush();
+  const card = (id) => rows.querySelector('[data-lib-id="' + id + '"]');
+  const input = (id, f) => card(id).querySelector('[data-field="' + f + '"]');
+  return Object.assign(p, {
+    card, input,
+    on: () => bar.classList.contains('on'),
+    type: (id, path, threshold) => { input(id, 'path').value = path; input(id, 'threshold').value = threshold; input(id, 'path').fire('input'); },
+    edit: (v) => { field.value = v; field.fire('input'); },
+    day: (v, id) => { const el = days[id || 'grace_days']; el.value = v; el.fire('input'); },
+    shows: (id) => card(id) && [input(id, 'path').value, String(input(id, 'threshold').value)],
+    pills: () => pills.children.filter((c) => c.classList.contains('on')).map((c) => c.dataset.libId),
+    pill: (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click'),
+    press: () => save.fire('click'),
+    save: async () => { save.fire('click'); await h.flush(); h.drain(); await h.flush(); return p.sent[p.sent.length - 1]; },
+    discard: async () => { discard.fire('click'); await h.flush(); },
+  });
+}
+const plexLists = (...ids) => () => Promise.resolve({ libraries: ids.map((id) => ({ id, title: 'L' + id })) });
 
 const names = (list, cls) => list.children.filter((c) => c.classList.contains(cls));
 
@@ -221,6 +278,175 @@ const scenarios = {
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
+  // The settings a save sends.
+  async payloadKeys() {
+    const h = build();
+    h.load('settings/general.js');
+    return Object.keys(h.ctx.MM.settings.general.collectSettings());
+  },
+
+  // An edit made while a save is under way, or just after it, is not in what was sent.
+  async editDuringSave() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const input = h.add('input', { id: 'plex_url', value: 'old', type: 'text' }, page);
+    let reply;
+    h.ctx.MM.api = { put: () => new Promise((done) => { reply = () => done({ status: 'saved' }); }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    const edit = (v) => { input.value = v; input.fire('input'); };
+    const now = () => ({ on: bar.classList.contains('on'), button: save.textContent, disabled: save.disabled });
+    edit('first');
+    status.textContent = 'standing';
+    save.focus();
+    save.fire('click', { detail: 0 });
+    const emptied = status.textContent === '';
+    const discardWhileSending = discard.disabled;
+    input.focus();
+    edit('during');
+    reply();
+    await h.flush();
+    const status1 = status.textContent;
+    const partial = [bar.classList.contains('is-partial')];
+    h.drain();
+    const during = now();
+    const keptPlace = h.doc.activeElement === input;
+    discard.fire('click');
+    await h.flush();
+    const discarded = input.value;
+    partial.push(bar.classList.contains('is-partial'));
+    // the moment between the reply and the bar hiding
+    edit('second');
+    save.fire('click');
+    reply();
+    await h.flush();
+    const said = save.textContent;
+    edit('after');
+    h.drain();
+    const after = now();
+    // with no edit the bar goes
+    save.fire('click');
+    reply();
+    await h.flush();
+    h.drain();
+    return { partial, emptied, discardWhileSending, during, status: status1, keptPlace, discarded, said, after, quiet: now(), discardAfter: discard.disabled };
+  },
+
+  // After a failed save any edit, a switch included, puts the bar back to unsaved.
+  async editAfterFailure() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save', className: 'btn btn--primary' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const input = h.add('input', { id: 'plex_url', value: 'a', type: 'text' }, page);
+    h.ctx.MM.api = { put: () => Promise.reject({ status: 429, data: {} }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    const now = () => ({ button: save.textContent, primary: save.classList.contains('btn--primary'), error: bar.classList.contains('is-error'), status: status.textContent });
+    const fail = async () => { save.fire('click'); await h.flush(); return now(); };
+    const edit = (v) => { input.value = v; input.fire('input'); };
+    edit('b');
+    const failed = await fail();
+    edit('c');
+    const typed = now();
+    await fail();
+    h.ctx.MM.settings.savebar.markDirty();
+    return { failed, typed, switched: now() };
+  },
+
+  // The bar shows only while something differs from what was saved.
+  async putBack() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const pills = h.add('div', { id: 'plex-library-pills' }, page);
+    const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+    const input = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    let reply = () => Promise.resolve({ status: 'saved' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ libraries: [{ id: 1, title: 'L1' }, { id: 2, title: 'L2' }] }), put: () => reply(), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+    const m = h.ctx.MM.settings;
+    m.diskThresholds.init({ selectedLibs: ['1', '2'], diskThresholds: { 1: { path: '/a', threshold: 80 } } });
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    await h.flush();
+    const on = () => bar.classList.contains('on');
+    const out = { start: on() };
+    const type = (el, v) => { el.value = v; el.fire('input'); return on(); };
+    const pill = () => { pills.querySelector('[data-lib-id="1"]').fire('click'); return on(); };
+    out.text = [type(input, 'ab'), type(input, 'a')];
+    const path = rows.querySelector('[data-lib-id="1"]').querySelector('[data-field="path"]');
+    out.path = [type(path, '/ab'), type(path, '/a')];
+    out.pill = [pill(), pill()];
+    // a failed save whose edit is put back
+    reply = () => Promise.reject({ status: 422, data: {} });
+    type(input, 'b');
+    save.fire('click');
+    await h.flush();
+    out.failed = [on(), type(input, 'a'), bar.classList.contains('is-error')];
+    // an edit made and unmade while a save is under way was saved as it stands
+    let finish;
+    reply = () => new Promise((r) => { finish = r; });
+    type(input, 'b');
+    save.fire('click');
+    type(input, 'bc'); type(input, 'a'); type(input, 'b');
+    out.whileSaving = on();
+    finish({ status: 'saved' });
+    await h.flush();
+    out.saved = save.textContent;
+    h.drain();
+    out.after = on();
+    return out;
+  },
+
+  // A save sends the settings that were changed and no others.
+  async changedOnly() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const input = (id, value, more) => h.add('input', Object.assign({ id, value, type: 'text' }, more), page);
+    const url = input('base_url', 'http://a');
+    input('plex_token', '****');
+    const days = input('grace_days', '14');
+    const model = h.add('select', { id: 'openai_model', value: 'default' }, page);
+    h.add('option', { value: 'default' }, model);
+    h.add('option', { value: 'other' }, model);
+    // a browser going back to the page puts back what was typed there, Chrome after the scripts have run
+    const time = input('scan_time', '09:00');
+    const toggle = h.add('span', { className: 'tog' }, page);
+    toggle.setAttribute('data-toggle', ''); toggle.setAttribute('data-target', 'auto_abandon_enabled');
+    const hidden = input('auto_abandon_enabled', 'true', { type: 'hidden' });
+    const sent = [];
+    h.ctx.MM.api = { put: (u, b) => { sent.push(JSON.parse(JSON.stringify(b))); return Promise.resolve({ status: 'saved' }); }, messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    ['savebar', 'general', 'toggles'].forEach((f) => h.load('settings/' + f + '.js'));
+    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    h.ctx.MM.settings.toggles.init();
+    hidden.defaultValue = hidden.value;
+    h.ctx.MM.settings.savebar.init({ getPayload: h.ctx.MM.settings.general.collectSettings });
+    time.value = '10:00';
+    (h.docListeners['window:pageshow'] || []).forEach((f) => f());
+    const out = { leftTyped: bar.classList.contains('on'), hidden: hidden.value };
+    const press = async () => { save.fire('click'); await h.flush(); h.drain(); return sent[sent.length - 1]; };
+    out.restored = await press();
+    const edit = (el, v) => { el.value = v; el.fire('input'); };
+    edit(days, '20');
+    out.one = await press();
+    edit(url, 'http://b'); edit(model, 'other');
+    out.two = await press();
+    return out;
+  },
+
   // A subscriber is removed only after the dialog is confirmed.
   async remove() {
     const h = build();
@@ -250,6 +476,17 @@ const scenarios = {
     const row = list.children[0];
     row.fire('transitionend', { propertyName: 'height' });
     return { declined, working, deletes: calls.deletes, rows: rowsNow(), toasts: calls.toasts, idleAria: declined.label };
+  },
+
+  // What the list says of someone who has unsubscribed.
+  async subscriberStates() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    const list = h.add('div', { id: 'subscriber-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }, { id: 2, email: 'b@x', active: false }] }) };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    return list.querySelectorAll('.sub-stat').map((s) => s.textContent);
   },
 
   // The avatar each name gets in the Team list.
@@ -443,7 +680,6 @@ const scenarios = {
     h.doc.getElementById('account-old-password').value = 'old';
     h.doc.getElementById('account-new-password').value = 'a-long-enough-password';
     h.doc.getElementById('account-confirm-password').value = 'a-long-enough-password';
-    msg.textContent = 'Working';
     form.fire('submit');
     oldPw.fire('input');
     const whileSending = { text: msg.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };
@@ -469,11 +705,13 @@ const scenarios = {
       post: () => new Promise((r) => { finish = r; }),
       messageOf: () => 'x',
     };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
     h.ctx.MM.settings.newsletter.init();
     await h.flush();
     toggle.fire('click');
     await h.flush();
     confirm.fire('click');
+    await h.flush();
     toggle.fire('click');
     cancel.fire('click');
     h.drain();
@@ -482,6 +720,131 @@ const scenarios = {
     await h.flush();
     cancel.fire('click');
     return { whileSending, afterwards: { toggle: toggle.textContent } };
+  },
+
+  // The newsletter goes out only once a dialog naming how many people get it is confirmed.
+  async newsletterConfirm() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    h.add('div', { id: 'subscriber-list' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    const list = h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    h.add('span', { id: 'newsletter-send-status' }, panel);
+    const titles = [];
+    const sent = [];
+    let answer;
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: ['a@x', 'b@x', 'c@x'].map((email, id) => ({ id, email, active: true })) }),
+      post: (u, b) => { sent.push(b.recipients); return Promise.resolve({ sent_to: b.recipients.length }); },
+      messageOf: () => 'x',
+    };
+    h.ctx.UIFeedback.confirm = (o) => { titles.push(o.title); return new Promise((r) => { answer = r; }); };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    toggle.fire('click');
+    await h.flush();
+    confirm.fire('click'); confirm.fire('click');
+    await h.flush();
+    const out = { asked: titles.slice(), sentBefore: sent.length };
+    answer(false);
+    await h.flush();
+    out.declined = { sent: sent.length, disabled: confirm.disabled };
+    list.querySelectorAll('input').slice(1).forEach((b) => { b.checked = false; });
+    confirm.fire('click');
+    answer(true);
+    await h.flush();
+    out.one = titles[titles.length - 1];
+    // a second press asks again instead of sending twice
+    confirm.fire('click');
+    await h.flush();
+    return Object.assign(out, { sent, asks: titles.length });
+  },
+
+  // The send panel and the add form say whether they are open, and the panel gives its focus back.
+  async panelToggles() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js'); h.load('settings/users.js');
+    h.add('div', { id: 'subscriber-list' });
+    h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    const cancel = h.add('button', { id: 'btn-cancel-newsletter' }, panel);
+    h.add('span', { id: 'newsletter-send-status' }, panel);
+    const add = h.add('button', { id: 'btn-add-user' });
+    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, addForm);
+    let finish;
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [], subscribers: [{ id: 1, email: 'a@x', active: true }] }),
+      post: () => new Promise((r) => { finish = r; }),
+      messageOf: () => 'x',
+    };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.newsletter.init();
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const said = (b) => [b.getAttribute('aria-expanded'), b.getAttribute('aria-controls')];
+    const out = { shut: [said(toggle), said(add)] };
+    add.fire('click'); toggle.fire('click');
+    await h.flush();
+    out.open = [said(toggle), said(add)];
+    add.fire('click');
+    // a click that focuses no button, then the browser drops the focus of a disabled one
+    main.focus();
+    confirm.fire('click');
+    await h.flush();
+    out.taken = h.doc.activeElement === confirm;
+    h.doc.activeElement = h.body;
+    finish({ sent_to: 1 });
+    await h.flush();
+    out.sentFocus = h.doc.activeElement === confirm;
+    confirm.fire('click');
+    await h.flush();
+    main.focus();
+    finish({ sent_to: 1 });
+    await h.flush();
+    out.movedOn = h.doc.activeElement === main;
+    cancel.fire('click');
+    out.cancelFocus = h.doc.activeElement === toggle;
+    h.drain();
+    out.shutAgain = [said(toggle), said(add)];
+    return out;
+  },
+
+  // Clicks that focus no button, as in Safari, on the newsletter's buttons.
+  async newsletterWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    const list = h.add('div', { id: 'subscriber-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-subscriber' });
+    const email = h.add('input', { id: 'new-subscriber-email', value: 'new@x' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }, { id: 2, email: 'b@x', active: true }] }),
+      postForm: () => Promise.resolve({}), delete: () => Promise.resolve({}), messageOf: () => 'x',
+    };
+    // the dialog gives the focus back to what had it
+    h.ctx.UIFeedback = { success() {}, confirm: () => { const had = h.doc.activeElement; h.body.focus(); return Promise.resolve(true).then((r) => { had.focus(); return r; }); } };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    const click = async (b) => { main.focus(); b.fire('click'); const at = h.doc.activeElement; await h.flush(); return at === b; };
+    const out = { open: await click(toggle), close: await click(toggle), add: await click(add) };
+    h.drain();
+    const rm = (i) => names(list, 'sub-row')[i].querySelector('.link-danger');
+    const next = rm(1);
+    await click(rm(0));
+    h.drain();
+    out.next = h.doc.activeElement === next;
+    void email;
+    return out;
   },
 
   // A field the server refuses is named by its label, in a plain sentence.
@@ -549,7 +912,7 @@ const scenarios = {
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: [
         { id: 1, username: 'ann', role: 'admin', email: 'ann@x.example' },
-        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T03' },
+        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T12:00:00' },
       ] }),
       patch: (u, b) => { sent.push([u, b.email]); return answer(); },
       messageOf: (e) => e.message,
@@ -663,6 +1026,696 @@ const scenarios = {
     form.fire('submit');
     await h.flush();
     out.addUser = h.doc.activeElement === submit;
+    return out;
+  },
+
+  // A user's role or deletion is sent once, from a button that keeps the focus, and cancelling the password leaves it there.
+  async rowActions() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }), messageOf: () => 'x' };
+    let cancel;
+    let runs = 0;
+    h.ctx.MM.reauth = { run: () => { runs += 1; return new Promise((_, no) => { cancel = () => no({ error: 'reauth_cancelled' }); }); } };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const out = {};
+    for (const action of ['role', 'delete']) {
+      const btn = userList.querySelector('[data-user-action="' + action + '"]');
+      const before = btn.textContent;
+      runs = 0;
+      btn.focus();
+      btn.fire('click');
+      await h.flush();
+      // the browser takes the focus from a disabled button
+      const dropped = btn.disabled;
+      const busy = btn.getAttribute('aria-disabled');
+      btn.fire('click');
+      await h.flush();
+      cancel();
+      await h.flush();
+      out[action] = { dropped, busy, runs, again: btn.getAttribute('aria-disabled'), label: btn.textContent === before };
+    }
+    return out;
+  },
+
+  // A press just after a role was changed does not change it back; a later one does.
+  async roleQuiet() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const sent = [];
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }),
+      patch: (u, b) => { sent.push(b.role); return Promise.resolve({}); },
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const btn = userList.querySelector('[data-user-action="role"]');
+    const press = async () => { btn.fire('click'); await h.flush(); };
+    btn.focus();
+    await press();
+    await press();
+    const quiet = { sent: sent.slice(), label: btn.textContent, focused: h.doc.activeElement === btn, wait: h.timers.map((t) => t.ms) };
+    h.drain();
+    await press();
+    let held = false;
+    btn.fire('keydown', { key: 'Enter', repeat: true, preventDefault: () => { held = true; } });
+    let first = false;
+    btn.fire('keydown', { key: 'Enter', repeat: false, preventDefault: () => { first = true; } });
+    let tab = false;
+    btn.fire('keydown', { key: 'Tab', repeat: true, preventDefault: () => { tab = true; } });
+    return { quiet, later: sent, held, first, tab };
+  },
+
+  // The words of the password dialog when a user is deleted.
+  async deleteWords() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }) };
+    let words = null;
+    h.ctx.MM.reauth = { run: (f, w) => { words = w || null; return new Promise(() => {}); } };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    userList.querySelector('[data-user-action="delete"]').fire('click');
+    await h.flush();
+    return words;
+  },
+
+  // A click that focuses no button, as in Safari, shuts a form of the Team list.
+  async shutWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-user' });
+    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, addForm);
+    const addCancel = h.add('button', { id: 'btn-cancel-add-user' }, addForm);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }) };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(userList, 'usr-row')[0];
+    const email = row.querySelector('[data-user-action="email"]');
+    const cancel = row.querySelector('form').querySelector('[type="button"]');
+    const shut = (opener, by) => {
+      opener.fire('click');
+      main.focus();
+      by.fire('click');
+      h.drain();
+      return h.doc.activeElement === opener;
+    };
+    return { emailCancel: shut(email, cancel), emailAgain: shut(email, email), addCancel: shut(add, addCancel), addAgain: shut(add, add) };
+  },
+
+  // How many libraries are said to be selected, by what Plex answers.
+  async libraryCount() {
+    const count = async (answer) => {
+      const h = build();
+      h.load('settings/disk_thresholds.js');
+      h.add('div', { id: 'plex-library-pills' });
+      h.add('div', { id: 'disk-threshold-rows' });
+      const el = h.add('span', { id: 'lib-pill-count' });
+      h.ctx.MM.api = { get: answer };
+      h.ctx.MM.settings.diskThresholds.init({ selectedLibs: ['1', '2', '9'] });
+      await h.flush();
+      return el.textContent;
+    };
+    const libs = (...ids) => () => Promise.resolve({ libraries: ids.map((id) => ({ id, title: 'L' + id })) });
+    return { unreachable: await count(() => Promise.reject({})), none: await count(libs()), oneGone: await count(libs(1, 2, 3)) };
+  },
+
+  // A test reads the saved settings, which its button says while its card holds other values.
+  async testWhileUnsaved() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const cards = ['Plex', 'Sonarr'].map((name) => {
+      const card = h.add('div', { className: 'intg-card' }, page);
+      h.add('h3', {}, card)._text = name;
+      const btn = h.add('button', { className: 'btn-test' }, card);
+      btn.setAttribute('data-test-service', name.toLowerCase());
+      btn.textContent = 'Test';
+      return { btn, input: h.add('input', { id: name.toLowerCase() + '_url', value: 'a', type: 'text' }, card) };
+    });
+    const [plex, sonarr] = cards;
+    const toasts = [];
+    h.ctx.MM.api = { put: () => Promise.resolve({ status: 'saved' }), post: () => Promise.resolve({}), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast: (m) => toasts.push(m), confirm: () => Promise.resolve(true) };
+    h.load('settings/savebar.js'); h.load('settings/integrations.js');
+    h.ctx.MM.settings.savebar.init({});
+    h.ctx.MM.settings.integrations.init();
+    h.drain(); await h.flush();
+    const labels = () => cards.map((c) => c.btn.textContent);
+    const edit = (v) => { plex.input.value = v; plex.input.fire('input'); };
+    const out = { clean: labels() };
+    sonarr.btn.fire('click'); await h.flush(); h.drain();
+    out.quiet = toasts.length;
+    edit('b');
+    out.edited = labels();
+    // the field left for the button reports a change while the press is under way
+    plex.btn.children = [];
+    const pressed = plex.btn.appendChild(h.doc.createTextNode('Test saved'));
+    plex.btn._text = '';
+    plex.input.fire('change');
+    out.textKept = plex.btn.contains(pressed);
+    plex.btn.fire('click'); await h.flush();
+    out.told = toasts.slice();
+    h.drain();
+    out.afterTest = labels();
+    edit('a');
+    out.putBack = labels();
+    edit('b');
+    save.fire('click'); await h.flush();
+    out.saved = labels();
+    h.drain();
+    edit('c');
+    discard.fire('click'); await h.flush();
+    out.discarded = labels();
+    return out;
+  },
+
+  // The retry after the password dialog sends what the first try did, not what was chosen meanwhile.
+  async retryAfterPassword() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const pills = h.add('div', { id: 'plex-library-pills' }, page);
+    h.add('div', { id: 'disk-threshold-rows' }, page);
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const sent = [];
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) }),
+      put: (u, b) => { sent.push(Array.from(b.plex_libraries)); bases.push(Array.from(b.plex_libraries_base || [])); return sent.length === 1 ? Promise.reject({ status: 403 }) : Promise.resolve({ status: 'saved' }); },
+      messageOf: () => 'x',
+    };
+    const bases = [];
+    let accept;
+    const password = new Promise((r) => { accept = r; });
+    h.ctx.MM.reauth = { run: (f) => f().catch(() => password.then(f)) };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+    const m = h.ctx.MM.settings;
+    m.diskThresholds.init({ selectedLibs: ['1'], diskThresholds: {} });
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    await h.flush();
+    const pill = (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click');
+    pill(2);
+    save.fire('click');
+    await h.flush();
+    pill(3);
+    accept();
+    await h.flush();
+    const unsaved = bar.classList.contains('on');
+    discard.fire('click');
+    await h.flush();
+    return { sent, bases, unsaved, discarded: Array.from(m.diskThresholds.getSelectedLibs()) };
+  },
+
+  // A library's path and threshold outlive every redraw of the rows, and only what the person cleared is sent as cleared.
+  async diskRows() {
+    const libs = () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) });
+    const open = async (answer, thresholds) => {
+      const h = build();
+      const page = h.add('div', { className: 'setg-pg' });
+      h.add('div', { id: 'plex-library-pills' }, page);
+      const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+      const bar = h.add('div', { id: 'setg-savebar' });
+      const save = h.add('button', { id: 'btn-save' }, bar);
+      const discard = h.add('button', { id: 'btn-discard' }, bar);
+      h.add('span', { id: 'lib-pill-count' });
+      const sent = [];
+      let reply = () => Promise.resolve({ status: 'saved' });
+      h.ctx.MM.api = {
+        get: (u) => (u === '/api/plex/libraries' ? answer() : Promise.reject({})),
+        put: (u, b) => { sent.push(b.disk_thresholds === undefined ? null : JSON.parse(JSON.stringify(b.disk_thresholds))); return reply(); },
+        messageOf: () => 'x',
+      };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+      ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+      const m = h.ctx.MM.settings;
+      m.diskThresholds.init({ selectedLibs: ['1'], diskThresholds: thresholds || {} });
+      m.savebar.init({ getPayload: m.general.collectSettings });
+      const field = (id, f) => rows.querySelector('[data-lib-id="' + id + '"]').querySelector('[data-field="' + f + '"]');
+      return {
+        h, sent, rows, reply: (f) => { reply = f; },
+        type: (id, path, threshold) => {
+          field(id, 'path').value = path; field(id, 'threshold').value = threshold;
+          field(id, 'path').fire('input');
+        },
+        shows: (id) => [field(id, 'path').value, String(field(id, 'threshold').value)],
+        pill: (id) => h.doc.getElementById('plex-library-pills').querySelector('[data-lib-id="' + id + '"]').fire('click'),
+        save: async () => { save.fire('click'); await h.flush(); h.drain(); return sent[sent.length - 1]; },
+        discard: async () => { discard.fire('click'); await h.flush(); },
+      };
+    };
+    const out = {};
+    let p = await open(libs, { 3: { path: '/c', threshold: 70 } });
+    await p.h.flush();
+    p.type(1, '/a', '80');
+    out.firstSave = await p.save();
+    p.pill(2);
+    out.afterAnotherPill = p.shows(1);
+    out.afterAnotherPillSave = await p.save();
+    p.type(2, '/b', '60');
+    p.pill(3);
+    out.typedBeforeSaving = p.shows(2);
+    p.pill(2);
+    p.pill(2);
+    out.selectedAgain = p.shows(2);
+    p.pill(1);
+    out.deselectedSave = await p.save();
+    p.pill(1);
+    out.restored = p.shows(1);
+    p.type(1, '', '0');
+    out.clearedSave = await p.save();
+    // Discard goes back to what was last saved, a library that was typed over included
+    p.type(2, '/typed', '10');
+    p.pill(1);
+    await p.discard();
+    out.discarded = [p.shows(1), p.shows(2)];
+    out.discardedSave = await p.save();
+    // a refused save loses nothing, and the next one sends it
+    p.type(2, '/new', '50');
+    p.reply(() => Promise.reject({ status: 500, data: {} }));
+    await p.save();
+    p.pill(1);
+    out.afterFailure = p.shows(2);
+    p.reply(() => Promise.resolve({ status: 'saved' }));
+    out.afterFailureSave = await p.save();
+
+    // Plex's list arrives late, and what cannot be read is left alone
+    let arrive;
+    p = await open(() => new Promise((r) => { arrive = r; }), { 1: { path: '/a', threshold: 80 }, 2: 'odd' });
+    out.beforeListSave = await p.save();
+    arrive(await libs());
+    await p.h.flush();
+    out.late = p.shows(1);
+    p.pill(2);
+    out.unreadableSave = await p.save();
+
+    // Plex cannot be reached
+    p = await open(() => Promise.reject({}), { 1: { path: '/a', threshold: 80 } });
+    await p.h.flush();
+    out.unreachableSave = await p.save();
+    return out;
+  },
+
+  // What is stored may be no object of libraries at all, and the page still edits and saves.
+  async strayThresholds() {
+    const out = {};
+    for (const stray of ['odd', 5, true]) {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: stray });
+      p.type(1, '/a', '80');
+      p.edit('b');
+      out[String(stray)] = await p.save();
+    }
+    return out;
+  },
+
+  // What is typed while a save is under way outlives the rows being drawn again for a pill.
+  async pillDuringSave() {
+    const p = await openLibraries(plexLists(1, 2), { selectedLibs: ['1'], diskThresholds: {} });
+    let answer;
+    p.reply = () => new Promise((r) => { answer = r; });
+    p.edit('b');
+    p.press();
+    p.type(1, '/a', '80');
+    p.pill(2);
+    const shown = p.shows(1);
+    answer({ status: 'saved' });
+    await p.h.flush();
+    const unsaved = p.on();
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    return { shown, unsaved, next: await p.save() };
+  },
+
+  // Unreadable thresholds: the refusal is shown, and a selected library that Plex lacks can be taken out.
+  async mendThresholds() {
+    const p = await openLibraries(plexLists(1), { selectedLibs: ['1', '9'], diskThresholds: 'odd' });
+    p.reply = () => Promise.reject({ status: 409, data: { error: 'x', message: 'why it was refused' } });
+    p.type(1, '/a', '80');
+    await p.save();
+    const refused = { on: p.on(), says: p.status.textContent };
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    p.pill(9);
+    return { refused, sent: await p.save(), on: p.on() };
+  },
+
+  // The server lays a save over what another page has stored since; this page then shows and keeps that too.
+  async mergedReply() {
+    const p = await openLibraries(plexLists(1, 2, 3, 4), {
+      selectedLibs: ['1', '2'],
+      diskThresholds: { 1: { path: '/a', threshold: 80 }, 2: { path: '/b', threshold: 70 } },
+    });
+    const stored = {
+      status: 'saved', plex_libraries: ['1', '3'],
+      disk_thresholds: { 1: { path: '/a', threshold: 60 }, 2: { path: '/b', threshold: 70 }, 3: { path: '/c', threshold: 50 } },
+    };
+    // nothing touched meanwhile
+    p.pill(2);
+    p.reply = () => Promise.resolve(stored);
+    await p.save();
+    const look = () => ({ pills: p.pills(), rows: [1, 2, 3, 4].map(p.shows), on: p.on() });
+    const out = { quiet: look() };
+    // the caret is in a field, a pill is clicked and another typed over while the next save is under way
+    let answer;
+    p.reply = () => new Promise((r) => { answer = r; });
+    p.edit('b');
+    p.press();
+    const card = p.card(1);
+    const path = p.input(1, 'path');
+    path.focus();
+    p.pill(4);
+    p.type(1, '/typed ', '60');
+    answer(Object.assign({}, stored, {
+      plex_libraries: ['1', '2'],
+      disk_thresholds: { 1: { path: '/a', threshold: 40 }, 2: { path: '/b', threshold: 70 } },
+    }));
+    await p.h.flush();
+    out.busy = look();
+    out.sameCard = p.card(1) === card && p.h.doc.activeElement === path;
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    out.next = await p.save();
+    p.pill(4);
+    p.type(2, '/b ', '70');
+    await p.discard();
+    out.discarded = [p.pills(), p.shows(2)];
+    return out;
+  },
+
+  // A save that failed may have been stored all the same, so what it sent stays unsaved until one is answered.
+  async unanswered() {
+    const out = { on: {} };
+    const open = () => openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+    const failing = async (p, status) => { p.reply = () => Promise.reject({ status, data: {} }); await p.save(); p.reply = () => Promise.resolve({ status: 'saved' }); };
+    for (const status of [undefined, 0, 503, 422]) {
+      const p = await open();
+      p.edit('b');
+      await failing(p, status);
+      p.edit('a');
+      out.on[String(status)] = [p.on(), p.h.ctx.MM.settings.savebar.isEdited(p.field)];
+    }
+    const p = await open();
+    p.stored = () => Promise.resolve({ base_url: 'b', plex_libraries: ['1'] });
+    p.edit('b');
+    await failing(p, 0);
+    p.edit('a');
+    out.says = [p.status.textContent, p.bar.classList.contains('is-partial')];
+    // a refusal settles nothing
+    await failing(p, 429);
+    p.edit('a');
+    out.refused = p.on();
+    out.next = await p.save();
+    out.answered = p.on();
+    p.edit('c');
+    p.edit('a');
+    out.forgotten = p.on();
+    return out;
+  },
+
+  // A save pressed after one with no answer: what each put-back or kept edit does, by what the server has.
+  async undo() {
+    const limit = (threshold) => ({ path: '/a', threshold });
+    const start = async (opts, lost) => {
+      const p = await openLibraries(plexLists(1, 2, 3, 4), Object.assign({ selectedLibs: ['4'], diskThresholds: {} }, opts));
+      const set = (server) => { p.stored = () => Promise.resolve(Object.assign({ plex_libraries: ['4'], disk_thresholds: {} }, server)); };
+      const lose = async () => { p.reply = () => Promise.reject({ status: 0 }); await p.save(); p.reply = () => Promise.resolve({ status: 'saved' }); p.sent.length = 0; };
+      const look = () => ({ sent: p.sent.slice(), pills: p.pills().sort(), limit: p.shows(1), days: ['min_age_days', 'inactivity_days', 'grace_days'].map((id) => p.days[id].value), url: p.field.value, told: p.toasts.join(), on: p.on() });
+      lost(p);
+      await lose();
+      return Object.assign(p, { set, lose, look });
+    };
+    const run = async (opts, lost, back, server) => {
+      const p = await start(opts, lost);
+      back(p);
+      p.set(server);
+      await p.save();
+      return p.look();
+    };
+    const day = (v) => (p) => p.day(v);
+    const each = (...acts) => (p) => acts.forEach((f) => f(p));
+    const pill = (id) => (p) => p.pill(id);
+    const type = (path, n) => (p) => p.type(1, path, n);
+    const out = {};
+
+    // another page has set it since
+    const one = { selectedLibs: ['1'] };
+    out.otherLibrary = await run({ selectedLibs: ['3', '4'] }, pill(3), pill(3), {});
+    out.otherLimit = await run(one, type('/a', '80'), type('', '0'), { plex_libraries: ['1'], disk_thresholds: { 1: limit(90) } });
+    out.otherHigher = await run(Object.assign({ diskThresholds: { 1: limit(80) } }, one), type('/a', '85'), each(type('/a', '80'), (p) => p.edit('b')), { plex_libraries: ['1'], disk_thresholds: { 1: limit(95) } });
+    out.otherDays = await run({}, day('3'), day('14'), { grace_days: 30 });
+
+    // the save never arrived
+    const all = each(day('20'), (p) => p.edit('b'), pill(3), type('/a', '85'));
+    const back = each(day('14'), (p) => p.edit('a'), pill(3), type('/a', '80'));
+    const opts = { selectedLibs: ['1'], diskThresholds: { 1: limit(80) } };
+    out.notStored = await run(opts, all, back, { grace_days: 14, base_url: 'a', plex_libraries: ['1'], disk_thresholds: { 1: limit(80) } });
+
+    // it did, and the undo lets no more be deleted
+    out.undone = await run(opts, each(day('3'), (p) => p.edit('b'), pill(3), type('/a', '50')), back, { grace_days: 3, base_url: 'b', plex_libraries: ['1', '3', '4'], disk_thresholds: { 1: limit(50) } });
+
+    // it did, and the undo would let more be deleted
+    const safer = each(day('30'), (p) => p.day('30', 'min_age_days'), (p) => p.day('30', 'inactivity_days'), pill(3), type('/a', '85'));
+    const looser = each(day('14'), (p) => p.day('14', 'min_age_days'), (p) => p.day('14', 'inactivity_days'), pill(3), type('/a', '80'));
+    out.safer = await run({ selectedLibs: ['1', '3'], diskThresholds: { 1: limit(80) } }, safer, looser, { grace_days: 30, min_age_days: 30, inactivity_days: 30, plex_libraries: ['1'], disk_thresholds: { 1: limit(85) } });
+    const toBlank = { plex_libraries: ['1'], disk_thresholds: { 1: limit(80) } };
+    out.toBlank = await run(one, type('/a', '80'), type('', '0'), toBlank);
+    out.toNoPath = await run({ selectedLibs: ['1'], diskThresholds: { 1: { path: '', threshold: 90 } } }, type('/a', '80'), type('', '90'), toBlank);
+    out.unreadable = await run({ selectedLibs: ['1'], diskThresholds: 'odd' }, type('/a', '80'), type('', '0'), toBlank);
+
+    // not put back: an ordinary edit, whatever the server has
+    out.kept = await run(opts, all, () => {}, { grace_days: 30, base_url: 'c', plex_libraries: ['1', '4'], disk_thresholds: { 1: limit(95) } });
+
+    // what the person changes of what was shown is an ordinary edit again
+    let p = await start({ selectedLibs: ['3', '4'] }, pill(3));
+    p.pill(3); p.set({});
+    await p.save();
+    p.pill(3);
+    out.chosenAgain = await p.save();
+
+    // and so is one to the value there was before, also after the rest was refused
+    p = await start({}, day('3'));
+    p.day('14'); p.edit('b'); p.set({ grace_days: 30 });
+    p.reply = () => Promise.reject({ status: 422, data: {} });
+    await p.save();
+    p.day('14'); p.edit('a');
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    out.oldValueChosen = await p.save();
+
+    // the server's value, in the form its field holds it
+    out.held = await (async () => {
+      const time = { set value(v) { this.v = v === '9:00' ? '' : v; }, get value() { return this.v; } };
+      p = await start({}, (q) => {
+        Object.defineProperty(q.field, 'value', Object.getOwnPropertyDescriptor(time, 'value'));
+        q.edit('b');
+      });
+      p.edit('a'); p.set({ base_url: '9:00' });
+      await p.save();
+      return p.look();
+    })();
+
+    // an undo that is lost too is no less an undo
+    p = await start({}, day('3'));
+    p.day('14'); p.set({ grace_days: 3 });
+    await p.lose();
+    p.set({ grace_days: 30 });
+    await p.save();
+    out.undoLost = p.look();
+
+    // the server cannot be asked
+    p = await start({}, day('3'));
+    p.day('14');
+    p.stored = () => Promise.reject({ status: 0 });
+    await p.save();
+    out.unknown = Object.assign(p.look(), { error: p.bar.classList.contains('is-error'), says: p.status.textContent });
+
+    // what is typed while it is asked waits for the next save
+    p = await start(one, day('3'));
+    let tell;
+    p.day('14'); p.edit('b');
+    p.stored = () => new Promise((r) => { tell = r; });
+    p.press();
+    p.type(1, '/mid ', '0'); p.edit('typing');
+    tell({ grace_days: 30, plex_libraries: ['1', '2'], disk_thresholds: {} });
+    await p.h.flush();
+    out.meanwhile = p.look();
+    return out;
+  },
+
+  // Discard after a save that failed goes back to what the server has.
+  async discardUnanswered() {
+    const server = { base_url: 'a', plex_libraries: ['1'], disk_thresholds: {} };
+    const open = async () => {
+      const p = await openLibraries(plexLists(1, 2), { selectedLibs: ['1'], diskThresholds: {} });
+      p.reply = () => Promise.reject({ status: 0 });
+      p.edit('b');
+      p.pill(2);
+      p.type(1, '/a', '80');
+      await p.save();
+      p.look = () => ({ on: p.on(), field: p.field.value, pills: p.pills(), limit: p.shows(1), toasts: p.toasts.length, puts: p.sent.length });
+      return p;
+    };
+    const out = {};
+    let p = await open();
+    p.stored = () => Promise.resolve(server);
+    await p.discard();
+    out.notStored = p.look();
+    p = await open();
+    p.stored = () => Promise.resolve({ base_url: 'b', plex_libraries: ['1', '2'], disk_thresholds: { 1: { path: '/a', threshold: 80 } } });
+    p.edit('typed');
+    await p.discard();
+    out.stored = p.look();
+    out.told = p.toasts[0];
+    p.edit('x'); p.edit('b');
+    out.forgotten = p.on();
+    p.edit('a');
+    out.after = [p.on(), await p.save()];
+    p = await open();
+    await p.discard();
+    out.unknown = p.look();
+    out.error = p.bar.classList.contains('is-error');
+    return out;
+  },
+
+  // The server tells no secret, so whether one was stored is said to be unknown.
+  async unansweredSecret() {
+    const open = async () => {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+      p.stored = () => Promise.resolve({ plex_token: '****', plex_libraries: ['1'] });
+      const token = p.page.querySelector('#plex_token');
+      const type = (v) => { token.value = v; token.fire('input'); };
+      p.reply = () => Promise.reject({ status: 0 });
+      type('new');
+      await p.save();
+      p.reply = () => Promise.resolve({ status: 'saved' });
+      return Object.assign(p, { token, type });
+    };
+    const out = {};
+    let p = await open();
+    p.type('****');
+    const puts = p.sent.length;
+    await p.save();
+    out.putBack = [p.toasts, p.sent.length - puts];
+    p = await open();
+    out.savedAgain = [(await p.save()), p.toasts];
+    p = await open();
+    await p.discard();
+    out.discarded = [p.token.value, p.toasts];
+    p = await open();
+    p.stored = () => Promise.resolve({});
+    await p.discard();
+    out.gone = [p.token.value, p.toasts.length];
+    return out;
+  },
+
+  // What each form brings into view: itself once it has unfolded, then its status.
+  async revealed() {
+    const out = {};
+    const start = async (calm) => {
+      const h = build();
+      if (calm) h.ctx.matchMedia = () => ({ matches: true });
+      const page = {};
+      const add = (tag, id, parent, more) => { page[id] = h.add(tag, Object.assign({ id }, more), parent); return page[id]; };
+      add('input', 'elsewhere'); add('div', 'user-list'); add('div', 'subscriber-list');
+      add('button', 'btn-add-user');
+      const form = add('form', 'add-user-form', null, { hidden: true });
+      add('input', 'new-username', form, { value: '' }); add('input', 'new-user-password', form, { value: 'a-long-password-1' });
+      add('button', 'btn-submit-add-user', form); add('span', 'create-user-result', form);
+      add('button', 'btn-send-newsletter');
+      const panel = add('div', 'newsletter-send-panel', null, { hidden: true });
+      add('div', 'newsletter-recipient-list', panel); add('button', 'btn-confirm-newsletter', panel); add('span', 'newsletter-send-status', panel);
+      const p = { h, page, answer: () => Promise.reject({ message: 'no' }), subscribers: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }] }) };
+      h.ctx.MM.api = {
+        get: (u) => (u === '/api/users' ? Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }) : p.subscribers()),
+        patch: () => p.answer(), post: () => p.answer(), messageOf: (e) => e.message,
+      };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      Object.assign(h.ctx.UIFeedback, { confirm: () => Promise.resolve(true), success: () => {}, error: () => {} });
+      ['core/dom.js', 'settings/rows.js', 'settings/users.js', 'settings/newsletter.js'].forEach((f) => h.load(f));
+      h.ctx.MM.settings.users.init(); h.ctx.MM.settings.newsletter.init();
+      await h.flush();
+      p.taken = () => h.doc.revealed.splice(0);
+      p.open = (btn) => { btn.focus(); btn.fire('click'); };
+      return p;
+    };
+    const step = async (p, act) => { act(); await p.h.flush(); return p.taken(); };
+
+    for (const calm of [false, true]) {
+      const p = await start(calm);
+      const row = p.page['user-list'].children[0];
+      const form = row.querySelector('form');
+      const key = calm ? 'calm' : 'email';
+      p.open(row.querySelector('[data-user-action="email"]'));
+      const unfolding = p.taken();
+      p.h.drain();
+      out[key] = { unfolding, open: p.taken(), refused: await step(p, () => form.fire('submit')) };
+    }
+
+    let p = await start();
+    const $ = p.page;
+    p.open($['btn-add-user']); p.h.drain();
+    out.add = { open: p.taken(), tooShort: await step(p, () => $['add-user-form'].fire('submit')) };
+    $['new-username'].value = 'casey';
+    out.add.refused = await step(p, () => $['add-user-form'].fire('submit'));
+    out.add.focus = $['new-username'].lastFocusOpts;
+
+    // an answer that comes late, for a reader there, one who went to another field and one who scrolled on
+    for (const [name, away] of [
+      ['there', () => {}], ['around', (q) => { q.h.doc.activeElement = q.h.body; }], ['elsewhere', (q) => q.page.elsewhere.focus()],
+      ['above', (q, id) => { q.page[id].place = { top: -300, bottom: -282 }; }],
+      ['underTheBottomBar', (q, id) => { q.page[id].place = { top: 780, bottom: 798 }; }],
+    ]) {
+      let give;
+      const late = () => new Promise((r) => { give = r; });
+      const q = await start();
+      q.open(q.page['btn-add-user']); q.h.drain();
+      q.page['new-username'].value = 'casey';
+      q.answer = late;
+      q.page['add-user-form'].fire('submit');
+      q.taken();
+      away(q, 'create-user-result');
+      give({});
+      await q.h.flush();
+      const created = q.taken().length;
+
+      const n = await start();
+      n.open(n.page['btn-send-newsletter']); await n.h.flush(); n.h.drain();
+      const opened = n.taken();
+      n.answer = late;
+      const sent = [await step(n, () => { n.page['btn-confirm-newsletter'].focus(); n.page['btn-confirm-newsletter'].fire('click'); })];
+      away(n, 'newsletter-send-status');
+      give({ sent_to: 1, failed: 2 });
+      await n.h.flush();
+      sent.push(n.taken());
+
+      // the list of recipients, which makes the panel taller
+      const m = await start();
+      m.subscribers = late;
+      m.open(m.page['btn-send-newsletter']); m.h.drain();
+      m.taken();
+      away(m, 'newsletter-send-panel');
+      give({ subscribers: [{ id: 1, email: 'a@x', active: true }] });
+      await m.h.flush();
+      out[name] = { created, sent: sent[1].length, listed: m.taken().length };
+      if (name !== 'there') continue;
+      out.newsletter = { opened, sending: sent[0] };
+      n.page['newsletter-recipient-list'].querySelector('input').checked = false;
+      out.newsletter.none = await step(n, () => n.page['btn-confirm-newsletter'].fire('click'));
+    }
     return out;
   },
 

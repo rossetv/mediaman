@@ -9,7 +9,7 @@
 // our own server, treating them as untrusted in the DOM layer makes
 // future additions safe by default.
 //
-// Requires: core/api.js (MM.api), core/dom.js (MM.dom).
+// Requires: core/api.js (MM.api), core/dom.js (MM.dom), downloads/build_dom.js.
 
 (function () {
   'use strict';
@@ -25,15 +25,24 @@
 
   var inflight = {};   // dlId -> true while its abandon request runs
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
+  var letGo = null;    // gives the page back once the dialog has closed
 
-  /* This modal intentionally does NOT lock body scroll. setupDetail owns
-     the display/aria-hidden lifecycle and registers with ModalA11y, which
-     supplies the focus trap, ESC and focus return to the opener. */
+  /* setupDetail owns the display/aria-hidden lifecycle and registers with
+     ModalA11y, which supplies the focus trap, ESC and focus return to the
+     opener. */
   var _abandonModal = MM.modal.setupDetail(modal, {
-    manageBodyOverflow: false,
+    manageBodyOverflow: false, /* _ui_feedback.css holds the page */
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;
+      if (letGo) { letGo(); letGo = null; }
+      /* The focus goes back to the button that opened this; a poll may have taken it away. */
+      setTimeout(function () {
+        var active = document.activeElement;
+        if (!current && (!active || active === document.body || modal.contains(active))) {
+          MM.downloads.buildDom.focusHeading();
+        }
+      }, 0);
     },
   });
 
@@ -73,6 +82,7 @@
     }
     showConfirmState();
 
+    if (!letGo) letGo = MM.dom.holdPage();
     _abandonModal.open();
   }
 
@@ -164,7 +174,10 @@
     }
   }
 
+  /* Safari gives a button that is clicked no focus: without it here and where the dialog
+     is opened, the focus would stay or come back on the page behind. */
   function doConfirm() {
+    confirmBtn.focus();
     if (!current || isBusy()) return;
     if (confirmBtn.getAttribute('aria-disabled') === 'true') return;
 
@@ -178,6 +191,8 @@
     }
 
     var dlId = current.dlId;
+    var message = current.upcoming ? 'Stopped tracking ' + current.title
+      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + current.title;
     inflight[dlId] = true;
     showConfirmState();
 
@@ -190,6 +205,7 @@
         delete inflight[dlId];
         if (showsThis()) close();
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+        window.UIFeedback.toast(message, { variant: 'success' });
       })
       .catch(function (err) {
         delete inflight[dlId];
@@ -201,7 +217,9 @@
   /* Backdrop click and the cancel button are owned by MM.modal.setupDetail. */
   document.addEventListener('click', function (e) {
     var trigger = e.target.closest('[data-abandon-trigger]');
-    if (trigger) open(trigger);
+    if (!trigger) return;
+    trigger.focus();
+    open(trigger);
   });
   confirmBtn.addEventListener('click', doConfirm);
 

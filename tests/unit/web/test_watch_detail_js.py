@@ -646,6 +646,13 @@ def test_a_viewer_never_asks_for_admin_facts() -> None:
     assert out["keep"] is True
 
 
+def test_the_season_delete_of_a_title_page_is_given_how_many_seasons_there_are() -> None:
+    out = _run("adminSeasonDelete")
+    assert out["calls"] == [["300", "Brightwater", 5]]
+    # Focused first, for the dialog to give it back: a click does not focus it in every browser.
+    assert out["focused"] == ["admin-delete"]
+
+
 def test_an_admin_sees_the_facts_and_keeps_or_deletes_through_the_admin_actions() -> None:
     out = _run("adminFacts")
     assert "/api/watch/admin/title/movie-120" in out["gets"]

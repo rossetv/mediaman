@@ -343,7 +343,7 @@ const scenarios = {
       'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
       [older('2026-11-14', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9'), card('rec-10', { title: 'Title rec-7' })] }), next_batch: '2026-11-07' }),
       [older('2026-11-07', '2026-11-21')]: () => Promise.reject(apiError(404, {})),
-      'GET /api/watch/recommended?batch=2026-10-31': () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
+      [older('2026-10-31', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
       [older('2026-11-07', '2026-11-14')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-11')] }), next_batch: null }),
     } });
     await settle();
@@ -362,11 +362,18 @@ const scenarios = {
     const p = load({ batches: BATCHES, routes: {
       'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
       'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
-      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: null }),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
+      'GET /api/watch/recommended?batch=2026-11-07&start=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-10')] }), next_batch: null }),
     } });
     await settle();
     await scroll(scrollerOf(p, 'recommended'), 0);
     return refsOf(scrollerOf(p, 'recommended'));
+  },
+
+  async picksPill() {
+    const p = load({ batches: BATCHES });
+    await settle();
+    return rec(p.doc).querySelector('[data-picks-menu]').children.map((n) => n.textContent);
   },
 
   // Every batch the row goes on to is gone, and the last is one the menu does not know.
@@ -379,6 +386,18 @@ const scenarios = {
     await settle();
     await scroll(scrollerOf(p, 'recommended'), 0);
     return { refs: refsOf(scrollerOf(p, 'recommended')), asked: p.calls.length, more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
+  },
+
+  // The row has no batch to start at, and the first older batch is gone: the same address is not asked twice.
+  async goneWithoutStart() {
+    layout();
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), batch: null, next_batch: '2026-11-14' }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return p.calls.filter((c) => c.indexOf('batch=2026-11-14') > 0);
   },
 
   // Picks of one name, kind and year: another TMDB id is another title, the same or an unknown one is not.

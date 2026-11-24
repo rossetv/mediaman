@@ -86,7 +86,10 @@
   justify-content: center;
   width: 100%;
   min-height: 44px;
-  padding: 0 22px;
+  /* A label that takes two lines on a narrow phone keeps air above and below. */
+  padding: 10px 22px;
+  line-height: 1.25;
+  text-align: center;
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
@@ -95,7 +98,7 @@
   color: var(--t1);
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.login-btn:hover { background: var(--accent-hi); }
+.login-btn:hover { background: var(--accent-cta-hover); }
 .login-btn:active { transform: scale(.97); }
 
 /* Pending state set by submit-guard.js */
@@ -126,7 +129,9 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 }
 
 .security-note { color: var(--t3); font-size: 12px; margin-top: 18px; text-align: center; line-height: 1.5; }
-.security-note a { color: var(--accent); }
+.security-note a { position: relative; color: var(--accent); }
+/* One 15px line of text: the press reaches 45px without moving the lines around it. */
+.security-note a::after { content: ""; position: absolute; inset: -15px -8px; }
 
 .error-msg {
   margin-bottom: 14px;

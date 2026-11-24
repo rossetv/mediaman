@@ -61,6 +61,7 @@ function row(r) {
     class: 'keep-wrapper', 'data-id': r.id, 'data-tv': String(!!r.showRk), 'data-show-rk': r.showRk || '',
     'data-has-rk': String(!!r.showRk), 'data-show-title': r.title, 'data-title': JSON.stringify(r.title),
     'data-kept': String(!!r.kept), 'data-deletion': String(!!r.deletion),
+    'data-keep': JSON.stringify(r.keep || null), ...(r.seasons ? { 'data-seasons': String(r.seasons) } : {}),
   },
   ['button', { class: 'keep-trigger' + (r.kept ? ' keep-trigger--kept' : ''), 'aria-label': (r.kept ? 'Manage keep on ' : 'Keep ') + r.title },
     ...(r.kept ? [['svg', { class: 'ico keep-trigger__tick', 'aria-hidden': 'true' }, ['use', { href: '#i-check' }]]] : []),
@@ -89,12 +90,12 @@ const ROWS = [
   { id: 'm1', title: 'Copperline', deletion: true },
   { id: 'm2', title: 'Saltmarsh' },
   { id: 's1', title: 'Night Shift', showRk: '77' },
-  { id: 'm3', title: 'Glass Harbour', kept: true },
+  { id: 'm3', title: 'Glass Harbour', kept: true, keep: MADE },
 ];
 
 function fragment(doc, state, rows) {
   const s = Object.assign({ q: '', type: '', sort: 'added_desc', page: '1', per_page: '20' }, state);
-  return build(doc, ['div', { class: 'wl', 'data-list-root': '', 'data-q': s.q, 'data-type': s.type, 'data-sort': s.sort, 'data-page': s.page, 'data-per-page': s.per_page },
+  return build(doc, ['div', { class: 'wl', 'data-list-root': '', 'data-q': s.q, 'data-type': s.type, 'data-sort': s.sort, 'data-page': s.page, 'data-per-page': s.per_page, 'data-said': s.said || '' },
     ['div', { 'data-list-part': 'stats' }, 'stats ' + (s.label || '')],
     ['p', { 'data-list-part': 'summary' }, 'summary ' + (s.label || '')],
     ['form', { 'data-list-part': 'toolbar' },
@@ -107,6 +108,9 @@ function fragment(doc, state, rows) {
         ['thead', {}, ['tr', {}, ['th', {}, ['a', { class: 'th-sort', href: '/watch?view=list&sort=name_asc', 'data-list-nav': '', 'data-sort-col': 'name' }, 'Title']]]],
         ['tbody', {}, ...rows.map(row)]],
       ['nav', { class: 'pagination' },
+        ...(s.arrows || []).map(([label, to]) => [to ? 'a' : 'button', { class: 'page-btn' + (to ? '' : ' disabled'), 'aria-label': label,
+          ...(to ? { href: '/watch?view=list' + (to > 1 ? '&page=' + to : ''), 'data-list-nav': '' } : {}) }, label]),
+        ...(s.arrows ? [['button', { class: 'page-btn active' }, s.page]] : []),
         ['a', { class: 'page-btn', href: '/watch?view=list&page=2', 'data-list-nav': '' }, '2'],
         ['span', { class: 'page-info' }, 'range ' + (s.label || '')]]]]);
 }
@@ -128,10 +132,16 @@ function page(doc, listShown) {
 function load(opts = {}) {
   const doc = makeDocument();
   doc.dispatchEvent = (ev) => { (doc.listeners[ev.type] || []).forEach((fn) => fn(ev)); return true; };
+  Object.assign(doc.documentElement.style, {
+    setProperty(k, v) { this[k] = v; },
+    removeProperty(k) { delete this[k]; },
+  });
   doc.body.appendChild(page(doc));
   const list = doc.getElementById('watch-list');
   const browse = doc.getElementById('watch-browse');
   doc.getElementById('watch-results').hidden = true;
+  const search = doc.getElementById('watch-search');
+  search.value = (opts.state && opts.state.q) || '';
   if (opts.list) {
     list.appendChild(fragment(doc, opts.state || {}, opts.rows || ROWS));
     browse.hidden = true;
@@ -146,6 +156,8 @@ function load(opts = {}) {
   const fetches = [];
   const history = [];
   const events = [];
+  const inputs = []; // what the search field held each time its input event was sent
+  search.dispatchEvent = (ev) => { if (ev.type === 'input') inputs.push(search.value); };
   const winListeners = {};
   const replies = {}; // url -> function returning a promise
   const pages = {}; // fetch url -> { state, rows } or a deferred
@@ -179,6 +191,7 @@ function load(opts = {}) {
     sessionStorage: { getItem: () => null, setItem() {} },
     scrollTo() {},
     Infinity,
+    Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
     DOMParser: class { parseFromString(token) { const d = makeDocument(); d.body.appendChild(pages[token].node(d)); return d; } },
     fetch: (url) => {
@@ -221,7 +234,7 @@ function load(opts = {}) {
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
   return {
-    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, replies,
+    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, inputs, replies,
     /* What GET /watch/list answers for *url*: a list for *state* with *rows*. */
     serve(url, state, rows, wait) { pages[url] = { node: (d) => fragment(d, state, rows), wait }; },
     /* GET /watch/list answers *url* with a server error. */
@@ -344,7 +357,7 @@ const scenarios = {
     click(p.doc, keepOption(p, 'id:m1', '30 days'));
     reply.resolve({ ok: true });
     await settle();
-    return { calls: p.calls.length };
+    return { calls: p.calls.length, told: /Still saving/.test(p.toasts[0].message) };
   },
 
   // A keep that fails says so and leaves the row as it was.
@@ -423,9 +436,10 @@ const scenarios = {
   async deleteCancelled() {
     const p = load({ list: true });
     p.answerConfirm(false);
-    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    const del = p.row('id:m1').querySelector('[data-action="confirm-delete"]');
+    click(p.doc, del);
     await settle();
-    return { calls: p.calls, busy: p.row('id:m1').classList.contains('is-busy') };
+    return { calls: p.calls, busy: p.row('id:m1').classList.contains('is-busy'), focus: p.doc.activeElement === del };
   },
 
   // Delete one season from a show's season dialog: only that show's row is read again.
@@ -453,6 +467,136 @@ const scenarios = {
       title: p.row('show:77').querySelector('.title-cell').textContent,
       keys: p.rowKeys(),
     };
+  },
+
+  // Cancel in the confirm: the seasons are still there. Then a list that fails to load, and Retry.
+  async seasonDeleteCancelledAndRetried() {
+    const p = load({ list: true });
+    const url = 'get /api/show/77/seasons';
+    p.replies[url] = serverError;
+    const dialog = () => p.doc.getElementById('season-delete-overlay');
+    const list = () => p.doc.getElementById('season-delete-list');
+    const opener = p.row('show:77').querySelector('[data-action="pick-season-delete"]');
+    let parked = false;
+    opener.focus = () => { parked = true; };
+    click(p.doc, opener);
+    await settle();
+    const retry = list().querySelector('button');
+    const says = () => p.doc.getElementById('season-delete-list-status').textContent;
+    const heard = [says()];
+    const reading = deferred();
+    p.replies[url] = () => reading.promise;
+    click(p.doc, retry);
+    heard.push(says(), p.doc.getElementById('season-delete-list').contains(p.doc.getElementById('season-delete-list-status')));
+    reading.reject(new Error('no'));
+    await settle();
+    const out = { heard, parked, failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === list().querySelector('button') };
+    p.replies[url] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    click(p.doc, list().querySelector('button'));
+    await settle();
+    heard.push(says());
+    const del = list().querySelector('button');
+    out.back = [del.textContent, p.doc.activeElement === del];
+    del.blur();
+    p.answerConfirm(false);
+    click(p.doc, del);
+    await settle();
+    out.refocused = p.doc.activeElement === del;
+    out.cancelled = { open: dialog().classList.contains('active'), deletes: list().querySelectorAll('button').length, posts: p.calls.filter((c) => c[0] === 'post').length };
+    return out;
+  },
+
+  // The season Delete dialog opens at its heading, keeps it as the seasons come, and Retry goes on from it.
+  async seasonDeleteOpens() {
+    const p = load({ list: true });
+    const url = 'get /api/show/77/seasons';
+    let reply = deferred();
+    p.replies[url] = () => reply.promise;
+    vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
+    const at = () => { const a = p.doc.activeElement; return a.id || a.textContent; };
+    const tab = (shiftKey) => (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Tab', shiftKey, preventDefault() {} }));
+    const heading = () => p.doc.getElementById('season-delete-title').focus();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    p.ctx.ModalA11y.onOpened('season-delete-overlay');
+    const out = { opened: at() };
+    reply.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }, { id: 's2', season_number: 2 }] });
+    await settle();
+    out.loaded = at();
+    tab(false);
+    out.tab = [at(), p.doc.activeElement === p.doc.getElementById('season-delete-list').querySelector('button')];
+    heading();
+    tab(true);
+    out.shiftTab = at();
+    reply = deferred();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    p.ctx.ModalA11y.onOpened('season-delete-overlay');
+    reply.reject(new Error('no'));
+    await settle();
+    out.failed = at();
+    reply = deferred();
+    click(p.doc, p.doc.getElementById('season-delete-retry'));
+    out.retrying = at();
+    reply.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    await settle();
+    out.retried = at();
+    return out;
+  },
+
+  // Delete in a row with no Keep control.
+  async seasonDeleteWithNoKeep() {
+    const p = load({ list: true });
+    p.row('show:77').querySelector('.keep-wrapper').remove();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    await settle();
+    return p.doc.getElementById('season-delete-overlay').classList.contains('active');
+  },
+
+  // The Keep dialog before its seasons are in: the second show's, after the first's.
+  async keepDialogOpens() {
+    const p = load({ list: true, rows: [...ROWS.filter((r) => !r.showRk),
+      { id: 's1', title: 'Night Shift', showRk: '77', seasons: 1 }, { id: 't1', title: 'Harbour Lights', showRk: '88', seasons: 4 }] });
+    p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: null, seasons: seasonsOf(null) });
+    const reply = deferred();
+    p.replies['get /api/show/88/seasons'] = () => reply.promise;
+    const root = p.doc.documentElement;
+    root.clientWidth = p.ctx.innerWidth - 15;
+    click(p.doc, keepOption(p, 'show:77', '30 days'));
+    await settle();
+    click(p.doc, keepOption(p, 'show:88', 'forever'));
+    await settle();
+    vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
+    p.ctx.ModalA11y.onOpened('keep-dialog-overlay');
+    const bar = [root.style['--page-bar']];
+    const list = p.doc.getElementById('keep-season-list');
+    const look = () => ({ rows: list.querySelectorAll('.keep-season-item--skel').length, busy: list.getAttribute('aria-busy') });
+    const out = {
+      title: p.doc.getElementById('keep-dialog-title').textContent,
+      pressed: p.doc.querySelectorAll('.keep-dur-btn').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+      focus: p.doc.activeElement.textContent,
+      waiting: look(),
+    };
+    reply.resolve({ show_title: 'Harbour Lights', show_kept: null, seasons: seasonsOf(null, null, null, null) });
+    await settle();
+    out.loaded = look();
+    p.doc.getElementById('keep-season-s1').checked = true;
+    click(p.doc, p.doc.getElementById('keep-dialog-confirm'));
+    await settle();
+    out.bar = bar.concat(root.style['--page-bar'] || '');
+    return out;
+  },
+
+  // The rows held for the seasons of a show opened from its title page, by how many it says it has.
+  async keepDialogFromATitle() {
+    const rows = async (said) => {
+      const p = load({ list: true });
+      p.replies['get /api/show/77/seasons'] = () => deferred().promise;
+      p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift', season_id: '', ...said }, '30 days');
+      await settle();
+      return p.doc.querySelectorAll('#keep-season-list .keep-season-item--skel').length;
+    };
+    const out = [];
+    for (const seasons of [0, 1, 2, 12]) out.push(await rows({ seasons }));
+    return { out, missing: await rows({}), none: await rows({ seasons: null }) };
   },
 
   // Keep a show from its dialog: the dialog closes and the show's row changes in place.
@@ -689,6 +833,306 @@ const scenarios = {
     return { phases, errors: p.errors.length, toasts: p.toasts.length, undo: p.calls[p.calls.length - 1] };
   },
 
+  // Next, Next and Previous again on a list of three pages: the focus after each.
+  async pageArrows() {
+    const arrows = { 1: [['Previous page', 0], ['Next page', 2]], 2: [['Previous page', 1], ['Next page', 3]], 3: [['Previous page', 2], ['Next page', 0]] };
+    const p = load({ list: true, state: { page: '1', arrows: arrows[1] } });
+    [1, 2, 3].forEach((n) => p.serve('/watch/list' + (n > 1 ? '?page=' + n : ''), { page: String(n), arrows: arrows[n] }, ROWS));
+    const press = async (label) => {
+      const a = p.doc.querySelectorAll('a.page-btn').find((n) => n.getAttribute('aria-label') === label);
+      a.focus();
+      click(p.doc, a);
+      await settle();
+      const now = p.doc.activeElement;
+      return [p.doc.querySelector('.page-btn.active').textContent, now.getAttribute('aria-label'), p.doc.body.contains(now)];
+    };
+    return [await press('Next page'), await press('Next page'), await press('Previous page')];
+  },
+
+  // A keep that fails while the rows show.
+  async failsOutOfSight() {
+    const p = load({ list: true });
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    const before = p.row('id:m1').classList.contains('is-busy');
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    await settle();
+    reply.reject(new Error('no'));
+    await settle();
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[1]);
+    await settle();
+    const row = p.row('id:m1');
+    return { before, busy: row.classList.contains('is-busy'), label: row.querySelector('.keep-trigger').textContent, disabled: !!row.querySelector('.keep-trigger').disabled };
+  },
+
+  // A keep saved while the rows show, with a list that cannot be read: its row is let go of.
+  async doneOutOfSight() {
+    const p = load({ list: true });
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    p.fail('/watch/list');
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    await settle();
+    reply.resolve({ ok: true });
+    await settle();
+    const row = p.row('id:m1');
+    return { busy: row.classList.contains('is-busy'), label: row.querySelector('.keep-trigger').textContent };
+  },
+
+  // A list asked for before a change, whose reply lands after it while the rows show.
+  async lateListOutOfSight() {
+    const out = {};
+    for (const type of ['mm:watch-admin', 'mm:watch-scheduled']) {
+      const p = load({ list: true });
+      const wait = deferred();
+      p.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS, wait);
+      click(p.doc, p.doc.querySelector('.th-sort'));
+      click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+      p.doc.dispatchEvent(new p.ctx.CustomEvent(type, { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+      wait.resolve();
+      await settle();
+      await settle();
+      out[type] = p.fetches.length;
+    }
+    return out;
+  },
+
+  // That second read fails while the rows show: List reads it once more. So does a row's own.
+  async lateListFailsOutOfSight() {
+    const p = load({ list: true });
+    const wait = deferred();
+    p.serve('/watch/list', {}, ROWS, wait);
+    const toggle = (i) => click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
+    toggle(0);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+    const fetch = p.ctx.fetch;
+    p.ctx.fetch = (url) => { p.fail(url); return fetch(url); };
+    wait.resolve();
+    await settle();
+    await settle();
+    const out = { whileRows: [p.fetches.length, p.errors.slice()] };
+    toggle(1);
+    await settle();
+    out.back = p.fetches.length;
+
+    const row = load({ list: true });
+    const reading = deferred();
+    row.ctx.fetch = () => reading.promise;
+    row.doc.dispatchEvent(new row.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+    click(row.doc, row.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    reading.reject(new Error('no'));
+    await settle();
+    out.row = row.errors.slice();
+    let reads = 0;
+    row.ctx.fetch = () => { reads++; return Promise.reject(new Error('no')); };
+    click(row.doc, row.doc.querySelectorAll('#watch-viewtoggle a')[1]);
+    await settle();
+    out.rowBack = reads;
+    return out;
+  },
+
+  // Each dialog's line for a screen reader is there, empty, before it is filled.
+  async dialogsSayAfter() {
+    const p = load({ list: true });
+    p.replies['get /api/show/77/seasons'] = () => deferred().promise;
+    let timers = [];
+    p.ctx.setTimeout = (fn) => timers.push(fn);
+    p.ctx.clearTimeout = (id) => { if (id) timers[id - 1] = () => {}; };
+    const run = () => { const due = timers; timers = []; due.forEach((fn) => fn()); };
+    const out = [];
+    for (const [press, id] of [[() => keepOption(p, 'show:77', '30 days'), 'keep-season-list-status'],
+      [() => p.row('show:77').querySelector('[data-action="pick-season-delete"]'), 'season-delete-list-status']]) {
+      click(p.doc, press());
+      const line = p.doc.getElementById(id);
+      const before = line.textContent;
+      run();
+      out.push([line.getAttribute('role'), before, line.textContent]);
+    }
+    // In before it was said: it is not said after.
+    p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [] });
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    await settle();
+    run();
+    out.push(p.doc.getElementById('season-delete-list-status').textContent);
+    return out;
+  },
+
+  // Saved, but the list could not be read: the row holds the keep there is now, so the next press goes through.
+  async unreadRowHoldsItsKeep() {
+    const p = load({ list: true });
+    p.fail('/watch/list');
+    const read = (id) => JSON.parse(p.row('id:' + id).querySelector('.keep-wrapper').getAttribute('data-keep'));
+    click(p.doc, keepOption(p, 'id:m2', 'forever'));
+    await settle();
+    const out = { kept: read('m2') };
+    click(p.doc, p.row('id:m3').querySelector('[data-remove-keep-id]'));
+    await settle();
+    out.removed = read('m3');
+    p.toasts[0].action.onClick();
+    await settle();
+    out.undone = read('m2');
+    p.replies['post /api/watch/keep'] = () => Promise.resolve({ ok: true, keep: MADE });
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    out.scheduled = read('m1');
+    click(p.doc, keepOption(p, 'id:m1', 'forever'));
+    await settle();
+    out.next = p.calls[p.calls.length - 1];
+    return out;
+  },
+
+  // An Undo that came too late, of a film and of a season.
+  async undoTooLate() {
+    const late = () => Promise.reject(Object.assign(new Error('late'), { error: 'too_late', status: 409 }));
+    const run = async (p) => {
+      const phases = [];
+      p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
+      p.replies['post /api/watch/unkeep'] = late;
+      p.toasts[0].action.onClick();
+      await settle();
+      return phases;
+    };
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS);
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    const season = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    await season.confirm();
+    return { film: await run(film), season: await run(season) };
+  },
+
+  // A sort while a keep saves; two seasons of one show at once; a list read before the keep was saved.
+  async busyThroughASort() {
+    const look = (p, key) => {
+      const b = p.row(key).querySelector('.keep-trigger');
+      return [p.row(key).classList.contains('is-busy'), !!b.disabled];
+    };
+    const sort = async (p) => { click(p.doc, p.doc.querySelector('.th-sort')); await settle(); };
+    const p = load({ list: true });
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS);
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await sort(p);
+    const out = { during: look(p, 'id:m1') };
+    reply.reject(new Error('no'));
+    await settle();
+    out.after = look(p, 'id:m1');
+
+    const two = load({ list: true });
+    const say = (phase, id) => two.doc.dispatchEvent(new two.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action: 'delete', id, showRk: '77' } }));
+    say('busy', 's1');
+    say('busy', 's2');
+    say('failed', 's1');
+    out.oneLeft = look(two, 'show:77')[0];
+    say('failed', 's2');
+    out.noneLeft = look(two, 'show:77')[0];
+
+    const other = load({ list: true });
+    const act = (phase, action) => other.doc.dispatchEvent(new other.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action, id: 'm1', showRk: '' } }));
+    const controls = () => [other.row('id:m1').querySelector('.keep-trigger'), other.row('id:m1').querySelector('[data-action="confirm-delete"]')]
+      .map((b) => [b.textContent, !!b.disabled, !!b.querySelector('.btn-spinner')]);
+    act('busy', 'delete');
+    act('busy', 'unkeep');
+    act('failed', 'delete');
+    out.unkeepLeft = controls();
+    act('failed', 'unkeep');
+    out.bothFailed = controls();
+
+    // One of two is saved but the list cannot be read: the row is still busy with the other.
+    const unread = load({ list: true });
+    unread.fail('/watch/list');
+    const on = (phase, action) => unread.doc.dispatchEvent(new unread.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action, id: 'm1', showRk: '' } }));
+    on('busy', 'keep');
+    on('busy', 'delete');
+    on('done', 'keep');
+    await settle();
+    out.unreadStillBusy = [...look(unread, 'id:m1'), unread.row('id:m1').classList.contains('wl-row--kept')];
+
+    const late = load({ list: true });
+    const wait = deferred();
+    late.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS, wait);
+    click(late.doc, late.doc.querySelector('.th-sort'));
+    click(late.doc, keepOption(late, 'id:m1', '30 days'));
+    late.serve('/watch/list', {}, ROWS);
+    await settle();
+    wait.resolve();
+    await settle();
+    out.lateListReads = late.fetches.filter((url) => /sort=/.test(url)).length;
+    return out;
+  },
+
+  // Back and Forward bring the search field along.
+  async textFollowsBack() {
+    const p = load({ list: true, state: { q: 'ab' } });
+    const field = p.doc.getElementById('watch-search');
+    p.serve('/watch/list?q=ab', { q: 'ab' }, ROWS);
+    p.serve('*', {}, ROWS);
+    p.popstate('?view=list');
+    await settle();
+    const out = { otherList: [field.value, p.inputs.slice()] };
+    field.value = 'typed';
+    p.popstate('');
+    await settle();
+    out.rows = field.value;
+    p.inputs.length = 0;
+    p.popstate('?view=list&q=ab');
+    await settle();
+    out.forward = [field.value, p.inputs.slice()];
+    return out;
+  },
+
+  // What a screen reader hears: the list that was asked for, not one read again by itself.
+  async listSaid() {
+    const p = load({ list: true });
+    const status = () => p.doc.querySelectorAll('[role="status"]').map((n) => n.textContent).join('');
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', said: '57 titles, Title (A–Z).' }, ROWS);
+    const out = [status()];
+    click(p.doc, p.doc.querySelector('.th-sort'));
+    await settle();
+    out.push(status());
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', said: '56 titles, Title (A–Z).' }, ROWS);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
+    await settle();
+    out.push(status());
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    out.push(status());
+    return out;
+  },
+
+  // A row changed, or its keep removed, after another admin changed that keep.
+  async staleRow() {
+    const run = async (id, reply, press, rows, shown) => {
+      const p = load({ list: true, rows: shown });
+      const phases = [];
+      p.doc.addEventListener('mm:watch-admin', (e) => phases.push([e.detail.phase, e.detail.action]));
+      if (rows) p.serve('/watch/list', {}, rows); else p.fail('/watch/list');
+      p.replies[reply[0]] = reply[1];
+      click(p.doc, press(p));
+      await settle();
+      const row = p.row('id:' + id);
+      return { call: p.calls[0], phases, errors: p.errors, toasts: p.toasts.length, busy: row.classList.contains('is-busy'),
+        kept: row.classList.contains('wl-row--kept'), read: JSON.parse(row.querySelector('.keep-wrapper').getAttribute('data-keep')) };
+    };
+    const keep = (id) => (p) => keepOption(p, 'id:' + id, '30 days');
+    const now = ROWS.map((r) => (r.id === 'm2' || r.kept ? r : Object.assign({}, r, { kept: true, deletion: false })))
+      .map((r) => (r.kept ? Object.assign({}, r, { keep: readOf(FOREVER) }) : r));
+    const gone = () => Promise.reject(Object.assign(new Error('gone'), { status: 404 }));
+    return {
+      forever: readOf(FOREVER),
+      keep: await run('m3', ['postForm /api/media/m3/keep', keepChanged], keep('m3'), now),
+      remove: await run('m3', ['post /api/media/m3/unprotect', keepChanged], (p) => p.row('id:m3').querySelector('[data-remove-keep-id]'), now),
+      scheduled: await run('m1', ['post /api/watch/keep', gone], keep('m1'), now),
+      keptWithNoKeep: await run('m3', ['post /api/media/m3/unprotect', keepChanged], (p) => p.row('id:m3').querySelector('[data-remove-keep-id]'), now,
+        ROWS.map((r) => Object.assign({}, r, { keep: null }))),
+      unread: await run('m2', ['postForm /api/media/m2/keep', keepChanged], keep('m2'), null),
+    };
+  },
+
   // The Undo of seasons kept in the dialog takes back only the keeps that save made.
   async seasonUndoChangedMeanwhile() {
     const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '' });
@@ -879,6 +1323,15 @@ const scenarios = {
     await admin.keep({ id: '42', is_tv: false, show_rk: '', has_rk: false, show_title: 'Dune' }, '7 days');
     const deleted = await admin.confirmDelete('42', 'Dune');
     return { calls: p.calls, toasts: p.toasts.map((t) => t.message), deleted, fetches: p.fetches, keys: Object.keys(admin).sort() };
+  },
+
+  // The title page's Keep and Remove keep name the keep it was given.
+  async detailKeepAsRead() {
+    const p = load({ list: false });
+    const film = { id: '42', is_tv: false, title: 'Dune', kept: true, keep: MADE };
+    await p.ctx.MMWatch.admin.keep(film, '7 days');
+    await p.ctx.MMWatch.admin.removeKeep(film);
+    return p.calls;
   },
 
   // Browse to List: fetched, swapped in place, the address and the switch follow; Back returns.

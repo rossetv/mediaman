@@ -4,12 +4,12 @@
  *
  * Nothing here reloads the page. Each action announces itself on the
  * document as an `mm:watch-admin` event, {phase: 'busy'|'done'|'failed',
- * action: 'keep'|'unkeep'|'show'|'delete', id, showRk}, and whatever shows
+ * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, showRk, keep}, and whatever shows
  * the title (a list row, the detail) updates itself in place.
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
  * detail's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
- * show_title}) with `season_id`, the season the Keep dialog opens for ('' for
+ * show_title, keep, seasons}) with `season_id`, the season the Keep dialog opens for ('' for
  * none; without one it opens for the season that leaves first).
  */
 (function () {
@@ -28,7 +28,7 @@
 
   /* picked: the ids of the seasons to open with ticked beside the kept ones,
      or null for the one that leaves first. */
-  var _keepDialogState = { showRk: '', hasRk: false, showKept: null, seasons: [], picked: null, showTitle: '', seasonId: '', duration: '30 days' };
+  var _keepDialogState = { showRk: '', hasRk: false, showKept: null, seasons: [], picked: null, showTitle: '', seasonId: '', duration: '30 days', expected: 2 };
   var _keepDialogModal = null;
   var _seasonDeleteModal = null;
 
@@ -63,6 +63,8 @@
         title: parseJson(d.title, '') || d.showTitle || '',
         kept: d.kept === 'true',
         deletion: d.deletion === 'true',
+        keep: parseJson(d.keep, null),
+        seasons: Number(d.seasons) || 2,
         seasonId: null
       };
     }
@@ -77,6 +79,8 @@
       title: w.title || w.show_title || '',
       kept: !!w.kept,
       deletion: !!w.deletion,
+      keep: w.keep || null,
+      seasons: typeof w.seasons === 'number' ? w.seasons : 2,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
   }
@@ -143,10 +147,29 @@
   }
 
   function unprotect(id, keep) {
-    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', keep ? { read: readOf(keep) } : undefined);
+    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', { read: readOf(keep) || { action: 'none' } });
   }
 
+  /* Saved: *keep* is the keep there is now, where that is known. */
+  function saved(detail, keep) { emit('done', Object.assign({}, detail, keep === undefined ? null : { keep: keep })); }
+
   function changedMeanwhile(err) { return !!err && err.error === 'keep_changed'; }
+
+  /* The keep an Undo is of is not there to undo. */
+  function notToUndo(err) { return changedMeanwhile(err) || (!!err && err.error === 'too_late'); }
+
+  /* The Watch keep refuses what no longer leaves as read. */
+  function leavesNoMore(err) { return !!err && (err.status === 404 || err.status === 409); }
+
+  /* A request that was refused or failed. Where the keep is another than the one
+     read, nothing was saved but what shows the title has to be read again. */
+  function notSaved(detail, changed) {
+    if (changed) emit('done', Object.assign({}, detail, { action: 'changed' }));
+    else emit('failed', detail);
+  }
+
+  var STILL_SAVING = 'Still saving the last change to this title. Try again in a moment.';
+  var KEEP_CHANGED = 'Its keep was changed meanwhile, so it was left as it is now.';
 
   /* The Undo toast of each title's last keep, so a later change to that keep
      can take it away: its Undo would then undo the wrong thing. */
@@ -195,7 +218,11 @@
       openKeepDialog(w, duration);
       return Promise.resolve(false);
     }
-    if (!w.id || _busy[w.id]) return Promise.resolve(false);
+    if (!w.id) return Promise.resolve(false);
+    if (_busy[w.id]) {
+      explainBusy(w, STILL_SAVING);
+      return Promise.resolve(false);
+    }
     _busy[w.id] = 'keep';
     backToTrigger(w);
     var id = w.id;
@@ -206,12 +233,10 @@
     var viaWatch = !w.kept && w.deletion && !!days;
     var request = viaWatch
       ? MM.api.post('/api/watch/keep', { media_item_id: id, days: days })
-      : !w.kept && !w.deletion
-        ? keepAsRead(id, duration, null)
-        : MM.api.postForm(keepUrl(id), { duration: duration });
+      : keepAsRead(id, duration, w.keep);
     return request.then(function (data) {
       delete _busy[id];
-      emit('done', detail);
+      saved(detail, data && data.keep);
       if (data && data.deletion_running && data.message) {
         /* Saved, but its files may already be gone: say so, with no undo. */
         window.UIFeedback.toast(data.message, { duration: 8000 });
@@ -228,8 +253,9 @@
       return true;
     }, function (err) {
       delete _busy[id];
-      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
-      window.UIFeedback.error("Couldn't save keep. " + MM.api.messageOf(err, 'Try again.'));
+      var changed = changedMeanwhile(err) || (viaWatch && leavesNoMore(err));
+      notSaved(detail, changed);
+      window.UIFeedback.error("Couldn't save keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
       backToTrigger(w);
       return false;
     });
@@ -242,11 +268,11 @@
     emit('busy', detail);
     undo().then(function () {
       delete _busy[id];
-      emit('done', detail);
+      saved(detail, null);
       window.UIFeedback.toast('Keep undone.');
     }, function (err) {
       delete _busy[id];
-      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
+      notSaved(detail, notToUndo(err));
       window.UIFeedback.error("Couldn't undo the keep. " + MM.api.messageOf(err, 'Try again.'));
     });
   }
@@ -267,16 +293,17 @@
     backToTrigger(w);
     var detail = { action: 'unkeep', id: id, showRk: w.isTv ? w.showRk : '' };
     emit('busy', detail);
-    return unprotect(id)
+    return unprotect(id, w.keep)
       .then(function () {
         delete _busy[id];
-        emit('done', detail);
+        saved(detail, null);
         window.UIFeedback.toast('Removed the keep on ' + (w.title || 'it') + '.');
         return true;
       }, function (err) {
         delete _busy[id];
-        emit('failed', detail);
-        window.UIFeedback.error("Couldn't remove keep. " + MM.api.messageOf(err, 'Try again.'));
+        var changed = changedMeanwhile(err);
+        notSaved(detail, changed);
+        window.UIFeedback.error("Couldn't remove keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
         backToTrigger(w);
         return false;
       });
@@ -305,13 +332,15 @@
     root.appendChild(card);
     /* A click inside the card must not reach the overlay's backdrop close. */
     card.addEventListener('click', function (e) { e.stopPropagation(); });
-    return { root: root, card: card };
+    return { root: root, card: card, heading: heading };
   }
 
   function buildKeepDialog() {
     var d = overlay('keep-dialog-overlay', 'keep-dialog-title', 'Keep Show');
     var bar = el('div', 'keep-duration-bar');
     bar.id = 'keep-duration-bar';
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'Keep for');
     ['7 days', '30 days', '90 days', 'forever'].forEach(function (dur) {
       var b = button('keep-dur-btn', dur === 'forever' ? 'Forever' : dur, { 'data-dur': dur });
       b.addEventListener('click', function () { selectDuration(b); });
@@ -327,6 +356,7 @@
     actions.appendChild(button('btn btn--ghost btn--sm', 'Cancel', { 'data-action': 'close-keep-dialog' }));
     actions.appendChild(confirm);
     d.card.appendChild(bar);
+    d.card.appendChild(statusLine(list));
     d.card.appendChild(list);
     d.card.appendChild(actions);
     document.body.appendChild(d.root);
@@ -334,29 +364,97 @@
     confirm.addEventListener('click', confirmKeepDialog);
     _keepDialogModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, // _ui_feedback.css holds the page
+      onClose: function () { letGo(_keepDialogModal); },
       closeSelectors: ['[data-action="close-keep-dialog"]']
     });
   }
 
   function buildSeasonDeleteDialog() {
     var d = overlay('season-delete-overlay', 'season-delete-title', 'Delete seasons');
+    // It opens at its heading: the first control there is Close, at its end.
+    d.heading.tabIndex = -1;
+    d.heading.setAttribute('data-modal-focus', '');
     var list = el('div', 'keep-season-list');
     list.id = 'season-delete-list';
     var actions = el('div', 'keep-dialog-actions');
     actions.appendChild(el('div', 'u-flex-1'));
     actions.appendChild(button('btn btn--ghost btn--sm', 'Close', { 'data-action': 'close-season-delete' }));
+    d.card.appendChild(statusLine(list));
     d.card.appendChild(list);
     d.card.appendChild(actions);
     document.body.appendChild(d.root);
     _seasonDeleteModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, // _ui_feedback.css holds the page
+      onClose: function () { letGo(_seasonDeleteModal); },
       closeSelectors: ['[data-action="close-season-delete"]']
     });
   }
 
   function byId(id) { return document.getElementById(id); }
+
+  /* A dialog holds the page while it is open, and gives it back as it closes. */
+  function openHolding(modal) {
+    if (!modal.held) modal.held = MM.dom.holdPage();
+    modal.open();
+  }
+
+  function letGo(modal) {
+    if (modal.held) { modal.held(); modal.held = null; }
+  }
+
+  /* A dialog's own line for a screen reader, outside its list, which is busy while it loads.
+     Many hear only what changes in a line that was there, so it is filled a moment after. */
+  var SAY_MS = 100;
+  var _saying = {};
+
+  function statusLine(list) {
+    var line = el('p', 'sr-only');
+    line.id = list.id + '-status';
+    line.setAttribute('role', 'status');
+    return line;
+  }
+
+  function saySeasons(list, text) {
+    var line = byId(list.id + '-status');
+    clearTimeout(_saying[list.id]);
+    line.textContent = '';
+    if (text) _saying[list.id] = setTimeout(function () { line.textContent = text; }, SAY_MS);
+  }
+
+  /* Rows where the seasons will be, as many as are expected; the list then keeps their
+     height until the seasons are in, whatever it says meanwhile. */
+  function seasonSkeleton(list, rows) {
+    list.style.minHeight = '';
+    list.replaceChildren();
+    list.setAttribute('aria-busy', 'true');
+    for (var i = 0; i < rows; i++) {
+      var row = el('div', 'keep-season-item keep-season-item--skel');
+      row.setAttribute('aria-hidden', 'true');
+      row.appendChild(el('span', 'skel skel--line'));
+      list.appendChild(row);
+    }
+    saySeasons(list, 'Loading the seasons…');
+    list.style.minHeight = list.offsetHeight + 'px';
+  }
+
+  /* The seasons, or what is said in their place. */
+  function seasonsIn(list) {
+    list.removeAttribute('aria-busy');
+    saySeasons(list, '');
+    list.replaceChildren();
+  }
+
+  function seasonsFailed(list, retry) {
+    seasonsIn(list);
+    var line = el('p', 'keep-season-note', "Couldn't load the seasons.");
+    saySeasons(list, line.textContent);
+    list.appendChild(line);
+    list.appendChild(retry);
+    core.fadeIn(line);
+    retry.focus();
+  }
 
   /* The note has a line of its own above the buttons, made on first use. */
   function keepChainNote() {
@@ -410,13 +508,16 @@
     _keepDialogState.seasonId = w.id;
     _keepDialogState.picked = w.seasonId === null ? null : w.seasonId ? [w.seasonId] : [];
     _keepDialogState.duration = duration || '30 days';
+    _keepDialogState.expected = w.seasons;
+    _keepDialogState.seasons = [];
+    byId('keep-dialog-title').textContent = 'Keep ' + (w.showTitle || 'Show');
     /* Close the menu this came from, and park focus on its trigger so
        closing the dialog returns there rather than to a hidden menu item. */
     closeMenus();
     var trigger = triggerOf(w);
     if (trigger) trigger.focus();
-    _keepDialogModal.open();
     selectDurationByValue(_keepDialogState.duration);
+    openHolding(_keepDialogModal);
     loadKeepSeasons();
   }
 
@@ -432,10 +533,11 @@
   /* focusAfter returns the element to focus once the seasons are shown; it
      is used only while focus is still in the list or nowhere. */
   function loadKeepSeasons(focusAfter) {
+    var expected = _keepDialogState.seasons.length || _keepDialogState.expected;
     _keepDialogState.showKept = null;
     _keepDialogState.seasons = [];
     var list = byId('keep-season-list');
-    list.textContent = 'Loading…';
+    seasonSkeleton(list, expected + (_keepDialogState.hasRk ? 1 : 0));
     byId('keep-dialog-remove').classList.remove('is-visible');
     var confirmBtn = byId('keep-dialog-confirm');
     confirmBtn.textContent = 'Keep';
@@ -469,7 +571,6 @@
      pick; Retry reads them again. */
   function showSeasonsLoadFailure(list, confirmBtn) {
     confirmBtn.disabled = true;
-    list.replaceChildren();
     var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'keep-seasons-retry' });
     retry.addEventListener('click', function () {
       /* The button goes with the message; park focus on the list meanwhile. */
@@ -477,9 +578,7 @@
       list.focus();
       loadKeepSeasons(function () { return list.querySelector('input'); });
     });
-    list.appendChild(el('span', null, "Couldn't load the seasons. "));
-    list.appendChild(retry);
-    retry.focus();
+    seasonsFailed(list, retry);
   }
 
   function closeKeepDialog() {
@@ -487,14 +586,18 @@
   }
 
   function selectDuration(btn) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
+    selectDurationByValue(btn.dataset.dur);
     _keepDialogState.duration = btn.dataset.dur;
     document.querySelectorAll('#keep-season-list [data-keep-set]').forEach(labelSet);
   }
 
   function selectDurationByValue(dur) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.dur === dur); });
+    document.querySelectorAll('.keep-dur-btn').forEach(function (b) {
+      var on = b.dataset.dur === dur;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.toggleAttribute('data-modal-focus', on);
+    });
   }
 
   function seasonName(s) { return s.season_number != null ? 'Season ' + s.season_number : s.title; }
@@ -560,7 +663,8 @@
 
   function renderSeasonPicker(seasons, showKept) {
     var list = byId('keep-season-list');
-    list.replaceChildren();
+    seasonsIn(list);
+    list.style.minHeight = '';
     var picked = pickedSeasons(seasons);
 
     /* A tick that goes takes the change to its keep with it. */
@@ -737,7 +841,7 @@
         emit('busy', detail);
         return c.keeps.reduce(function (chain, s) {
           return chain.then(function () { return undoOne(s); }).catch(function (err) {
-            changed = changed || changedMeanwhile(err);
+            changed = changed || notToUndo(err);
             failed.push(seasonName(s) + ': ' + MM.api.messageOf(err, 'Try again.'));
           });
         }, Promise.resolve());
@@ -869,8 +973,7 @@
           made[s.id] = data && data.keep;
           if (data && data.deletion_running) running = data;
         }).catch(function (err) {
-          /* The Watch keep refuses a season that no longer leaves as read. */
-          if (changedMeanwhile(err) || (viaWatch(s, dur) && err && (err.status === 404 || err.status === 409))) {
+          if (changedMeanwhile(err) || (viaWatch(s, dur) && leavesNoMore(err))) {
             changed.push(seasonName(s));
             return;
           }
@@ -985,12 +1088,16 @@
     return 'This deletes ' + what + files + ". It can't be undone.";
   }
 
-  /* opts: {kind: 'movie'|'season', size, showRk}. Resolves true once the
-     item is gone. */
+  /* opts: {kind: 'movie'|'season', size, showRk, started}, started being called once the
+     person has confirmed. Resolves true once the item is gone. */
   function confirmDelete(mediaId, title, opts) {
     opts = opts || {};
     var id = mediaId == null ? '' : String(mediaId);
-    if (!id || _busy[id]) return Promise.resolve(false);
+    if (!id) return Promise.resolve(false);
+    if (_busy[id]) {
+      window.UIFeedback.toast(STILL_SAVING);
+      return Promise.resolve(false);
+    }
     var detail = { action: 'delete', id: id, showRk: opts.showRk || '' };
     return window.UIFeedback.confirm({
       title: 'Delete ' + (title || 'this item') + '?',
@@ -999,6 +1106,7 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok || _busy[id]) return false;
+      if (opts.started) opts.started();
       _busy[id] = 'delete';
       retireUndo(id);
       emit('busy', detail);
@@ -1019,26 +1127,43 @@
 
   /* The per-season Delete list for a grouped show. Nothing is deleted from
      here: each season's own Delete goes through confirmDelete. */
-  function pickSeasonDelete(showRk, showTitle) {
+  function pickSeasonDelete(showRk, showTitle, seasons) {
     if (!_seasonDeleteModal) buildSeasonDeleteDialog();
-    var list = byId('season-delete-list');
     byId('season-delete-title').textContent = 'Delete from ' + (showTitle || 'show');
-    _seasonDeleteModal.open();
+    openHolding(_seasonDeleteModal);
+    loadSeasonDeletes(showRk, showTitle, seasons);
+  }
+
+  /* focusAfter: whether the focus goes on to the first season once they are in. */
+  function loadSeasonDeletes(showRk, showTitle, seasons, focusAfter) {
+    var list = byId('season-delete-list');
+    var title = byId('season-delete-title');
     var request = ++_seasonDeleteRequest;
     if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
-    list.textContent = 'Loading…';
+    seasonSkeleton(list, seasons || 2);
     MM.api.get('/api/show/' + encodeURIComponent(showRk) + '/seasons')
       .then(function (data) {
-        if (request === _seasonDeleteRequest) renderSeasonDeleteList(data, showRk, showTitle);
+        if (request !== _seasonDeleteRequest) return;
+        renderSeasonDeleteList(data, showRk, showTitle);
+        var first = list.querySelector('button');
+        if (focusAfter && first && (document.activeElement === title || MM.dom.focusStillIn(list))) first.focus();
       })
       .catch(function () {
-        if (request === _seasonDeleteRequest) list.textContent = "Couldn't load seasons.";
+        if (request !== _seasonDeleteRequest) return;
+        var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'season-delete-retry' });
+        retry.addEventListener('click', function () {
+          /* The button goes with the message; park focus on the heading meanwhile. */
+          title.focus();
+          loadSeasonDeletes(showRk, showTitle, seasons, true);
+        });
+        seasonsFailed(list, retry);
       });
   }
 
   function renderSeasonDeleteList(data, showRk, showTitle) {
     var list = byId('season-delete-list');
-    list.replaceChildren();
+    seasonsIn(list);
+    list.style.minHeight = '';
     if (!data.seasons.length) { list.textContent = 'No seasons found.'; return; }
     var title = data.show_title || showTitle;
 
@@ -1053,9 +1178,9 @@
       } else {
         var del = button('btn btn--danger btn--sm', 'Delete');
         del.addEventListener('click', function () {
-          _seasonDeleteModal.close();
+          del.focus(); // Safari does not focus a button that is clicked, so a cancel would lose the place
           confirmDelete(String(s.id), title + ' — ' + name.textContent,
-            { kind: 'season', size: s.file_size, showRk: showRk });
+            { kind: 'season', size: s.file_size, showRk: showRk, started: function () { _seasonDeleteModal.close(); } });
         });
         row.appendChild(del);
       }

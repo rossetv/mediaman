@@ -52,6 +52,17 @@
     });
   }
 
+  // Safari puts an old value back in a hidden input on the way back to the page, but not the switch drawn from it.
+  function readSwitches() {
+    document.querySelectorAll('.setg-pg [data-toggle]').forEach(function (node) {
+      var input = document.getElementById(node.getAttribute('data-target'));
+      if (!input) return;
+      input.value = node.classList.contains('on')
+        ? node.getAttribute('data-on-value') || 'true'
+        : node.getAttribute('data-off-value') || 'false';
+    });
+  }
+
   // Redraw each switch from its hidden input, after Discard puts the values back.
   function sync() {
     document.querySelectorAll('.setg-pg [data-toggle]').forEach(function (node) {
@@ -146,6 +157,8 @@
 
   function init() {
     wireToggleSwitches();
+    readSwitches();
+    window.addEventListener('pageshow', readSwitches);
     wireIntegrationCards();
     wireSecretReveals();
     wireRailScrollSpy();

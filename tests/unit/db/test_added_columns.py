@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from mediaman.db import init_db
+from mediaman.scanner.repository import save_pruned_keeps, take_pruned_keeps
 from mediaman.services.downloads._notification_claims import _claim_pending_notifications
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
@@ -293,4 +294,67 @@ def test_plays_made_before_they_were_kept_apart_are_taken_over(tmp_path):
         ("amy", "movie", "Film", 5, "2023"),
         ("amy", "tv", "Show", 5, "2022"),
     ]
+    conn.close()
+
+
+_OLD_PRUNED_KEEPS = """
+CREATE TABLE pruned_keeps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    action TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    execute_at TEXT,
+    token_used INTEGER NOT NULL,
+    snoozed_at TEXT,
+    snooze_duration TEXT
+);
+"""
+_OLD_INSERT = (
+    "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, action, scheduled_at, "
+    "execute_at, token_used, snoozed_at, snooze_duration) "
+    "VALUES (?, ?, NULL, 'protected_forever', '2026', NULL, 0, NULL, NULL)"
+)
+
+
+def test_keeps_an_older_version_set_aside_before_or_after_are_given_back_by_path(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS + _OLD_PRUNED_KEEPS)
+    old.execute(_OLD_INSERT, ("1", "/m/a.mkv"))
+    old.commit()
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+    conn.execute(_OLD_INSERT, ("2", "/m/b.mkv"))
+
+    rows = conn.execute("SELECT tmdb_id, plex_library_id FROM pruned_keeps").fetchall()
+    assert [tuple(row) for row in rows] == [(None, None), (None, None)]
+    for file in ("/m/a.mkv", "/m/b.mkv"):
+        assert len(take_pruned_keeps(conn, "new", file, None)) == 1
+    conn.close()
+
+
+def test_a_film_kept_in_an_old_database_is_set_aside_with_its_match(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS + _OLD_PRUNED_KEEPS)
+    old.close()
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+        " added_at, file_path, file_size_bytes, tmdb_id)"
+        " VALUES ('1','T','movie',3,'1','2020','/m/T',5,7)"
+    )
+    conn.execute(
+        "INSERT INTO scheduled_actions (media_item_id, action, scheduled_at, token_used)"
+        " VALUES ('1', 'protected_forever', '2026', 0)"
+    )
+
+    save_pruned_keeps(conn, ["1"])
+
+    rows = conn.execute("SELECT tmdb_id, plex_library_id FROM pruned_keeps").fetchall()
+    assert [tuple(row) for row in rows] == [(7, 3)]
     conn.close()

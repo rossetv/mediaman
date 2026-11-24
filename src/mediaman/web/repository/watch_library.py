@@ -154,7 +154,6 @@ def _movies(
     *,
     key: str | None = None,
     term: str | None = None,
-    limit: int = -1,
 ) -> list[LibraryMovie]:
     lib_sql, params = _in_libraries(libraries)
     where = [lib_sql, "media_type = 'movie'"]
@@ -167,8 +166,8 @@ def _movies(
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         f"SELECT id, title, added_at, tmdb_id, year, file_path FROM media_items WHERE {' AND '.join(where)}"
-        " ORDER BY title COLLATE NOCASE, id LIMIT ?",
-        (*params, limit),
+        " ORDER BY title COLLATE NOCASE, id",
+        params,
     ).fetchall()
     return [
         LibraryMovie(
@@ -188,7 +187,6 @@ def _shows(
     *,
     key: str | None = None,
     term: str | None = None,
-    limit: int = -1,
 ) -> list[LibraryShow]:
     lib_sql, params = _in_libraries(libraries)
     season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -209,8 +207,8 @@ def _shows(
         " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id,"
         " MAX(year) AS year, MIN(file_path) AS file_path"
         f" FROM media_items WHERE {' AND '.join(where)}"
-        " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key LIMIT ?",
-        (*ANIME_SEASON_TYPES, *params, limit),
+        " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key",
+        (*ANIME_SEASON_TYPES, *params),
     ).fetchall()
     return [
         LibraryShow(
@@ -237,10 +235,14 @@ def library_shows(conn: sqlite3.Connection, libraries: list[str]) -> list[Librar
     return _shows(conn, libraries)
 
 
+def _plain(text: str) -> str:
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return plain.casefold().strip()
+
+
 def sort_title(title: str) -> str:
     """*title* as A to Z reads it: without a leading article, accents or case."""
-    plain = "".join(c for c in unicodedata.normalize("NFKD", title) if not unicodedata.combining(c))
-    return _ARTICLE.sub("", plain.casefold().strip())
+    return _ARTICLE.sub("", _plain(title))
 
 
 def row_cursor(
@@ -389,15 +391,31 @@ def find_show(conn: sqlite3.Connection, libraries: list[str], key: str) -> Libra
 
 def search_library(
     conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
-) -> list[LibraryMovie | LibraryShow]:
-    """Movies and shows whose title contains *query* (case-insensitive), by title, at most *limit*."""
+) -> tuple[list[LibraryMovie | LibraryShow], int]:
+    """The *limit* movies and shows whose titles come closest to *query* of those that contain
+    it (case-insensitive), then by title, and how many contain it."""
     term = query[:MAX_SEARCH_TERM_LEN]
     found: list[LibraryMovie | LibraryShow] = [
-        *_movies(conn, libraries, term=term, limit=limit),
-        *_shows(conn, libraries, term=term, limit=limit),
+        *_movies(conn, libraries, term=term),
+        *_shows(conn, libraries, term=term),
     ]
-    found.sort(key=lambda item: item.title.casefold())
-    return found[:limit]
+    wanted = _plain(term)
+    found.sort(key=lambda item: (_distance(item.title, wanted), sort_title(item.title), item.key))
+    return found[:limit], len(found)
+
+
+def _distance(title: str, wanted: str) -> int:
+    """How far *title* is from *wanted*, which is plain: the same, the same but for a leading
+    article, starting with it, with a word that does, or only containing it."""
+    whole = _plain(title)
+    name = _ARTICLE.sub("", whole)
+    if wanted == whole:
+        return 0
+    if wanted == name:
+        return 1
+    if whole.startswith(wanted) or name.startswith(wanted):
+        return 2
+    return 3 if re.search(rf"(?<!\w){re.escape(wanted)}", whole) else 4
 
 
 def season_item_id(

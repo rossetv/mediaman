@@ -35,12 +35,12 @@ from mediaman.core.delete_root_state import read_delete_root_state, write_delete
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
+from mediaman.scanner.repository.rekeyed import cancel_kept_deletion, is_kept_deletion
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
     await_rescan,
     book_deletion,
     book_removed_files,
-    cancel_kept_deletion,
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_deletion,
@@ -52,7 +52,6 @@ from mediaman.scanner.repository.scheduled_actions import (
     finish_unmonitor,
     is_claimed_deletion,
     is_fully_removed,
-    is_kept_deletion,
     is_latest_audit,
     mark_unanswered,
     record_removed_files,

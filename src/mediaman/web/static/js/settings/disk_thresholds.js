@@ -6,7 +6,9 @@
  *   - Maintain the selected-library set
  *   - Build the per-library "lp-card" (path + threshold + live usage bar)
  *   - Live-poll /api/settings/disk-usage as the user edits paths
- *   - Collect the disk-threshold map for the save payload
+ *   - Keep each library's path and threshold, as saved and as typed, through
+ *     every redraw, whether or not the library is selected
+ *   - Work out which libraries' thresholds a save has to send
  *
  * Cross-module dependencies:
  *   MM.api                    (core/api.js)
@@ -14,9 +16,14 @@
  *
  * Exposes:
  *   MM.settings.diskThresholds.init({ selectedLibs, diskThresholds })
- *   MM.settings.diskThresholds.collect()                — for collectSettings
- *   MM.settings.diskThresholds.getSelectedLibs()        — for collectSettings
- *   MM.settings.diskThresholds.state() / restore(state) — for Discard
+ *   MM.settings.diskThresholds.getSelectedLibs()
+ *   MM.settings.diskThresholds.state() / restore(state) — for save and Discard
+ *   MM.settings.diskThresholds.show(state)              — draws it round what is being typed
+ *   MM.settings.diskThresholds.changes(from, to)        — for collectSettings
+ *   MM.settings.diskThresholds.fromServer(data)         — a state, from what the server has
+ *   MM.settings.diskThresholds.things(state)            — each library's selection and limit by its own key
+ *   MM.settings.diskThresholds.rebase(mine, stored, keep) — `stored` with the kept things of `mine`
+ *   MM.settings.diskThresholds.titleOf(id)
  */
 (function () {
   'use strict';
@@ -27,7 +34,10 @@
   var PLEX_LIBRARIES = [];
   var LOADED = false;
   var SELECTED_LIBS = [];
+  // Every library's entry: what was saved, with what is typed kept over it.
   var DISK_THRESHOLDS = {};
+  // What is stored is no object of entries, which keeps every library from being scanned.
+  var UNREADABLE = false;
 
   function markDirty() {
     if (MM.settings.savebar && MM.settings.savebar.markDirty) {
@@ -53,9 +63,10 @@
       pill.textContent = lib.title;
       pill.dataset.libId = String(lib.id);
       pill.addEventListener('click', function () {
-        var idx = SELECTED_LIBS.indexOf(this.dataset.libId);
-        if (idx === -1) { SELECTED_LIBS.push(this.dataset.libId); this.classList.add('on'); }
-        else { SELECTED_LIBS.splice(idx, 1); this.classList.remove('on'); }
+        var idx = SELECTED_LIBS.indexOf(pill.dataset.libId);
+        if (idx === -1) { SELECTED_LIBS.push(pill.dataset.libId); pill.classList.add('on'); }
+        else { SELECTED_LIBS.splice(idx, 1); pill.classList.remove('on'); }
+        keepTyped();
         renderDiskRows();
         updateLibPillCount();
         markDirty();
@@ -65,17 +76,32 @@
     updateLibPillCount();
   }
 
+  function paintPills() {
+    document.querySelectorAll('#plex-library-pills .lib-pill').forEach(function (pill) {
+      pill.classList.toggle('on', SELECTED_LIBS.indexOf(pill.dataset.libId) !== -1);
+    });
+    updateLibPillCount();
+  }
+
   function updateLibPillCount() {
     var el = document.getElementById('lib-pill-count');
     if (!el) return;
-    el.textContent = SELECTED_LIBS.length + ' of ' + PLEX_LIBRARIES.length + ' selected';
+    if (!PLEX_LIBRARIES.length) { el.textContent = SELECTED_LIBS.length + ' selected'; return; }
+    var on = PLEX_LIBRARIES.filter(function (l) { return SELECTED_LIBS.indexOf(String(l.id)) !== -1; });
+    el.textContent = on.length + ' of ' + PLEX_LIBRARIES.length + ' selected';
   }
 
   function renderDiskRows() {
     var container = document.getElementById('disk-threshold-rows');
     if (!container) return;
-    container.replaceChildren();
     var selected = PLEX_LIBRARIES.filter(function (l) { return SELECTED_LIBS.indexOf(String(l.id)) !== -1; });
+    // A card that already shows its entry stays, with the caret and whatever is being typed in it.
+    var kept = {};
+    Array.prototype.slice.call(container.children).forEach(function (card) {
+      var id = card.dataset.libId;
+      var stays = SELECTED_LIBS.indexOf(id) !== -1 && same(typedIn(card), shown(DISK_THRESHOLDS[id]));
+      if (stays) kept[id] = card; else card.remove();
+    });
     if (!selected.length) {
       var hint = document.createElement('div');
       hint.className = 'fld-sub';
@@ -83,9 +109,11 @@
       container.appendChild(hint);
       return;
     }
+    var next = container.firstChild;
     selected.forEach(function (lib) {
-      var cfg = DISK_THRESHOLDS[String(lib.id)] || {};
-      container.appendChild(buildLibPathCard(lib, cfg));
+      var id = String(lib.id);
+      if (kept[id]) { next = kept[id].nextSibling; return; }
+      container.insertBefore(buildLibPathCard(lib, DISK_THRESHOLDS[id] || {}), next);
     });
   }
 
@@ -269,16 +297,42 @@
     }
   }
 
-  // Returns null until the library load has succeeded (still running, or failed):
-  // the rows are not drawn, so an empty result would read as "clear every threshold".
-  function collect() {
-    if (!LOADED) return null;
-    var out = {};
+  // One library's entry as the page shows it; an entry that cannot be read shows as blank.
+  function shown(cfg) {
+    cfg = cfg || {};
+    return { path: String(cfg.path || '').trim(), threshold: parseInt(cfg.threshold, 10) || 0 };
+  }
+
+  function same(a, b) {
+    return a.path === b.path && a.threshold === b.threshold;
+  }
+
+  function typedIn(card) {
+    return shown({
+      path: card.querySelector('[data-field="path"]').value,
+      threshold: card.querySelector('[data-field="threshold"]').value,
+    });
+  }
+
+  // An entry whose fields were not touched stays exactly as it was saved.
+  function keepTyped() {
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
-      var libId = card.dataset.libId;
-      var path = card.querySelector('[data-field="path"]').value.trim();
-      var threshold = parseInt(card.querySelector('[data-field="threshold"]').value, 10) || 0;
-      if (path || threshold) { out[libId] = { path: path, threshold: threshold }; }
+      var typed = typedIn(card);
+      if (!same(typed, shown(DISK_THRESHOLDS[card.dataset.libId]))) {
+        DISK_THRESHOLDS[card.dataset.libId] = typed;
+      }
+    });
+  }
+
+  // The entries that differ, or null. A cleared one is blank, not left out: the
+  // server keeps the threshold of a library it is not sent.
+  function changes(from, to) {
+    var out = null;
+    Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
+      var now = shown(to[libId]);
+      if (same(shown(from[libId]), now)) return;
+      out = out || {};
+      out[libId] = now;
     });
     return out;
   }
@@ -288,6 +342,7 @@
       .then(function (data) {
         PLEX_LIBRARIES = data.libraries || [];
         LOADED = true;
+        if (UNREADABLE && PLEX_LIBRARIES.length) offerMissingLibraries();
         renderLibraryPills();
         renderDiskRows();
       })
@@ -305,31 +360,103 @@
       });
   }
 
+  // Unreadable thresholds are mended only by a limit for every selected library, so one Plex
+  // no longer lists has to be there to be taken out.
+  function offerMissingLibraries() {
+    var listed = PLEX_LIBRARIES.map(function (lib) { return String(lib.id); });
+    SELECTED_LIBS.forEach(function (id) {
+      if (listed.indexOf(id) === -1) {
+        PLEX_LIBRARIES.push({ id: id, title: 'Library ' + id + ' (not in Plex)' });
+      }
+    });
+  }
+
   function init(opts) {
-    SELECTED_LIBS = ((opts && opts.selectedLibs) || []).map(String);
-    DISK_THRESHOLDS = (opts && opts.diskThresholds) || {};
+    var stored = fromServer({
+      plex_libraries: opts && opts.selectedLibs,
+      disk_thresholds: opts && opts.diskThresholds,
+    });
+    SELECTED_LIBS = stored.libs;
+    DISK_THRESHOLDS = stored.disk;
     loadPlexLibraries();
   }
 
-  // The library selection and thresholds as they stand, for Discard to go back to.
+  function copy(value) { return JSON.parse(JSON.stringify(value)); }
+
+  function isObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
+
+  // The library selection and thresholds as they stand, for a save to send and Discard to go back to.
   function state() {
-    var disk = collect();
-    return { libs: SELECTED_LIBS.slice(), disk: disk === null ? DISK_THRESHOLDS : disk };
+    keepTyped();
+    return copy({ libs: SELECTED_LIBS, disk: DISK_THRESHOLDS });
   }
 
   function restore(saved) {
-    SELECTED_LIBS = saved.libs.slice();
-    DISK_THRESHOLDS = saved.disk;
+    SELECTED_LIBS = copy(saved.libs);
+    DISK_THRESHOLDS = copy(saved.disk);
     if (!LOADED) return;
     renderLibraryPills();
+    var rows = document.getElementById('disk-threshold-rows');
+    if (rows) rows.replaceChildren();
     renderDiskRows();
+  }
+
+  function fromServer(data) {
+    var thresholds = data.disk_thresholds || {};
+    UNREADABLE = !isObject(thresholds);
+    return {
+      libs: Array.isArray(data.plex_libraries) ? data.plex_libraries.map(String) : [],
+      disk: UNREADABLE ? {} : copy(thresholds),
+    };
+  }
+
+  // `lib:<id>` for each library selected and `limit:<id>` for each entry that is not blank.
+  function things(state) {
+    var out = {};
+    state.libs.forEach(function (id) { out['lib:' + id] = true; });
+    Object.keys(state.disk).forEach(function (id) {
+      var cfg = shown(state.disk[id]);
+      if (cfg.path || cfg.threshold) out['limit:' + id] = cfg.threshold + ' ' + cfg.path;
+    });
+    return out;
+  }
+
+  function rebase(mine, stored, keep) {
+    function kept(id) { return keep('lib:' + id); }
+    var disk = {};
+    Object.keys(Object.assign({}, mine.disk, stored.disk)).forEach(function (id) {
+      var entry = (keep('limit:' + id) ? mine : stored).disk[id];
+      if (entry !== undefined) disk[id] = entry;
+    });
+    return {
+      libs: stored.libs.filter(function (id) { return !kept(id); }).concat(mine.libs.filter(kept)),
+      disk: copy(disk),
+    };
+  }
+
+  function show(state) {
+    SELECTED_LIBS = copy(state.libs);
+    DISK_THRESHOLDS = copy(state.disk);
+    if (!LOADED) return;
+    paintPills();
+    renderDiskRows();
+  }
+
+  function titleOf(id) {
+    var lib = PLEX_LIBRARIES.filter(function (l) { return String(l.id) === id; })[0];
+    return lib ? lib.title : 'library ' + id;
   }
 
   MM.settings.diskThresholds = {
     init: init,
     state: state,
     restore: restore,
-    collect: collect,
+    changes: changes,
+    show: show,
+    things: things,
+    rebase: rebase,
+    fromServer: fromServer,
+    titleOf: titleOf,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };
 })();

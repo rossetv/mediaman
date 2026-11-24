@@ -81,6 +81,12 @@
   .wl-table .btn--sm { height: 44px; min-height: 44px; }
 }
 
+/* By touch a pill reaches past its look, which below 700px is 44px itself. */
+@media (pointer: coarse) and (min-width: 700px) {
+  .wl-toolbar .fpill { position: relative; }
+  .wl-toolbar .fpill::after { content: ""; position: absolute; inset: calc((100% - 44px) / 2) -1px; }
+}
+
 /* ── Row motion: busy, kept in place, leaving ── */
 .wl-table tbody tr {
   transition: background var(--dur-fast) var(--ease-out),
@@ -98,12 +104,14 @@
 .wl[aria-busy="true"] .wl-results { opacity: .5; transition-delay: .1s; }
 
 /* ── Loading skeleton, the size of the real list ── */
-.wl-skel { padding: 24px var(--pad) 0; pointer-events: none; }
+.wl-skel { display: flex; flex-direction: column; padding: 24px var(--pad) 0; pointer-events: none; }
 .wl-skel__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-.wl-skel__stat { height: 110px; border-radius: var(--r-lg); }
-.wl-skel__summary { width: min(460px, 70%); margin-bottom: 30px; }
-.wl-skel__bar { width: min(420px, 100%); margin-bottom: 18px; }
+.wl-skel__stat { height: 117px; border-radius: var(--r-lg); }
+.wl-skel__summary { width: min(460px, 70%); font-size: 14px; margin-block: calc((1lh - 12px) / 2) calc((1lh - 12px) / 2 + 22px); }
+.wl-skel__bar { width: min(420px, 100%); height: 40px; margin-bottom: 16px; }
+.wl-skel__bar--sort { display: none; }
 .wl-skel__rows { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--hair); border-radius: var(--r-lg); overflow: hidden; }
+.wl-skel__rows::before { content: ""; height: 36px; background: var(--s1); }
 .wl-skel__row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: center; padding: 14px; background: var(--s1); }
 .wl-skel__row .skel--poster { height: 66px; border-radius: var(--r-xs); }
 .wl-skel__row .skel--line { width: 40%; }
@@ -135,7 +143,8 @@
    the actions column gives the title what Keep and Delete do not need ── */
 @media (max-width: 1023.98px) {
   .wl-sub-watched { display: inline; }
-  .wl-table thead th,
+  .wl-table thead th:not(.sortable),
+  .wl-table thead th.sortable .th-sort,
   .wl-table tbody td { padding-left: 8px; padding-right: 8px; }
 }
 @media (min-width: 700px) and (max-width: 1023.98px) {
@@ -198,12 +207,26 @@
   .wl-table .btn--sm { height: 44px; min-height: 44px; font-size: 14px; }
   .card--bordered > table.wl-table > tbody > tr:last-child > td { border-radius: 0; }
 
-  .wl-skel__row { grid-template-columns: 44px minmax(0, 1fr); }
+  .wl-skel__stat { height: 105px; }
+  .wl-skel__bar { height: 44px; margin-bottom: 12px; }
+  .wl-skel__bar--sort { display: block; width: 100%; margin-bottom: 16px; }
+  .wl-skel__rows::before { display: none; }
+  .wl-skel__row { align-items: start; min-height: 168px; }
+  .wl-skel__row .skel--line { margin-top: 8px; }
 
   .wl .pagination { justify-content: center; }
   .wl .pagination > :not(:first-child):not(:last-child):not(.page-of):not(.page-info) { display: none; }
   .wl .page-of { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
   .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
+}
+
+/* The toolbar wraps its sort under its pills. */
+@media (min-width: 700px) and (max-width: 747.98px) {
+  .wl-skel__bar { margin-bottom: 63px; }
+}
+/* The summary takes two lines. */
+@media (max-width: 459.98px) {
+  .wl-skel__summary { margin-bottom: calc((1lh - 12px) / 2 + 1lh + 22px); }
 }
 
 @media (forced-colors: active) {

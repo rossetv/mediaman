@@ -297,8 +297,10 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
     conn.execute("DELETE FROM pruned_keeps WHERE action = 'snoozed' AND execute_at < ?", (now,))
     # rationale: the interpolated column list is a fixed string; every value is bound
     conn.executemany(  # nosec B608
-        f"INSERT INTO pruned_keeps (media_item_id, file_path, season_number, {_KEEP_COLUMNS}) "
-        f"SELECT mi.id, mi.file_path, mi.season_number, {_KEEP_COLUMNS} "
+        "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, tmdb_id, "
+        f"plex_library_id, {_KEEP_COLUMNS}) "
+        "SELECT mi.id, mi.file_path, mi.season_number, "
+        f"COALESCE(mi.tmdb_id, mi.last_tmdb_id), mi.plex_library_id, {_KEEP_COLUMNS} "
         "FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
         "WHERE mi.id = ? AND (sa.action = 'protected_forever' "
         "  OR (sa.action = 'snoozed' AND sa.execute_at >= ?))",

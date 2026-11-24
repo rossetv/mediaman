@@ -40,6 +40,14 @@ class El {
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
   set src(v) { this.attrs.src = v; }
   get src() { return this.attrs.src; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  focus() {}
+  cloneNode() {
+    const copy = new El(this.tagName, this.doc);
+    copy.attrs = { ...this.attrs }; copy.className = this.className; copy._text = this._text; copy.hidden = this.hidden;
+    this.children.forEach((c) => copy.appendChild(c.cloneNode()));
+    return copy;
+  }
   replaceChildren() { this.children = []; }
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
   insertBefore(c, ref) {
@@ -58,6 +66,7 @@ class El {
   // what the browser sends when a transition or animation on this element ends
   emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
   get offsetHeight() { return this.hidden ? 0 : 50; }
+  getBoundingClientRect() { return { height: this.offsetHeight }; }
   get nextElementSibling() { const p = this.parentNode; return p ? p.children[p.children.indexOf(this) + 1] || null : null; }
   closest(sel) { let e = this; while (e && e.matches) { if (e.matches(sel)) return e; e = e.parentNode; } return null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
@@ -77,7 +86,7 @@ class El {
 function build(pollGet) {
   const listeners = {};
   const doc = {
-    hidden: false,
+    hidden: false, documentElement: { clientWidth: 1280 },
     createElement: (t) => new El(t, doc),
     createElementNS: (ns, t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
@@ -90,7 +99,7 @@ function build(pollGet) {
   const add = (id, parent) => { const e = new El('div', doc); e.setAttribute('id', id); (parent || root).appendChild(e); return e; };
   const ph = new El('div', doc); ph.className = 'ph'; root.appendChild(ph);
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise,
+    document: doc, console, JSON, Array, Object, String, Math, Promise, AbortController,
     setTimeout: (fn) => { fn.tid = ++ctx.timerSeq; ctx.timers.push(fn); return fn.tid; },
     clearTimeout: (id) => { ctx.timers = ctx.timers.filter((f) => f.tid !== id); }, timerSeq: 0, CustomEvent: class {},
     timers: [], MM: {}, MM_API: pollGet, reduce: false,
@@ -190,7 +199,7 @@ function abandonRig() {
   modal.appendChild(confirm);
   const byId = { 'abandon-modal': modal, 'abandon-modal-title': title, 'abandon-modal-copy': copy, 'abandon-season-list': list };
   h.doc.getElementById = (id) => byId[id] || null;
-  h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel) };
+  h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
   const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0 };
   h.ctx.MM.modal = {
@@ -203,7 +212,7 @@ function abandonRig() {
   };
   h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
-  h.ctx.UIFeedback = { error() { rig.errors += 1; } };
+  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast() {} };
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
@@ -691,6 +700,7 @@ scenarios.reauth = async function () {
   h.doc.createElement = (t) => { const e = orig(t); e.remove = () => { if (e.parentNode) e.parentNode.removeChild(e); }; e.focus = () => {}; return e; };
   h.doc.querySelectorAll = () => [];
   h.load('core/modal.js');
+  h.load('core/dom.js');
   h.load('core/reauth.js');
   let cancelled = 0;
   h.ctx.MM.reauth.openModal({ onSubmit: () => Promise.resolve({ ok: true }), onCancel: () => { cancelled++; } });
@@ -723,6 +733,7 @@ function reauthRig() {
     messageOf: () => 'failed',
   };
   h.load('core/modal.js');
+  h.load('core/dom.js');
   h.load('core/reauth.js');
   const calls = { n: 0 };
   const guarded = () => {

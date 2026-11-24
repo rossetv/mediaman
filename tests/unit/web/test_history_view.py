@@ -528,3 +528,17 @@ class TestMainLine:
         )
         assert "abcd1234" not in item["detail"] + item["title"]
         assert item["detail"].startswith("GET 'http://plex/x?X-Plex-Token=[hidden]")
+
+
+class TestUnclosedBracket:
+    def test_an_unclosed_bracket_hides_everything_after_it_even_on_later_lines(self):
+        out = redact_text("token=[abc def\nnext line\nmore")
+        assert out == "token=[hidden]"
+
+    def test_a_quoted_secret_holding_a_newline_is_hidden_to_its_end(self):
+        out = redact_text('tokens=["ab\ncd')
+        assert "cd" not in out and "ab" not in out
+
+    def test_a_list_closed_on_a_later_line_is_hidden_whole(self):
+        out = redact_text('tokens: [\n"abc",\n"def"\n] after')
+        assert out == "tokens: [hidden] after"

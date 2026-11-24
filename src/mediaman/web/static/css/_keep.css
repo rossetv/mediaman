@@ -25,6 +25,7 @@
   border-radius: var(--r-lg);
   text-align: center;
   box-shadow: var(--shadow-card);
+  overflow-wrap: anywhere;
 }
 
 .status-pill {
@@ -78,7 +79,8 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   margin-bottom: 4px;
 }
 .item-title--secondary { color: var(--t2); }
-.item-year { color: var(--t3); font-size: 13px; margin-bottom: 14px; }
+.item-title:has(+ .meta-row) { margin-bottom: 14px; }
+.item-season { color: var(--t3); font-size: 13px; margin-bottom: 14px; }
 
 .meta-row {
   display: flex;

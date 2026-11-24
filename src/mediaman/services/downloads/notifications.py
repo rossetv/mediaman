@@ -16,12 +16,12 @@ import enum
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 import requests
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import SafeHTTPError
@@ -100,6 +100,79 @@ def record_download_notification(
     )
 
 
+#: A request is of one wait for a title for as long as an emailed link lives.
+_SAME_WAIT = timedelta(days=14)
+
+
+def record_notification_on_its_way(
+    conn: sqlite3.Connection,
+    held: RadarrMovie | SonarrSeries,
+    *,
+    email: str,
+    title: str,
+    media_type: str,
+    service: str,
+    tmdb_id: int,
+    tvdb_id: int | None = None,
+    season_number: int | None = None,
+) -> bool:
+    """Ask for the email of a title somebody finds on its way, *held* being its entry there,
+    and say whether one is to come. Does not commit.
+
+    None is asked for while what there is of the title would have it sent at once, nor a
+    second one for a wait that was mailed about already.
+    """
+    mailed = conn.execute(
+        "SELECT MAX(created_at) FROM download_notifications "
+        "WHERE email = ? COLLATE NOCASE AND service = ? AND notified = 1 "
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?)",
+        (email, service, season_number, tmdb_id, tvdb_id),
+    ).fetchone()[0]
+    deleted = conn.execute(
+        "SELECT MAX(a.created_at) FROM deleted_media d JOIN audit_log a ON a.id = d.audit_id "
+        "WHERE (d.media_type = 'movie') = ? AND (d.tmdb_id = ? OR d.tvdb_id = ?) "
+        "AND (? IS NULL OR d.season_number IS NULL OR d.season_number = ?)",
+        (service == "radarr", tmdb_id, tvdb_id, season_number, season_number),
+    ).fetchone()[0]
+    began = (now_utc() - _SAME_WAIT, parse_iso_utc(held.get("added")), parse_iso_utc(deleted))
+    waiting_since = max(when for when in began if when)
+    mailed_at = parse_iso_utc(mailed)
+    ready = (
+        bool(cast("RadarrMovie", held).get("hasFile"))
+        if service == "radarr"
+        else _series_has_files(cast("SonarrSeries", held), season_number)
+    )
+    if not ready and not (mailed_at and mailed_at >= waiting_since):
+        record_download_notification(
+            conn,
+            email=email,
+            title=title,
+            media_type=media_type,
+            service=service,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            season_number=season_number,
+        )
+    return has_unsent_notification(
+        conn,
+        email=email,
+        service=service,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        season_number=season_number,
+    )
+
+
+def requested_tvdb_id(conn: sqlite3.Connection, tmdb_id: int) -> int | None:
+    """The TVDB id a show was last asked for under."""
+    row = conn.execute(
+        "SELECT tvdb_id FROM download_notifications WHERE service = 'sonarr' AND tmdb_id = ? "
+        "AND tvdb_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (tmdb_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
 def has_unsent_notification(
     conn: sqlite3.Connection,
     *,
@@ -163,15 +236,19 @@ def _sonarr_has_files(
     """
     for s in series_index:
         if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
-            if season_number is None:
-                stats = s.get("statistics") or {}
-                return int(stats.get("episodeFileCount") or 0) > 0
-            return any(
-                int((season.get("statistics") or {}).get("episodeFileCount") or 0) > 0
-                for season in s.get("seasons") or []
-                if season.get("seasonNumber") == season_number
-            )
+            return _series_has_files(s, season_number)
     return False
+
+
+def _series_has_files(series: SonarrSeries, season_number: int | None) -> bool:
+    if season_number is None:
+        stats = series.get("statistics") or {}
+        return int(stats.get("episodeFileCount") or 0) > 0
+    return any(
+        int((season.get("statistics") or {}).get("episodeFileCount") or 0) > 0
+        for season in series.get("seasons") or []
+        if season.get("seasonNumber") == season_number
+    )
 
 
 def _build_mailgun_client(

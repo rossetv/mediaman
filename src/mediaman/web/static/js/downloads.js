@@ -71,10 +71,13 @@
     var ranks = rows.map(stateRank);
     var order = rows.map(function (_, i) { return i; }).sort(function (a, b) { return ranks[a] - ranks[b] || a - b; });
     var next = list.firstElementChild;
+    var active = document.activeElement;
     order.forEach(function (i) {
       if (rows[i] === next) next = next.nextElementSibling;
       else list.insertBefore(rows[i], next);
     });
+    /* A row loses the focus in it when it moves. */
+    if (active && document.activeElement !== active && list.contains(active)) active.focus({ preventScroll: true });
   }
 
   function shownIn(dom, box, selector) {
@@ -173,7 +176,7 @@
          open list open on their own. */
       var opening = !list || dom.isCollapsing(queueContainer);
       if (!list) {
-        var qHeader = document.createElement('div');
+        var qHeader = document.createElement('h2');
         qHeader.className = 'dl-compact-header';
         qHeader.textContent = 'Also downloading';
         queueContainer.appendChild(qHeader);
@@ -233,9 +236,19 @@
     renderRecent().updateUpcomingList(root, data);
 
     /* Recent */
-    renderRecent().updateRecent(recentContainer, data.recent);
+    if (data.recent) renderRecent().updateRecent(recentContainer, data.recent);
 
     if (header) updateSubtitle(dom, header, subtitleFor(dom, data));
+  }
+
+  /* mediaman itself does not answer: all that is shown is held as what was last
+     known, as it is for a service that does not. */
+  function lost() {
+    var line = 'Can\'t reach mediaman';
+    update({
+      hero: null, queue: [], upcoming: [], subtitle: line,
+      unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: line,
+    });
   }
 
   document.addEventListener('click', function (e) {
@@ -255,5 +268,5 @@
   });
 
   /* Kick off the polling loop. */
-  MM.downloads.poll.start(update);
+  MM.downloads.poll.start(update, lost);
 }());

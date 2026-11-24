@@ -499,6 +499,25 @@ class TestFetchLibrary:
         assert "fooXbar" not in titles
 
 
+class TestArt:
+    def test_a_show_row_has_the_show_s_own_art_as_browse_has(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "501", "Glass Coast", "500", season=1)
+        _insert_tv_season(conn, "502", "Glass Coast", "500", season=2)
+        _insert_movie(conn, "100")
+        items, _ = fetch_library(conn)
+        assert {i["id"]: i["plex_rating_key"] for i in items} == {"501": "500", "100": "rk-100"}
+
+    @pytest.mark.parametrize("show_key", [None, ""])
+    def test_a_show_row_without_its_key_keeps_its_first_season_s_art(self, db_path, show_key):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "501", "Glass Coast", show_key)
+        items, _ = fetch_library(conn)
+        assert [i["plex_rating_key"] for i in items] == ["rk-501"]
+
+
 class TestKeepsInForce:
     """The page reads a keep exactly while the scanner would honour it."""
 

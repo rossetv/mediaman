@@ -1,5 +1,6 @@
 /**
- * Force-password-change page — client-side password meter and sign-out wire.
+ * Force-password-change page — client-side password meter, the check that no
+ * field is empty and the two new passwords match, and sign-out wire.
  *
  * Lives in an external file so the page-level CSP needs no
  * 'unsafe-inline'.
@@ -133,6 +134,59 @@
 
   newPw.addEventListener('input', render);
   confirmPw.addEventListener('input', updateMatch);
+
+  // The server answers an empty field, or two passwords that differ, with the
+  // page again and every field empty: keep what was typed and put the cursor
+  // where the fix is. The submit guard, on the document, must not see this
+  // submit, or it holds the next.
+  var form = document.getElementById('fpc-form');
+  var oldPw = document.getElementById('old_password');
+
+  function sayError(text) {
+    var box = MM.dom.q('.error-msg');
+    if (!box) {
+      if (!text) return;
+      box = document.createElement('div');
+      box.className = 'error-msg';
+      box.setAttribute('role', 'alert');
+      form.parentNode.insertBefore(box, form);
+    }
+    box.textContent = text;
+    box.hidden = !text;
+  }
+
+  // A field just in view takes the focus without a scroll, its label and the line
+  // that says what is wrong still out of view.
+  function goTo(field, line) {
+    field.focus();
+    field.closest('.login-field').scrollIntoView({ block: 'nearest' });
+    line.scrollIntoView({ block: 'nearest' });
+  }
+
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      var empty = [oldPw, newPw, confirmPw].filter(function (el) { return el && !el.value; })[0];
+      if (!empty && newPw.value === confirmPw.value) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (empty) {
+        sayError('Please fill in every field.');
+        // Only the first field has the error box beside it.
+        var line = empty === newPw ? label : empty === confirmPw ? matchEl : null;
+        if (line) {
+          line.textContent = 'Please fill in this field.';
+          line.classList.add('fpc-caption-weak');
+        }
+        goTo(empty, line || MM.dom.q('.error-msg'));
+        return;
+      }
+      sayError('');
+      matchEl.textContent = 'Passwords don’t match';
+      matchEl.className = 'fpc-caption fpc-caption-weak';
+      goTo(confirmPw, matchEl);
+      confirmPw.select();
+    });
+  }
 
   var signOutLink = document.getElementById('fpc-signout');
   if (signOutLink) {

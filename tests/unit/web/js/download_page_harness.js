@@ -1,5 +1,6 @@
 // Runs the real download.js (the per-token page) against a tiny fake DOM and
-// prints the outcome as JSON. Usage: node download_page_harness.js
+// prints the outcome as JSON. Usage: node download_page_harness.js [scenario]; with none, a
+// title already on its way when the page opens.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -11,7 +12,22 @@ class El {
   constructor(tag) {
     this.tagName = tag.toUpperCase(); this.children = []; this.parentNode = null;
     this.attrs = {}; this.style = {}; this.listeners = {}; this.className = ''; this._text = ''; this.id = '';
+    this.hidden = false;
   }
+  get firstChild() { return this.children[0] || null; }
+  get nextElementSibling() { const all = this.parentNode.children; return all[all.indexOf(this) + 1] || null; }
+  insertBefore(c, before) {
+    if (c.parentNode) c.parentNode.removeChild(c);
+    const at = before ? this.children.indexOf(before) : this.children.length;
+    c.parentNode = this; this.children.splice(at, 0, c); return c;
+  }
+  contains(o) { for (let e = o; e; e = e.parentNode) if (e === this) return true; return false; }
+  // The busy button's padding is narrower.
+  get offsetWidth() { return this.getAttribute('aria-disabled') === 'true' ? 92 : 132; }
+  closest(sel) { for (let e = this; e; e = e.parentNode) if (e.matches(sel)) return e; return null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  focus() { El.focused = this; }
+  scrollIntoView() { El.scrolledTo = this; }
   get classList() {
     const el = this;
     const list = () => el.className.split(/\s+/).filter(Boolean);
@@ -19,6 +35,11 @@ class El {
       contains: (c) => list().includes(c),
       add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
       remove: (c) => { el.className = list().filter((x) => x !== c).join(' '); },
+      toggle: (c, on) => {
+        if (on === undefined) on = !list().includes(c);
+        el.className = list().filter((x) => x !== c).concat(on ? c : []).join(' ');
+        return on;
+      },
     };
   }
   setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') this.id = String(v); }
@@ -28,7 +49,8 @@ class El {
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
   removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
-  replaceChildren(...cs) { this.children = []; cs.forEach((c) => this.appendChild(c)); }
+  removeEventListener() {}
+  replaceChildren(...cs) { this.children = []; this._text = ''; cs.forEach((c) => this.appendChild(c)); }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   matches(sel) {
     let m;
@@ -40,10 +62,16 @@ class El {
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
 }
 
-async function main() {
+const settle = () => new Promise((r) => setImmediate(r));
+
+// The page with its scripts not yet run. `boot` overrides what the server says of the title.
+// `moving`: without reduced motion, parts close when endFolds() is called.
+function page(boot, moving) {
+  El.focused = null;
   const root = new El('div');
   const doc = {
     hidden: false,
+    get activeElement() { return El.focused; },
     createElement: (t) => new El(t),
     createElementNS: (ns, t) => new El(t),
     createTextNode: (t) => { const e = new El('#text'); e._text = t; return e; },
@@ -51,34 +79,281 @@ async function main() {
     querySelector: () => null,
     getElementById: (id) => (id === 'dl-root' ? root : root.all().find((e) => e.id === id) || null),
   };
-  const add = (id, text) => { const e = new El('div'); e.setAttribute('id', id); if (text) e._text = text; root.appendChild(e); return e; };
-  add('page-bootstrap', JSON.stringify({
+  const add = (id, text, parent) => { const e = new El('div'); e.setAttribute('id', id); if (text) e._text = text; (parent || root).appendChild(e); return e; };
+  add('page-bootstrap', JSON.stringify(Object.assign({
     token: 't', poll_token: 'p', service: 'radarr', tmdb_id: 7, title: 'Film',
     media_type: 'movie', download_state: 'queued',
     poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
     backdrop_url: 'https://image.tmdb.org/t/p/w1280/wide.jpg',
-  }));
-  const button = add('btn-download');
-  add('download-action');
+  }, boot)));
+  const cinema = add('dl-cinema');
+  const content = add('dl-content');
+  const action = add('download-action', '', content);
+  const button = add('btn-download', 'Download', action);
+  const result = add('download-result', '', content);
+  result.hidden = true;
   const wrapper = add('dl-hero-wrapper');
 
-  let payload = {};
+  const p = { payload: {}, posted: 0, answer: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }) };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise,
     setInterval: (fn) => { ctx.tick = fn; return 1; }, clearInterval() {}, MM: {},
   };
   ctx.window = ctx;
-  ctx.MM.api = { get: () => Promise.resolve(payload), post: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }), APIError: class extends Error {} };
+  let folds = [];
+  p.endFolds = () => { const due = folds; folds = []; due.forEach((fn) => fn()); };
+  ctx.setTimeout = (fn) => (moving ? folds.push(fn) : fn());
+  ctx.matchMedia = () => ({ matches: !moving });
+  ctx.getComputedStyle = () => ({});
+  ctx.MM.api = {
+    get: () => Promise.resolve(p.payload),
+    post: () => { p.posted += 1; return p.answer(); },
+    APIError: class extends Error {},
+    messageOf: (err, fallback) => (err.data && err.data.message) || fallback,
+  };
   vm.createContext(ctx);
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   load('core/dom.js');
   load('downloads/build_dom.js');
+  return Object.assign(p, { ctx, load, root, cinema, content, action, button, result, wrapper });
+}
+
+// Pressing Download gets `answer`; the second press, when there is one, gets `then`.
+function refusal(status, data) {
+  return () => Promise.reject(Object.assign(new Error(), { status, data: data || {} }));
+}
+
+async function press(p) {
+  // A click in Safari puts the focus on the page around the button.
+  El.focused = p.root;
+  p.button.listeners.click.forEach((fn) => fn());
+  const during = { label: p.button.textContent, busy: p.button.getAttribute('aria-disabled'), focused: El.focused === p.button };
+  during.spinner = !!p.button.querySelector('.btn-spinner');
+  during.minWidth = p.button.style.minWidth;
+  p.button.listeners.click.forEach((fn) => fn());
+  await settle();
+  return during;
+}
+
+const seen = (p) => ({
+  card: !p.wrapper.hidden && !!p.wrapper.querySelector('.dl-hero'),
+  hint: (p.wrapper.querySelector('.dl-hint') || { textContent: null }).textContent,
+  content: !p.content.hidden,
+  button: p.action.hidden ? null : p.button.textContent,
+  busy: p.button.getAttribute('aria-disabled'),
+  result: p.result.hidden ? null : p.result.textContent,
+  error: p.result.classList.contains('dl-result--error'),
+  focus: El.focused === p.button ? 'button' : El.focused === p.result ? 'result' : El.focused && El.focused.tagName,
+  posted: p.posted,
+});
+
+const ANSWERS = {
+  unanswered: refusal(0, { message: 'Could not reach mediaman.' }),
+  down: refusal(502, { message: 'Check service connectivity' }),
+  limited: refusal(429, { message: 'Too many requests' }),
+  expired: refusal(410, { message: 'Token expired or invalid' }),
+  wordless: refusal(403),
+  used: refusal(409, { message: 'This download link has already been used' }),
+  queued: refusal(409, { poll_token: 'p3', download_state: 'queued' }),
+  queuedMailed: refusal(409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }),
+  inLibrary: refusal(409, { poll_token: 'p3', download_state: 'in_library' }),
+  tracked: refusal(409, { poll_token: 'p3', download_state: 'tracked' }),
+};
+
+const SCENARIOS = {
+  async answers() {
+    const out = {};
+    for (const name of Object.keys(ANSWERS)) {
+      const p = page({ download_state: '', poll_token: '', notify_by_email: true });
+      p.load('download.js');
+      p.answer = ANSWERS[name];
+      await press(p);
+      out[name] = seen(p);
+    }
+    return out;
+  },
+  async retry() {
+    const p = page({ download_state: '', poll_token: '' });
+    p.load('download.js');
+    const good = p.answer;
+    p.answer = ANSWERS.down;
+    const first = await press(p);
+    const failed = seen(p);
+    p.answer = good;
+    const second = await press(p);
+    return { first, failed, second, done: seen(p) };
+  },
+  // Which parts of the card open and close, and that it comes in, as the download goes on.
+  async motion() {
+    const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
+    const moves = [];
+    const dom = p.ctx.MM.downloads.buildDom;
+    for (const name of ['reveal', 'collapse', 'collapseAway']) {
+      const real = dom[name];
+      dom[name] = (el, done) => { moves.push(`${name} ${el.getAttribute('data-v') || el.className}`); real(el, done); };
+    }
+    p.load('download.js');
+    p.payload = { state: 'searching', state_label: 'Searching', progress: 0 };
+    await press(p);
+    const enters = p.wrapper.querySelector('.dl-hero').classList.contains('dl-card-enter');
+    const poll = async (payload) => { moves.length = 0; p.payload = payload; p.ctx.tick(); await settle(); return moves.slice(); };
+    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
+      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
+    const starts = await poll(running);
+    const goesOn = await poll(running);
+    El.focused = p.wrapper.querySelector('[data-v="ep-toggle"]');
+    const ends = await poll({ state: 'ready', state_label: 'Ready', progress: 100, size_done: '', size_total: '' });
+    return { enters, starts, goesOn, ends, left: p.wrapper.querySelectorAll('[data-v="ep-toggle"]').length,
+      figures: p.wrapper.querySelector('.dl-hero-details').textContent, focus: El.focused.tagName };
+  },
+  // Answers that come while parts close, or after a newer one.
+  async late() {
+    const out = {};
+    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
+      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
+    const ready = { state: 'ready', state_label: 'Ready', progress: 100 };
+    const start = async () => {
+      const p = page({ media_type: 'tv', service: 'sonarr' }, true);
+      p.ctx.MM.api.APIError = class extends Error { constructor(status) { super(); this.status = status; } };
+      const hint = new El('div');
+      hint.className = 'dl-hint'; hint._text = 'On its way';
+      p.wrapper.appendChild(p.ctx.MM.downloads.buildDom.buildHero({ id: 'x', title: 'Show', media_type: 'tv', state: 'searching' }));
+      p.wrapper.appendChild(hint);
+      p.payload = running;
+      p.load('download.js');
+      await settle();
+      p.endFolds();
+      const asked = [];
+      p.ctx.MM.api.get = () => new Promise((resolve, reject) => asked.push({ resolve, reject }));
+      p.ask = () => { p.ctx.tick(); return asked[asked.length - 1]; };
+      p.answer = async (q, payload) => { q.resolve(payload); await settle(); };
+      p.pill = () => p.wrapper.querySelector('[data-v="pill"]').textContent;
+      p.results = () => p.wrapper.querySelectorAll('.dl-result').length;
+      p.part = (v) => p.wrapper.querySelector(`[data-v="${v}"]`);
+      return p;
+    };
+
+    let p = await start();
+    let first = p.ask(), second = p.ask(), third = p.ask(), fourth = p.ask();
+    await p.answer(first, ready);
+    await p.answer(second, ready);
+    const closing = p.results();
+    await p.answer(third, running);
+    fourth.reject(new p.ctx.MM.api.APIError(401));
+    await settle();
+    p.endFolds();
+    out.ready = { closing, after: p.results(), pill: p.pill(), bar: !p.part('progress-wrap').hidden,
+      said: p.wrapper.querySelectorAll('.dl-hint').length };
+
+    p = await start();
+    first = p.ask(); second = p.ask(); third = p.ask();
+    await p.answer(third, { ...running, progress: 60 });
+    await p.answer(first, running);
+    second.reject(new p.ctx.MM.api.APIError(401));
+    await settle();
+    out.overtaken = { pct: p.part('pct').textContent, hint: p.wrapper.querySelector('.dl-hint').textContent };
+
+    p = await start();
+    const press = () => { const target = p.part('ep-toggle'); if (target) p.wrapper.listeners.click.forEach((fn) => fn({ target })); };
+    const loseList = () => { const list = p.part('ep-list'); if (list) list.parentNode.removeChild(list); };
+    const back = async () => {
+      await p.answer(p.ask(), { state: 'searching', state_label: 'Searching', progress: 0 });
+      await p.answer(p.ask(), running);
+      p.endFolds();
+      const list = p.part('ep-list');
+      return { toggle: !!p.part('ep-toggle'), open: !!list && !list.hidden,
+        rows: list ? list.querySelectorAll('.dl-ep-row').length : 0, summary: !!p.wrapper.querySelector('.dl-hero-ep-summary') };
+    };
+    out.backClosed = await back();
+    p = await start();
+    press();
+    p.endFolds();
+    out.backOpen = await back();
+
+    p = await start();
+    loseList();
+    await p.answer(p.ask(), { ...running, episode_summary: '1 of 1 ready' });
+    out.noList = { summary: (p.wrapper.querySelector('.dl-hero-ep-summary') || {}).textContent, rows: p.wrapper.querySelectorAll('.dl-ep-row').length };
+    loseList();
+    await p.answer(p.ask(), ready);
+    p.endFolds();
+    out.noListReady = { results: p.results(), toggle: !!p.part('ep-toggle') };
+    return out;
+  },
+  async hint() {
+    const p = page({ download_state: '', poll_token: '', notify_by_email: true });
+    p.ctx.MM.api.get = () => new Promise(() => {});
+    p.load('download.js');
+    await press(p);
+    return { hint: seen(p).hint };
+  },
+  async card() {
+    const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
+    p.ctx.MM.api.get = () => new Promise(() => {});
+    p.load('download.js');
+    await press(p);
+    const card = p.wrapper.querySelector('.dl-hero');
+    return {
+      headings: p.wrapper.querySelectorAll('h1').map((e) => e.textContent),
+      focused: El.focused.tagName,
+      pills: card.querySelectorAll('.pill').map((e) => e.textContent),
+      state: card.querySelector('[data-v="pill"]').textContent,
+      links: p.wrapper.querySelectorAll('a').map((e) => e.href),
+    };
+  },
+  async episodes() {
+    const p = page({ media_type: 'tv', service: 'sonarr' });
+    p.wrapper.appendChild(p.ctx.MM.downloads.buildDom.buildHero({ id: 'x', title: 'Show', media_type: 'tv', state: 'searching' }));
+    const ep = (label, state) => ({ label, title: label, state, progress: 0 });
+    const step = async (episodes) => {
+      p.payload = { state: 'downloading', state_label: 'Downloading', progress: 3, episodes };
+      if (p.ctx.tick) p.ctx.tick(); else p.load('download.js');
+      await settle();
+    };
+    await step([ep('S01E01', 'queued'), ep('S01E02', 'searching')]);
+    const toggle = p.wrapper.querySelector('[data-v="ep-toggle"]');
+    const list = p.wrapper.querySelector('[data-v="ep-list"]');
+    const press = () => p.wrapper.listeners.click.forEach((fn) => fn({ target: toggle.querySelector('span') }));
+    const state = () => ({ expanded: toggle.getAttribute('aria-expanded'), shown: !list.hidden });
+    const out = { tag: toggle.tagName, inInfo: !!toggle.closest('.dl-hero-info') && !!list.closest('.dl-hero-info') };
+    out.pills = list.querySelectorAll('.dl-ep-status-pill').map((e) => e.textContent);
+    out.closed = state();
+    press();
+    out.open = state();
+    await step([ep('S01E01', 'ready'), ep('S01E02', 'searching'), ep('S01E03', 'queued')]);
+    out.after = { ...state(), rows: list.querySelectorAll('.dl-ep-status-pill').map((e) => e.textContent) };
+    p.payload = { state: 'unknown', progress: 0 };
+    p.ctx.tick();
+    await settle();
+    out.unanswered = p.wrapper.querySelector('[data-v="pill"]').textContent;
+    press();
+    out.closedAgain = state();
+    return out;
+  },
+  async ready() {
+    const p = page({ download_state: '', poll_token: '' });
+    p.load('download.js');
+    p.payload = { state: 'ready', state_label: 'Ready', progress: 100 };
+    await press(p);
+    return {
+      status: p.wrapper.querySelectorAll('[role="status"]').map((e) => e.textContent),
+      card: !!p.wrapper.querySelector('.dl-hero'),
+      progress: !p.wrapper.querySelector('[data-v="progress-wrap"]').hidden,
+      links: p.wrapper.querySelectorAll('a').length,
+    };
+  },
+};
+
+async function main() {
+  const scenario = SCENARIOS[process.argv[2]];
+  if (scenario) { console.log(JSON.stringify(await scenario())); return; }
+  const p = page({});
+  const { ctx, wrapper, button, load } = p;
   // the page arrives with a hero that has no ETA yet
   wrapper.appendChild(ctx.MM.downloads.buildDom.buildHero({
     id: 'radarr:Film', title: 'Film', media_type: 'movie', state: 'searching', progress: 0, eta: '',
   }));
 
-  const settle = () => new Promise((r) => setImmediate(r));
   const stats = () => wrapper.querySelector('.dl-hero-details').children.map((c) => c.textContent);
   const out = {};
   out.start = stats();
@@ -86,8 +361,8 @@ async function main() {
   await settle();
   out.noEta = stats();
 
-  const step = async (p) => {
-    payload = Object.assign({ state: 'downloading', state_label: 'Downloading', progress: 30, size_done: '1 GB', size_total: '3 GB' }, p);
+  const step = async (polled) => {
+    p.payload = Object.assign({ state: 'downloading', state_label: 'Downloading', progress: 30, size_done: '1 GB', size_total: '3 GB' }, polled);
     ctx.tick();
     await settle();
     return stats();
