@@ -15,7 +15,7 @@
 
   /* ── Posters fade in ── */
 
-  var POSTER_SELECTOR = '.watch-card__poster > img, .watch-hero__poster > img, .watch-ep__thumb > img, .watch-banner__bg';
+  var POSTER_SELECTOR = '.watch-card__poster > img, .watch-ep__thumb > img, .watch-banner__bg';
 
   function markLoaded(event) {
     var img = event.target;

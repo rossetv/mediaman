@@ -427,11 +427,9 @@
 /* Posters and the banner backdrop fade in as they arrive; watch-rows.js sets
    the classes, so without it they simply appear. */
 .watch-card__poster > img,
-.watch-hero__poster > img,
 .watch-ep__thumb > img { transition: opacity var(--dur) var(--ease-out); }
 .watch-banner__bg { transition: opacity var(--dur-slow) var(--ease-out); }
 .has-poster-fade .watch-card__poster > img:not(.is-loaded),
-.has-poster-fade .watch-hero__poster > img:not(.is-loaded),
 .has-poster-fade .watch-ep__thumb > img:not(.is-loaded),
 .has-poster-fade .watch-banner__bg:not(.is-loaded) { opacity: 0; }
 .watch-card__poster::after {
@@ -743,23 +741,7 @@
 .watch-detail__top { padding: 20px var(--pad) 0; }
 .watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: 14px; transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .watch-back:hover { color: var(--accent-hi); }
-.watch-hero {
-  display: flex;
-  gap: 40px;
-  padding: 8px var(--pad) 24px;
-}
-.watch-hero__poster {
-  position: relative;
-  flex: 0 0 220px;
-  height: 330px;
-  overflow: hidden;
-  border-radius: var(--r-lg);
-  background: linear-gradient(160deg, var(--s4), var(--s1));
-}
-.watch-hero__poster > img { width: 100%; height: 100%; object-fit: cover; }
 .watch-hero__info { display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
-.watch-hero__title { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.08; overflow-wrap: anywhere; }
-.watch-hero__meta { font-size: 14px; color: var(--t3); }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
 /* The line keeps the Keep button's height when it is kept or empty (a season
    that is not leaving), so Resume and the season tabs never move under a tap. */
@@ -832,13 +814,6 @@
 .watch-ep__state { grid-area: state; font-size: 12px; padding: 4px 10px; border-radius: var(--r-pill); color: var(--t2); background: var(--rgba-overlay-sm); }
 .watch-ep__state--active { color: var(--accent); background: var(--rgba-accent-bg); }
 
-/* Tablet */
-@media (max-width: 899.98px) {
-  .watch-hero { gap: 28px; }
-  .watch-hero__poster { flex-basis: 170px; height: 255px; }
-  .watch-hero__title { font-size: 36px; }
-}
-
 /* Phone */
 @media (max-width: 599.98px) {
   .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
@@ -869,9 +844,6 @@
   .watch-rows { gap: 22px; padding-top: 18px; }
   .watch-row__title { font-size: 17px; margin-bottom: 10px; }
 
-  .watch-hero { flex-direction: column; gap: 18px; }
-  .watch-hero__poster { flex-basis: auto; width: 140px; height: 210px; }
-  .watch-hero__title { font-size: 30px; }
   .watch-state { padding-top: 56px; }
   .watch-state__title { font-size: 24px; }
 
