@@ -9,7 +9,9 @@ response.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -102,25 +104,33 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         return JSONResponse({"items": [], "total": 0})
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
-    now = now_utc()
     found, total = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
-    movies = [f for f in found if isinstance(f, lib.LibraryMovie)]
+    return JSONResponse({"items": library_items(conn, username, libraries, found), "total": total})
+
+
+def library_items(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    titles: Sequence[lib.LibraryMovie | lib.LibraryShow],
+) -> list[dict[str, Any]]:
+    """The cards of library *titles*, in their order, each with its title ref."""
+    now = now_utc()
+    movies = [t for t in titles if isinstance(t, lib.LibraryMovie)]
     pending = lib.pending_deletions(conn, libraries, now)
-    by_key = {
-        m.key: c
+    by_ref = {
+        f"movie-{m.key}": c
         for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
     }
-    shows = [f for f in found if isinstance(f, lib.LibraryShow)]
-    show_by_key = {
-        s.key: c for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
+    shows = [t for t in titles if isinstance(t, lib.LibraryShow)]
+    by_ref |= {
+        f"show-{s.key}": c
+        for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
     }
-    items: list[dict[str, Any]] = [
-        {**by_key[f.key], "ref": f"movie-{f.key}"}
-        if isinstance(f, lib.LibraryMovie)
-        else {**show_by_key[f.key], "ref": f"show-{f.key}"}
-        for f in found
-    ]
-    return JSONResponse({"items": items, "total": total})
+    refs = (
+        f"movie-{t.key}" if isinstance(t, lib.LibraryMovie) else f"show-{t.key}" for t in titles
+    )
+    return [{**by_ref[ref], "ref": ref} for ref in refs]
 
 
 @router.post("/api/watch/keep")
@@ -300,4 +310,4 @@ def api_watch_thumb(
     )
 
 
-__all__ = ["router"]
+__all__ = ["library_items", "router"]

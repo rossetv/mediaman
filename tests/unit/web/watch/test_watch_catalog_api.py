@@ -261,7 +261,13 @@ class TestSearchTmdb:
         resp = viewer.get("/api/watch/search/tmdb", params={"q": "glass"})
 
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "tmdb_configured": False, "items": [], "people": []}
+        assert resp.json() == {
+            "ok": True,
+            "tmdb_configured": False,
+            "items": [],
+            "held": [],
+            "people": [],
+        }
 
     def test_titles_the_library_holds_are_left_out(self, viewer, tmdb, arr):
         items = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"]
@@ -277,6 +283,30 @@ class TestSearchTmdb:
 
         assert [(p["person_id"], p["name"]) for p in body["people"]] == [(4, "Glass Marlowe")]
         assert [i["ref"] for i in body["items"]] == ["tmdb-movie-12"]
+
+    def test_a_title_held_under_another_name_comes_back_as_its_library_card(
+        self, viewer, library, tmdb, arr
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        tmdb.search_results = [
+            {"id": 11, "media_type": "movie", "title": "La Serre"},
+            {"id": 77, "media_type": "tv", "name": "La Serre: the coast"},
+            {"id": 12, "media_type": "movie", "title": "La Serre 2"},
+        ]
+
+        body = viewer.get("/api/watch/search/tmdb", params={"q": "la serre"}).json()
+
+        assert [(h["ref"], h["title"], h["href"]) for h in body["held"]] == [
+            ("movie-100", "The Glasshouse", "/watch/movie/100"),
+            ("show-500", "Glass Coast", "/watch/show/500"),
+        ]
+        assert [i["ref"] for i in body["items"]] == ["tmdb-movie-12"]
+
+    def test_a_held_title_the_library_search_finds_itself_is_not_told_twice(
+        self, viewer, tmdb, arr
+    ):
+        assert viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["held"] == []
 
     def test_a_one_letter_query_asks_tmdb_nothing(self, viewer, tmdb, arr):
         tmdb.failing = True

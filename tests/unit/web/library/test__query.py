@@ -199,6 +199,17 @@ class TestFetchLibrary:
         _items, total = fetch_library(conn, q="dune")
         assert total == 1
 
+    @pytest.mark.parametrize("typed", ["amelie", "oceans", "spiderman", "fast and"])
+    def test_search_reads_past_accents_and_punctuation(self, db_path, typed):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Amélie & Ocean's Spider-Man: Fast & Furious")
+        _insert_movie(conn, "m2", "Other")
+
+        items, total = fetch_library(conn, q=typed)
+
+        assert ([i["id"] for i in items], total) == (["m1"], 1)
+
     def test_type_filter_movie(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)

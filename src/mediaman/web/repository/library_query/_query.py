@@ -6,6 +6,7 @@ protection maps, and assembles the final result via `._display`.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import timedelta
 
@@ -14,6 +15,7 @@ from mediaman.core.time import now_iso, now_utc
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import Keep, _shape_rows, lapse_key
+from mediaman.web.repository.library_query._match import title_distance
 
 VALID_SORTS = {
     "added_desc",
@@ -29,9 +31,8 @@ VALID_SORTS = {
 }
 VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
-# Hard cap on the user-supplied search term applied to the LIKE filter.
-# Without this an attacker could submit a multi-megabyte string and force
-# SQLite to do a slow scan against every title and show_title row.
+# Hard cap on the user-supplied search term. Without this an attacker could
+# submit a multi-megabyte string to be compared with every title.
 # 200 chars is well above any realistic title length.
 MAX_SEARCH_TERM_LEN = 200
 
@@ -42,6 +43,18 @@ _ITEM_ID_SEP = "\x1f"
 TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
+
+
+def _matching_ids(conn: sqlite3.Connection, q: str) -> list[str]:
+    """The ids of the items whose own title, or whose show's, holds *q*."""
+    return [
+        r["id"]
+        for r in conn.execute("SELECT id, title, show_title FROM media_items")
+        if any(
+            title and title_distance(title, q) is not None
+            for title in (r["title"], r["show_title"])
+        )
+    ]
 
 
 def _build_where_clause(
@@ -59,15 +72,8 @@ def _build_where_clause(
     params: list[object] = []
 
     if q:
-        # Cap the LIKE term before escaping — escaping before truncation
-        # would let metacharacters at position MAX_SEARCH_TERM_LEN-1
-        # split mid-escape and produce a malformed pattern.  Truncate raw,
-        # then escape.
-        q = q[:MAX_SEARCH_TERM_LEN]
-        where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
-        q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        like = f"%{q_escaped}%"
-        params.extend([like, like])
+        where_clauses.append("id IN (SELECT value FROM json_each(?))")
+        params.append(json.dumps(_matching_ids(conn, q[:MAX_SEARCH_TERM_LEN])))
 
     kept_filter = False
     if media_type == "kept":

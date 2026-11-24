@@ -57,6 +57,7 @@ from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
+from mediaman.web.routes.watch.browse_api import library_items
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
@@ -125,14 +126,16 @@ def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
 def api_watch_search_tmdb(
     request: Request, q: str = "", username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """TMDB titles matching *q* that the library does not hold, and the people it names."""
+    """TMDB titles matching *q* that the library does not hold, and the people it names.
+    ``held`` is the library titles among TMDB's that the library's own search does not find,
+    as that search answers them."""
     term = q.strip()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
-        return respond_ok({"tmdb_configured": False, "items": [], "people": []})
+        return respond_ok({"tmdb_configured": False, "items": [], "held": [], "people": []})
     if len(term) < catalog.MIN_QUERY_LEN:
-        return respond_ok({"tmdb_configured": True, "items": [], "people": []})
+        return respond_ok({"tmdb_configured": True, "items": [], "held": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
         found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
@@ -140,16 +143,33 @@ def api_watch_search_tmdb(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = catalog.library_index(
-        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
-    )
+    libraries = lib.scanned_library_ids(conn)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     arr = _arr(request, conn)
-    items = [
-        card
-        for item in found
-        if (card := catalog.tmdb_card(item, index, arr)) is not None and not card["in_library"]
+    cards = [card for item in found if (card := catalog.tmdb_card(item, index, arr)) is not None]
+    refs = dict.fromkeys(cast(str, c["library_ref"]) for c in cards if c["in_library"])
+    held = [
+        title
+        for ref in refs
+        if (title := _library_title(conn, libraries, ref)) is not None
+        and not lib.is_found_by(title, term)
     ]
-    return respond_ok({"tmdb_configured": True, "items": items, "people": catalog.people(found)})
+    return respond_ok(
+        {
+            "tmdb_configured": True,
+            "items": [card for card in cards if not card["in_library"]],
+            "held": library_items(conn, username, libraries, held),
+            "people": catalog.people(found),
+        }
+    )
+
+
+def _library_title(
+    conn: sqlite3.Connection, libraries: list[str], ref: str
+) -> lib.LibraryMovie | lib.LibraryShow | None:
+    kind, _, key = ref.partition("-")
+    find = lib.find_movie if kind == "movie" else lib.find_show
+    return find(conn, libraries, key)
 
 
 @router.get("/api/watch/discover")

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import sqlite3
 import unicodedata
 from collections.abc import Sequence, Set
@@ -24,6 +23,8 @@ from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
     MAX_SEARCH_TERM_LEN,
+    title_distance,
+    without_article,
 )
 from mediaman.web.repository.watch_progress import seen_movies
 
@@ -57,8 +58,6 @@ RowOrder = Literal["az", "added", "year", "unwatched"]
 RowCursor = tuple[str, str, str]
 
 _NEWEST_FIRST = ("added", "year")
-
-_ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,11 +142,6 @@ def _in_libraries(
     return f"CAST({column} AS TEXT) IN ({marks})", list(libraries)
 
 
-def _like(term: str) -> str:
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
 def _movies(
     conn: sqlite3.Connection,
     libraries: list[str],
@@ -160,9 +154,6 @@ def _movies(
     if key is not None:
         where.append("id = ?")
         params.append(key)
-    if term is not None:
-        where.append("title LIKE ? ESCAPE '\\'")
-        params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         f"SELECT id, title, added_at, tmdb_id, year, file_path FROM media_items WHERE {' AND '.join(where)}"
@@ -178,6 +169,7 @@ def _movies(
             r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
+        if term is None or title_distance(r["title"], term) is not None
     ]
 
 
@@ -196,9 +188,6 @@ def _shows(
     if key is not None:
         where.append("show_rating_key = ?")
         params.append(key)
-    if term is not None:
-        where.append("COALESCE(show_title, title) LIKE ? ESCAPE '\\'")
-        params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
@@ -222,6 +211,7 @@ def _shows(
             year=r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
+        if term is None or title_distance(r["show_title"], term) is not None
     ]
 
 
@@ -242,7 +232,7 @@ def _plain(text: str) -> str:
 
 def sort_title(title: str) -> str:
     """*title* as A to Z reads it: without a leading article, accents or case."""
-    return _ARTICLE.sub("", _plain(title))
+    return without_article(_plain(title))
 
 
 def row_cursor(
@@ -393,29 +383,21 @@ def search_library(
     conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
 ) -> tuple[list[LibraryMovie | LibraryShow], int]:
     """The *limit* movies and shows whose titles come closest to *query* of those that contain
-    it (case-insensitive), then by title, and how many contain it."""
+    it (as title_distance reads both), then by title, and how many contain it."""
     term = query[:MAX_SEARCH_TERM_LEN]
     found: list[LibraryMovie | LibraryShow] = [
         *_movies(conn, libraries, term=term),
         *_shows(conn, libraries, term=term),
     ]
-    wanted = _plain(term)
-    found.sort(key=lambda item: (_distance(item.title, wanted), sort_title(item.title), item.key))
+    found.sort(
+        key=lambda item: (title_distance(item.title, term), sort_title(item.title), item.key)
+    )
     return found[:limit], len(found)
 
 
-def _distance(title: str, wanted: str) -> int:
-    """How far *title* is from *wanted*, which is plain: the same, the same but for a leading
-    article, starting with it, with a word that does, or only containing it."""
-    whole = _plain(title)
-    name = _ARTICLE.sub("", whole)
-    if wanted == whole:
-        return 0
-    if wanted == name:
-        return 1
-    if whole.startswith(wanted) or name.startswith(wanted):
-        return 2
-    return 3 if re.search(rf"(?<!\w){re.escape(wanted)}", whole) else 4
+def is_found_by(item: LibraryMovie | LibraryShow, query: str) -> bool:
+    """Whether search_library finds *item* for *query*."""
+    return title_distance(item.title, query[:MAX_SEARCH_TERM_LEN]) is not None
 
 
 def season_item_id(
@@ -588,6 +570,7 @@ __all__ = [
     "find_movie",
     "find_show",
     "in_order",
+    "is_found_by",
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",
