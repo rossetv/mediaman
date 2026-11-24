@@ -675,3 +675,22 @@ def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
         _in_media("_watch.css", "(max-width: 599.98px)"), ".watch-banner__title"
     )
     assert "--title-lines: 4" in phone
+
+
+def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
+    wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
+
+    stops = re.findall(r"(\d+)px", wide)
+    assert stops[0] == "320" and stops[-1] == "1150"
+
+
+def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_buttons_in_a_row() -> (
+    None
+):
+    sideways = _in_media("_watch.css", "(max-width: 599.98px) and (max-height: 500px)")
+
+    assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
+    assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
+    assert "flex: none" in _declarations_in(
+        sideways, ".watch-banner .watch-actions .watch-btn--play"
+    )
