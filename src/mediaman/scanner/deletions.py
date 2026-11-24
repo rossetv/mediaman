@@ -612,10 +612,14 @@ def _not_unmonitored(row: DeletionRow, reason: str) -> str:
     )
 
 
-def _came_back(conn: sqlite3.Connection, row: DeletionRow) -> bool:
-    """Return True if a booked deletion's title was asked for again, or is on disk again."""
+def _came_back(conn: sqlite3.Connection, row: DeletionRow) -> str | None:
+    """Say how a booked deletion's title came back, or return None when it did not."""
+    if was_requested_since(conn, row):
+        return "it was asked for again after its deletion"
     paths = row.removed_paths.union(tracked_paths(row) or [])
-    return was_requested_since(conn, row) or any(os.path.lexists(path) for path in paths)
+    if any(os.path.lexists(path) for path in paths):
+        return "a copy of it is on disk again"
+    return None
 
 
 def unmonitor_deleted(
@@ -637,7 +641,8 @@ def unmonitor_deleted(
     for row in fetch_pending_unmonitors(conn):
         outcome: int | str | None = None
         try:
-            if _came_back(conn, row):
+            if (came_back := _came_back(conn, row)) is not None:
+                outcome = f"Left monitored in {_service(row)}: {row.title} — {came_back}"
                 logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
             else:
                 outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)

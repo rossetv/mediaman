@@ -715,28 +715,57 @@ def was_requested_since(conn: sqlite3.Connection, row: DeletionRow) -> bool:
     """Return True if the title was downloaded again after *row*'s deletion was booked.
 
     *row* is as fetch_pending_unmonitors returns it. A download is audited
-    under the title, or under its TMDB/TVDB id.
+    under its TMDB/TVDB id, or under its bare title, which another movie or
+    show may share: its audit detail, and the notification it left, say which.
     """
-    keys = [
-        row.title,
-        *redownload_tokens(
-            DeletedMedia(
-                row.id,
-                row.media_type or "",
-                row.tmdb_id,
-                row.tvdb_id,
-                row.season_number,
-                row.title or "",
-            )
-        ),
-    ]
+    tokens = redownload_tokens(
+        DeletedMedia(
+            row.id,
+            row.media_type or "",
+            row.tmdb_id,
+            row.tvdb_id,
+            row.season_number,
+            row.title or "",
+        )
+    )
+    keys = [row.title, *tokens]
     # rationale: only "?" placeholders are interpolated; every value is bound
-    found = conn.execute(  # nosec B608
-        "SELECT 1 FROM audit_log WHERE id > ? AND action IN ('downloaded', 're_downloaded') "
-        f"AND media_item_id IN ({','.join('?' * len(keys))}) LIMIT 1",
+    requests = conn.execute(  # nosec B608
+        "SELECT media_item_id, detail FROM audit_log "
+        "WHERE id > ? AND action IN ('downloaded', 're_downloaded') "
+        f"AND media_item_id IN ({','.join('?' * len(keys))})",
         (row.id, *keys),
-    ).fetchone()
-    return found is not None
+    ).fetchall()
+    if any(request["media_item_id"] in tokens for request in requests):
+        return True
+    other = "Sonarr" if row.media_type == "movie" else "Radarr"
+    if all(
+        (request["detail"] or "").startswith(f"Added '{row.title}' to {other}")
+        for request in requests
+    ):
+        return False
+    notifications = conn.execute(
+        "SELECT service, tmdb_id, tvdb_id, season_number FROM download_notifications "
+        "WHERE title = ? AND created_at >= (SELECT created_at FROM audit_log WHERE id = ?)",
+        (row.title, row.id),
+    ).fetchall()
+    return not notifications or any(_may_ask_for(found, row) for found in notifications)
+
+
+def _may_ask_for(notification: sqlite3.Row, row: DeletionRow) -> bool:
+    """Return False when the notification names another item than *row*'s: a service, id or season."""
+    if row.media_type == "movie":
+        service, column, own_id = "radarr", "tmdb_id", row.tmdb_id
+        season = None
+    else:
+        service, column, own_id = "sonarr", "tvdb_id", row.tvdb_id
+        season = notification["season_number"]
+    asked_id = notification[column]
+    return (
+        notification["service"] == service
+        and (asked_id is None or own_id is None or asked_id == own_id)
+        and (season is None or row.season_number is None or season == row.season_number)
+    )
 
 
 def book_removed_files(

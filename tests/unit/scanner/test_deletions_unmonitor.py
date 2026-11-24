@@ -14,6 +14,7 @@ from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner import deletions, runner
 from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_settings
 
@@ -199,6 +200,60 @@ def test_a_title_asked_for_again_stays_monitored(conn, root, monkeypatch, key, a
     _sync(conn, monkeypatch, radarr)
 
     assert radarr.mock_calls == []
+    assert _skips(conn) == ["m1"]
+
+
+def _ask(conn, service, *, tmdb_id=None, tvdb_id=None, season_number=None, email="a@b.c"):
+    """Record a download as the search page does, under the bare title "Film"."""
+    log_audit(conn, "Film", "downloaded", f"Added 'Film' to {service} by admin")
+    if email:
+        record_download_notification(
+            conn,
+            email=email,
+            title="Film",
+            media_type="movie" if service == "Radarr" else "tv",
+            service=service.lower(),
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            season_number=season_number,
+        )
+    conn.commit()
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        {"service": "Sonarr", "tvdb_id": 5},
+        {"service": "Sonarr", "email": None},
+        {"service": "Radarr", "tmdb_id": 999},
+    ],
+    ids=["a show", "a show, no email", "another movie"],
+)
+def test_another_title_of_the_same_name_asked_for_does_not_stop_the_unmonitor(
+    conn, root, monkeypatch, request_
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _ask(conn, **request_)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == [1]
+
+
+@pytest.mark.parametrize("others", [0, 1])
+def test_the_movie_itself_asked_for_by_search_stays_monitored(conn, root, monkeypatch, others):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    for _ in range(others):
+        _ask(conn, "Radarr", tmdb_id=999)
+    _ask(conn, "Radarr", tmdb_id=601)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == []
 
 
 def test_a_title_downloaded_only_before_its_deletion_is_unmonitored(conn, root):
