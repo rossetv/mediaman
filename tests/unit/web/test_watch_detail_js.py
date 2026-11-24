@@ -75,6 +75,12 @@ def test_back_from_a_person_finds_each_title_as_it_was_left() -> None:
     assert out["closed"] == {"open": False, "at": ""}
 
 
+def test_back_from_a_title_opened_inside_another_finds_that_one_as_it_was_left() -> None:
+    out = _run("titleOnTitle")
+    assert out["second"] == {"title": "Brightwater", "scroll": 0}
+    assert out["first"] == {"title": "Meridian", "scroll": 420, "hidden": False, "play": None}
+
+
 def test_a_title_found_again_is_brought_up_to_date() -> None:
     out = _run("peopleAndBack")
     assert out["first"]["overview"] == "As it was."

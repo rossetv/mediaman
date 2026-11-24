@@ -448,7 +448,6 @@
   /* ── Pointer and keyboard ── */
 
   function arm(p) {
-    dontAsk();
     clearTimeout(armTimer);
     armed = p;
     armTimer = setTimeout(function () {

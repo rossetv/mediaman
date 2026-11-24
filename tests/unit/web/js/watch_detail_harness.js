@@ -411,6 +411,19 @@ const scenarios = {
     return out;
   },
 
+  // A title opened from inside another, and Back to that one.
+  async titleOnTitle() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL, '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    p.ttl().scrollTop = 420;
+    p.ctx.MMWatch.detail.open('show-300');
+    await settle();
+    const second = { title: p.text('#ttl-title'), scroll: p.ttl().scrollTop };
+    p.ctx.history.back();
+    return { second, first: { title: p.text('#ttl-title'), scroll: p.ttl().scrollTop, hidden: p.ttl().hidden, play: p.text('.watch-btn--play') } };
+  },
+
   // Back before the sheet has finished stepping aside.
   async backMidway() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, {
