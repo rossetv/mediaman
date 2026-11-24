@@ -45,6 +45,8 @@
   var IDLE_MS = 3000;
   var SAVE_EVERY_MS = 10000;
   var SKIP_S = 10;
+  /* The video goes where presses in quick succession lead this long after the last. */
+  var LAND_MS = 250;
   var PAGE_S = 60;
   var AUTOPLAY_KEY = 'mediaman.watch.autoplay';
   var COUNTDOWN_S = 10;
@@ -231,6 +233,7 @@
 
   /* What belongs to the video being watched; resetVideo sets every one. */
   var pendingStart;          // where the stream will start, until the video has loaded
+  var aimS;                  // where presses have led, until the video is sent there
   var wantPlaying;
   var hasPlayed;
   var playedS;
@@ -267,6 +270,7 @@
 
   function resetVideo(at) {
     pendingStart = at;
+    dropAim();
     wantPlaying = true;
     hasPlayed = false;
     playedS = 0;
@@ -314,6 +318,7 @@
   }
 
   function position() {
+    if (aimS !== null) return aimS;
     return pendingStart !== null ? pendingStart : video.currentTime;
   }
 
@@ -683,6 +688,7 @@
   /* Start a stream at `pos`; one retry before the error is shown. */
   function startStream(pos) {
     var gen = ++generation;
+    dropAim();
     starting = true;
     pendingStart = pos;
     lastTime = null;
@@ -706,6 +712,7 @@
           takeQualities(data);
           takePreviews(data.previews);
           takeMarks(data);
+          if (aimS !== null) land();
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
@@ -756,6 +763,7 @@
   function recoverMedia() {
     var h = hls;
     pendingStart = position();
+    dropAim();
     lastTime = null;
     swapping = true;
     stopRolling();
@@ -765,6 +773,8 @@
       video.removeEventListener('loadedmetadata', goOn);
       if (h !== hls) return;
       swapping = false;
+      pendingStart = position();
+      dropAim();
       video.currentTime = pendingStart;
       if (wantPlaying) play();
       else setLoading(false);
@@ -859,6 +869,7 @@
     streamId = null;
     generation++;
     starting = false;
+    dropAim();
     destroyHls();
     return Promise.race([
       Promise.all(unstopped.map(sendStop)),
@@ -959,6 +970,7 @@
       if (tryAgain) tryAgain();
       return;
     }
+    if (aimS !== null) land();
     if (countdownTimer !== null) {
       /* The video is over and the countdown is what runs: stop that. */
       hideUpnext();
@@ -980,9 +992,14 @@
     }
   }
 
-  function seekTo(t) {
+  function within(t) {
     var d = duration();
-    t = Math.max(0, d > 0 ? Math.min(t, d - 1) : t);
+    return Math.max(0, d > 0 ? Math.min(t, d - 1) : t);
+  }
+
+  function seekTo(t) {
+    t = within(t);
+    dropAim();
     lastTime = null;
     hideUpnext();
     if (video.readyState >= 1) {
@@ -1008,7 +1025,27 @@
     }
   }
 
-  function skip(delta) { seekTo(position() + delta); }
+  /* Presses move the bar at once and the video when they stop: a seek each would
+     have Plex convert every place on the way. */
+  var landTimer = null;
+
+  function aimAt(t) {
+    aimS = within(t);
+    hideUpnext();
+    clearTimeout(landTimer);
+    landTimer = setTimeout(land, LAND_MS);
+    if (hls && video.readyState < 1) hls.config.startPosition = aimS;
+    render();
+  }
+
+  function land() { seekTo(aimS); }
+
+  function dropAim() {
+    clearTimeout(landTimer);
+    aimS = null;
+  }
+
+  function skip(delta) { aimAt(position() + delta); }
 
   /* While a stream loads to play, the button shows it working, not a Pause
      that has nothing to pause yet; pressing it still means "don't play". */
@@ -1115,6 +1152,12 @@
   });
 
   video.addEventListener('ended', function () {
+    /* Presses that led back from the end are to be followed; ones that led on have been. */
+    if (aimS !== null && aimS < duration() - 1) {
+      land();
+      return;
+    }
+    dropAim();
     saveProgress();
     showSkip();
     atEnd();
@@ -1491,8 +1534,8 @@
   els.seek.addEventListener('pointercancel', function (e) { endDrag(e, false); });
   els.seek.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'Home') seekTo(0);
-    else if (e.key === 'End') seekTo(duration());
+    if (e.key === 'Home') aimAt(0);
+    else if (e.key === 'End') aimAt(duration());
     else if (e.key === 'ArrowUp') skip(SKIP_S);
     else if (e.key === 'ArrowDown') skip(-SKIP_S);
     else if (e.key === 'PageUp') skip(PAGE_S);
@@ -2221,6 +2264,7 @@
     pendingStart = resumeAt;
     streamId = null;
     generation++;
+    dropAim();
     if (switching) showSubtitle(item.subtitle);
     switching = false;
     destroyHls();

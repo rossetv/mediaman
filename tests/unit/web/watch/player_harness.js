@@ -505,6 +505,18 @@ function playState(p) {
   };
 }
 
+/* Every place the video is sent to from now on, as the page sets it. */
+function countSeeks(video) {
+  const seeks = [];
+  let at = video.currentTime;
+  Object.defineProperty(video, 'currentTime', { configurable: true, get: () => at, set(t) { at = t; seeks.push(t); } });
+  return seeks;
+}
+
+function barState(p) {
+  return { time: p.q('[data-elapsed]').textContent, now: p.q('[data-seek]').getAttribute('aria-valuenow'), left: p.q('[data-played]').style.width };
+}
+
 function holdState(p) {
   return {
     shown: !gone(p.hold),
@@ -1032,6 +1044,127 @@ const scenarios = {
     const byMouse = look();
     tabTo(p.q('[data-volume]'));
     return { byMouse: byMouse, byTab: look() };
+  },
+
+  /* An arrow held down, then the buttons pressed in quick succession. */
+  async hold_arrow(p) {
+    await streamPlays(p, 100);
+    const seeks = countSeeks(p.video);
+    const out = {};
+    for (let i = 0; i < 5; i++) { key('ArrowRight', i > 0); p.tick(40); }
+    /* The video plays on meanwhile. */
+    fire(p.video, 'timeupdate');
+    out.held = Object.assign(barState(p), { seeks: seeks.slice() });
+    p.tick(150);
+    out.early = seeks.slice();
+    p.tick(100);
+    out.landed = seeks.slice();
+    p.tick(5000);
+    out.later = seeks.length;
+    for (const type of ['mouse', 'touch']) {
+      p.video.currentTime = 600;
+      seeks.length = 0;
+      press(p.q('[data-back10]'), type);
+      p.tick(100);
+      press(p.q('[data-fwd10]'), type);
+      p.tick(100);
+      press(p.q('[data-fwd10]'), type);
+      press(p.q('[data-fwd10]'), type);
+      out[type] = { now: barState(p).now };
+      p.tick(300);
+      out[type].seeks = seeks.slice();
+    }
+    tabTo(p.q('[data-seek]'));
+    for (const k of ['PageUp', 'ArrowUp', 'Home', 'End']) {
+      p.video.currentTime = 600;
+      seeks.length = 0;
+      for (let i = 0; i < 4; i++) { key(k, i > 0); p.tick(40); }
+      p.tick(300);
+      out[k] = seeks.slice();
+    }
+    return out;
+  },
+
+  /* Presses that lead past either end. */
+  async hold_ends(p) {
+    await streamPlays(p, 25);
+    const seeks = countSeeks(p.video);
+    const out = {};
+    for (let i = 0; i < 6; i++) key('ArrowLeft', i > 0);
+    out.start = barState(p).now;
+    p.tick(300);
+    key('ArrowRight');
+    key('ArrowLeft', true);
+    key('ArrowLeft', true);
+    key('ArrowRight');
+    p.tick(300);
+    p.video.currentTime = 2970;
+    for (let i = 0; i < 6; i++) key('ArrowRight', i > 0);
+    out.end = barState(p).now;
+    p.tick(300);
+    out.seeks = seeks;
+    return out;
+  },
+
+  /* The video ends while presses wait to be sent: ones that lead back, or on to the end. */
+  async ends_under_press(p) {
+    await streamPlays(p, 2995);
+    const seeks = countSeeks(p.video);
+    key(p.win.serverPlays);
+    const keep = p.video.currentTime;
+    p.video.paused = true; p.video.ended = true;
+    fire(p.video, 'ended');
+    const card = !gone(p.q('[data-upnext]'));
+    p.tick(300);
+    return { card: card, seeks: seeks, from: keep, after: !gone(p.q('[data-upnext]')) };
+  },
+
+  /* Presses wait to be sent as the page is left, as a new quality starts, as a marker is skipped. */
+  async press_not_lost(p) {
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 100);
+    playOn(p, 3);
+    const seeks = countSeeks(p.video);
+    const out = {};
+    key('ArrowRight');
+    key('ArrowRight');
+    p.replies.push(answer('480p-1500'));
+    click(p.q('[data-quality="480p-1500"]'));
+    out.saved = p.beacons[p.beacons.length - 1].body.position_s;
+    await settle();
+    out.startsAt = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    await streamPlays(p, 123);
+    seeks.length = 0;
+    p.tick(1000);
+    out.again = seeks.slice();
+    p.video.currentTime = MARKERS[0].start_s - 5;
+    key('ArrowRight');
+    out.offered = p.q('[data-skip-text]').textContent;
+    seeks.length = 0;
+    key('s');
+    p.tick(1000);
+    out.skipped = seeks.map((t) => t - MARKERS[0].end_s);
+    key('ArrowRight');
+    p.leave();
+    out.left = p.beacons[p.beacons.length - 1].body.position_s - MARKERS[0].end_s;
+    return out;
+  },
+
+  /* Presses while the video waits for more of itself, and Space straight after one. */
+  async press_while_buffering(p) {
+    await streamPlays(p, 100);
+    const seeks = countSeeks(p.video);
+    fire(p.video, 'waiting');
+    key('ArrowRight');
+    key('ArrowRight', true);
+    const now = barState(p).now;
+    p.tick(300);
+    const landed = seeks.slice();
+    key('ArrowRight');
+    key(' ');
+    const bySpace = seeks.slice();
+    p.tick(1000);
+    return { now: now, landed: landed, bySpace: bySpace, all: seeks, paused: p.video.paused };
   },
 
   /* A browser that leaves the page cancels its requests first, and only then says so. */
@@ -1563,6 +1696,7 @@ const scenarios = {
   async space(p) {
     await streamPlays(p, 30);
     press(p.q('[data-fwd10]'));
+    p.tick(300);
     const skipped = p.video.currentTime;
     key(' ');
     const afterMouse = { skippedOnce: p.video.currentTime === skipped, paused: p.video.paused };
@@ -1579,6 +1713,7 @@ const scenarios = {
     tabTo(p.q('[data-fwd10]'));
     const before = p.video.currentTime;
     key(' ');
+    p.tick(300);
     return { afterMouse: afterMouse, afterMenu: afterMenu, afterSlider: afterSlider, afterTab: { skipped: p.video.currentTime - before, paused: p.video.paused } };
   },
 
@@ -1604,6 +1739,7 @@ const scenarios = {
     h.emit('hlsManifestParsed');
     const whilePlaylistLoads = h.startsAt;
     key('ArrowRight');
+    p.tick(300);
     return { whilePlaylistLoads: whilePlaylistLoads, beforeVideo: h.startsAt };
   },
 
@@ -1688,6 +1824,7 @@ const scenarios = {
     for (const k of ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown']) {
       p.video.currentTime = 600;
       key(k);
+      p.tick(300);
       out[k] = p.video.currentTime - 600;
     }
     return out;
@@ -2447,6 +2584,7 @@ const scenarios = {
     tabTo(p.q('[data-fwd10]'));
     key('Enter');
     key('Enter', true);
+    p.tick(300);
     const skipped = p.video.currentTime - seek;
     tabTo(p.q('[data-play]'));
     key('Enter');

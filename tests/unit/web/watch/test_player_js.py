@@ -1204,3 +1204,48 @@ def test_f_and_the_arrows_work_after_the_mouse_used_the_volume_slider(markup):
     assert out["byMouse"] == {"moved": 10, "full": 1}
     # There by Tab the arrows are the slider's own.
     assert out["byTab"] == {"moved": 0, "full": 1}
+
+
+def test_a_held_arrow_moves_the_bar_at_once_and_the_video_once_when_it_is_let_go(markup):
+    out = run(markup, "hold_arrow")
+    assert out["held"] == {"time": "2:30", "now": "150", "left": "5%", "seeks": []}
+    assert (out["early"], out["landed"], out["later"]) == ([], [150], 1)
+
+
+@pytest.mark.parametrize("pointer", ["mouse", "touch"])
+def test_skip_buttons_pressed_in_quick_succession_move_the_video_once(markup, pointer):
+    assert run(markup, "hold_arrow")[pointer] == {"now": "620", "seeks": [620]}
+
+
+def test_every_key_held_on_the_bar_moves_the_video_once(markup):
+    out = run(markup, "hold_arrow")
+    assert [out[k] for k in ("PageUp", "ArrowUp", "Home", "End")] == [[840], [640], [0], [2999]]
+
+
+def test_presses_past_the_ends_of_the_video_stop_there_and_lose_none_after(markup):
+    out = run(markup, "hold_ends")
+    # 2970 is the scenario putting the video near its end.
+    assert (out["start"], out["end"]) == ("0", "2999")
+    assert out["seeks"] == [0, 10, 2970, 2999]
+
+
+def test_presses_back_as_the_video_ends_win_over_its_end(markup):
+    out = run(markup, "ends_under_press", plays="ArrowLeft")
+    assert out == {"card": False, "seeks": [2985], "from": 2995, "after": False}
+
+
+def test_presses_on_past_the_end_do_not_take_the_end_back(markup):
+    out = run(markup, "ends_under_press", plays="ArrowRight")
+    assert out == {"card": True, "seeks": [], "from": 2995, "after": True}
+
+
+def test_a_press_still_to_land_is_saved_started_from_and_skipped_from(markup):
+    out = run(markup, "press_not_lost")
+    assert (out["saved"], out["startsAt"], out["again"]) == (123, 123, [])
+    assert (out["offered"], out["skipped"], out["left"]) == ("Skip intro", [0], 10)
+
+
+def test_presses_while_the_video_buffers_land_and_space_lands_one_at_once(markup):
+    out = run(markup, "press_while_buffering")
+    assert (out["now"], out["landed"], out["bySpace"]) == ("120", [120], [120, 130])
+    assert (out["all"], out["paused"]) == ([120, 130], True)
