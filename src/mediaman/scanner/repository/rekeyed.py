@@ -16,7 +16,7 @@ from typing import Any
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso, now_utc
-from mediaman.scanner.repository._protection import restore_keeps
+from mediaman.scanner.repository._protection import is_protected, restore_keeps
 from mediaman.scanner.repository.scheduled_actions import (
     book_removed_files_where,
     delete_show_scheduled_deletions,
@@ -108,7 +108,8 @@ def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) ->
     for column in ("tmdb_id", "tvdb_id"):
         if old[column] is not None and new[column] is not None:
             return bool(old[column] != new[column])
-    return bool(old["show_title"] != new["show_title"])
+    titles = old["show_title"], new["show_title"]
+    return all(titles) and titles[0] != titles[1]
 
 
 def _others_at(
@@ -124,6 +125,20 @@ def _others_at(
     return [row for row in rows if row["id"] not in removed]
 
 
+def _other_keys(
+    conn: sqlite3.Connection, media_id: str, removed: Collection[str]
+) -> list[sqlite3.Row]:
+    """Return the library's other keys of the title *media_id* that are not in *removed*."""
+    title = _title(conn, media_id)
+    if title is None:
+        return []
+    return [
+        other
+        for other in _others_at(conn, title, removed)
+        if other["id"] != media_id and not _is_another_title(title, other)
+    ]
+
+
 # --- Keeps of one film or season ----------------------------------------------
 
 # Settings key holding the last of pruned_keeps looked at for a key that should have had it.
@@ -133,26 +148,10 @@ _LIVE_ITEM_KEEP = (
     "(sa.action = 'protected_forever' OR (sa.action = 'snoozed' AND sa.execute_at >= ?))"
 )
 
-# Another key ``o`` of the title ``mi``, unless their ids say they are two titles in one place.
-_ANOTHER_KEY = (
-    "o.file_path = mi.file_path AND mi.file_path != '' AND o.season_number IS mi.season_number"
-    " AND o.id != mi.id"
-    " AND CASE WHEN o.tmdb_id IS NOT NULL AND mi.tmdb_id IS NOT NULL THEN o.tmdb_id = mi.tmdb_id"
-    " WHEN o.tvdb_id IS NOT NULL AND mi.tvdb_id IS NOT NULL THEN o.tvdb_id = mi.tvdb_id"
-    " ELSE 1 END"
-)
-
 
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
     """Return True if a kept film or season of the library has the files of *media_id*."""
-    # rationale: the interpolated conditions are fixed strings; every value is bound
-    row = conn.execute(  # nosec B608
-        f"SELECT 1 FROM media_items mi JOIN media_items o ON {_ANOTHER_KEY} "
-        "JOIN scheduled_actions sa ON sa.media_item_id = o.id "
-        f"WHERE mi.id = ? AND {_LIVE_ITEM_KEEP} LIMIT 1",
-        (media_id, now_iso()),
-    ).fetchone()
-    return row is not None
+    return any(is_protected(conn, other["id"]) for other in _other_keys(conn, media_id, ()))
 
 
 def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> None:
@@ -214,15 +213,10 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
     ).fetchall():
         if keep["media_item_id"] not in media_ids:
             continue
-        # rationale: the interpolated condition is a fixed string; every value is bound
-        others = conn.execute(  # nosec B608
-            f"SELECT o.id FROM media_items mi JOIN media_items o ON {_ANOTHER_KEY} WHERE mi.id = ?",
-            (keep["media_item_id"],),
-        ).fetchall()
-        staying = [row["id"] for row in others if row["id"] not in media_ids]
-        for other in staying:
-            _give_keep(conn, keep, other)
-        if staying:
+        others = _other_keys(conn, keep["media_item_id"], media_ids)
+        for other in others:
+            _give_keep(conn, keep, other["id"])
+        if others:
             conn.execute("UPDATE pruned_keeps SET file_path = '' WHERE id = ?", (keep["id"],))
     _set_carried_up_to(conn)
 
@@ -392,12 +386,8 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
     for season in seasons:
         if season["season_id"] not in media_ids or not season["file_path"]:
             continue
-        title = _title(conn, season["season_id"])
-        assert title is not None  # still in the library: the query above joined it
         shows = {
-            other["show_rating_key"]
-            for other in _others_at(conn, title, media_ids)
-            if not _is_another_title(title, other)
+            other["show_rating_key"] for other in _other_keys(conn, season["season_id"], media_ids)
         }
         for show_key in shows - {None, "", season["show_rating_key"]}:
             _give_show_keep(conn, season, show_key)

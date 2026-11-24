@@ -24,9 +24,11 @@ class _Library:
         self._conn, self._root, self.kind = conn, root, kind
         self.ids = {}
         self.places = {}
+        self.names = {}
 
     def file(self, key):
-        return self.folder(key) / ("film.mkv" if self.kind == "film" else "E1.mkv")
+        name = "film.mkv" if self.kind == "film" else "E1.mkv"
+        return self.folder(key) / self.names.get(key, name)
 
     def folder(self, key):
         return self._root / self.places.get(key, "Title")
@@ -219,6 +221,31 @@ def test_a_kept_shows_files_stay_when_it_is_renamed_under_its_new_key(
     assert library.file("new").exists()
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ({"tmdb_id": 1}, {"tmdb_id": 2}),
+        ({"tvdb_id": 1}, {"tvdb_id": 2, "show_title": "Another"}),
+        ({"tmdb_id": 1, "tracked_files": []}, {"tmdb_id": 2}),
+    ],
+)
+def test_kept_files_stay_when_plex_corrects_the_match_under_a_new_key(
+    conn, freezer, library, old, new
+):
+    library.ids = {"old": old, "new": new}
+    library.sync("old")
+    _keep(conn, "old")
+
+    library.scan("old", "new")
+    library.scan("new")
+    for days in (40, 1):
+        freezer.tick(timedelta(days=days))
+        library.scan("new")
+
+    assert library.file("new").exists()
+    assert _actions(conn, "new") == ["protected_forever"]
+
+
 class TestKeyBesideAKeptOne:
     @pytest.mark.parametrize("both", [("old", "new"), ("new", "old")])
     def test_is_not_scheduled(self, conn, library, both):
@@ -229,6 +256,7 @@ class TestKeyBesideAKeptOne:
 
         assert _actions(conn, "new") == []
 
+    @pytest.mark.parametrize("library", ["season"], indirect=True)
     @pytest.mark.parametrize(
         ("old", "new"),
         [
@@ -236,12 +264,15 @@ class TestKeyBesideAKeptOne:
             ({"tmdb_id": 1}, {"tmdb_id": 2}),
             ({"tvdb_id": 1}, {"tvdb_id": 2}),
             ({"tmdb_id": 1, "tvdb_id": 3}, {"tmdb_id": 2, "tvdb_id": 3}),
+            ({}, {"show_title": "Another"}),
         ],
     )
     def test_is_scheduled_and_given_no_keep_when_it_is_another_title_there(
         self, conn, freezer, library, old, new
     ):
         library.ids = {"old": old, "new": new}
+        library.names = {"new": "Other E1.mkv"}
+        library.file("new").write_bytes(b"data")
         library.sync("old")
         _keep(conn, "old")
 
