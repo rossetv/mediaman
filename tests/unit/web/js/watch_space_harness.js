@@ -72,6 +72,7 @@ class Server {
     this.fail = {};
     this.scan = { running: false };
     this.page = null; // what /watch holds
+    this.redirected = false;
     this.pages = 0; // how often it was asked for
   }
   stats() {
@@ -185,7 +186,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       // Signed out since the page was loaded: what is asked for next is refused.
       if (opts.signedIn && opts.signedIn.yes) return server.request('GET', url).then((data) => ({ ok: true, status: 200, json: () => Promise.resolve(data) }));
       if (url !== '/watch') return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
-      const answer = { ok: !!server.page, status: 200, redirected: false, text: () => Promise.resolve('') };
+      const answer = { ok: !!server.page, status: 200, redirected: server.redirected, text: () => Promise.resolve('') };
       server.pages += 1;
       return server.holding === '/watch' ? new Promise((resolve) => server.held.push({ url, go: () => resolve(answer) })) : Promise.resolve(answer);
     },
@@ -673,6 +674,16 @@ const scenarios = {
     const added = await scan('9', '1', '8', '2');
     await p.click(p.one('#space-scheduled .btn--danger'));
     return { added: added.sort(), row: await scan('7') };
+  },
+  // The page asked for is another: the session ended, or it moved.
+  async pageRedirected() {
+    const p = await page(['1', '2'].map((id) => row(id)));
+    await p.open();
+    p.server.redirected = true;
+    p.server.rows = ['1', '2', '9'].map((id) => row(id));
+    p.server.page = ['div', { class: 'watch-rows' }, leavingSection('1', '2', '9')];
+    await p.refresh();
+    return { asked: p.server.pages, cards: p.cards(), rows: p.rows() };
   },
   // See all is fitted again once the cards that came have their width.
   async rowGrown() {

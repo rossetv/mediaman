@@ -469,6 +469,13 @@ class TestThePageBehind:
             "row": [["7", "7"]],
         }
 
+    def test_an_answer_that_is_another_page_adds_nothing(self):
+        assert _run("pageRedirected") == {
+            "asked": 1,
+            "cards": ["1", "2"],
+            "rows": ["1", "2", "9"],
+        }
+
     def test_a_row_s_see_all_is_fitted_once_its_new_cards_have_their_width(self):
         for came in ("rowGrown", "rowUndone"):
             assert _run(came) == {"before": 0, "after": ["leaving"]}, came
