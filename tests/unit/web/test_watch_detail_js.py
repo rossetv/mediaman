@@ -928,6 +928,15 @@ def test_an_open_keep_menu_closes_when_the_actions_are_for_another_season() -> N
     assert (out["1"]["after"], out["1"]["live"], out["1"]["posts"]) == (False, True, [])
 
 
+def test_a_keep_undone_elsewhere_shows_on_the_open_title() -> None:
+    out = _run("keptElsewhere")
+    assert out["before"] == [None, False]
+    assert out["undone"] == ["3010", True]
+    assert out["other"] == ["3010", True]
+    assert out["drawnAgain"] is False
+    assert out["askedWhenClosed"] == 0
+
+
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",

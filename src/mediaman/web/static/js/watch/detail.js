@@ -2136,18 +2136,32 @@
     if (refocus && document.body.contains(m.trigger)) m.trigger.focus({ preventScroll: true });
   }
 
-  /* ── A viewer's Keep: keep.js marks the title busy while it saves; once it
-     is not, the overlay loads the title again to show what changed. ── */
+  /* ── A viewer's Keep: keep.js marks the title busy while it saves, and announces
+     what it saved, such as an Undo pressed in a toast from before the title was
+     opened; then the overlay loads the title again to show what changed. ── */
+
+  var keptAsked = false;
+
+  /* Once for a Keep, however many ways it is heard of. */
+  function keptChanged() {
+    if (!isOpen || !cur || keptAsked) return;
+    keptAsked = true;
+    Promise.resolve().then(function () {
+      keptAsked = false;
+      refresh(true);
+    });
+  }
+
+  document.addEventListener('mm:watch-kept', keptChanged);
 
   if (typeof MutationObserver === 'function') {
     new MutationObserver(function (records) {
-      if (!isOpen || !cur) return;
-      var settled = records.some(function (r) {
+      var settled = cur && records.some(function (r) {
         var t = r.target;
         return cur.keepIds[t.getAttribute('data-watch-keep')] &&
           r.oldValue === 'true' && t.getAttribute('aria-busy') === 'false';
       });
-      if (settled) refresh();
+      if (settled) keptChanged();
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-busy'], attributeOldValue: true });
   }
 

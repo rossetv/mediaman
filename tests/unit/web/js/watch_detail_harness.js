@@ -1985,6 +1985,33 @@ const scenarios = {
     return out;
   },
 
+  // A season's Keep undone from a toast raised before the title was opened, and one of another title's.
+  async keptElsewhere() {
+    let show = LIB_SHOW;
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))) } });
+    p.run();
+    show = Object.assign({}, LIB_SHOW, { leaving: null, leaving_seasons: [] });
+    await openCard(p, 'show-300');
+    const look = () => [p.q('.watch-btn--keep') && p.q('.watch-btn--keep').getAttribute('data-watch-keep'), p.text('.ttl__leaving') !== null];
+    const tell = async (id) => {
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-kept', { detail: { id } }));
+      await settle();
+      return look();
+    };
+    const out = { before: look() };
+    show = LIB_SHOW;
+    out.undone = await tell('3010');
+    const body = p.q('.ttl__lead');
+    out.other = await tell('999');
+    out.drawnAgain = p.q('.ttl__lead') !== body;
+    click(p.doc, p.q('.ttl__close'));
+    p.tick();
+    const gets = p.gets.length;
+    await tell('3010');
+    out.askedWhenClosed = p.gets.length - gets;
+    return out;
+  },
+
   // The director leads to the page of their titles, and Back finds the focus on them; one TMDB gives no id for is words.
   async directorLink() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { director: 'Ada Rimmington', director_id: 9008 }) } });
