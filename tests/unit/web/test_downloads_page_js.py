@@ -127,6 +127,22 @@ def test_what_an_outage_keeps_is_dimmed_and_counts_nothing_down() -> None:
     assert ["radarr:h1", True, "", False] in out["demoted"]
 
 
+def test_through_an_outage_rows_stay_in_order_and_the_line_above_counts_them() -> None:
+    out = _run("outageOrder")
+    # downloading first, the held hero ahead of the new ones; then searching as it was
+    assert out["part"] == {
+        "line": "6 items in progress · 2 coming soon · can't reach Radarr",
+        "rows": ["radarr:h1", "sonarr:q4", "Other.2024", "sonarr:q2", "radarr:q3"],
+    }
+    assert out["alone"] == {
+        "line": "2 items in progress · 1 coming soon · can't reach Radarr",
+        "rows": ["radarr:h1", "radarr:q3"],
+    }
+    assert out["back"] == "1 item in progress"
+    # a title still searched for does not take the place of a held download
+    assert out["keeps"] == {"hero": "radarr:h1", "dimmed": True, "rows": ["sonarr:q1"]}
+
+
 def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
     out = _run("outagePart")
     assert out["rows"] == ["radarr:h1", "radarr:u1"]

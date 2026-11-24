@@ -499,6 +499,35 @@ scenarios.outageDim = async function () {
   return { up, down, back, demoted: look() };
 };
 
+// rows stay in order of state through an outage and the line above counts them
+scenarios.outageOrder = async function () {
+  const p = pageRig(true);
+  const line = () => p.h.root.querySelector('.ph').querySelector('p').textContent;
+  const searching = { state: 'searching', state_label: 'Looking' };
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  p.upd({
+    subtitle: '5 items in progress · 2 coming soon', hero: item('radarr:h1', { title: 'One' }),
+    queue: [item('sonarr:q1'), item('sonarr:q2', searching), item('radarr:q3', { title: 'Three', ...searching }), item('sonarr:q4', searching)],
+    upcoming: [item('radarr:u1'), item('sonarr:u2')],
+  });
+  p.upd({
+    ...down, subtitle: "4 items in progress · 1 coming soon · can't reach Radarr", hero: item('sonarr:q1'),
+    queue: [item('Other.2024', { title: 'Other' }), item('sonarr:q4'), item('sonarr:q2', searching)], upcoming: [item('sonarr:u2')],
+  });
+  const part = { line: line(), rows: p.rows() };
+  p.upd({ ...down, subtitle: "Can't reach Radarr", hero: null, queue: [] });
+  const alone = { line: line(), rows: p.rows() };
+  p.upd({ subtitle: '1 item in progress', hero: item('sonarr:q1'), queue: [] });
+  const keeps = pageRig(true);
+  keeps.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q1', searching)] });
+  keeps.upd({ ...down, hero: item('sonarr:q1', searching), queue: [] });
+  const hero = keeps.byId('dl-hero-container').querySelector('.dl-hero');
+  return {
+    part, alone, back: line(),
+    keeps: { hero: hero.getAttribute('data-dl-id'), dimmed: hero.classList.contains('is-held'), rows: keeps.rows() },
+  };
+};
+
 // a service that answers in part: what the payload lists is drawn from it, once
 scenarios.outagePart = async function () {
   const p = pageRig(true);

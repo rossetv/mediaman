@@ -44,9 +44,73 @@
 
   var lastHero = null;
 
-  function heroHeld(dom, box, data) {
+  function heldHero(dom, box, data) {
     var card = box && !dom.isCollapsing(box) && box.querySelector('.dl-hero');
-    return !!card && dom.held(card.getAttribute('data-dl-id'), '', data);
+    if (!card) return null;
+    var title = card.querySelector('.dl-hero-title');
+    return dom.held(card.getAttribute('data-dl-id'), title ? title.textContent : '', data) ? card : null;
+  }
+
+  /* The order the server sorts states in. */
+  var STATES = ['downloading', 'almost_ready', 'queued', 'searching'];
+
+  function rankOf(state) {
+    var rank = STATES.indexOf(state);
+    return rank === -1 ? STATES.length : rank;
+  }
+
+  function stateRank(card) {
+    var pill = card.querySelector('.dl-state-pill');
+    var state = pill && /\bdl-state-(?!pill)(\S+)/.exec(pill.className);
+    return rankOf(state ? state[1] : '');
+  }
+
+  /* Rows keep their place among those of the same state. */
+  function orderRows(list) {
+    var rows = Array.prototype.slice.call(list.querySelectorAll('.dl-compact'));
+    var ranks = rows.map(stateRank);
+    var order = rows.map(function (_, i) { return i; }).sort(function (a, b) { return ranks[a] - ranks[b] || a - b; });
+    var next = list.firstElementChild;
+    order.forEach(function (i) {
+      if (rows[i] === next) next = next.nextElementSibling;
+      else list.insertBefore(rows[i], next);
+    });
+  }
+
+  function shownIn(dom, box, selector) {
+    if (!box || dom.isCollapsing(box)) return [];
+    return Array.prototype.filter.call(box.querySelectorAll(selector), function (row) { return !dom.isCollapsing(row); });
+  }
+
+  /* The server's line counts what it lists, so while rows are held the same
+     line (_downloads_subtitle in download_queue) is built from what is shown. */
+  function subtitleFor(dom, data) {
+    var active = shownIn(dom, document.getElementById('dl-hero-container'), '.dl-hero')
+      .concat(shownIn(dom, document.getElementById('dl-queue-container'), '.dl-compact'));
+    var coming = shownIn(dom, document.getElementById('dl-upcoming-container'), '.dl-upcoming-row');
+    var anyHeld = active.concat(coming).some(function (row) { return row.classList.contains('is-held'); });
+    if (!anyHeld || !data.outage) return data.subtitle;
+    var soon = coming.length ? ' · ' + coming.length + ' coming soon' : '';
+    if (!active.length) return data.outage + soon;
+    return active.length + ' item' + (active.length !== 1 ? 's' : '') + ' in progress' + soon +
+      ' · ' + data.outage.charAt(0).toLowerCase() + data.outage.slice(1);
+  }
+
+  function updateSubtitle(dom, header, text) {
+    var subtitle = header.querySelector('p');
+    if (text) {
+      if (!subtitle) {
+        subtitle = document.createElement('p');
+        header.appendChild(subtitle);
+        dom.setText(subtitle, text);
+        dom.reveal(subtitle);
+      } else {
+        dom.setText(subtitle, text);
+        if (dom.isCollapsing(subtitle)) dom.reveal(subtitle);
+      }
+    } else if (subtitle && !dom.isCollapsing(subtitle)) {
+      dom.collapseAway(subtitle);
+    }
   }
 
   function update(data) {
@@ -58,24 +122,10 @@
     var header = root.querySelector('.ph');
     var held = false;  // something stays shown because its service does not answer
 
-    /* Subtitle — the server computes the line (data.subtitle, the single
-       source of truth for the count copy); the page just syncs the <p>,
-       growing or folding it as the line appears or empties. */
-    if (header) {
-      var subtitle = header.querySelector('p');
-      if (data.subtitle) {
-        if (!subtitle) {
-          subtitle = document.createElement('p');
-          header.appendChild(subtitle);
-          dom.setText(subtitle, data.subtitle);
-          dom.reveal(subtitle);
-        } else {
-          dom.setText(subtitle, data.subtitle);
-          if (dom.isCollapsing(subtitle)) dom.reveal(subtitle);
-        }
-      } else if (subtitle && !dom.isCollapsing(subtitle)) {
-        dom.collapseAway(subtitle);
-      }
+    /* A hero whose service went down keeps its place above one further from done. */
+    var kept = heldHero(dom, heroContainer, data);
+    if (kept && data.hero && stateRank(kept) < rankOf(data.hero.state)) {
+      data = Object.assign({}, data, { hero: null, queue: [data.hero].concat(data.queue || []) });
     }
 
     /* Hero — the card is rebuilt when the container was emptied by an
@@ -94,9 +144,9 @@
         if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
         renderHero().updateHero(heroContainer, data.hero);
       }
-    } else if (heroHeld(dom, heroContainer, data)) {
+    } else if (kept) {
       held = true;
-      dom.markHeld(heroContainer.querySelector('.dl-hero'));
+      dom.markHeld(kept);
     } else {
       lastHero = null;
       closeSection(dom, heroContainer);
@@ -132,6 +182,7 @@
         list.id = 'dl-queue-list';
         queueContainer.appendChild(list);
       }
+      var added = [];
       for (var i = 0; i < queue.length; i++) {
         var item = queue[i];
         present[item.id] = true;
@@ -140,11 +191,14 @@
           if (dom.isCollapsing(row)) dom.reveal(row);
           renderRow().updateCompactRow(row, item);
         } else {
-          row = list.appendChild(dom.buildCompactRow(item));
-          if (!opening) dom.reveal(row);
+          row = dom.buildCompactRow(item);
+          list.insertBefore(row, item === demoted ? list.firstElementChild : null);
+          added.push(row);
         }
         if (item === demoted) dom.markHeld(row);
       }
+      orderRows(list);
+      if (!opening) added.forEach(dom.reveal);
       dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data);
       if (opening) dom.reveal(queueContainer);
     } else if (queueContainer && !dom.isCollapsing(queueContainer) &&
@@ -180,6 +234,8 @@
 
     /* Recent */
     renderRecent().updateRecent(recentContainer, data.recent);
+
+    if (header) updateSubtitle(dom, header, subtitleFor(dom, data));
   }
 
   document.addEventListener('click', function (e) {

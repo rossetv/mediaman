@@ -217,8 +217,9 @@ def _downloads_subtitle(
     upcoming: list[dict[str, object]],
     outage: str = "",
 ) -> str:
-    """Build the page-header subtitle, the single source for the server-rendered page and
-    the poll-driven JS update.
+    """Build the page-header subtitle for the server-rendered page and the poll. While the
+    page holds rows of a service that does not answer, downloads.js counts them in itself,
+    in the same words.
 
     Something downloading gives "2 items in progress" (plus " · 3 coming soon" when
     releases are scheduled). Nothing downloading gives "Nothing downloading · 3 coming
