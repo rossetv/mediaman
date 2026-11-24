@@ -573,6 +573,7 @@
     stopRolling();
     /* What was loaded before is all played. */
     if (lost) countLost();
+    if (noneSince !== null) noneSince = Date.now();
     stalled = true;
     if (lost || noneSince !== null) return;
     if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);

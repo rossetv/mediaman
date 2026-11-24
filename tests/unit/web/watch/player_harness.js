@@ -1742,6 +1742,31 @@ const scenarios = {
     return out;
   },
 
+  /* Refused with much loaded, then a drop while that plays, and refused again as it runs dry. */
+  async busy_then_dry(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const refuse = () => h.emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+    loadedTo(p, 240);
+    refuse();
+    p.tick(2000);
+    const lose = () => h.emit('hlsError', loadError('fragLoadError', 0));
+    lose();
+    const fail = failingLoads(h, lose);
+    for (let i = 0; i < 130; i++) { playOn(p, 1); p.tick(1000); fail(); }
+    loadedTo(p, p.video.currentTime);
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    p.tick(3000);
+    refuse();
+    await settle();
+    const out = { dry: messageState(p), starts: p.starts().length };
+    for (let i = 0; i < 70 && !messageState(p); i++) { p.tick(2000); refuse(); await settle(); }
+    out.late = messageState(p) && messageState(p).text;
+    return out;
+  },
+
   /* Refused for long, paused with enough loaded ahead. */
   async busy_paused(p) {
     await streamPlays(p, 100);

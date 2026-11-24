@@ -1470,6 +1470,12 @@ def test_a_drop_and_a_refusal_by_turns_end_in_a_message(markup, first, status):
     assert (out["byItself"], out["again"]) == (0, None)
 
 
+def test_a_refusal_with_much_loaded_counts_only_from_when_that_has_played(markup):
+    out = run(markup, "busy_then_dry")
+    assert (out["dry"], out["starts"]) == (None, 1)
+    assert out["late"] == "Too many tries. Wait a moment and try again."
+
+
 def test_a_refusal_before_a_seek_counts_for_nothing_after_it(markup):
     out = run(markup, "busy_once", plays="back")
     assert (out["message"], out["stops"]) == (None, 0)
