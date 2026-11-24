@@ -172,6 +172,20 @@ class TestCards:
         )
         assert item["href"] == "/watch/movie/100"
 
+    def test_a_remake_pick_is_not_the_older_library_title_it_shares_a_name_with(
+        self, viewer, conn, arr
+    ):
+        insert_media_item(
+            conn, id="1", plex_rating_key="1", title="The Thing", file_path="/m/The Thing (1982)/f"
+        )
+        arr.movies.append({"tmdbId": 60935, "title": "The Thing", "hasFile": True})
+        insert_suggestion(conn, title="The Thing", year=2011, tmdb_id=60935, batch_id="2099-01-01")
+        conn.commit()
+
+        (item,) = _get(viewer)["items"]
+
+        assert (item["in_library"], item["library_ref"]) == (False, None)
+
     def test_a_tv_pick_the_library_holds_but_sonarr_does_not_track_is_in_library(
         self, viewer, conn
     ):

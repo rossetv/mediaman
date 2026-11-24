@@ -210,6 +210,16 @@ class TestLibraryRef:
         # A remake TMDB knows under the same title, which Radarr does not hold.
         assert self.index.library_ref("movie", 13, "The Glasshouse", _view()) is None
 
+    def test_a_remake_downloaded_in_arr_is_not_the_older_title_it_shares_a_name_with(self):
+        index = catalog.LibraryIndex.build(
+            [("1", "The Thing", None)], [], ids={"movie-1": (None, 1982)}
+        )
+        held = _view(movies={13: {"tmdbId": 13, "hasFile": True}})
+
+        assert index.library_ref("movie", 13, "The Thing", held, year=2011) is None
+        # With no year on TMDB's side, the title and Arr still match.
+        assert index.library_ref("movie", 13, "The Thing", held) == "movie-1"
+
 
 class TestLibraryRefWithoutSonarr:
     def test_a_show_matches_on_the_tmdb_id_its_library_rows_carry(self):

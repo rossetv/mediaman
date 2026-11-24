@@ -60,11 +60,13 @@ def _card(
     library_ref = None
     pct = row.get("download_pct")
     state = row.get("download_state")
+    year = row.get("year")
     if isinstance(tmdb_id, int) and tmdb_id > 0:
-        library_ref = index.library_ref(kind, tmdb_id, title, arr)
+        library_ref = index.library_ref(
+            kind, tmdb_id, title, arr, year=year if isinstance(year, int) else None
+        )
     if state is None and row.get("downloaded_at"):
         state = ACTION_QUEUED
-    year = row.get("year")
     rating = row.get("rating")
     card = catalog.discover_card(
         ref=library_ref or f"rec-{rec_id}",
