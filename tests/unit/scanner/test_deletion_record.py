@@ -483,6 +483,34 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert _booked(conn) == [4]
 
+    def test_bytes_credited_before_stay_when_a_later_removal_takes_nothing(
+        self, conn, film, monkeypatch
+    ):
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ?",
+            (json.dumps({"paths": [], "bytes": 3}),),
+        )
+        conn.commit()
+        with monkeypatch.context() as m:
+            m.setattr(
+                deletions, "delete_tracked_files", MagicMock(side_effect=DeletionRefused("no"))
+            )
+            DeletionExecutor(conn=conn).execute()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [3 + 4]
+
+    def test_a_refused_removal_leaves_no_record_where_nothing_was_freed(
+        self, conn, film, monkeypatch
+    ):
+        monkeypatch.setattr(
+            deletions, "delete_tracked_files", MagicMock(side_effect=DeletionRefused("no"))
+        )
+        DeletionExecutor(conn=conn).execute()
+
+        assert conn.execute("SELECT removed_files FROM scheduled_actions").fetchone()[0] is None
+
 
 class TestNothingLeftToRemove:
     def test_a_removed_item_is_booked_though_another_item_holds_its_folder(

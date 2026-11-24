@@ -282,10 +282,14 @@ def record_removal_intent(
 
 
 def clear_removal_intent(conn: sqlite3.Connection, action_id: int) -> None:
-    """Drop the row's removal intent, for a removal that took no file."""
+    """Drop the row's removal intent, for a removal that took no file.
+
+    What earlier passes removed and freed stays.
+    """
     conn.execute(
         "UPDATE scheduled_actions SET removed_files = CASE "
         "  WHEN json_array_length(removed_files, '$.paths') > 0 "
+        "    OR json_extract(removed_files, '$.bytes') > 0 "
         "  THEN json_remove(removed_files, '$.intent') END "
         "WHERE id = ? AND json_valid(removed_files) "
         "  AND json_type(removed_files, '$.intent') IS NOT NULL",
