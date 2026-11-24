@@ -7,7 +7,8 @@
  * person out.
  *
  * Requests:
- *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist}
+ *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist,
+ *                                     quality, qualities}
  *   GET  <playlist> and its segments  (made by hls.js)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
  *   POST /api/watch/stream/<id>/stop  (sendBeacon on leave; fetch on quality change)
@@ -17,6 +18,8 @@
  * long pause, a restart): a new one is started at the current position,
  * which is also how a quality change works. If the server refuses the
  * stream of a new quality, the quality that was playing comes back.
+ * Automatic steps the quality down when playback keeps stalling, and
+ * slowly up again when it no longer does.
  * While a new stream replaces the old one, the last frame stays on screen.
  */
 (function () {
@@ -25,10 +28,14 @@
   var root = document.getElementById('player');
   if (!root) return;
 
+  /* The three choices of an item without media details, as rows. */
+  var BASIC_IDS = { best: '1080p-8000', medium: '720p-4000', low: '480p-1500' };
+  /* The best conversion Automatic starts with. */
+  var AUTO_HEIGHT = 1080;
+  var AUTO_KBPS = 8000;
   var QUALITY_KEY = 'mediaman.watch.quality';
   var VOLUME_KEY = 'mediaman.watch.volume';
   var MUTED_KEY = 'mediaman.watch.muted';
-  var QUALITIES = { best: 1, medium: 1, low: 1 };
   var IDLE_MS = 3000;
   var SAVE_EVERY_MS = 10000;
   var SKIP_S = 10;
@@ -37,6 +44,17 @@
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
+  /* Automatic steps down when playback stalls twice within this much of the
+     video, or once for this long. */
+  var STALL_WINDOW_S = 60;
+  var STALL_MS = 10000;
+  /* It steps up after this much of the video without a stall; a step up that
+     stalls this soon doubles the wait for the next one. */
+  var UP_AFTER_S = 300;
+  var UP_AFTER_MAX_S = 3600;
+  var UP_TRIAL_S = 120;
+  /* Not worth a new stream this close to the end. */
+  var UP_LEFT_S = 120;
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
@@ -77,6 +95,7 @@
     elapsed: q('[data-elapsed]'),
     remaining: q('[data-remaining]'),
     qualityBtn: q('[data-quality-btn]'),
+    qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
     upnext: q('[data-upnext]'),
     upnextFill: q('[data-upnext-fill]'),
@@ -98,7 +117,8 @@
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
   var countdownTimer = null; // runs while the next-episode card counts down
-  var quality = readQuality();
+  var quality = readSetting(QUALITY_KEY) || 'auto';   // the person's choice
+  var rows = readJSON('data-qualities') || [];        // what the menu offers, best first
 
   /* What belongs to the video being watched; resetVideo sets every one. */
   var pendingStart;          // where the stream will start, until the video has loaded
@@ -106,9 +126,19 @@
   var hasPlayed;
   var playedS;
   var lastTime;
-  var goodQuality;           // the last quality that played, or the one the video started with
-  var streamQuality;         // the quality of the stream now loading or playing
-  var revertNotice;          // toast to show once the reverted stream plays
+  var override;              // the quality to ask for in place of the choice, or null
+  var good;                  // the choice and override that last played, or the video started with
+  var streamChoice;          // those of the stream now loading or playing
+  var playing;               // the quality the server says that stream has
+  var streamPlayed;
+  var swapNotice;            // toast to show once the stream that takes over plays
+  var rolling;               // playback has moved since the last start, seek or stall
+  var autoTop;               // the best quality Automatic may step up to
+  var stalls;
+  var stalledAt;             // the three below are in seconds played, not wall time
+  var steppedAt;
+  var steppedUpAt;
+  var upAfter;
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -120,9 +150,19 @@
     hasPlayed = false;
     playedS = 0;
     lastTime = null;
-    goodQuality = quality;
-    streamQuality = null;
-    revertNotice = null;
+    override = null;
+    good = choice();
+    streamChoice = null;
+    playing = null;
+    streamPlayed = false;
+    swapNotice = null;
+    stopRolling();
+    autoTop = null;
+    stalls = 0;
+    stalledAt = -Infinity;
+    steppedAt = 0;
+    steppedUpAt = -Infinity;
+    upAfter = UP_AFTER_S;
     troubleAtPlayed = 0;
     clearTrouble();
   }
@@ -161,11 +201,6 @@
     try { window.localStorage.setItem(key, value); } catch (e) { /* storage blocked */ }
   }
 
-  function readQuality() {
-    var saved = readSetting(QUALITY_KEY);
-    return saved && QUALITIES[saved] ? saved : 'best';
-  }
-
   function readVolume() {
     var saved = parseFloat(readSetting(VOLUME_KEY));
     if (saved >= 0 && saved <= 1) video.volume = saved;
@@ -174,39 +209,193 @@
 
   /* ---- quality -------------------------------------------------------- */
 
+  /* What a choice of quality comes to: the person's, and what stands in for it. */
+  function choice() { return { quality: quality, override: override }; }
+  function asked() { return override || quality; }
+  function isNew() { return good.quality !== quality || good.override !== override; }
+
+  function convertRows() {
+    return rows.filter(function (r) { return r.kind === 'convert'; });
+  }
+
+  function findRow(id) {
+    return rows.filter(function (r) { return r.id === id; })[0];
+  }
+
+  /* The row of a quality, or the nearest lower one, the way the server picks
+     it. Undefined only while there are no rows. */
+  function rowFor(id) {
+    var exact = findRow(id);
+    if (exact && exact.kind !== 'auto') return exact;
+    var converts = convertRows();
+    if (id === 'original') return converts[0];
+    var parts = /^(\d+)p-(\d+)$/.exec(BASIC_IDS[id] || id) || [0, AUTO_HEIGHT, AUTO_KBPS];
+    return converts.filter(function (r) {
+      return r.height < +parts[1] || (r.height === +parts[1] && r.bitrate_kbps <= +parts[2]);
+    })[0] || converts[converts.length - 1];
+  }
+
+  /* A row in one line: "1080p · 8 Mbps". */
+  function rowText(row) { return row.label + (row.detail ? ' · ' + row.detail : ''); }
+
+  function buildQualityMenu() {
+    var hadFocus = els.qualityMenu.contains(document.activeElement);
+    els.qualityMenu.textContent = '';
+    rows.forEach(function (row) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'player-menu-item player-menu-item--split';
+      btn.setAttribute('role', 'menuitemradio');
+      btn.setAttribute('data-quality', row.id);
+      addSpan(btn, 'player-menu-main', row.label);
+      addSpan(btn, 'player-menu-side', row.detail);
+      btn.appendChild(MM.dom.icon('i-check', 'player-menu-tick'));
+      els.qualityMenu.appendChild(btn);
+    });
+    showQuality();
+    if (hadFocus) focusMenu(els.qualityMenu);
+  }
+
+  function addSpan(parent, className, text) {
+    var span = document.createElement('span');
+    span.className = className;
+    span.textContent = text;
+    parent.appendChild(span);
+    /* Keeps the texts of one control apart in its spoken name. */
+    parent.appendChild(document.createTextNode(' '));
+  }
+
+  /* Tick the choice, or what stands in for it, and say on the pill what plays. */
   function showQuality() {
-    var items = root.querySelectorAll('[data-quality]');
-    for (var i = 0; i < items.length; i++) {
-      var on = items[i].getAttribute('data-quality') === quality;
-      items[i].setAttribute('aria-checked', on ? 'true' : 'false');
-      if (on) {
-        var name = items[i].getAttribute('data-quality-label');
-        var res = items[i].getAttribute('data-quality-res');
-        els.qualityBtn.querySelector('[data-quality-name]').textContent = name + ' ·';
-        els.qualityBtn.querySelector('[data-quality-res]').textContent = res;
-        els.qualityBtn.setAttribute('aria-label', 'Quality: ' + name + ', ' + res);
-      }
-    }
+    var now = rowFor(playing || asked());
+    var auto = quality === 'auto' && findRow('auto');
+    var ticked = auto || now;
+    els.qualityMenu.querySelectorAll('[data-quality]').forEach(function (btn) {
+      var id = btn.getAttribute('data-quality');
+      btn.setAttribute('aria-checked', ticked && ticked.id === id ? 'true' : 'false');
+      if (id === 'auto') btn.querySelector('.player-menu-side').textContent = auto && now ? rowText(now) : '';
+    });
+    var res = now ? now.height + 'p' : 'Auto';
+    var before = '';
+    var after = '';
+    if (auto && now) before = 'Auto · ';
+    else if (now && now.kind === 'original') before = 'Original · ';
+    else if (now && now.label !== res) before = now.label + ' · ';
+    else if (now) after = ' · ' + now.detail;
+    els.qualityBtn.querySelector('[data-quality-before]').textContent = before;
+    els.qualityBtn.querySelector('[data-quality-res]').textContent = res;
+    els.qualityBtn.querySelector('[data-quality-after]').textContent = after;
+    els.qualityBtn.setAttribute('aria-label', 'Quality: ' + before + res + after);
   }
 
   function setQuality(value) {
     quality = value;
     saveSetting(QUALITY_KEY, value);
-    showQuality();
   }
 
   function chooseQuality(value) {
-    if (!QUALITIES[value] || value === quality) return;
-    revertNotice = null;
+    if (value === quality && !override) return;
+    swapNotice = null;
+    override = null;
+    stalls = 0;
     setQuality(value);
+    if (value === playing) {
+      /* It already plays, as what Automatic picked. */
+      streamChoice = choice();
+      if (streamPlayed) good = streamChoice;
+      showQuality();
+      return;
+    }
     restartStream(true);
   }
 
-  /* A new quality cannot play: choose again the one that did. */
+  /* A new quality cannot play: go back to the one that did. */
   function revertQuality() {
-    var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
-    setQuality(goodQuality);
-    revertNotice = "Couldn't change the quality. Staying on " + label + '.';
+    if (quality !== good.quality) {
+      var row = findRow(good.quality) || rowFor(good.override || good.quality);
+      swapNotice = "Couldn't change the quality." + (row ? ' Staying on ' + rowText(row) + '.' : '');
+      setQuality(good.quality);
+    } else {
+      /* A step of Automatic's own that failed is not tried again soon. */
+      steppedAt = playedS;
+      upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
+    }
+    override = good.override;
+  }
+
+  /* This browser cannot play the source as it is: the best conversion can. */
+  function leaveOriginal() {
+    var row = convertRows()[0];
+    if (!row) { fail(); return; }
+    override = row.id;
+    swapNotice = "The original can't play here. Playing " + rowText(row) + ' instead.';
+    restartStream(true);
+  }
+
+  /* What the server's answer to a start says about the qualities. */
+  function takeQualities(data) {
+    playing = data.quality || asked();
+    if (asked() === 'auto' && quality === 'auto') autoTop = playing;
+    if (data.qualities && data.qualities.length &&
+        JSON.stringify(data.qualities) !== JSON.stringify(rows)) {
+      rows = data.qualities;
+      buildQualityMenu();
+    } else {
+      showQuality();
+    }
+  }
+
+  /* ---- automatic quality ---------------------------------------------- */
+
+  var stallTimer = null;
+
+  function stopRolling() {
+    rolling = false;
+    clearTimeout(stallTimer);
+  }
+
+  /* The buffer ran dry while the video was playing on its own: a seek or a
+     start that has to wait says nothing about the quality. */
+  function noteStall() {
+    if (!rolling || swapping) return;
+    stopRolling();
+    if (quality !== 'auto') return;
+    stalls = playedS - stalledAt <= STALL_WINDOW_S ? stalls + 1 : 1;
+    stalledAt = playedS;
+    if (stalls > 1) stepDown();
+    else stallTimer = setTimeout(stepDown, STALL_MS);
+  }
+
+  function stepTo(row) {
+    stalls = 0;
+    steppedAt = playedS;
+    override = row.id;
+    restartStream(true);
+  }
+
+  /* One step, or further where the connection measured slower than that. */
+  function stepDown() {
+    if (starting || !streamId) return;
+    var converts = convertRows();
+    var lower = converts.slice(converts.indexOf(rowFor(playing)) + 1);
+    if (!lower.length) return;
+    if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
+    var kbps = (hls && hls.bandwidthEstimate || 0) / 1000;
+    stepTo(kbps ? lower.filter(function (r) { return r.bitrate_kbps <= kbps * 0.8; })[0] ||
+                  lower[lower.length - 1] : lower[0]);
+  }
+
+  function maybeStepUp() {
+    if (quality !== 'auto' || !autoTop || starting || swapping || menuOpen()) return;
+    if (playedS - Math.max(steppedAt, stalledAt) < upAfter) return;
+    if (duration() - video.currentTime < UP_LEFT_S) return;
+    var converts = convertRows();
+    var at = converts.indexOf(rowFor(playing));
+    if (at <= converts.indexOf(rowFor(autoTop))) return;
+    var kbps = (hls && hls.bandwidthEstimate || 0) / 1000;
+    if (kbps && kbps < converts[at - 1].bitrate_kbps * 1.5) return;
+    steppedUpAt = playedS;
+    stepTo(converts[at - 1]);
   }
 
   /* ---- messages and loading ------------------------------------------- */
@@ -240,7 +429,7 @@
     els.retry.hidden = !canRetry;
     els.play.disabled = !canRetry;
     els.message.hidden = false;
-    revertNotice = null;
+    swapNotice = null;
     showControls();
     (canRetry ? els.retry : els.message.querySelector('a')).focus();
   }
@@ -271,11 +460,15 @@
     starting = true;
     pendingStart = pos;
     lastTime = null;
+    playing = null;
+    streamPlayed = false;
+    stopRolling();
+    showQuality();
     hideMessage();
     setLoading(true);
 
     function attempt(tries) {
-      return MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: quality })
+      return MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() })
         .then(function (data) {
           if (gen !== generation) {
             if (data && data.stream_id) stopOnServer(data.stream_id);
@@ -283,15 +476,23 @@
           }
           starting = false;
           streamId = data.stream_id;
-          streamQuality = quality;
+          streamChoice = choice();
+          takeQualities(data);
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
           if (gen !== generation) return;
           var status = err && typeof err.status === 'number' ? err.status : 0;
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
+          if (status === 422 && quality !== 'auto' && !hasPlayed) {
+            /* A saved choice the server does not know. It stays saved. */
+            quality = 'auto';
+            good = choice();
+            showQuality();
+            return attempt(tries);
+          }
           var known = err && START_ERRORS[err.error];
-          if (goodQuality && goodQuality !== quality && (!known || known.retry)) {
+          if (isNew() && (!known || known.retry)) {
             /* The old stream is already stopped. */
             revertQuality();
             return startStream(pos);
@@ -357,7 +558,8 @@
       return;
     }
     if (!data.fatal) return;
-    if (goodQuality && goodQuality !== quality) {
+    if (playing === 'original' && !streamPlayed) { leaveOriginal(); return; }
+    if (isNew()) {
       revertQuality();
       restartStream(true);
       return;
@@ -374,6 +576,7 @@
       restartStream(false);
       return;
     }
+    if (playing === 'original') { leaveOriginal(); return; }
     fail();
   }
 
@@ -537,10 +740,14 @@
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
-    if (streamId) goodQuality = streamQuality;
-    if (revertNotice) {
-      if (window.UIFeedback) window.UIFeedback.error(revertNotice);
-      revertNotice = null;
+    clearTimeout(stallTimer);
+    if (streamId) {
+      good = streamChoice;
+      streamPlayed = true;
+    }
+    if (swapNotice) {
+      if (window.UIFeedback) window.UIFeedback.error(swapNotice);
+      swapNotice = null;
     }
     swapping = false;
     pendingStart = null;
@@ -553,18 +760,25 @@
   });
   video.addEventListener('pause', function () {
     if (swapping) return;
+    stopRolling();
     showPlayState();
     if (video.ended) return;
     wantPlaying = false;
     saveProgress();
   });
-  video.addEventListener('waiting', function () { setLoading(true); });
+  video.addEventListener('waiting', function () {
+    setLoading(true);
+    noteStall();
+  });
   video.addEventListener('canplay', function () {
     if (!video.paused) return;
     if (!wantPlaying && !swapping) releaseFrame();
     setLoading(false);
   });
-  video.addEventListener('seeking', function () { lastTime = null; });
+  video.addEventListener('seeking', function () {
+    lastTime = null;
+    stopRolling();
+  });
   video.addEventListener('seeked', function () {
     settleStart();
     saveAfterSeek();
@@ -583,10 +797,14 @@
        jump larger than a couple of seconds is not playback. */
     if (lastTime !== null && !video.paused && !video.seeking) {
       var delta = now - lastTime;
-      if (delta > 0 && delta < 2) playedS += delta;
+      if (delta > 0 && delta < 2) {
+        playedS += delta;
+        rolling = true;
+      }
     }
     lastTime = now;
     if (playedS - troubleAtPlayed >= CALM_PLAYED_S) clearTrouble();
+    maybeStepUp();
     render();
   });
 
@@ -695,11 +913,11 @@
     video.muted = video.volume === 0;
   });
 
-  root.querySelectorAll('[data-quality]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      closeMenus(true);
-      chooseQuality(btn.getAttribute('data-quality'));
-    });
+  els.qualityMenu.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-quality]');
+    if (!btn) return;
+    closeMenus(true);
+    chooseQuality(btn.getAttribute('data-quality'));
   });
 
   /* ---- menus ---------------------------------------------------------- */
@@ -715,6 +933,11 @@
   }
   function openTrigger() { return root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
   function menuOpen() { return !!openTrigger(); }
+
+  function focusMenu(menu) {
+    var first = menu.querySelector('[aria-checked="true"]') || menu.querySelector('button');
+    if (first) first.focus();
+  }
 
   /* Arrow keys, Home and End move between the items of the open menu. */
   function moveInMenu(key) {
@@ -737,8 +960,7 @@
       trigger.setAttribute('aria-expanded', 'true');
       var menu = trigger.parentNode.querySelector('.player-menu');
       menu.hidden = false;
-      var first = menu.querySelector('[aria-checked="true"]') || menu.querySelector('button');
-      if (first) first.focus();
+      focusMenu(menu);
       showControls();
     });
   });
@@ -1018,7 +1240,7 @@
 
   /* ---- start ---------------------------------------------------------- */
 
-  showQuality();
+  buildQualityMenu();
   readVolume();
   showVolume();
   showPlayState();

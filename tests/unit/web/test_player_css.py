@@ -90,3 +90,9 @@ def test_the_volume_slider_draws_its_own_track(track: str) -> None:
     assert re.search(r"(?<!-)appearance:\s*none", _rule(css, ".player-volume-slider"))
     body = _rule(css, f".player-volume-slider{track}")
     assert "height" in body and "background" in body
+
+
+def test_a_long_menu_scrolls_inside_the_screen() -> None:
+    menu = _rule(_text("_player.css"), ".player-menu")
+    assert re.search(r"max-height:[^;]*100dvh", menu)
+    assert re.search(r"overflow-y:\s*auto", menu)

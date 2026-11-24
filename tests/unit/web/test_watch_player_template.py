@@ -9,6 +9,9 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from mediaman.services.media_meta.plex_quality import quality_rows
+from mediaman.services.media_meta.plex_watch import PlexItem
+
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
 
@@ -146,10 +149,11 @@ def test_there_is_no_audio_or_subtitle_choice(name):
     assert "subtitle" not in labels
 
 
-def test_quality_menu_offers_the_three_choices():
-    _, page = _render(EPISODE)
-    choices = [a["data-quality"] for t, a in page.elements if "data-quality" in a]
-    assert choices == ["best", "medium", "low"]
+def test_an_item_without_media_details_offers_the_three_basic_qualities():
+    item = PlexItem("episode", "501", "Low Water", "", None, 3000, "2", None, False)
+    _, page = _render({**EPISODE, "qualities": quality_rows(item)})
+    offered = json.loads(page.player()["data-qualities"])
+    assert [r["id"] for r in offered] == ["best", "medium", "low"]
 
 
 @pytest.mark.parametrize("name", CONTEXTS)

@@ -9,9 +9,13 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import jinja2
 import pytest
+
+from mediaman.services.media_meta.plex_quality import quality_rows
+from mediaman.services.media_meta.plex_watch import PlexItem
 
 REPO = Path(__file__).resolve().parents[4]
 HARNESS = Path(__file__).with_name("player_harness.js")
@@ -38,6 +42,9 @@ EPISODE = {
     "next": {"href": "/watch/play/502", "label": "S2 · E5 — High Tide"},
     "show_href": "/watch/show/77",
     "leaving": None,
+    "qualities": quality_rows(
+        PlexItem("episode", "501", "Low Water", "", None, 3000, "2", None, False)
+    ),
 }
 
 
@@ -50,10 +57,16 @@ def markup(tmp_path_factory) -> Path:
 
 
 def run(
-    markup: Path, scenario: str, *, reduced: bool = False, saved: dict[str, str] | None = None
-) -> dict:
+    markup: Path,
+    scenario: str,
+    *,
+    reduced: bool = False,
+    saved: dict[str, str] | None = None,
+    plays: str | None = None,
+) -> Any:
     args = ["node", str(HARNESS), str(markup), scenario] + (["reduced"] if reduced else [])
-    args += [json.dumps(saved)] if saved else []
+    args += [json.dumps(saved)] if saved or plays else []
+    args += [plays] if plays else []
     done = subprocess.run(args, capture_output=True, text=True, timeout=30)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
@@ -97,13 +110,102 @@ def test_a_plain_stall_still_shows_the_centre_spinner(markup):
 
 def test_a_refused_quality_goes_back_to_the_one_that_played_and_keeps_the_frame(markup):
     out = run(markup, "quality_refused")
-    assert out["beforePlaying"]["qualities"] == ["best", "low", "low", "best"]
+    assert out["beforePlaying"]["qualities"] == ["auto", "low", "low", "auto"]
     assert out["beforePlaying"]["hold"]["shown"] is True
     assert out["afterPlaying"]["hold"]["shown"] is False
     assert out["checked"] == "best"
-    assert out["saved"] == "best"
+    assert out["saved"] == "auto"
     assert [t["kind"] for t in out["toasts"]] == ["error"]
     assert "Best" in out["toasts"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("stored", "plays", "ticked", "pill"),
+    [
+        (None, "1080p-8000", "auto", "Auto · 1080p"),
+        ("auto", "720p-4000", "auto", "Auto · 720p"),
+        ("original", "original", "original", "Original · 1080p"),
+        ("1080p-10000", "1080p-10000", "1080p-10000", "1080p · 10 Mbps"),
+        # Not offered for this title: the nearest lower one.
+        ("1080p-20000", "1080p-10000", "1080p-10000", "1080p · 10 Mbps"),
+        ("720p-3000", "480p-1500", "480p-1500", "480p · 1.5 Mbps"),
+        # Choices of an earlier version of the page.
+        ("best", "best", "1080p-8000", "1080p · 8 Mbps"),
+        ("low", "low", "480p-1500", "480p · 1.5 Mbps"),
+    ],
+)
+def test_the_menu_lists_what_the_server_offers_and_ticks_what_plays(
+    markup, stored, plays, ticked, pill
+):
+    saved = {"mediaman.watch.quality": stored} if stored else None
+    out = run(markup, "quality_menu", saved=saved, plays=plays)
+    offered = ["auto", "original", "1080p-10000", "1080p-8000", "720p-4000", "480p-1500"]
+    assert out["ids"] == offered
+    assert (out["ticked"], out["pill"]) == ([ticked], pill)
+    assert out["starts"] == [stored or "auto"]
+    # What plays in its place never replaces the choice.
+    assert out["saved"] == stored
+
+
+def test_automatic_says_what_it_plays(markup):
+    out = run(markup, "quality_menu", plays="720p-4000")
+    assert out["auto"] == "720p · 4 Mbps"
+    out = run(markup, "quality_menu", saved={"mediaman.watch.quality": "best"}, plays="best")
+    assert out["auto"] == ""
+
+
+def test_a_saved_choice_the_server_does_not_know_plays_automatic_and_stays_saved(markup):
+    out = run(markup, "quality_unknown", saved={"mediaman.watch.quality": "8k-dolby"})
+    assert out["starts"] == ["8k-dolby", "auto"]
+    assert (out["ticked"], out["saved"], out["message"]) == (["auto"], "8k-dolby", False)
+
+
+def test_choosing_what_automatic_already_plays_starts_nothing(markup):
+    out = run(markup, "quality_same")
+    assert out["starts"] == ["auto"]
+    assert (out["ticked"], out["saved"]) == (["1080p-8000"], "1080p-8000")
+
+
+def test_an_original_the_browser_cannot_play_becomes_the_best_conversion(markup):
+    out = run(markup, "original_unplayable")
+    assert out["starts"] == ["auto", "original", "1080p-10000"]
+    assert (out["ticked"], out["saved"]) == (["1080p-10000"], "original")
+    assert "1080p · 10 Mbps" in out["toasts"][0]["text"]
+
+
+def test_automatic_steps_down_when_playback_keeps_stalling_and_not_for_seeks(markup):
+    out = run(markup, "auto_steps")
+    assert out["afterSeeks"] == out["afterOne"] == out["afterFarApart"] == ["auto"]
+    assert out["afterTwo"]["starts"] == ["auto", "720p-4000"]
+    assert out["afterTwo"]["ticked"] == ["auto"]
+    assert out["afterTwo"]["pill"] == "Auto · 720p"
+    assert out["afterTwo"]["saved"] is None
+    assert out["shortWait"] == ["auto", "720p-4000"]
+    assert out["longWait"] == out["atTheBottom"] == ["auto", "720p-4000", "480p-1500"]
+
+
+def test_automatic_steps_up_late_and_later_still_when_that_stalled(markup):
+    out = run(markup, "auto_steps")
+    assert out["notYet"] == out["slowLine"] == out["longWait"]
+    assert out["up"] == [*out["longWait"], "720p-4000"]
+    assert out["downAgain"] == [*out["up"], "480p-1500"]
+    assert out["damped"] == out["downAgain"]
+    assert out["upAgain"] == [*out["downAgain"], "720p-4000"]
+
+
+def test_automatic_goes_straight_to_what_a_slow_connection_can_carry(markup):
+    assert run(markup, "auto_jumps") == ["auto", "480p-1500"]
+
+
+def test_a_picked_quality_never_changes_by_itself(markup):
+    saved = {"mediaman.watch.quality": "1080p-8000"}
+    assert run(markup, "fixed_stalls", saved=saved) == ["1080p-8000"]
+
+
+def test_a_refused_step_goes_back_without_a_word(markup):
+    out = run(markup, "auto_refused")
+    assert out["starts"] == ["auto", "720p-4000", "auto"]
+    assert (out["ticked"], out["saved"], out["toasts"]) == (["auto"], None, [])
 
 
 def test_cancel_waits_for_the_card_to_leave_then_returns_focus(markup):

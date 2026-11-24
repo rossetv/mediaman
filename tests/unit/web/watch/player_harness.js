@@ -2,7 +2,7 @@
    markup, with fake hls.js, API, clock and video element.
 
    Usage: node player_harness.js <markup.html> <scenario> [reduced]
-          node player_harness.js <markup.html> <scenario> '<saved settings as JSON>'
+          node player_harness.js <markup.html> <scenario> '<saved settings as JSON>' [<quality the server plays>]
    Prints the scenario's observations as one JSON object. */
 'use strict';
 
@@ -91,6 +91,7 @@ class Element extends Node {
   hasAttribute(n) { return n in this.attrs; }
   toggleAttribute(n, on) { if (on) this.attrs[n] = ''; else delete this.attrs[n]; }
   get id() { return this.attrs.id || ''; }
+  set type(v) { this.attrs.type = v; }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
   get hidden() { return 'hidden' in this.attrs; }
@@ -218,7 +219,7 @@ function tabTo(el) { key('Tab'); el.focus(); }
 
 /* ---- the page ------------------------------------------------------------ */
 
-function boot(html, reduced, saved) {
+function boot(html, reduced, saved, serverPlays) {
   doc = new Node();
   doc.documentElement = make('html');
   doc.appendChild(doc.documentElement);
@@ -229,6 +230,8 @@ function boot(html, reduced, saved) {
   doc.visibilityState = 'visible';
   doc.getElementById = (id) => doc.querySelector('#' + id);
   doc.createElement = (tag) => make(tag.toLowerCase());
+  doc.createElementNS = (ns, tag) => make(tag.toLowerCase());
+  doc.createTextNode = (t) => new Text(t);
   doc.createDocumentFragment = () => { const f = new Node(); f.isFragment = true; return f; };
 
   /* Timers run only when the scenario moves the clock. */
@@ -252,15 +255,18 @@ function boot(html, reduced, saved) {
   }
 
   const calls = [];
-  /* The page starts its first stream as soon as it loads. */
-  const replies = [{ ok: { stream_id: 's1', playlist: '/p1' } }];
+  const starts = () => calls.filter((c) => /\/api\/watch\/stream$/.test(c.url)).map((c) => c.body.quality);
+  /* The page starts its first stream as soon as it loads; a scenario may still change the reply. */
+  const replies = [{ ok: { stream_id: 's1', playlist: '/p1', quality: 'best' } }];
   const api = {
     post(url, body) {
       calls.push({ url: url, body: body });
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
-      const reply = replies.shift();
-      if (!reply) return new Promise(() => {});
-      return reply.ok ? Promise.resolve(reply.ok) : Promise.reject(reply.err);
+      return Promise.resolve().then(() => {
+        const reply = replies.shift();
+        if (!reply) return new Promise(() => {});
+        return reply.ok ? reply.ok : Promise.reject(reply.err);
+      });
     },
     messageOf(err, fallback) { return fallback; },
   };
@@ -296,6 +302,7 @@ function boot(html, reduced, saved) {
   const storage = Object.assign({}, saved);
   const win = {
     document: doc,
+    serverPlays: serverPlays,
     Hls: Hls,
     MM: { api: api },
     UIFeedback: {
@@ -332,6 +339,7 @@ function boot(html, reduced, saved) {
     hlsList: hlsList,
     replies: replies,
     calls: calls,
+    starts: starts,
     toasts: toasts,
     storage: storage,
     win: win,
@@ -371,6 +379,39 @@ function holdState(p) {
   };
 }
 
+/* The video plays on by itself, a second at a time. */
+function playOn(p, seconds) {
+  for (let i = 0; i < seconds; i++) {
+    p.video.currentTime += 1;
+    fire(p.video, 'timeupdate');
+  }
+}
+
+const ROWS = ['1080p-10000', '1080p-8000', '720p-4000', '480p-1500'].map((id) => {
+  const [height, kbps] = id.split('p-').map(Number);
+  return { id: id, kind: 'convert', label: height + 'p', detail: kbps / 1000 + ' Mbps', height: height, bitrate_kbps: kbps };
+});
+const AUTO = { id: 'auto', kind: 'auto', label: 'Automatic', detail: '', height: null, bitrate_kbps: null };
+const ORIGINAL = { id: 'original', kind: 'original', label: 'Original (1080p)', detail: '11 Mbps', height: 1080, bitrate_kbps: 11000 };
+const FULL = [AUTO, ORIGINAL].concat(ROWS);
+
+let streams = 0;
+function answer(quality, extra) {
+  streams++;
+  return { ok: Object.assign({ stream_id: 'a' + streams, playlist: '/a' + streams, quality: quality, qualities: FULL }, extra) };
+}
+
+function menuState(p) {
+  const items = p.q('[data-quality-menu]').querySelectorAll('[data-quality]');
+  return {
+    ids: items.map((b) => b.getAttribute('data-quality')),
+    ticked: items.filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.getAttribute('data-quality')),
+    pill: p.q('[data-quality-btn]').textContent.trim(),
+    auto: items.filter((b) => b.getAttribute('data-quality') === 'auto').map((b) => b.querySelector('.player-menu-side').textContent)[0],
+    saved: p.storage['mediaman.watch.quality'] || null,
+  };
+}
+
 /* ---- scenarios ----------------------------------------------------------- */
 
 const scenarios = {
@@ -388,6 +429,144 @@ const scenarios = {
     v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
     fire(v, 'playing');
     return { whileLoading: whileLoading, afterManifest: afterManifest, afterPlaying: { hold: holdState(p), play: playState(p), held: p.root.classList.contains('is-held') } };
+  },
+
+  /* The menu follows each answer, whatever the saved choice is. */
+  async quality_menu(p) {
+    p.replies[0] = answer(p.win.serverPlays);
+    await streamPlays(p, 30);
+    return Object.assign(menuState(p), { starts: p.starts(), errors: p.toasts.length });
+  },
+
+  /* A saved choice the server has never heard of. */
+  async quality_unknown(p) {
+    p.replies[0] = { err: { status: 422 } };
+    p.replies.push(answer('1080p-8000'));
+    await streamPlays(p, 30);
+    return Object.assign(menuState(p), { starts: p.starts(), message: !p.q('[data-message]').hidden });
+  },
+
+  /* The choice that Automatic already plays is made the person's. */
+  async quality_same(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    click(p.q('[data-quality="1080p-8000"]'));
+    await settle();
+    return Object.assign(menuState(p), { starts: p.starts() });
+  },
+
+  /* Plex repackages the source, but this browser cannot play it. */
+  async original_unplayable(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    p.replies.push(answer('original'), answer('1080p-10000'));
+    click(p.q('[data-quality="original"]'));
+    await settle();
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'mediaError' });
+    await streamPlays(p, 30);
+    return Object.assign(menuState(p), { starts: p.starts(), toasts: p.toasts });
+  },
+
+  /* Automatic on a connection that cannot keep up, then one that can. */
+  async auto_steps(p) {
+    const out = {};
+    const last = () => p.hlsList[p.hlsList.length - 1];
+    const stall = () => fire(p.video, 'waiting');
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    playOn(p, 10);
+    key('ArrowRight');
+    fire(p.video, 'seeking');
+    stall();
+    playOn(p, 5);
+    fire(p.video, 'seeking');
+    stall();
+    out.afterSeeks = p.starts();
+    fire(p.video, 'playing');
+    playOn(p, 5);
+    stall();
+    out.afterOne = p.starts();
+    fire(p.video, 'playing');
+    playOn(p, 100);
+    stall();
+    out.afterFarApart = p.starts();
+    fire(p.video, 'playing');
+    playOn(p, 20);
+    p.replies.push(answer('720p-4000'));
+    stall();
+    await streamPlays(p, 200);
+    out.afterTwo = Object.assign(menuState(p), { starts: p.starts() });
+    playOn(p, 5);
+    p.replies.push(answer('480p-1500'));
+    stall();
+    p.tick(9000);
+    out.shortWait = p.starts();
+    p.tick(2000);
+    await streamPlays(p, 200);
+    out.longWait = p.starts();
+    playOn(p, 3);
+    stall();
+    fire(p.video, 'playing');
+    playOn(p, 3);
+    stall();
+    await settle();
+    out.atTheBottom = p.starts();
+    fire(p.video, 'playing');
+    playOn(p, 280);
+    out.notYet = p.starts();
+    p.replies.push(answer('720p-4000'));
+    last().bandwidthEstimate = 3e6;
+    playOn(p, 30);
+    out.slowLine = p.starts();
+    last().bandwidthEstimate = 50e6;
+    playOn(p, 1);
+    await streamPlays(p, 600);
+    out.up = p.starts();
+    playOn(p, 5);
+    p.replies.push(answer('480p-1500'));
+    last().bandwidthEstimate = 0;
+    stall();
+    fire(p.video, 'playing');
+    playOn(p, 5);
+    stall();
+    await streamPlays(p, 600);
+    out.downAgain = p.starts();
+    playOn(p, 310);
+    out.damped = p.starts();
+    p.replies.push(answer('720p-4000'));
+    playOn(p, 300);
+    out.upAgain = p.starts();
+    return out;
+  },
+
+  /* A connection measured far slower than the next step. */
+  async auto_jumps(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    p.hlsList[0].bandwidthEstimate = 2e6;
+    p.replies.push(answer('480p-1500'));
+    for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); fire(p.video, 'playing'); }
+    await settle();
+    return p.starts();
+  },
+
+  /* A quality the person picked stays, however it stalls. */
+  async fixed_stalls(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    for (let i = 0; i < 4; i++) { playOn(p, 5); fire(p.video, 'waiting'); p.tick(12000); fire(p.video, 'playing'); }
+    await settle();
+    return p.starts();
+  },
+
+  /* The server refuses a step Automatic takes. */
+  async auto_refused(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    p.replies.push({ err: { status: 429, error: 'rate_limited' } }, answer('1080p-8000'));
+    for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); }
+    await streamPlays(p, 40);
+    return Object.assign(menuState(p), { starts: p.starts(), toasts: p.toasts });
   },
 
   /* The buffer runs dry with no frame held. */
@@ -630,9 +809,9 @@ const scenarios = {
 };
 
 (async () => {
-  const [file, name, reduced] = process.argv.slice(2);
+  const [file, name, reduced, serverPlays] = process.argv.slice(2);
   const saved = reduced && reduced[0] === '{' ? JSON.parse(reduced) : null;
-  const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved);
+  const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays);
   const out = await scenarios[name](p);
   process.stdout.write(JSON.stringify(out));
 })().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });

@@ -4,8 +4,6 @@
 {# Full-window player. The page context reaches player.js only through the
    data-attributes on #player: tojson output is safe inside single quotes. #}
 
-{% set qualities = [("best", "Best", "1080p"), ("medium", "Medium", "720p"), ("low", "Low", "480p")] %}
-
 {% block title %}{{ item.title }} · Mediaman{% endblock %}
 
 {% block head %}
@@ -16,6 +14,7 @@
 {% block content %}
 <div class="player" id="player"
      data-item='{{ item|tojson }}'
+     data-qualities='{{ (qualities or [])|tojson }}'
      data-start-s="{{ start_s or 0 }}"
      data-back-href="{{ back_href }}"
      data-next='{{ next|tojson }}'
@@ -93,16 +92,11 @@
 
       <div class="player-menu-wrap">
         <button type="button" class="player-pill" data-menu-trigger data-quality-btn
-                aria-haspopup="menu" aria-expanded="false" aria-label="Quality: Best, 1080p">
-          <span class="player-wide" data-quality-name>Best ·</span> <span data-quality-res>1080p</span>
+                aria-haspopup="menu" aria-expanded="false" aria-label="Quality" title="Quality">
+          <span><span class="player-wide" data-quality-before></span><span data-quality-res></span><span class="player-wide" data-quality-after></span></span>
         </button>
-        <div class="player-menu player-menu--up" role="menu" hidden>
-          {% for value, name, res in qualities %}
-          <button type="button" class="player-menu-item" role="menuitemradio"
-                  aria-checked="{{ 'true' if value == 'best' else 'false' }}"
-                  data-quality="{{ value }}" data-quality-label="{{ name }}" data-quality-res="{{ res }}">{{ name }} · {{ res }}{{ icon("i-check", "player-menu-tick") }}</button>
-          {% endfor %}
-        </div>
+        {# player.js fills it, and again with what each stream's answer offers. #}
+        <div class="player-menu player-menu--up" role="menu" aria-label="Quality" data-quality-menu hidden></div>
       </div>
 
       <button type="button" class="player-btn" data-fullscreen aria-label="Full screen" title="Full screen (F)">

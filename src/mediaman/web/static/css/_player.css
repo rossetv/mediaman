@@ -285,9 +285,15 @@
   right: 0;
   z-index: 1;
   min-width: 170px;
+  max-width: calc(100vw - 24px);
+  /* Clears the control row below an upward menu and the top bar above it. */
+  max-height: min(480px, calc(100vh - 136px));
+  max-height: min(480px, calc(100dvh - 136px));
   padding: 6px;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--s2) 96%, transparent);
   box-shadow: var(--shadow-card);
@@ -295,6 +301,7 @@
 .player-menu--up { bottom: calc(100% + 4px); }
 .player-menu--down { top: calc(100% + 4px); }
 .player-menu-item {
+  flex: none;
   min-height: 44px;
   padding: 0 12px;
   text-align: left;
@@ -305,8 +312,12 @@
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
-.player-menu-tick { display: none; float: right; width: 12px; height: 1.47em; margin-left: 12px; color: var(--accent); }
-.player-menu-item[aria-checked="true"] > .player-menu-tick { display: block; }
+/* What the row is on the left, the detail of it on the right, then the tick. */
+.player-menu-item--split { display: flex; align-items: center; gap: 12px; }
+.player-menu-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.player-menu-side { flex: none; font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.player-menu-tick { flex: none; width: 12px; height: 12px; color: var(--accent); visibility: hidden; }
+.player-menu-item[aria-checked="true"] > .player-menu-tick { visibility: visible; }
 
 /* Pressed: a quick shrink and a tint, since the tap highlight is off. */
 .player-back:active { transform: scale(.94); background: var(--player-glass-hover); }
