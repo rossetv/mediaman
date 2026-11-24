@@ -27,6 +27,7 @@ from mediaman.core.time import now_utc
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
+    _reset_unchecked,
     carry_queued_since,
     detect_completed,
     fetch_and_sync_recent_downloads,
@@ -106,6 +107,7 @@ def _reset_previous_queue() -> None:
         _last_cards = []
         _unready_shows = None
         _unready_read_at = None
+    _reset_unchecked()
 
 
 def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
