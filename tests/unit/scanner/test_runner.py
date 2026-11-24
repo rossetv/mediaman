@@ -235,7 +235,7 @@ class TestDiskThresholdFiltering:
     def test_a_library_whose_threshold_cannot_be_read_is_not_scanned(self, conn, setting):
         _set_setting(conn, "disk_thresholds", setting)
 
-        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == ["2"]
+        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == (["2"], ["1"])
 
     @pytest.mark.parametrize("setting", ['{"1": ', '["1"]', '"x"', "5"])
     def test_no_library_is_scanned_when_no_threshold_can_be_read(self, conn, setting):
@@ -244,7 +244,7 @@ class TestDiskThresholdFiltering:
             (setting,),
         )
 
-        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == []
+        assert _filter_libraries_by_disk(conn, ["1", "2"], {}) == ([], ["1", "2"])
 
     @pytest.mark.parametrize(
         "setting",
@@ -254,7 +254,33 @@ class TestDiskThresholdFiltering:
     def test_a_library_with_no_threshold_is_scanned(self, conn, setting):
         _set_setting(conn, "disk_thresholds", setting)
 
-        assert _filter_libraries_by_disk(conn, ["1"], {}) == ["1"]
+        assert _filter_libraries_by_disk(conn, ["1"], {}) == (["1"], [])
+
+    def test_a_library_left_out_is_returned_and_told_once_in_the_history(self, conn):
+        _seed_plex_settings(conn, ["1", "2"])
+        _set_setting(conn, "disk_thresholds", {"1": {"path": "/movies", "threshold": "x"}})
+        plex = _make_plex_mock(
+            [{"id": i, "title": f"Library {i}", "type": "movie"} for i in ("1", "2")]
+        )
+        engine = _make_engine_mock()
+
+        with (
+            patch("mediaman.services.media_meta.plex.PlexClient", return_value=plex),
+            patch("mediaman.scanner.engine.ScanEngine", return_value=engine) as made,
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            from mediaman.scanner.runner import run_scan_from_db
+
+            for _ in range(2):
+                engine.run_scan.return_value = {"scanned": 0}
+                summary = run_scan_from_db(conn, "test-secret")
+
+        assert summary == {"scanned": 0, "left_out": ["1"]}
+        assert made.call_args.kwargs["library_ids"] == ["2"]
+        [told] = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'library_left_out'"
+        ).fetchall()
+        assert "1" in told[0]
 
     def test_no_thresholds_configured_scans_all(self, conn):
         """When no disk_thresholds setting exists, all libraries are passed through."""
