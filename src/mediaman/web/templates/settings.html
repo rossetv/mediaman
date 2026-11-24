@@ -51,11 +51,8 @@
   "scan_time": settings.get('scan_time', '09:00'),
   "scan_timezone": settings.get('scan_timezone', 'UTC')
 } | tojson | safe }}</script>
-{# Core helpers must load before the settings modules. #}
-<script src="/static/js/core/api.js?v={{ static_v }}" defer></script>
+{# Core helpers must load before the settings modules; base.html loads the others. #}
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
-<script src="/static/js/core/dom.js?v={{ static_v }}" defer></script>
-<script src="/static/js/core/modal.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
 <script src="/static/js/password-strength.js?v={{ static_v }}" defer></script>
 {# Settings modules — order matters: the savebar/overview/disk-thresholds

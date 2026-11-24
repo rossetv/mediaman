@@ -516,6 +516,15 @@ def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_b
     assert out["gone"] == ["", 1]
 
 
+def test_the_page_loads_each_script_once() -> None:
+    pages = [
+        (_TEMPLATE_DIR / name).read_text(encoding="utf-8") for name in ("base.html", "settings.html")
+    ]
+    scripts = re.findall(r'<script src="([^"?]+)', "".join(pages))
+    assert "/static/js/settings/savebar.js" in scripts and "/static/js/core/dom.js" in scripts
+    assert len(scripts) == len(set(scripts))
+
+
 def test_a_form_comes_into_view_once_it_has_unfolded() -> None:
     out = _run("revealed")
     assert out["email"]["unfolding"] == []
