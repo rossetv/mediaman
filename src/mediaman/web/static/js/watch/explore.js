@@ -422,6 +422,9 @@
       if (gathering) gathering.classList.toggle('is-unknown', !early);
     }
 
+    /* All of it is in the library: its cards need not say so. */
+    function heldOnly(of) { f.host.classList.toggle('is-held', of.where === 'library'); }
+
     function change(key, value) {
       filter[key] = value;
       address.replace('explore', address.url(query(filter)));
@@ -440,6 +443,7 @@
       mine.list.busy(true);
       fetchPage(1).then(function (got) {
         if (open !== mine || turn !== asked) return;
+        heldOnly(of);
         mine.list.set({ cards: got.cards, next: got.next, fetchPage: fetchPage }, { move: true });
       }, function () {
         if (open !== mine || turn !== asked) return;
@@ -462,6 +466,7 @@
     f.host.classList.toggle('is-unknown', filter.where === 'library');
     f.node.appendChild(filters);
     f.node.appendChild(f.host);
+    heldOnly(filter);
     facts();
     stage().open(f.node, name, { icon: icon(want.id), name: name });
     stage().grow(f.title, from);

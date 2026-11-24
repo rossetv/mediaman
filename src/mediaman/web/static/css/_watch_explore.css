@@ -25,6 +25,9 @@
 /* What could not be loaded is not on its way. */
 .explore .watch-grid.is-static:not(:has(> .watch-card)) > .watch-card--skel { display: none; }
 
+/* All of it is in the library: no card need say so. */
+.explore-grid.is-held .watch-badge--in { display: none; }
+
 /* The filters go sideways where they do not fit. */
 .explore-filters { display: flex; gap: 12px; margin: 0 calc(-1 * var(--pad)) 24px; padding: 3px var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
 .explore-filters::-webkit-scrollbar { display: none; }
