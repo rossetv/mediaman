@@ -135,7 +135,7 @@ class TestWatchList:
     def test_set_up_plex_empty_library_unchanged(self, page, conn):
         _plex(conn)
         html = page("/watch?view=list")
-        assert "Run a scan to pull in media from Plex." in html
+        assert "Run a scan from Storage to pull in media from Plex." in html
         assert _CONNECT not in html
 
     def test_filtered_empty_result_keeps_its_own_message(self, page):
