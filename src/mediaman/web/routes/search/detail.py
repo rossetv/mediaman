@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -29,7 +30,13 @@ from mediaman.services.media_meta.tmdb import TmdbClient, vote_of, year_of
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
-from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _QUERY_LIMITER, _poster_url
+from ._enrichment import (
+    _BACKDROP_BASE,
+    _PROFILE_BASE,
+    _QUERY_LIMITER,
+    _TMDB_TIMEOUT_S,
+    _poster_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,11 +231,17 @@ def api_detail(
 
     conn = get_db()
     secret_key = request.app.state.config.secret_key
-    client = TmdbClient.from_db(conn, secret_key)
+    client = TmdbClient.from_db(conn, secret_key, timeout=_TMDB_TIMEOUT_S, retry=False)
     if client is None:
         return respond_err("tmdb_not_configured", status=502)
 
-    raw_data = client.details(media_type, tmdb_id)
+    try:
+        with watch_catalog.gate.asking(client.token):
+            raw_data = client.details(media_type, tmdb_id)
+    except watch_catalog.TmdbBusy:
+        return respond_err("too_many_requests", status=429)
+    except watch_catalog.TmdbUnavailable:
+        raw_data = None
     if raw_data is None:
         return respond_err("tmdb_request_failed", status=502)
     # rationale: ``TmdbClient.details`` returns ``dict[str, object]`` to

@@ -43,6 +43,8 @@ _RATINGS_TTL_DAYS = 30
 _DISCOVER_FRESH_S = 6 * 3600
 _DISCOVER_STALE_S = 7 * 24 * 3600
 _MAX_QUERY_LEN = 100
+# A worker thread waits for the answer.
+_TMDB_TIMEOUT_S = 3.0
 
 
 def _fetch_discover_shelf(
@@ -50,12 +52,14 @@ def _fetch_discover_shelf(
     fetch_fn: Callable[[int], list[dict[str, object]]],
     inject_media_type: str | None,
     page: int,
+    allow_fetch: bool = True,
 ) -> list[dict[str, object]]:
     """Fetch one page of a discover shelf through the disk cache (fresh 6 h, served stale up
     to 7 d), stamping media_type on each item when inject_media_type is set (the popular
     endpoints omit it). The client answers [] on a failure, so an empty page is not cached
     and the shelf comes back empty. The key matches Watch's discover rows for page 1, so both
     raise the same TmdbUnavailable: the cache hands a stored failure to whoever asks next.
+    Without allow_fetch only a cached shelf is answered.
     """
 
     def fetch() -> list[dict[str, object]]:
@@ -68,9 +72,13 @@ def _fetch_discover_shelf(
 
     try:
         shelf: list[dict[str, object]] = disk_cache.meta().get_or_fetch(
-            f"tmdb:discover:{shelf_key}:{page}", _DISCOVER_FRESH_S, _DISCOVER_STALE_S, fetch
+            f"tmdb:discover:{shelf_key}:{page}",
+            _DISCOVER_FRESH_S,
+            _DISCOVER_STALE_S,
+            fetch,
+            allow_fetch=lambda: allow_fetch,
         )
-    except TmdbUnavailable:
+    except (TmdbUnavailable, disk_cache.Refused):
         return []
     return shelf
 

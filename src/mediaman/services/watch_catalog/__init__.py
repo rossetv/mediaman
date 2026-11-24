@@ -30,7 +30,7 @@ from ._explore import (
     people,
     person,
 )
-from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable
+from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable, gate
 from ._genres import GENRES, Genre
 from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url
@@ -75,6 +75,7 @@ __all__ = [
     "discover_shelves",
     "explore_page",
     "fill_title_meta",
+    "gate",
     "genre_posters",
     "invalidate",
     "library_href",
