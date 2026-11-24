@@ -307,10 +307,14 @@ def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> Non
     assert "margin-left: 0" in wide[1]
 
 
-def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
+def test_a_pick_has_its_icon_beside_the_words_of_its_caption_at_every_width() -> None:
     css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
-    phone = "".join(re.findall(r"@media \(max-width: 599\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
-    assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
+    hidden = [
+        head
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if "display: none" in body and "watch-card__ai" in head
+    ]
+    assert hidden == []
 
 
 def test_the_narrowest_phones_keep_the_icon_of_the_ai_mark() -> None:
