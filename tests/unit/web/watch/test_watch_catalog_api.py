@@ -15,10 +15,12 @@ from fastapi.testclient import TestClient
 from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
+from mediaman.services.media_meta.plex_watch import PlexUnavailable
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
 from mediaman.web.routes.search import _enrichment
@@ -196,6 +198,10 @@ def plex(monkeypatch):
     return fake
 
 
+def _mark(conn, *keys: str, item: str, show: str | None = "500", user: str = "viewer") -> None:
+    mark_watched(conn, user, [MarkTarget(k, item, show, 0) for k in keys], now_utc())
+
+
 def _login(app_factory, conn, role):
     insert_admin_user(conn, username=role, role=role)
     app = app_factory(catalog_api.router, search_routes.router, recommended_api.router, conn=conn)
@@ -311,6 +317,17 @@ class TestDiscover:
         ]
         assert rows["popular_movies"]["items"][0]["poster_url"] == "/api/watch/img/tmdb/w342/p.jpg"
         assert rows["popular_tv"]["items"][0]["library_ref"] == "show-500"
+
+    def test_a_card_the_library_holds_carries_the_viewers_own_mark(
+        self, viewer, library, tmdb, arr
+    ):
+        _mark(library, "100", item="100", show=None)
+
+        rows = {r["id"]: r for r in viewer.get("/api/watch/discover").json()["rows"]}
+
+        held, other = rows["trending"]["items"]
+        assert (held["watched"], held["mark_kind"], held["mark_key"]) == (True, "movie", "100")
+        assert (other["watched"], other["mark_kind"], other["mark_key"]) == (False, None, None)
 
     def test_a_movie_scanned_since_shows_once_the_held_library_is_out_of_date(
         self, viewer, library, tmdb, arr, monkeypatch
@@ -528,6 +545,68 @@ class TestLibraryTitle:
         assert body["keep_allowed"] is True
         assert not ADMIN_KEYS & body.keys()
 
+    def test_a_movie_says_it_was_seen_even_with_plex_down(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        _mark(library, "100", item="100", show=None)
+        insert_admin_user(library, username="cian", role="viewer")
+        _mark(library, "511", "512", "521", item="501", user="cian")
+        plex.error = PlexUnavailable("down")
+
+        movie = viewer.get("/api/watch/title/movie-100").json()
+        show = viewer.get("/api/watch/title/show-500").json()
+
+        assert (movie["watched"], movie["mark_kind"], movie["mark_key"]) == (True, "movie", "100")
+        assert (show["watched"], show["mark_kind"], show["mark_key"]) == (False, "show", "500")
+
+    def test_a_show_says_which_seasons_and_episodes_were_seen(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        _mark(library, "521", item="502")
+        _mark(library, "511", item="501")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE id = '502'")
+        library.commit()
+
+        body = viewer.get("/api/watch/title/show-500").json()
+        season = viewer.get("/api/watch/title/show-500/season/2").json()
+
+        assert body["play"]["label"] == "Play S1 · E2"
+        assert [(s["key"], s["watched"]) for s in body["seasons"]] == [
+            ("501", False),
+            ("502", True),
+        ]
+        assert [(e["key"], e["watched"]) for e in body["episodes"]] == [
+            ("511", True),
+            ("512", False),
+        ]
+        assert body["watched"] is False
+        assert (season["key"], season["watched"]) == ("502", True)
+
+    def test_a_show_is_seen_once_every_season_is(self, viewer, library, no_tmdb, arr, plex):
+        _mark(library, "511", "512", item="501")
+        _mark(library, "521", item="502")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE id = '502'")
+        library.commit()
+
+        assert viewer.get("/api/watch/title/show-500").json()["watched"] is True
+
+    def test_a_show_seen_to_the_end_is_read_without_every_seasons_list(
+        self, viewer, library, no_tmdb, arr, plex, monkeypatch
+    ):
+        plex.add_show("500", "Glass Coast", {n: (f"50{n}", [f"5{n}1"]) for n in range(1, 4)})
+        _mark(library, "511", item="501")
+        _mark(library, "521", item="502")
+        _mark(library, "531", item="503")
+        library.execute("UPDATE media_items SET episode_count = 1 WHERE show_rating_key = '500'")
+        library.commit()
+        read: list[str] = []
+        real = plex.get_season_episodes
+        monkeypatch.setattr(plex, "get_season_episodes", lambda k: read.append(k) or real(k))
+
+        viewer.get("/api/watch/title/show-500")
+
+        assert "502" not in read
+
     def test_a_season_answers_its_own_episodes(self, viewer, no_tmdb, arr, plex):
         resp = viewer.get("/api/watch/title/show-500/season/2")
 
@@ -571,6 +650,7 @@ class TestTmdbTitle:
             "movie-100",
             None,
         )
+        assert (body["watched"], body["mark_key"]) == (False, "100")
 
     def test_a_show_sonarr_already_tracks_says_so(self, viewer, tmdb, arr):
         arr.series = [

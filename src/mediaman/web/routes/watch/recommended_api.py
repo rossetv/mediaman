@@ -51,7 +51,7 @@ def _attach_states(
 
 
 def _card(
-    row: dict[str, object], index: catalog.LibraryIndex, arr: catalog.ArrView
+    row: dict[str, object], index: catalog.LibraryIndex, arr: catalog.ArrView, seen: set[str]
 ) -> dict[str, object]:
     rec_id = row["id"]
     kind: Literal["movie", "tv"] = "movie" if row.get("media_type") == "movie" else "tv"
@@ -79,7 +79,12 @@ def _card(
         download_state=state if isinstance(state, str) else None,
         download_pct=pct if isinstance(pct, int) else None,
     )
-    return {**card, "rec_id": rec_id, "reason": row.get("reason") or None}
+    return {
+        **card,
+        **lib.mark_fields(library_ref, seen),
+        "rec_id": rec_id,
+        "reason": row.get("reason") or None,
+    }
 
 
 def _unseen(
@@ -155,13 +160,15 @@ def api_watch_recommended(
     )
     arr = catalog.arr_view(conn, request.app.state.config.secret_key)
     _attach_states(conn, rows, arr)
+    libraries = lib.scanned_library_ids(conn)
     index = catalog.library_index(
         conn,
         TmdbClient.from_db(conn, request.app.state.config.secret_key),
-        lib.scanned_library_ids(conn),
+        libraries,
         lib.library_movies,
         lib.library_shows,
     )
     payload["batch"] = batches[chosen]["id"]
-    payload["items"] = [_card(row, index, arr) for row in rows]
+    seen = lib.seen_refs(conn, username, libraries)
+    payload["items"] = [_card(row, index, arr, seen) for row in rows]
     return respond_ok(payload)

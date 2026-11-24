@@ -16,6 +16,7 @@ from mediaman.services.openai.recommendations.throttle import record_manual_refr
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository import watch_library
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, recommended_api
 from tests.helpers.factories import (
     insert_admin_user,
@@ -225,6 +226,23 @@ class TestCards:
             "movie-100",
         )
         assert item["href"] == "/watch/movie/100"
+
+    def test_a_pick_the_library_holds_carries_the_viewers_own_mark(self, viewer, conn):
+        for key, tmdb_id in (("42", 11), ("43", 12)):
+            insert_media_item(conn, id=key, plex_rating_key=key, title=f"Film {key}")
+            conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = ?", (tmdb_id, key))
+            insert_suggestion(conn, title=f"Film {key}", tmdb_id=tmdb_id, batch_id="2099-01-01")
+        insert_suggestion(conn, title="Elsewhere", tmdb_id=13, batch_id="2099-01-01")
+        conn.commit()
+        mark_watched(conn, "viewer", [MarkTarget("42", "42", None, 0)], now_utc())
+
+        items = {i["title"]: i for i in _get(viewer)["items"]}
+
+        assert {t: (i["watched"], i["mark_key"]) for t, i in items.items()} == {
+            "Film 42": (True, "42"),
+            "Film 43": (False, "43"),
+            "Elsewhere": (False, None),
+        }
 
     def test_a_remake_pick_is_not_the_older_library_title_it_shares_a_name_with(
         self, viewer, conn, arr

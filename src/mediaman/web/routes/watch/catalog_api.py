@@ -17,9 +17,9 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -56,6 +56,7 @@ from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
+    _season_watched,
     leaving_info,
     open_plex,
     play_href,
@@ -163,20 +164,31 @@ def api_watch_discover(
         shelves = catalog.discover_shelves(client)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = catalog.library_index(
-        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
-    )
-    arr = _arr(request, conn)
+    cards = _discover_cards(request, conn, client, username, [items for _, _, items in shelves])
     rows = [
-        {
-            "id": shelf_id,
-            "title": title,
-            "items": [c for i in items if (c := catalog.tmdb_card(i, index, arr)) is not None],
-            "next_page": 2,
-        }
-        for shelf_id, title, items in shelves
+        {"id": shelf_id, "title": title, "items": row_cards, "next_page": 2}
+        for (shelf_id, title, _), row_cards in zip(shelves, cards, strict=True)
     ]
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
+
+
+def _discover_cards(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    username: str,
+    shelves: Sequence[Sequence[Mapping[str, object]]],
+) -> list[list[dict[str, object]]]:
+    """The cards of each of *shelves*, marked with what the library holds and *username* has seen."""
+    libraries = lib.scanned_library_ids(conn)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
+    arr = _arr(request, conn)
+    seen = lib.seen_refs(conn, username, libraries)
+    cards = [[catalog.tmdb_card(item, index, arr) for item in items] for items in shelves]
+    return [
+        [{**c, **lib.mark_fields(cast(str | None, c["library_ref"]), seen)} for c in row if c]
+        for row in cards
+    ]
 
 
 def _discover_page(
@@ -196,11 +208,7 @@ def _discover_page(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = catalog.library_index(
-        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
-    )
-    arr = _arr(request, conn)
-    items = [c for i in found if (c := catalog.tmdb_card(i, index, arr)) is not None]
+    [items] = _discover_cards(request, conn, client, username, [found])
     return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
@@ -298,6 +306,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "kind": kind,
         "in_library": False,
         "library_ref": None,
+        **lib.mark_fields(None, set()),
         "title": "",
         "year": None,
         "year_end": None,
@@ -388,6 +397,9 @@ def _movie_title(
     out.update(
         in_library=True, library_ref=ref, title=movie.title, poster_url=poster_url(movie.key)
     )
+    progress = get_progress(conn, username, [movie.key]).get(movie.key)
+    seen = progress is not None and progress.seen
+    out.update(lib.mark_fields(ref, {ref} if seen else set()))
     try:
         item = open_plex(request, conn).get_item(movie.key)
     except PlexError:
@@ -401,7 +413,6 @@ def _movie_title(
             overview=item.summary,
             runtime_min=round(item.duration_s / 60) or None,
         )
-        progress = get_progress(conn, username, [movie.key]).get(movie.key)
         origin = f"/watch#title={ref}"
         if progress is not None and resumable(progress):
             pct, left = progress_fields(progress)
@@ -456,6 +467,8 @@ def _show_title(
         poster_url=poster_url(listed.key),
         season_count=listed.season_count or None,
     )
+    counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
+    out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
     origin = f"/watch#title={ref}"
     try:
         plex = open_plex(request, conn)
@@ -470,7 +483,9 @@ def _show_title(
             return episodes_cache[season_key]
 
         progress = show_progress(conn, username, listed.key)
-        primary, primary_season = _primary_episode(plex, show, progress, episodes_of, origin)
+        primary, primary_season = _primary_episode(
+            plex, show, progress, episodes_of, origin, counted
+        )
         selected = next((s for s in show.seasons if s.index == primary_season), None)
         if selected is None and show.seasons:
             selected = show.seasons[0]
@@ -478,7 +493,14 @@ def _show_title(
     except PlexError:
         show = None
     if show is not None:
+        season_watched = {
+            s.rating_key: _season_watched(
+                episodes_cache.get(s.rating_key), progress, counted, s.index
+            )
+            for s in show.seasons
+        }
         out.update(
+            watched=bool(season_watched) and all(season_watched.values()),
             title=show.title or listed.title,
             year=show.year_first,
             year_end=show.year_last if show.year_last != show.year_first else None,
@@ -495,6 +517,8 @@ def _show_title(
                     else None,
                     "in_library": True,
                     "selected": s is selected,
+                    "key": s.rating_key,
+                    "watched": season_watched[s.rating_key],
                 }
                 for s in show.seasons
             ],
@@ -548,11 +572,18 @@ def _tmdb_title(
         kind, tmdb_id, fields["title"], arr, year=fields["year"], tvdb_id=fields["tvdb_id"]
     )
     if library_ref is not None:
-        out.update(in_library=True, library_ref=library_ref)
+        seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+        out.update(in_library=True, library_ref=library_ref, **lib.mark_fields(library_ref, seen))
     if kind == "tv":
         held = arr.seasons_with_files(tmdb_id)
         out["seasons"] = [
-            {**s, "in_library": s["number"] in held, "selected": False}
+            {
+                **s,
+                "in_library": s["number"] in held,
+                "selected": False,
+                "key": None,
+                "watched": False,
+            }
             for s in fields["tmdb_seasons"]
         ]
         if library_ref is None:
@@ -699,7 +730,11 @@ def api_watch_title_season(
     progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
     return respond_ok(
-        {"episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes]}
+        {
+            "key": season.rating_key,
+            "watched": _season_watched(episodes, progress, None, number),
+            "episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+        }
     )
 
 

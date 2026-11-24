@@ -300,6 +300,15 @@ def seen_refs(conn: sqlite3.Connection, username: str, libraries: list[str]) -> 
     }
 
 
+def mark_fields(ref: str | None, seen: set[str]) -> dict[str, object]:
+    """The Watched fields of a card or title: *ref* is its library ref, None when the library
+    does not hold it, and *seen* is seen_refs' answer."""
+    if ref is None:
+        return {"watched": False, "mark_kind": None, "mark_key": None}
+    kind, _, key = ref.partition("-")
+    return {"watched": ref in seen, "mark_kind": kind, "mark_key": key}
+
+
 def find_movie(conn: sqlite3.Connection, libraries: list[str], key: str) -> LibraryMovie | None:
     found = _movies(conn, libraries, key=key)
     return found[0] if found else None
@@ -494,6 +503,7 @@ __all__ = [
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",
+    "mark_fields",
     "newest_first",
     "parse_cursor",
     "pending_deletion",
