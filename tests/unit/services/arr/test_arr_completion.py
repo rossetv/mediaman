@@ -478,6 +478,33 @@ class TestSeriesWithOtherEpisodesAlreadyOnDisk:
         assert self._vanish(conn, monkeypatch, second_episode_has_file=True) == ["sonarr:Show"]
 
 
+@pytest.mark.parametrize(("days", "recorded"), [(-90, []), (1, ["sonarr:Show"])])
+def test_an_episode_counts_only_by_a_file_added_since_it_was_queued(
+    conn, monkeypatch, days, recorded
+):
+    queued = datetime(2026, 5, 1, 12, tzinfo=UTC)
+    before = {"sonarr:Show": {"title": "Show", "kind": "series", "episodes": [{"label": "S01E02"}]}}
+    carry_queued_since({}, before, queued)
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [
+        {"id": 3, "title": "Show", "statistics": {"episodeFileCount": 2}}
+    ]
+    sonarr.get_episodes.return_value = [
+        {"seasonNumber": 1, "episodeNumber": n, "hasFile": True, "episodeFileId": 100 + n}
+        for n in (1, 2)
+    ]
+    sonarr.get_episode_files.return_value = [
+        {"id": 101, "dateAdded": (queued + timedelta(days=1)).isoformat()},
+        {"id": 102, "dateAdded": (queued + timedelta(days=days)).isoformat()},
+    ]
+    monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: sonarr)
+
+    record_verified_completions(conn, detect_completed(before, {}), "secret")
+
+    rows = conn.execute("SELECT dl_id FROM recent_downloads")
+    assert [r["dl_id"] for r in rows] == recorded
+
+
 class TestAFilmThatAlreadyHadAFile:
     QUEUED = datetime(2026, 5, 1, 12, tzinfo=UTC)
 

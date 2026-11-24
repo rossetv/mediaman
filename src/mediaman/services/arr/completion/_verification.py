@@ -112,26 +112,35 @@ class _ArrLibraryIndex:
             raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_title
 
-    def has_episode_file(self, series: SonarrSeries, labels: set[str]) -> bool:
-        if self._sonarr_client is None:
+    def has_episode_file(
+        self, series: SonarrSeries, labels: set[str], queued_since: str | None
+    ) -> bool:
+        """Whether one of the episodes named arrived; see ``_added_since``."""
+        client = self._sonarr_client
+        if client is None:
             return False
-        return any(
-            ep.get("hasFile")
+        filed = {
+            ep.get("episodeFileId")
+            for ep in client.get_episodes(series["id"])
+            if ep.get("hasFile")
             and format_episode_label(ep.get("seasonNumber"), ep.get("episodeNumber")) in labels
-            for ep in self._sonarr_client.get_episodes(series["id"])
+        }
+        if not filed or queued_since is None:
+            return bool(filed)
+        return any(
+            _added_since(f.get("dateAdded"), queued_since)
+            for f in client.get_episode_files(series["id"])
+            if f.get("id") in filed
         )
 
 
-def _arrived(movie: RadarrMovie, queued_since: str | None) -> bool:
-    """Whether *movie* has a file, and one added since it was first seen in the queue: an older
-    one says nothing about an upgrade that failed. Since it was last seen would be too late,
-    for Radarr dates a file before it moves it, with the download still in the queue.
+def _added_since(added: str | None, queued_since: str | None) -> bool:
+    """Whether a file was added since its title was first seen in the queue: an older one says
+    nothing about an upgrade that failed. Since it was last seen would be too late, for an
+    *arr dates a file before it moves it, with the download still in the queue.
     """
-    if not movie.get("hasFile"):
-        return False
-    since = parse_iso_utc(queued_since)
-    added = parse_iso_utc((movie.get("movieFile") or {}).get("dateAdded"))
-    return since is None or (added is not None and added >= since)
+    since, at = parse_iso_utc(queued_since), parse_iso_utc(added)
+    return since is None or (at is not None and at >= since)
 
 
 def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
@@ -155,7 +164,9 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     title,
                 )
             movie = idx.radarr_index_by_title().get(title)
-        return movie is not None and _arrived(movie, c.get("queued_since"))
+        if movie is None or not movie.get("hasFile"):
+            return False
+        return _added_since((movie.get("movieFile") or {}).get("dateAdded"), c.get("queued_since"))
     if dl_id.startswith("sonarr:"):
         tmdb_id = c.get("tmdb_id")
         series = idx.sonarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None
@@ -174,7 +185,7 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
             return False
         # Other episodes' files say nothing about a grab that failed.
         labels = c.get("episodes")
-        return not labels or idx.has_episode_file(series, set(labels))
+        return not labels or idx.has_episode_file(series, set(labels), c.get("queued_since"))
     # NZBGet-only items — no Arr verification possible
     return True
 

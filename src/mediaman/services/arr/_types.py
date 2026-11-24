@@ -197,6 +197,7 @@ class ArrEpisode(TypedDict, total=False):
     airDateUtc: str
     monitored: bool
     hasFile: bool
+    episodeFileId: int
 
 
 class ArrRootFolder(TypedDict, total=False):
