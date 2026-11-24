@@ -210,9 +210,23 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
             )
 
 
+def _smallest(prop: str, *selectors: str) -> float:
+    """The smallest number any shared rule for one of `selectors` sets `prop` to, in any media."""
+    return min(
+        float(value)
+        for path in SHARED
+        for heads, body in _rules(_text(path))
+        if any(re.search(rf"(?<![\w-]){re.escape(s)}$", head) for s in selectors for head in heads)
+        for value in re.findall(rf"(?<![\w-]){prop}:\s*([\d.]+)", body)
+    )
+
+
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    # A 15px line of text, reached 15px above and below.
+    # A line of text, reached 15px above and below.
+    link = (".dl-search-hint", ".dl-arr-link")
+    line = _smallest("font-size", *link) * _smallest("line-height", *link, "body")
     assert _phone_sets(".dl-arr-link::after", "inset", "-15px -6px")
+    assert line + 2 * 15 >= 44
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 
