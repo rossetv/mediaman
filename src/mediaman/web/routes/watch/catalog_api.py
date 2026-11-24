@@ -765,14 +765,14 @@ def api_watch_title(
         return _not_found()
 
     client = _tmdb_client(request, conn)
-    if client is None:
-        return respond_err("tmdb_not_configured", status=503)
     try:
         if kind != "tmdb":
             rec = _recommended(conn, username, kind, rest)
             if rec is None:
                 return _not_found()
             return respond_ok(_recommended_title(request, conn, username, client, ref, kind, rec))
+        if client is None:
+            return respond_err("tmdb_not_configured", status=503)
         media_type, _, tmdb_id = rest.partition("-")
         # Any id can be asked for, so only a title TMDB must answer counts against the limit;
         # a cached one is free.
@@ -818,7 +818,7 @@ def _recommended_title(
     rec: SuggestionDetail,
 ) -> dict[str, Any]:
     """A recommendation (*kind* "pick" or "rec"): TMDB's title, or what was stored of it when
-    it has no TMDB id. Raises as ``_tmdb_title``."""
+    TMDB has no id for it or gives no answer. Raises TitleNotFound."""
     download_url = (
         f"/api/watch/picks/{rec.id}/download"
         if kind == "pick"
@@ -826,9 +826,14 @@ def _recommended_title(
     )
     out: dict[str, Any] | None = None
     if rec.tmdb_id and client is not None:
-        out = _tmdb_title(
-            request, conn, username, client, ref, rec.media_type, rec.tmdb_id, download_url
-        )
+        try:
+            out = _tmdb_title(
+                request, conn, username, client, ref, rec.media_type, rec.tmdb_id, download_url
+            )
+        except catalog.TitleNotFound:
+            raise
+        except catalog.TmdbUnavailable:
+            pass  # What was stored is better than none.
     if out is None:
         out = _stored_title(request, conn, username, client, ref, rec, download_url)
     out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))

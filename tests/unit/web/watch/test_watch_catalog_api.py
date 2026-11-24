@@ -550,7 +550,7 @@ class TestTitleRefs:
     def test_a_missing_recommendation_is_404(self, viewer, tmdb, arr):
         assert viewer.get("/api/watch/title/rec-999").status_code == 404
 
-    @pytest.mark.parametrize("path", ["tmdb-movie-12", "rec-1", "tmdb-movie-12/ratings"])
+    @pytest.mark.parametrize("path", ["tmdb-movie-12", "tmdb-movie-12/ratings", "rec-1/ratings"])
     def test_a_tmdb_title_without_tmdb_set_up_is_503(self, viewer, no_tmdb, arr, path):
         resp = viewer.get(f"/api/watch/title/{path}")
 
@@ -928,6 +928,50 @@ class TestTmdbTitle:
         viewer.cookies.clear()
 
         assert viewer.get("/api/watch/title/tmdb-movie-12/ratings").status_code == 401
+
+    @pytest.mark.parametrize("tmdb_is", ["down", "busy", "not set up"])
+    def test_a_recommendation_shows_what_was_stored_while_tmdb_gives_no_answer(
+        self, viewer, library, tmdb, arr, monkeypatch, tmdb_is
+    ):
+        rec_id = insert_suggestion(
+            library,
+            title="Glass Onion",
+            tmdb_id=12,
+            year=2022,
+            description="A mystery.",
+            reason="Because.",
+            rating=7.4,
+            rt_rating="92%",
+        )
+        if tmdb_is == "not set up":
+            monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
+        else:
+            error = SafeHTTPError(
+                status_code=500 if tmdb_is == "down" else 429, body_snippet="", url="https://t"
+            )
+            monkeypatch.setattr(tmdb, "details_or_raise", MagicMock(side_effect=error))
+
+        resp = viewer.get(f"/api/watch/title/rec-{rec_id}")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body["title"], body["year"], body["overview"], body["reason"]) == (
+            "Glass Onion",
+            2022,
+            "A mystery.",
+            "Because.",
+        )
+        assert (body["ratings"]["tmdb"], body["ratings"]["rt"]) == (7.4, "92%")
+        assert body["download"]["request"] == {"url": f"/api/recommended/{rec_id}/download"}
+        assert body["ratings_pending"] is False
+
+    def test_a_stored_recommendation_the_library_holds_says_so(self, viewer, library, tmdb, arr):
+        tmdb.failing = True
+        rec_id = insert_suggestion(library, title="The Glasshouse", tmdb_id=11)
+
+        body = viewer.get(f"/api/watch/title/rec-{rec_id}").json()
+
+        assert (body["library_ref"], body["download"]) == ("movie-100", None)
 
     def test_past_the_limit_omdb_is_not_asked_again_for_a_cached_title(
         self, viewer, tmdb, arr, monkeypatch
