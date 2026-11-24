@@ -56,7 +56,6 @@
   var ASK_AFTER_MS = 2 * 60 * 60 * 1000;
   /* How long the next episode waits for its page, and for the old stream to stop. */
   var PAGE_WAIT_MS = 15000;
-  var BACK_WAIT_MS = 1500;   // a step back through the history this late is not coming
   var STOP_WAIT_MS = 5000;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
@@ -2153,7 +2152,8 @@
 
   /* ---- back ------------------------------------------------------------ */
 
-  var backTimer;
+  var backTimer = null;      // runs while a step back is being made
+  var stepping = false;      // the browser has begun to make it
 
   /* Whether a page that plays things led here, in this tab. */
   function ledHere() {
@@ -2176,9 +2176,14 @@
      lead elsewhere than it did. A step the browser never makes is a link. */
   function goBack() {
     if (cameFrom !== backHref) { window.location.href = backHref; return; }
+    // A second step would lead past the page that is on its way.
+    if (backTimer !== null) return;
+    stepping = false;
     window.history.back();
-    clearTimeout(backTimer);
-    backTimer = setTimeout(function () { window.location.href = backHref; }, BACK_WAIT_MS);
+    backTimer = setTimeout(function () {
+      backTimer = null;
+      if (!stepping) window.location.href = backHref;
+    }, PAGE_WAIT_MS);
   }
 
   root.addEventListener('click', function (e) {
@@ -2194,8 +2199,12 @@
     if (document.visibilityState === 'hidden') beaconProgress();
   });
 
+  // A phone may not say so.
+  window.addEventListener('beforeunload', function () { stepping = true; });
+
   window.addEventListener('pagehide', function () {
     clearTimeout(backTimer);
+    backTimer = null;
     var resumeAt = position();
     beaconStop();
     pendingStart = resumeAt;

@@ -2630,7 +2630,9 @@ const scenarios = {
       let kept = false;
       fire(a, 'click', Object.assign({ bubbles: true, button: 0, preventDefault() { kept = true; } }, more));
       const out = { through: p.win.history.backs, link: !kept };
-      p.tick(5000);
+      if (more && more.twice) fire(a, 'click', { bubbles: true, button: 0 });
+      if (more && more.leaves) p.win.listeners.beforeunload.forEach((fn) => fn({}));
+      p.tick(more && more.waits || 60000);
       return Object.assign(out, { late: p.win.location.href });
     };
     const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/watch?genre=action', length: 3 }).win.history.state;
@@ -2641,6 +2643,9 @@ const scenarios = {
       deep: press({ length: 2 }),
       otherSite: press({ referrer: 'http://evil/watch', length: 3 }),
       otherPage: press({ referrer: 'http://mm/watch/play/9', length: 3 }),
+      slow: press({ referrer: 'http://mm/watch', length: 3 }, { waits: 10000 }),
+      slower: press({ referrer: 'http://mm/watch', length: 3 }, { leaves: true }),
+      twice: press({ referrer: 'http://mm/watch', length: 3 }, { twice: true }),
       newTabPress: press({ referrer: 'http://mm/watch', length: 3 }, { metaKey: true }),
     };
   },
