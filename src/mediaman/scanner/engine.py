@@ -183,10 +183,13 @@ class ScanEngine:
            worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
-        per_lib_fetches = self._sync_phase_fetch(summary)
-        self._arr_cache.ensure_loaded()
-        self._sync_phase_write(per_lib_fetches, summary)
-        watch_catalog.clear_library_index()
+        try:
+            per_lib_fetches = self._sync_phase_fetch(summary)
+            self._arr_cache.ensure_loaded()
+            self._sync_phase_write(per_lib_fetches, summary)
+        finally:
+            # Libraries committed before a failure are already in the DB.
+            watch_catalog.clear_library_index()
         logger.info(
             "Library sync complete: %d synced, %d orphans removed, %d errors",
             summary["synced"],
@@ -311,12 +314,15 @@ class ScanEngine:
             "errors": 0,
             "removed": 0,
         }
-        # Radarr/Sonarr reads happen here, never inside a write transaction.
-        self._arr_cache.ensure_loaded()
-        seen_by_lib = self._scan_all_libraries(summary)
-        self._cleanup_orphans_per_library(seen_by_lib, summary)
-        self._record_deletion_outcome(summary)
-        watch_catalog.clear_library_index()
+        try:
+            # Radarr/Sonarr reads happen here, never inside a write transaction.
+            self._arr_cache.ensure_loaded()
+            seen_by_lib = self._scan_all_libraries(summary)
+            self._cleanup_orphans_per_library(seen_by_lib, summary)
+            self._record_deletion_outcome(summary)
+        finally:
+            # Libraries committed before a failure are already in the DB.
+            watch_catalog.clear_library_index()
         self._run_post_scan_followups()
         return summary
 

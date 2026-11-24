@@ -405,6 +405,45 @@ class TestArrIdsAndTrackedFiles:
 
         assert library_movies(conn) == {603: "movie-100"}
 
+    def test_a_scan_that_fails_partway_still_drops_the_held_library_index(self, conn, mock_plex):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        with (
+            patch.object(ScanEngine, "_record_deletion_outcome", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            self._scan(conn, mock_plex, "movie")
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_library_sync_that_fails_partway_still_drops_the_held_library_index(
+        self, conn, mock_plex
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        write = ScanEngine._sync_phase_write
+
+        def write_then_fail(engine, *args, **kwargs):
+            write(engine, *args, **kwargs)
+            raise RuntimeError("boom")
+
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", write_then_fail),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
+
+        assert library_movies(conn) == {603: "movie-100"}
+
     def test_season_folder_mismatch_gets_no_sonarr_id(self, conn, mock_plex):
         insert_media_item(conn, id="s2", plex_rating_key="s2", media_type="tv_season", sonarr_id=3)
         mock_plex.get_show_seasons.return_value = [
