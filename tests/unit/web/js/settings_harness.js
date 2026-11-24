@@ -559,11 +559,13 @@ const scenarios = {
       post: () => new Promise((r) => { finish = r; }),
       messageOf: () => 'x',
     };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
     h.ctx.MM.settings.newsletter.init();
     await h.flush();
     toggle.fire('click');
     await h.flush();
     confirm.fire('click');
+    await h.flush();
     toggle.fire('click');
     cancel.fire('click');
     h.drain();
@@ -572,6 +574,46 @@ const scenarios = {
     await h.flush();
     cancel.fire('click');
     return { whileSending, afterwards: { toggle: toggle.textContent } };
+  },
+
+  // The newsletter goes out only once a dialog naming how many people get it is confirmed.
+  async newsletterConfirm() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/newsletter.js');
+    h.add('div', { id: 'subscriber-list' });
+    const toggle = h.add('button', { id: 'btn-send-newsletter' });
+    const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
+    const list = h.add('div', { id: 'newsletter-recipient-list' }, panel);
+    const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
+    h.add('span', { id: 'newsletter-send-status' }, panel);
+    const titles = [];
+    const sent = [];
+    let answer;
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: ['a@x', 'b@x', 'c@x'].map((email, id) => ({ id, email, active: true })) }),
+      post: (u, b) => { sent.push(b.recipients); return Promise.resolve({ sent_to: b.recipients.length }); },
+      messageOf: () => 'x',
+    };
+    h.ctx.UIFeedback.confirm = (o) => { titles.push(o.title); return new Promise((r) => { answer = r; }); };
+    h.ctx.MM.settings.newsletter.init();
+    await h.flush();
+    toggle.fire('click');
+    await h.flush();
+    confirm.fire('click'); confirm.fire('click');
+    await h.flush();
+    const out = { asked: titles.slice(), sentBefore: sent.length };
+    answer(false);
+    await h.flush();
+    out.declined = { sent: sent.length, disabled: confirm.disabled };
+    list.querySelectorAll('input').slice(1).forEach((b) => { b.checked = false; });
+    confirm.fire('click');
+    answer(true);
+    await h.flush();
+    out.one = titles[titles.length - 1];
+    // a second press asks again instead of sending twice
+    confirm.fire('click');
+    await h.flush();
+    return Object.assign(out, { sent, asks: titles.length });
   },
 
   // The send panel and the add form say whether they are open, and the panel gives its focus back.

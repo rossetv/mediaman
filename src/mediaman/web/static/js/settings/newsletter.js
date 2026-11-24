@@ -8,11 +8,13 @@
  *   - Newsletter send panel (#newsletter-send-panel)
  *     - Open/close toggle (#btn-send-newsletter, #btn-cancel-newsletter)
  *     - Recipient checkbox list with Select all / Select none
- *     - Send confirmation (#btn-confirm-newsletter → POST /api/newsletter/send)
+ *     - Send (#btn-confirm-newsletter, a dialog naming how many people get it,
+ *       then POST /api/newsletter/send)
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
  *   MM.dom  (core/dom.js)
+ *   window.UIFeedback (confirm dialog, toasts)
  *   MM.settings.rows (settings/rows.js)
  *
  * Exposes:
@@ -287,6 +289,7 @@
         if (keepFocus) btnConfirmNL.focus({ preventScroll: true });
       }
 
+      var asking = false;
       if (btnConfirmNL) btnConfirmNL.addEventListener('click', function () {
         var list = document.getElementById('newsletter-recipient-list');
         var recipients = [];
@@ -298,6 +301,19 @@
           newsletterStatus.className = 'inline-form-msg err';
           return;
         }
+        if (asking) return;
+        asking = true;
+        window.UIFeedback.confirm({
+          title: 'Send the newsletter to ' + recipients.length + (recipients.length === 1 ? ' person?' : ' people?'),
+          body: 'It goes out now. The scheduled newsletter is still sent as usual.',
+          confirmLabel: 'Send newsletter',
+        }).then(function (ok) {
+          asking = false;
+          if (ok) sendNewsletter(recipients);
+        });
+      });
+
+      function sendNewsletter(recipients) {
         btnConfirmNL.disabled = true;
         btnConfirmNL.textContent = 'Sending…';
         newsletterStatus.textContent = '';
@@ -325,7 +341,7 @@
             newsletterStatus.textContent = MM.api.messageOf(err, "Couldn't send. Try again.");
             newsletterStatus.className = 'inline-form-msg err';
           });
-      });
+      }
 
       loadSubscribers();
     },

@@ -155,6 +155,16 @@ def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
     assert out["afterwards"] == {"toggle": "Select recipients"}
 
 
+def test_newsletter_is_sent_only_after_confirming_how_many_people_get_it() -> None:
+    out = _run("newsletterConfirm")
+    assert len(out["asked"]) == 1 and "3 people" in out["asked"][0]
+    assert out["sentBefore"] == 0
+    assert out["declined"] == {"sent": 0, "disabled": False}
+    assert "1 person?" in out["one"]
+    assert out["sent"] == [["a@x"]]
+    assert out["asks"] == 3
+
+
 def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
     out = _run("panelToggles")
     ids = ("newsletter-send-panel", "add-user-form")
