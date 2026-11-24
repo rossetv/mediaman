@@ -32,6 +32,7 @@ The package is split into:
   ``remove_empty_folders`` (folders those removals left bare).
 * ``disk_usage`` — the read-only queries ``get_aggregate_disk_usage``
   and ``get_directory_size``.
+* ``disk_reads`` — the deadline a request thread puts on such a read.
 
 This module is the public barrel: every name, including the private helpers
 and constants the tests reach for, is importable from

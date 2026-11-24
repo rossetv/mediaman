@@ -33,6 +33,7 @@ from mediaman.services.infra import (
     is_same_disk,
 )
 from mediaman.services.infra import get_media_path as _get_media_path
+from mediaman.services.infra.storage.disk_reads import library_disk_reads, media_root_reads
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
 from mediaman.web.repository.dashboard import (
@@ -274,21 +275,33 @@ def _library_folders(conn: sqlite3.Connection) -> list[tuple[str, str, int | Non
     return folders
 
 
+def _some_disk(usage: dict[str, int]) -> dict[str, int]:
+    """Return *usage*; raise OSError when it is of no disk, so that it counts as a failed read."""
+    if not usage["total_bytes"]:
+        raise OSError("no disk could be read")
+    return usage
+
+
+def _read_media_root(base_path: str) -> dict[str, int]:
+    return _some_disk(get_aggregate_disk_usage(base_path))
+
+
 def _cached_disk_usage(base_path: str) -> dict[str, int]:
     """Return the usage of the disks under *base_path*, cached for 30s.
 
-    A reading that found no disk is not kept, so the next one tries again.
+    Raises OSError when no disk could be read; that is not kept here.
     """
     now = time.monotonic()
     with _disk_usage_cache_lock:
         entry = _disk_usage_cache.get(base_path)
         if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL_SECONDS:
             return entry[1]
-    fresh = get_aggregate_disk_usage(base_path)
-    if fresh["total_bytes"]:
-        with _disk_usage_cache_lock:
-            # Plain assignment so an expired entry is replaced, not kept.
-            _disk_usage_cache[base_path] = (now, fresh)
+    fresh = media_root_reads.read(base_path, _read_media_root)
+    if fresh is None:
+        raise OSError(f"No disk could be read under {base_path}")
+    with _disk_usage_cache_lock:
+        # Plain assignment so an expired entry is replaced, not kept.
+        _disk_usage_cache[base_path] = (now, fresh)
     return fresh
 
 
@@ -301,20 +314,15 @@ class _Disk:
 _disks_cache: dict[tuple[str, ...], tuple[float, list[_Disk]]] = {}
 
 
-def _read_usage(path: str) -> dict[str, int] | None:
-    """Return the usage of the disk behind *path*, or None when it cannot be read."""
-    try:
-        usage = get_disk_usage_for_paths([path])
-    except OSError:
-        return None
-    return usage if usage["total_bytes"] else None
+def _read_usage(path: str) -> dict[str, int]:
+    """Return the usage of the disk behind *path*; raise OSError when it cannot be read."""
+    return _some_disk(get_disk_usage_for_paths([path]))
 
 
 def _read_disks(paths: Iterable[str]) -> list[_Disk]:
     """Return one entry per device behind *paths*, and one per path that cannot be read."""
     disks: list[_Disk] = []
-    for path in paths:
-        usage = _read_usage(path)
+    for path, usage in library_disk_reads.read_all(paths, _read_usage).items():
         for disk in disks:
             if (
                 usage

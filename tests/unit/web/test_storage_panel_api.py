@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.delete_root_state import write_delete_root_state
 from mediaman.core.time import now_utc
+from mediaman.services.infra.storage import disk_reads
 from mediaman.web.repository.watch_library import pending_deletions, scanned_library_ids
 from mediaman.web.routes.dashboard import _data
 from mediaman.web.routes.dashboard import router as dashboard_router
@@ -41,6 +43,13 @@ def get(app, authed_client, conn):
         return resp.json()
 
     return _get
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(_data.time, "monotonic", lambda: now[0])
+    return now
 
 
 @pytest.fixture
@@ -232,8 +241,8 @@ class TestDisks:
 
         assert (storage["readable"], storage["total_bytes"]) == (True, 4 * TB)
 
-    def test_unreadable_storage_is_not_an_empty_disk_and_the_next_call_tries_again(
-        self, get, conn, disks, tmp_path
+    def test_unreadable_storage_is_not_an_empty_disk_and_is_read_again_seconds_later(
+        self, get, conn, disks, tmp_path, clock
     ):
         disks(movies=None)
         _libraries(conn, tmp_path, {"1": ("movies", 90)}, ["1"])
@@ -243,6 +252,7 @@ class TestDisks:
         assert (storage["readable"], storage["total_bytes"]) == (False, 0)
         assert storage["movies_bytes"] == 5
 
+        clock[0] += 4
         disks(movies=(TB, 0))
         assert get("/api/dashboard/stats")["storage"]["readable"] is True
 
@@ -258,27 +268,27 @@ class TestDisks:
         assert str(tmp_path) not in json.dumps(body)
 
     def test_a_missing_media_folder_is_unreadable_and_is_read_again_once_it_is_back(
-        self, get, disks
+        self, get, disks, clock
     ):
         assert get("/api/dashboard/stats")["storage"]["readable"] is False
 
+        clock[0] += 4
         disks(**{"no-media": (2 * TB, TB)})
 
         assert get("/api/dashboard/stats")["storage"]["readable"] is True
 
-    def test_a_media_folder_reading_of_no_disk_is_not_kept(self, get, disks):
+    def test_a_media_folder_reading_of_no_disk_is_not_kept(self, get, disks, clock):
         disks(**{"no-media": None})
         assert get("/api/dashboard/stats")["storage"]["readable"] is False
 
+        clock[0] += 4
         disks(**{"no-media": (2 * TB, TB)})
 
         assert get("/api/dashboard/stats")["storage"]["readable"] is True
 
     def test_disks_that_were_all_read_are_not_read_again_within_the_half_minute(
-        self, get, conn, disks, tmp_path, monkeypatch
+        self, get, conn, disks, tmp_path, clock
     ):
-        clock = [1000.0]
-        monkeypatch.setattr(_data.time, "monotonic", lambda: clock[0])
         disks(movies=(4 * TB, TB))
         _libraries(conn, tmp_path, {"1": ("movies", 0)}, ["1"])
 
@@ -308,6 +318,54 @@ class TestDisks:
         monkeypatch.setattr(shutil, "disk_usage", once)
 
         assert len(get("/api/dashboard/stats")["storage"]["disks"]) == 2
+
+    def test_a_hung_disk_is_unreadable_and_is_read_once_however_often_it_is_asked(
+        self, get, conn, disks, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.2)
+        disks(movies=(4 * TB, TB), tv=(2 * TB, TB))
+        _libraries(conn, tmp_path, {"1": ("tv", 0), "2": ("movies", 0)}, ["1", "2"])
+        read, release, calls = shutil.disk_usage, threading.Event(), []
+
+        def hang(path):
+            if path.endswith("tv"):
+                calls.append(path)
+                release.wait(30)
+            return read(path)
+
+        monkeypatch.setattr(shutil, "disk_usage", hang)
+        try:
+            for _ in range(3):
+                storage = get("/api/dashboard/stats")["storage"]
+                assert [d["readable"] for d in storage["disks"]] == [False, True]
+        finally:
+            release.set()
+
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("library", [True, False])
+    def test_a_hung_media_folder_is_unreadable_in_every_call(
+        self, get, conn, disks, tmp_path, monkeypatch, library
+    ):
+        monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.1)
+        disks(**{"no-media": (TB, 0)})
+        if library:
+            _libraries(conn, tmp_path, {"1": ("no-media", 0)}, ["1"])
+        release, calls = threading.Event(), []
+
+        def hang(path):
+            calls.append(path)
+            release.wait(30)
+            return SimpleNamespace(total=1, used=0, free=1)
+
+        monkeypatch.setattr(shutil, "disk_usage", hang)
+        try:
+            for _ in range(2):
+                assert get("/api/dashboard/stats")["storage"]["readable"] is False
+        finally:
+            release.set()
+
+        assert len(calls) == (2 if library else 1)
 
     def test_the_types_never_take_more_of_the_bar_than_what_is_used(
         self, get, conn, disks, tmp_path
