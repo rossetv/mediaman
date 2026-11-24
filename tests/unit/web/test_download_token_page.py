@@ -877,6 +877,15 @@ class TestDownloadPageReason:
         assert "D. V." in page
 
 
+def test_a_genre_is_shown_once(app_factory, conn, secret_key):
+    _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+    sid = insert_suggestion(
+        conn, title="Dune", tmdb_id=42, genres='["Drama", "Comedy", "drama ", " Drama"]'
+    )
+    page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+    assert re.findall(r'class="genre-pill">([^<]*)<', page) == ["Drama", "Comedy"]
+
+
 class TestDownloadPageOfAnOwnPick:
     """Its link names the title and no stored pick."""
 

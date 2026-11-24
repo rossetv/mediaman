@@ -166,6 +166,13 @@ def _coerce_string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
+def _distinct(names: list[str]) -> list[str]:
+    seen: dict[str, str] = {}
+    for name in names:
+        seen.setdefault(name.strip().casefold(), name.strip())
+    return [name for name in seen.values() if name]
+
+
 def _coerce_cast(value: object) -> list[dict[str, str]]:
     """Return value as name and character pairs, dropping an entry with no plain-string name."""
     if not isinstance(value, list):
@@ -277,7 +284,7 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
     genres_value = item.get("genres")
     if isinstance(genres_value, (str, bytes, bytearray)):
         try:
-            item["genres_list"] = _coerce_string_list(json.loads(genres_value))
+            item["genres_list"] = _distinct(_coerce_string_list(json.loads(genres_value)))
         except (json.JSONDecodeError, TypeError):
             item["genres_list"] = []
     cast_value = item.get("cast_json")
