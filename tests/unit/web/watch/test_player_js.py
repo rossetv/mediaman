@@ -910,6 +910,13 @@ def test_a_place_that_could_not_be_saved_at_the_change_over_is_sent_as_the_page_
     assert out["left"] == [["/api/watch/stream/s1/stop", 120]]
 
 
+def test_a_stop_that_was_not_taken_is_sent_again_with_the_try_again(markup):
+    out = run(markup, "fail_resent")
+    [missed] = out["missed"]
+    assert out["tried"] == [missed, "/api/watch/stream"]
+    assert missed not in out["left"]
+
+
 def test_an_old_place_never_goes_out_over_a_newer_one(markup):
     # The stream that failed is stopped without it.
     assert run(markup, "fail_unsaved") == [None, 420]

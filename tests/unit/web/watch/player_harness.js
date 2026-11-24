@@ -1994,6 +1994,27 @@ const scenarios = {
     return out;
   },
 
+  /* The stop of a stream that failed is not taken at first; by the try again it is. */
+  async fail_resent(p) {
+    await streamPlays(p, 100);
+    playOn(p, 20);
+    p.held.stopFails = true;
+    p.held.answer = () => answer('1080p-8000');
+    while (gone(p.q('[data-message]'))) {
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+      await settle();
+    }
+    const missed = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.url);
+    p.held.stopFails = false;
+    const from = p.calls.length;
+    press(p.q('[data-retry]'));
+    await settle();
+    const tried = p.calls.slice(from).map((c) => c.url);
+    await streamPlays(p, 120);
+    p.leave();
+    return { missed: missed, tried: tried, left: p.beacons.map((b) => b.url) };
+  },
+
   /* The stop of a stream that failed is never taken; the video is tried again and plays on. */
   async fail_unsaved(p) {
     await streamPlays(p, 100);
