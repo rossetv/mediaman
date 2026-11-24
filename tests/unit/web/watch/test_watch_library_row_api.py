@@ -93,6 +93,44 @@ def test_a_row_ends_at_its_last_title_with_no_empty_page_after(client):
     assert _page(client, "tv", limit=1)["next"] is None
 
 
+_TITLES = ["The Amber Garden", "Amber Island", "Éclair", "eden", "An Apple", "The", "Zed"]
+
+
+@pytest.fixture
+def titled(client, conn):
+    conn.execute("DELETE FROM media_items WHERE media_type = 'movie'")
+    for n, title in enumerate(_TITLES):
+        _movie(conn, f"20{n}", title, NOW - timedelta(days=n))
+    conn.commit()
+    return client
+
+
+def test_a_to_z_passes_over_an_article_accents_and_case(titled):
+    want = ["The Amber Garden", "Amber Island", "An Apple", "Éclair", "eden", "The", "Zed"]
+    assert [i["title"] for i in _page(titled, "movies", sort="az")["items"]] == want
+    paged, after = [], ""
+    while after is not None:
+        page = _page(titled, "movies", sort="az", limit=2, after=after)
+        paged, after = paged + page["items"], page["next"]
+    assert [i["title"] for i in paged] == want
+
+
+def test_the_shared_link_of_a_row_draws_its_first_page_in_the_order_it_asks_for(
+    titled, monkeypatch
+):
+    monkeypatch.setattr(pages, "plex_is_configured", lambda _conn: True)
+    monkeypatch.setattr(pages, "GRID_PAGE_SIZE", 3)
+    grid = titled.get("/watch?all=movies&sort=az").json()["grid"]
+    assert [i["title"] for i in grid["items"]] == ["The Amber Garden", "Amber Island", "An Apple"]
+    assert (grid["sort"], grid["total"]) == ("az", 7)
+    rest = _page(titled, "movies", sort="az", after=grid["next"])
+    assert [i["title"] for i in rest["items"]] == ["Éclair", "eden", "The", "Zed"]
+
+    newest = titled.get("/watch?all=movies&sort=size").json()["grid"]
+    assert [i["title"] for i in newest["items"]] == _TITLES[:3]
+    assert _page(titled, "movies", after=newest["next"])["items"][0]["title"] == "eden"
+
+
 def test_titles_coming_and_going_while_paging_repeat_and_skip_nothing(client, conn):
     first = _page(client, "movies", limit=3)
     _movie(conn, "200", "Just Added", NOW + timedelta(hours=1))
@@ -127,3 +165,4 @@ def test_other_rows_and_absurd_limits_are_refused(client):
     assert client.get("/api/watch/library/films/row").status_code == 404
     for limit in ("0", "61", "x"):
         assert client.get(f"/api/watch/library/tv/row?limit={limit}").status_code == 422
+    assert client.get("/api/watch/library/tv/row?sort=size").status_code == 422

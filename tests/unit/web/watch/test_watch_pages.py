@@ -918,6 +918,39 @@ class TestShowPage:
         assert ctx["watch_error"] == "unreachable"
 
 
+class TestOpenRow:
+    """?all=<row>: the row as a grid."""
+
+    def test_a_row_all_on_the_page_is_drawn_whole(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+        _play(conn, "aoife", "101", position=1200, duration=6000, item="101")
+        ctx = get("/watch?all=continue").json()
+        assert ctx["grid"]["items"] == ctx["rows"][0]["items"]
+        assert (ctx["grid"]["title"], ctx["grid"]["total"]) == ("Continue watching", 2)
+        assert ctx["page_data"]["grid"] == {"id": "continue", "total": 2, "next": None}
+        sorted_grid = get("/watch?all=continue&sort=az").json()["grid"]
+        assert [i["title"] for i in sorted_grid["items"]] == ["Brightwater", "Glasshouse"]
+
+    def test_a_row_with_nothing_in_it_opens_empty(self, get):
+        grid = get("/watch?all=leaving").json()["grid"]
+        assert (grid["title"], grid["items"], grid["total"]) == ("Leaving soon", [], 0)
+
+    def test_a_row_that_loads_later_is_opened_only_where_there_is_one(self, get, conn):
+        later = get("/watch?all=recommended").json()
+        assert later["grid"]["loads_later"] is True
+        insert_settings(conn, suggestions_enabled="false")
+        assert get("/watch?all=recommended").json()["grid"] is None
+        # No TMDB is set up.
+        assert get("/watch?all=trending").json()["grid"] is None
+
+    @pytest.mark.parametrize(
+        "query",
+        ["all=films", "all=", "all=movies&q=x", "all=movies&genre=a", "all=movies&person=1"],
+    )
+    def test_an_unknown_row_or_a_search_opens_none(self, get, query):
+        assert get(f"/watch?{query}").json()["grid"] is None
+
+
 class TestMoviePage:
     def test_in_progress_movie_offers_resume_with_time_left(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")

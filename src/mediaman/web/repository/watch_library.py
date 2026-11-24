@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sqlite3
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from mediaman.services.infra import get_setting
 from mediaman.web.repository.library_query import (
@@ -42,9 +45,14 @@ class LibraryShow:
     tvdb_id: int | None = None
 
 
-# Where a newest-first page of titles ended: the last title's added date, its title folded
-# for comparing, and its key.
+# The order of a library row: newest added first, or A to Z.
+RowOrder = Literal["added", "az"]
+
+# Where a page of titles ended: what its last title is ordered by (the added date, or the title
+# as A to Z reads it), its title folded for comparing, and its key.
 RowCursor = tuple[str, str, str]
+
+_ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,8 +219,15 @@ def library_shows(conn: sqlite3.Connection, libraries: list[str]) -> list[Librar
     return _shows(conn, libraries)
 
 
-def row_cursor(item: LibraryMovie | LibraryShow) -> RowCursor:
-    return item.added_at or "", item.title.casefold(), item.key
+def sort_title(title: str) -> str:
+    """*title* as A to Z reads it: without a leading article, accents or case."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", title) if not unicodedata.combining(c))
+    return _ARTICLE.sub("", plain.casefold().strip())
+
+
+def row_cursor(item: LibraryMovie | LibraryShow, order: RowOrder = "added") -> RowCursor:
+    first = sort_title(item.title) if order == "az" else item.added_at or ""
+    return first, item.title.casefold(), item.key
 
 
 def cursor_text(cursor: RowCursor) -> str:
@@ -235,24 +250,34 @@ def parse_cursor(text: str) -> RowCursor | None:
     return value[0], value[1], value[2]
 
 
-def newest_first[T: (LibraryMovie, LibraryShow)](items: Sequence[T]) -> list[T]:
+def newest_first[T: LibraryMovie | LibraryShow](items: Sequence[T]) -> list[T]:
     """*items* newest added first, by the date List's Recently added sort compares; ties by
     title, and an item with no date last."""
     by_title = sorted(items, key=lambda item: row_cursor(item)[1:])
     return sorted(by_title, key=lambda item: row_cursor(item)[0], reverse=True)
 
 
-def row_page[T: (LibraryMovie, LibraryShow)](
-    newest: Sequence[T], after: RowCursor | None, limit: int
+def in_order[T: LibraryMovie | LibraryShow](items: Sequence[T], order: RowOrder) -> list[T]:
+    if order == "added":
+        return newest_first(items)
+    return sorted(items, key=lambda item: row_cursor(item, order))
+
+
+def row_page[T: LibraryMovie | LibraryShow](
+    ordered: Sequence[T], after: RowCursor | None, limit: int, order: RowOrder = "added"
 ) -> tuple[list[T], RowCursor | None]:
-    """The next *limit* of the *newest*-first items past *after*, and where they end (None at
-    the end). Found by value, so a title that comes or goes meanwhile moves no other."""
-    rest = [item for item in newest if after is None or _is_past(row_cursor(item), after)]
+    """The next *limit* of the items, which are in *order*, past *after*, and where they end (None
+    at the end). Found by value, so a title that comes or goes meanwhile moves no other."""
+    rest = [
+        item for item in ordered if after is None or _is_past(row_cursor(item, order), after, order)
+    ]
     page = rest[:limit]
-    return page, row_cursor(page[-1]) if len(rest) > limit else None
+    return page, row_cursor(page[-1], order) if len(rest) > limit else None
 
 
-def _is_past(cursor: RowCursor, after: RowCursor) -> bool:
+def _is_past(cursor: RowCursor, after: RowCursor, order: RowOrder) -> bool:
+    if order == "az":
+        return cursor > after
     return cursor[0] < after[0] or (cursor[0] == after[0] and cursor[1:] > after[1:])
 
 
@@ -498,6 +523,7 @@ __all__ = [
     "LibraryShow",
     "PendingDeletion",
     "RowCursor",
+    "RowOrder",
     "SeasonSeen",
     "ShowSeen",
     "TitleFacts",

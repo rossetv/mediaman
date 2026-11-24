@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Concatenate, ParamSpec, TypeVar, cast
+from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -65,6 +65,12 @@ P = ParamSpec("P")
 RECENT_DAYS = 30
 # Titles of a library row the page draws at first; the rest come from the row's own route.
 ROW_PAGE_SIZE = 30
+
+# How many a library row shows at first when it is opened as a grid (?all=).
+GRID_PAGE_SIZE = 60
+
+# The rows that load after the page, so do their grids.
+_RECOMMENDED_ROW = ("recommended", "Recommended for you")
 # The Continue watching row stops filling at this many cards, and a page load spends at most
 # this many Plex HTTP calls on it however long the person's history is.
 _CONTINUE_LIMIT = 20
@@ -613,8 +619,10 @@ def _leaving_card(
     )
 
 
-def _row(title: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+def _row(row_id: str, title: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    """A row; *row_id* names it in ?all=."""
     return {
+        "id": row_id,
         "title": title,
         "items": items,
         "library": False,
@@ -627,13 +635,13 @@ def _row(title: str, items: list[dict[str, Any]]) -> dict[str, Any]:
 def _library_row(
     title: str,
     kind: str,
-    entries: Sequence[lib.LibraryMovie] | Sequence[lib.LibraryShow],
+    entries: Sequence[lib.LibraryMovie | lib.LibraryShow],
     items: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """A row of the library, newest first, and where its first page ends."""
     more = len(entries) > ROW_PAGE_SIZE
     return {
-        **_row(title, items),
+        **_row(kind, title, items),
         "library": True,
         "kind": kind,
         "page_size": ROW_PAGE_SIZE,
@@ -641,8 +649,40 @@ def _library_row(
     }
 
 
+def _row_grid(
+    row: dict[str, Any],
+    entries: Sequence[lib.LibraryMovie | lib.LibraryShow] | None,
+    sort: str | None,
+) -> dict[str, Any]:
+    """The row *row* opened as a grid, A to Z when *sort* says so: its first cards, and for a
+    library row (with *entries*) where they end."""
+    items: list[dict[str, Any]] = row["items"]
+    order: lib.RowOrder = "az" if sort == "az" and row["id"] != "leaving" else "added"
+    next_cursor = None
+    if entries is not None:
+        by_key = {e.key: c for e, c in zip(entries, items, strict=True)}
+        page, next_cursor = lib.row_page(lib.in_order(entries, order), None, GRID_PAGE_SIZE, order)
+        items = [by_key[e.key] for e in page]
+    elif order == "az":
+        items = sorted(items, key=lambda c: (lib.sort_title(c["title"]), c["title"].casefold()))
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "items": items,
+        "sort": order,
+        "total": len(row["items"]),
+        "next": lib.cursor_text(next_cursor) if next_cursor else None,
+        "loads_later": False,
+    }
+
+
 @router.get("/watch", response_class=HTMLResponse)
-def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
+def watch_page(
+    request: Request,
+    view: str = "rows",
+    q: str = "",
+    row_id: Annotated[str, Query(alias="all")] = "",
+) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -704,14 +744,34 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     tv = [(s, c) for s, c in zip(shows, show_row, strict=True) if not s.anime]
     anime = [(s, c) for s, c in zip(shows, show_row, strict=True) if s.anime]
     # Discover goes between the rows above the "Your library" divider and those under it.
+    entries: dict[str, Sequence[lib.LibraryMovie | lib.LibraryShow]] = {
+        "movies": movies,
+        "tv": [s for s, _ in tv],
+        "anime": [s for s, _ in anime],
+    }
     rows = [
-        _row("Continue watching", continue_row),
-        _row("Leaving soon", leaving_row),
-        _row("Recently added", recent_row),
+        _row("continue", "Continue watching", continue_row),
+        _row("leaving", "Leaving soon", leaving_row),
+        _row("recent", "Recently added", recent_row),
         _library_row("Movies", "movies", movies, movie_row),
-        _library_row("TV", "tv", [s for s, _ in tv], [c for _, c in tv]),
-        _library_row("Anime", "anime", [s for s, _ in anime], [c for _, c in anime]),
+        _library_row("TV", "tv", entries["tv"], [c for _, c in tv]),
+        _library_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
+    picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
+    later = ([_RECOMMENDED_ROW] if picks_on else []) + (
+        [(shelf[0], shelf[1]) for shelf in catalog.SHELVES] if tmdb_configured else []
+    )
+    # What ?all= may name. Not set up, the page has no row of its own to open.
+    grid_titles = {r["id"]: r["title"] for r in rows if set_up} | dict(later)
+    grid: dict[str, Any] | None = None
+    asked = request.query_params
+    if view != "list" and not (q or asked.get("genre") or asked.get("person")):
+        if row_id in dict(later):
+            grid = {"id": row_id, "title": grid_titles[row_id], "items": [], "total": None}
+            grid |= {"sort": None, "next": None, "loads_later": True}
+        elif row_id in grid_titles:
+            opened = next(r for r in rows if r["id"] == row_id)
+            grid = _row_grid(opened, entries.get(row_id), asked.get("sort"))
     # The list view's own context, included by watch.html; its q is the trimmed search term.
     list_ctx = (
         list_page.list_context(conn, username, request.query_params) if view == "list" else {}
@@ -732,7 +792,8 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
             "view": view,
             "q": q,
             "tmdb_configured": tmdb_configured,
-            "picks_on": get_bool_setting(conn, "suggestions_enabled", default=True),
+            "picks_on": picks_on,
+            "grid": grid,
             **list_ctx,
             "list_q": list_q,
             "page_data": {
@@ -740,6 +801,8 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
                 "tmdb_configured": tmdb_configured,
                 "view": view,
                 "q": q,
+                "grids": grid_titles,
+                "grid": {k: grid[k] for k in ("id", "total", "next")} if grid else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
             },
         },
