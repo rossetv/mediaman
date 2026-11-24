@@ -327,6 +327,20 @@ const scenarios = {
     return out;
   },
 
+  // Keeps the server says cannot be undone: a film's, and a season's from its dialog.
+  async keepNotToUndo() {
+    const late = () => Promise.resolve({ ok: true, undo: false });
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS);
+    film.replies['post /api/watch/keep'] = late;
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    const season = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    season.replies['post /api/watch/keep'] = late;
+    await season.confirm();
+    return [film, season].map((p) => ({ told: p.toasts[0].message, undo: !!p.toasts[0].action }));
+  },
+
   // Keep a movie with no deletion and no keep: Undo removes the keep again.
   async keepUnscheduled() {
     const p = load({ list: true });

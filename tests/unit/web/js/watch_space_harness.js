@@ -101,7 +101,7 @@ class Server {
     return new Promise((resolve, reject) => this.held.push({ url, go: () => go().then(resolve, reject) }));
   }
   post(url, body) {
-    if (url === '/api/watch/keep') { this.rows = this.rows.filter((r) => r.media_item_id !== body.media_item_id); return { ok: true }; }
+    if (url === '/api/watch/keep') { this.rows = this.rows.filter((r) => r.media_item_id !== body.media_item_id); return this.watchKeepAnswer || { ok: true }; }
     if (url === '/api/watch/unkeep') { this.rows = this.before.slice(); return { ok: true }; }
     const m = /^\/api\/media\/(.+)\/keep$/.exec(url);
     if (m) { this.rows = this.rows.filter((r) => r.media_item_id !== m[1]); return this.keepAnswer || { ok: true }; }
@@ -535,6 +535,12 @@ const scenarios = {
     await p.open();
     await p.keep('1', 'forever');
     return { rows: p.rows(), posts: p.posts(), toast: p.last().message, undo: p.last().undo };
+  },
+  async keepNotToUndo() {
+    const p = await page(undefined, (s) => { s.watchKeepAnswer = { ok: true, undo: false }; });
+    await p.open();
+    await p.keep('2', '30');
+    return { rows: p.rows(), toast: p.last().message, undo: p.last().undo };
   },
   async keepLate() {
     const p = await page([row('1', { state: 'overdue' }), row('2')], (s) => { s.keepAnswer = { ok: true, deletion_running: true, message: 'Already being deleted.' }; });

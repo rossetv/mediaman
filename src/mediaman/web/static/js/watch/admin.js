@@ -155,6 +155,9 @@
 
   function changedMeanwhile(err) { return !!err && err.error === 'keep_changed'; }
 
+  /* A Watch keep past the date it replaced cannot be undone, and its reply says so. */
+  function undoable(data) { return !data || data.undo !== false; }
+
   /* The keep an Undo is of is not there to undo. */
   function notToUndo(err) { return changedMeanwhile(err) || (!!err && err.error === 'too_late'); }
 
@@ -244,7 +247,7 @@
       }
       var undo = null;
       if (viaWatch) {
-        undo = function () { return MM.api.post('/api/watch/unkeep', { media_item_id: id }); };
+        if (undoable(data)) undo = function () { return MM.api.post('/api/watch/unkeep', { media_item_id: id }); };
       } else if (!w.kept && !w.deletion && data && data.keep) {
         undo = function () { return unprotect(id, data.keep); };
       }
@@ -966,12 +969,14 @@
     var made = {};
     var saved = 0;
     var running = null;
+    var canUndo = true;
     c.keeps.forEach(function (s) {
       keepChain = keepChain.then(function () {
         return keepSeason(s, dur).then(function (data) {
           saved++;
           made[s.id] = data && data.keep;
           if (data && data.deletion_running) running = data;
+          if (!undoable(data)) canUndo = false;
         }).catch(function (err) {
           if (changedMeanwhile(err) || (viaWatch(s, dur) && leavesNoMore(err))) {
             changed.push(seasonName(s));
@@ -993,7 +998,7 @@
     });
     var chain = keepChain.then(function () {
       if (!failed.length && !changed.length) {
-        done(running, seasonsUndo(c, dur, state, chainKey, made));
+        done(running, canUndo ? seasonsUndo(c, dur, state, chainKey, made) : null);
         return;
       }
       var said = failed.length ? ['Keep failed for: ' + failed.join(', ') + '.'] : [];

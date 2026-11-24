@@ -603,7 +603,7 @@
         toast('Kept ' + (name || 'this') + ' ' + span(days) + '.', {
           variant: 'success',
           dialog: dialog,
-          action: undoable ? { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } } : null
+          action: undoable && !(data && data.undo === false) ? { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } } : null
         });
       }
       settled(id, true);

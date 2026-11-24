@@ -32,7 +32,11 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import apply_keep_snooze, revert_keep_snooze
+from mediaman.services.scheduled_actions import (
+    apply_keep_snooze,
+    parse_execute_at,
+    revert_keep_snooze,
+)
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
@@ -140,7 +144,8 @@ def api_watch_keep(
 ) -> JSONResponse:
     """Keep a scheduled movie or season for 7, 30 or 90 days, as the newsletter keep does.
 
-    An admin, who may change it, is told the keep; a viewer only that it was made.
+    An admin, who may change it, is told the keep; a viewer only that it was made. ``undo``
+    is whether the keep can be undone: not past the old date, which would then be due.
     """
     if not _KEEP_LIMITER.check(username):
         return respond_err(
@@ -179,19 +184,22 @@ def api_watch_keep(
             expected_execute_at=before["execute_at"],
         )
         if applied:
-            _remember_undo(
-                username,
-                media_item_id,
-                _Undo(
-                    action_id=pending.action_id,
-                    kept_until=(now + timedelta(days=days)).isoformat(),
-                    execute_at=before["execute_at"],
-                    snoozed_at=before["snoozed_at"],
-                    snooze_duration=before["snooze_duration"],
-                    expires=now + UNDO_WINDOW,
-                ),
-                now,
-            )
+            undo = parse_execute_at(before["execute_at"], default=now) > now
+            reply["undo"] = undo
+            if undo:
+                _remember_undo(
+                    username,
+                    media_item_id,
+                    _Undo(
+                        action_id=pending.action_id,
+                        kept_until=(now + timedelta(days=days)).isoformat(),
+                        execute_at=before["execute_at"],
+                        snoozed_at=before["snoozed_at"],
+                        snooze_duration=before["snooze_duration"],
+                        expires=now + UNDO_WINDOW,
+                    ),
+                    now,
+                )
             log_audit(
                 conn,
                 media_item_id,

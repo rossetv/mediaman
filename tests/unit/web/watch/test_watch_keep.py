@@ -64,7 +64,7 @@ def test_keep_snoozes_the_deletion_and_names_the_person(client, conn, days):
     resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": days})
 
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    assert resp.json() == {"ok": True, "undo": True}
     row = _action(conn, action_id)
     assert row["action"] == "snoozed"
     assert row["snooze_duration"] == f"{days} days"
@@ -139,6 +139,16 @@ def test_a_deletion_past_its_date_can_be_kept_and_is_then_no_longer_deleted(clie
     assert resp.status_code == 200
     assert not claim_due_deletion(conn, action_id, NOW.isoformat())
     assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_a_keep_past_the_date_it_replaced_is_not_offered_to_be_undone(client, conn):
+    _schedule_past(conn)
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.json() == {"ok": True, "undo": False}
+    assert browse_api._UNDO == {}
+    assert client.post("/api/watch/unkeep", json={"media_item_id": "100"}).status_code == 409
 
 
 def test_a_deletion_the_pass_has_claimed_cannot_be_kept(client, conn):

@@ -41,6 +41,13 @@ def test_keeping_a_scheduled_movie_turns_its_pill_in_place_and_undo_brings_the_d
     assert out["afterUndo"] == "Keep undone."
 
 
+def test_a_keep_the_server_says_cannot_be_undone_offers_no_undo() -> None:
+    assert _run("keepNotToUndo") == [
+        {"told": "Kept Copperline for 30 days.", "undo": False},
+        {"told": "Kept Night Shift, Season 3 for 30 days.", "undo": False},
+    ]
+
+
 def test_keeping_an_unscheduled_movie_is_undone_by_removing_the_keep() -> None:
     out = _run("keepUnscheduled")
     assert out["calls"] == [

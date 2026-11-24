@@ -333,6 +333,13 @@ class TestScheduled:
         assert out["focused"] == "space-empty"
         assert "Nothing scheduled for deletion" in out["text"]
 
+    def test_a_keep_the_server_says_cannot_be_undone_offers_no_undo(self):
+        assert _run("keepNotToUndo") == {
+            "rows": ["1", "3"],
+            "toast": "Kept Film 2 for 30 days.",
+            "undo": False,
+        }
+
     def test_forever_goes_by_the_admins_route_and_offers_no_undo(self):
         assert _run("keepForever") == {
             "rows": ["2", "3"],
