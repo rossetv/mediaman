@@ -686,6 +686,46 @@ const scenarios = {
     return { posts: p.posts, email: p.ttl().querySelectorAll('.ttl__note').some((n) => /email/.test(n.textContent)), share: !!p.q('[data-ttl-act="share"]') };
   },
 
+  // A pick the Arr already has is refused, so no email is recorded for this person and none is promised,
+  // reopened or not; the same pick downloaded later and accepted promises it.
+  async recRefused() {
+    const run = async (kind) => {
+      const rec = (state, pct) => Object.assign({}, REC_DL, { kind, download: Object.assign({}, REC_DL.download, {
+        state, pct, answered: true, service: kind === 'movie' ? 'radarr' : 'sonarr' }) });
+      const replies = [rec(null, null), rec('queued', 0)];
+      let refuse = true;
+      const p = load({
+        routes: { '/api/watch/title/rec-5': () => Promise.resolve(replies.length > 1 ? replies.shift() : replies[0]), '/api/watch/title/show-300': LIB_SHOW },
+        posted: { '/api/recommended/5/download': () => (refuse
+          ? Promise.reject(new APIError(409, 'conflict', "'Meridian' is already there")) : Promise.resolve({ ok: true })) },
+      });
+      p.run();
+      const shown = () => ({ primary: primary(p).text, email: p.ttl().querySelectorAll('.ttl__note').some((n) => /email/.test(n.textContent)) });
+      const reopen = async (reply) => {
+        replies.splice(0, replies.length, reply);
+        p.ctx.MMWatch.detail.open('show-300', {});
+        await settle();
+        p.ctx.MMWatch.detail.open('rec-5', {});
+        await settle();
+        return shown();
+      };
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await settle();
+      const out = { refused: shown() };
+      out.reopened = await reopen(rec('queued', 0));
+      out.downloading = await reopen(rec('downloading', 40));
+      await reopen(rec(null, null));
+      refuse = false;
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await settle();
+      out.accepted = shown();
+      return out;
+    };
+    return { movie: await run('movie'), show: await run('show') };
+  },
+
   async seasonPicker() {
     const p = load({ routes: { '/api/watch/title/tmdb-tv-90': TV_DL } });
     p.run();

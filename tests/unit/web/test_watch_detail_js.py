@@ -293,6 +293,15 @@ def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None
     assert out["share"] is False
 
 
+def test_a_pick_refused_as_already_there_promises_no_email_until_a_download_is_accepted() -> None:
+    out = _run("recRefused")
+    for kind in ("movie", "show"):
+        assert out[kind]["refused"] == {"primary": "Queued", "email": False}, kind
+        assert out[kind]["reopened"] == {"primary": "Queued", "email": False}, kind
+        assert out[kind]["downloading"] == {"primary": "Downloading 40%", "email": False}, kind
+        assert out[kind]["accepted"] == {"primary": "Queued", "email": True}, kind
+
+
 def test_season_chips_count_the_picked_seasons_and_send_them() -> None:
     out = _run("seasonPicker")
     assert out["initial"]["chips"] == [

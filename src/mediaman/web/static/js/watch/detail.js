@@ -692,7 +692,7 @@
   /* ── Download ── */
 
   function stateOf(ref) {
-    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false };
+    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false, refused: false };
     return known[ref];
   }
 
@@ -754,7 +754,7 @@
       words.appendChild(document.createTextNode('.'));
       q.appendChild(words);
       under.appendChild(q);
-      if (rec) under.appendChild(emailHint(d));
+      if (rec && !k.refused) under.appendChild(emailHint(d));
       return;
     }
     if (k.state === 'downloading') {
@@ -771,7 +771,7 @@
       line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
       box.appendChild(line);
       under.appendChild(box);
-      if (rec) under.appendChild(emailHint(d));
+      if (rec && !k.refused) under.appendChild(emailHint(d));
       return;
     }
     if (!d.download) return;
@@ -823,7 +823,8 @@
     if (n) dl.removeAttribute('aria-disabled'); else dl.setAttribute('aria-disabled', 'true');
   }
 
-  /* Only where the old Recommended flow promised it: a pick being downloaded. */
+  /* Only for a pick being downloaded. A download the Arr refused as already
+     there asks for no email, so promises none. */
   function emailHint(d) {
     return note("You can close this — you'll get an email when " +
       (d.kind === 'movie' ? 'the movie' : 'the show') + " is ready.", 'fa-envelope');
@@ -938,6 +939,7 @@
     redrawActions(ref);
     MM.api.post(url, payload).then(function () {
       k.busy = false;
+      k.refused = false;
       k.state = 'queued';
       k.pct = null;
       k.sentAt = Date.now();
@@ -955,6 +957,7 @@
       // in Sonarr whatever of it is downloaded, and says so meanwhile.
       if (err && err.status === 409) {
         var movie = d.kind === 'movie';
+        k.refused = true;
         core.toast(MM.api.messageOf(err, title + ' is already in ' + (movie ? 'Radarr.' : 'Sonarr.')));
         if (!movie) {
           k.busy = false;
