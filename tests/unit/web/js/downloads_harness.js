@@ -65,6 +65,7 @@ class El {
   // what the browser sends when a transition or animation on this element ends
   emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
   get offsetHeight() { return this.hidden ? 0 : 50; }
+  getBoundingClientRect() { return { height: this.offsetHeight }; }
   get nextElementSibling() { const p = this.parentNode; return p ? p.children[p.children.indexOf(this) + 1] || null : null; }
   closest(sel) { let e = this; while (e && e.matches) { if (e.matches(sel)) return e; e = e.parentNode; } return null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }

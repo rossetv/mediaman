@@ -322,6 +322,14 @@ def test_a_new_hero_shows_through_the_one_before_it() -> None:
     assert "animation: dl-hero-out var(--dur-slow)" in _rule(".dl-hero-ghost")
 
 
+def test_a_poll_while_the_old_hero_fades_draws_the_new_one_in_full() -> None:
+    old = _item("h", abandon_visible=True, episode_summary="2 ready", **_STUCK)
+    out = _run("pollDuringFade", hero=old)
+    assert out["bare"] == [False, False]
+    assert out["full"] == [True, ["1 searching"]]
+    assert out["fading"] == 1 and out["old"] == ["2 ready"], "the copy stays as it was"
+
+
 def test_with_reduced_motion_a_new_hero_takes_the_place_of_the_old_at_once() -> None:
     out = _run("pollLook", hero=_item("h"), queue=[_item("q")])
     assert out["first"] == out["second"] == []

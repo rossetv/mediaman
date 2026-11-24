@@ -394,16 +394,17 @@
 
 .dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
 @keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }
+#dl-hero-container { position: relative; }
 .dl-hero-ghost {
   position: absolute;
   inset: 0 0 auto;
   z-index: 4;
   display: flex;
   align-items: flex-end;
-  padding: inherit;
-  border-radius: inherit;
+  padding: 32px;
+  border-radius: var(--r-lg);
   overflow: clip;
-  background: inherit;
+  background: var(--s2);
   pointer-events: none;
   animation: dl-hero-out var(--dur-slow) var(--ease-out) forwards;
 }
@@ -491,7 +492,8 @@
 /* Phone: the hero poster sits above the info so long titles get the full
    width, and a row's abandon button gets its own column beside the percentage. */
 @media (max-width: 639.98px) {
-  .dl-hero { padding: 20px; }
+  .dl-hero,
+  .dl-hero-ghost { padding: 20px; }
   .dl-hero-content { flex-direction: column; align-items: flex-start; gap: 16px; }
   .dl-hero-poster { width: 110px; }
   .dl-hero-info { width: 100%; }

@@ -534,22 +534,24 @@
   }
 
   /* A copy of the card as it is, drawn over it to fade out while the card turns into
-     another title's. It is a picture alone: no poll finds a part of it. */
+     another title's. It is a picture alone, and beside the card, so no poll that looks for
+     a part of the card finds one of the copy's. */
   function fadeOver(card) {
-    var old = card.querySelector('.dl-hero-ghost');
-    if (old) card.removeChild(old);
+    var box = card.parentNode;
+    var old = box.querySelector('.dl-hero-ghost');
+    if (old) box.removeChild(old);
     if (reducedMotion()) return;
     var ghost = el('div', 'dl-hero-ghost' + (card.classList.contains('is-held') ? ' is-held' : ''));
     ghost.setAttribute('aria-hidden', 'true');
     ghost.setAttribute('inert', '');
-    ghost.style.height = card.offsetHeight + 'px';
+    ghost.style.height = card.getBoundingClientRect().height + 'px';
     Array.prototype.forEach.call(card.children, function (part) { ghost.appendChild(part.cloneNode(true)); });
     ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
       Array.prototype.forEach.call(ghost.querySelectorAll('[' + hook + ']'), function (part) { part.removeAttribute(hook); });
     });
-    card.appendChild(ghost);
+    box.appendChild(ghost);
     /* Longer than the fade, which may never end in a tab that is hidden. */
-    setTimeout(function () { if (ghost.parentNode) card.removeChild(ghost); }, 400);
+    setTimeout(function () { if (ghost.parentNode) box.removeChild(ghost); }, 400);
   }
 
   /* The episodes button and list of a hero or queue row exist only while the

@@ -291,6 +291,18 @@ const scenarios = {
     p.timers.splice(0).forEach((t) => t.fn());
     return { ...out, first, second, after: ghosts().length, hero: p.text('.dl-hero-title') };
   },
+  // polls that come while the old hero still fades out
+  async pollDuringFade() {
+    const p = page(spec, { motion: true });
+    const has = (sel) => !!p.q('.dl-hero').querySelector(sel);
+    const searching = { state: 'searching', abandon_visible: true };
+    p.upd({ hero: item('b') });
+    const bare = [has('.dl-hero-abandon'), has('.dl-hero-ep-summary')];
+    p.upd({ hero: item('b', { ...searching, episode_summary: '1 searching' }) });
+    const out = { bare, full: [has('[data-abandon-trigger]'), p.q('.dl-hero').querySelectorAll('.dl-hero-ep-summary').map((e) => e.textContent)], fading: p.qa('.dl-hero-ghost').length };
+    p.upd({ hero: item('b') });
+    return { ...out, old: p.q('.dl-hero-ghost').querySelectorAll('.dl-hero-ep-summary').map((e) => e.textContent) };
+  },
   async pollLookMoving() { return scenarios.pollLook(true); },
 
   // the hero's background from mediaman's own address, and from one that only looks like it
