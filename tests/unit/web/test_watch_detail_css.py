@@ -97,3 +97,18 @@ def test_a_button_s_label_never_wraps_on_a_phone() -> None:
 def test_the_facts_labels_take_the_room_there_is_where_the_panel_is_wide() -> None:
     wide = "(min-width: 360px) and (max-width: 899.98px)"
     assert "grid-template-columns: max-content" in _of(".ttl-facts__list", wide)
+
+
+def test_a_title_on_its_way_out_takes_no_second_press_of_close() -> None:
+    assert "pointer-events: none" in _of(".ttl.is-leaving > *")
+
+
+def test_a_tagline_on_its_way_holds_a_whole_line() -> None:
+    # Its bar is less than a line tall, so the margins make up the rest.
+    body = _of(".ttl__tagline-skel")
+    assert "height: .8em" in body
+    assert "margin-block: calc((1lh - .8em) / 2)" in body
+
+
+def test_the_facts_labels_beside_a_title_have_one_width_before_and_after_they_come() -> None:
+    assert "grid-template-columns: 112px " in _of(".ttl-facts__list")
