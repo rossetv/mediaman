@@ -832,7 +832,7 @@ def test_a_page_that_cannot_take_over_is_opened_with_the_old_stream_stopped(mark
     assert out == {"href": "/watch/play/502", "starts": 1, "stops": 1, "beacons": 0}
 
 
-@pytest.mark.parametrize("answer", ["offline", "hangs", "refused", "unopened"])
+@pytest.mark.parametrize("answer", ["offline", "hangs", "refused", "unopened", "plex_down"])
 def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
     markup, season, answer
 ):

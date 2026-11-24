@@ -1841,7 +1841,10 @@
       })
       .then(function (html) {
         clearTimeout(timer);
-        return new DOMParser().parseFromString(html, 'text/html');
+        var page = new DOMParser().parseFromString(html, 'text/html');
+        /* Plex may answer again: the page that says it does not is no reason to leave this one. */
+        if (page.querySelector('[data-plex-unavailable]')) throw new Error('Plex unavailable');
+        return page;
       });
   }
 

@@ -1794,7 +1794,7 @@ const scenarios = {
     const message = () => (gone(p.q('[data-message]')) ? null : { retry: !p.q('[data-retry]').hidden, focus: doc.activeElement === p.q('[data-retry]') });
     const out = {};
     await streamPlays(p, 0);
-    p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, unopened: { html: '<p>Not here</p>' } }[p.win.serverPlays];
+    p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, unopened: { html: '<p>Not here</p>' }, plex_down: { html: '<div id="watch-page" data-plex-unavailable></div>' } }[p.win.serverPlays];
     p.video.webkitPresentationMode = 'fullscreen';
     p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
     endsNow(p);

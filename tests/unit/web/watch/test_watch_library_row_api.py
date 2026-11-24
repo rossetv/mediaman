@@ -8,8 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
-from mediaman.web.routes.watch import library_row_api, pages
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched, unmark_watched
+from mediaman.web.routes.watch import library_order, library_row_api, pages
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
@@ -65,10 +65,10 @@ def _page(client, kind, **params):
     return resp.json()
 
 
-def _all(client, kind, limit):
+def _all(client, kind, limit, **params):
     items, after = [], ""
     while after is not None:
-        page = _page(client, kind, limit=limit, after=after)
+        page = _page(client, kind, limit=limit, after=after, **params)
         items, after = items + page["items"], page["next"]
     return items
 
@@ -181,3 +181,161 @@ def test_what_one_person_has_seen_of_a_show_says_nothing_to_another(client, conn
     client.cookies.set("session_token", create_session(conn, "cian"))
 
     assert (mine, tv()) == (["TV · 1 season · 1 left"], ["TV · 1 season"])
+
+
+def _year(conn, key, year):
+    conn.execute("UPDATE media_items SET year = ? WHERE id = ?", (year, key))
+    conn.commit()
+
+
+def _seen(conn, *keys, user="aoife"):
+    mark_watched(conn, user, [MarkTarget(k, k, None, 0.0) for k in keys], NOW)
+
+
+def _unseen(conn, key, user="aoife"):
+    unmark_watched(conn, user, "movie", key)
+
+
+def _names(items):
+    return [i["title"] for i in items]
+
+
+@pytest.mark.parametrize("limit", [1, 2, 60])
+def test_newest_release_goes_by_year_then_a_to_z_and_a_title_of_no_year_comes_last(
+    titled, conn, limit
+):
+    for key, year in (("200", 1983), ("201", 1983), ("202", 2024), ("205", None), ("206", 1977)):
+        _year(conn, key, year)
+    # Scanned before years were stored: the folder has it.
+    conn.execute("UPDATE media_items SET file_path = '/m/eden (1999)/e.mkv' WHERE id = '203'")
+    conn.commit()
+    assert _names(_all(titled, "movies", limit, sort="year")) == [
+        "Éclair",
+        "eden",
+        "The Amber Garden",
+        "Amber Island",
+        "Zed",
+        "An Apple",
+        "The",
+    ]
+
+
+def test_newest_release_of_a_show_is_the_year_it_began(client, conn):
+    for key, show, title, year in (
+        ("502", "500", "Coast", 2005),
+        ("511", "510", "Moor", 2019),
+        ("521", "520", "Dale", 1990),
+    ):
+        _season(conn, key, show, title, "tv")
+        _year(conn, key, year)
+    assert _names(_all(client, "tv", 1, sort="year")) == ["Moor", "Coast", "Dale"]
+
+
+@pytest.mark.parametrize("limit", [1, 2, 60])
+def test_not_watched_first_is_a_to_z_then_the_watched_ones(titled, conn, limit):
+    _seen(conn, "202", "200")
+    assert _names(_all(titled, "movies", limit, sort="unwatched")) == [
+        "Amber Island",
+        "An Apple",
+        "eden",
+        "The",
+        "Zed",
+        "The Amber Garden",
+        "Éclair",
+    ]
+
+
+def test_not_watched_first_goes_by_the_asking_persons_own_marks(titled, conn):
+    _seen(conn, "201", user="cian")
+    plain = ["The Amber Garden", "Amber Island", "An Apple", "Éclair", "eden", "The", "Zed"]
+    first = _page(titled, "movies", sort="unwatched", limit=2)
+    assert _names(first["items"]) == plain[:2]
+    theirs = TestClient(titled.app)
+    theirs.cookies.set("session_token", create_session(conn, "cian"))
+    assert _names(_all(theirs, "movies", 2, sort="unwatched")) == [
+        "The Amber Garden",
+        *plain[2:],
+        "Amber Island",
+    ]
+    # Another person's place in the list says nothing of what that person has seen.
+    _seen(conn, "202", "203")
+    mine = _page(titled, "movies", sort="unwatched", limit=3)
+    rest = _page(theirs, "movies", sort="unwatched", after=mine["next"])
+    assert _names(rest["items"]) == ["The", "Zed", "Amber Island"]
+
+
+def test_not_watched_first_puts_a_show_seen_in_full_last(client, conn):
+    _season(conn, "511", "510", "Moor", "tv")
+    conn.execute("UPDATE media_items SET episode_count = 1 WHERE id IN ('501', '511')")
+    mark_watched(conn, "aoife", [MarkTarget("5011", "501", "500", 0.0)], NOW)
+    assert _names(_all(client, "tv", 1, sort="unwatched")) == ["Moor", "Coast"]
+
+
+def test_marks_made_while_paging_repeat_and_skip_nothing(titled, conn):
+    _seen(conn, "200", "206")  # The Amber Garden, Zed
+    before = _names(_all(titled, "movies", 60, sort="unwatched"))
+    page = _page(titled, "movies", sort="unwatched", limit=3)
+    got = page["items"]
+    _seen(conn, "201")  # shown already
+    _unseen(conn, "200")  # not shown yet, and would stand before what is
+    page = _page(titled, "movies", sort="unwatched", limit=3, after=page["next"])
+    got += page["items"]
+    _seen(conn, "203")
+    _unseen(conn, "206")
+    page = _page(titled, "movies", sort="unwatched", limit=3, after=page["next"])
+    got += page["items"]
+    assert page["next"] is None
+    assert _names(got) == before
+    # Asked for anew, the order is the new one; the badges were never held back.
+    assert [i["watched"] for i in got if i["title"] in ("Zed", "The Amber Garden")] == [False] * 2
+    assert _names(_all(titled, "movies", 60, sort="unwatched"))[-2:] == ["Amber Island", "eden"]
+
+
+def test_a_place_whose_marks_are_no_longer_held_goes_on_by_the_marks_of_now(titled, conn):
+    _seen(conn, "200")
+    page = _page(titled, "movies", sort="unwatched", limit=3)
+    library_order._held.clear()
+    rest = _page(titled, "movies", sort="unwatched", after=page["next"])
+    assert _names(page["items"] + rest["items"]) == [
+        "Amber Island",
+        "An Apple",
+        "Éclair",
+        "eden",
+        "The",
+        "Zed",
+        "The Amber Garden",
+    ]
+
+
+def test_places_held_for_paging_stay_few(titled, conn):
+    for _ in range(library_order.HELD_MAX + 5):
+        _page(titled, "movies", sort="unwatched", limit=1)
+    assert len(library_order._held) == library_order.HELD_MAX
+
+
+@pytest.mark.parametrize("sort", ["az", "added", "year", "unwatched"])
+def test_the_shared_link_of_a_library_row_is_its_first_page_in_every_order(
+    titled, conn, monkeypatch, sort
+):
+    monkeypatch.setattr(pages, "plex_is_configured", lambda _conn: True)
+    monkeypatch.setattr(pages, "GRID_PAGE_SIZE", 3)
+    _seen(conn, "200")
+    _year(conn, "203", 2020)
+    grid = titled.get(f"/watch?all=movies&sort={sort}").json()["grid"]
+    rest = _page(titled, "movies", sort=sort, after=grid["next"])
+    assert grid["items"] + rest["items"] == _page(titled, "movies", sort=sort)["items"]
+    assert grid["sort"] == sort
+
+
+@pytest.mark.parametrize("sort", ["year", "unwatched"])
+def test_a_row_that_is_not_of_the_library_has_no_such_order(titled, monkeypatch, sort):
+    monkeypatch.setattr(pages, "plex_is_configured", lambda _conn: True)
+    grid = titled.get(f"/watch?all=recent&sort={sort}").json()["grid"]
+    assert grid["sort"] == "added"
+
+
+@pytest.mark.parametrize("sort", ["az", "added", "year", "unwatched"])
+def test_a_place_that_is_none_is_refused_in_every_order(client, sort):
+    for after in ("nonsense", "bm9uZQ", ".token"):
+        resp = client.get("/api/watch/library/movies/row", params={"after": after, "sort": sort})
+        assert resp.status_code == 400
