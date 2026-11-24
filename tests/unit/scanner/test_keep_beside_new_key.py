@@ -272,6 +272,28 @@ def test_files_watched_lately_stay_when_the_watch_could_not_be_read_at_first(
     assert _actions(conn, "new") == []
 
 
+@pytest.mark.parametrize("gone", [0, 1])
+def test_files_watched_lately_stay_when_plex_renames_them_under_a_new_key(
+    conn, freezer, library, gone
+):
+    if gone and library.kind == "season":
+        library.ids = {"new": {"show_title": "Another"}}
+    else:
+        library.ids = {"old": {"tmdb_id": 1}, "new": {"tmdb_id": 2}}
+    library.watched = {"old": datetime.now(UTC)}
+    library.sync("old")
+    for _ in range(gone):
+        freezer.tick(60)
+        library.sync()
+
+    library.scan("new")
+    for days in (15, 1):
+        freezer.tick(timedelta(days=days))
+        library.scan("new")
+
+    assert library.file("new").exists()
+
+
 class TestKeyBesideAKeptOne:
     @pytest.mark.parametrize("both", [("old", "new"), ("new", "old")])
     def test_is_not_scheduled(self, conn, library, both):

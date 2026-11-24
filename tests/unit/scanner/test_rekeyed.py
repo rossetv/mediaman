@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -852,6 +853,19 @@ class TestLastWatched:
 
         assert _scheduled(conn) == set()
 
+    def test_the_same_key_listed_again_under_a_corrected_match_is_still_watched(
+        self, conn, freezer
+    ):
+        _sync(conn, seasons=[_SHOW[0] | {"tmdb_id": 7}])
+        _set_watched(conn, "show-s1", _YESTERDAY)
+        for seasons in ([], []):
+            freezer.tick(60)
+            _sync(conn, seasons=seasons)
+
+        _scan(conn, seasons=[_SHOW[0] | {"tmdb_id": 8}])
+
+        assert _scheduled(conn) == set()
+
     def test_a_new_key_first_listed_beside_the_old_one_is_not_scheduled(self, conn):
         _sync(conn, films=_FILM)
         _set_watched(conn, "f1", _YESTERDAY)
@@ -967,16 +981,20 @@ class TestLastWatched:
 
         assert _scheduled(conn) == {"new-f1"}
 
-    @pytest.mark.parametrize("empty_lists", [0, 2])
     @pytest.mark.parametrize(
-        "other",
+        ("empty_lists", "other"),
         [
-            {"season_number": 2},
-            {"file_path": "/tv/elsewhere"},
-            {"file_path": ""},
-            {"show_title": "Another"},
-            {"tmdb_id": 8},
-            {"tvdb_id": 8},
+            *itertools.product(
+                [0, 2],
+                [
+                    {"season_number": 2},
+                    {"file_path": "/tv/elsewhere"},
+                    {"file_path": ""},
+                    {"tmdb_id": 8},
+                    {"tvdb_id": 8},
+                ],
+            ),
+            (0, {"show_title": "Another"}),
         ],
     )
     def test_a_season_not_surely_the_one_watched_takes_nothing(
@@ -993,9 +1011,62 @@ class TestLastWatched:
             _sync(conn)
 
         freezer.tick(60)
-        _scan(conn, seasons=[_season("show", 1, prefix="new-") | other])
+        _scan(conn, seasons=[_season("show", 1, prefix="new-", files="o") | other])
 
         assert _scheduled(conn) == {"new-show-s1"}
+
+    @pytest.mark.parametrize("empty_lists", [0, 2])
+    @pytest.mark.parametrize("ids", [{}, {"tmdb_id": 8}, {"tvdb_id": 8}])
+    def test_a_film_whose_match_plex_corrects_is_still_watched(
+        self, conn, freezer, empty_lists, ids
+    ):
+        _sync(conn, films=[_FILM[0] | dict.fromkeys(ids, 7)])
+        _set_watched(conn, "f1", _YESTERDAY)
+        for _ in range(empty_lists):
+            freezer.tick(60)
+            _sync(conn)
+
+        freezer.tick(60)
+        _scan(conn, films=[_NEW_FILM[0] | ids])
+
+        assert _scheduled(conn) == set()
+
+    @pytest.mark.parametrize("other", [{"show_title": "Another"}, {"tmdb_id": 8}, {"tvdb_id": 8}])
+    @pytest.mark.parametrize("files", ["same", "unknown"])
+    def test_a_season_whose_files_do_not_differ_is_still_watched(self, conn, freezer, other, files):
+        known = {} if files == "same" else {"episodes": []}
+        _sync(conn, seasons=[_season("show", 1) | dict.fromkeys(other, 7) | known])
+        _set_watched(conn, "show-s1", _YESTERDAY)
+
+        freezer.tick(60)
+        _scan(conn, seasons=[_season("show", 1, prefix="new-") | other])
+
+        assert _scheduled(conn) == set()
+
+    def test_a_season_renamed_while_plex_did_not_list_it_is_still_watched(self, conn, freezer):
+        _sync(conn, seasons=_SHOW)
+        _set_watched(conn, "show-s1", _YESTERDAY)
+        for seasons in ([], []):
+            freezer.tick(60)
+            _sync(conn, seasons=seasons)
+
+        _scan(conn, seasons=[_season("show", 1, prefix="new-") | {"show_title": "Another"}])
+
+        assert _scheduled(conn) == set()
+
+    @pytest.mark.parametrize(("files", "scheduled"), [("", set()), ("o", {"new-show-s1"})])
+    def test_an_episode_someone_played_tells_the_files_of_a_season_that_went(
+        self, conn, freezer, files, scheduled
+    ):
+        _sync(conn, seasons=[_season("show", 1) | {"tmdb_id": 7}])
+        _play(conn, "show-s1e2", media="show-s1", show="show", at=_YESTERDAY)
+        for _ in range(2):
+            freezer.tick(60)
+            _sync(conn)
+
+        _scan(conn, seasons=[_season("show", 1, prefix="new-", files=files) | {"tmdb_id": 8}])
+
+        assert _scheduled(conn) == scheduled
 
     def test_a_show_renamed_with_its_ids_the_same_is_still_watched(self, conn, freezer):
         ids = {"tmdb_id": 7, "tvdb_id": 8}
@@ -1020,6 +1091,7 @@ class TestLastWatched:
 
 
 def test_looking_for_an_earlier_watch_does_not_read_the_library(conn):
+    _sync(conn, films=[*_FILM, *_NEW_FILM])
     queries = []
     conn.set_trace_callback(queries.append)
     carry_last_watched(conn, "f1")

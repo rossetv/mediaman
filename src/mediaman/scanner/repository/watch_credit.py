@@ -7,6 +7,12 @@ from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
 
 from mediaman.core.time import now_utc, parse_iso_utc
+from mediaman.scanner.repository.rekeyed import (
+    fetch_title,
+    ids_conflict,
+    other_keys,
+    title_files,
+)
 
 # A watch older than the longest inactivity setting (365 days) keeps nothing.
 _WATCH_KEPT_FOR = timedelta(days=366)
@@ -15,14 +21,6 @@ _WATCH_KEPT_FOR = timedelta(days=366)
 _LATEST = (
     "MAX(COALESCE(o.last_watched_at, ''), COALESCE("
     " (SELECT MAX(wp.credited_at) FROM watch_progress wp WHERE wp.media_item_id = o.id), ''))"
-)
-
-# A folder may hold the seasons of two shows, so the path and season alone do not say it is sure.
-_SURELY_THE_SAME = (
-    "o.file_path = mi.file_path AND mi.file_path != '' AND o.season_number IS mi.season_number"
-    " AND CASE WHEN o.tmdb_id IS NOT NULL AND mi.tmdb_id IS NOT NULL THEN o.tmdb_id = mi.tmdb_id"
-    " WHEN o.tvdb_id IS NOT NULL AND mi.tvdb_id IS NOT NULL THEN o.tvdb_id = mi.tvdb_id"
-    " ELSE o.show_title IS mi.show_title END"
 )
 
 
@@ -100,22 +98,50 @@ def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
     with the old one. The old key is in the library, or set aside by
     save_pruned_watches. Run it once the title is stored and before it is evaluated.
     """
-    # rationale: the interpolated expression and condition are fixed strings; every value is bound
-    row = conn.execute(  # nosec B608
-        "SELECT MAX(at) AS at FROM ("
-        f" SELECT {_LATEST} AS at FROM media_items mi"
-        f" JOIN media_items o ON {_SURELY_THE_SAME} AND o.id != mi.id WHERE mi.id = ?"
-        " UNION ALL SELECT o.last_watched_at FROM media_items mi"
-        f" JOIN pruned_watches o ON {_SURELY_THE_SAME} WHERE mi.id = ?"
-        " UNION ALL SELECT last_watched_at FROM pruned_watches WHERE media_item_id = ?)",
-        (media_id, media_id, media_id),
-    ).fetchone()
-    if row["at"]:
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return
+    watches = [
+        # rationale: the interpolated expression is a fixed string; every value is bound
+        conn.execute(  # nosec B608
+            f"SELECT {_LATEST} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
+        ).fetchone()["at"]
+        for other in other_keys(conn, media_id, ())
+    ]
+    watches += [
+        gone["last_watched_at"]
+        for gone in conn.execute(
+            "SELECT * FROM pruned_watches WHERE media_item_id = ? "
+            "OR (file_path = ? AND file_path != '' AND season_number IS ?)",
+            (media_id, title["file_path"], title["season_number"]),
+        ).fetchall()
+        if gone["media_item_id"] == media_id or not _was_another_title(conn, gone, title)
+    ]
+    latest = max(watches, default="")
+    if latest:
         conn.execute(
             "UPDATE media_items SET last_watched_at = MAX(?, COALESCE(last_watched_at, ''))"
             " WHERE id = ?",
-            (row["at"], media_id),
+            (latest, media_id),
         )
+
+
+def _was_another_title(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches, at the place of *title*, was another season.
+
+    A film's path is its file. A season's files are gone with it, but for those
+    of the episodes someone has progress in.
+    """
+    if title["season_number"] is None or not ids_conflict(gone, title):
+        return False
+    files = title_files(title)
+    return not any(
+        row["episode_path"] in files
+        for row in conn.execute(
+            "SELECT episode_path FROM pruned_progress WHERE media_item_id = ?",
+            (gone["media_item_id"],),
+        )
+    )
 
 
 def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:

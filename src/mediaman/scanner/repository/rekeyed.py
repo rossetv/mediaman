@@ -68,7 +68,7 @@ _TITLE = (
 )
 
 
-def _title(conn: sqlite3.Connection, media_id: str) -> sqlite3.Row | None:
+def fetch_title(conn: sqlite3.Connection, media_id: str) -> sqlite3.Row | None:
     # rationale: the interpolated column list is a fixed string; every value is bound
     row: sqlite3.Row | None = conn.execute(  # nosec B608
         f"SELECT {_TITLE} FROM media_items WHERE id = ?", (media_id,)
@@ -85,10 +85,20 @@ def _entries(stored: str | None) -> list[object]:
     return entries if isinstance(entries, list) else []
 
 
-def _files(title: sqlite3.Row | Mapping[str, Any]) -> set[str]:
+def title_files(title: sqlite3.Row | Mapping[str, Any]) -> set[str]:
     """Return the paths of the files a title is known to have."""
     entries = _entries(title["tracked_files"]) + _entries(title["episode_keys"])
     return {str(e["path"]) for e in entries if isinstance(e, dict) and e.get("path")}
+
+
+def ids_conflict(
+    old: sqlite3.Row | Mapping[str, Any], new: sqlite3.Row | Mapping[str, Any]
+) -> bool | None:
+    """Return True if the ids of two titles differ, None if they have none to compare."""
+    for column in ("tmdb_id", "tvdb_id"):
+        if old[column] is not None and new[column] is not None:
+            return bool(old[column] != new[column])
+    return None
 
 
 def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) -> bool:
@@ -98,12 +108,12 @@ def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) ->
     one, whatever their ids say, as a match corrected in Plex changes those;
     where the files of one are not known, nothing is sure.
     """
-    old_files, new_files = _files(old), _files(new)
+    old_files, new_files = title_files(old), title_files(new)
     if not old_files or not new_files or old_files & new_files:
         return False
-    for column in ("tmdb_id", "tvdb_id"):
-        if old[column] is not None and new[column] is not None:
-            return bool(old[column] != new[column])
+    conflict = ids_conflict(old, new)
+    if conflict is not None:
+        return conflict
     titles = old["show_title"], new["show_title"]
     return all(titles) and titles[0] != titles[1]
 
@@ -121,11 +131,11 @@ def _others_at(
     return [row for row in rows if row["id"] not in removed]
 
 
-def _other_keys(
+def other_keys(
     conn: sqlite3.Connection, media_id: str, removed: Collection[str]
 ) -> list[sqlite3.Row]:
     """Return the library's other keys of the title *media_id* that are not in *removed*."""
-    title = _title(conn, media_id)
+    title = fetch_title(conn, media_id)
     if title is None:
         return []
     return [
@@ -147,7 +157,7 @@ _LIVE_ITEM_KEEP = (
 
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
     """Return True if a kept film or season of the library has the files of *media_id*."""
-    return any(is_protected(conn, other["id"]) for other in _other_keys(conn, media_id, ()))
+    return any(is_protected(conn, other["id"]) for other in other_keys(conn, media_id, ()))
 
 
 def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> None:
@@ -209,7 +219,7 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
     ).fetchall():
         if keep["media_item_id"] not in media_ids:
             continue
-        others = _other_keys(conn, keep["media_item_id"], media_ids)
+        others = other_keys(conn, keep["media_item_id"], media_ids)
         for other in others:
             _give_keep(conn, keep, other["id"])
         if others:
@@ -352,7 +362,7 @@ def carry_show_keeps(
             there = by_place.get((season.get("file_path"), season.get("season_number")), [])
             for keep in there:
                 # Of a season no longer in the library, nothing but its place is known.
-                title = _title(conn, keep["season_id"])
+                title = fetch_title(conn, keep["season_id"])
                 if title is None or not _is_another_title(title, _listed_title(season)):
                     old = [*old, keep]
         for keep in old:
@@ -383,7 +393,7 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
         if season["season_id"] not in media_ids or not season["file_path"]:
             continue
         shows = {
-            other["show_rating_key"] for other in _other_keys(conn, season["season_id"], media_ids)
+            other["show_rating_key"] for other in other_keys(conn, season["season_id"], media_ids)
         }
         for show_key in shows - {None, "", season["show_rating_key"]}:
             _give_show_keep(conn, season, show_key)
