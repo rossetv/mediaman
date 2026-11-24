@@ -171,6 +171,19 @@ def test_dismissing_the_banner_shows_the_next_one_and_takes_the_title_s_card_too
     }
 
 
+def test_a_banner_dismissed_by_touch_hands_the_focus_to_the_next_banner_alone() -> None:
+    assert _run("dismissBannerUnfocused") == ["watch-btn--play"]
+
+
+def test_a_card_an_undo_puts_back_out_of_sight_is_scrolled_to_in_its_row() -> None:
+    assert _run("undoOffScreen") == {
+        "before": ["movie/1", 0, [[-128, "auto"]]],
+        "after": ["movie/1", 0, [[10, "auto"]]],
+        "inView": ["movie/1", 0, []],
+        "mark": ["movie/1", 0, [[-128, "auto"]]],
+    }
+
+
 def test_dismissing_the_last_title_folds_the_banner_and_the_row_away_until_undo() -> None:
     out = _run("lastBanner")
     assert out["gone"] == {"banner": [], "marks": []}

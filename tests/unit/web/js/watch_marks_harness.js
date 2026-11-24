@@ -329,6 +329,43 @@ const scenarios = {
     return { gone, back: { banner: p.banner(), marks: p.marks() } };
   },
 
+  // Dismissed in the banner by a press that gives its button no focus.
+  async dismissBannerUnfocused() {
+    const p = load(watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), row('cont', CONTINUE)]),
+      { next: watchPage([banner('show-2', 'Brightwater', '/watch/play/22'), row('cont', CONTINUE.slice(1))]) });
+    p.doc.activeElement = p.doc.body;
+    click(p.doc, p.doc.querySelector('[data-watch-dismiss]'));
+    const focused = [];
+    Node.prototype.focus = function () { focused.push(this.className); this.ownerDocument.activeElement = this; };
+    await settle();
+    return focused;
+  },
+
+  // A row scrolled past the place of the card an Undo puts back, or that has it in view.
+  async undoOffScreen() {
+    const go = async (act, left, opts = {}) => {
+      const p = load(watchPage([row('cont', CONTINUE)]), opts);
+      const scroller = p.doc.querySelector('.watch-row__scroll');
+      const by = [];
+      scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
+      scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
+      const first = p.cards()[0];
+      const at = () => ({ top: 0, bottom: 20, left, right: left, width: 0, height: 20 });
+      first.getBoundingClientRect = at;
+      if (opts.next) Node.prototype.getBoundingClientRect = function () { return this.classList.contains('watch-card') ? at() : { top: 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 }; };
+      await p.pick(first, act);
+      const before = by.length;
+      await p.undo();
+      return [p.marks()[0], before, by];
+    };
+    return {
+      before: await go('dismiss', -128),
+      after: await go('dismiss', 380),
+      inView: await go('dismiss', 20),
+      mark: await go('mark', -128, { next: watchPage([row('cont', CONTINUE.slice(1))]) }),
+    };
+  },
+
   // The last title dismissed: with no banner on the server's page, it folds away and comes back.
   async lastBanner() {
     const p = load(watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), row('cont', CONTINUE.slice(0, 1))]), { next: watchPage([]) });

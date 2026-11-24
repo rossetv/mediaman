@@ -222,7 +222,8 @@
         var now = continueRow(document);
         if (!now || (now === row && !continueCards(row, ref).length)) taken.undo();
       });
-      if (lost && taken.focus) core.focusSoftly(taken.focus);
+      // From the banner, the one that takes its place gets the focus.
+      if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
     });
   }
 
