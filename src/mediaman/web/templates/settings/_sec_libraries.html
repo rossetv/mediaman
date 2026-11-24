@@ -9,9 +9,9 @@
     <span class="sub lib-pill-count" id="lib-pill-count">—</span>
   {% endset %}
   {% call c.setg_card(title="Libraries to scan",
-                         sub="Click a library to include it in weekly scans. Unselected libraries are ignored.",
+                         sub="Choose the libraries to include in weekly scans. Unselected libraries are ignored.",
                          header_actions=lib_actions, pad=True) %}
-    <div class="lib-pills" id="plex-library-pills">
+    <div class="lib-pills" id="plex-library-pills" role="group" aria-label="Libraries to scan">
       <span class="fld-sub">Save Plex URL &amp; token, then reload to see libraries.</span>
     </div>
   {% endcall %}

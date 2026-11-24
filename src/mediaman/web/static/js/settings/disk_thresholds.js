@@ -2,7 +2,7 @@
  * settings/disk_thresholds.js — Plex library pills + per-library disk cards.
  *
  * Responsibilities:
- *   - Fetch /api/plex/libraries and paint the pill picker
+ *   - Fetch /api/plex/libraries and paint the picker, a toggle button for each
  *   - Maintain the selected-library set
  *   - Build the per-library "lp-card" (path + threshold + live usage bar)
  *   - Live-poll /api/settings/disk-usage as the user edits paths
@@ -58,27 +58,30 @@
       return;
     }
     PLEX_LIBRARIES.forEach(function (lib) {
-      var pill = document.createElement('span');
-      pill.className = 'lib-pill' + (SELECTED_LIBS.indexOf(String(lib.id)) !== -1 ? ' on' : '');
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'lib-pill';
       pill.textContent = lib.title;
       pill.dataset.libId = String(lib.id);
       pill.addEventListener('click', function () {
         var idx = SELECTED_LIBS.indexOf(pill.dataset.libId);
-        if (idx === -1) { SELECTED_LIBS.push(pill.dataset.libId); pill.classList.add('on'); }
-        else { SELECTED_LIBS.splice(idx, 1); pill.classList.remove('on'); }
+        if (idx === -1) SELECTED_LIBS.push(pill.dataset.libId);
+        else SELECTED_LIBS.splice(idx, 1);
         keepTyped();
         renderDiskRows();
-        updateLibPillCount();
+        paintPills();
         markDirty();
       });
       container.appendChild(pill);
     });
-    updateLibPillCount();
+    paintPills();
   }
 
   function paintPills() {
     document.querySelectorAll('#plex-library-pills .lib-pill').forEach(function (pill) {
-      pill.classList.toggle('on', SELECTED_LIBS.indexOf(pill.dataset.libId) !== -1);
+      var on = SELECTED_LIBS.indexOf(pill.dataset.libId) !== -1;
+      pill.classList.toggle('on', on);
+      pill.setAttribute('aria-pressed', String(on));
     });
     updateLibPillCount();
   }
