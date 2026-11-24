@@ -85,7 +85,7 @@ _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
 _ORIGIN_RE = re.compile(
-    r"/watch(#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|rec-[0-9]{1,10}))?"
+    r"/watch(#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
     r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
 # A search typed into the page's field is never this long; a longer ?q= is cut.

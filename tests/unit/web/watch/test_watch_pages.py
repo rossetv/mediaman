@@ -563,6 +563,7 @@ class TestWatchRows:
             "/watch#title=show-500",
             "/watch#title=tmdb-tv-7",
             "/watch#title=rec-3",
+            "/watch#title=pick-3",
         ],
     )
     def test_back_may_return_to_a_title_open_on_the_watch_page(self, get, origin):
