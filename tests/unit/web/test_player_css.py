@@ -111,3 +111,18 @@ def test_reduced_motion_is_not_overruled_by_a_later_rule() -> None:
                     if selector in re.split(r",\s*", later.strip()):
                         assert "animation:" not in rule, selector
     assert stilled
+
+
+def test_the_skip_button_is_out_of_the_way_of_an_open_menu() -> None:
+    css = _text("_player.css")
+    hiding = next(
+        (selectors, body)
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if '[aria-expanded="true"]' in selectors and ".player-skip" in selectors
+    )
+    assert re.search(r"visibility:\s*hidden", hiding[1])
+
+
+def test_nothing_shows_through_a_menu() -> None:
+    body = _rule(_text("_player.css"), ".player-menu")
+    assert re.search(r"background:\s*var\(--s\d\)", body)

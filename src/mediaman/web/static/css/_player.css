@@ -311,8 +311,9 @@
   animation: player-pop var(--dur) var(--ease-out);
   transition: opacity var(--dur-slow) var(--ease-out), visibility var(--dur-slow) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-/* Out of the way of a frame preview too, which it would show through. */
+/* Out of the way of an open menu and of a frame preview too. */
 .player.is-idle .player-skip.is-quiet,
+.player:has([aria-expanded="true"]) .player-skip,
 .player:has(.player-bubble:not([hidden], .is-leaving)) .player-skip { opacity: 0; visibility: hidden; }
 
 /* "Play now" fills as the next-episode countdown runs out. The clip keeps
@@ -391,8 +392,8 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--s2) 96%, transparent);
-  box-shadow: var(--shadow-card);
+  background: var(--s2);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
 }
 .player-menu--up { bottom: calc(100% + 4px); }
 .player-menu--down { top: calc(100% + 4px); }
