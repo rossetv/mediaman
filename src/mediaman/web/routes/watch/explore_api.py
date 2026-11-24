@@ -17,13 +17,15 @@ from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
+from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.watch.catalog_api import _discover_cards, _tmdb_client
+from mediaman.web.routes.watch.catalog_api import _arr, _discover_cards, _tmdb_client
 
 router = APIRouter()
 
 _PERSON_ID_RE = re.compile(r"[0-9]{1,10}", re.ASCII)
 _PERSON_PAGE = 60
+_WHERE = ("anywhere", "library")
 
 # Apart from the query limit, so looking around does not use up the day's searches. A list
 # of films and TV together asks TMDB twice.
@@ -42,11 +44,13 @@ def api_watch_explore(
     type: str = "all",
     sort: str = "popular",
     decade: str | None = None,
+    where: str = "anywhere",
     page: int = _Page,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
     """One page of a genre's titles, each card as on a discover row; without *genre*, the
-    genres and decades there are."""
+    genres and decades there are, and the people the library has most of. *where* "library"
+    lists only the titles it holds."""
     chosen = catalog.GENRES.get(genre) if genre is not None else None
     if genre is not None and chosen is None:
         return respond_err("not_found", status=404)
@@ -54,23 +58,34 @@ def api_watch_explore(
         type not in catalog.TYPES
         or sort not in catalog.SORTS
         or (decade is not None and decade not in catalog.decades())
+        or where not in _WHERE
     ):
         return respond_err("invalid_request", status=400)
     conn = get_db()
     client = _tmdb_client(request, conn)
     if chosen is None:
-        return _genres(client)
+        return _genres(conn, client)
     out: dict[str, object] = {
         "tmdb_configured": client is not None,
         "genre": {"id": chosen.id, "name": chosen.name, "types": chosen.types},
         "type": type,
         "sort": sort,
         "decade": decade,
+        "where": where,
+        "library": {"ready": False, "known": 0, "total": 0, "titles": 0},
         "items": [],
         "total": 0,
         "next_page": None,
     }
     if client is None:
+        return respond_ok(out)
+    held, covered = catalog.library_titles(conn, chosen, media_type=type, sort=sort, decade=decade)
+    out["library"] = {**_coverage(covered), "titles": len(held)}
+    if where == "library":
+        end = page * catalog.LIBRARY_PAGE
+        out["items"] = _held_cards(request, conn, username, held[end - catalog.LIBRARY_PAGE : end])
+        out["total"] = len(held)
+        out["next_page"] = page + 1 if end < len(held) and page < catalog.MAX_PAGE else None
         return respond_ok(out)
     try:
         # Only a page TMDB is asked for counts against the limit; a cached one is free.
@@ -91,8 +106,34 @@ def api_watch_explore(
     return respond_ok(out)
 
 
-def _genres(client: TmdbClient | None) -> JSONResponse:
+def _coverage(covered: catalog.Coverage) -> dict[str, object]:
+    return {"ready": covered.ready, "known": covered.known, "total": covered.total}
+
+
+def _held_cards(
+    request: Request, conn: sqlite3.Connection, username: str, items: Sequence[Mapping[str, Any]]
+) -> list[dict[str, object]]:
+    """The cards of titles known to be held, and by which library title."""
+    arr = _arr(request, conn)
+    seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+    none_held = catalog.LibraryIndex()
+    cards = []
+    for item in items:
+        card = catalog.tmdb_card(item, none_held, arr)
+        if card is not None:
+            ref = item["library_ref"]
+            held = {"in_library": True, "library_ref": ref, "href": catalog.library_href(ref)}
+            cards.append({**card, **held, **lib.mark_fields(ref, seen)})
+    return cards
+
+
+def _genres(conn: sqlite3.Connection, client: TmdbClient | None) -> JSONResponse:
     posters = catalog.genre_posters(client) if client is not None else {}
+    held = (
+        catalog.library_people(conn)
+        if client is not None
+        else catalog.LibraryPeople(catalog.Coverage(0, 0))
+    )
     return respond_ok(
         {
             "tmdb_configured": client is not None,
@@ -103,10 +144,13 @@ def _genres(client: TmdbClient | None) -> JSONResponse:
                     "aliases": list(g.aliases),
                     "types": g.types,
                     "poster_urls": posters.get(g.id, []),
+                    "actors": held.actors.get(g.id, []),
                 }
                 for g in catalog.GENRES.values()
             ],
             "decades": catalog.decades(),
+            "library": _coverage(held.coverage),
+            "people": held.people,
         }
     )
 

@@ -12,7 +12,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _explore, _library
+from mediaman.services.watch_catalog import _arr, _explore, _library, _title_meta
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, explore_api
@@ -321,3 +321,92 @@ class TestPerson:
 @pytest.mark.parametrize("path", [EXPLORE, PERSON])
 def test_signed_out_is_refused(app, no_tmdb, path):
     assert TestClient(app).get(path).status_code == 401
+
+
+class TestInLibrary:
+    @pytest.fixture
+    def filled(self, conn, tmdb, monkeypatch):
+        monkeypatch.setattr(_title_meta, "_resume_at", 0.0)
+        for key, tmdb_id in (("100", 11), ("101", 12)):
+            if key != "100":
+                insert_media_item(conn, id=key, plex_rating_key=key, title="Second")
+            conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = ?", (tmdb_id, key))
+            tmdb[f"/movie/{tmdb_id}"] = {
+                "id": tmdb_id,
+                "title": f"Film {tmdb_id}",
+                "genres": [{"id": 27, "name": "Horror"}],
+                "credits": {"cast": [{"id": 7, "name": "Mara", "profile_path": "/m.jpg"}]},
+            }
+        conn.commit()
+        catalog.fill_title_meta(conn, "key", stopped=lambda: False)
+
+    def test_only_held_titles_are_listed_each_with_its_library_title(
+        self, viewer, conn, tmdb, filled
+    ):
+        mark_watched(conn, "viewer", [MarkTarget("100", "100", None, 0)], now_utc())
+
+        # /discover has no answer here, so asking TMDB would raise.
+        body = viewer.get(EXPLORE, params={"genre": "horror", "where": "library"}).json()
+
+        assert [(i["ref"], i["href"], i["watched"], i["in_library"]) for i in body["items"]] == [
+            ("tmdb-movie-11", "/watch/movie/100", True, True),
+            ("tmdb-movie-12", "/watch/movie/101", False, True),
+        ]
+        assert body["library"] == {"ready": True, "known": 2, "total": 2, "titles": 2}
+        assert (body["where"], body["total"], body["next_page"]) == ("library", 2, None)
+
+    def test_a_held_card_has_what_a_discover_card_has_and_no_more(self, viewer, conn, tmdb, filled):
+        tmdb["/discover/movie"] = _movies(99)
+
+        anywhere = viewer.get(EXPLORE, params={"genre": "horror"}).json()
+        held = viewer.get(EXPLORE, params={"genre": "horror", "where": "library"}).json()
+
+        assert held["items"][0].keys() == anywhere["items"][0].keys()
+        assert anywhere["library"]["titles"] == 2
+
+    def test_pages_follow_one_another_to_the_end(self, viewer, filled, monkeypatch):
+        monkeypatch.setattr(catalog, "LIBRARY_PAGE", 1)
+        pages = [
+            viewer.get(EXPLORE, params={"genre": "horror", "where": "library", "page": n}).json()
+            for n in (1, 2, 3)
+        ]
+
+        assert [[i["ref"] for i in p["items"]] for p in pages] == [
+            ["tmdb-movie-11"],
+            ["tmdb-movie-12"],
+            [],
+        ]
+        assert [p["next_page"] for p in pages] == [2, None, None]
+
+    def test_the_categories_come_with_the_people_of_the_library(self, viewer, tmdb, filled):
+        tmdb["/discover/tv"] = tmdb["/discover/movie"] = 500
+
+        body = viewer.get(EXPLORE).json()
+
+        mara = {
+            "person_id": 7,
+            "name": "Mara",
+            "profile_url": "/api/watch/img/tmdb/w185/m.jpg",
+            "titles": 2,
+        }
+        assert body["people"] == [mara]
+        assert {g["id"]: g["actors"] for g in body["genres"] if g["actors"]} == {"horror": [mara]}
+        assert body["library"] == {"ready": True, "known": 2, "total": 2}
+
+    def test_before_the_fill_it_says_so(self, viewer, tmdb):
+        tmdb["/discover/tv"] = tmdb["/discover/movie"] = 500
+
+        listed = viewer.get(EXPLORE).json()
+        held = viewer.get(EXPLORE, params={"genre": "horror", "where": "library"}).json()
+
+        assert listed["library"] == {"ready": False, "known": 0, "total": 1}
+        assert (listed["people"], listed["genres"][0]["actors"]) == ([], [])
+        assert (held["library"]["ready"], held["items"]) == (False, [])
+
+    def test_without_tmdb_the_library_is_not_ready(self, viewer, no_tmdb):
+        assert not viewer.get(EXPLORE).json()["library"]["ready"]
+        body = viewer.get(EXPLORE, params={"genre": "horror", "where": "library"}).json()
+        assert not body["library"]["ready"]
+
+    def test_anywhere_else_is_refused(self, viewer, tmdb):
+        assert viewer.get(EXPLORE, params={"genre": "horror", "where": "x"}).status_code == 400
