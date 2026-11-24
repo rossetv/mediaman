@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from collections.abc import Collection
 from typing import cast
 
 import requests
@@ -68,12 +69,10 @@ __all__ = [
 # single-worker invariant.  _previous_initialised distinguishes "never polled"
 # (startup — skip diff so a restart doesn't re-report every visible item as
 # completed) from "polled at least once" (normal operation — diff is valid).
-# Both fields are guarded by _state_lock below.
+# All fields here are guarded by _state_lock below.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
 
-
-# Lock guarding _previous_queue/_previous_initialised.
 _state_lock = threading.Lock()
 
 
@@ -155,8 +154,8 @@ def _enrich_with_tmdb_ids(
                 v["tmdb_id"] = tid
 
 
-def _is_arr_entry(dl_id: str) -> bool:
-    return dl_id.startswith(("radarr:", "sonarr:"))
+def _service_of(dl_id: str) -> str:
+    return {"radarr": "Radarr", "sonarr": "Sonarr"}.get(dl_id.partition(":")[0], "NZBGet")
 
 
 def _maybe_record_completions(
@@ -164,7 +163,7 @@ def _maybe_record_completions(
     current_map: dict[str, dict[str, object]],
     secret_key: str,
     *,
-    nzb_fetch_failed: bool = False,
+    unreachable: Collection[str] = (),
     matched_nzb_names: frozenset[str] = frozenset(),
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
@@ -178,34 +177,29 @@ def _maybe_record_completions(
     detect_completed carries it through to verification instead of matching on the
     title.
 
-    When *nzb_fetch_failed*, the NZBGet side of *current_map* is unknown rather than
-    empty: only the Radarr/Sonarr entries are diffed, and the previous snapshot's
-    NZB-only entries are carried into the stored one unchanged, to be diffed on the
-    next poll that reaches NZBGet.
+    What a service in *unreachable* holds is unknown rather than empty: the previous
+    snapshot's entries of it that *current_map* lacks are carried into the stored one
+    unchanged, to be diffed on the next poll that reaches the service.
 
     An NZB-only id that vanished only because this poll matched its NZB to an Arr card
     (*matched_nzb_names*) is still downloading, so it is not reported as completed.
     """
     global _previous_queue, _previous_initialised
 
-    _enrich_with_tmdb_ids(conn, current_map, secret_key)
+    answered = {k: v for k, v in current_map.items() if _service_of(k) not in unreachable}
+    _enrich_with_tmdb_ids(conn, answered, secret_key)
 
     with _state_lock:
         previous_snapshot = _previous_queue
         previously_initialised = _previous_initialised
-        if nzb_fetch_failed:
-            carried = {k: v for k, v in previous_snapshot.items() if not _is_arr_entry(k)}
-            _previous_queue = {**carried, **current_map}
-        else:
-            _previous_queue = current_map
+        carried = {k: v for k, v in previous_snapshot.items() if _service_of(k) in unreachable}
+        _previous_queue = {**carried, **current_map}
         _previous_initialised = True
 
     if previously_initialised:
-        if nzb_fetch_failed:
-            previous_snapshot = {k: v for k, v in previous_snapshot.items() if _is_arr_entry(k)}
         completed = [
             c
-            for c in detect_completed(previous_snapshot, current_map)
+            for c in detect_completed(previous_snapshot, {**carried, **current_map})
             if c["dl_id"] not in matched_nzb_names
         ]
         record_verified_completions(conn, completed, secret_key)
@@ -265,7 +259,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     nzb_client = build_nzbget_from_db(conn, secret_key)
     nzb_queue: list[dict[str, object]] = []
     nzb_status: dict[str, object] = {}
-    nzb_fetch_failed = False
 
     if nzb_client:
         try:
@@ -273,7 +266,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
             nzb_queue = nzb_client.get_queue()
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
-            nzb_fetch_failed = True
             unreachable.append("NZBGet")
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
@@ -312,7 +304,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         conn,
         current_map,
         secret_key,
-        nzb_fetch_failed=nzb_fetch_failed,
+        unreachable=unreachable,
         matched_nzb_names=matched_nzb_names,
     )
 

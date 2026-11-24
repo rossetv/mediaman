@@ -108,3 +108,68 @@ def test_abandon_during_an_outage_says_so_instead_of_not_found(services, client)
     resp = client.post("/api/downloads/radarr%3ADune/abandon", json={})
     assert resp.status_code == 503
     assert "Radarr" in resp.json()["detail"]
+
+
+_POSTER = "https://artworks.thetvdb.com/banners/posters/dune.jpg"
+
+
+def _queued(title: str, release: str) -> dict[str, object]:
+    images = [{"coverType": "poster", "remoteUrl": _POSTER}]
+    return {
+        "title": release,
+        "size": 100,
+        "sizeleft": 40,
+        "status": "downloading",
+        "movie": {"title": title, "images": images},
+        "series": {"id": 7, "title": title, "images": images},
+        "episode": {"seasonNumber": 1, "episodeNumber": 1, "title": "One"},
+    }
+
+
+def _loading(name: str) -> dict[str, object]:
+    return {"NZBName": name, "Status": "DOWNLOADING", "FileSizeMB": 10, "RemainingSizeMB": 5}
+
+
+_SERVICES = pytest.mark.parametrize(("service", "name"), [(0, "radarr"), (1, "sonarr")])
+
+
+@_SERVICES
+def test_what_finishes_while_its_service_is_down_is_recorded_once_it_is_back(
+    services, client, service, name
+):
+    arr, other, nzbget = services[service], services[1 - service], services[2]
+    arr.get_queue.return_value = [_queued("Dune", "Dune.2021.1080p")]
+    nzbget.get_queue.return_value = [_loading("Dune.2021.1080p")]
+    _get(client)
+
+    arr.get_queue.side_effect = _DOWN
+    nzbget.get_queue.return_value = []
+    other.get_queue.return_value = [_queued("Other", "Other")]
+    assert _get(client)["recent"] == []
+    _get(client)
+
+    arr.get_queue.side_effect = None
+    arr.get_queue.return_value = []
+    arr.get_movies.return_value = [{"id": 1, "title": "Dune", "hasFile": True}]
+    arr.get_series.return_value = [
+        {"id": 7, "title": "Dune", "statistics": {"episodeFileCount": 1}}
+    ]
+    arr.get_episodes.return_value = [{"seasonNumber": 1, "episodeNumber": 1, "hasFile": True}]
+    assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
+
+
+def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finished(services, client):
+    radarr = services[0]
+    radarr.get_movies.return_value = [
+        {"id": 1, "title": "Dune", "monitored": True, "isAvailable": True}
+    ]
+    _get(client)
+
+    radarr.get_movies.side_effect = _DOWN
+    _get(client)
+
+    radarr.get_movies.side_effect = None
+    radarr.get_movies.return_value = [
+        {"id": 1, "title": "Dune", "monitored": True, "hasFile": True}
+    ]
+    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
