@@ -34,18 +34,32 @@ def test_a_save_that_finishes_under_an_open_confirm_leaves_the_width_to_the_conf
     assert _run("saveUnderAConfirm") == ["15px", "15px", None, "15px", None]
 
 
-def test_one_rule_holds_the_page_for_every_dialog_and_leaves_a_held_html_alone() -> None:
-    rules = [
+def _rules(marker: str) -> list[tuple[str, str]]:
+    """Every rule of the style sheets whose selector or declarations hold *marker*."""
+    return [
         (" ".join(head.split()), body)
         for path in sorted(CSS_DIR.glob("*.css"))
         for head, body in re.findall(
             r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)
         )
-        if "var(--page-bar" in body
+        if marker in head or marker in body
     ]
+
+
+def test_a_page_that_had_a_scrollbar_keeps_its_room_so_what_is_fixed_stays_too() -> None:
+    marked = dict(_rules("page-bar"))
+    assert "scrollbar-gutter: stable" in marked["html.page-bar"]
+    # where the room cannot be kept, the page keeps its width, and only there, or both would act
+    assert set(marked) == {"html.page-bar", "html.page-bar body"}
+    assert "padding-right: var(--page-bar" in marked["html.page-bar body"]
+    css = (CSS_DIR / "_ui_feedback.css").read_text()
+    assert "html.page-bar body" in css.split("@supports not (scrollbar-gutter: stable) {")[1]
+
+
+def test_one_rule_holds_the_page_for_every_dialog_and_leaves_a_held_html_alone() -> None:
+    rules = [rule for rule in _rules("body:has(") if "overflow: hidden" in rule[1]]
     assert len(rules) == 1
-    head, body = rules[0]
-    assert "overflow: hidden" in body
+    head, _ = rules[0]
     # a title's page and the storage panel hold the html: a held body there takes the nav bar away
     assert head.startswith("html:not(.has-space, .has-ttl) body:has(")
     for dialog in (

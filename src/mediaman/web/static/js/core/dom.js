@@ -41,8 +41,8 @@
  *     slow request so a user who has moved on keeps their place.
  *
  *   MM.dom.holdPage()
- *     For a dialog that stops the page scrolling: keeps the width the page's
- *     scrollbar leaves. Returns the function that lets go.
+ *     For a dialog that stops the page scrolling: keeps the room of the page's
+ *     scrollbar. Returns the function that lets go.
  *
  * No external dependencies. Safe to load in any order relative to other
  * core modules — no cross-module calls.
@@ -87,16 +87,21 @@
 
     /**
      * The page stops scrolling behind an open dialog (the rule in
-     * _ui_feedback.css), which takes its scrollbar away: --page-bar keeps
-     * that width so nothing moves sideways. It is measured by the first
-     * holder, before the bar goes, and stays until the last has let go.
+     * _ui_feedback.css), which takes its scrollbar away: a page that had one
+     * is marked (html.page-bar, with the bar's width in --page-bar) so the
+     * styles keep that room and nothing moves sideways. It is measured by
+     * the first holder, before the bar goes, and stays until the last has
+     * let go.
      */
     holdPage: function () {
       var root = document.documentElement;
       if (!holders) {
         var bar = global.innerWidth - root.clientWidth;
         barHeld = bar > 0;
-        if (barHeld) root.style.setProperty('--page-bar', bar + 'px');
+        if (barHeld) {
+          root.style.setProperty('--page-bar', bar + 'px');
+          root.classList.add('page-bar');
+        }
       }
       holders += 1;
       var holding = true;
@@ -104,7 +109,10 @@
         if (!holding) return;
         holding = false;
         holders -= 1;
-        if (!holders && barHeld) root.style.removeProperty('--page-bar');
+        if (!holders && barHeld) {
+          root.style.removeProperty('--page-bar');
+          root.classList.remove('page-bar');
+        }
       };
     },
 

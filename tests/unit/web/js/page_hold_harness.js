@@ -1,6 +1,6 @@
 // Runs the real core/dom.js, ui-feedback.js and core/reauth.js against the fake DOM on a page
-// 1280 wide with a 15px scrollbar, and prints the width held for it (--page-bar) after each step
-// of one scenario, as JSON. Usage: node page_hold_harness.js <scenario>
+// 1280 wide with a 15px scrollbar, and prints the width held for it (--page-bar, on a page
+// marked page-bar) after each step of one scenario, as JSON. Usage: node page_hold_harness.js <scenario>
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +14,11 @@ const root = doc.documentElement;
 const held = {};
 root.style = { setProperty(k, v) { held[k] = v; root.clientWidth = 1280; }, removeProperty(k) { delete held[k]; root.clientWidth = 1265; } };
 root.clientWidth = 1265;
-const bar = () => held['--page-bar'] || null;
+const bar = () => {
+  const marked = root.classList.contains('page-bar');
+  if (marked !== ('--page-bar' in held)) return 'the mark and the width disagree';
+  return marked ? held['--page-bar'] : null;
+};
 
 const closers = []; // each password dialog's close, as the shared modal would run it
 const ctx = vm.createContext({
