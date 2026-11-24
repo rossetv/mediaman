@@ -552,6 +552,23 @@ class TestHistoryFilterButtons:
         assert "Delete failed" in resp.text
 
 
+def test_a_library_left_out_is_named_with_what_to_check(app_factory, authed_client, conn):
+    from mediaman.scanner.runner import _audit_left_out
+
+    _audit_left_out(conn, ["1"], {"1": "kids' films / shorts"})
+    client = authed_client(app_factory(history_router, conn=conn), conn)
+
+    [item] = client.get("/api/history").json()["items"]
+
+    assert (item["action_label"], item["title"], item["line_title"], item["summary"]) == (
+        "library not scanned",
+        "kids' films / shorts",
+        "kids' films / shorts",
+        "Check its disk limit in Settings",
+    )
+    assert item["badge_class"] == "badge-action-deleted"
+
+
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
     from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
