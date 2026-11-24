@@ -1,5 +1,5 @@
 /* WATCH — the preview a card grows into under the mouse (watch/preview.js).
-   A child of body, over the rows and under the menus and the top bar. It is laid
+   In a layer of body's, over the rows and under the menus and the top bar. It is laid
    out once, at its final size: folded, a transform and a clip make it exactly the
    card's box, with a copy of the card's poster on top; open, both are gone.
    Everything that goes both ways is a transition, so a change of mind turns round
@@ -7,6 +7,8 @@
 
 .watch-card__link.is-previewed .watch-card__poster { transform: scale(1.03); }
 
+/* A card cut by the window's edge opens from, and folds to, past it: that must not scroll the page. */
+.pv-layer { position: absolute; top: 0; left: 0; width: 100%; height: 0; overflow-x: clip; }
 .pv {
   --pv-grow: calc(var(--dur-fast) * 2);
   position: absolute;

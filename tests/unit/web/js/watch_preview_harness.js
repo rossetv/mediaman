@@ -583,6 +583,11 @@ const scenarios = {
     const e = h.key('Escape', h.doc.body, { isComposing: true });
     return [h.title(), e.defaultPrevented];
   },
+  async layer() {
+    const h = load();
+    await h.rest('film');
+    return [h.pv().parentNode.className, h.pv().parentNode.parentNode === h.doc.body];
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {

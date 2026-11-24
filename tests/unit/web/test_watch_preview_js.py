@@ -269,3 +269,15 @@ def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> No
 
 def test_an_escape_that_ends_a_composition_leaves_the_preview() -> None:
     assert _run("escapeComposing") == ["Fieldwork", False]
+
+
+def _rule(selector: str) -> str:
+    rule = re.search(r"^" + re.escape(selector) + r" \{([^}]*)\}", CSS.read_text("utf-8"), re.M)
+    assert rule is not None
+    return rule[1]
+
+
+def test_a_preview_past_the_windows_edge_gives_the_page_no_sideways_scroll() -> None:
+    assert _run("layer") == ["pv-layer", True]
+    assert "position: absolute" in _rule(".pv-layer")
+    assert "overflow-x: clip" in _rule(".pv-layer")

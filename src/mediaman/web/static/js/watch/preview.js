@@ -293,7 +293,7 @@
     if (!halfShown(r, box) || w > box.right - box.left) return false;
     var p = layer(link, w);
     content(p, data);
-    document.body.appendChild(p.n);
+    layerNode.appendChild(p.n);
     p.h = p.shell.offsetHeight;
     if (p.h > box.bottom - box.top) {
       p.n.remove();
@@ -1025,6 +1025,7 @@
     row.scrollLeft += e.deltaX;
   }
 
+  var layerNode = document.body.appendChild(el('div', 'pv-layer'));
   makeMenu();
 
   document.addEventListener('pointermove', onMove);
