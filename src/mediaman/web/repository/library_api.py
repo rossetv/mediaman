@@ -23,6 +23,7 @@ from mediaman.core.time import now_utc
 from mediaman.scanner.repository import book_removed_files, is_protected, is_show_kept_pure
 from mediaman.services import watch_catalog
 from mediaman.services.downloads.notifications import record_download_notification
+from mediaman.web.repository.kept import KeepRow, fetch_keep, same_keep
 
 
 class NotFound(Exception):
@@ -38,6 +39,10 @@ class NotFound(Exception):
 
 class Kept(Exception):
     """Raised when a delete targets an item the scanner would keep."""
+
+
+class KeepChanged(Exception):
+    """Raised when a keep is no longer the one the person changing it read."""
 
 
 class DeletionRunning(Exception):
@@ -79,6 +84,8 @@ def apply_keep_in_tx(
     new_token: str,
     audit_detail: str,
     actor: str,
+    guarded: bool = False,
+    read: KeepRow | None = None,
 ) -> bool:
     """Apply a keep / snooze decision atomically with an audit row.
 
@@ -94,9 +101,12 @@ def apply_keep_in_tx(
     Returns True when the deletion pass is removing the item right now. The
     keep is still written: if that removal fails, the item stays kept.
 
+    With *guarded* the keep in force must still be *read* (None: no keep).
+
     Raises:
         NotFound: when the target media_items row does not exist. The
             ``with conn:`` block rolls back any partial writes.
+        KeepChanged: when *guarded* and the keep in force is another.
     """
     # ``with conn:`` commits on normal exit and rolls back on exception;
     # BEGIN IMMEDIATE here preserves write-lock semantics.
@@ -105,6 +115,8 @@ def apply_keep_in_tx(
         media_row = conn.execute("SELECT id FROM media_items WHERE id = ?", (media_id,)).fetchone()
         if media_row is None:
             raise NotFound(media_id)
+        if guarded and not same_keep(read, fetch_keep(conn, media_id)):
+            raise KeepChanged(media_id)
 
         rows = conn.execute(
             "SELECT id, action, snooze_duration, delete_status FROM scheduled_actions "

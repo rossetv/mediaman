@@ -18,6 +18,7 @@ from mediaman.scanner.repository import (
     book_removed_files,
     book_removed_files_where,
     fetch_protected_media_ids,
+    is_show_kept_pure,
 )
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
@@ -43,6 +44,7 @@ class ProtectedRow:
 class KeepRow:
     action: str
     execute_at: str | None
+    kept_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -177,24 +179,39 @@ def _longest_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> 
     # rationale: placeholders is purely "?" * len(media_ids); every value is bound
     placeholders = ",".join("?" * len(media_ids))
     for r in conn.execute(
-        "SELECT media_item_id, action, execute_at FROM scheduled_actions "
+        "SELECT media_item_id, action, execute_at, snoozed_at FROM scheduled_actions "
         f"WHERE media_item_id IN ({placeholders}) AND (action = 'protected_forever' "
         "OR (action = 'snoozed' AND execute_at >= ?)) "
         "ORDER BY action = 'protected_forever', execute_at",
         (*media_ids, now),
     ).fetchall():
-        keeps[r["media_item_id"]] = KeepRow(action=r["action"], execute_at=r["execute_at"])
+        keeps[r["media_item_id"]] = KeepRow(r["action"], r["execute_at"], r["snoozed_at"])
     return keeps
 
 
+def fetch_keep(conn: sqlite3.Connection, media_id: str) -> KeepRow | None:
+    """The keep in force of one item: of several, the longest."""
+    return _longest_keeps(conn, [media_id], now_iso()).get(media_id)
+
+
 def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> KeepRow | None:
+    """The show's keep in force; a lapsed one is none, though its row waits for the next scan."""
     row = conn.execute(
-        "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
+        "SELECT action, execute_at, created_at FROM kept_shows WHERE show_rating_key = ?",
         (show_rating_key,),
     ).fetchone()
-    if row is None:
+    if row is None or not is_show_kept_pure(conn, show_rating_key):
         return None
-    return KeepRow(action=row["action"], execute_at=row["execute_at"])
+    return KeepRow(row["action"], row["execute_at"], row["created_at"])
+
+
+def same_keep(read: KeepRow | None, keep: KeepRow | None) -> bool:
+    """True when *keep* is still what a person read; when it was made counts where they say it."""
+    if read is None or keep is None:
+        return read is keep
+    return (read.action, read.execute_at) == (keep.action, keep.execute_at) and (
+        read.kept_at is None or read.kept_at == keep.kept_at
+    )
 
 
 def fetch_existing_actions_for_seasons(
@@ -316,7 +333,8 @@ def upsert_kept_show(
         "(show_rating_key, show_title, action, execute_at, snooze_duration, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(show_rating_key) DO UPDATE SET action=excluded.action, "
-        "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration",
+        "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration, "
+        "created_at=excluded.created_at",
         (show_rating_key, show_title, action, execute_at, snooze_duration, created_at),
     )
 

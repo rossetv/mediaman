@@ -14,13 +14,13 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
 from mediaman.core.audit import log_audit
 from mediaman.core.format import days_ago, media_type_badge, normalise_media_type
 from mediaman.core.format import format_bytes as _format_bytes
 from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
-from mediaman.scanner.repository import is_show_kept_pure
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry, parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
@@ -32,16 +32,19 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import (
     KeepRow,
     delete_protections,
+    fetch_keep,
     fetch_protected_items,
     fetch_seasons_for_show,
     fetch_show_kept_status,
     fetch_show_title,
+    same_keep,
 )
 from mediaman.web.repository.kept import (
     resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — re-exported so tests can import it
 )
 from mediaman.web.repository.library_query import protection_label
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.kept_show import KeepRead, keep_changed
 from mediaman.web.routes.kept_show import router as _kept_show_router
 
 _UNPROTECT_LIMITER = ActionRateLimiter(
@@ -115,8 +118,17 @@ def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
     return JSONResponse({"forever": forever, "snoozed": snoozed})
 
 
+class _UnprotectBody(BaseModel):
+    read: KeepRead | None = None
+
+
 @router.post("/api/media/{media_item_id}/unprotect")
-def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
+def api_unprotect(
+    media_item_id: str,
+    body: _UnprotectBody | None = None,
+    username: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Remove an item's keeps. With *read*, the keep the person saw, only while it is still that."""
     if not _UNPROTECT_LIMITER.check(username):
         logger.warning("media.unprotect_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
@@ -124,7 +136,11 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
         )
 
     conn = get_db()
+    read = body.read if body else None
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if read is not None and not same_keep(read.row(), fetch_keep(conn, media_item_id)):
+            return keep_changed()
         removed = delete_protections(conn, media_item_id)
         if removed:
             log_audit(
@@ -152,6 +168,7 @@ def _keep_reply(keep: KeepRow | None, now: datetime) -> dict[str, object] | None
     return {
         "action": keep.action,
         "execute_at": keep.execute_at,
+        "kept_at": keep.kept_at,
         "days": math.ceil((ends - now) / timedelta(days=1)) if ends else None,
         "label": protection_label(keep.action, keep.execute_at),
     }
@@ -199,12 +216,7 @@ def api_show_seasons(
             }
         )
 
-    # A lapsed show snooze is not a keep until the next scan sweeps its row.
-    show_kept_row = (
-        fetch_show_kept_status(conn, show_rating_key)
-        if is_show_kept_pure(conn, show_rating_key)
-        else None
-    )
+    show_kept_row = fetch_show_kept_status(conn, show_rating_key)
 
     return JSONResponse(
         {

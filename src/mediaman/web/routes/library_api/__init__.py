@@ -36,7 +36,9 @@ from mediaman.web.repository.delete_intents import (
 from mediaman.web.repository.delete_intents import (
     reconcile_pending_delete_intents,
 )
+from mediaman.web.repository.kept import KeepRow
 from mediaman.web.repository.library_api import (
+    KeepChanged,
     NotFound,
     apply_keep_in_tx,
 )
@@ -47,6 +49,7 @@ from mediaman.web.repository.library_query import (
     fetch_stats,
 )
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.kept_show import keep_changed
 from mediaman.web.routes.library_api._redownload_match import (
     _redownload_audit_id as _redownload_audit_id,
 )
@@ -119,8 +122,13 @@ def api_library(
 def api_media_keep(
     media_id: str,
     duration: str = Form(...),
+    read_action: str = Form(""),
+    read_execute_at: str = Form(""),
+    read_kept_at: str = Form(""),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
+    """Keep an item. With *read_action*, the keep the person read ("none" for no keep), a keep
+    that has changed since is left alone."""
     if not _KEEP_LIMITER.check(username):
         logger.warning("media.keep_throttled user=%s", _sanitise_log_field(username))
         return respond_err(
@@ -150,9 +158,15 @@ def api_media_keep(
             new_token=secrets.token_urlsafe(32),
             audit_detail=f"Kept for {snooze_label} by admin ({username})",
             actor=username,
+            guarded=bool(read_action),
+            read=None
+            if read_action in ("", "none")
+            else KeepRow(read_action, read_execute_at or None, read_kept_at or None),
         )
     except NotFound:
         return respond_err("not_found", status=404)
+    except KeepChanged:
+        return keep_changed()
 
     logger.info(
         "Media item %s protected for %s by %s",
@@ -165,6 +179,11 @@ def api_media_keep(
         "id": media_id,
         "duration": snooze_label,
         "deletion_running": deletion_running,
+        "keep": {
+            "action": decision.action,
+            "execute_at": decision.execute_at,
+            "kept_at": now.isoformat(),
+        },
     }
     if deletion_running:
         body["message"] = (
