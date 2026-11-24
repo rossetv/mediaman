@@ -234,6 +234,32 @@ class TestPerson:
         assert len(refs) == len(set(refs)) == 130
         assert [p["next_page"] for p in pages] == [2, 3, None, None]
 
+    def test_a_title_the_library_gains_or_loses_between_pages_is_still_listed(
+        self, viewer, conn, tmdb
+    ):
+        # Best known first: 230 down to 101, with the held title 11 last.
+        tmdb["/person/7"] = _person(*(_credit(n, n) for n in range(101, 231)), _credit(11, 1))
+
+        def refs(page):
+            body = viewer.get(PERSON, params={"page": page}).json()
+            return [c["ref"] for c in body["items"]]
+
+        def hold(tmdb_id):
+            conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = '100'", (tmdb_id,))
+            conn.commit()
+            catalog.clear_library_index()
+
+        first = refs(1)
+        hold(105)
+        second = refs(2)
+        hold(999)
+        third = refs(3)
+
+        assert first[0] == "tmdb-movie-11"
+        assert first[1:3] == ["tmdb-movie-230", "tmdb-movie-229"]
+        assert len(first) == 61
+        assert len(set(first + second + third)) == 131
+
     def test_someone_only_seen_in_small_parts_is_known_for_those(self, viewer, tmdb):
         tmdb["/person/7"] = _person(_credit(21, 9, character="Self"))
 

@@ -117,8 +117,8 @@ def api_watch_person(
     page: int = _Page,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """A person, what they are known for, and one page of all their films and shows, those
-    the library holds first."""
+    """A person, what they are known for, and one page of all their films and shows. The
+    first page has all the library holds before its own, so a later one may repeat a title."""
     if not _PERSON_ID_RE.fullmatch(person_id) or int(person_id) == 0:
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -147,8 +147,14 @@ def api_watch_person(
         return respond_err("tmdb_request_failed", status=502)
     cards = _credit_cards(request, conn, client, username, found["credits"])
     known_for = [card for card, minor in cards if not minor] or [card for card, _ in cards]
-    ordered = sorted((card for card, _ in cards), key=lambda card: not card["in_library"])
+    ordered = [card for card, _ in cards]
+    held = [card for card in ordered if card["in_library"]]
+    # Cut from the order of the credits: one that followed the library would lose a title
+    # that came or went between two pages.
     end = page * _PERSON_PAGE
+    items = ordered[end - _PERSON_PAGE : end]
+    if page == 1:
+        items = held + [card for card in items if not card["in_library"]]
     return respond_ok(
         {
             "tmdb_configured": True,
@@ -158,9 +164,9 @@ def api_watch_person(
                 "age": catalog.age(found["birthday"], found["deathday"]),
             },
             "known_for": known_for[: catalog.KNOWN_FOR_LIMIT],
-            "items": ordered[end - _PERSON_PAGE : end],
+            "items": items,
             "total": len(ordered),
-            "in_library": sum(bool(card["in_library"]) for card in ordered),
+            "in_library": len(held),
             "next_page": page + 1 if end < len(ordered) else None,
         }
     )
