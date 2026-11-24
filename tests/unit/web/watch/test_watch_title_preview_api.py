@@ -46,6 +46,7 @@ SHOW = {
     "name": "Glass Coast",
     "first_air_date": "2021-03-01",
     "overview": "A coast.",
+    "genres": [{"id": 35, "name": "Comedy"}],
     "seasons": [{"season_number": 1, "episode_count": 2}],
 }
 
@@ -275,7 +276,7 @@ class TestLibraryShow:
 
         assert body["play"]["label"] == "Play S1 · E2"
         assert "/watch/play/512" in body["play"]["href"]
-        assert body["overview"] == "A coast."
+        assert (body["overview"], body["genres"]) == ("A coast.", ["Comedy"])
 
     def test_with_plex_away_there_is_no_play_and_the_words_stay(self, viewer, tmdb, plex):
         plex.error = PlexUnavailable("down")
@@ -293,6 +294,7 @@ class TestLibraryShow:
 
         assert (body["overview"], body["year"], body["genres"]) == ("A town.", 2021, ["Drama"])
         assert "/watch/play/512" in body["play"]["href"]
+        assert plex.calls == 1
 
     def test_a_show_plex_places_outside_the_libraries_is_not_found(self, viewer, no_tmdb, plex):
         plex.add_show("500", "Glass Coast", {1: ("501", ["511"])}, section="9")
