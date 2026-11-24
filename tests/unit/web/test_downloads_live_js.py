@@ -281,6 +281,9 @@ def _in_media(condition: str, selector: str) -> str:
 def test_a_finger_reaches_every_control_at_any_width() -> None:
     coarse = "(pointer: coarse)"
     assert "inset: -15px -6px" in _in_media(coarse, ".dl-arr-link::after")
+    # In two pieces each would be reached over its own line alone.
+    assert "display: inline-block" in _rule(".dl-arr-link")
+    assert "white-space: nowrap" in _rule(".dl-arr-link")
     for toggle in (".dl-hero-episodes-toggle", ".dl-compact-episodes-toggle"):
         assert "min-height: 44px" in _in_media(coarse, toggle)
     for button in (".dl-hero-abandon .btn.btn--icon", ".dl-row-abandon .btn.btn--icon"):

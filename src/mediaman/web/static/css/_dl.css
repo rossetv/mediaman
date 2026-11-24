@@ -88,7 +88,7 @@
 .dl-state-pill--xs      { padding: 2px 8px; white-space: nowrap; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
-.dl-arr-link { position: relative; color: var(--accent); }
+.dl-arr-link { position: relative; display: inline-block; white-space: nowrap; color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
 @media (max-width: 699.98px), (pointer: coarse) {
   .dl-arr-link::after { content: ""; position: absolute; inset: -15px -6px; }
