@@ -335,6 +335,8 @@
   .nav-topbar { display: flex; }
   .nav-topbar .brand { display: inline-block; line-height: 44px; }
   .nav-tabs   { display: flex; }
+  /* What is scrolled into view, a focused field included, stops above the bottom tab bar. */
+  html:has(.nav-tabs) { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   /* Reserve room for the bottom tab bar so content isn't hidden under it. */
   .container,
   .keep-page,

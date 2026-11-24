@@ -35,6 +35,9 @@
   }
   function isBusy(button) { return button.getAttribute('aria-disabled') === 'true'; }
 
+  // On a narrow phone a status wraps under its button, where the bottom bar may cover it.
+  function reveal(result) { result.scrollIntoView({ block: 'nearest' }); }
+
   function initPassword(reloadSessions) {
     var form = document.getElementById('account-password-form');
     var result = document.getElementById('account-password-result');
@@ -46,6 +49,7 @@
       result.className = 'inline-form-msg err';
       result.textContent = text;
       document.getElementById(fieldId).focus();
+      reveal(result);
     }
 
     // A message about what was typed goes once the person types again; a send keeps its message.
@@ -68,6 +72,7 @@
       setBusy(submit, true);
       result.className = 'inline-form-msg';
       result.textContent = 'Updating…';
+      reveal(result);
       MM.reauth.run(function () {
         return MM.api.post('/api/users/change-password', {
           old_password: oldPw,
@@ -78,6 +83,7 @@
         form.reset();
         result.className = 'inline-form-msg ok';
         result.textContent = 'Password updated.';
+        reveal(result);
         // A new password ends every sign-in but this one.
         reloadSessions();
       }).catch(function (err) {
@@ -92,6 +98,7 @@
         document.getElementById(
           err && err.error === 'wrong_password' ? 'account-old-password' : 'account-new-password'
         ).focus();
+        reveal(result);
       });
     });
   }
@@ -106,6 +113,7 @@
     function say(text, tone) {
       result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
       result.textContent = text;
+      if (text) reveal(result);
     }
 
     form.addEventListener('input', function () {
@@ -180,6 +188,7 @@
     function say(text, tone) {
       result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
       result.textContent = text;
+      if (text) reveal(result);
     }
 
     revoke.addEventListener('click', function () {

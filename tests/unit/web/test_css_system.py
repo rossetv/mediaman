@@ -128,6 +128,19 @@ def test_nav_links_reach_44px_on_tablets_without_growing_their_pill() -> None:
     assert not any(".nav-btn" in s and "height" in body for s, body in rules)
 
 
+def test_what_is_scrolled_into_view_on_a_phone_stops_above_the_bottom_bar() -> None:
+    css = _text(CSS_DIR / "_nav.css")
+    bar = int(re.search(r"\.nav-tabs \{[^}]*?height: calc\((\d+)px", css).group(1))
+    held = [
+        body
+        for block in _media_blocks(css, PHONE)
+        for heads, body in _rules(block)
+        if "html:has(.nav-tabs)" in heads
+    ]
+    kept = re.search(r"scroll-padding-bottom: calc\((\d+)px \+ env\(safe-area-inset-bottom", held[0])
+    assert int(kept.group(1)) >= bar
+
+
 def test_no_control_drops_back_to_40px_on_phones() -> None:
     for path in SHARED:
         css = _text(path)

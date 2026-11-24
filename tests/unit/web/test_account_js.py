@@ -63,6 +63,15 @@ def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words
     assert tone == "inline-form-msg" and words
 
 
+def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
+    # on a narrow phone the words wrap under the button, where the bottom bar may cover them
+    out = _run("password")
+    words = ["account-password-result", "nearest"]
+    assert out["revealed"] == [words, words]  # being sent, then updated
+    assert out["revealedRefusal"] == [words]
+    assert out["revealedEmptied"] == []
+
+
 def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     out = _run("email")
     assert [body["email"] for _url, body in out["sent"]] == [

@@ -20,6 +20,10 @@ Object.defineProperty(Node.prototype, 'disabled', {
   },
 });
 
+// What was scrolled into view, and how.
+const revealed = [];
+Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && how.block]); };
+
 function page(api) {
   const doc = makeDocument();
   doc.readyState = 'complete';
@@ -96,7 +100,13 @@ const scenarios = {
     p.fire('account-password-form', 'input');
     const working = p.say('account-password-result');
     await settle();
-    return { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
+    const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
+    out.revealed = revealed.splice(0);
+    p.$('account-new-password').value = 'short';
+    p.fire('account-password-form', 'submit');
+    out.revealedRefusal = revealed.splice(0);
+    p.fire('account-password-form', 'input');
+    return { ...out, revealedEmptied: revealed.splice(0) };
   },
   async strength() {
     const doc = makeDocument();

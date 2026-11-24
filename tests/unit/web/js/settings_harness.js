@@ -110,6 +110,7 @@ class El {
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
   focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
+  scrollIntoView() {}
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => matches(e, sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
