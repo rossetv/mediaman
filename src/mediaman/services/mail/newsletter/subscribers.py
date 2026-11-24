@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote as _url_quote
 
@@ -242,11 +243,13 @@ def _send_to_subscribers(
     mailgun: _MailgunClient,
     report_date: str,
     conn: sqlite3.Connection | None = None,
+    own_picks: Mapping[str, list[NewsletterRecItem]] | None = None,
 ) -> list[str]:
     """Render and send to each subscriber, returning the addresses that succeeded.
 
     With *conn*, a per-subscriber delivery record is persisted for every scheduled item
-    so notified=1 is set only when every active subscriber succeeded. On a later attempt a
+    so notified=1 is set only when every active subscriber succeeded. A subscriber's copy
+    holds their own picks (*own_picks*, by address) beside the shared ones. On a later attempt a
     subscriber's copy leaves out the items already delivered to them, and is skipped when
     that leaves no scheduled item and no recommendation to report.
     """
@@ -257,13 +260,14 @@ def _send_to_subscribers(
     for email in recipient_emails:
         # A subscriber already sent some items in an earlier attempt gets only the rest.
         items = [i for i in scheduled_items if i.get("_action_id") not in delivered.get(email, ())]
-        if scheduled_items and not items and not this_week_items:
-            continue  # everything was delivered and nothing else is worth an email
+        recs = [*this_week_items, *(own_picks or {}).get(email, ())]
+        if (scheduled_items or own_picks) and not items and not recs:
+            continue  # all was delivered, or only others have picks: nothing is worth an email
         scheduled_action_ids = _action_ids(items)
         html, unsub_url = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,
-            this_week_items=this_week_items,
+            this_week_items=recs,
             scheduled_items=items,
             storage=storage,
             reclaimed_week=reclaimed_week,

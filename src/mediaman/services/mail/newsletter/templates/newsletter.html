@@ -87,7 +87,7 @@
 
 {%- macro rec_section(label, items) -%}
 <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }}</div>
+  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }} &middot; AI picks</div>
   {% call(item) grid(items, 4, 'm50') %}
     {{ poster(item, 130, 195, true) }}
     <div class="clamp2" style="font-size:13px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:7px;">{{ item.title }}</div>

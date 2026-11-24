@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mediaman.crypto import validate_download_token
 from mediaman.db import init_db
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import send_newsletter
@@ -16,6 +18,7 @@ from tests.helpers.factories import (
     insert_scheduled_action,
     insert_subscriber,
     insert_suggestion,
+    insert_user_pick,
 )
 
 _SECRET_KEY = "0123456789abcdef" * 4
@@ -184,3 +187,78 @@ def test_a_recommendations_only_newsletter_has_a_plain_subject(conn):
     outbox.scan(conn)
 
     assert outbox.subject["alice@example.com"] == "Mediaman Weekly Report"
+
+
+def _person(conn, username: str, email: str | None) -> None:
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at, email)"
+        " VALUES (?, 'x', '2020', ?)",
+        (username, email),
+    )
+    conn.commit()
+
+
+def test_each_subscriber_gets_their_own_picks_and_the_shared_ones_and_no_one_elses(conn):
+    _person(conn, "al", "Alice@Example.com")
+    _person(conn, "bo", "bob@example.com")
+    insert_suggestion(conn, title="SharedPick", batch_id="b1")
+    insert_suggestion(conn, title="HouseholdPick", category="personal", batch_id="b1")
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5, because_of='["AlsFilm"]')
+    insert_user_pick(conn, "al", title="AlsOldPick", batch_id="2025-01-01")
+    insert_user_pick(conn, "bo", title="BosPick")
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    shown = {
+        to.split("@")[0]: {
+            title
+            for title in ("SharedPick", "HouseholdPick", "AlsPick", "AlsOldPick", "BosPick")
+            if title in html
+        }
+        for to, html in outbox.html.items()
+    }
+    assert shown == {
+        "alice": {"SharedPick", "AlsPick"},
+        "bob": {"SharedPick", "BosPick"},
+        "carol": {"SharedPick"},
+    }
+    assert all("AlsFilm" not in html for html in outbox.html.values())
+    assert "AI picks" in outbox.html["alice@example.com"]
+
+
+def test_an_address_two_people_share_gets_neithers_picks(conn):
+    _person(conn, "al", "alice@example.com")
+    _person(conn, "ally", "ALICE@example.com")
+    insert_suggestion(conn, title="SharedPick", batch_id="b1")
+    insert_user_pick(conn, "al", title="AlsPick")
+    insert_user_pick(conn, "ally", title="AllysPick")
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    html = outbox.html["alice@example.com"]
+    assert "SharedPick" in html
+    assert "AlsPick" not in html and "AllysPick" not in html
+
+
+def test_picks_of_one_person_send_no_empty_email_to_the_others(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_user_pick(conn, "al", title="AlsPick")
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    assert outbox.sent == {"alice@example.com": 1}
+
+
+def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    [token] = re.findall(r"/download/([^\"?]+)", outbox.html["alice@example.com"])
+    payload = validate_download_token(token, _SECRET_KEY)
+    assert (payload["title"], payload["tmdb"], payload["sid"]) == ("AlsPick", 5, None)
