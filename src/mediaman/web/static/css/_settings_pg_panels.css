@@ -398,7 +398,10 @@
 .setg-pg .fpc-meter {
   height: 4px; background: var(--s3); border-radius: var(--r-pill);
   overflow: hidden; margin-top: 4px;
+  transition: opacity var(--dur) var(--ease-out);
 }
+/* Nothing typed, nothing to measure. Its place is kept, so typing moves nothing. */
+.setg-pg .fpc-meter:not(:has(> .weak, > .ok, > .strong)) { opacity: 0; }
 .setg-pg .fpc-meter-fill {
   display: block; height: 100%; width: 0;
   background: var(--danger);
