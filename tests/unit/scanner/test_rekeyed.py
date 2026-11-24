@@ -55,8 +55,11 @@ def _season(show, number, *, prefix="", folder=None, episodes=(1, 2)):
 
 
 class _Plex:
-    def __init__(self, films=(), seasons=(), no_history=()):
+    """Lists *films* and *seasons*; *watched* says when the plays of each key were."""
+
+    def __init__(self, films=(), seasons=(), no_history=(), watched=()):
         self._films, self._seasons, self._no_history = films, seasons, no_history
+        self._watched = dict(watched)
 
     def get_movie_items(self, _library_id):
         return list(self._films)
@@ -64,13 +67,13 @@ class _Plex:
     def get_show_seasons(self, _library_id):
         return list(self._seasons)
 
-    def get_watch_history(self, _key):
-        return []
+    def get_watch_history(self, key):
+        return [{"viewed_at": self._watched[key]}] if key in self._watched else []
 
     def get_season_watch_history(self, key):
         if key in self._no_history:
             raise requests.ConnectionError
-        return []
+        return self.get_watch_history(key)
 
 
 @pytest.fixture
@@ -87,22 +90,23 @@ def conn(db_path, monkeypatch, freezer):
     return conn
 
 
-def _engine(conn, **plex):
+def _engine(conn, plex, library_types=None):
+    library_types = library_types or {"1": "movie", "2": "show"}
     return ScanEngine(
         conn=conn,
-        plex_client=_Plex(**plex),
-        library_ids=["1", "2"],
-        library_types={"1": "movie", "2": "show"},
+        plex_client=plex,
+        library_ids=list(library_types),
+        library_types=library_types,
         secret_key="0123456789abcdef" * 4,
     )
 
 
 def _sync(conn, **plex):
-    _engine(conn, **plex).sync_library()
+    _engine(conn, _Plex(**plex)).sync_library()
 
 
 def _scan(conn, **plex):
-    _engine(conn, **plex).run_scan()
+    _engine(conn, _Plex(**plex)).run_scan()
 
 
 def _kept(conn):
@@ -726,6 +730,41 @@ class TestLastWatched:
         _scan(conn, films=[*_NEW_FILM, *_FILM])
 
         assert "new-f1" not in _scheduled(conn)
+
+    @pytest.mark.parametrize("known", [True, False])
+    @pytest.mark.parametrize("new_first", [True, False])
+    def test_a_watch_of_the_old_key_listed_beside_it_counts_whichever_is_first(
+        self, conn, known, new_first
+    ):
+        films = [*_FILM, *_NEW_FILM]
+        seasons = [*_SHOW, _season("show", 1, prefix="new-")]
+        if known:
+            _sync(conn, films=films, seasons=seasons)
+
+        _scan(
+            conn,
+            films=sorted(films, key=lambda f: f["plex_rating_key"], reverse=new_first),
+            seasons=sorted(seasons, key=lambda s: s["plex_rating_key"], reverse=not new_first),
+            watched={"f1": _YESTERDAY, "show-s1": _YESTERDAY},
+        )
+
+        assert _scheduled(conn) == set()
+
+    def test_a_watch_of_the_old_key_in_a_library_scanned_later_counts(self, conn):
+        plex = _Plex(watched={"f1": _YESTERDAY})
+        listed = {"1": _NEW_FILM, "3": _FILM}
+        plex.get_movie_items = lambda library: listed[library]
+
+        _engine(conn, plex, library_types={"1": "movie", "3": "movie"}).run_scan()
+
+        assert _scheduled(conn) == set()
+
+    def test_a_watch_of_the_old_key_cancels_no_deletion_already_scheduled(self, conn):
+        _scan(conn, films=[*_FILM, *_NEW_FILM])
+
+        _scan(conn, films=[*_FILM, *_NEW_FILM], watched={"f1": _YESTERDAY})
+
+        assert _scheduled(conn) == {"f1", "new-f1"}
 
     @pytest.mark.parametrize("empty_lists", [0, 2])
     def test_an_earlier_watch_never_moves_a_later_one_back(self, conn, freezer, empty_lists):

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError
@@ -367,7 +367,9 @@ class ScanEngine:
 
         Each library commits separately (per-library commit boundary) so
         a SIGKILL mid-scan can only roll back the in-flight library, not
-        every successful upsert from earlier libraries. Libraries with
+        every successful upsert from earlier libraries. All are stored
+        before any is evaluated, so an item is judged by the watches of
+        its title in every library. Libraries with
         unknown or unsupported types are logged and skipped — an
         unmapped library would silently default to ``"movie"``, so a
         Plex library that has been re-typed (e.g. moved to ``"music"``
@@ -377,6 +379,7 @@ class ScanEngine:
         repository.carry_stranded_keeps(self._conn)
         self._conn.commit()
         seen_by_lib: dict[str, set[str]] = {}
+        evaluations: list[Callable[[], None]] = []
         for lib_id in self._library_ids:
             lib_type = self._library_types.get(lib_id)
             if lib_type is None:
@@ -398,10 +401,11 @@ class ScanEngine:
 
             seen: set[str] = set()
             seen_by_lib[lib_id] = seen
-            if lib_type == "show":
-                scan_tv_library(self, lib_id, summary, seen)
-            else:
-                scan_movie_library(self, lib_id, summary, seen)
+            scan_library = scan_tv_library if lib_type == "show" else scan_movie_library
+            evaluations.append(scan_library(self, lib_id, summary, seen))
+            self._conn.commit()
+        for evaluate in evaluations:
+            evaluate()
             self._conn.commit()
         return seen_by_lib
 

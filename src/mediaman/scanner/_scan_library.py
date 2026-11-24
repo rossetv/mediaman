@@ -9,7 +9,7 @@ of the class so the orchestration shell remains scannable.
 
 The per-library transaction discipline is unchanged: the orchestrator
 in ScanEngine.run_scan issues a ``self._conn.commit()`` after
-each library's helper returns, so a SIGKILL mid-scan can still only
+each library is stored and after each is evaluated, so a SIGKILL mid-scan can still only
 roll back the in-flight library. The helpers themselves do not commit.
 """
 
@@ -40,10 +40,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ScanDecision",
+    "evaluate_items",
     "item_savepoint",
-    "scan_items",
     "scan_movie_library",
     "scan_tv_library",
+    "store_items",
     "with_mediaman_play",
 ]
 
@@ -107,9 +108,9 @@ class _GuardSets:
     Built once per library by _build_guard_sets so the guards of the hot
     per-item loop need no SELECT. ``credited`` maps a media item id to the last time anyone
     played it in mediaman long enough to count as a watch.
-    ``protected`` and ``already_scheduled`` are mutable: when an item is given its
-    keep back or freshly scheduled mid-loop it is added so a later item sharing the
-    same ``plex_rating_key`` observes it, as the connection's uncommitted view would.
+    ``already_scheduled`` is mutable: when an item is freshly scheduled mid-loop it
+    is added so a later item sharing the same ``plex_rating_key`` observes it, as
+    the connection's uncommitted view would.
     """
 
     protected: set[str]
@@ -132,75 +133,103 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     )
 
 
-def scan_items(
+def store_items(
     engine: ScanEngine,
     fetched: list[PlexItemFetch],
     media_type_fn: Callable[[PlexItemFetch], str],
-    evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     item_label: str,
     summary: dict[str, int],
     seen_keys: set[str] | None = None,
-) -> None:
-    """Shared iteration skeleton for movie and TV scan passes.
+) -> list[PlexItemFetch]:
+    """Upsert each of *fetched* and return those that were, for evaluate_items.
 
-    Builds the per-library protection / already-scheduled guard sets in
-    two batched queries up front, then iterates *fetched* items,
-    upserts each one, applies the common protection/schedule guards via
-    _evaluate_scan_item, then routes the per-item ``decision``
-    through _apply_scan_decision. The two callers differ only in
-    *media_type_fn* (selects the media type string) and *evaluate_fn*
-    (returns ``"schedule_deletion"``, a skip marker, or ``None`` for an
-    evaluator-driven early skip such as the TV show-kept check).
+    A mediaman play credited to an item joins its Plex watch history, so
+    ``last_watched_at`` counts it.
 
-    *seen_keys*, when provided, accumulates Plex rating keys so orphan
-    detection can exclude them later.
+    *media_type_fn* selects the media type string. *seen_keys*, when provided,
+    accumulates Plex rating keys so orphan detection can exclude them later.
     """
-    # One batched query per guard, built before the loop: the per-item upserts
-    # change no item's protection but for a keep given back, which they report.
     media_ids = [f.item["plex_rating_key"] for f in fetched]
-    guards = _build_guard_sets(engine._conn, media_ids)
+    if seen_keys is not None:
+        seen_keys.update(media_ids)
     engine._listed_keys.update(media_ids, seen_keys or ())
+    credited = repository.last_credited_by_media_item(engine._conn, media_ids)
+    stored = []
     for f in fetched:
         summary["scanned"] += 1
-        try:
-            with item_savepoint(engine._conn):
-                media_id, decision = _evaluate_scan_item(
-                    engine, f, media_type_fn, evaluate_fn, seen_keys, guards
-                )
-                if decision is not ScanDecision.SCHEDULE:
-                    # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
-                    # (too new / watched recently / kept show) — count and move on.
-                    summary["skipped"] += 1
-                    continue
-                _apply_scan_decision(engine, media_id, summary, guards)
-        except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
-            # rationale: per-item isolation boundary, narrowed to the
-            # exception types a corrupt/malformed Plex item or a transient
-            # DB error can raise — a missing key, a wrong-typed field, an
-            # unparseable value, a Plex-client RuntimeError, or a SQLite
-            # error. A genuine programming bug (AttributeError, NameError,
-            # ...) is deliberately NOT caught here so it propagates and is
-            # not silently masked as an "item error". Caught errors are
-            # recorded in summary["errors"] and logged with full traceback
-            # so operators can diagnose the root cause; the scheduler-level
-            # wrapper in runner.py handles job-level failures.
-            summary["errors"] += 1
-            logger.exception(
-                "%s scan item failed (plex_rating_key=%s)",
-                item_label,
-                f.item.get("plex_rating_key", "?"),
+        with _counting_item_errors(engine, f, item_label, summary):
+            _phase_upsert_item(
+                engine._conn,
+                with_mediaman_play(f, credited),
+                engine._arr_cache,
+                media_type_fn(f),
+                engine._listed_keys,
             )
+            stored.append(f)
+    return stored
+
+
+def evaluate_items(
+    engine: ScanEngine,
+    stored: list[PlexItemFetch],
+    evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
+    item_label: str,
+    summary: dict[str, int],
+) -> None:
+    """Schedule each item of *stored* that nothing keeps and *evaluate_fn* says should go.
+
+    Run it once every library is stored: an item counts the watches of the same
+    title under another key, whichever Plex lists first.
+
+    *evaluate_fn* returns ``"schedule_deletion"``, a skip marker, or ``None`` for
+    an evaluator-driven early skip such as the TV show-kept check.
+    """
+    guards = _build_guard_sets(engine._conn, [f.item["plex_rating_key"] for f in stored])
+    for f in stored:
+        with _counting_item_errors(engine, f, item_label, summary):
+            media_id, decision = _evaluate_scan_item(engine, f, evaluate_fn, guards)
+            if decision is ScanDecision.SCHEDULE:
+                _apply_scan_decision(engine, media_id, summary, guards)
+            else:
+                # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
+                # (too new / watched recently / kept show) — count and move on.
+                summary["skipped"] += 1
+
+
+@contextmanager
+def _counting_item_errors(
+    engine: ScanEngine, f: PlexItemFetch, item_label: str, summary: dict[str, int]
+) -> Iterator[None]:
+    """Run the body in the item's savepoint; count and log its errors instead of raising them."""
+    try:
+        with item_savepoint(engine._conn):
+            yield
+    except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
+        # rationale: per-item isolation boundary, narrowed to the
+        # exception types a corrupt/malformed Plex item or a transient
+        # DB error can raise — a missing key, a wrong-typed field, an
+        # unparseable value, a Plex-client RuntimeError, or a SQLite
+        # error. A genuine programming bug (AttributeError, NameError,
+        # ...) is deliberately NOT caught here so it propagates and is
+        # not silently masked as an "item error". Caught errors are
+        # recorded in summary["errors"] and logged with full traceback
+        # so operators can diagnose the root cause; the scheduler-level
+        # wrapper in runner.py handles job-level failures.
+        summary["errors"] += 1
+        logger.exception(
+            "%s scan item failed (plex_rating_key=%s)",
+            item_label,
+            f.item.get("plex_rating_key", "?"),
+        )
 
 
 def _evaluate_scan_item(
     engine: ScanEngine,
     f: PlexItemFetch,
-    media_type_fn: Callable[[PlexItemFetch], str],
     evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
-    seen_keys: set[str] | None,
     guards: _GuardSets,
 ) -> tuple[str, ScanDecision]:
-    """Upsert one item and return ``(media_id, decision)``.
+    """Return ``(media_id, decision)`` for one stored item.
 
     The returned ScanDecision makes the three outcomes explicit:
     ScanDecision.SKIP_GUARD when the protection / already-scheduled
@@ -211,35 +240,28 @@ def _evaluate_scan_item(
 
     The protection and already-scheduled guards are answered from the
     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
-    The ``media_items`` upsert below changes neither guard's answer, but for a
-    keep it gives back to an item Plex had stopped listing, which it reports.
 
-    A mediaman play credited to the item joins its Plex watch history, so
-    both ``last_watched_at`` and the inactivity check count it. The stored
-    ``last_watched_at`` is a floor for the inactivity check, so a watch
-    whose play is gone (its viewer deleted) or was of the item's old key
-    still keeps the item. It is read once the upsert has carried that over,
-    and only for an item that would else be scheduled.
+    A mediaman play credited to the item counts in the inactivity check. The
+    stored ``last_watched_at`` is a floor for it, so a watch whose play is gone
+    (its viewer deleted) or was of another key of the title still keeps the
+    item. It is read only for an item that would else be scheduled.
     """
     conn = engine._conn
     item = f.item
     media_id = item["plex_rating_key"]
-    if seen_keys is not None:
-        seen_keys.add(media_id)
-    f = with_mediaman_play(f, guards.credited)
-    if _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f), engine._listed_keys):
-        guards.protected.add(media_id)
-
     if media_id in guards.protected:
         return media_id, ScanDecision.SKIP_GUARD
     if media_id in guards.already_scheduled:
         return media_id, ScanDecision.SKIP_GUARD
 
+    f = with_mediaman_play(f, guards.credited)
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
     if evaluate_fn(f, added_at, f.watch_history) != "schedule_deletion":
         return media_id, ScanDecision.SKIP_EVAL
     if repository.is_kept_under_another_key(conn, media_id):
         return media_id, ScanDecision.SKIP_GUARD
+    # Carried when it was stored too, but other keys of its title may have come after it.
+    repository.carry_last_watched(conn, media_id)
     last_watched = last_watched_by_media_item(conn, [media_id]).get(media_id)
     if last_watched is not None and not is_inactive(
         [{"viewed_at": last_watched}], engine._inactivity_days
@@ -288,8 +310,8 @@ def scan_movie_library(
     library_id: str,
     summary: dict[str, int],
     seen_keys: set[str] | None = None,
-) -> None:
-    """Scan a single movie library: fetch, upsert, evaluate, schedule."""
+) -> Callable[[], None]:
+    """Fetch and store a movie library; the function returned evaluates and schedules its items."""
     # Phase 1: pull items + watch histories from Plex (no DB writes,
     # no lock). See ScanEngine.sync_library for rationale.
     fetched = engine._fetcher.fetch_library_items(library_id)
@@ -311,15 +333,15 @@ def scan_movie_library(
             inactivity_days=engine._inactivity_days,
         )
 
-    scan_items(
+    stored = store_items(
         engine,
         fetched.items,
         media_type_fn=lambda f: "movie",
-        evaluate_fn=_evaluate,
         item_label="Movie",
         summary=summary,
         seen_keys=seen_keys,
     )
+    return lambda: evaluate_items(engine, stored, _evaluate, "Movie", summary)
 
 
 def scan_tv_library(
@@ -327,8 +349,8 @@ def scan_tv_library(
     library_id: str,
     summary: dict[str, int],
     seen_keys: set[str] | None = None,
-) -> None:
-    """Scan a single TV library: fetch, upsert, evaluate, schedule.
+) -> Callable[[], None]:
+    """Fetch and store a TV library; the function returned evaluates and schedules its seasons.
 
     Honours the show-kept protection: every season belonging to a kept
     show is skipped before evaluation.
@@ -347,45 +369,47 @@ def scan_tv_library(
     engine._listed_keys.update(fetched.listed_keys)
     repository.carry_show_keeps(conn, fetched.seasons, engine._listed_keys)
 
-    # Batching for the show-kept guard: a per-season repository.is_show_kept()
-    # would issue a ``kept_shows`` SELECT (and a DELETE on the not-kept path)
-    # for every season — O(seasons) round trips against a one-row-per-show
-    # table. Instead: sweep expired snoozes once up front, then load the live
-    # keep set in batched IN-queries so the per-season check is a pure set
-    # membership test. ``kept_shows.show_rating_key`` is UNIQUE, so the set
-    # answer equals a per-season LIMIT-1 read (an expired snooze is never
-    # "kept", so removing it eagerly changes no decision).
-    now = now_iso()
-    repository.cleanup_expired_show_snoozes(conn, now)
-    show_keys = [
-        key
-        for key in {f.item.get("show_rating_key") for f in fetched.items}
-        if isinstance(key, str)
-    ]
-    kept_show_keys = repository.fetch_kept_show_keys(conn, show_keys, now)
-
-    def _evaluate(
-        f: PlexItemFetch,
-        added_at: datetime,
-        watch_history: Sequence[Mapping[str, object]],
-    ) -> str | None:
-        raw_key = f.item.get("show_rating_key")
-        show_key = raw_key if isinstance(raw_key, str) else None
-        if show_key is not None and show_key in kept_show_keys:
-            return None  # show is protected; skip all its seasons
-        return evaluate_item(
-            added_at=added_at,
-            watch_history=watch_history,
-            min_age_days=engine._min_age_days,
-            inactivity_days=engine._inactivity_days,
-        )
-
-    scan_items(
+    stored = store_items(
         engine,
         fetched.items,
         media_type_fn=lambda f: f.media_type,
-        evaluate_fn=_evaluate,
         item_label="TV",
         summary=summary,
         seen_keys=seen_keys,
     )
+
+    def _evaluate_stored() -> None:
+        # Batching for the show-kept guard: a per-season repository.is_show_kept()
+        # would issue a ``kept_shows`` SELECT (and a DELETE on the not-kept path)
+        # for every season — O(seasons) round trips against a one-row-per-show
+        # table. Instead: sweep expired snoozes once up front, then load the live
+        # keep set in batched IN-queries so the per-season check is a pure set
+        # membership test. ``kept_shows.show_rating_key`` is UNIQUE, so the set
+        # answer equals a per-season LIMIT-1 read (an expired snooze is never
+        # "kept", so removing it eagerly changes no decision).
+        now = now_iso()
+        repository.cleanup_expired_show_snoozes(conn, now)
+        show_keys = [
+            key for key in {f.item.get("show_rating_key") for f in stored} if isinstance(key, str)
+        ]
+        kept_show_keys = repository.fetch_kept_show_keys(conn, show_keys, now)
+
+        def _evaluate(
+            f: PlexItemFetch,
+            added_at: datetime,
+            watch_history: Sequence[Mapping[str, object]],
+        ) -> str | None:
+            raw_key = f.item.get("show_rating_key")
+            show_key = raw_key if isinstance(raw_key, str) else None
+            if show_key is not None and show_key in kept_show_keys:
+                return None  # show is protected; skip all its seasons
+            return evaluate_item(
+                added_at=added_at,
+                watch_history=watch_history,
+                min_age_days=engine._min_age_days,
+                inactivity_days=engine._inactivity_days,
+            )
+
+        evaluate_items(engine, stored, _evaluate, "TV", summary)
+
+    return _evaluate_stored

@@ -82,7 +82,7 @@ def _credit_episode_play(conn, *, days_ago: int) -> datetime:
 
 def _scan(conn) -> dict[str, int]:
     summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0}
-    scan_tv_library(_StubEngine(conn, [_old_unwatched_season()]), "2", summary)
+    scan_tv_library(_StubEngine(conn, [_old_unwatched_season()]), "2", summary)()
     return summary
 
 
