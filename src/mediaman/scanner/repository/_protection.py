@@ -12,6 +12,7 @@ import logging
 import sqlite3
 from collections.abc import Collection
 
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 
 logger = logging.getLogger(__name__)
@@ -325,10 +326,18 @@ def take_pruned_keeps(
 
 
 def restore_keeps(conn: sqlite3.Connection, media_id: str, keeps: list[sqlite3.Row]) -> None:
-    """Put *keeps*, as take_pruned_keeps returns them, back on the item."""
+    """Put *keeps*, as take_pruned_keeps returns them, back on the item and audit each."""
     # rationale: the interpolated column list is a fixed string; every value is bound
     conn.executemany(  # nosec B608
         f"INSERT INTO scheduled_actions (media_item_id, {_KEEP_COLUMNS}) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         [(media_id, *(keep[c] for c in _KEEP_COLUMNS.split(", "))) for keep in keeps],
     )
+    for keep in keeps:
+        log_audit(
+            conn,
+            media_id,
+            "kept" if keep["action"] == "protected_forever" else "snoozed",
+            "Keep given back: Plex lists the title again"
+            + ("" if keep["media_item_id"] == media_id else " under a new key"),
+        )

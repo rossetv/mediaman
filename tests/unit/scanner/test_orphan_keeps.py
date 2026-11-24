@@ -183,6 +183,17 @@ class TestListShorterThanTheLibrary:
         assert _actions(conn, "o0") == ["protected_forever"]
         assert _actions(conn, "new-o0") == []
 
+    @pytest.mark.parametrize("key", ["o0", "new-o0"])
+    def test_a_keep_given_back_is_in_the_history(self, conn, kept, key):
+        _engine(conn, _Plex(_FILMS[1:])).sync_library()
+
+        _engine(conn, _Plex([key, *_FILMS[1:]])).sync_library()
+
+        given_back = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id = ? AND actor IS NULL", (key,)
+        ).fetchall()
+        assert [r["action"] for r in given_back] == ["kept"]
+
     def test_a_season_takes_back_only_its_own_keep_when_seasons_share_a_folder(self, conn):
         for media_id, season in (("s1", 1), ("s2", 2)):
             insert_media_item(
