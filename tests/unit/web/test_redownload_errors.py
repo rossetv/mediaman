@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import router as library_api_router
@@ -98,3 +102,75 @@ def test_throttled_redownload_carries_its_reason_under_message(app_factory, auth
             resp = _post(client, {"title": "Dune", "tmdb_id": 42})
     assert resp.status_code == 429
     assert resp.json()["message"] == "Too many redownload requests — slow down"
+
+
+class _OneTitleArr(ArrClient):
+    """The real client over one in-memory Arr entry; every search command fails."""
+
+    def __init__(self, spec, entry, error):
+        super().__init__(spec, "http://arr.local", "k")
+        self.entry = entry
+        self._error = error
+
+    def _get(self, path):
+        entry = copy.deepcopy(self.entry)
+        return [entry] if "?" in path else entry
+
+    def _put(self, path, data):
+        self.entry = copy.deepcopy(data)
+
+    def _post(self, path, data):
+        raise self._error
+
+
+_SEARCH_ERRORS = pytest.mark.parametrize(
+    "error", [_err(503), requests.ReadTimeout("slow")], ids=["refused", "timeout"]
+)
+
+
+def _movie(monitored):
+    return {"id": 7, "tmdbId": 42, "monitored": monitored, "hasFile": False}
+
+
+def _series(monitored):
+    seasons = [
+        {"seasonNumber": 1, "monitored": True},
+        {"seasonNumber": 2, "monitored": monitored},
+    ]
+    return {"id": 3, "tvdbId": 999, "monitored": True, "seasons": seasons}
+
+
+@_SEARCH_ERRORS
+def test_a_movie_whose_search_fails_is_left_unmonitored_as_it_was(
+    app_factory, authed_client, conn, error
+):
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error)
+    with patch(RADARR, return_value=radarr):
+        resp = _post(_client(app_factory, authed_client, conn), {"title": "Dune", "tmdb_id": 42})
+    assert resp.json()["ok"] is False
+    assert radarr.entry["monitored"] is False
+
+
+@_SEARCH_ERRORS
+def test_a_season_whose_search_fails_is_left_unmonitored_as_it_was(
+    app_factory, authed_client, conn, error
+):
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error)
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json()["ok"] is False
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, False]
+
+
+def test_a_title_monitored_before_a_failed_search_stays_monitored(app_factory, authed_client, conn):
+    client = _client(app_factory, authed_client, conn)
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(True), _err(503))
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(True), _err(503))
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        _post(client, {"title": "Dune", "tmdb_id": 42})
+        _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert radarr.entry["monitored"] is True
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
