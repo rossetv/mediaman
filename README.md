@@ -61,7 +61,7 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 
 Watch is a Netflix-style player for the Plex libraries mediaman scans. Plex converts the video and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
 
-An admin can do everything. A viewer can watch, search and request films and series, see Downloads and Recommended, keep a "leaving soon" item for 7, 30 or 90 days, and change their own password. A viewer has no settings, library tools, history or way to cancel downloads.
+An admin can do everything. A viewer can watch, search and request films and series, see Downloads and Recommended, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password and sign out their other devices. A viewer has no settings, library tools, history or way to cancel downloads.
 
 Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 
