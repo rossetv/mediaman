@@ -7,13 +7,13 @@
 (function () {
   'use strict';
 
-  function renderApiError(target, err) {
-    var msg = MM.api.messageOf(err, 'Something went wrong. Try again.');
-    var issues = err && err.issues;
+  function wordsOf(err) { return MM.api.messageOf(err, 'Something went wrong. Try again.'); }
+
+  function showReason(target, text, issues) {
     target.textContent = '';
     if (issues && issues.length) {
       var p = document.createElement('div');
-      p.textContent = msg;
+      p.textContent = text;
       target.appendChild(p);
       var ul = document.createElement('ul');
       ul.className = 'inline-form-issues';
@@ -24,7 +24,7 @@
       });
       target.appendChild(ul);
     } else {
-      target.textContent = msg;
+      target.textContent = text;
     }
   }
 
@@ -52,19 +52,21 @@
     var submit = document.getElementById('account-submit-password');
     if (!form || !result || !submit) return;
 
-    // The message is announced by the status region; the cursor goes where the fix is.
-    function fail(text, fieldId) {
-      result.className = 'inline-form-msg err';
-      result.textContent = text;
-      document.getElementById(fieldId).focus();
-      reveal(result);
+    // On a short phone the form is taller than the screen, so the reason is said beside its field.
+    function fail(fieldId, text, issues) {
+      var why = document.getElementById(fieldId + '-why');
+      showReason(why, text, issues);
+      MM.dom.refuse(document.getElementById(fieldId), why);
+    }
+    function clear() {
+      result.className = 'inline-form-msg';
+      result.textContent = '';
+      form.querySelectorAll('.fld-why').forEach(function (why) { why.textContent = ''; });
     }
 
     // A message about what was typed goes once the person types again; a send keeps its message.
     form.addEventListener('input', function () {
-      if (isBusy(submit) || !result.textContent) return;
-      result.className = 'inline-form-msg';
-      result.textContent = '';
+      if (!isBusy(submit)) clear();
     });
 
     form.addEventListener('submit', function (e) {
@@ -73,12 +75,12 @@
       var oldPw = document.getElementById('account-old-password').value;
       var newPw = document.getElementById('account-new-password').value;
       var conf = document.getElementById('account-confirm-password').value;
-      if (!oldPw) { fail('Enter your current password.', 'account-old-password'); return; }
-      if (newPw.length < 12) { fail('New password must be at least 12 characters.', 'account-new-password'); return; }
-      if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
+      if (!oldPw) { fail('account-old-password', 'Enter your current password.'); return; }
+      if (newPw.length < 12) { fail('account-new-password', 'New password must be at least 12 characters.'); return; }
+      if (newPw !== conf) { fail('account-confirm-password', "Passwords don't match."); return; }
 
+      clear();
       setBusy(submit, true);
-      result.className = 'inline-form-msg';
       result.textContent = 'Updating…';
       reveal(result);
       MM.reauth.run(function () {
@@ -94,17 +96,14 @@
         reloadSessions();
       }).catch(function (err) {
         setBusy(submit, false);
-        if (err && err.error === 'reauth_cancelled') {
-          result.className = 'inline-form-msg';
-          result.textContent = '';
+        var code = err && err.error;
+        if (code === 'reauth_cancelled') { clear(); return; }
+        if (code === 'wrong_password' || code === 'weak_password' || code === 'same_password') {
+          clear();
+          fail(code === 'wrong_password' ? 'account-old-password' : 'account-new-password', wordsOf(err), err.issues);
           return;
         }
-        result.className = 'inline-form-msg err';
-        renderApiError(result, err);
-        document.getElementById(
-          err && err.error === 'wrong_password' ? 'account-old-password' : 'account-new-password'
-        ).focus();
-        reveal(result);
+        answer(result, form, wordsOf(err), 'err');
       });
     });
   }

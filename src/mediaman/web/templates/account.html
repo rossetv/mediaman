@@ -48,19 +48,22 @@
     {% call c.setg_card(title="Change password", pad=True) %}
       <form class="inline-form" id="account-password-form" novalidate>
         <div class="inline-form-grid">
-          <label class="fld">
-            <span class="fld-lbl">Current password</span>
-            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required data-show-password>
-          </label>
+          <div class="fld">
+            <label class="fld-lbl" for="account-old-password">Current password</label>
+            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required aria-describedby="account-old-password-why" data-show-password>
+            <span class="fld-why" id="account-old-password-why" role="status"></span>
+          </div>
           <div class="fld">
             <label class="fld-lbl" for="account-new-password">New password</label>
-            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
+            <input class="inp" type="password" id="account-new-password" aria-describedby="account-new-password-why" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
             <div class="fpc-meter" aria-hidden="true"><span class="fpc-meter-fill" id="account-new-strength-meter"></span></div>
+            <span class="fld-why fld-why--caption" id="account-new-password-why" role="status"></span>
             <span class="fpc-caption" id="account-new-strength-label" aria-live="polite">&nbsp;</span>
           </div>
           <div class="fld">
             <label class="fld-lbl" for="account-confirm-password">Confirm new password</label>
-            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
+            <input class="inp" type="password" id="account-confirm-password" aria-describedby="account-confirm-password-why" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
+            <span class="fld-why fld-why--caption" id="account-confirm-password-why" role="status"></span>
             <span class="fpc-caption" id="account-confirm-password-match" aria-live="polite">&nbsp;</span>
           </div>
         </div>

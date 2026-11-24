@@ -643,8 +643,9 @@ def test_a_forms_status_comes_into_view_when_it_changes() -> None:
     ]
     field = ["new-username", "nearest", "auto"]
     created = ["create-user-result", "nearest", "auto"]
-    assert out["add"]["tooShort"] == [field, created]
-    assert out["add"]["refused"] == [created, field, created]
+    reason = ["new-username-why", "nearest", "auto"]
+    assert out["add"]["tooShort"] == [field, reason]
+    assert out["add"]["refused"] == [created, field, reason]
     # Safari would scroll to the field later, and the reason out of view
     assert out["add"]["focus"] == {"preventScroll": True}
     sent = ["newsletter-send-status", "nearest", "auto"]

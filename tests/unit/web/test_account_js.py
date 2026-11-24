@@ -69,12 +69,37 @@ def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words
     assert tone == "inline-form-msg" and words
 
 
+def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> None:
+    out = _run("passwordRefusals")
+    for refusal, name, words in (
+        ("old", "old", "Enter your current password"),
+        ("new", "new", "12 characters"),
+        ("confirm", "confirm", "match"),
+        ("wrong", "old", "No"),
+        ("weak", "new", "Noa digit"),
+        ("same", "new", "No"),
+    ):
+        field = f"account-{name}-password"
+        assert words in out[refusal]["words"], refusal
+        assert out[refusal]["said"] == [field + "-why"], refusal
+        assert out[refusal]["focused"] == field, refusal
+        assert out[refusal]["last"] == [field, field + "-why"], refusal
+        assert out[refusal]["typed"] == [], refusal
+
+
+def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
+    out = _run("passwordRefusals")["limit"]
+    assert out["said"] == ["account-password-result"]
+    assert out["focused"] == "account-submit-password"
+
+
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
     words = ["account-password-result", "nearest"]
     assert out["revealed"] == [words, words]  # being sent, then updated
-    assert out["revealedRefusal"] == [words]
+    field = "account-new-password"
+    assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
 
 

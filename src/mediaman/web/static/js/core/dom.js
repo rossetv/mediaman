@@ -47,6 +47,10 @@
  *     Whether the reader is still where they pressed, so a late answer in
  *     status does not pull the page back.
  *
+ *   MM.dom.refuse(field, reason)
+ *     Puts the cursor in the field to put right and brings both it and the
+ *     element with its reason into view.
+ *
  *   MM.dom.holdPage()
  *     For a dialog that stops the page scrolling: keeps the room of the page's
  *     scrollbar. Returns the function that lets go.
@@ -104,6 +108,13 @@
     stillAt: function (status, scope) {
       var at = document.activeElement || document.body;
       return (scope.contains(at) || at.contains(scope)) && global.MM.dom.inView(status);
+    },
+
+    // Safari scrolls to a focused field only later, which would take the reason out of view again.
+    refuse: function (field, reason) {
+      field.focus({ preventScroll: true });
+      field.scrollIntoView({ block: 'nearest' });
+      reason.scrollIntoView({ block: 'nearest' });
     },
 
     /**

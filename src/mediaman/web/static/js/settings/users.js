@@ -25,19 +25,14 @@
   MM.settings = MM.settings || {};
 
   /**
-   * Render an APIError into an inline-form-msg element.
-   * Surfaces the human-readable .message and, when present, the per-rule
-   * .issues array as a bulleted list (used by the password-policy
-   * validator on the server).
+   * Say why something was refused in an element, with the per-rule issues of
+   * the server's password policy, when there are some, as a list.
    */
-  function renderApiError(target, err) {
-    if (!target) return;
-    var msg = MM.api.messageOf(err, 'Something went wrong. Try again.');
-    var issues = err && err.issues;
+  function showReason(target, text, issues) {
+    target.textContent = '';
     if (issues && issues.length) {
-      target.textContent = '';
       var p = document.createElement('div');
-      p.textContent = msg;
+      p.textContent = text;
       target.appendChild(p);
       var ul = document.createElement('ul');
       ul.className = 'inline-form-issues';
@@ -48,7 +43,7 @@
       });
       target.appendChild(ul);
     } else {
-      target.textContent = msg;
+      target.textContent = text;
     }
   }
 
@@ -299,7 +294,7 @@
             setBusy(save, false);
             if (err && err.error === 'reauth_cancelled') { say(''); return; }
             say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-            rows.refuse(input, msg);
+            MM.dom.refuse(input, msg);
           });
         });
         return form;
@@ -404,6 +399,10 @@
         target.className = 'inline-form-msg';
       }
 
+      function clearReasons(form) {
+        form.querySelectorAll('.fld-why').forEach(function (why) { why.textContent = ''; });
+      }
+
       // A message about what was typed goes once the person types again; a
       // form that is sending keeps its progress line.
       function clearOnInput(form, target, submitBtn) {
@@ -411,14 +410,8 @@
         form.addEventListener('input', function () {
           if (submitBtn && submitBtn.disabled) return;
           if (target && target.textContent) clearMsg(target);
+          clearReasons(form);
         });
-      }
-
-      // A check that fails before sending puts the cursor in the field to fix.
-      function failOn(target, text, field) {
-        target.className = 'inline-form-msg err';
-        target.textContent = text;
-        rows.refuse(field, target);
       }
 
       var addUserForm      = document.getElementById('add-user-form');
@@ -426,6 +419,13 @@
       var btnCancelAddUser = document.getElementById('btn-cancel-add-user');
       var btnSubmitAddUser = document.getElementById('btn-submit-add-user');
       var createResult     = document.getElementById('create-user-result');
+
+      // On a narrow phone the form is taller than the screen, so the reason is said beside its field.
+      function failOn(field, text, issues) {
+        var why = document.getElementById(field.id + '-why');
+        showReason(why, text, issues);
+        MM.dom.refuse(field, why);
+      }
 
       var roleSwitch = document.getElementById('new-user-role');
       function selectedRole() {
@@ -467,6 +467,7 @@
           addUserForm.reset();
           selectRole('viewer');
           clearMsg(createResult);
+          clearReasons(addUserForm);
           if (closed) closed();
         });
       }
@@ -491,13 +492,14 @@
         var username = nameInput.value.trim();
         var password = pwInput.value;
         if (username.length < 3) {
-          failOn(createResult, 'Username must be at least 3 characters.', nameInput);
+          failOn(nameInput, 'Username must be at least 3 characters.');
           return;
         }
         if (password.length < 12) {
-          failOn(createResult, 'Password must be at least 12 characters.', pwInput);
+          failOn(pwInput, 'Password must be at least 12 characters.');
           return;
         }
+        clearReasons(addUserForm);
         holdFocus(btnSubmitAddUser, addUserForm);
         btnSubmitAddUser.disabled = true;
         createResult.className = 'inline-form-msg';
@@ -538,10 +540,18 @@
             createResult.textContent = '';
             return;
           }
-          createResult.className = 'inline-form-msg err';
-          renderApiError(createResult, err);
-          var field = err && err.issues && err.issues.length ? pwInput : nameInput;
-          rows.refuse(field, createResult);
+          var there = rows.stillAt(createResult, addUserForm);
+          var text = MM.api.messageOf(err, 'Something went wrong. Try again.');
+          clearMsg(createResult);
+          if (err && (err.status === 0 || err.status === 429 || err.status >= 500)) {
+            createResult.className = 'inline-form-msg err';
+            createResult.textContent = text;
+            if (MM.dom.focusStillIn(addUserForm)) btnSubmitAddUser.focus({ preventScroll: true });
+            if (there) rows.reveal(createResult);
+            return;
+          }
+          var issues = err && err.issues;
+          failOn(issues && issues.length ? pwInput : nameInput, text, issues);
         });
       });
 

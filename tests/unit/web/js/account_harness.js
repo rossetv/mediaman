@@ -33,7 +33,7 @@ function page(api) {
   doc.documentElement.clientHeight = 600;
   doc.body.appendChild(build(doc, ['main', { id: 'main-content' },
     ['form', { id: 'account-password-form' },
-      ['input', { id: 'account-old-password' }], ['input', { id: 'account-new-password' }], ['input', { id: 'account-confirm-password' }],
+      ...['old', 'new', 'confirm'].flatMap((f) => [['input', { id: 'account-' + f + '-password' }], ['span', { id: 'account-' + f + '-password-why', class: 'fld-why' }]]),
       ['button', { id: 'account-submit-password' }], ['span', { id: 'account-password-result' }]],
     ['form', { id: 'account-email-form' },
       ['input', { id: 'account-email' }], ['button', { id: 'account-submit-email' }], ['span', { id: 'account-email-result' }]],
@@ -42,7 +42,7 @@ function page(api) {
       ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]]));
   const $ = (id) => doc.getElementById(id);
   $('account-password-form').reset = () => {};
-  const MM = { api: { messageOf: (e, d) => e.message || d, ...api }, reauth: { run: (f) => f() } };
+  const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f) => f() } };
   class FixedDate extends Date { static now() { return NOW; } }
   // A top bar of 64px and a bottom bar of 72px.
   const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
@@ -127,7 +127,7 @@ const scenarios = {
     const results = { email: 'account-email-result', password: 'account-password-result', sessions: 'account-revoke-result' };
     const late = async (which, refused, { top = 300, focus } = {}) => {
       let give;
-      const pending = () => new Promise((resolve, reject) => { give = refused ? () => reject(new Error('No')) : () => resolve({ ok: true }); });
+      const pending = () => new Promise((resolve, reject) => { give = refused ? () => reject(Object.assign(new Error('No'), { error: 'wrong_password' })) : () => resolve({ ok: true }); });
       const p = page({ get: () => Promise.resolve({ sessions: [session(5), session(9)] }), patch: pending, post: pending });
       await settle();
       p.$('account-email').value = 'vic@example.com';
@@ -140,7 +140,8 @@ const scenarios = {
       else if (focus) p.$(which === 'email' ? 'account-old-password' : 'account-email').focus();
       give();
       await settle();
-      const answered = revealed.splice(0).map(([id]) => id).join() === results[which];
+      const said = which === 'password' && refused ? 'account-old-password,account-old-password-why' : results[which];
+      const answered = revealed.splice(0).map(([id]) => id).join() === said;
       return [onPress, answered];
     };
     const each = async (which, refused) => ({
@@ -157,6 +158,31 @@ const scenarios = {
       sessionsRefused: await each('sessions', true),
       // the cursor goes to the fix, so its reason does too
       emailRefused: await late('email', true, { top: 700 }), passwordRefused: await late('password', true, { top: 700 }),
+    };
+  },
+  // where each refusal of a new password is said, and where the cursor goes
+  async passwordRefusals() {
+    const refuse = async (fill, error) => {
+      const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => Promise.reject(error) });
+      await settle();
+      Object.entries(fill).forEach(([f, v]) => { p.$('account-' + f + '-password').value = v; });
+      p.$('account-submit-password').focus();
+      revealed.splice(0);
+      p.fire('account-password-form', 'submit');
+      await settle();
+      const said = () => ['account-old-password-why', 'account-new-password-why', 'account-confirm-password-why', 'account-password-result'].filter((id) => p.$(id).textContent);
+      const out = { said: said(), words: said().map((id) => p.$(id).textContent).join(), focused: p.focused(), last: revealed.splice(0).slice(-2).map(([id]) => id) };
+      p.fire('account-password-form', 'input');
+      return { ...out, typed: said() };
+    };
+    const failure = (error, issues) => Object.assign(new Error('No'), { error, issues });
+    const good = { old: 'x', new: 'a-long-enough-password', confirm: 'a-long-enough-password' };
+    return {
+      old: await refuse({ ...good, old: '' }), new: await refuse({ ...good, new: 'short' }), confirm: await refuse({ ...good, confirm: 'other' }),
+      wrong: await refuse(good, failure('wrong_password')),
+      weak: await refuse(good, failure('weak_password', ['a digit'])),
+      same: await refuse(good, failure('same_password')),
+      limit: await refuse(good, failure('too_many_requests')),
     };
   },
   // how the focus goes to the list of sign-ins once the others are signed out

@@ -384,6 +384,14 @@
   .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
 }
 
+/* The reason a field was refused, right under it; its line is reserved too, or is that of the
+   field's caption, which it takes the place of. */
+.setg-pg .fld-why { min-height: 1.4em; scroll-margin-bottom: 20px; font-size: 13px; line-height: 1.4; color: var(--danger-text); }
+.setg-pg .fld-why--caption:not(:empty) + .fpc-caption { display: none; }
+.setg-pg .fld-why--caption:empty { min-height: 0; margin-top: -7px; }
+.setg-pg .inline-form-grid + .fld { margin-top: 12px; }
+.setg-pg .fld-why ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; }
+
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
 .setg-pg .setg-fold {
   display: grid; grid-template-rows: 1fr;
