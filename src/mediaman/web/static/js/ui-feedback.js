@@ -92,8 +92,8 @@
     if (document.querySelector('.ui-confirm-overlay:not(.is-leaving)')) return true;
     return Array.prototype.some.call(document.querySelectorAll('[aria-modal="true"]'), function (m) {
       if (m.getAttribute('aria-hidden') === 'true') return false;
-      var cs = getComputedStyle(m);
-      return cs.display !== 'none' && cs.visibility !== 'hidden';
+      // No box: it, or something it stands in, is not shown.
+      return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
   }
   // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
