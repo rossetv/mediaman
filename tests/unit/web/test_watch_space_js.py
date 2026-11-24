@@ -246,6 +246,7 @@ class TestStorage:
     def test_a_sum_that_lacks_a_size_is_said_to_be_the_least_it_can_be(self):
         out = _run("someSizesNotKnown")
         assert out["leaving"] == {
+            "closed": "2 · at least 10 GB to reclaim",
             "link": "2 · at least 10 GB to reclaim",
             "after": "2 scheduled titles will free at least 10 GB",
             "said": "At least 1.4 TB once the scheduled titles go2 titles, at least 10 GB. "

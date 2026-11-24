@@ -79,7 +79,7 @@ class Server {
     const l = this.rows.filter((r) => r.state === 'leaving');
     const sum = (list) => list.reduce((n, r) => n + r.file_size_bytes, 0);
     return { storage: this.storage, reclaimed_total_bytes: 5 * GB, reclaimed_total: '5.0 GB',
-      scheduled: { total: this.rows.length, total_bytes: sum(this.rows), total_size: label(sum(this.rows)), leaving: l.length, leaving_bytes: sum(l), leaving_size: label(sum(l)),
+      scheduled: { total: this.rows.length, total_bytes: sum(this.rows), total_size: label(sum(this.rows)), leaving: l.length, leaving_bytes: sum(l), leaving_size: label(sum(l)), unsized_count: this.rows.filter((r) => !r.file_size_bytes).length,
         overdue: this.rows.filter((r) => r.state === 'overdue').length, deleting: this.rows.filter((r) => r.state === 'deleting').length },
       unavailable_roots: [], deletions_off: false, plex_configured: true, show_storage: true, ...this.extra };
   }
@@ -471,8 +471,9 @@ const scenarios = {
   async someSizesNotKnown() {
     const of = async (...rows) => {
       const p = await page(rows);
+      const closed = p.one('.space-row-link').textContent;
       await p.click(p.$('meter'));
-      const out = { link: p.one('.space-row-link').textContent, after: p.one('.space-after').textContent };
+      const out = { closed, link: p.one('.space-row-link').textContent, after: p.one('.space-after').textContent };
       await p.click(p.seg('free'));
       out.said = p.one('.space-layer:not([inert]) .space-say').textContent;
       await p.click(p.$('space-tab-scheduled'));

@@ -85,9 +85,10 @@
 
   /* Before what scheduled titles add up to, when a scan has yet to size one of them. *state*: of those alone. */
   function least(state) {
-    return (scheduled || []).some(function (item) {
+    var lacks = scheduled ? scheduled.some(function (item) {
       return !item.file_size_bytes && (!state || item.state === state);
-    }) ? 'at least ' : '';
+    }) : stats.scheduled.unsized_count > 0;
+    return lacks ? 'at least ' : '';
   }
 
   function reclaimable(bytes, label, state) { return bytes ? least(state) + trim(label) + ' to reclaim' : 'size not known'; }
