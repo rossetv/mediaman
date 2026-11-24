@@ -8,9 +8,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.services.media_meta import item_enrichment
 from mediaman.services.media_meta.item_enrichment import (
     enrich_item_with_tmdb,
     enrich_redownload_item,
+    fill_backdrop,
+    tidy_summary,
 )
 from tests.helpers.factories import insert_suggestion
 
@@ -276,3 +279,110 @@ class TestEnrichRedownloadItem:
         enrich_redownload_item(other, conn, SECRET)
         assert "year" not in other
         mock_fetch.assert_called_once_with(other, conn, SECRET)
+
+
+WIDE = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+
+
+@pytest.fixture(autouse=True)
+def _forget_backdrops():
+    item_enrichment._backdrop_cache.clear()
+
+
+def _tmdb_with(details):
+    client = MagicMock()
+    client.details.return_value = details
+    return patch(
+        "mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=client
+    ), client
+
+
+class TestFillBackdrop:
+    """The emailed page's wide backdrop: the stored one, one stored for the same title, TMDB's."""
+
+    def test_a_backdrop_stored_for_the_same_title_is_used_without_asking_tmdb(self, conn):
+        sid = insert_suggestion(conn, title="Dune", tmdb_id=42, created_at="2026-01-01")
+        conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (WIDE, sid))
+        patcher, client = _tmdb_with({"backdrop_path": "/other.jpg"})
+        item: dict = {"media_type": "movie", "tmdb_id": 42}
+
+        with patcher:
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+        client.details.assert_not_called()
+
+    def test_tmdb_gives_the_backdrop_when_none_is_stored_and_is_asked_once_a_while(self, conn):
+        patcher, client = _tmdb_with({"backdrop_path": "/wide.jpg"})
+
+        with patcher:
+            for _ in range(2):
+                item: dict = {"media_type": "tv", "tmdb_id": 7}
+                fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+        client.details.assert_called_once_with("tv", 7)
+
+    def test_a_title_with_no_backdrop_or_no_answer_is_left_without_one(self, conn):
+        patcher, _client = _tmdb_with(None)
+        item: dict = {"media_type": "movie", "tmdb_id": 9}
+
+        with patcher:
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_stored_address_that_is_no_tmdb_image_is_not_shown(self, conn):
+        item: dict = {"media_type": "movie", "backdrop_url": 'https://evil.example/a.jpg"onerror='}
+
+        fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_failing_tmdb_never_fails_the_page(self, conn):
+        with patch(
+            "mediaman.services.media_meta.tmdb.TmdbClient.from_db",
+            side_effect=ValueError("bad token"),
+        ):
+            item: dict = {"media_type": "movie", "tmdb_id": 3}
+            fill_backdrop(item, conn, SECRET)
+
+        assert item["backdrop_url"] is None
+
+    def test_a_redownload_takes_the_backdrop_stored_with_its_suggestion(self, conn):
+        sid = insert_suggestion(
+            conn, title="Dune", tmdb_id=42, poster_url="https://x/p.jpg", created_at="2026-01-01"
+        )
+        conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (WIDE, sid))
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 42}
+
+        enrich_redownload_item(item, conn, SECRET)
+
+        assert item["backdrop_url"] == WIDE
+
+
+class TestTidySummary:
+    CUT = (
+        "After being separated for 15 years, the Sword of Power leads Prince Adam back to "
+        "Eternia, where he discovers his home shattered under the fiendish rule of Skeletor. "
+        "To save his family and his world, Adam must join forces with his closest allies, Teel"
+    )
+
+    def test_a_cut_summary_ends_at_its_last_full_sentence(self):
+        assert len(self.CUT) == 250
+
+        assert tidy_summary(self.CUT) == self.CUT[: self.CUT.index("Skeletor.") + 9]
+
+    def test_a_cut_with_no_full_sentence_ends_at_a_whole_word_with_an_ellipsis(self):
+        cut = ("word " * 60)[:250]
+
+        out = tidy_summary(cut)
+
+        assert out is not None and out.endswith("word…") and len(out) < 250
+
+    def test_a_summary_that_is_not_a_cut_is_left_as_it_is(self):
+        short = "A film about sand and no end to it"
+        whole = "x" * 249 + "."
+        assert tidy_summary(short) == short
+        assert tidy_summary(whole) == whole
+        assert tidy_summary(None) is None

@@ -137,6 +137,24 @@ class TestRefreshRecommendations:
         rows = conn.execute("SELECT title FROM suggestions").fetchall()
         assert any(r["title"] == "Dune" for r in rows)
 
+    def test_the_backdrop_found_for_a_pick_is_stored_with_it(self, conn):
+        recs = _fake_trending()
+        recs[0]["backdrop_url"] = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+        with (
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_trending",
+                return_value=recs,
+            ),
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_personal",
+                return_value=[],
+            ),
+            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+        ):
+            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+        row = conn.execute("SELECT backdrop_url FROM suggestions").fetchone()
+        assert row["backdrop_url"] == "https://image.tmdb.org/t/p/w1280/wide.jpg"
+
     def test_manual_refresh_replaces_todays_batch(self, conn, freezer):
         """manual=True should delete today's existing batch before inserting."""
         from datetime import datetime

@@ -657,6 +657,34 @@ class TestYoutubeTrailerKeyValidation:
         # The malicious key must have been sanitised
         assert ctx["item"]["trailer_key"] is None
 
+    def test_the_page_gets_the_stored_backdrop_and_a_whole_summary(
+        self, app_factory, conn, secret_key, templates_stub
+    ):
+        cut = ("A first sentence. " + "and so on " * 30)[:250]
+        assert len(cut) == 250
+        wide = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+        sid = insert_suggestion(
+            conn, title="Dune", tmdb_id=42, description=cut, created_at="2026-01-01"
+        )
+        with conn:
+            conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (wide, sid))
+        token = generate_download_token(
+            email="test@example.com",
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=sid,
+            secret_key=secret_key,
+        )
+        app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
+
+        ctx = TestClient(app).get(f"/download/{token}").json()
+
+        assert ctx["item"]["backdrop_url"] == wide
+        assert ctx["hero_backdrop"] == wide
+        assert ctx["item"]["description"] == "A first sentence."
+
 
 def _app_with_real_templates(app_factory, conn):
     from pathlib import Path

@@ -256,6 +256,7 @@
   color: var(--t2);
   cursor: pointer;
   border: 0;
+  white-space: nowrap;
   transition: background var(--dur-fast) var(--ease-out);
 }
 .dl-hero-episodes-toggle:hover,

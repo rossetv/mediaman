@@ -75,7 +75,10 @@
     <div class="dl-description">{{ item.description }}</div>
     {% endif %}
     {% if item.reason %}
-    <div class="dl-reason">{{ item.reason }}</div>
+    <div class="dl-reason">
+      <h2 class="eyebrow">Why it's here</h2>
+      <p>{{ item.reason }}</p>
+    </div>
     {% endif %}
   </div>
   {% endif %}
@@ -214,7 +217,7 @@
   "title": (item.title or ""),
   "media_type": (item.media_type or "movie"),
   "download_state": (item.download_state or ""),
-  "notify_by_email": item.notify_by_email
+  "notify_by_email": (item.notify_by_email or false)
 } | tojson }}</script>
 <script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
 <script src="/static/js/download.js?v={{ static_v }}" defer></script>

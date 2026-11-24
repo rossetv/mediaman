@@ -87,9 +87,9 @@ class TestEnrichRecommendations:
         assert recs[0]["rating"] == 7.9
         assert recs[0]["poster_url"]
 
-    def test_description_truncated_to_250_chars(self, conn):
+    def test_a_long_description_is_kept_whole(self, conn):
         card = _shape_card()
-        card["description"] = "A" * 400
+        card["description"] = "A sentence. " * 60
         cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
@@ -98,7 +98,21 @@ class TestEnrichRecommendations:
             recs = [_rec()]
             enrich_recommendations(recs, conn, _SECRET_KEY)
 
-        assert len(recs[0]["description"]) <= 250
+        assert recs[0]["description"] == card["description"]
+
+    def test_the_wide_backdrop_of_the_details_is_kept_with_the_pick(self, conn):
+        cls, _inst = _mock_tmdb(
+            search_return={"id": 1, "title": "Dune"},
+            detail_return={"id": 1, "backdrop_path": "/wide.jpg"},
+        )
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            recs = [_rec()]
+            enrich_recommendations(recs, conn, _SECRET_KEY)
+
+        assert recs[0]["backdrop_url"] == "https://image.tmdb.org/t/p/w1280/wide.jpg"
 
     def test_omdb_ratings_applied(self, conn):
         cls, _inst = _mock_tmdb(search_return=None)

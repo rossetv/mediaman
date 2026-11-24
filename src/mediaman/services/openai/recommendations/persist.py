@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -137,8 +138,8 @@ def _insert_recommendations(
                 "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
                 "description, reason, poster_url, trailer_url, rating, rt_rating, "
                 "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore, "
-                "batch_id, created_at, downloaded_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "batch_id, created_at, downloaded_at, backdrop_url) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     title,
                     s.get("year"),
@@ -163,6 +164,7 @@ def _insert_recommendations(
                     today,
                     now_iso,
                     downloaded_at,
+                    cast(Mapping[str, str | None], s).get("backdrop_url"),
                 ),
             )
             inserted += 1

@@ -12,7 +12,7 @@ import sqlite3
 from typing import cast
 from urllib.parse import quote as urlquote
 
-from mediaman.services.media_meta.item_enrichment import apply_tmdb_detail
+from mediaman.services.media_meta.item_enrichment import apply_tmdb_detail, tmdb_backdrop
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.prompts import strip_season_suffix
 
@@ -25,10 +25,10 @@ def enrich_recommendations(
     """Enrich recommendations in place with TMDB data and OMDb ratings, sharing one
     TmdbClient. *secret_key* decrypts the stored API credentials.
 
-    Quirks kept from earlier versions: the description is truncated to 250 characters;
-    when TMDB finds a year, trailer_url is refreshed to "<title> <year> official
-    trailer"; if TMDB has no rating but OMDb has an IMDb score, that score (1dp) is
-    used.
+    Quirks kept from earlier versions: when TMDB finds a year, trailer_url is refreshed to
+    "<title> <year> official trailer"; if TMDB has no rating but OMDb has an IMDb score, that
+    score (1dp) is used. The description is kept whole, and the wide backdrop is stored with
+    the pick.
     """
     from mediaman.services.media_meta.omdb import fetch_ratings
     from mediaman.services.media_meta.tmdb import TmdbClient
@@ -49,7 +49,7 @@ def enrich_recommendations(
                 card = TmdbClient.shape_card(best)
                 s["tmdb_id"] = card["tmdb_id"]
                 s["year"] = card["year"]
-                s["description"] = card["description"][:250]
+                s["description"] = card["description"]
                 s["rating"] = card["rating"]
                 if card["poster_url"]:
                     s["poster_url"] = card["poster_url"]
@@ -63,10 +63,11 @@ def enrich_recommendations(
             if tmdb_id:
                 data = client.details(s["media_type"], tmdb_id)
                 if data:
+                    item = cast(dict[str, object], s)
                     apply_tmdb_detail(
-                        cast(dict[str, object], s),
-                        TmdbClient.shape_detail(data, media_type=s["media_type"]),
+                        item, TmdbClient.shape_detail(data, media_type=s["media_type"])
                     )
+                    item["backdrop_url"] = tmdb_backdrop(data)
 
         title = s.get("title")
         if not title:

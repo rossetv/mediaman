@@ -35,7 +35,11 @@ from mediaman.services.arr.state import (
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import SafeHTTPError
-from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
+from mediaman.services.media_meta.item_enrichment import (
+    enrich_redownload_item,
+    fill_backdrop,
+    tidy_summary,
+)
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.repository.download import (
     SuggestionEnrichment,
@@ -186,6 +190,7 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
         "email": payload.get("email", ""),
         "action": payload.get("act", "download"),
         "poster_url": None,
+        "backdrop_url": None,
         "year": None,
         "description": None,
         "reason": None,
@@ -441,6 +446,8 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     item = _build_item_from_payload(payload, conn, config.secret_key)
     _enrich_item_fields(item)
+    item["description"] = tidy_summary(cast("str | None", item["description"]))
+    fill_backdrop(item, conn, config.secret_key)
     season = deleted_season(conn, payload)
     item["season_number"] = season.season_number if season else None
 
@@ -472,5 +479,6 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "token": token,
             "poll_token": poll_token,
             "hero_item": hero_item,
+            "hero_backdrop": item["backdrop_url"],
         },
     )
