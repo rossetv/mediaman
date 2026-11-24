@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from mediaman.app_factory import create_app
@@ -22,7 +23,19 @@ def client():
     def api_boom():
         raise RuntimeError("secret internals")
 
+    @app.get("/json-500")
+    def json_500():
+        raise HTTPException(status_code=500, detail="broken")
+
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _assert_security_headers(resp):
+    assert resp.headers["x-frame-options"] == "DENY"
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
+    assert resp.headers["referrer-policy"]
+    assert resp.headers["cache-control"] == "no-store, private"
 
 
 def test_a_missing_page_for_a_browser_is_the_styled_page_with_a_way_back(client):
@@ -57,6 +70,7 @@ def test_a_crash_shows_the_styled_page_and_no_internals(client):
     assert "secret internals" not in resp.text
     assert "RuntimeError" not in resp.text
     assert "mediaman.db" not in resp.text
+    _assert_security_headers(resp)
 
 
 def test_a_crash_for_a_non_html_caller_stays_plain_text(client):
@@ -64,6 +78,7 @@ def test_a_crash_for_a_non_html_caller_stays_plain_text(client):
 
     assert resp.status_code == 500
     assert resp.text == "Internal Server Error"
+    _assert_security_headers(resp)
 
 
 def test_a_crash_under_api_stays_plain_text_even_for_a_browser(client):
@@ -71,6 +86,15 @@ def test_a_crash_under_api_stays_plain_text_even_for_a_browser(client):
 
     assert resp.status_code == 500
     assert resp.text == "Internal Server Error"
+    _assert_security_headers(resp)
+
+
+def test_an_http_500_answer_is_json_with_the_security_headers(client):
+    resp = client.get("/json-500")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "broken"}
+    _assert_security_headers(resp)
 
 
 def test_a_refused_cross_site_post_for_a_browser_is_the_styled_page(client):
