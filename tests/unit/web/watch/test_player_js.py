@@ -609,7 +609,7 @@ def test_a_double_click_for_full_screen_leaves_the_play_state_alone(markup):
     assert out["playing"] is False
     assert out["menu"] == {"open": "false", "paused": False}
     # The next single click still pauses.
-    assert out["paused"] is True
+    assert (out["paused"], out["stillPaused"]) == (True, True)
 
 
 def test_a_click_on_the_picture_under_an_error_does_not_try_again(markup):
@@ -854,6 +854,7 @@ def test_a_held_enter_goes_on_skipping_but_plays_or_pauses_once_and_presses_noth
         "paused": True,
         "back": True,
         "muted": False,
+        "card": False,
     }
 
 

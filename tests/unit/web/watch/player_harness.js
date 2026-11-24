@@ -1366,6 +1366,10 @@ const scenarios = {
     out.menu = { open: p.q('[data-quality-btn]').getAttribute('aria-expanded'), paused: p.video.paused };
     press(p.video);
     out.paused = p.video.paused;
+    /* The first press on a button that hides, the second on the picture where it was. */
+    press(p.q('[data-skip]'), 'mouse', 1);
+    press(p.video, 'mouse', 2);
+    out.stillPaused = p.video.paused;
     press(p.video);
     p.replies.push({ err: { status: 429, error: 'rate_limited' } });
     p.hlsList[0].emit('hlsError', { response: { code: 410 } });
@@ -1765,6 +1769,7 @@ const scenarios = {
     ask.close();
     await settle();
     out.card = card();
+    fire(p.video, 'progress');
     out.skip = !p.q('[data-skip]').hidden;
     p.tick(30000);
     await settle();
@@ -1854,7 +1859,8 @@ const scenarios = {
     key('Enter');
     const back = doc.activeElement === p.q('[data-mute]');
     key('Enter', true);
-    return { skipped: skipped, paused: paused, back: back, muted: p.video.muted };
+    await settle();
+    return { skipped: skipped, paused: paused, back: back, muted: p.video.muted, card: !p.q('[data-upnext]').hidden };
   },
 
   /* The episode ends; is the question there? */
