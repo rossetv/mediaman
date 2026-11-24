@@ -152,8 +152,8 @@ def _flag_weak_password(
 @router.post("/login", response_class=HTMLResponse)
 def login_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
+    username: str = Form(default=""),
+    password: str = Form(default=""),
 ) -> Response:
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):

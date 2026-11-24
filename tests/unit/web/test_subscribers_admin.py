@@ -142,6 +142,15 @@ class TestAddSubscriber:
         resp = authed_client.post("/api/subscribers", data={"email": "not-an-email"})
         assert resp.status_code == 422
 
+    def test_a_missing_email_gets_the_invalid_email_answer_not_raw_validation_json(
+        self, authed_client
+    ):
+        resp = authed_client.post("/api/subscribers", data={})
+
+        assert resp.status_code == 422
+        assert resp.json()["error"] == "invalid_email"
+        assert "detail" not in resp.json()
+
     def test_email_normalised_to_lowercase(self, authed_client, app):
         resp = authed_client.post("/api/subscribers", data={"email": "Upper@Example.COM"})
         assert resp.status_code == 201
