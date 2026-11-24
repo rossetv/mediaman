@@ -16,7 +16,7 @@ BACKDROP = "https://image.tmdb.org/t/p/w1280/b.jpg"
 
 def _hero_images(**item: object) -> dict[str, str]:
     """Each hero picture's tag by its class."""
-    item = {"title": "Ember Coast", "media_type": "movie", **item}
+    item = {"title": "Ember Coast", "media_type": "movie", "notify_by_email": False, **item}
     html = _ENV.get_template("download.html").render(state="confirm", item=item)
     return {
         m.group(1): m.group(0) for m in re.finditer(r'<img class="dl-cinema__(\w+)"[^>]*>', html)
