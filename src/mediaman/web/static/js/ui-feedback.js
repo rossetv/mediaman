@@ -78,14 +78,31 @@
     removeAfterExit(node);
   }
 
+  // What is full screen hides all that is outside it. A video shows no child.
+  function toastHome() {
+    var full = document.fullscreenElement || document.webkitFullscreenElement;
+    return full && full.tagName !== 'VIDEO' ? full : document.body;
+  }
+
   function ensureToastHost() {
     var host = document.getElementById('ui-toast-host');
     if (!host) {
       host = el('div', { id: 'ui-toast-host', class: 'ui-toast-host',
                          role: 'status', 'aria-live': 'polite' });
-      document.body.appendChild(host);
+      toastHome().appendChild(host);
+      ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (name) {
+        document.addEventListener(name, rehome);
+      });
     }
     return host;
+  }
+
+  function rehome() {
+    var host = document.getElementById('ui-toast-host');
+    var active = document.activeElement;
+    if (host.parentNode === toastHome()) return;
+    toastHome().appendChild(host);
+    if (active && host.contains(active)) active.focus();
   }
 
   var raisedFrom = new WeakMap(); // the dialog an action toast came from, by its button
