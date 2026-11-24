@@ -36,6 +36,7 @@ from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
     book_deletion,
+    book_removed_files,
     cancel_kept_deletion,
     claim_due_deletion,
     claim_due_deletions_under,
@@ -140,7 +141,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       bytes) and drop the row. Folders left holding only artwork do not
       count as files. If a keep or snooze was written over the row during
       the removal, the keep stands: audit that the media is gone and reset
-      to ``pending``, never booking it as a scheduled deletion.
+      to ``pending``; the live pass then books what was removed.
     * Files absent **but** a stored path was NOT within the configured
       delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
       the crash and restart, or the path was always bogus) -> mediaman
@@ -894,6 +895,8 @@ class DeletionExecutor:
         deleted_count = 0
         reclaimed_bytes = 0
         self._waiting = {}
+        book_removed_files(self._conn)
+        self._conn.commit()
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
         # Fail closed once, before the loop: deletion must refuse when
         # MEDIAMAN_DELETE_ROOTS is unset. Checked outside the per-row

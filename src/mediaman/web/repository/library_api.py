@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import record_deleted_media
-from mediaman.scanner.repository import is_protected, is_show_kept_pure
+from mediaman.scanner.repository import book_removed_files, is_protected, is_show_kept_pure
 from mediaman.services import watch_catalog
 from mediaman.services.downloads.notifications import record_download_notification
 
@@ -85,7 +85,8 @@ def apply_keep_in_tx(
     *media_id* (whether or not its email token was used) into the chosen
     keep and deletes the older ones, so the new keep replaces every earlier
     one; with none, inserts a fresh row. A row the deletion pass is working
-    on is the one that carries the keep and is never deleted.  The audit row is written inside the same
+    on is the one that carries the keep and is never deleted.  What a row's
+    deletion already removed is booked first.  The audit row is written inside the same
     transaction so a SQLite failure rolls the keep back along with the
     audit record.
 
@@ -124,6 +125,7 @@ def apply_keep_in_tx(
             audit_detail = f"{audit_detail}; replaced keep: {', '.join(replaced)}"
 
         if existing:
+            book_removed_files(conn, [row["id"] for row in existing])
             conn.execute(
                 "UPDATE scheduled_actions "
                 "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "

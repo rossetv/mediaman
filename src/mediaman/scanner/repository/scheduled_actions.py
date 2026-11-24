@@ -53,6 +53,7 @@ __all__ = [
     "ClearedDeletions",
     "DeletionRow",
     "book_deletion",
+    "book_removed_files",
     "cancel_kept_deletion",
     "claim_due_deletion",
     "claim_due_deletions_under",
@@ -329,14 +330,17 @@ def fetch_deletion(conn: sqlite3.Connection, action_id: int) -> DeletionRow | No
 
 
 def _fetch_unbooked(conn: sqlite3.Connection) -> list[tuple[DeletionRow, bool]]:
-    """Return each live deletion with a record of removed files, and whether it is claimed."""
+    """Return each live deletion with a record of removed files, and whether it is claimed.
+
+    Those a keep was written over are included: their removal is still to be booked.
+    """
     # rationale: the interpolated column list is a fixed string
     rows = conn.execute(  # nosec B608
         f"SELECT {_DELETION_COLUMNS}, sa.delete_status = 'deleting' AS claimed "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
-        "WHERE sa.action = 'scheduled_deletion' AND sa.token_used = 0 "
-        "  AND sa.removed_files IS NOT NULL"
+        "WHERE sa.removed_files IS NOT NULL "
+        "  AND (sa.action != 'scheduled_deletion' OR sa.token_used = 0)"
     ).fetchall()
     found = [(_row_to_deletion_row(row), bool(row["claimed"])) for row in rows]
     # A record naming no file (malformed) has nothing to book.
@@ -366,7 +370,7 @@ def forget_unremoved_files(conn: sqlite3.Connection, media_ids: Collection[str])
     claimed deletion keeps its files until recovery has read them.
     """
     for row, claimed in _fetch_unbooked(conn):
-        if claimed or row.media_item_id not in media_ids:
+        if claimed or row.action != DELETION_ACTION or row.media_item_id not in media_ids:
             continue
         files = [
             {"path": path, "size": row.removed_sizes.get(path)}
@@ -589,13 +593,9 @@ def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
 
 
-def book_deletion(
+def _audit_removal(
     conn: sqlite3.Connection, row: DeletionRow, label: str, space_bytes: int | None
 ) -> None:
-    """Write the ``deleted`` audit entry with its identity row and drop the action row.
-
-    Does not commit: the caller's commit covers all three writes.
-    """
     rk = row.plex_rating_key
     detail = f"{label}: {row.title}" + (f" [rk:{rk}]" if rk else "")
     audit_id = log_audit(conn, row.media_item_id, "deleted", detail, space_bytes=space_bytes)
@@ -608,7 +608,38 @@ def book_deletion(
         season_number=row.season_number,
         title=row.title or "",
     )
+
+
+def book_deletion(
+    conn: sqlite3.Connection, row: DeletionRow, label: str, space_bytes: int | None
+) -> None:
+    """Write the ``deleted`` audit entry with its identity row and drop the action row.
+
+    Does not commit: the caller's commit covers all three writes.
+    """
+    _audit_removal(conn, row, label, space_bytes)
     delete_scheduled_action(conn, row.id)
+
+
+def book_removed_files(conn: sqlite3.Connection, action_ids: Collection[int] | None = None) -> None:
+    """Book what the rows *action_ids* record as removed, and leave the rows without a record.
+
+    Run it before a keep is written over a row, or a row is dropped, as its
+    record would go with it. With no ids, books every row a keep was written
+    over. A claimed row is left to the pass removing it, or to recovery. Does
+    not commit.
+    """
+    for row, claimed in _fetch_unbooked(conn):
+        wanted = row.action != DELETION_ACTION if action_ids is None else row.id in action_ids
+        if claimed or not wanted:
+            continue
+        taken = conn.execute(
+            "UPDATE scheduled_actions SET removed_files = NULL "
+            "WHERE id = ? AND removed_files IS NOT NULL AND delete_status IS NOT 'deleting'",
+            (row.id,),
+        )
+        if taken.rowcount:
+            _audit_removal(conn, row, "Deleted", row.removed_bytes or None)
 
 
 def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
@@ -686,7 +717,7 @@ def clear_pending_deletions(
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        unbooked = _fetch_unbooked(conn)
+        unbooked = [found for found in _fetch_unbooked(conn) if found[0].action == DELETION_ACTION]
         finished = [(row, claimed) for row, claimed in unbooked if is_fully_removed(row)]
         waiting = sum(1 for _, claimed in finished if not claimed)
         cleared = count_pending_deletions(conn) - waiting

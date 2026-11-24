@@ -15,6 +15,12 @@ from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.scanner.engine import ScanEngine
 from mediaman.scanner.repository import clear_pending_deletions
 from mediaman.services.infra.storage import deletion as storage
+from mediaman.web.repository.kept import (
+    delete_protections,
+    delete_show_scheduled_deletions,
+    set_protected_state,
+)
+from mediaman.web.repository.library_api import apply_keep_in_tx
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 _ADDED = datetime(2020, 1, 1, tzinfo=UTC)
@@ -284,6 +290,110 @@ class TestKeptBeforeBooked:
 
         assert _booked(conn) == [4]
         assert _action(conn) is None
+
+
+def _keep_item(conn):
+    apply_keep_in_tx(
+        conn,
+        media_id="m1",
+        action="protected_forever",
+        execute_at=None,
+        now_iso="2026",
+        snooze_label="forever",
+        new_token="new",
+        audit_detail="Kept",
+        actor="admin",
+    )
+
+
+def _keep_season(conn):
+    action_id = conn.execute("SELECT id FROM scheduled_actions").fetchone()[0]
+    with conn:
+        set_protected_state(
+            conn,
+            to_update=[("protected_forever", None, "2026", "forever", action_id)],
+            to_insert=[],
+        )
+
+
+def _keep_show(conn):
+    with conn:
+        conn.execute("UPDATE media_items SET show_rating_key = 'show' WHERE id = 'm1'")
+        insert_kept_show(conn, show_rating_key="show", action="protected_forever")
+        delete_show_scheduled_deletions(conn, "show")
+
+
+class TestKeptOnceFilesAreGone:
+    @pytest.mark.parametrize("keep", [_keep_item, _keep_season, _keep_show])
+    def test_a_fully_removed_item_kept_before_it_is_booked_books_its_removal_once(
+        self, conn, film, monkeypatch, keep
+    ):
+        _die_before_booking(conn, monkeypatch)
+        recover_stuck_deletions(conn, book=False)
+
+        keep(conn)
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+
+    @pytest.mark.parametrize("keep", [_keep_item, _keep_season, _keep_show])
+    def test_a_partly_removed_item_that_is_kept_books_what_went_and_keeps_the_rest(
+        self, conn, two_parts, monkeypatch, keep
+    ):
+        _remove_all_but(conn, monkeypatch, "cd2.mkv")
+
+        keep(conn)
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert two_parts[1].exists()
+
+    def test_the_keep_itself_stays(self, conn, film, monkeypatch):
+        _die_before_booking(conn, monkeypatch)
+        recover_stuck_deletions(conn, book=False)
+
+        _keep_item(conn)
+        DeletionExecutor(conn=conn).execute()
+
+        assert _action(conn) == ("protected_forever", "pending")
+
+    def _kept_while_removed(self, conn, monkeypatch):
+        _die_before_booking(conn, monkeypatch)
+        _keep_item(conn)
+        recover_stuck_deletions(conn, book=False)
+
+    def test_an_item_kept_during_its_removal_is_booked_by_the_next_pass(
+        self, conn, film, monkeypatch
+    ):
+        self._kept_while_removed(conn, monkeypatch)
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _action(conn) == ("protected_forever", "pending")
+
+    def test_its_removal_is_booked_when_the_keep_is_taken_off_first(self, conn, film, monkeypatch):
+        self._kept_while_removed(conn, monkeypatch)
+
+        with conn:
+            delete_protections(conn, "m1")
+
+        assert _booked(conn) == [4]
+        assert _action(conn) is None
+
+    def test_it_outlives_plex_dropping_it(self, conn, root, film, monkeypatch):
+        self._kept_while_removed(conn, monkeypatch)
+
+        _scan(conn, root).run_scan()
+
+        assert _booked(conn) == [4]
+
+    def test_a_clear_leaves_the_keep_alone(self, conn, film, monkeypatch):
+        self._kept_while_removed(conn, monkeypatch)
+
+        assert clear_pending_deletions(conn) == (0, 0)
+
+        assert _action(conn) == ("protected_forever", "pending")
 
 
 class TestClear:
