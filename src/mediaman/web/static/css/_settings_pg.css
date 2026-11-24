@@ -425,3 +425,17 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   .setg-pg .fld-sub a::before,
   .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
 }
+
+/* Forced colours drop backgrounds, which is all that dots, bars and a current choice are. */
+@media (forced-colors: active) {
+  .setg-pg .conn-dot, .setg-pg .sb-dot, .setg-pg .chip-dot {
+    forced-color-adjust: none; border: 1px solid CanvasText;
+  }
+  .setg-pg .ov-storage .bar, .setg-pg .lp-bar2 { border: 1px solid CanvasText; }
+  .setg-pg .ov-storage .bar span, .setg-pg .lp-bar2 span { forced-color-adjust: none; }
+  .setg-pg .setg-rail-item.on, .setg-pg .lib-pill.on {
+    forced-color-adjust: none; background: Highlight; color: HighlightText;
+  }
+  .setg-pg .setg-rail-item.on > .ico { color: inherit; }
+  .setg-pg .setg-rail-item.on .rail-count { color: inherit; background: none; }
+}

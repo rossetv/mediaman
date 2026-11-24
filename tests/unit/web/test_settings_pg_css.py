@@ -102,6 +102,22 @@ def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phon
     assert not re.search(r"\.savebar \.sb-sub \{\s*display: none", css)
 
 
+def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    (block,) = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", css)
+    rules: dict[str, str] = {}
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
+        for part in head.split(","):
+            rules[part.strip()] = rules.get(part.strip(), "") + body
+    for dot in (".conn-dot", ".sb-dot", ".chip-dot"):
+        assert "forced-color-adjust: none" in rules[f".setg-pg {dot}"]
+        assert "solid CanvasText" in rules[f".setg-pg {dot}"]
+    for bar in (".ov-storage .bar span", ".lp-bar2 span"):
+        assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
+    for chosen in (".setg-rail-item.on", ".lib-pill.on"):
+        assert "background: Highlight" in rules[f".setg-pg {chosen}"]
+
+
 def test_small_buttons_are_44px_on_phones() -> None:
     phone = _phone_block_with(".setg-pg .btn--sm")
     assert re.search(r"\.setg-pg \.btn--sm,[^{}]*\{[^{}]*min-height:\s*44px", phone)
