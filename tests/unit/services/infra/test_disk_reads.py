@@ -196,6 +196,9 @@ def test_a_read_that_fails_too_late_is_not_taken_for_an_answer(release, clock):
 
     assert reads.read("a", lambda _: pytest.fail("read again at once")) is None
 
+    clock[0] += 3.1
+    assert reads.read("a", lambda _: 5) == 5
+
 
 def test_a_hung_read_does_not_hold_the_program_open(release, short):
     DiskReads(1).read("a", _hang(release, []))
@@ -226,3 +229,6 @@ def test_a_new_read_that_fails_ends_the_answer_the_late_one_gave(release, clock)
 
     assert reads.read("a", fail) == 1
     _wait_for(lambda: reads.read("a", lambda _: pytest.fail("read again")) is None)
+
+    clock[0] += 3.1
+    assert reads.read("a", lambda _: 5) == 5
