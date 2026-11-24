@@ -263,6 +263,7 @@ def _load_recommendations(
     check_enabled: bool = True,
 ) -> list[NewsletterRecItem]:
     """Load the most recent batch of the shared suggestions if the feature is enabled, else [].
+    One with no TMDB id is left out: nothing vouches for what it is.
 
     Builds explicit dicts to avoid leaking internal columns via **dict(row).
     check_enabled=False skips the suggestions_enabled query when the caller already
@@ -286,7 +287,8 @@ def _load_recommendations(
     rows = conn.execute(
         "SELECT id, title, media_type, category, description, reason, "
         "poster_url, tmdb_id, rating, rt_rating "
-        f"FROM suggestions WHERE batch_id = ? AND {SHARED_ONLY} ORDER BY id",
+        f"FROM suggestions WHERE batch_id = ? AND {SHARED_ONLY}"
+        " AND tmdb_id IS NOT NULL ORDER BY id",
         (batch_row["batch_id"],),
     ).fetchall()
     return [_rec_item(r, r["id"]) for r in rows]
@@ -295,8 +297,8 @@ def _load_recommendations(
 def load_own_picks(
     conn: sqlite3.Connection, emails: Iterable[str], now: datetime
 ) -> dict[str, list[NewsletterRecItem]]:
-    """The latest own picks, not over 28 days old, of each address that is exactly one
-    person's, by address.
+    """The latest own picks with a TMDB id, not over 28 days old, of each address that is
+    exactly one person's, by address.
 
     An address of nobody, or of more than one person, has none. A card holds neither the
     pick's id nor the titles that led to it: the email and its links can be passed on.
@@ -309,7 +311,9 @@ def load_own_picks(
         ).fetchall()
         if len(people) == 1:
             picks = fetch_picks(conn, people[0]["username"], latest_only=True)
-            found[email] = [_rec_item(p, None) for p in picks if str(p["batch_id"]) >= oldest]
+            found[email] = [
+                _rec_item(p, None) for p in picks if p["tmdb_id"] and str(p["batch_id"]) >= oldest
+            ]
     return found
 
 
