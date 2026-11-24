@@ -18,7 +18,8 @@ from __future__ import annotations
 import enum
 import logging
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ScanDecision",
+    "item_savepoint",
     "scan_items",
     "scan_movie_library",
     "scan_tv_library",
@@ -56,6 +58,28 @@ def with_mediaman_play(f: PlexItemFetch, credited: Mapping[str, datetime]) -> Pl
     if credited_at is None:
         return f
     return replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
+
+
+@contextmanager
+def item_savepoint(conn: sqlite3.Connection) -> Iterator[None]:
+    """Roll back only this item's writes when the body raises, so none is left half-written.
+
+    Shared by the cleanup scan and the library sync. A fatal SQLite error (disk
+    full, I/O) ends the transaction and the savepoint with it; the job's own
+    rollback still runs.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN")
+    conn.execute("SAVEPOINT scan_item")
+    try:
+        yield
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK TO scan_item")
+            conn.execute("RELEASE scan_item")
+        raise
+    if conn.in_transaction:
+        conn.execute("RELEASE scan_item")
 
 
 class ScanDecision(enum.Enum):
@@ -144,15 +168,16 @@ def scan_items(
     for f in fetched:
         summary["scanned"] += 1
         try:
-            media_id, decision = _evaluate_scan_item(
-                engine, f, media_type_fn, evaluate_fn, seen_keys, guards
-            )
-            if decision is not ScanDecision.SCHEDULE:
-                # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
-                # (too new / watched recently / kept show) — count and move on.
-                summary["skipped"] += 1
-                continue
-            _apply_scan_decision(engine, media_id, summary, guards)
+            with item_savepoint(engine._conn):
+                media_id, decision = _evaluate_scan_item(
+                    engine, f, media_type_fn, evaluate_fn, seen_keys, guards
+                )
+                if decision is not ScanDecision.SCHEDULE:
+                    # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
+                    # (too new / watched recently / kept show) — count and move on.
+                    summary["skipped"] += 1
+                    continue
+                _apply_scan_decision(engine, media_id, summary, guards)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation boundary, narrowed to the
             # exception types a corrupt/malformed Plex item or a transient

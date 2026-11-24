@@ -48,6 +48,7 @@ from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner._scan_library import (
+    item_savepoint,
     scan_movie_library,
     scan_tv_library,
     with_mediaman_play,
@@ -301,25 +302,16 @@ class ScanEngine:
         A failure rolls back only this item so the rest of the library
         still syncs.
         """
-        if not self._conn.in_transaction:
-            self._conn.execute("BEGIN")
-        self._conn.execute("SAVEPOINT sync_item")
         try:
-            _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
+            with item_savepoint(self._conn):
+                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation, same narrow set as the scan loop
-            # A fatal SQLite error (disk full, I/O) ends the transaction and the savepoint
-            # with it; the job's own rollback still runs.
-            if self._conn.in_transaction:
-                self._conn.execute("ROLLBACK TO sync_item")
-                self._conn.execute("RELEASE sync_item")
             logger.exception(
                 "Library sync item failed (plex_rating_key=%s)",
                 f.item.get("plex_rating_key", "?"),
             )
             return False
-        if self._conn.in_transaction:
-            self._conn.execute("RELEASE sync_item")
         return True
 
     def run_scan(self) -> dict[str, int]:
