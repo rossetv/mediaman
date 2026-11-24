@@ -199,7 +199,6 @@ def test_the_avatar_colour_follows_the_name():
     [
         "login.html",
         "watch_player.html",
-        "error.html",
         "keep.html",
         "download.html",
         "force_password_change.html",

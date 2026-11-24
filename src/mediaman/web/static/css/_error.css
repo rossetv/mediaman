@@ -3,6 +3,10 @@
 
 .err-card { text-align: center; }
 
+/* Signed in, the page stands between the nav and the foot and still fits the screen. */
+body:has(> .foot) > main { display: grid; }
+body:has(> .foot) .login-page { min-height: 0; padding-block: 24px; }
+
 .err-brand { font-size: 20px; margin-bottom: 24px; }
 .err-brand a { border-radius: var(--r-xs); }
 .err-brand a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
