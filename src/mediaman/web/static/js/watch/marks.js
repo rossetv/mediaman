@@ -207,24 +207,36 @@
     }).then(function (html) { return new DOMParser().parseFromString(html, 'text/html'); });
   }
 
-  /* The Watch page's cards and banner of the title *ref*, after a change of it. */
+  var changes = 0; // every change and Undo that is in: a page asked for before the latest is out of date
+  var owed = {}; // the titles changed since the rows last followed, with their latest change
+
+  /* The Watch page's cards and banner of the title *ref*, after a change of it, and of any
+     other whose page was dropped. */
   function followRows(ref, done) {
-    if (!bannerOf(ref) && !continueCards(document, ref).length && !done.part) return;
+    if (bannerOf(ref) || continueCards(document, ref).length || done.part) owed[ref] = done;
+    if (!Object.keys(owed).length) return;
+    var asked = changes;
     fetchPage('/watch').then(function (doc) {
-      if (done.off) return;
-      var banner = bannerOf(ref);
-      var now = continueCards(doc, ref)[0];
-      continueCards(document, ref).forEach(function (card) {
-        if (!now) leaveContinue(ref, done);
-        else if (now.getAttribute('data-mark') !== card.getAttribute('data-mark')) {
-          replaceCard(card, document.importNode(now, true), done);
-        }
-      });
-      if (banner) replaceBanner(banner, doc.querySelector('.watch-banner'), done);
-      if (done.part) followShow(ref, doc, done);
+      if (asked !== changes) return;
+      var due = owed;
+      owed = {};
+      Object.keys(due).forEach(function (one) { followRef(one, doc, due[one]); });
     }).catch(function () {
       // The mark is saved; the rows show the rest on the next load.
     });
+  }
+
+  function followRef(ref, doc, done) {
+    var banner = bannerOf(ref);
+    var now = continueCards(doc, ref)[0];
+    continueCards(document, ref).forEach(function (card) {
+      if (!now) leaveContinue(ref, done);
+      else if (now.getAttribute('data-mark') !== card.getAttribute('data-mark')) {
+        replaceCard(card, document.importNode(now, true), done);
+      }
+    });
+    if (banner) replaceBanner(banner, doc.querySelector('.watch-banner'), done);
+    if (done.part) followShow(ref, doc, done);
   }
 
   /* Bring one card up to date with what the server now says of its title. */
@@ -246,8 +258,9 @@
       if (fresh) bringUp(card, hasBadge(fresh), fresh.querySelector('.watch-card__sub').textContent, done);
       return !fresh;
     });
+    var asked = changes;
     function rest(found) {
-      if (done.off) return;
+      if (asked !== changes) return;
       past.forEach(function (card) {
         if (found && /^show\//.test(card.getAttribute('data-mark'))) bringUp(card, !!found.watched, found.subtitle || '', done);
         else bringUp(card, hasBadge(card), '', done);
@@ -279,7 +292,9 @@
   function followTitle() {
     var tab = document.querySelector('.watch-seasons a.watch-pill.on');
     var href = tab ? tab.getAttribute('href') : window.location.pathname + window.location.search;
+    var asked = changes;
     fetchPage(href).then(function (doc) {
+      if (asked !== changes) return;
       var on = document.querySelector('.watch-seasons a.watch-pill.on');
       var list = document.querySelector('.watch-episodes');
       // Another season was picked meanwhile: it comes with its own marks.
@@ -340,11 +355,12 @@
 
   function change(mark, watched, name, ref) {
     if (busy[mark]) return;
-    // undos puts the page back; off: undone, so what is still on its way is dropped.
-    var done = { undos: [], off: false, part: /^(season|episode)\//.test(mark) };
+    // undos puts the page back.
+    var done = { undos: [], part: /^(season|episode)\//.test(mark) };
     ref = refOfMark(mark, ref);
     setBusy(mark, true);
     send(mark, watched).then(function (data) {
+      changes += 1;
       done.undos = paint(mark, watched);
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
       if (watched && !done.part) leaveContinue(ref, done);
@@ -366,7 +382,7 @@
   }
 
   function putBack(done) {
-    done.off = true;
+    changes += 1;
     var back = null;
     done.undos.splice(0).reverse().forEach(function (fn) { back = fn() || back; });
     return back;
@@ -409,9 +425,10 @@
 
   function dismiss(ref, name) {
     if (busy[ref]) return;
-    var done = { undos: [], off: false, part: false };
+    var done = { undos: [], part: false };
     setBusy(ref, true);
     MM.api.post(DISMISSED_URL + ref).then(function () {
+      changes += 1;
       leaveContinue(ref, done);
       core.toast('Dismissed ' + name + ' from Continue watching.', {
         variant: 'success',

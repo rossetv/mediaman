@@ -179,3 +179,21 @@ def test_a_show_page_follows_an_episode_s_mark_where_it_stands() -> None:
 
 def test_a_season_picked_meanwhile_is_left_alone() -> None:
     assert _run("showPage")["otherSeason"] == ["/watch/play/21", "false"]
+
+
+def test_a_late_answer_about_the_show_s_page_never_undoes_a_newer_mark() -> None:
+    assert _run("lateTitlePage") == {
+        "pressed": ["true", "true", "false"],
+        "play": "/watch/play/23",
+    }
+
+
+def test_a_late_answer_about_the_show_s_page_never_brings_back_an_undone_mark() -> None:
+    assert _run("lateTitlePageUndone") == {
+        "pressed": ["false", "false", "false"],
+        "play": "/watch/play/21",
+    }
+
+
+def test_rows_whose_answer_came_too_late_follow_with_the_next_change() -> None:
+    assert _run("lateRows") == ["movie/1", "episode/23", "movie/3"]

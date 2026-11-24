@@ -47,7 +47,9 @@ function watchPage(parts) {
     ['div', { id: 'watch-browse' }, ...parts]];
 }
 
-/* *page*: the page shown; *next*: the page the server now sends; *api*: "METHOD url" to its answer. */
+/* *page*: the page shown; *next*: the page the server sends after a change (it sends *page* after an
+   Undo), or a function of the fetch's number giving it, at once or as a promise; *api*: "METHOD url" to
+   its answer, or a function giving it. */
 function load(page, opts = {}) {
   const doc = makeDocument();
   doc.body.appendChild(build(doc, page));
@@ -58,7 +60,8 @@ function load(page, opts = {}) {
   doc.dispatchEvent = (e) => { events.push(e.detail.ref); };
   const call = (method) => (url) => {
     calls.push(method + ' ' + url);
-    const answer = (opts.api || {})[method + ' ' + url];
+    let answer = (opts.api || {})[method + ' ' + url];
+    if (typeof answer === 'function') answer = answer();
     if (answer instanceof Promise) return answer;
     if (typeof answer === 'number') return Promise.reject(Object.assign(new Error('http'), { status: answer }));
     return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST' });
@@ -74,11 +77,14 @@ function load(page, opts = {}) {
     innerHeight: 900,
     innerWidth: 1280,
     location: { pathname: '/watch/show/2', search: '' },
-    DOMParser: class { parseFromString() { const d = makeDocument(); d.body.appendChild(build(d, opts.next)); return d; } },
+    DOMParser: class { parseFromString(text) { const d = makeDocument(); d.body.appendChild(build(d, JSON.parse(text))); return d; } },
     fetch: (url) => {
       fetched.push(url);
       if (opts.onFetch) opts.onFetch(doc);
-      return opts.next ? Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve('') }) : Promise.reject(new Error('down'));
+      if (!opts.next) return Promise.reject(new Error('down'));
+      const undone = /\?undo=1$|^DELETE .*dismissed/.test(calls.filter((c) => !/^GET /.test(c)).pop());
+      const sent = typeof opts.next === 'function' ? opts.next(fetched.length, calls) : undone ? page : opts.next;
+      return Promise.resolve(sent).then((spec) => ({ ok: true, redirected: !!opts.redirected, text: () => Promise.resolve(JSON.stringify(spec)) }));
     },
     UIFeedback: { toast: (message, o) => toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick }) },
     MM: { api: { get: call('GET'), post: call('POST'), delete: call('DELETE'), messageOf: (_e, f) => f } },
@@ -108,6 +114,25 @@ function load(page, opts = {}) {
   };
   return p;
 }
+
+function later() {
+  let send;
+  const answer = new Promise((r) => { send = r; });
+  return { answer, send };
+}
+
+/* A show's own page whose episodes *watched* are watched, of 21, 22 and 23. */
+function episodesPage(watched, play = '/watch/play/21') {
+  return ['div', { id: 'watch-page' }, ['div', { class: 'watch-hero__info' }, ['a', { class: 'watch-btn--play', href: play }, play]],
+    ['section', { class: 'watch-episodes' }, ...[21, 22, 23].map((n) => ['button', { 'data-mark-toggle': 'episode/' + n, 'data-mark-name': 'E' + n, 'aria-pressed': String(watched.includes(n)) }])]];
+}
+async function press(p, n) {
+  const b = p.doc.querySelector('[data-mark-toggle="episode/' + n + '"]');
+  click(p.doc, b);
+  await settle();
+  return b;
+}
+function pressed(p) { return p.doc.querySelectorAll('[data-mark-toggle]').map((b) => b.getAttribute('aria-pressed')); }
 
 const scenarios = {
   // What the one menu offers for each kind of card.
@@ -306,6 +331,40 @@ const scenarios = {
     };
     const other = await run((doc) => { const t = doc.querySelectorAll('.watch-pill'); t[0].classList.remove('on'); t[1].classList.add('on'); });
     return { same: await run(), otherSeason: [other.play, other.show] };
+  },
+
+  // The show's page asked for after one mark lands after the next mark's.
+  async lateTitlePage() {
+    const first = later();
+    const p = load(episodesPage([]), { next: (n) => (n === 1 ? first.answer : episodesPage([21, 22], '/watch/play/23')) });
+    await press(p, 21);
+    await press(p, 22);
+    first.send(episodesPage([21], '/watch/play/22'));
+    await settle();
+    return { pressed: pressed(p), play: p.doc.querySelector('.watch-btn--play').getAttribute('href') };
+  },
+
+  // The page asked for after a mark lands after its Undo's.
+  async lateTitlePageUndone() {
+    const first = later();
+    const p = load(episodesPage([]), { next: (n) => (n === 1 ? first.answer : episodesPage([])) });
+    await press(p, 21);
+    await p.undo();
+    first.send(episodesPage([21], '/watch/play/22'));
+    await settle();
+    return { pressed: pressed(p), play: p.doc.querySelector('.watch-btn--play').getAttribute('href') };
+  },
+
+  // The Watch page asked for after an episode's mark lands after a film's mark.
+  async lateRows() {
+    const first = later();
+    const now = watchPage([row('cont', [CONTINUE[0], card('episode/23', 'Brightwater', 'S1 · E3', { dismiss: 'show-2' }), CONTINUE[2]]), row('lib', [card('movie/9', 'Other', 'Movie')])]);
+    const p = load(watchPage([row('cont', CONTINUE), row('lib', [card('movie/9', 'Other', 'Movie')])]), { next: (n) => (n === 1 ? first.answer : now) });
+    await p.pick(p.cards('cont')[1], 'mark');
+    await p.pick(p.cards('lib')[0], 'mark');
+    first.send(watchPage([row('cont', CONTINUE)]));
+    await settle();
+    return p.marks('cont');
   },
 };
 
