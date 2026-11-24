@@ -65,6 +65,8 @@
   var BUBBLE_EDGE = 12;
   /* Chapter gaps on the bar stay at least this many pixels apart. */
   var GAP_APART_PX = 8;
+  /* The skip button stays this long; after that it comes and goes with the controls. */
+  var SKIP_SHOWN_MS = 10000;
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
@@ -116,6 +118,8 @@
     frameImg: q('[data-frame-img]'),
     elapsed: q('[data-elapsed]'),
     remaining: q('[data-remaining]'),
+    skip: q('[data-skip]'),
+    skipText: q('[data-skip-text]'),
     qualityBtn: q('[data-quality-btn]'),
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
@@ -167,6 +171,7 @@
   var markers;               // the intro and the credits, as {kind, start_s, end_s, final}
   var chapters;              // {title, start_s}, in order
   var chapterShown;          // the one the chapters button names
+  var skipMarker;            // the marker the skip button now offers to skip, or null
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -196,6 +201,7 @@
     markers = [];
     chapters = [];
     buildChapters();
+    offerSkip(null);
     troubleAtPlayed = 0;
     clearTrouble();
   }
@@ -468,6 +474,7 @@
     els.retry.hidden = !canRetry;
     els.play.disabled = !canRetry;
     els.message.hidden = false;
+    showSkip();
     swapNotice = null;
     showControls();
     (canRetry ? els.retry : els.message.querySelector('a')).focus();
@@ -851,6 +858,7 @@
 
   video.addEventListener('ended', function () {
     saveProgress();
+    showSkip();
     if (next) startCountdown();
     else window.location.href = showHref || backHref;
     showPlayState();
@@ -878,6 +886,7 @@
     els.elapsed.textContent = fmt(pos);
     els.remaining.textContent = '-' + fmt(d - pos);
     els.seek.setAttribute('aria-valuenow', String(Math.round(pos)));
+    showSkip();
     var chapter = showChapter(pos);
     els.seek.setAttribute('aria-valuetext', fmt(pos) + ' of ' + fmt(d) + (chapter ? ', ' + chapter.title : ''));
 
@@ -941,7 +950,7 @@
 
   function markerAt(t) {
     var m = startedBy(markers, t);
-    return m && t < m.end_s ? m : null;
+    return m && t < m.end_s - 1 ? m : null;
   }
 
   function buildChapters() {
@@ -975,6 +984,43 @@
     closeMenus(true);
     seekTo(chapters[+btn.getAttribute('data-chapter')].start_s);
   });
+
+  /* ---- skip intro and credits ----------------------------------------- */
+
+  var skipTimer;
+
+  function showSkip() {
+    var m = els.message.hidden && !video.ended ? markerAt(position()) : null;
+    if (m !== skipMarker) offerSkip(m);
+  }
+
+  function offerSkip(m) {
+    skipMarker = m;
+    clearTimeout(skipTimer);
+    els.skip.classList.remove('is-quiet');
+    if (!m && els.skip === document.activeElement) els.play.focus();
+    els.skip.hidden = !m;
+    if (!m) return;
+    var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
+    els.skipText.textContent = label;
+    els.skip.setAttribute('title', label + ' (S)');
+    skipTimer = setTimeout(function () { els.skip.classList.add('is-quiet'); }, SKIP_SHOWN_MS);
+  }
+
+  /* Only the last credits lead on; a scene may follow the others. */
+  function endsEpisode(m) { return !!next && m.kind === 'credits' && m.final; }
+
+  function skipOn() {
+    if (!skipMarker) return;
+    if (!endsEpisode(skipMarker)) {
+      seekTo(skipMarker.end_s);
+      return;
+    }
+    /* Left at the end, so that the episode counts as watched. */
+    pendingStart = duration();
+    goNext();
+  }
+  els.skip.addEventListener('click', skipOn);
 
   /* ---- frame preview -------------------------------------------------- */
 
@@ -1413,6 +1459,10 @@
       if (tag === 'INPUT') return;
       e.preventDefault();
       toggleFullscreen();
+    } else if (e.key === 's' || e.key === 'S') {
+      if (!skipMarker || menuOpen()) return;
+      e.preventDefault();
+      skipOn();
     } else {
       return;
     }
@@ -1422,6 +1472,8 @@
   /* ---- next episode --------------------------------------------------- */
 
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function goNext() { window.location.href = next.href; }
 
   /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
@@ -1452,13 +1504,13 @@
       els.countdown.textContent = String(Math.max(left, 0));
       if (left <= 0) {
         hideUpnext();
-        window.location.href = next.href;
+        goNext();
       }
     }, 1000);
   }
 
   if (els.upnext) {
-    q('[data-upnext-play]').addEventListener('click', function () { window.location.href = next.href; });
+    q('[data-upnext-play]').addEventListener('click', goNext);
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
     els.upnext.addEventListener('animationend', function (e) {
       if (e.target !== els.upnext || e.animationName !== 'player-drop') return;

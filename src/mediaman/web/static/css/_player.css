@@ -298,6 +298,21 @@
 .player-pill--primary::before,
 .player-pill--primary:hover::before { background: var(--t1); }
 
+/* Skip intro, Skip credits, Next episode: there without the controls at first. */
+.player-skip {
+  position: absolute;
+  right: max(32px, env(safe-area-inset-right));
+  bottom: calc(var(--player-foot) + 104px);
+  gap: 8px;
+  font-size: 15px;
+  padding: 0 18px;
+  animation: player-pop var(--dur) var(--ease-out);
+  transition: opacity var(--dur-slow) var(--ease-out), visibility var(--dur-slow), transform var(--dur-fast) var(--ease-out);
+}
+/* Out of the way of a frame preview too, which it would show through. */
+.player.is-idle .player-skip.is-quiet,
+.player:has(.player-bubble:not([hidden])) .player-skip { opacity: 0; visibility: hidden; }
+
 /* "Play now" fills as the next-episode countdown runs out. The clip keeps
    the pill's round ends while the bar inside it scales. */
 .player-upnext-fill {
@@ -430,7 +445,8 @@
   .player-menu,
   .player-card,
   .player-card.is-leaving,
-  .player-bubble { animation: none; }
+  .player-bubble,
+  .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
   .player-upnext-fill { display: none; }
   .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
@@ -522,7 +538,8 @@
   .player-bubble-text { max-width: 220px; }
   /* No room in the row of controls: above the bar. */
   .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
-  .player-chapter-name { display: inline; max-width: min(200px, 40vw); }
+  .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
+  .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
   .player-chapters .player-menu {
     left: 0;
     right: auto;

@@ -122,6 +122,10 @@
     </div>
   </div>
 
+  <button type="button" class="player-pill player-pill--primary player-skip" data-skip aria-keyshortcuts="S" hidden>
+    <span data-skip-text></span>{{ icon("i-forward-step") }}
+  </button>
+
   {% if next %}
   <div class="player-card player-upnext" data-upnext role="dialog" aria-label="Next episode" hidden>
     <p class="player-card-title">Next episode in <span data-countdown>10</span> s</p>

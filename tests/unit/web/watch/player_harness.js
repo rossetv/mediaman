@@ -312,6 +312,7 @@ function boot(html, reduced, saved, serverPlays) {
   Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 
   const toasts = [];
+  const beacons = [];
   const storage = Object.assign({}, saved);
   const win = {
     document: doc,
@@ -327,14 +328,14 @@ function boot(html, reduced, saved, serverPlays) {
       setItem: (k, v) => { storage[k] = String(v); },
     },
     location: { href: '/watch/play/1' },
-    navigator: { sendBeacon() { return true; } },
+    navigator: { sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
     matchMedia: (q) => ({ matches: !!reduced && /prefers-reduced-motion:\s*reduce/.test(q) }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     clearTimeout: clearTimer,
     setInterval: (fn, ms) => addTimer(fn, ms, true),
     clearInterval: clearTimer,
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
-    Blob: function Blob() {},
+    Blob: function Blob(parts) { this.parts = parts; },
     fetch: fetchFrame,
     URL: {
       createObjectURL(blob) { frames.made++; return 'blob:' + blob.url; },
@@ -361,6 +362,8 @@ function boot(html, reduced, saved, serverPlays) {
     starts: starts,
     frames: frames,
     toasts: toasts,
+    beacons: beacons,
+    leave() { win.listeners.pagehide.forEach((fn) => fn({})); },
     storage: storage,
     win: win,
     tick: tick,
@@ -755,6 +758,74 @@ const scenarios = {
     await streamPlays(p, 30);
     point(p, 'pointermove', 30);
     return { hidden: p.q('[data-chapters]').hidden, gaps: pick(p, 'player-gap', 'left').length, title: p.q('[data-bubble-title]').hidden };
+  },
+
+  /* The skip button as the video plays into the intro, the credits and the last credits. */
+  async skip(p) {
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 30);
+    p.video.paused = false;
+    p.q('[data-mute]').focus();
+    const at = (t) => { p.video.currentTime = t; fire(p.video, 'timeupdate'); };
+    const look = () => (p.q('[data-skip]').hidden ? null : p.q('[data-skip-text]').textContent);
+    const out = {};
+    at(59);
+    out.before = look();
+    key('s');
+    out.sBefore = p.video.currentTime;
+    at(61);
+    out.intro = look();
+    out.focusKept = doc.activeElement === p.q('[data-mute]');
+    p.tick(9000);
+    out.quietEarly = p.q('[data-skip]').classList.contains('is-quiet');
+    p.tick(2000);
+    out.quiet = p.q('[data-skip]').classList.contains('is-quiet');
+    out.plays = p.video.currentTime;
+    key('s');
+    out.sIntro = p.video.currentTime;
+    out.introGone = look();
+    at(149.5);
+    out.introLastSecond = look();
+    at(2410);
+    out.credits = look();
+    tabTo(p.q('[data-skip]'));
+    key('Enter');
+    out.creditsTo = p.video.currentTime;
+    out.focusAfter = doc.activeElement === p.q('[data-play]');
+    out.href = p.win.location.href;
+    at(2710);
+    out.last = look();
+    press(p.q('[data-quality-btn]'));
+    key('s');
+    out.sInMenu = p.win.location.href;
+    key('Escape');
+    press(p.q('[data-skip]'));
+    out.hrefAfter = p.win.location.href;
+    p.leave();
+    out.saved = p.beacons.map((b) => b.body && b.body.position_s);
+    return out;
+  },
+
+  /* The last credits of a video that nothing follows. */
+  async skip_last(p) {
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 2710);
+    fire(p.video, 'timeupdate');
+    const label = p.q('[data-skip-text]').textContent;
+    press(p.q('[data-skip]'));
+    return { label: label, at: p.video.currentTime, hidden: p.q('[data-skip]').hidden, href: p.win.location.href };
+  },
+
+  /* An error over the intro. */
+  async skip_error(p) {
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 70);
+    fire(p.video, 'timeupdate');
+    p.replies.push({ err: { status: 404, error: 'not_found' } });
+    p.hlsList[0].emit('hlsError', { response: { code: 410 } });
+    const shown = !p.q('[data-skip]').hidden;
+    await settle();
+    return { shown: shown, underError: !p.q('[data-skip]').hidden };
   },
 
   /* The buffer runs dry with no frame held. */

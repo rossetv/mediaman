@@ -48,12 +48,21 @@ EPISODE = {
 }
 
 
-@pytest.fixture(scope="module")
-def markup(tmp_path_factory) -> Path:
-    html = _ENV.get_template("watch_player.html").render(**EPISODE)
+def _markup(tmp_path_factory, context: dict[str, Any]) -> Path:
+    html = _ENV.get_template("watch_player.html").render(**context)
     path = tmp_path_factory.mktemp("player") / "player.html"
     path.write_text(html)
     return path
+
+
+@pytest.fixture(scope="module")
+def markup(tmp_path_factory) -> Path:
+    return _markup(tmp_path_factory, EPISODE)
+
+
+@pytest.fixture(scope="module")
+def last_episode(tmp_path_factory) -> Path:
+    return _markup(tmp_path_factory, {**EPISODE, "next": None})
 
 
 def run(
@@ -425,3 +434,44 @@ def test_a_new_quality_that_comes_without_chapters_keeps_those_known(markup):
 
 def test_a_single_chapter_is_not_shown(markup):
     assert run(markup, "chapters_one") == {"hidden": True, "gaps": 0, "title": True}
+
+
+def test_the_intro_and_the_credits_can_be_skipped_by_button_and_by_key(markup):
+    out = run(markup, "skip")
+    assert (out["before"], out["sBefore"]) == (None, 59)
+    assert (out["intro"], out["sIntro"], out["introGone"]) == ("Skip intro", 150, None)
+    # Nothing left worth skipping.
+    assert out["introLastSecond"] is None
+    assert (out["credits"], out["creditsTo"], out["href"]) == (
+        "Skip credits",
+        2450,
+        "/watch/play/1",
+    )
+
+
+def test_skip_never_acts_by_itself_or_takes_the_focus(markup):
+    out = run(markup, "skip")
+    assert (out["plays"], out["focusKept"]) == (61, True)
+    # The button goes away under the focus: it moves to Play.
+    assert out["focusAfter"] is True
+
+
+def test_the_skip_button_goes_quiet_after_a_while(markup):
+    out = run(markup, "skip")
+    assert (out["quietEarly"], out["quiet"]) == (False, True)
+
+
+def test_the_last_credits_lead_to_the_next_episode_with_this_one_at_its_end(markup):
+    out = run(markup, "skip")
+    assert (out["last"], out["hrefAfter"]) == ("Next episode", "/watch/play/502")
+    assert out["sInMenu"] == "/watch/play/1"
+    assert out["saved"] == [3000]
+
+
+def test_the_last_credits_with_nothing_next_go_to_the_end(last_episode):
+    out = run(last_episode, "skip_last")
+    assert out == {"label": "Skip credits", "at": 2999, "hidden": True, "href": "/watch/play/1"}
+
+
+def test_an_error_hides_the_skip_button(markup):
+    assert run(markup, "skip_error") == {"shown": True, "underError": False}
