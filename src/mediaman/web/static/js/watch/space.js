@@ -428,6 +428,8 @@
   function hide(under) {
     if (!isOpen) return;
     isOpen = false;
+    // What it asks is of the panel: it must not outlive it, over a page that has the focus.
+    window.UIFeedback.dismissConfirm();
     clearTimeout(enterTimer);
     clearTimeout(leaveTimer);
     watch.keep.closeMenu(false);

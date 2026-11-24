@@ -296,6 +296,11 @@ class TestScheduled:
         assert out["focused"] == "space-empty"
         assert out["meter"] == "1.4 TB free"
 
+    def test_back_with_the_clear_confirm_open_takes_it_along_and_clears_nothing(self):
+        out = _run("backOverConfirm")
+        assert out.pop("focused").startswith("Storage: ")
+        assert out == {"asked": True, "open": False, "posts": 0}
+
     def test_a_clear_that_fails_leaves_the_list_and_the_focus(self):
         out = _run("clearFails")
         assert out["rows"] == ["1", "2", "3"]

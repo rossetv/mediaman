@@ -164,14 +164,14 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     AbortController: class { abort() {} },
     CustomEvent: class {},
-    getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', transform: 'none', opacity: '1' }),
+    getComputedStyle: () => ({ getPropertyValue: () => '', transitionDuration: '0s', transitionDelay: '0s', display: 'block', transform: 'none', opacity: '1' }),
     matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
     location: { pathname: '/watch', reload() { throw new Error('the page was reloaded'); } },
     fetch: () => Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) }),
-    UIFeedback: { toast: (message, opts) => toasts.push({ message, undo: !!(opts && opts.action), opts }), error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed) },
+    UIFeedback: { toast: (message, opts) => toasts.push({ message, undo: !!(opts && opts.action), opts }), error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed), dismissConfirm() {} },
     addEventListener(type, fn) { if (type === 'load') ready.push(fn); },
   };
   ctx.window = ctx;
@@ -181,6 +181,10 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   doc.readyState = 'interactive';
   vm.createContext(ctx);
   if (opts.realApi) run('core/api.js');
+  if (opts.realConfirm) {
+    ctx.navigator = { platform: 'Linux' };
+    ['modal-a11y.js', 'ui-feedback.js'].forEach(run);
+  }
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
   ['watch/keep.js', 'watch/space.js'].forEach(run);
@@ -575,6 +579,19 @@ const scenarios = {
     b.focus();
     await p.click(b);
     return { rows: p.rows(), toast: p.last().message, enabled: !b.hasAttribute('aria-disabled'), focused: p.doc.activeElement === b };
+  },
+  async backOverConfirm() {
+    const p = await page(undefined, undefined, { realConfirm: true });
+    p.$('meter').focus();
+    await p.open();
+    const b = p.one('#space-scheduled .btn--danger');
+    b.focus();
+    await p.click(b);
+    await p.run(0); // the confirm takes the focus
+    const asked = p.one('.ui-confirm-overlay').contains(p.doc.activeElement);
+    p.layer().close('pop');
+    await settle();
+    return { asked, open: p.one('.ui-confirm-overlay:not(.is-leaving)') !== null, focused: p.focused(), posts: p.posts().length };
   },
   async scan() {
     const p = await page();

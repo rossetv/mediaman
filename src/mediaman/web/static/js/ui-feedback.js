@@ -8,6 +8,8 @@
  *     cancelLabel: 'Cancel',              // default: 'Cancel'
  *   }) → Promise<boolean>
  *
+ *   window.UIFeedback.dismissConfirm()   the open one, if any, answers false
+ *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
  *                          auto-dismisses after 4s.
@@ -197,6 +199,8 @@
     return node;
   }
 
+  var cancelOpen = null; // answers the open confirm with no
+
   function confirmDialog(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
@@ -229,6 +233,7 @@
       function cleanup(result) {
         if (closed) return;
         closed = true;
+        cancelOpen = null;
         if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
@@ -237,6 +242,7 @@
         removeAfterExit(overlay);
       }
       overlay.id = titleId;
+      cancelOpen = function () { cleanup(false); };
       cancelBtn.addEventListener('click', function () { cleanup(false); });
       confirmBtn.addEventListener('click', function () { cleanup(true); });
       overlay.addEventListener('click', function (e) {
@@ -260,6 +266,7 @@
 
   global.UIFeedback = {
     confirm: confirmDialog,
+    dismissConfirm: function () { if (cancelOpen) cancelOpen(); },
     toast: toast,
     error: function (msg) { return toast(msg, { variant: 'error' }); },
     success: function (msg) { return toast(msg, { variant: 'success' }); }
