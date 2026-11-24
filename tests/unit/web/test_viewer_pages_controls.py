@@ -106,7 +106,7 @@ def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
     else:
         assert told == [("", "", 0)] * 3
         assert ".internal" not in page.text
-        assert "data-v=\"arr-link\" hidden" in page.text
+        assert 'data-v="arr-link" hidden' in page.text
 
 
 def test_downloads_page_still_lists_the_items_for_a_viewer(make_client):
