@@ -229,7 +229,7 @@ def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again(
 
 def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_that_says() -> None:
     out = _run("downloadAlreadyThere")
-    for name in ("queued", "downloading", "none", "inLibrary"):
+    for name in ("queued", "downloading", "none", "failed", "inLibrary"):
         run = out[name]
         # Neither an error nor "In library" before the reply answers; nothing told the cards yet.
         assert run["at409"]["primary"]["text"] == "Adding…", name
@@ -246,9 +246,11 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     downloading = out["downloading"]
     assert downloading["refetched"]["primary"]["text"] == "Downloading 40%"
     assert downloading["events"] == [{**event, "download_state": "downloading", "download_pct": 40}]
-    # Nothing the Arr holds for it: the Download button is back, and no card changes.
-    assert out["none"]["refetched"]["primary"]["text"] == "Download"
+    # Radarr has it but lists nothing: Download would only 409 again.
+    assert out["none"]["refetched"]["primary"]["text"] == "Already in Radarr"
+    assert out["none"]["refetched"]["primary"]["disabled"] is False
     assert out["none"]["events"] == []
+    assert out["failed"]["refetched"]["primary"]["text"] == "Already in Radarr"
     # In the library: it opens as the library title it now is.
     library = out["inLibrary"]
     assert library["events"] == [{**event, "download_state": "in_library", "download_pct": None}]

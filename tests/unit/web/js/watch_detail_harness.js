@@ -609,7 +609,7 @@ const scenarios = {
         routes: { '/api/watch/title/tmdb-movie-77': () => {
           gets += 1;
           if (gets === 1) return Promise.resolve(MOVIE_DL);
-          return gets === 2 ? new Promise((resolve) => { answer = () => resolve(again); }) : Promise.resolve(again);
+          return gets === 2 ? new Promise((resolve, reject) => { answer = () => (again instanceof Error ? reject(again) : resolve(again)); }) : Promise.resolve(again);
         }, '/api/watch/title/movie-120': LIB_MOVIE },
         posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in Radarr") },
       });
@@ -630,6 +630,7 @@ const scenarios = {
       queued: await run(dl('queued', 0)),
       downloading: await run(dl('downloading', 40)),
       none: await run(dl(null, null)),
+      failed: await run(new Error('offline')),
       inLibrary: await run(Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' })),
     };
   },

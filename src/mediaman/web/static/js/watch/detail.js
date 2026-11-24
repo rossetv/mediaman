@@ -776,8 +776,8 @@
     }
     if (!d.download) return;
     var tv = d.kind !== 'movie';
-    if (tv && (d.sonarr_tracked || k.tracked)) {
-      actions.appendChild(statePill('dl-state--done', 'Already in Sonarr', 'fa-circle-check'));
+    if (k.tracked || (tv && d.sonarr_tracked)) {
+      actions.appendChild(statePill('dl-state--done', tv ? 'Already in Sonarr' : 'Already in Radarr', 'fa-circle-check'));
       return;
     }
     if (tv && d.seasons && d.seasons.length && d.seasons.every(function (s) { return s.in_library; })) {
@@ -982,6 +982,8 @@
         fire(ref, 'in_library', null);
       } else {
         takeDownload(ref, data.download);
+        // Radarr has it yet lists nothing: pressing Download again can only 409 again.
+        if (!k.state) k.tracked = true;
       }
       redrawActions(ref);
       if (!cur || cur.ref !== ref || !isOpen) return;
@@ -992,6 +994,7 @@
       }
     }).catch(function () {
       k.busy = false;
+      k.tracked = true;
       redrawActions(ref);
     });
   }
