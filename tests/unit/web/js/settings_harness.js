@@ -1335,6 +1335,23 @@ const scenarios = {
     return out;
   },
 
+  // What is typed while a save is under way outlives the rows being drawn again for a pill.
+  async pillDuringSave() {
+    const p = await openLibraries(plexLists(1, 2), { selectedLibs: ['1'], diskThresholds: {} });
+    let answer;
+    p.reply = () => new Promise((r) => { answer = r; });
+    p.edit('b');
+    p.press();
+    p.type(1, '/a', '80');
+    p.pill(2);
+    const shown = p.shows(1);
+    answer({ status: 'saved' });
+    await p.h.flush();
+    const unsaved = p.on();
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    return { shown, unsaved, next: await p.save() };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();
