@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
 
 from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner._scan_library import (
@@ -143,6 +144,8 @@ class ScanEngine:
         self._dry_run = dry_run
         self._sonarr = sonarr_client
         self._radarr = radarr_client
+        # When the current run began, before it listed anything in Plex.
+        self._started_at: str | None = None
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -182,6 +185,7 @@ class ScanEngine:
            so the SQLite write lock is held only for a single library's
            worth of writes at a time.
         """
+        self._started_at = now_iso()
         summary = {"synced": 0, "errors": 0, "removed": 0}
         try:
             per_lib_fetches = self._sync_phase_fetch(summary)
@@ -324,6 +328,7 @@ class ScanEngine:
             - ``deleted``: items whose grace period elapsed and were deleted from disk.
             - ``reclaimed_bytes``: total bytes freed by deletions this run.
         """
+        self._started_at = now_iso()
         summary = {
             "scanned": 0,
             "scheduled": 0,
@@ -529,4 +534,4 @@ class ScanEngine:
         fail-closed safeguard logic. Only considers items belonging
         to libraries that were successfully scanned.
         """
-        return remove_orphans(self._conn, seen_keys, scanned_libs)
+        return remove_orphans(self._conn, seen_keys, scanned_libs, listed_since=self._started_at)

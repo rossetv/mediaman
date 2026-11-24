@@ -37,6 +37,7 @@ from mediaman.scanner.repository.media_items import (
     count_items_in_libraries,
     delete_media_items,
     fetch_ids_in_libraries,
+    fetch_ids_touched_since,
     update_last_watched,
     upsert_media_item,
 )
@@ -84,6 +85,7 @@ __all__ = [
     "delete_scheduled_action",
     "fetch_already_scheduled_media_ids",
     "fetch_ids_in_libraries",
+    "fetch_ids_touched_since",
     "fetch_kept_show_keys",
     "fetch_pending_deletions",
     "fetch_protected_media_ids",

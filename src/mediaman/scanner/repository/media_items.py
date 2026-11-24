@@ -199,6 +199,17 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
     return ids
 
 
+def fetch_ids_touched_since(conn: sqlite3.Connection, since: str) -> set[str]:
+    """Return the items another run saw in Plex, or anyone scheduled or kept, at *since* or later."""
+    rows = conn.execute(
+        "SELECT id FROM media_items WHERE last_scanned_at >= ? "
+        "UNION SELECT media_item_id FROM scheduled_actions "
+        "WHERE scheduled_at >= ? OR snoozed_at >= ?",
+        (since, since, since),
+    )
+    return {row["id"] for row in rows}
+
+
 def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
     """Delete ``media_items`` rows, and the Watch progress saved against them, in chunks.
 
