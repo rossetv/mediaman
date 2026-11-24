@@ -478,3 +478,7 @@ def test_a_mark_is_in_the_open_preview_and_in_a_reply_on_its_way() -> None:
 
 def test_a_title_queued_while_its_reply_is_on_the_way_is_shown_queued() -> None:
     assert _run("queuedOnItsWay") == "Queued"
+
+
+def test_a_trailer_is_given_up_only_when_its_player_stops_moving_on() -> None:
+    assert _run("trailerBuffers") == {"told": True, "still": True, "silent": False}

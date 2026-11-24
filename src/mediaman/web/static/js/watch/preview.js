@@ -33,7 +33,7 @@
   var GRACE_MS = 110;       // how long the mouse may be off it
   var SETTLE_MS = 200;      // after a scroll, cards move under a mouse that does not
   var TRAILER_AFTER_MS = 1200;
-  var TRAILER_STUCK_MS = 4000;
+  var TRAILER_STUCK_MS = 4000; // without its player moving on
   var LISTEN_MS = 250;
   var HOLD_MS = 1500;       // how long the detail keeps the preview's picture, at most
   var FAILED_FOR_MS = 60000;
@@ -1028,9 +1028,15 @@
       p.listen = setInterval(function () { say(frame, { event: 'listening' }); }, LISTEN_MS);
       say(frame, { event: 'listening' });
     });
-    p.stuck = setTimeout(function () { badTrailer(p); }, TRAILER_STUCK_MS);
+    p.state = null;
+    waitForTrailer(p);
     p.muted = true;
     p.media.appendChild(frame);
+  }
+
+  function waitForTrailer(p) {
+    clearTimeout(p.stuck);
+    p.stuck = setTimeout(function () { badTrailer(p); }, TRAILER_STUCK_MS);
   }
 
   function stopTrailer(p) {
@@ -1089,6 +1095,9 @@
       }
     } else if (state === 0) {
       stopTrailer(p);
+    } else if (typeof state === 'number' && state !== p.state && !p.n.classList.contains('is-playing')) {
+      p.state = state;
+      waitForTrailer(p);
     }
   });
 

@@ -1031,6 +1031,21 @@ const scenarios = {
     await h.pass(1000);
     return h.text('.pv__first');
   },
+  /* A trailer that keeps changing state takes longer than one that is silent. */
+  async trailerBuffers() {
+    const h = await trailer();
+    await h.pass(3000);
+    h.message({ event: 'onStateChange', info: -1 });
+    await h.pass(3000);
+    h.message({ event: 'onStateChange', info: 3 });
+    const told = !!h.frame();
+    await h.pass(3000);
+    // The same state said again is no sign of life.
+    h.message({ event: 'infoDelivery', info: { playerState: 3 } });
+    const still = !!h.frame();
+    await h.pass(1100);
+    return { told, still, silent: !!h.frame() };
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
