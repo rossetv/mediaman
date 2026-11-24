@@ -34,7 +34,8 @@
   line-height: 1.5;
   color: var(--t3);
 }
-.watch-results__msg--empty + .results-hint { margin-top: 12px; margin-inline: auto; }
+/* The hidden spare grid sits between the empty line and the hint, so + would not reach it. */
+.watch-results__msg--empty ~ .results-hint { margin: 12px auto 0; justify-content: center; }
 .results-hint > .ico { flex: none; font-size: 13px; }
 .results-hint a { position: relative; color: var(--accent); font-weight: 500; white-space: nowrap; }
 /* 44px to tap without making the line taller. */

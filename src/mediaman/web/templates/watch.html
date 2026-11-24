@@ -43,8 +43,31 @@
 </div>
 {%- endmacro %}
 
+{# Shown in place of the rows when the library has nothing; Discover rows, when there are any, load under it. #}
+{% macro empty_library(is_admin, tmdb_configured) -%}
+<section class="watch-empty">
+  {{ icon("i-film", "watch-empty__icon") }}
+  <h1 class="watch-empty__title">Nothing to watch yet</h1>
+  {% if is_admin %}
+  <p class="watch-empty__text">
+    Your library is empty.
+    {% if tmdb_configured %}Scan it from the dashboard, or search above for something to download.
+    {% else %}Pick the libraries to scan in Settings, then scan from the dashboard. Connect TMDB there too to search for titles to download.{% endif %}
+  </p>
+  <div class="watch-actions">
+    <a class="btn btn--lg watch-btn--play" href="/">Go to the dashboard</a>
+    <a class="btn btn--lg watch-btn--grey" href="/settings">Open Settings</a>
+  </div>
+  {% else %}
+  <p class="watch-empty__text">The library is empty for now. Check back soon, or ask whoever runs mediaman.</p>
+  {% endif %}
+</section>
+{%- endmacro %}
+
 {% block content %}
 {% set list_view = is_admin and view == "list" %}
+{# A search in the address opens on its results, so the rows never show first. #}
+{% set on_results = q and not list_view %}
 <div class="watch-page" id="watch-page">
   <div class="watch-top" id="watch-top">
     <div class="watch-search" role="search">
@@ -63,7 +86,7 @@
     <p class="sr-only" id="watch-search-status" role="status"></p>
   </div>
 
-  <div id="watch-browse"{% if list_view %} hidden{% endif %}>
+  <div id="watch-browse"{% if list_view or on_results %} hidden{% endif %}>
     {% if watch_error %}
     {{ w.error_state(watch_error, is_admin) }}
     {% else %}
@@ -104,6 +127,7 @@
     {% set library = namespace(rows=false) %}
     {% for row in shelf if row['items'] and row['library'] %}{% set library.rows = true %}{% endfor %}
     <div class="watch-rows">
+      {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured) }}{% endif %}
       {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
 
       {# Discover rows load after the page; until then a skeleton holds the place of each row that
@@ -127,7 +151,7 @@
     </div>
   </div>
 
-  <section class="watch-results" id="watch-results" aria-label="Search results" hidden>
+  <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}>
     <p class="watch-results__msg" id="watch-results-msg"></p>
     <div class="watch-grid" id="watch-grid"></div>
   </section>

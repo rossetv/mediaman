@@ -469,7 +469,8 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent) 0%, transparent 25%, transparent 50%, color-mix(in srgb, var(--scrim) 85%, transparent) 100%);
+  /* A title of four lines reaches a third of the way up, so the dark is already half there. */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent) 0%, transparent 25%, transparent 42%, color-mix(in srgb, var(--scrim) 52%, transparent) 62%, color-mix(in srgb, var(--scrim) 72%, transparent) 78%, color-mix(in srgb, var(--scrim) 88%, transparent) 100%);
   pointer-events: none;
 }
 .watch-card__title {
@@ -642,6 +643,13 @@
 .watch-state { max-width: 520px; margin: 0 auto; padding: 96px var(--pad) 0; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .watch-state__title { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
 .watch-state__text { color: var(--t2); }
+
+/* An empty library: a short centred block above whatever Discover rows load. */
+.watch-empty { max-width: 520px; margin: 0 auto; padding: 56px var(--pad) 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.watch-empty__icon { font-size: 32px; color: var(--t3); margin-bottom: 6px; }
+.watch-empty__title { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.watch-empty__text { color: var(--t2); text-wrap: balance; }
+.watch-empty .watch-actions { justify-content: center; margin-top: 10px; }
 
 /* Show and movie pages */
 .watch-detail {

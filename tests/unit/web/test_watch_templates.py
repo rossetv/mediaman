@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -803,3 +804,66 @@ def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
         assert "Highlight" in _declarations_in(forced, f"progress.watch-bar{part}")
     overlay = _in_media("_watch_detail.css", "forced-colors: active")
     assert "display: none" in _declarations_in(overlay, ".ttl__art")
+
+
+def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
+    def open_panels(html: str) -> tuple[bool, bool]:
+        browse = re.search(r'<div id="watch-browse"([^>]*)>', html)
+        results = re.search(r'<section class="watch-results"[^>]*>', html)
+        assert browse and results
+        return "hidden" in browse.group(1), "hidden" in results.group(0)
+
+    assert open_panels(_watch(q="orchard")) == (True, False)
+    assert open_panels(_watch(q="")) == (False, True)
+
+
+@pytest.mark.parametrize(
+    ("admin", "tmdb", "says", "never"),
+    [
+        (True, True, "search above for something to download", "Connect TMDB"),
+        (True, False, "Connect TMDB", "search above"),
+        (False, True, "ask whoever runs mediaman", "Settings"),
+        (False, False, "ask whoever runs mediaman", "TMDB"),
+    ],
+)
+def test_an_empty_library_says_so_and_what_to_do_next(
+    admin: bool, tmdb: bool, says: str, never: str
+) -> None:
+    html = _watch(is_admin=admin, tmdb_configured=tmdb)
+    empty = re.search(r'<section class="watch-empty">(.*?)</section>', html, re.S)
+
+    assert empty
+    text = empty.group(1)
+    assert "Nothing to watch yet" in text
+    assert says.lower() in text.lower()
+    assert never.lower() not in text.lower()
+    assert ('href="/settings"' in text) is admin
+
+
+def test_a_library_with_titles_or_a_plex_error_has_no_empty_state() -> None:
+    row = {"title": "Movies", "items": [_card()], "library": True}
+
+    assert "watch-empty" not in _watch(rows=[row])
+    assert "watch-empty" not in _watch(watch_error="not_set_up")
+
+
+def _scrim_at(sheet: str, selector: str, position: float) -> float:
+    """The scrim alpha (%) of the selector's gradient at *position* % of its length."""
+    body = _declarations_of(sheet, selector)
+    found = re.findall(r"(?:--scrim\) (\d+)%, )?transparent\)? (\d+)%", body)
+    stops = [(float(pos), float(alpha or 0)) for alpha, pos in found]
+    for (p0, a0), (p1, a1) in itertools.pairwise(stops):
+        if p0 <= position <= p1:
+            return a0 + (a1 - a0) * (position - p0) / (p1 - p0)
+    raise AssertionError(stops)
+
+
+def test_a_four_line_card_title_sits_on_at_least_half_dark() -> None:
+    # Four lines of 14px reach a third of the way up a poster; white on a pale one needs about half.
+    assert _scrim_at("_watch.css", ".watch-card__poster::after", 67) >= 50
+
+
+def test_the_hint_under_an_empty_search_is_centred_though_the_spare_grid_sits_between() -> None:
+    body = _declarations_of("_watch_search.css", ".watch-results__msg--empty ~ .results-hint")
+
+    assert "margin: 12px auto 0" in body and "justify-content: center" in body
