@@ -503,10 +503,15 @@
 .watch-card__lead,
 .watch-card__tail { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .watch-card__lead:not(:last-child)::after { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
-/* Search results mix films and shows, so there the lead is the part that stays. */
-.results-grid .watch-card__sub:has(> .watch-card__lead) { flex-wrap: wrap; align-content: flex-start; }
-.results-grid .watch-card__lead:not(:last-child)::after { content: none; }
-.results-grid .watch-card__tail::before { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
+/* Search results mix films and shows, and an episode is told by its number, so there the lead is
+   the part that stays. "left" is a part of its own, the first to go. */
+.results-grid .watch-card__sub:has(> .watch-card__lead),
+.watch-card__sub:has(> .watch-card__left) { flex-wrap: wrap; align-content: flex-start; }
+.results-grid .watch-card__lead:not(:last-child)::after,
+.watch-card__sub:has(> .watch-card__left) > .watch-card__lead::after { content: none; }
+.watch-card__left { white-space: pre; }
+.results-grid .watch-card__tail::before,
+.watch-card__sub:has(> .watch-card__left) > .watch-card__tail::before { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
 .watch-card__mid { white-space: pre; }
 .watch-card__said,
 .results-grid .watch-card__mid { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }

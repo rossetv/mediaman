@@ -98,7 +98,9 @@
     {%- set rest = parts[2:] if episode else parts[1:] -%}
 <span class="watch-card__lead">{{ parts[0] }}{% if episode %}<span class="watch-card__said"> ·</span> {{ parts[1] }}{% endif %}{% if rest %}<span class="watch-card__said"> · </span>{% endif %}</span>
     {%- if rest -%}
-<span class="watch-card__tail">{% if rest|length > 1 %}<span class="watch-card__mid">{{ rest[:-1]|join(" · ") }} · </span><span class="watch-card__end">{{ caption_time(rest[-1]) }}</span>{% else %}{{ caption_time(rest[-1]) }}{% endif %}</span>
+      {%- set last = rest[-1] -%}
+      {%- set left = not kind and last.endswith(" left") -%}
+<span class="watch-card__tail">{% if rest|length > 1 %}<span class="watch-card__mid">{{ rest[:-1]|join(" · ") }} · </span><span class="watch-card__end">{{ caption_time(last[:-5] if left else last) }}</span>{% else %}{{ caption_time(last[:-5] if left else last) }}{% endif %}</span>{% if left %}<span class="watch-card__left"> left</span>{% endif %}
     {%- endif -%}
   {%- else -%}{{ text }}{%- endif -%}
 {%- endmacro %}

@@ -152,3 +152,11 @@ def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> Non
     assert "outline: none" in _of(".watch-more:focus-visible", phone)
     ring = _of(".watch-more:focus-visible::before", phone)
     assert "outline: 2px solid" in ring and "opacity: 1" in ring
+
+
+def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
+    caption = ".watch-card__sub:has(> .watch-card__left)"
+    assert "flex-wrap: wrap;" in _of(caption)
+    # A dot after the episode would stay behind when the time goes.
+    assert "content: none" in _of(f"{caption} > .watch-card__lead::after")
+    assert "\\a0·\\a0" in _of(f"{caption} > .watch-card__tail::before")

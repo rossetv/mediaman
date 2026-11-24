@@ -87,7 +87,7 @@ CAPTIONS = {
         ["tail", "12"],
         ["wide", " min"],
         ["unit", "m"],
-        ["tail", " left"],
+        ["left", " left"],
     ],
     "E4 · 12 min left": [
         ["lead", "E4"],
@@ -95,7 +95,7 @@ CAPTIONS = {
         ["tail", "12"],
         ["wide", " min"],
         ["unit", "m"],
-        ["tail", " left"],
+        ["left", " left"],
     ],
     "S2 · E4": [["lead", "S2"], ["said", " ·"], ["lead", " E4"]],
     "Season 2": [["", "Season 2"]],

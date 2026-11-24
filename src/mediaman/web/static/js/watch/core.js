@@ -258,7 +258,10 @@
     add(lead, 'said', ' · ');
     var tail = add(node, 'tail');
     if (rest.length > 1) add(tail, 'mid', rest.slice(0, -1).join(' · ') + ' · ');
-    time(rest.length > 1 ? add(tail, 'end') : tail, rest[rest.length - 1]);
+    var last = rest[rest.length - 1];
+    var left = !kind && / left$/.test(last);
+    time(rest.length > 1 ? add(tail, 'end') : tail, left ? last.slice(0, -5) : last);
+    if (left) add(node, 'left', ' left');
     return node;
   }
 
