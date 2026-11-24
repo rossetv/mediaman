@@ -562,6 +562,25 @@ class TestThePageBehind:
 
 
 class TestScan:
+    def test_the_clock_counts_every_second_unread_and_stops_with_the_scan(self):
+        out = _run("scanClock")
+        said = "Scanning libraries"
+        assert out["started"] == {
+            "out": [
+                said,
+                f"{said}, 1s",
+                f"{said}, 2s",
+                f"{said}, 3s",
+                f"{said}, 4s",
+                "Finished in 4s",
+            ],
+            "read": said,
+            "stopped": True,
+        }
+        already = "Scan already in progress"
+        assert out["already"]["out"][2:5] == [already, already, f"{said}, 4s"]
+        assert out["already"]["stopped"] is True
+
     def test_keeps_its_icon_and_focus_through_every_state_and_shows_what_it_found(self):
         out = _run("scan")
         redo = "#i-rotate-right"

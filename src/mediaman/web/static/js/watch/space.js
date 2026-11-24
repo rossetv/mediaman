@@ -360,7 +360,7 @@
       title.after(link);
     }
     link.textContent = '';
-    var freed = reclaimable(stats.scheduled.leaving_bytes, stats.scheduled.leaving_size);
+    var freed = reclaimable(stats.scheduled.leaving_bytes, stats.scheduled.leaving_size, 'leaving');
     add(link, document.createTextNode(leaving() + ' · ' + freed), MM.dom.icon('i-chevron-right'));
     link.setAttribute('aria-label', 'Manage scheduled deletions: ' + plural(leaving(), 'title') + ', ' + freed);
   }
@@ -1641,13 +1641,14 @@
   var scanStatus = byId('space-scan-status');
   var scanStart = 0;
   var lingerTimer = null;
+  var clock = null; // while the seconds run
 
   function scanLabel(text, icon) {
     scan.querySelector('.space__scan-label').textContent = text;
     MM.dom.setIcon(scan.querySelector('.ico'), icon || 'i-rotate-right');
   }
 
-  /* Not a live region: its running clock would be read out every few seconds. */
+  /* Not a live region: its running clock would be read out. */
   function scanSays(text, cls) {
     clearTimeout(lingerTimer);
     scanStatus.textContent = text;
@@ -1664,7 +1665,16 @@
     if (!isOpen) core.toast(text, { variant: variant });
   }
 
+  function runClock() {
+    if (clock) return;
+    clock = setInterval(function () { scanSays('Scanning libraries, ' + elapsed()); }, 1000);
+  }
+
   function scanBusy(on) {
+    if (!on) {
+      clearInterval(clock);
+      clock = null;
+    }
     scan.classList.toggle('is-busy', on);
     renderMeters();
   }
@@ -1718,7 +1728,7 @@
         fails = 0;
         firstFail = 0;
         if (data.running) {
-          scanSays('Scanning libraries, ' + elapsed());
+          runClock();
           setTimeout(check, POLL_MS);
         } else if (data.status === 'skipped') {
           scanStopped(!data.reason ? 'Scan skipped' : 'Scan skipped: ' +
@@ -1751,7 +1761,9 @@
     scanSays('Starting scan…');
     live.textContent = 'Scanning libraries';
     MM.api.post('/api/scan/trigger').then(function (data) {
-      scanSays(data.status === 'already_running' ? 'Scan already in progress' : 'Scanning libraries');
+      var running = data.status === 'already_running';
+      scanSays(running ? 'Scan already in progress' : 'Scanning libraries');
+      if (!running) runClock();
       pollScan();
     }, function (err) {
       scanStopped("Couldn't start the scan. " + MM.api.messageOf(err, 'Try again.'), { retry: true });

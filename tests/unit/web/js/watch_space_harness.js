@@ -160,6 +160,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   let layer = null;
   let confirmed = true;
   const timers = [];
+  const intervals = new Map();
   const ready = [];
   const address = {
     layer(def) { layer = def; },
@@ -173,6 +174,8 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Date, parseInt, parseFloat, Error, RegExp, encodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
+    setInterval: (fn, ms) => { intervals.set(intervals.size + 1, { fn, ms }); return intervals.size; },
+    clearInterval: (id) => intervals.delete(id),
     AbortController: class { abort() {} },
     CustomEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
     DOMParser: class { parseFromString() { const d = makeDocument(); d.body.appendChild(build(d, server.page)); return d; } },
@@ -231,6 +234,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       await settle();
     },
     async run(ms) { timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); },
+    second() { intervals.forEach((i) => { if (i.ms === 1000) i.fn(); }); },
     async let_go(url) { const mine = server.held.filter((h) => h.url.includes(url)); server.held = server.held.filter((h) => !mine.includes(h)); mine.forEach((h) => h.go()); await settle(); },
     async open(name = 'scheduled') { await p.click($('meter')); await p.click($('space-tab-' + name)); },
     async keep(id, days) {
@@ -1073,13 +1077,36 @@ const scenarios = {
     b.focus();
     p.server.scan = { running: true };
     await p.click(b); states.push(look());
-    await p.run(3000); states.push(look());
+    await p.run(3000); p.second(); states.push(look());
     p.server.rows = p.server.rows.concat([row('9')]);
     p.server.scan = { running: false };
     await p.run(3000); states.push(look());
     const during = { focused: p.focused(), rows: p.rows(), live: p.$('space-live').textContent.replace(/\d+s/, 'Ns') };
     await p.run(2000); await p.run(5000); states.push(look());
     return { states, during, toasts: p.toasts.length };
+  },
+  // The seconds of a running scan, at *posted*'s answer and between two polls.
+  async scanClock() {
+    const of = async (posted) => {
+      const p = await page();
+      let now = 0;
+      p.ctx.Date = { now: () => now };
+      p.server.scan = { running: true };
+      if (posted) p.server.post = () => ({ status: posted });
+      await p.open('storage');
+      await p.click(p.$('space-scan'));
+      const said = () => p.$('space-scan-status').textContent;
+      const out = [said()];
+      const after = async (ms, poll) => { now += ms; p.second(); if (poll) await p.run(3000); out.push(said()); };
+      await after(1000); await after(1000); await after(1000, true); await after(1000);
+      const read = p.$('space-live').textContent;
+      p.server.scan = { running: false };
+      await p.run(3000);
+      const ended = said();
+      await after(1000);
+      return { out, read, stopped: said() === ended };
+    };
+    return { started: await of(), already: await of('already_running') };
   },
   // The panel is closed before the scan ends.
   async scanEndsClosed() {
