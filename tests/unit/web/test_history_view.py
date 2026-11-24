@@ -531,9 +531,9 @@ class TestMainLine:
 
 
 class TestUnclosedBracket:
-    def test_lines_after_a_stray_bracket_still_read(self):
-        out = redact_text("token=[abc def\nnext line reads\ntoken=[x")
-        assert out == "token=[hidden]\nnext line reads\ntoken=[hidden]"
+    def test_an_unclosed_bracket_hides_everything_after_it_even_on_later_lines(self):
+        out = redact_text("token=[abc def\nnext line\nmore")
+        assert out == "token=[hidden]"
 
     def test_a_quoted_secret_holding_a_newline_is_hidden_to_its_end(self):
         out = redact_text('tokens=["ab\ncd')
