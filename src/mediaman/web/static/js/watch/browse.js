@@ -662,6 +662,7 @@
 
   function ownError(message) {
     ownBusy = false;
+    rec.payload.my_refresh = { available: true, reason: null, next_available_at: null, running: false };
     drawOwn();
     core.toast(message, { variant: 'error' });
   }

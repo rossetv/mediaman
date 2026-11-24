@@ -233,6 +233,17 @@ def test_own_picks_found_being_made_by_a_later_answer_are_followed_to_their_end(
     )
 
 
+def test_own_picks_nobody_can_tell_of_any_more_can_be_tried_again() -> None:
+    out = _run("ownLost")
+    for lost in (out["status"], out["picks"]):
+        assert (lost["button"], lost["off"]) == ("Refresh my picks", False)
+        assert (lost["text"], lost["toasts"], lost["timers"]) == (
+            "From your plays, then new and popular.",
+            1,
+            0,
+        )
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True

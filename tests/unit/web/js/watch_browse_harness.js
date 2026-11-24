@@ -786,6 +786,22 @@ const scenarios = {
     return { busy, still, polls: statuses(p), after: lineOf(p), toasts: p.toasts.map((t) => t.message) };
   },
 
+  // Nobody can tell how it goes, or the new picks do not load: it can be tried again.
+  async ownLost() {
+    const at = async (lose) => {
+      let lost = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => (lost ? Promise.reject(apiError(502, {})) : Promise.resolve(recommended({ mine: MINE.running, items: OWN_ITEMS }))),
+        'GET /api/watch/picks/refresh': () => (lose === 'status' ? Promise.reject(new Error('offline')) : Promise.resolve({ ok: true, status: 'done' })),
+      } });
+      await settle();
+      lost = true;
+      for (let i = 0; i < 20 && !p.toasts.length; i += 1) await tick(p);
+      return { ...lineOf(p), toasts: p.toasts.length, timers: p.timers.length };
+    };
+    return { status: await at('status'), picks: await at('picks') };
+  },
+
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
   async loggedOutOnLoad() {
     const p = load({ routes: {
