@@ -8,7 +8,17 @@
  * *viewport* is a .watch-row__viewport whose cards are already in it, *next*
  * where to go on from (null: the row is complete) and fetchPage(next) a promise
  * of { cards, next }: card nodes, each with its data-title-ref link, and where
- * to go on from after them. Returns { stop }, for a row that is taken away.
+ * to go on from after them. Returns { stop }, for a row that is taken away,
+ * with next(), where it is to go on from, more(), which loads it now, and
+ * check(), for a view the loader cannot see moving.
+ *
+ * Cards laid out otherwise than in a sideways strip come with opts.view:
+ *   scroller        the node that holds the cards
+ *   near()          whether the last card is near the screen
+ *   placeholders()  how many to show while a page loads
+ *   range(cards)    the cards, [from, to), whose posters stay loaded
+ *   failed(button)  show Try again; the placeholders stay
+ *   took(fresh, done)  the cards just added, and whether they were the last
  */
 (function () {
   'use strict';
@@ -79,7 +89,8 @@
   /* ── One row ── */
 
   function start(viewport, opts) {
-    var scroller = viewport.querySelector('.watch-row__scroll');
+    var view = opts.view || null;
+    var scroller = view ? view.scroller : viewport.querySelector('.watch-row__scroll');
     var isNew = onlyNew();
     var cards = [];
     core.toArray(scroller.querySelectorAll('.watch-card')).forEach(function (card) {
@@ -103,6 +114,7 @@
 
     /* Whether the end of the cards, not of what stands after them, is near. */
     function near() {
+      if (view) return view.near();
       var left = scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft - tail.length * step();
       return left < AHEAD_VIEWS * scroller.clientWidth;
     }
@@ -118,7 +130,8 @@
     /* ── What stands after the last card ── */
 
     function addPlaceholders() {
-      while (tail.length < PLACEHOLDERS) {
+      var wanted = view ? view.placeholders() : PLACEHOLDERS;
+      while (tail.length < wanted) {
         var skel = el('div', 'watch-card--skel');
         skel.setAttribute('aria-hidden', 'true');
         skel.appendChild(el('span', 'skel skel--poster'));
@@ -135,6 +148,7 @@
       tail = [];
       if (!nodes.length) return;
       function remove() { nodes.forEach(function (n) { n.remove(); }); }
+      if (view) { remove(); return; }
       var max = scroller.scrollWidth - nodes.length * step() - scroller.clientWidth;
       if (!(scroller.scrollLeft > max + 1) || core.reduceMotion()) { remove(); return; }
       scroller.scrollTo({ left: Math.max(0, max), behavior: 'smooth' });
@@ -143,12 +157,13 @@
     }
 
     function showFailed() {
-      var tile = el('div', 'watch-row__more');
-      tile.appendChild(el('span', null, 'Couldn’t load more.'));
       retryButton = el('button', 'watch-row__retry', 'Try again');
       retryButton.type = 'button';
       retryButton.setAttribute('aria-label', 'Try again to load more of ' + opts.title);
       retryButton.addEventListener('click', load);
+      if (view) { view.failed(retryButton); return; }
+      var tile = el('div', 'watch-row__more');
+      tile.appendChild(el('span', null, 'Couldn’t load more.'));
       tile.appendChild(retryButton);
       var first = tail.shift();
       if (first) first.replaceWith(tile);
@@ -190,7 +205,8 @@
       var tile = retryButton;
       var refocus = tile && document.activeElement === tile;
       retryButton = null;
-      place(fresh, !!tile);
+      place(fresh, !!tile && !view);
+      if (view) view.took(fresh, next === null);
       if (refocus) {
         var target = fresh.length ? fresh[0].querySelector('.watch-card__link') : scroller;
         target.focus({ preventScroll: true });
@@ -204,8 +220,10 @@
     function place(fresh, hadTile) {
       if (hadTile && !fresh.length) tail.shift().remove();
       fresh.forEach(function (card) {
-        card.classList.add('is-arriving');
-        card.addEventListener('animationend', function () { card.classList.remove('is-arriving'); }, { once: true });
+        if (!view) {
+          card.classList.add('is-arriving');
+          card.addEventListener('animationend', function () { card.classList.remove('is-arriving'); }, { once: true });
+        }
         var held = tail.shift();
         if (held) held.replaceWith(card);
         else scroller.appendChild(card);
@@ -235,13 +253,20 @@
 
     /* ── Posters near and far ── */
 
-    function sweep() {
+    function inStrip() {
       var width = step();
-      if (!width) return;
-      var view = scroller.clientWidth;
-      var from = Math.max(0, Math.floor((scroller.scrollLeft - AWAKE_VIEWS * view) / width));
-      var to = Math.min(cards.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * view) / width));
-      var keep = new Set(cards.slice(from, to));
+      if (!width) return null;
+      var seen = scroller.clientWidth;
+      return [
+        Math.max(0, Math.floor((scroller.scrollLeft - AWAKE_VIEWS * seen) / width)),
+        Math.min(cards.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * seen) / width))
+      ];
+    }
+
+    function sweep() {
+      var range = view ? view.range(cards) : inStrip();
+      if (!range) return;
+      var keep = new Set(cards.slice(range[0], range[1]));
       awake.forEach(function (card) { if (!keep.has(card)) unload(card); });
       keep.forEach(function (card) { if (!awake.has(card)) reload(card); });
       awake = keep;
@@ -285,7 +310,12 @@
       },
       forward: function () {
         if (state === 'failed') load();
-      }
+      },
+      next: function () { return next; },
+      more: function () {
+        if (state === 'idle') load();
+      },
+      check: schedule
     };
     rows.set(viewport, row);
     settle(next === null ? 'done' : 'idle');
