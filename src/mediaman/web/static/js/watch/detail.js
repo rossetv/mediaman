@@ -463,7 +463,8 @@
   }
 
   /* The link's season, once the show stands open on its own: it takes over unless the person
-     has begun something there, or Keep would be of another season. */
+     has begun something there (a Keep menu or dialog only opens by a press), or Keep is of
+     another season that leaves. */
   function comeLate(c, s, got) {
     if (c !== cur || !isOpen || c.pressed || !body.querySelector('.ttl__seasonsec')) return;
     var active = document.activeElement;
@@ -472,8 +473,7 @@
     if (!now) return;
     var left = leavingNow();
     var leaves = (c.data.leaving_seasons || []).filter(function (one) { return one.season === s.number && one.keep_id; })[0];
-    var keeps = left || hasFacts(c);
-    if (keeps && (left && left.id) !== (leaves ? String(leaves.keep_id) : null)) return;
+    if (left && left.id !== (leaves ? String(leaves.keep_id) : null)) return;
     var sec = body.querySelector('.ttl__seasonsec');
     markSeason(sec, s.number);
     var line = sec.querySelector('.watch-seasons');

@@ -833,6 +833,19 @@ def test_keep_is_of_the_season_on_show_and_a_late_one_never_changes_it() -> None
         assert out[case]["came"]["keep"] == "Keep Brightwater, Season 2"
 
 
+def test_an_admin_s_late_season_that_leaves_takes_over_and_keep_is_of_it() -> None:
+    admin = _run("openOnSlowSeason")["admin"]
+    assert (admin["arrived"]["on"], admin["came"]["on"]) == (["Season 2"], ["Season 1"])
+    assert admin["kept"] == "3010"
+
+
+def test_a_late_season_does_not_take_over_under_an_open_keep_menu() -> None:
+    out = _run("openOnSlowSeason")
+    assert out["adminMenu"]["came"] == out["adminMenu"]["arrived"]
+    assert (out["adminMenu"]["menuOpen"], out["adminMenu"]["kept"]) == (True, "")
+    assert out["keepMenu"]["came"] == out["keepMenu"]["arrived"]
+
+
 def test_a_link_to_a_shows_episodes_opens_it_at_them_unless_the_person_has_moved_on() -> None:
     out = _run("openAtEpisodes")
     assert out["show"] == {"to": 876, "focus": "Episodes", "hash": "#title=show-300"}

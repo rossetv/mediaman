@@ -2023,9 +2023,11 @@ const scenarios = {
   async openOnSlowSeason() {
     const look = (p) => ({ busy: p.ttl().hasAttribute('aria-busy'), on: p.ttl().querySelectorAll('.watch-pill').filter((n) => n.getAttribute('aria-pressed') === 'true').map((n) => n.textContent),
       episode: p.text('.watch-ep__title'), keep: p.q('.watch-btn--keep') && p.q('.watch-btn--keep').getAttribute('aria-label') });
-    const open = async (over, meanwhile, how) => {
+    const kept = [];
+    const facts = { ...FACTS, actions: { keep_wrapper: { id: '3020', is_tv: true, show_rk: '300', has_rk: true, show_title: 'Brightwater' }, delete: null } };
+    const open = async (over, meanwhile, how, admin) => {
       let answer = null;
-      const p = load({ routes: { '/api/watch/title/show-300': { ...LIB_SHOW, ...over },
+      const p = load({ ...admin, routes: { '/api/watch/admin/title/show-300': facts, '/api/watch/title/show-300': { ...LIB_SHOW, ...over },
         '/api/watch/title/show-300/season/1': () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } });
       const link = p.doc.body.appendChild(build(p.doc, ['a', { 'data-title-ref': 'show-300', href: '/watch/show/300?season=1' }, 'Season 1']));
       p.run();
@@ -2041,14 +2043,26 @@ const scenarios = {
       if (how === 'failed') answer.reject(new APIError(503, 'x'));
       else answer.resolve({ key: '301', watched: false, episodes: [{ ...LIB_SHOW.episodes[0], title: 'One One' }] });
       await settle();
-      return { held, bound, arrived, came: look(p), focusKept: p.doc.activeElement === focus };
+      const out = { held, bound, arrived, came: look(p), focusKept: p.doc.activeElement === focus };
+      if (admin) {
+        const trigger = p.q('[data-ttl-act="admin-keep"]');
+        out.menuOpen = trigger.getAttribute('aria-expanded') === 'true';
+        if (!out.menuOpen) click(p.doc, trigger);
+        click(p.doc, p.q('.ttl-facts__menu').querySelector('[role="menuitem"]'));
+        out.kept = kept.pop();
+      }
+      return out;
     };
     const both = { leaving_seasons: [{ days: 3, keep_id: '3010', season: 1 }, { days: 9, keep_id: '3020', season: 2 }] };
     const none = { leaving: null, leaving_seasons: [] };
+    const own = { leaving_seasons: [{ days: 9, keep_id: '3020', season: 2 }, { days: 3, keep_id: '3010', season: 1 }] };
+    const admin = { admin: true, adminApi: { keep: (w) => kept.push(w.season_id), removeKeep: () => {} } };
     return { quiet: await open(none), appears: await open({}), otherKeep: await open(both),
       pressed: await open(none, (p) => click(p.doc, p.q('.ttl__overview') || p.q('.ttl__body'))),
       reading: await open(none, (p) => p.q('.watch-ep').focus()),
-      failed: await open(both, null, 'failed') };
+      failed: await open(both, null, 'failed'), admin: await open({}, null, null, admin),
+      adminMenu: await open({}, (p) => click(p.doc, p.q('[data-ttl-act="admin-keep"]')), null, admin),
+      keepMenu: await open(own, (p) => click(p.doc, p.q('.watch-btn--keep'))) };
   },
 
   // Opened by a link to its episodes: where it is scrolled and what has the focus once it has come;
