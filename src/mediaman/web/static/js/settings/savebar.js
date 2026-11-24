@@ -246,7 +246,7 @@
 
   // What to send of `now` once the server has told what is stored: a thing put back is sent only
   // where a save with no answer did change it and the undo lets no more be deleted. Otherwise it
-  // is taken from the server, where another page may have set it since.
+  // is taken from the server, where another page may have set it since; `kept` says whether one was.
   function settle(now, data) {
     var stored = storedFrom(data);
     var was = things(saved);
@@ -260,14 +260,15 @@
       if (putBack(key)) return undone(key);
       return !!unsure[key] || mine[key] !== was[key];
     });
-    askToCheck(unexpected(stored, Object.keys(unsure).filter(function (key) {
+    var notPutBack = unexpected(stored, Object.keys(unsure).filter(function (key) {
       return putBack(key) && !undone(key);
-    })));
+    }));
+    askToCheck(notPutBack);
     saved = stored;
     var next = things(sent);
     Object.keys(unsure).forEach(function (key) { if (next[key] === has[key]) delete unsure[key]; });
     show(sent, now);
-    return sent;
+    return { sent: sent, kept: notPutBack.length > 0 };
   }
 
   function put(values) {
@@ -357,7 +358,9 @@
     var saveBtn   = document.getElementById('btn-save');
     var discardBtn = document.getElementById('btn-discard');
     var statusEl  = document.getElementById('save-status');
+    var msgEl = savebar && savebar.querySelector('.sb-msg');
     var SAVE_LABEL = 'Save Settings';
+    var UNSAVED_TEXT = 'Unsaved changes';
     var STANDING_TEXT = 'Edits apply to every section at once.';
     var UNSURE_TEXT = 'The last save may have been stored. Save again to be sure.';
 
@@ -396,6 +399,9 @@
       successTimers = [];
       saveBtn.textContent = SAVE_LABEL;
       saveBtn.disabled = false;
+      if (discardBtn) discardBtn.disabled = false;
+      if (msgEl) msgEl.textContent = UNSAVED_TEXT;
+      savebar.classList.remove('is-saved', 'is-partial');
     }
     // The bar shows while anything differs from what was saved. A save under way keeps it and its words.
     var saving = false;
@@ -452,14 +458,15 @@
       var now = snapshot();
       if (!isUnsure()) { send(now, fromKeyboard, hadFocus); return; }
       askStored(hadFocus, 'saved', function (data) {
-        var sent = settle(now, data);
-        send(sent, fromKeyboard, hadFocus, !changedKeys(saved, sent).length);
+        var settled = settle(now, data);
+        send(settled.sent, fromKeyboard, hadFocus, !changedKeys(saved, settled.sent).length, settled.kept);
       });
     }
 
     // Routes through MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
-    // flow are applied consistently. With `done` the server has it all.
-    function send(sent, fromKeyboard, hadFocus, done) {
+    // flow are applied consistently. With `done` the server has it all; with `kept` it has what it
+    // has of something the person put back.
+    function send(sent, fromKeyboard, hadFocus, done, kept) {
       // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
       var all = getPayload(sent, saved);
       var payload = {};
@@ -484,26 +491,27 @@
             show(saved, sent);
             recheck(Object.keys(payload));
             refreshOverviewHero();
-            if (changedKeys(saved, snapshot()).length) {
-              saveBtn.textContent = SAVE_LABEL;
-              savebar.classList.add('is-partial');
-              if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';
-              reenable(hadFocus);
-              return;
-            }
-            if (discardBtn) discardBtn.disabled = false;
-            saveBtn.textContent = 'Saved ✓';
+            var edited = changedKeys(saved, snapshot()).length > 0;
+            var leftOut = [];
+            if (edited) leftOut.push('what you changed since');
+            if (kept) leftOut.push('what is shown as mediaman has it');
+            saveBtn.textContent = leftOut.length ? SAVE_LABEL : 'Saved ✓';
+            savebar.classList.add(leftOut.length ? 'is-partial' : 'is-saved');
             if (statusEl) {
-              statusEl.textContent = ignored.length
-                ? 'Saved · ignored unknown: ' + ignored.join(', ')
-                : 'Settings saved';
+              statusEl.textContent = leftOut.length
+                ? 'Saved, except ' + leftOut.join(' and ') + '.'
+                : ignored.length ? 'Saved · ignored unknown: ' + ignored.join(', ') : 'Settings saved';
             }
+            if (edited) { reenable(hadFocus); return; }
+            if (msgEl) msgEl.textContent = 'No unsaved changes';
+            // What was left out takes longer to read.
+            var hideAfter = kept ? 3000 : 600;
             successTimers = [
-              setTimeout(function () { settleAfterHide(fromKeyboard); }, 600),
+              setTimeout(function () { settleAfterHide(fromKeyboard); }, hideAfter),
               setTimeout(function () {
                 endSuccess();
                 if (statusEl && !ignored.length) statusEl.textContent = STANDING_TEXT;
-              }, 2200),
+              }, hideAfter + 1600),
             ];
             return;
           }

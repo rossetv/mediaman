@@ -516,6 +516,29 @@ def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_b
     assert out["gone"] == ["", 1]
 
 
+def test_the_bar_does_not_call_saved_changes_unsaved() -> None:
+    out = _run("savedWords")
+    assert out["before"] == "Unsaved changes"
+    assert (out["saved"]["msg"], out["saved"]["button"]) == ("No unsaved changes", "Saved ✓")
+    # with nothing to discard, Discard does not ask
+    assert out["discardDisabled"] is True
+    assert (out["edited"]["msg"], out["edited"]["button"]) == ("Unsaved changes", "Save Settings")
+    assert out["gone"] == [False, "Unsaved changes", False]
+
+
+def test_a_save_that_left_an_undo_out_says_so_in_the_bar() -> None:
+    out = _run("keptWords")
+    kept = out["kept"]
+    assert kept["button"] == "Save Settings"
+    assert "except what is shown as mediaman has it" in kept["status"]
+    # with the class by which phones show it
+    assert (kept["msg"], kept["partial"]) == ("No unsaved changes", True)
+    assert (kept["on"], kept["told"]) == (True, 1)
+    assert out["gone"] == [False, False]
+    assert "since" in out["edited"] and "as mediaman has it" in out["edited"]
+    assert out["still"] is True
+
+
 def test_a_save_checks_again_only_the_services_it_changed() -> None:
     out = _run("recheck")
     failed = ["err", "Connection failed"]

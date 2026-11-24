@@ -326,6 +326,8 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 /* Wide enough for "Save Settings", so "Saving…", "Saved ✓" and "Try again" do not shift the bar. */
 .setg-pg .savebar #btn-save { min-width: 8.5em; }
 
+.setg-pg .savebar.is-saved .sb-dot { background: var(--success); box-shadow: var(--glow-success); }
+
 /* Error state — danger red on a tinted chip,
    never as a saturated background. The dot turns red, the sub-text takes
    the danger colour, and the message gains an "Save failed" label. */

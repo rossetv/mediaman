@@ -1627,6 +1627,58 @@ const scenarios = {
     return out;
   },
 
+  // What the bar says from a save's answer until it has gone.
+  async savedWords() {
+    const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+    p.edit('b');
+    const out = { before: p.says().msg };
+    p.press();
+    await p.h.flush();
+    out.saved = p.says();
+    out.discardDisabled = p.discardBtn.disabled;
+    p.edit('c');
+    out.edited = p.says();
+    p.press();
+    await p.h.flush();
+    p.h.drain();
+    out.gone = [p.on(), p.says().msg, p.discardBtn.disabled];
+    return out;
+  },
+
+  // A save whose undo was not sent: what the bar says of it.
+  async keptWords() {
+    const start = async () => {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+      p.day('3');
+      p.reply = () => Promise.reject({ status: 0 });
+      await p.save();
+      p.day('14');
+      p.stored = () => Promise.resolve({ grace_days: 30, plex_libraries: ['1'], disk_thresholds: {} });
+      p.reply = () => Promise.resolve({ status: 'saved' });
+      return p;
+    };
+    const out = {};
+    let p = await start();
+    p.press();
+    await p.h.flush();
+    out.kept = Object.assign(p.says(), { on: p.on(), told: p.toasts.length });
+    p.h.drain();
+    out.gone = [p.on(), p.bar.classList.contains('is-partial')];
+    // beside an edit made while the save was under way
+    p = await start();
+    let answer;
+    p.edit('b');
+    p.reply = () => new Promise((r) => { answer = () => r({ status: 'saved' }); });
+    p.press();
+    await p.h.flush();
+    p.edit('c');
+    answer();
+    await p.h.flush();
+    out.edited = p.says().status;
+    out.still = p.on();
+    return out;
+  },
+
   // Which services are checked again after a save, and what their pills end up saying.
   async recheck() {
     const h = build();
