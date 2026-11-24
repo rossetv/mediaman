@@ -347,6 +347,9 @@ const scenarios = {
       const p = load(watchPage([row('cont', CONTINUE)]), opts);
       const scroller = p.doc.querySelector('.watch-row__scroll');
       const by = [];
+      const snaps = [];
+      const put = scroller.insertBefore;
+      scroller.insertBefore = function (...args) { snaps.push(scroller.style.scrollSnapType); return put.apply(scroller, args); };
       scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
       scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
       const first = p.cards()[0];
@@ -356,7 +359,7 @@ const scenarios = {
       await p.pick(first, act);
       const before = by.length;
       await p.undo();
-      return [p.marks()[0], before, by];
+      return [p.marks()[0], before, by, snaps, scroller.style.scrollSnapType];
     };
     return {
       before: await go('dismiss', -128),

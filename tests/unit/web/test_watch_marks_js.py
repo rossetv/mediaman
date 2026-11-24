@@ -177,10 +177,10 @@ def test_a_banner_dismissed_by_touch_hands_the_focus_to_the_next_banner_alone() 
 
 def test_a_card_an_undo_puts_back_out_of_sight_is_scrolled_to_in_its_row() -> None:
     assert _run("undoOffScreen") == {
-        "before": ["movie/1", 0, [[-128, "auto"]]],
-        "after": ["movie/1", 0, [[10, "auto"]]],
-        "inView": ["movie/1", 0, []],
-        "mark": ["movie/1", 0, [[-128, "auto"]]],
+        "before": ["movie/1", 0, [[-128, "auto"]], ["none"], ""],
+        "after": ["movie/1", 0, [[10, "auto"]], ["none"], ""],
+        "inView": ["movie/1", 0, [], ["none"], ""],
+        "mark": ["movie/1", 0, [[-128, "auto"]], ["none"], ""],
     }
 
 

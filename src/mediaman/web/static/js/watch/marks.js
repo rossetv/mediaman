@@ -203,15 +203,21 @@
     if (trigger && card.contains(trigger)) moreMenu.close(false);
   }
 
-  /* Scroll *card*'s row to it when it was put back out of sight: a row that snaps stays on the
-     card it stood on. Its slot may still be opening, but what is in it has its own width. */
-  function showInRow(card) {
-    var scroller = card.closest('.watch-row__scroll');
-    if (!scroller || !card.getClientRects().length) return;
+  var SHOW_MS = 1000; // longer than a card's entrance and the scroll to it
+
+  /* Run *putBack*, which puts *card* in *row*, and scroll the row to it if it is out of sight.
+     A row that snaps would stay on the card it stood on, so meanwhile it does not. */
+  function showInRow(row, card, putBack) {
+    var scroller = row.querySelector('.watch-row__scroll');
+    scroller.style.scrollSnapType = 'none';
+    putBack();
+    setTimeout(function () { scroller.style.scrollSnapType = ''; }, SHOW_MS);
+    if (!card.getClientRects().length) return;
     var pad = parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0;
     var box = scroller.getBoundingClientRect();
     var start = card.getBoundingClientRect().left;
     var before = start - box.left - pad;
+    // Its slot may still be opening, but what is in it has its own width.
     var past = start + card.children[0].offsetWidth - (box.right - pad);
     var by = before < 0 ? before : Math.max(0, Math.min(before, past));
     if (by) scroller.scrollBy({ left: by, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
@@ -235,8 +241,7 @@
         }
         var now = continueRow(document);
         if (now && (now !== row || continueCards(row, ref).length)) return;
-        taken.undo();
-        showInRow(card);
+        showInRow(row, card, taken.undo);
       });
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
@@ -268,7 +273,8 @@
       for (var n = now.nextElementSibling; n && !next; n = n.nextElementSibling) {
         next = continueCards(row, n.getAttribute('data-dismiss-ref'))[0];
       }
-      row.querySelector('.watch-row__scroll').insertBefore(fresh, next || null);
+      var join = function () { row.querySelector('.watch-row__scroll').insertBefore(fresh, next || null); };
+      if (undone) showInRow(row, fresh, join); else join();
     } else {
       var rows = document.querySelector('.watch-rows');
       rows.insertBefore(fresh, rows.children[0] || null);
@@ -276,7 +282,6 @@
       if (window.MMWatch.expand) window.MMWatch.expand.row(fresh);
     }
     core.fadeIn(fresh);
-    if (undone && row) showInRow(fresh);
     var grid = window.MMWatch.grid;
     if (grid && grid.bring) grid.bring(row ? fresh : continueCards(fresh, now.getAttribute('data-dismiss-ref'))[0]);
   }
