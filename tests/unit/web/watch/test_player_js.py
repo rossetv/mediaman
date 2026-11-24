@@ -152,3 +152,10 @@ def test_controls_hide_after_a_mouse_press_and_a_key_but_stay_for_tab(markup):
 
 def test_a_seek_while_the_playlist_loads_moves_where_the_video_starts(markup):
     assert run(markup, "early_seek") == {"whilePlaylistLoads": 20, "beforeVideo": 30}
+
+
+@pytest.mark.parametrize("pointer", ["mouse", "touch"])
+def test_a_press_away_from_an_open_menu_only_closes_it(markup, pointer):
+    out = run(markup, "click_away")
+    assert out[pointer] == {"wasOpen": True, "open": False, "paused": False, "idle": False}
+    assert out["next"] == {"paused": True}

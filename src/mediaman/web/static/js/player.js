@@ -829,9 +829,13 @@
   root.addEventListener('focusin', showControls);
 
   /* A click on the picture plays or pauses; a tap shows or hides the controls.
-     At the end of the video neither starts it over: only Play and Space do. */
+     With a menu open either only closes it; at the end of the video neither
+     starts it over: only Play and Space do. */
   video.addEventListener('click', function () {
-    if (video.ended) {
+    if (menuOpen()) {
+      closeMenus();
+      showControls();
+    } else if (video.ended) {
       hideUpnext();
       showControls();
     } else if (lastPointer === 'mouse') {
