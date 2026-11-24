@@ -255,6 +255,46 @@ def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
     assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
 
 
+def test_a_rows_episodes_button_is_nearer_its_own_row_than_the_next() -> None:
+    gap = int(re.findall(r"gap: (\d+)px", _rule(".dl-compact-list"))[0])
+    own = int(re.findall(r"margin-top: (\d+)px", _rule(".dl-compact-episodes-toggle"))[-1])
+    with_button = ".dl-compact:has(> .dl-compact-episodes-toggle):not(:last-child)"
+    below = int(re.findall(r"margin-bottom: (\d+)px", _rule(with_button))[0])
+    assert own == 8 and below + gap == 16
+
+
+def test_the_state_of_a_download_is_not_in_the_accent_itself_on_its_own_tint() -> None:
+    for pill in (".dl-state-downloading", ".dl-ep-status-pill.downloading"):
+        assert "color: var(--accent-text)" in _rule(pill)
+
+
+def _in_media(condition: str, selector: str) -> str:
+    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    blocks = re.findall(r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    rules = [
+        r for q, body in blocks if condition in q for r in re.findall(r"([^{}]+)\{([^{}]*)\}", body)
+    ]
+    return "".join(body for head, body in rules if selector in [s.strip() for s in head.split(",")])
+
+
+def test_a_finger_reaches_every_control_at_any_width() -> None:
+    coarse = "(pointer: coarse)"
+    assert "inset: -15px -6px" in _in_media(coarse, ".dl-arr-link::after")
+    for toggle in (".dl-hero-episodes-toggle", ".dl-compact-episodes-toggle"):
+        assert "min-height: 44px" in _in_media(coarse, toggle)
+    for button in (".dl-hero-abandon .btn.btn--icon", ".dl-row-abandon .btn.btn--icon"):
+        assert "width: 44px; height: 44px" in _in_media(coarse, button)
+
+
+def test_a_link_on_a_line_of_its_own_has_no_dot_before_it() -> None:
+    phone = "(max-width: 479.98px)"
+    assert "display: block" in _in_media(phone, ".dl-arr-link")
+    assert "display: none" in _in_media(phone, ".dl-hint-sep")
+    out = _run("hintFocus", hero=_item("h", **_STUCK), queue=[_item("q", **_STUCK)])
+    assert out["dots"] == 2, "in the row the server drew and the one a poll built"
+
+
 def test_queue_rows_sit_one_gap_apart() -> None:
     assert "margin" not in _rule(".dl-compact")
     assert "gap: 8px" in _rule(".dl-compact-list")
@@ -266,11 +306,19 @@ def test_the_small_state_pills_are_large_enough_to_read_and_a_poll_leaves_them_s
     assert _run("pollLook", hero=_item("h"), queue=[_item("q")])["pill"] == ""
 
 
-def test_a_new_hero_fades_in_and_the_same_one_does_not() -> None:
+def test_a_new_hero_shows_through_the_one_before_it() -> None:
+    out = _run("pollLookMoving", hero=_item("h", abandon_visible=True, **_STUCK))
+    assert out["same"] == 0, "the same title does not fade"
+    # what fades out is the old card, with nothing on it to find, press or read out
+    assert out["first"] == [{"says": "Th", "inert": True, "hidden": "true", "hooks": 0}]
+    assert out["second"] == ["Tb"], "one at a time"
+    assert out["after"] == 0 and out["hero"] == "Tc"
+    assert "animation: dl-hero-out var(--dur-slow)" in _rule(".dl-hero-ghost")
+
+
+def test_with_reduced_motion_a_new_hero_takes_the_place_of_the_old_at_once() -> None:
     out = _run("pollLook", hero=_item("h"), queue=[_item("q")])
-    assert out["swapped"] == [False, True]
-    for part in (".dl-hero-content", ".dl-hero-bg"):
-        assert "animation: dl-hero-swap var(--dur-slow)" in _rule(f".dl-hero.is-swapped > {part}")
+    assert out["first"] == out["second"] == []
 
 
 def test_the_heros_background_may_come_from_mediaman_itself() -> None:

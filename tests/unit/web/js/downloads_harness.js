@@ -40,6 +40,13 @@ class El {
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
   set src(v) { this.attrs.src = v; }
   get src() { return this.attrs.src; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  cloneNode() {
+    const copy = new El(this.tagName, this.doc);
+    copy.attrs = { ...this.attrs }; copy.className = this.className; copy._text = this._text; copy.hidden = this.hidden;
+    this.children.forEach((c) => copy.appendChild(c.cloneNode()));
+    return copy;
+  }
   replaceChildren() { this.children = []; }
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
   insertBefore(c, ref) {

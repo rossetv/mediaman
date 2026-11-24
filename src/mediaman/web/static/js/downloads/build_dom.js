@@ -29,6 +29,7 @@
  *   MM.downloads.buildDom.buildEpisodeRow(ep)
  *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
  *   MM.downloads.buildDom.closeEpisodes(card)
+ *   MM.downloads.buildDom.fadeOver(card)            the hero as it is fades out over what it becomes
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
  *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
  *   MM.downloads.buildDom.passFocus(el)             move focus on from an element that is about to go
@@ -532,6 +533,25 @@
     card.querySelector('[data-v="ep-list"]').hidden = true;
   }
 
+  /* A copy of the card as it is, drawn over it to fade out while the card turns into
+     another title's. It is a picture alone: no poll finds a part of it. */
+  function fadeOver(card) {
+    var old = card.querySelector('.dl-hero-ghost');
+    if (old) card.removeChild(old);
+    if (reducedMotion()) return;
+    var ghost = el('div', 'dl-hero-ghost' + (card.classList.contains('is-held') ? ' is-held' : ''));
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.setAttribute('inert', '');
+    ghost.style.height = card.offsetHeight + 'px';
+    Array.prototype.forEach.call(card.children, function (part) { ghost.appendChild(part.cloneNode(true)); });
+    ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
+      Array.prototype.forEach.call(ghost.querySelectorAll('[' + hook + ']'), function (part) { part.removeAttribute(hook); });
+    });
+    card.appendChild(ghost);
+    /* Longer than the fade, which may never end in a tab that is hidden. */
+    setTimeout(function () { if (ghost.parentNode) card.removeChild(ghost); }, 400);
+  }
+
   /* The episodes button and list of a hero or queue row exist only while the
      item has episodes. The list is rebuilt when their set has changed and
      patched otherwise, so it stays open as the person left it. */
@@ -810,6 +830,7 @@
     buildEpisodeRow:      buildEpisodeRow,
     syncEpisodes:         syncEpisodes,
     closeEpisodes:        closeEpisodes,
+    fadeOver:             fadeOver,
     syncAbandon:          syncAbandon,
     focusHeading:         focusHeading,
     passFocus:            passFocus,

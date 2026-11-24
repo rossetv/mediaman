@@ -67,7 +67,7 @@ function page(spec, opts) {
     document: doc, console, MM: {}, Promise, JSON, CustomEvent: class { constructor(t) { this.type = t; } },
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
-    AbortController, matchMedia: () => ({ matches: true }),
+    AbortController, matchMedia: () => ({ matches: !(opts && opts.motion) }),
     getComputedStyle: () => ({}), location: { href: '/downloads' },
     toasts: [],
   };
@@ -178,6 +178,7 @@ const scenarios = {
     p.upd({ hero: searching('h', 'Searched once', ''), queue: [searching('n', 'Searched once', 'http://arr/n')] });
     out.noLink = [p.q('.dl-hero [data-v="arr-link"]').hidden, p.q('.dl-hero [data-v="search-hint-sep"]').hidden];
     out.built = p.text('.dl-compact [data-v="search-hint"]');
+    out.dots = p.qa('.dl-hint-sep').length;
     return out;
   },
 
@@ -274,16 +275,23 @@ const scenarios = {
     return { ...out, toasts: p.ctx.toasts };
   },
 
-  // the next poll of the same titles, and one that brings another hero
-  async pollLook() {
-    const p = page(spec);
-    const swapped = () => p.q('.dl-hero').classList.contains('is-swapped');
+  // the next poll of the same titles, and others that bring another hero
+  async pollLook(motion) {
+    const p = page(spec, { motion });
+    const ghosts = () => p.qa('.dl-hero-ghost');
     p.upd({ hero: item('h', { progress: 5 }), queue: [item('q', { progress: 5 })] });
-    const same = swapped();
-    const pill = p.q('.dl-state-pill--xs').style.fontSize;
-    p.upd({ hero: item('q'), queue: [] });
-    return { pill, swapped: [same, swapped()] };
+    const out = { same: ghosts().length, pill: p.q('.dl-state-pill--xs').style.fontSize };
+    p.upd({ hero: item('b', { state: 'searching', abandon_visible: true }), queue: [] });
+    const first = ghosts().map((g) => ({
+      says: g.querySelector('.dl-hero-title').textContent, inert: g.hasAttribute('inert'), hidden: g.getAttribute('aria-hidden'),
+      hooks: g.descendants().filter((e) => Object.keys(e.attrs).some((k) => /^(id|data-(v|ep|dl-id|abandon-trigger))$/.test(k))).length,
+    }));
+    p.upd({ hero: item('c'), queue: [] });
+    const second = ghosts().map((g) => g.querySelector('.dl-hero-title').textContent);
+    p.timers.splice(0).forEach((t) => t.fn());
+    return { ...out, first, second, after: ghosts().length, hero: p.text('.dl-hero-title') };
   },
+  async pollLookMoving() { return scenarios.pollLook(true); },
 
   // the hero's background from mediaman's own address, and from one that only looks like it
   async ownArt() {

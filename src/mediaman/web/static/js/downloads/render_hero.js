@@ -44,6 +44,7 @@
       text = document.createElement('span');
       text.setAttribute('data-v', 'search-hint-text');
       sep = document.createElement('span');
+      sep.className = 'dl-hint-sep';
       sep.setAttribute('data-v', 'search-hint-sep');
       sep.textContent = ' · ';
       a = document.createElement('a');
@@ -68,13 +69,14 @@
     var d = dom();
     var card = container.querySelector('.dl-hero');
     if (!card) return;
-    d.unmarkHeld(card);
-    var swapped = card.getAttribute('data-dl-id') !== item.id;
-    if (swapped) {
+    if (card.getAttribute('data-dl-id') !== item.id) {
       /* The controls become another title's, which nobody on one of them asked for. */
       d.passFocus(card);
+      d.fadeOver(card);
       d.closeEpisodes(card);
+      card.setAttribute('data-dl-id', item.id);
     }
+    d.unmarkHeld(card);
 
     d.syncArt(card, item);
 
@@ -133,14 +135,6 @@
     d.syncEpisodes(card, item);
 
     d.syncAbandon(card, item, 'hero');
-
-    if (swapped) {
-      card.setAttribute('data-dl-id', item.id);
-      /* Another title: its card fades in, from the start when one follows another. */
-      card.classList.remove('is-swapped');
-      void card.offsetWidth;
-      card.classList.add('is-swapped');
-    }
   }
 
   MM.downloads.renderHero = {
