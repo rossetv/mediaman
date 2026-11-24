@@ -135,7 +135,10 @@
 
   <div class="player-slot" data-slot="upnext">
   {% if next %}
+  {% set next_key = next.href.split("?")[0].split("/")[-1] %}
+  {% set show_key = show_href.split("?")[0].split("/")[-1] %}
   <div class="player-card player-upnext" data-upnext role="dialog" aria-label="Next episode" hidden>
+    <img class="player-still" data-still src="/api/watch/thumb/{{ next_key }}" data-fallback="/api/poster/{{ show_key }}?kind=art" alt="" hidden>
     <p class="player-card-title">Next episode<span data-upnext-in> in <span data-countdown>10</span> s</span></p>
     <p class="player-card-line">{{ next.label }}</p>
     <div class="player-card-actions">
@@ -152,6 +155,7 @@
 
   {% if show_href %}
   <dialog class="player-card player-ask" data-ask aria-labelledby="player-ask-title" aria-describedby="player-ask-line">
+    <img class="player-still" data-still alt="" hidden>
     <p class="player-card-title" id="player-ask-title">Are you still watching?</p>
     <p class="player-card-line" id="player-ask-line" data-ask-line></p>
     <div class="player-card-actions">

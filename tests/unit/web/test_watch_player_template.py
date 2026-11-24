@@ -174,3 +174,13 @@ def test_icon_controls_show_no_words_but_carry_a_name_and_a_tooltip(name):
     for i, a in icons:
         assert page.text.get(i, "").strip() == ""
         assert a["title"].startswith(a["aria-label"])
+
+
+def test_the_next_episode_carries_its_still_and_the_show_s_backdrop_in_its_place():
+    next_episode = {"href": "/watch/play/502?from=%2Fwatch", "label": "S2 · E5"}
+    _, page = _render({**EPISODE, "next": next_episode})
+    still = next(a for t, a in page.elements if t == "img" and "data-still" in a and "src" in a)
+    assert still["src"] == "/api/watch/thumb/502"
+    assert still["data-fallback"] == "/api/poster/77?kind=art"
+    # Nothing of it shows until it is there.
+    assert "hidden" in still

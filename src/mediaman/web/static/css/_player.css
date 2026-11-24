@@ -488,11 +488,13 @@
 
 /* Cards: the "next episode" countdown, the error message and "Are you still watching?". */
 .player-card {
+  --card-x: 22px;
+  --card-y: 20px;
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 20px 22px 14px;
+  padding: var(--card-y) var(--card-x) 14px;
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--s2) 94%, transparent);
   box-shadow: var(--shadow-card);
@@ -502,11 +504,29 @@
 .player-card .player-pill:not(.player-pill--primary)::before { background: var(--s5); }
 .player-card .player-pill:not(.player-pill--primary):is(:hover, :active)::before { background: color-mix(in srgb, var(--t1) 12%, var(--s5)); }
 .player-card-title { font-size: 17px; font-weight: 600; }
-.player-card-line { font-size: 14px; color: var(--t2); }
+.player-card-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--t2);
+}
+/* The picture of what follows, to the edges of its card. */
+.player-still {
+  width: calc(100% + 2 * var(--card-x));
+  max-width: none;
+  margin: calc(-1 * var(--card-y)) calc(-1 * var(--card-x)) 12px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--s1);
+  animation: player-dim var(--dur) var(--ease-out);
+}
 .player-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .player-upnext {
   right: max(32px, env(safe-area-inset-right));
-  bottom: 140px;
+  bottom: calc(var(--player-foot) + 118px);
   width: 340px;
 }
 .player-message {
@@ -524,7 +544,9 @@
   margin: auto;
   width: 420px;
   height: fit-content;
-  padding: 28px 28px 20px;
+  --card-x: 28px;
+  --card-y: 28px;
+  padding-bottom: 20px;
   border: 0;
   color: inherit;
   text-align: center;
@@ -578,6 +600,9 @@
   .player-bubble-text { max-width: 220px; }
   /* No room in the row of controls: above the bar. */
   .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
+  .player-chapters { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) var(--ease-out); }
+  /* Where the frame preview and the next-episode card come. */
+  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
   .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
   .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
   .player-chapters .player-menu {
@@ -586,7 +611,8 @@
     max-height: min(480px, calc(100vh - 224px));
     max-height: min(480px, calc(100dvh - 224px));
   }
-  .player-upnext { left: 12px; right: 12px; width: auto; bottom: 148px; max-width: none; }
+  .player-upnext { left: 12px; right: 12px; width: auto; max-width: none; }
+  .player-upnext:has(.player-still) { left: max(12px, calc(100% - 352px)); }
 }
 
 /* The narrowest phones: every control keeps its height and its place in the row. */
@@ -595,10 +621,22 @@
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
 
-/* A phone on its side: the next-episode card keeps to the right. */
-@media (max-height: 420px) {
+/* A phone on its side: the next-episode card keeps to the right, its picture beside the words. */
+@media (max-height: 520px) {
   .player-frame { width: 176px; }
-  .player-upnext { left: auto; width: 300px; }
+  .player-card { --card-x: 16px; --card-y: 14px; }
+  .player-upnext { left: auto; width: 300px; bottom: calc(var(--player-foot) + 100px); padding-bottom: 10px; }
+  .player-upnext:has(.player-still:not([hidden])) { left: auto; width: 440px; padding-left: 190px; min-height: 112px; }
+  .player-upnext .player-still {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 174px;
+    height: 100%;
+    margin: 0;
+    aspect-ratio: auto;
+    border-radius: var(--r-lg) 0 0 var(--r-lg);
+  }
+  .player-ask .player-still { display: none; }
 }
 
 /* Forced colours drop the fills that draw the bar and the edges of the rest. */

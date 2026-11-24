@@ -1990,6 +1990,22 @@
     }
   }
 
+  /* The picture of the next episode, or of its show; without either the card has none. */
+  function setupStill() {
+    var img = els.still = els.upnext.querySelector('[data-still]');
+    var there = function () { img.hidden = false; };
+    var none = function () {
+      var instead = img.getAttribute('data-fallback');
+      img.removeAttribute('data-fallback');
+      if (instead) img.setAttribute('src', instead);
+      else img.hidden = true;
+    };
+    img.addEventListener('load', there);
+    img.addEventListener('error', none);
+    /* It may have come, or failed, before this script. */
+    if (img.complete) (img.naturalWidth ? there : none)();
+  }
+
   /* The controls of the next episode, in the page's own slots. */
   function setupNext() {
     els.upnext = q('[data-upnext]');
@@ -1997,6 +2013,7 @@
     els.upnextIn = q('[data-upnext-in]');
     els.upnextFill = q('[data-upnext-fill]');
     els.countdown = q('[data-countdown]');
+    setupStill();
     q('[data-next-btn]').addEventListener('click', function (e) {
       /* A new tab or window stays the browser's. */
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -2053,6 +2070,9 @@
     release();
     setLoading(false);
     q('[data-ask-line]').textContent = 'Next: ' + next.label;
+    var still = els.ask.querySelector('[data-still]');
+    still.hidden = els.still.hidden;
+    if (!still.hidden) still.setAttribute('src', els.still.getAttribute('src'));
     q('[data-ask-back]').setAttribute('href', showHref);
     els.ask.returnValue = '';
     els.ask.showModal();

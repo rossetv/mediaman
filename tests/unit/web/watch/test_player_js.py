@@ -838,6 +838,18 @@ def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
     assert out["went"] == {"starts": 1, "urls": ["/watch/play/502"], "key": "502", "message": None}
 
 
+@pytest.mark.parametrize(
+    ("there", "shown"),
+    [("still", "/api/watch/thumb/502"), ("backdrop", "/api/poster/77?kind=art"), ("none", None)],
+)
+def test_the_card_and_the_question_carry_a_picture_of_the_next_episode_where_there_is_one(
+    markup, there, shown
+):
+    out = run(markup, "still", plays=there)
+    assert (out["before"], out.get("between")) == (None, None)
+    assert (out["card"], out["ask"]) == (shown, shown)
+
+
 def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
     out = run(markup, "next_never_opens")
     assert out["start"] == {"rating_key": "501", "quality": "low"}

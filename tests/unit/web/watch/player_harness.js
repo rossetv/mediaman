@@ -1754,6 +1754,27 @@ const scenarios = {
     return out;
   },
 
+  /* The picture of the next episode: by `serverPlays` its still, the backdrop in its place, or none. */
+  async still(p) {
+    const img = p.q('[data-upnext]').querySelector('[data-still]');
+    const look = (el) => (el.hidden ? null : el.getAttribute('src'));
+    const out = { before: look(img) };
+    await streamPlays(p, 0);
+    if (p.win.serverPlays !== 'still') {
+      fire(img, 'error');
+      out.asked = img.getAttribute('src');
+      out.between = look(img);
+    }
+    fire(img, p.win.serverPlays === 'none' ? 'error' : 'load');
+    out.card = look(img);
+    p.sleep(7200000);
+    endsNow(p);
+    p.sleep(11000);
+    p.tick(250);
+    out.ask = look(p.q('[data-ask]').querySelector('[data-still]'));
+    return out;
+  },
+
   /* A page that cannot take over here is opened instead. */
   async next_falls_back(p) {
     await streamPlays(p, 100);
