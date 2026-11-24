@@ -1,9 +1,10 @@
 {# The title detail overlay at #title=<ref>. watch/detail.js fills it from
    /api/watch/title/<ref>; nothing here carries a title's data. #}
+{% from "_components.html" import icon %}
 <div class="ttl" id="ttl" role="dialog" aria-modal="true" aria-labelledby="ttl-title" hidden>
   <div class="ttl__scrim" data-ttl-close></div>
   <div class="ttl__sheet">
-    <button type="button" class="ttl__close" data-ttl-close aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    <button type="button" class="ttl__close" data-ttl-close aria-label="Close">{{ icon("i-xmark") }}</button>
     <div class="ttl__hero">
       <span class="skel ttl__hero-skel" data-ttl-part="hero-skel"></span>
       <img class="ttl__art" alt="" data-ttl-part="art" data-wide-art data-broken-on-error hidden>

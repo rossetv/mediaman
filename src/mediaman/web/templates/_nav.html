@@ -11,6 +11,7 @@
    The menu follows the role on the request (`request.state.user_role`). A viewer
    sees only what the viewer role may open; a missing role gets the admin menu.
 #}
+{% from "_components.html" import icon %}
 
 {% set is_viewer = (request.state.user_role if request is defined else none) | default('admin', true) != 'admin' %}
 {% set path = request.url.path if request is defined else '' %}
@@ -55,21 +56,21 @@
 {# Mobile bottom tab bar — tabs plus More, for either role #}
 <nav class="nav-tabs" aria-label="Primary">
   <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch">
-    <i class="fa-solid fa-play" aria-hidden="true"></i>
+    {{ icon("i-play") }}
     <span>Watch</span>
   </a>
   {% if not is_viewer %}
   <a class="nav-tab{% if active == 'dashboard' %} on{% endif %}" href="/" aria-label="Dashboard">
-    <i class="fa-solid fa-house" aria-hidden="true"></i>
+    {{ icon("i-house") }}
     <span>Dashboard</span>
   </a>
   {% endif %}
   <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads">
-    <i class="fa-solid fa-download" aria-hidden="true"></i>
+    {{ icon("i-download") }}
     <span>Downloads</span>
   </a>
   <button class="nav-tab" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="nav-more-sheet">
-    <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+    {{ icon("i-ellipsis") }}
     <span>More</span>
   </button>
 </nav>
@@ -80,18 +81,18 @@
     <div class="nav-more-handle" aria-hidden="true"></div>
     {% if is_viewer %}
     <a class="nav-more-item{% if active == 'account' %} on{% endif %}" href="/account">
-      <i class="fa-solid fa-user" aria-hidden="true"></i>
+      {{ icon("i-user") }}
       Account
       <span class="chev">›</span>
     </a>
     {% else %}
     <a class="nav-more-item{% if active == 'history' %} on{% endif %}" href="/history">
-      <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+      {{ icon("i-clock-rotate-left") }}
       History
       <span class="chev">›</span>
     </a>
     <a class="nav-more-item{% if active == 'settings' %} on{% endif %}" href="/settings">
-      <i class="fa-solid fa-gear" aria-hidden="true"></i>
+      {{ icon("i-gear") }}
       Settings
       <span class="chev">›</span>
     </a>
@@ -99,7 +100,7 @@
     <div class="nav-more-divider"></div>
     <form method="post" action="/api/auth/logout" class="u-m-0">
       <button type="submit" class="nav-more-item nav-more-item--danger">
-        <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+        {{ icon("i-right-from-bracket") }}
         Logout
       </button>
     </form>

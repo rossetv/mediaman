@@ -10,10 +10,10 @@
     literal — safe to pass through c.empty()'s |safe-piped icon slot. The
     JS placeholder builder (build_dom.js) mirrors this exact markup. -#}
 {%- set dl_empty_icon %}
-<i class="fa-solid fa-download" aria-hidden="true"></i>
+{{ c.icon("i-download") }}
 {%- endset %}
 {%- set dl_outage_icon %}
-<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+{{ c.icon("i-triangle-exclamation") }}
 {%- endset %}
 <div class="container" id="dl-root" data-can-abandon="{{ 'true' if can_abandon else 'false' }}">
 

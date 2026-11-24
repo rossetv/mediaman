@@ -74,7 +74,7 @@
 
   {% set team_actions %}
     {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",
-             icon='<i class="fa-solid fa-plus" aria-hidden="true"></i> ') }}
+             icon=c.icon("i-plus") ~ " ") }}
   {% endset %}
   {% call c.setg_card(title="Team", sub="Admins manage Mediaman. Viewers can watch and request, nothing more.",
                          header_actions=team_actions, pad=True) %}

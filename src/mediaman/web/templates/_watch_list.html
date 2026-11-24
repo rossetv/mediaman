@@ -110,9 +110,9 @@
                 {% if item.protected %}
                   <button type="button" class="keep-trigger keep-trigger--kept"
                     aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep on {{ item.title }}">
-                    <i class="fa-solid fa-check keep-trigger__tick" aria-hidden="true"></i>
+                    {{ c.icon("i-check", "keep-trigger__tick") }}
                     <span>Kept</span>
-                    <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
+                    {{ c.icon("i-chevron-down", "keep-trigger__chev") }}
                   </button>
                   <div class="snooze-dropdown" role="menu">
                     <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7 days">Keep 7 days</button>
@@ -131,7 +131,7 @@
                   <button type="button" class="keep-trigger"
                     aria-haspopup="menu" aria-expanded="false" aria-label="Keep {{ item.title }}">
                     <span>Keep</span>
-                    <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
+                    {{ c.icon("i-chevron-down", "keep-trigger__chev") }}
                   </button>
                   <div class="snooze-dropdown" role="menu">
                     <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7 days">7 days</button>
@@ -193,7 +193,7 @@
 
   {% elif q or current_type %}
     <div class="empty wl-empty">
-      <div class="empty-ico"><i class="fa-solid fa-filter" aria-hidden="true"></i></div>
+      <div class="empty-ico">{{ c.icon("i-filter") }}</div>
       <h3>{% if q %}No {{ type_nouns[current_type] }} match “{{ q }}”{% else %}No {{ type_nouns[current_type] }}{% endif %}</h3>
       <p>Try another search, or show everything again.</p>
       <a class="btn btn--secondary" href="/watch?view=list" data-list-clear>Clear search and filters</a>

@@ -1,6 +1,7 @@
 {# Shared pieces of the Watch pages. Import with:
        {% import "_watch_card.html" as w %}
    watch/browse.js and watch/search.js build the same card markup; keep them in step. #}
+{% from "_components.html" import icon %}
 
 {% macro dur(minutes) -%}
   {%- if minutes >= 60 -%}{{ minutes // 60 }} h{% if minutes % 60 %} {{ minutes % 60 }} min{% endif %}{%- else -%}{{ minutes }} min{%- endif -%}
@@ -23,7 +24,7 @@
 {# The Keep trigger. One shared menu (keep_menu) opens under whichever trigger is pressed. #}
 {% macro keep_button(keep_id, title="") -%}
 <button type="button" class="watch-keep" data-watch-keep="{{ keep_id }}" aria-haspopup="menu" aria-expanded="false"{% if title %} aria-label="Keep {{ title }}"{% endif %}>
-  <span>Keep</span><i class="fa-solid fa-chevron-down watch-keep__chev" aria-hidden="true"></i>
+  <span>Keep</span>{{ icon("i-chevron-down", "watch-keep__chev") }}
 </button>
 {%- endmacro %}
 
@@ -52,11 +53,11 @@
    none means it can be downloaded. browse.js builds the same badge. #}
 {% macro state_badge(item) -%}
   {%- if item.download_state == "downloading" -%}
-<span class="watch-badge watch-badge--state watch-badge--downloading"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i>{% if item.download_pct is not none %}<span class="sr-only">Downloading </span>{{ item.download_pct }}%{% else %}Downloading{% endif %}</span>
+<span class="watch-badge watch-badge--state watch-badge--downloading">{{ icon("i-arrow-down") }}{% if item.download_pct is not none %}<span class="sr-only">Downloading </span>{{ item.download_pct }}%{% else %}Downloading{% endif %}</span>
   {%- elif item.download_state == "queued" -%}
-<span class="watch-badge watch-badge--state watch-badge--queued"><i class="fa-solid fa-clock" aria-hidden="true"></i>Queued</span>
+<span class="watch-badge watch-badge--state watch-badge--queued">{{ icon("i-clock") }}Queued</span>
   {%- elif item.in_library or item.download_state in ("in_library", "partial") -%}
-<span class="watch-badge watch-badge--state watch-badge--in"><i class="fa-solid fa-check" aria-hidden="true"></i>In library</span>
+<span class="watch-badge watch-badge--state watch-badge--in">{{ icon("i-check") }}In library</span>
   {%- endif -%}
 {%- endmacro %}
 

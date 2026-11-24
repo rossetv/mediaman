@@ -24,8 +24,8 @@
   // Keep is an admin control; the search answers a viewer with the same fields.
   var canKeep = false;
   var STATE_BADGES = {
-    queued: ['fa-clock', 'Queued'],
-    in_library: ['fa-check', 'In library']
+    queued: ['i-clock', 'Queued'],
+    in_library: ['i-check', 'In library']
   };
 
   function dur(minutes) {
@@ -96,9 +96,7 @@
       btn.setAttribute('aria-expanded', 'false');
       btn.setAttribute('aria-label', 'Keep ' + item.title);
       btn.appendChild(el('span', '', 'Keep'));
-      var chev = el('i', 'fa-solid fa-chevron-down watch-keep__chev');
-      chev.setAttribute('aria-hidden', 'true');
-      btn.appendChild(chev);
+      btn.appendChild(MM.dom.icon('i-chevron-down', 'watch-keep__chev'));
       if (window.MMWatch.keep.isBusy(item.keep_id)) {
         btn.setAttribute('aria-disabled', 'true');
         btn.setAttribute('aria-busy', 'true');
@@ -141,7 +139,7 @@
     var text;
     var kind = state;
     if (state === 'downloading') {
-      icon = 'fa-arrow-down';
+      icon = 'i-arrow-down';
       text = typeof item.download_pct === 'number' ? item.download_pct + '%' : 'Downloading';
     } else if (STATE_BADGES[state]) {
       icon = STATE_BADGES[state][0];
@@ -151,9 +149,7 @@
       return null;
     }
     var badge = el('span', 'watch-badge watch-badge--state watch-badge--' + kind);
-    var i = el('i', 'fa-solid ' + icon);
-    i.setAttribute('aria-hidden', 'true');
-    badge.appendChild(i);
+    badge.appendChild(MM.dom.icon(icon));
     badge.appendChild(document.createTextNode(text));
     return badge;
   }
@@ -215,9 +211,7 @@
   /* The line under the library group when TMDB is not set up. */
   function hint(data) {
     var line = el('p', 'results-hint');
-    var icon = el('i', 'fa-solid fa-circle-info');
-    icon.setAttribute('aria-hidden', 'true');
-    line.appendChild(icon);
+    line.appendChild(MM.dom.icon('i-circle-info'));
     var text = el('span');
     var link = data.is_admin ? safePath(data.settings_tmdb_href) : '';
     if (link) {
@@ -359,9 +353,7 @@
       if (current) current.view = current.libDrawn = current.tmdbDrawn = null;
       msg.classList.add('watch-results__msg--' + kind);
       if (iconName) {
-        var icon = el('i', 'fa-solid ' + iconName + ' watch-results__icon');
-        icon.setAttribute('aria-hidden', 'true');
-        msg.appendChild(icon);
+        msg.appendChild(MM.dom.icon(iconName, 'watch-results__icon'));
       }
       fadeIn(msg);
     }
@@ -369,7 +361,7 @@
     /* Nothing found. With TMDB not set up, the line below says why nothing
        outside the library was searched. */
     function showNothing(q, notSetUp) {
-      showLine('empty', 'fa-magnifying-glass');
+      showLine('empty', 'i-magnifying-glass');
       var line = 'No matches for “' + q + '”';
       msg.appendChild(el('span', 'watch-results__line', line));
       msg.appendChild(el('span', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));

@@ -11,6 +11,7 @@
   if (!core || !root) return;
 
   var el = core.el;
+  var icon = window.MM.dom.icon;
   var toArray = core.toArray;
   var safePath = core.safePath;
 
@@ -66,12 +67,6 @@
   var known = {};
 
   /* ── Small builders ── */
-
-  function icon(name) {
-    var i = el('i', 'fa-solid ' + name);
-    i.setAttribute('aria-hidden', 'true');
-    return i;
-  }
 
   function button(cls, label, iconName) {
     var b = el('button', cls);
@@ -497,7 +492,7 @@
     body.textContent = '';
     var box = el('div', 'ttl__failed fade-in');
     box.setAttribute('role', 'alert');
-    box.appendChild(icon('fa-circle-exclamation'));
+    box.appendChild(icon('i-circle-exclamation'));
     box.appendChild(el('p', 'ttl__failed-line', "Couldn't load details"));
     var why = err && err.status === 404 ? 'This title is not available any more.'
       : err && err.error === 'tmdb_not_configured' ? 'Titles outside the library need TMDB, which is not set up.'
@@ -656,7 +651,7 @@
     lead.appendChild(main);
     if (d.leaving && cur.keepId) {
       var line = el('p', 'ttl__leaving');
-      line.appendChild(icon('fa-clock'));
+      line.appendChild(icon('i-clock'));
       line.appendChild(document.createTextNode(leavingText(d.leaving.days) + ' Keep it to stop the deletion.'));
       main.appendChild(line);
     }
@@ -802,14 +797,14 @@
     var a = el('a', 'btn btn--lg watch-btn--play');
     a.setAttribute('href', safePath(play.href) || '#');
     a.setAttribute('data-ttl-act', 'primary');
-    a.appendChild(icon('fa-play'));
+    a.appendChild(icon('i-play'));
     a.appendChild(document.createTextNode(play.label || 'Play'));
     return a;
   }
 
-  function note(text, iconName) {
+  function note(text, iconName, iconClass) {
     var p = el('p', 'ttl__note');
-    if (iconName) p.appendChild(icon(iconName));
+    if (iconName) p.appendChild(icon(iconName, iconClass));
     p.appendChild(el('span', '', text));
     return p;
   }
@@ -827,7 +822,7 @@
     b.setAttribute('aria-expanded', 'false');
     b.setAttribute('aria-label', 'Keep ' + (d.title || cur.title));
     b.appendChild(el('span', '', 'Keep'));
-    b.appendChild(icon('fa-chevron-down watch-keep__chev'));
+    b.appendChild(icon('i-chevron-down', 'watch-keep__chev'));
     return b;
   }
 
@@ -882,12 +877,12 @@
     var k = stateOf(cur.ref);
     var rec = /^rec-/.test(cur.ref) || !!cur.recId;
     if (k.state === 'in_library' || cur.justAdded) {
-      actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'In library', 'fa-circle-check'));
-      if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'fa-circle-check ttl__note-ok'));
+      actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'In library', 'i-circle-check'));
+      if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'i-circle-check', 'ttl__note-ok'));
       return;
     }
     if (k.state === 'queued') {
-      actions.appendChild(statePill('dl-state--queued', 'Queued', 'fa-clock'));
+      actions.appendChild(statePill('dl-state--queued', 'Queued', 'i-clock'));
       var q = el('p', 'ttl__note');
       var words = el('span', '', 'Waiting for a download slot. Follow it in ');
       var link = el('a', '', 'Downloads');
@@ -919,14 +914,14 @@
     if (!d.download) return;
     var tv = d.kind !== 'movie';
     if (k.tracked || (tv && d.sonarr_tracked)) {
-      actions.appendChild(statePill('dl-state--done', tv ? 'Already in Sonarr' : 'Already in Radarr', 'fa-circle-check'));
+      actions.appendChild(statePill('dl-state--done', tv ? 'Already in Sonarr' : 'Already in Radarr', 'i-circle-check'));
       return;
     }
     if (tv && d.seasons && d.seasons.length && d.seasons.every(function (s) { return s.in_library; })) {
-      actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'fa-circle-check'));
+      actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'i-circle-check'));
       return;
     }
-    var dl = button('btn btn--lg btn--primary ttl__download', '', 'fa-download');
+    var dl = button('btn btn--lg btn--primary ttl__download', '', 'i-download');
     dl.setAttribute('data-ttl-act', 'primary');
     dl.appendChild(el('span', 'ttl__download-label'));
     if (k.busy) {
@@ -944,7 +939,7 @@
     if (k.error) {
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
-      err.appendChild(icon('fa-circle-exclamation'));
+      err.appendChild(icon('i-circle-exclamation'));
       err.appendChild(el('span', '', k.error));
       var again = button('ttl__retry', 'Try again');
       again.setAttribute('data-ttl-act', 'retry');
@@ -969,7 +964,7 @@
      will email. */
   function emailHint(d) {
     return note("You can close this — you'll get an email when " +
-      (d.kind === 'movie' ? 'the movie' : 'the show') + " is ready.", 'fa-envelope');
+      (d.kind === 'movie' ? 'the movie' : 'the show') + " is ready.", 'i-envelope');
   }
 
   function seasonPick(d) {
@@ -999,7 +994,7 @@
       if (s.in_library) chip.setAttribute('aria-disabled', 'true');
       var box = el('span', 'season-chip__box');
       box.setAttribute('aria-hidden', 'true');
-      box.appendChild(icon('fa-check'));
+      box.appendChild(icon('i-check'));
       chip.appendChild(box);
       chip.appendChild(el('span', 'season-chip__name', s.name || 'Season ' + s.number));
       var sub = s.in_library ? 'In library'
@@ -1293,7 +1288,7 @@
   function trailerButton(d) {
     if (!trailerKey(d)) return null;
     var on = root.classList.contains('is-trailer');
-    var b = button('btn btn--lg watch-btn--grey ttl__trailer', '', on ? 'fa-xmark' : 'fa-film');
+    var b = button('btn btn--lg watch-btn--grey ttl__trailer', '', on ? 'i-xmark' : 'i-film');
     b.setAttribute('data-ttl-act', 'trailer');
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
     b.appendChild(document.createTextNode(on ? 'Close trailer' : 'Trailer'));
@@ -1307,7 +1302,7 @@
     var b = root.querySelector('[data-ttl-act="trailer"]');
     if (!b) return;
     b.textContent = '';
-    b.appendChild(icon(on ? 'fa-xmark' : 'fa-film'));
+    b.appendChild(icon(on ? 'i-xmark' : 'i-film'));
     b.appendChild(document.createTextNode(on ? 'Close trailer' : 'Trailer'));
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
@@ -1370,7 +1365,7 @@
     // every state; the icon and the label sit centred together inside it.
     b.setAttribute('data-widest', 'Sharing…');
     var group = el('span', 'ttl__share-group');
-    group.appendChild(icon(st === 'copied' ? 'fa-check' : 'fa-share-nodes'));
+    group.appendChild(icon(st === 'copied' ? 'i-check' : 'i-share-nodes'));
     group.appendChild(el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share'));
     b.appendChild(group);
     if (st === 'busy') b.setAttribute('aria-disabled', 'true');
@@ -1571,7 +1566,7 @@
     var aside = el('aside', 'ttl-facts');
     aside.setAttribute('aria-label', 'Library facts, admins only');
     var eyebrow = el('p', 'ttl-facts__eyebrow');
-    eyebrow.appendChild(icon('fa-lock'));
+    eyebrow.appendChild(icon('i-lock'));
     eyebrow.appendChild(document.createTextNode('Admin only'));
     aside.appendChild(eyebrow);
     var dl = el('dl', 'ttl-facts__list');
@@ -1618,9 +1613,9 @@
       trigger.setAttribute('data-ttl-act', 'admin-keep');
       trigger.setAttribute('aria-haspopup', 'menu');
       trigger.setAttribute('aria-expanded', 'false');
-      if (f.keep && f.keep.state !== 'none') trigger.appendChild(icon('fa-check'));
+      if (f.keep && f.keep.state !== 'none') trigger.appendChild(icon('i-check'));
       trigger.appendChild(document.createTextNode(f.keep && f.keep.state !== 'none' ? 'Kept' : 'Keep'));
-      trigger.appendChild(icon('fa-chevron-down watch-keep__chev'));
+      trigger.appendChild(icon('i-chevron-down', 'watch-keep__chev'));
       var menu = el('div', 'ttl-facts__menu');
       menu.setAttribute('role', 'menu');
       menu.setAttribute('aria-label', 'Keep for');
@@ -1656,7 +1651,7 @@
     var del = actions.delete;
     var canDelete = del && (del.kind === 'movie' ? api.confirmDelete : api.pickSeasonDelete);
     if (canDelete) {
-      var delBtn = button('btn btn--danger ttl-facts__btn', 'Delete', 'fa-trash');
+      var delBtn = button('btn btn--danger ttl-facts__btn', 'Delete', 'i-trash');
       delBtn.setAttribute('data-ttl-act', 'admin-delete');
       if (del.kind !== 'movie') delBtn.setAttribute('aria-haspopup', 'dialog');
       delBtn.addEventListener('click', function () {

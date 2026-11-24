@@ -747,7 +747,8 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     play = client.get("/watch/play/123456")
     assert play.status_code == 200
     assert "This is not in the library any more." in play.text
-    assert "film" not in play.text.lower()
+    page = re.sub(r'<svg class="ico-sprite".*?</svg>', "", play.text, flags=re.S)
+    assert "film" not in page.lower()
 
     plex.error = PlexUnavailable("Plex could not be reached")
     play = client.get("/watch/play/512")

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 
 {# Full-window player. The page context reaches player.js only through the
    data-attributes on #player: tojson output is safe inside single quotes. #}
@@ -29,7 +30,7 @@
 
   <div class="player-top player-chrome">
     <a class="player-back" href="{{ back_href }}" aria-label="Back">
-      <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+      {{ icon("i-chevron-left") }}
     </a>
     <div class="player-titles">
       <h1 class="player-title">{{ item.title }}</h1>
@@ -67,13 +68,13 @@
 
     <div class="player-controls">
       <button type="button" class="player-btn" data-play aria-label="Play">
-        <i class="fa-solid fa-play" aria-hidden="true"></i>
+        {{ icon("i-play") }}<span class="player-btn-ring" aria-hidden="true" hidden></span>
       </button>
       <button type="button" class="player-btn player-btn--text" data-back10 aria-label="Back 10 seconds">↺ 10</button>
       <button type="button" class="player-btn player-btn--text" data-fwd10 aria-label="Forward 10 seconds">10 ↻</button>
       <div class="player-volume">
         <button type="button" class="player-btn" data-mute aria-label="Mute">
-          <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+          {{ icon("i-volume-high") }}
         </button>
         <input type="range" class="player-volume-slider" data-volume min="0" max="1" step="0.05" value="1" aria-label="Volume">
       </div>
@@ -82,7 +83,7 @@
 
       {% if next %}
       <a class="player-pill" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}">
-        <i class="fa-solid fa-forward-step player-narrow" aria-hidden="true"></i>
+        {{ icon("i-forward-step", "player-narrow") }}
         <span class="player-wide">Next episode ›</span>
       </a>
       {% endif %}
@@ -96,13 +97,13 @@
           {% for value, name, res in qualities %}
           <button type="button" class="player-menu-item" role="menuitemradio"
                   aria-checked="{{ 'true' if value == 'best' else 'false' }}"
-                  data-quality="{{ value }}" data-quality-label="{{ name }}" data-quality-res="{{ res }}">{{ name }} · {{ res }}</button>
+                  data-quality="{{ value }}" data-quality-label="{{ name }}" data-quality-res="{{ res }}">{{ name }} · {{ res }}{{ icon("i-check", "player-menu-tick") }}</button>
           {% endfor %}
         </div>
       </div>
 
       <button type="button" class="player-pill" data-fullscreen aria-label="Full screen">
-        <i class="fa-solid fa-expand player-narrow" aria-hidden="true"></i>
+        {{ icon("i-expand", "player-narrow") }}
         <span class="player-wide" data-fullscreen-label>Full screen</span>
       </button>
     </div>

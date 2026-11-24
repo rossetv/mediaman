@@ -17,7 +17,7 @@
 .search-box:focus-within,
 .search-wrap:focus-within { border-color: var(--accent); background: var(--s3); }
 
-.search-box .fa-magnifying-glass,
+.search-box .ico,
 .search-wrap .search-icon,
 .search-icon {
   font-size: 16px;

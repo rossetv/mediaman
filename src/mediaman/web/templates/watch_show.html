@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
 
 {% block title %}{{ show.title if show else "Watch" }} · Mediaman{% endblock %}
@@ -26,7 +27,7 @@
       {% if show.summary %}<p class="watch-hero__summary">{{ show.summary }}</p>{% endif %}
       {% if leaving %}{{ w.leaving_line(leaving, show.title) }}{% elif season_leaving %}<p class="watch-leaving{% if other_leaving %} watch-leaving--other{% endif %}" data-watch-leaving>{% if other_leaving %}{{ w.other_leaving_text(other_leaving) }}{% endif %}</p>{% endif %}
       <div class="watch-actions">
-        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ primary.label }}</a>
+        <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}">{{ icon("i-play") }}{{ primary.label }}</a>
       </div>
       {% if seasons %}
       <nav class="watch-seasons" aria-label="Seasons">

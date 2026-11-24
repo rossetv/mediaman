@@ -28,7 +28,7 @@ Object.defineProperty(Node.prototype, 'id', {
 
 /* The template's markup as fake-DOM nodes: tags, attributes and text only. */
 function parseTemplate(doc, html) {
-  html = html.replace(/\{#[\s\S]*?#\}/g, '');
+  html = html.replace(/\{#[\s\S]*?#\}|\{\{.*?\}\}|\{%.*?%\}/g, '');
   const top = doc.createElement('div');
   const stack = [top];
   const re = /<\/([a-z0-9]+)\s*>|<([a-z0-9]+)((?:\s+[\w-]+(?:="[^"]*")?)*)\s*>|([^<]+)/gi;
@@ -226,7 +226,7 @@ function load(opts = {}) {
     ctx.MMWatch = { admin: opts.adminApi };
   }
   vm.createContext(ctx);
-  const run = () => ['watch/core.js', 'watch/keep.js', 'watch/detail.js']
+  const run = () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/detail.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
   const ttl = () => doc.getElementById('ttl');
   const q = (sel) => ttl().querySelector(sel);
@@ -1083,7 +1083,7 @@ const scenarios = {
       const b = p.q('[data-ttl-act="share"]');
       const n = p.q('[data-ttl-act="share"] .ttl__share-label');
       return { text: n.textContent, widest: b.getAttribute('data-widest'), group: n.parentNode.className,
-        icon: n.parentNode.children[0].className, inButton: n.parentNode.parentNode === b, groups: b.children.length };
+        icon: n.parentNode.children[0].querySelector('use').getAttribute('href'), inButton: n.parentNode.parentNode === b, groups: b.children.length };
     };
     const states = [label()];
     click(p.doc, p.q('[data-ttl-act="share"]'));

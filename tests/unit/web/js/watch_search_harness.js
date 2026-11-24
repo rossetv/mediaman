@@ -51,7 +51,7 @@ function load(data) {
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   doc.getElementById('watch-results').hidden = true;
   doc.getElementById('watch-search').value = '';
-  ['core.js', 'keep.js', 'search.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  ['../core/dom.js', 'core.js', 'keep.js', 'search.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   ctx.MMWatch.search.init();
   const input = doc.getElementById('watch-search');
   const $ = (id) => doc.getElementById(id);

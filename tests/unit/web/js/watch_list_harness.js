@@ -63,7 +63,7 @@ function row(r) {
     'data-kept': String(!!r.kept), 'data-deletion': String(!!r.deletion),
   },
   ['button', { class: 'keep-trigger' + (r.kept ? ' keep-trigger--kept' : ''), 'aria-label': (r.kept ? 'Manage keep on ' : 'Keep ') + r.title },
-    ...(r.kept ? [['i', { class: 'fa-solid fa-check keep-trigger__tick', 'aria-hidden': 'true' }]] : []),
+    ...(r.kept ? [['svg', { class: 'ico keep-trigger__tick', 'aria-hidden': 'true' }, ['use', { href: '#i-check' }]]] : []),
     ['span', {}, r.kept ? 'Kept' : 'Keep']],
   ['div', { class: 'snooze-dropdown' },
     ['button', { class: 'snooze-option', 'data-keep-dur': '30 days' }, '30 days'],
@@ -199,7 +199,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['watch/core.js', 'watch/admin.js', 'watch/list.js']
+  ['core/dom.js', 'watch/core.js', 'watch/admin.js', 'watch/list.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
   // The search field listens on window, so the event must bubble up to it.
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));

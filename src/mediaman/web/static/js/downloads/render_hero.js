@@ -130,10 +130,7 @@
     btn.type = 'button';
     btn.className = 'dl-hero-episodes-toggle';
     btn.setAttribute('data-v', 'ep-toggle');
-    var chev = document.createElement('i');
-    chev.className = 'fa-solid fa-chevron-right';
-    chev.setAttribute('aria-hidden', 'true');
-    btn.appendChild(chev);
+    btn.appendChild(MM.dom.icon('i-chevron-right'));
     var label = document.createElement('span');
     label.textContent = count + ' episode' + (count !== 1 ? 's' : '') + (hasPack ? ' · pack download' : '');
     btn.appendChild(label);

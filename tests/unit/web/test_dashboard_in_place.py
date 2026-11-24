@@ -165,7 +165,7 @@ class TestRefreshInPlace:
         seen = _run("scanLabel")["seen"]
         assert [s["label"] for s in seen] == ["Scanning", "Scan complete", "Scan now", "Retry scan"]
         assert all(s["icon"] for s in seen)
-        assert "fa-check" in seen[1]["icon"]
+        assert seen[1]["icon"] == "#i-check"
 
     def test_failed_scan_is_told_beside_the_button_not_in_a_toast_too(self):
         out = _run("scanFailed")

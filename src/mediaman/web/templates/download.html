@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 
 {% block title %}
   {% if state == "confirm" %}Download · {{ item.title }} · Mediaman
@@ -118,7 +119,7 @@
   {% if item.download_state == "in_library" %}
     {# Already in library — success message #}
     <div class="dl-result">
-      <i class="fa-solid fa-circle-check dl-result-icon dl-result-icon--success" aria-hidden="true"></i>
+      {{ icon("i-circle-check", "dl-result-icon dl-result-icon--success") }}
       <div class="dl-result-title dl-result-title--success">Already in your library</div>
       <div class="dl-result-detail">This title is available to watch in Plex.</div>
     </div>
@@ -126,7 +127,7 @@
   {% elif item.download_state == "tracked" %}
     {# Held by Sonarr, with nothing it would fetch now: nothing to download from here #}
     <div class="dl-result">
-      <i class="fa-solid fa-circle-check dl-result-icon dl-result-icon--success" aria-hidden="true"></i>
+      {{ icon("i-circle-check", "dl-result-icon dl-result-icon--success") }}
       <div class="dl-result-title dl-result-title--success">Already tracked by Sonarr</div>
       <div class="dl-result-detail">Sonarr has nothing to download for it right now.</div>
     </div>
@@ -176,7 +177,7 @@
       <div class="status-dot dot-muted"></div> Please wait
     </div>
     <div class="dl-expired-icon-wrap">
-      <i class="fa-regular fa-hourglass-half dl-expired-icon" aria-hidden="true"></i>
+      {{ icon("i-hourglass-half-regular", "dl-expired-icon") }}
     </div>
     <h1 class="dl-expired-title">Too many requests</h1>
     <div class="dl-expired-sub">Wait a minute, then open this link again.</div>
@@ -190,7 +191,7 @@
       <div class="status-dot dot-muted"></div> Expired
     </div>
     <div class="dl-expired-icon-wrap">
-      <i class="fa-regular fa-clock dl-expired-icon" aria-hidden="true"></i>
+      {{ icon("i-clock-regular", "dl-expired-icon") }}
     </div>
     <h1 class="dl-expired-title">This download link has expired</h1>
     <div class="dl-expired-sub">Download links are valid for 14 days after the newsletter is sent.</div>

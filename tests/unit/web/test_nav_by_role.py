@@ -32,22 +32,22 @@ def _render(role: str | None, *, path: str = "/watch", **ctx: object) -> str:
 
 
 def _hrefs(html: str) -> set[str]:
-    return set(re.findall(r'href="([^"]+)"', html))
+    return set(re.findall(r'<a\b[^>]*\bhref="([^"]+)"', html))
 
 
 def _desktop_links(html: str) -> list[str]:
     rail = html.split('<nav class="nav-links"')[1].split("</nav>")[0]
-    return re.findall(r'href="([^"]+)"', rail)
+    return re.findall(r'<a\b[^>]*\bhref="([^"]+)"', rail)
 
 
 def _tabbar_links(html: str) -> list[str]:
     bar = html.split('<nav class="nav-tabs"')[1].split("</nav>")[0]
-    return re.findall(r'href="([^"]+)"', bar)
+    return re.findall(r'<a\b[^>]*\bhref="([^"]+)"', bar)
 
 
 def _more_links(html: str) -> list[str]:
     sheet = html.split('id="nav-more-sheet"')[1]
-    return re.findall(r'href="([^"]+)"', sheet)
+    return re.findall(r'<a\b[^>]*\bhref="([^"]+)"', sheet)
 
 
 def test_viewer_menu_has_only_what_a_viewer_can_open():

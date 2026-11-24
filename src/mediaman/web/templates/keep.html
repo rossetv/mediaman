@@ -31,11 +31,11 @@
         {% if item.plex_rating_key %}
           <img src="{{ poster_url }}" alt="" data-broken-on-error>
           <div class="item-poster-empty">
-            <i class="fa-solid fa-image" aria-hidden="true"></i>
+            {{ c.icon("i-image") }}
           </div>
         {% else %}
           <div class="item-poster-empty">
-            <i class="fa-solid fa-image" aria-hidden="true"></i>
+            {{ c.icon("i-image") }}
           </div>
         {% endif %}
       </div>
@@ -109,11 +109,11 @@
         {% if item.plex_rating_key %}
           <img src="{{ poster_url }}" alt="" data-broken-on-error>
           <div class="item-poster-empty">
-            <i class="fa-solid fa-image" aria-hidden="true"></i>
+            {{ c.icon("i-image") }}
           </div>
         {% else %}
           <div class="item-poster-empty">
-            <i class="fa-solid fa-image" aria-hidden="true"></i>
+            {{ c.icon("i-image") }}
           </div>
         {% endif %}
       </div>
@@ -137,7 +137,7 @@
 
       <div class="already-kept-msg">
         <div class="check-icon">
-          <i class="fa-solid fa-check text-success" aria-hidden="true"></i>
+          {{ c.icon("i-check", "text-success") }}
         </div>
         <div class="msg-title">
           {% if just_kept and item.snooze_duration %}Kept for {{ item.snooze_duration }}
@@ -192,7 +192,7 @@
 
       <div class="expired-msg">
         <div class="expired-icon">
-          <i class="fa-regular fa-circle-xmark" aria-hidden="true"></i>
+          {{ c.icon("i-circle-xmark-regular") }}
         </div>
         <h1 class="expired-title">{{ error_heading or "We could not keep this item" }}</h1>
         <div class="expired-detail">{{ error_message }}</div>
@@ -214,7 +214,7 @@
         <div class="poster-container poster-faded">
           <img src="{{ poster_url }}" alt="" data-broken-on-error>
           <div class="item-poster-empty">
-            <i class="fa-solid fa-image" aria-hidden="true"></i>
+            {{ c.icon("i-image") }}
           </div>
         </div>
         <h1 class="item-title item-title--secondary">{{ item.title }}</h1>
@@ -223,7 +223,7 @@
 
       <div class="expired-msg">
         <div class="expired-icon">
-          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          {{ c.icon("i-clock-regular") }}
         </div>
         {# The item's title, when shown above, is the page's h1. #}
         {% set level = "h2" if item and item.plex_rating_key else "h1" %}

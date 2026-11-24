@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
 
 {% block title %}Watch · Mediaman{% endblock %}
@@ -47,16 +48,16 @@
 <div class="watch-page" id="watch-page">
   <div class="watch-top" id="watch-top">
     <div class="watch-search" role="search">
-      <i class="fa-solid fa-magnifying-glass watch-search__icon" aria-hidden="true"></i>
+      {{ icon("i-magnifying-glass", "watch-search__icon") }}
       <span class="search-spinner watch-search__spinner" aria-hidden="true"></span>
       {% set search_label = "Search your library" if list_view else "Search films and shows" %}
       <input id="watch-search" class="watch-search__input" type="search" placeholder="{{ search_label }}" aria-label="{{ search_label }}" autocomplete="off" spellcheck="false"{% if q %} value="{{ q }}"{% endif %}>
-      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search"{% if not q %} hidden{% endif %}><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search"{% if not q %} hidden{% endif %}>{{ icon("i-xmark") }}</button>
     </div>
     {% if is_admin %}
     <nav class="watch-viewtoggle" id="watch-viewtoggle" aria-label="View">
-      <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i><span class="watch-viewtoggle__label">Browse</span></a>
-      <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}><i class="fa-solid fa-list" aria-hidden="true"></i><span class="watch-viewtoggle__label">List</span></a>
+      <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}>{{ icon("i-table-cells-large") }}<span class="watch-viewtoggle__label">Browse</span></a>
+      <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}>{{ icon("i-list") }}<span class="watch-viewtoggle__label">List</span></a>
     </nav>
     {% endif %}
     <p class="sr-only" id="watch-search-status" role="status"></p>
@@ -83,7 +84,7 @@
         {% endif %}
         {% if banner.progress_pct %}<progress class="watch-bar watch-bar--banner" max="100" value="{{ banner.progress_pct }}" aria-hidden="true"></progress>{% endif %}
         <div class="watch-actions">
-          <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}"><i class="fa-solid fa-play" aria-hidden="true"></i>{{ banner.primary.label }}</a>
+          <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}">{{ icon("i-play") }}{{ banner.primary.label }}</a>
           {% if banner.episodes_href %}<a class="btn btn--lg watch-btn--grey" href="{{ banner.episodes_href }}">Episodes</a>{% endif %}
           {% if banner.ref %}<a class="btn btn--lg watch-btn--grey" href="/watch#title={{ banner.ref }}" data-title-ref="{{ banner.ref }}" data-title="{{ banner.title }}">Details</a>{% endif %}
         </div>

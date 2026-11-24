@@ -222,10 +222,7 @@
       var toggle = document.createElement('div');
       toggle.className = 'dl-hero-episodes-toggle';
       toggle.setAttribute('data-v', 'ep-toggle');
-      var chevIcon = document.createElement('i');
-      chevIcon.className = 'fa-solid fa-chevron-right';
-      chevIcon.setAttribute('aria-hidden', 'true');
-      toggle.appendChild(chevIcon);
+      toggle.appendChild(MM.dom.icon('i-chevron-right'));
       var countSpan = document.createElement('span');
       countSpan.textContent = episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
       toggle.appendChild(countSpan);
@@ -326,12 +323,9 @@
     var resultEl = document.getElementById('download-result');
     resultEl.replaceChildren();
 
-    var resultIcon = document.createElement('i');
-    resultIcon.className = 'fa-solid ' + (success ? 'fa-circle-check' : 'fa-circle-xmark') + ' dl-result-icon';
-    if (success) resultIcon.classList.add('dl-result-icon--success');
-    else resultIcon.classList.add('dl-result-icon--error');
-    resultIcon.setAttribute('aria-hidden', 'true');
-    resultEl.appendChild(resultIcon);
+    resultEl.appendChild(success
+      ? MM.dom.icon('i-circle-check', 'dl-result-icon dl-result-icon--success')
+      : MM.dom.icon('i-circle-xmark', 'dl-result-icon dl-result-icon--error'));
 
     var titleDiv = document.createElement('div');
     titleDiv.className = 'dl-result-title';

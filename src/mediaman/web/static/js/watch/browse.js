@@ -9,6 +9,7 @@
   var watch = window.MMWatch;
   var core = watch.core;
   var el = core.el;
+  var icon = window.MM.dom.icon;
   var byId = core.byId;
   var toArray = core.toArray;
   var safePath = core.safePath;
@@ -51,7 +52,7 @@
     var node;
     if (state === 'downloading') {
       node = el('span', 'watch-badge watch-badge--state watch-badge--downloading');
-      node.appendChild(icon('fa-solid fa-arrow-down'));
+      node.appendChild(icon('i-arrow-down'));
       if (typeof pct === 'number') {
         node.appendChild(el('span', 'sr-only', 'Downloading '));
         node.appendChild(document.createTextNode(pct + '%'));
@@ -60,20 +61,14 @@
       }
     } else if (state === 'queued') {
       node = el('span', 'watch-badge watch-badge--state watch-badge--queued');
-      node.appendChild(icon('fa-solid fa-clock'));
+      node.appendChild(icon('i-clock'));
       node.appendChild(document.createTextNode('Queued'));
     } else if (inLibrary || state === 'in_library' || state === 'partial') {
       node = el('span', 'watch-badge watch-badge--state watch-badge--in');
-      node.appendChild(icon('fa-solid fa-check'));
+      node.appendChild(icon('i-check'));
       node.appendChild(document.createTextNode('In library'));
     }
     return node || null;
-  }
-
-  function icon(className) {
-    var i = el('i', className);
-    i.setAttribute('aria-hidden', 'true');
-    return i;
   }
 
   /* One poster card, the markup of _watch_card.html's card(). The link
@@ -279,7 +274,7 @@
     button.setAttribute('aria-label', 'Picks: ' + chosen.label + ', ' + chosen.date_label + '. Choose another batch');
     button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
     button.appendChild(document.createTextNode(chosen.date_label));
-    button.appendChild(icon('fa-solid fa-chevron-down row-tool__chev'));
+    button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
   }
 
@@ -306,7 +301,7 @@
       item.setAttribute('tabindex', '-1');
       item.setAttribute('data-batch', b.id);
       item.setAttribute('aria-checked', b.id === payload.batch ? 'true' : 'false');
-      item.appendChild(icon('fa-solid fa-check'));
+      item.appendChild(icon('i-check'));
       item.appendChild(document.createTextNode(batchName(b, i === 0)));
       picksMenuNode.appendChild(item);
     });
@@ -334,21 +329,21 @@
     if (state === 'ready') {
       button.removeAttribute('aria-disabled');
       button.setAttribute('aria-label', 'Refresh picks');
-      button.appendChild(icon('fa-solid fa-rotate-right'));
+      button.appendChild(icon('i-rotate-right'));
       button.appendChild(el('span', 'row-tool__long', 'Refresh picks'));
       return;
     }
     button.setAttribute('aria-disabled', 'true');
     if (state === 'busy') {
       button.setAttribute('aria-label', 'Refreshing picks');
-      button.appendChild(icon('fa-solid fa-rotate-right'));
+      button.appendChild(icon('i-rotate-right'));
       button.appendChild(el('span', 'row-tool__long', 'Refreshing…'));
       return;
     }
     var left = waitText(nextAt);
     if (!left) { setRefresh('ready'); return; }
     button.setAttribute('aria-label', 'Refresh picks, available in ' + left);
-    button.appendChild(icon('fa-regular fa-clock'));
+    button.appendChild(icon('i-clock-regular'));
     button.appendChild(el('span', 'row-tool__long', 'Refresh in '));
     button.appendChild(document.createTextNode(left));
     // The clock counts down by itself; once it runs out Refresh is back.

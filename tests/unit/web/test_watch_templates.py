@@ -592,7 +592,7 @@ def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -
     # The sizer is as wide as the icon and the gap before the label, which the group also has.
     assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
     assert "gap: var(--share-gap)" in group
-    assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .fa-solid")
+    assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .ico")
 
 
 def test_the_banner_grows_with_the_screen_and_with_a_long_title() -> None:

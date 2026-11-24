@@ -5,13 +5,13 @@
 <aside class="setg-rail">
   <div class="setg-rail-eyebrow">Settings</div>
 
-  {% set ico_overview     %}<i class="fa-solid fa-table-cells-large" aria-hidden="true"></i>{% endset %}
-  {% set ico_general      %}<i class="fa-solid fa-gear" aria-hidden="true"></i>{% endset %}
-  {% set ico_libraries    %}<i class="fa-solid fa-folder-tree" aria-hidden="true"></i>{% endset %}
-  {% set ico_cleanup      %}<i class="fa-solid fa-trash-can" aria-hidden="true"></i>{% endset %}
-  {% set ico_integrations %}<i class="fa-solid fa-plug" aria-hidden="true"></i>{% endset %}
-  {% set ico_newsletter   %}<i class="fa-solid fa-envelope" aria-hidden="true"></i>{% endset %}
-  {% set ico_users        %}<i class="fa-solid fa-users" aria-hidden="true"></i>{% endset %}
+  {% set ico_overview     %}{{ c.icon("i-table-cells-large") }}{% endset %}
+  {% set ico_general      %}{{ c.icon("i-gear") }}{% endset %}
+  {% set ico_libraries    %}{{ c.icon("i-folder-tree") }}{% endset %}
+  {% set ico_cleanup      %}{{ c.icon("i-trash-can") }}{% endset %}
+  {% set ico_integrations %}{{ c.icon("i-plug") }}{% endset %}
+  {% set ico_newsletter   %}{{ c.icon("i-envelope") }}{% endset %}
+  {% set ico_users        %}{{ c.icon("i-users") }}{% endset %}
 
   {{ c.setg_rail_item("#setg-overview",     "Overview",          ico_overview) }}
   {{ c.setg_rail_item("#setg-general",      "General & Schedule", ico_general) }}
