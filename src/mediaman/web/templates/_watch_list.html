@@ -4,7 +4,9 @@
 {% import "_components.html" as c %}
 {% import "_watch_card.html" as w %}
 {% set type_nouns = {"": "titles", "movie": "movies", "tv": "TV shows", "anime": "anime", "kept": "kept titles", "stale": "stale titles"} %}
-<div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}">
+{% set type_noun = {"": "title", "movie": "movie", "tv": "TV show", "anime": "anime", "kept": "kept title", "stale": "stale title"} %}
+<div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}"
+  data-said="{{ total or 'No' }} {{ (type_noun if total == 1 else type_nouns)[current_type] }}{% if q %} matching “{{ q }}”{% endif %}{% if total %}, {{ dict(sort_options)[current_sort] }}{% if total_pages > 1 %}, page {{ page }} of {{ total_pages }}{% endif %}{% endif %}.">
 
   {# An active tile's link clears its filter, so a second click undoes the first. #}
   <div class="wl-stats" data-list-part="stats">
@@ -112,7 +114,7 @@
                   data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
                   data-show-rk="{{ item.show_rating_key }}" data-has-rk="{{ item.has_rating_key | tojson }}" data-show-title="{{ item.show_title_raw | e }}"
                   data-title='{{ item.title | tojson }}' data-kept='{{ item.protected | tojson }}' data-deletion='{{ (item.deletion_at is not none) | tojson }}'
-                  data-keep='{{ item.keep | tojson }}'{% if item.is_tv %} data-seasons="{{ item.season_count }}"{% endif %}>
+                  data-keep='{{ (item.keep or none) | tojson }}'{% if item.is_tv %} data-seasons="{{ item.season_count }}"{% endif %}>
                 {% if item.protected %}
                   <button type="button" class="keep-trigger keep-trigger--kept"
                     aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep on {{ item.title }}">
