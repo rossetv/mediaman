@@ -390,21 +390,21 @@ def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
         return
     if not has_pending_unmonitors(conn):
         return
-    from mediaman.scanner.deletions import rescan_deleted, unmonitor_deleted
+    from mediaman.scanner.deletions import ArrTurn, rescan_deleted, unmonitor_deleted
 
     clients: dict[str, ArrClient | None] = {}
-    unusable: set[str] = set()
+    turn = ArrTurn()
     for service, build in (("Radarr", _build_radarr), ("Sonarr", _build_sonarr)):
         try:
             clients[service] = build(conn, secret_key)
         # rationale: one service's unreadable setting must not stop the other's, nor the sync.
         except Exception:
             logger.exception("Building the %s client failed — sync unaffected", service)
-            unusable.add(service)
+            turn.unusable.add(service)
     radarr, sonarr = clients.get("Radarr"), clients.get("Sonarr")
     try:
-        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, unusable=unusable)
-        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, unusable=unusable)
+        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, turn=turn)
+        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, turn=turn)
     # rationale: an unreadable setting or a payload of the wrong shape must not stop the sync.
     except Exception:
         logger.exception("Unmonitoring deleted titles failed — sync unaffected")

@@ -27,6 +27,7 @@ from typing import Any, NamedTuple
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import DeletedMedia, record_deleted_media, redownload_tokens
 from mediaman.core.library_selected import LIBRARY_SELECTED
+from mediaman.core.time import now_iso
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
@@ -90,6 +91,7 @@ __all__ = [
     "is_show_kept",
     "is_show_kept_pure",
     "mark_delete_status",
+    "mark_unanswered",
     "record_removed_files",
     "restore_keeps",
     "save_pruned_keeps",
@@ -646,21 +648,38 @@ def book_deletion(
     delete_scheduled_action(conn, row.id)
 
 
+# When a mark's service last gave it no answer; NULL, so first in order, while it never did.
+_UNANSWERED_AT = (
+    "CASE WHEN json_valid(p.removed_files) "
+    "THEN json_extract(p.removed_files, '$.unanswered_at') END"
+)
+
 # The Radarr/Sonarr entry a mark waits to have rescanned; NULL while it is still to be told.
 _RESCAN_ID = "CASE WHEN json_valid(removed_files) THEN json_extract(removed_files, '$.rescan') END"
 
 
+_MARK_COLUMNS = (
+    "p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
+    "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
+    "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
+    "1 AS library_selected"
+)
+_MARKS = (
+    "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
+    "JOIN deleted_media d ON d.audit_id = p.audit_id"
+)
+
+
 def fetch_pending_unmonitors(conn: sqlite3.Connection) -> list[DeletionRow]:
-    """Return each booked deletion Radarr/Sonarr is still to be told of; its ``id`` is its audit's."""
-    # rationale: the interpolated condition is a fixed string
+    """Return each booked deletion Radarr/Sonarr is still to be told of; its ``id`` is its audit's.
+
+    Those never left without an answer come first, then those left so longest ago, so a few
+    that never get one do not hold up the others.
+    """
+    # rationale: the interpolated expressions are fixed strings
     rows = conn.execute(  # nosec B608
-        "SELECT p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
-        "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
-        "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
-        "1 AS library_selected "
-        "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
-        "JOIN deleted_media d ON d.audit_id = p.audit_id "
-        f"WHERE {_RESCAN_ID} IS NULL ORDER BY p.audit_id"
+        f"SELECT {_MARK_COLUMNS} {_MARKS} "
+        f"WHERE {_RESCAN_ID} IS NULL ORDER BY {_UNANSWERED_AT}, p.audit_id"
     ).fetchall()
     return [_row_to_deletion_row(row) for row in rows]
 
@@ -682,18 +701,31 @@ def await_rescan(conn: sqlite3.Connection, audit_id: int, entry_id: int) -> bool
 
 
 def fetch_pending_rescans(conn: sqlite3.Connection, *, movies: bool) -> dict[int, list[int]]:
-    """Return each Radarr (*movies*) or Sonarr entry to rescan, with the marks that wait for it."""
-    # rationale: the interpolated expression is a fixed string; every value is bound
+    """Return each Radarr (*movies*) or Sonarr entry to rescan, with the marks that wait for it.
+
+    In the order of fetch_pending_unmonitors.
+    """
+    # rationale: the interpolated expressions are fixed strings; every value is bound
     rows = conn.execute(  # nosec B608
         f"SELECT p.audit_id, {_RESCAN_ID} AS entry_id FROM pending_unmonitors p "
         "JOIN deleted_media d ON d.audit_id = p.audit_id "
-        "WHERE entry_id IS NOT NULL AND (d.media_type = 'movie') = ? ORDER BY entry_id",
+        "WHERE entry_id IS NOT NULL AND (d.media_type = 'movie') = ? "
+        f"ORDER BY {_UNANSWERED_AT}, entry_id",
         (movies,),
     ).fetchall()
     entries: dict[int, list[int]] = {}
     for row in rows:
         entries.setdefault(row["entry_id"], []).append(row["audit_id"])
     return entries
+
+
+def mark_unanswered(conn: sqlite3.Connection, audit_id: int) -> None:
+    """Record that the mark got no answer now, so the others go before it the next time."""
+    conn.execute(
+        "UPDATE pending_unmonitors SET removed_files = json_set(removed_files, '$.unanswered_at', ?) "
+        "WHERE audit_id = ? AND json_valid(removed_files)",
+        (now_iso(), audit_id),
+    )
 
 
 def finish_unmonitor(conn: sqlite3.Connection, audit_id: int) -> bool:

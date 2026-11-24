@@ -515,16 +515,86 @@ def test_a_radarr_that_gives_no_answer_is_audited_once_and_told_once_it_does(con
     assert _skips(conn) == ["m1"]
 
 
-def test_a_radarr_that_gives_no_answer_is_waited_for_once_a_pass(conn, root):
+def _caused_by(error, cause):
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _NO_ANSWER,
+        _caused_by(SafeHTTPError(0, "transport error", "u"), requests.ConnectTimeout("no host")),
+        SafeHTTPError(403, "wrong key", "u"),
+    ],
+    ids=["refused", "no host", "wrong key"],
+)
+def test_a_radarr_that_is_down_is_waited_for_once_a_pass(conn, root, failure):
     for number in (1, 2, 3):
         _due(conn, root, number)
     down = _radarr(root)
-    down.get_movie_by_id.side_effect = _NO_ANSWER
+    down.get_movie_by_id.side_effect = failure
 
     DeletionExecutor(conn=conn, radarr_client=down).execute()
 
     assert len(down.mock_calls) == 1
     assert _skips(conn) == ["m1", "m2", "m3"]
+
+
+_SLOW = _caused_by(SafeHTTPError(0, "transport error", "u"), requests.ReadTimeout("slow"))
+
+
+def _radarr_stuck_on(root, *stuck, failure=_SLOW):
+    radarr = _radarr(root)
+    answer = radarr.get_movie_by_id.side_effect
+    radarr.get_movie_by_id.side_effect = lambda i: _raise(failure) if i in stuck else answer(i)
+    return radarr
+
+
+def _asked(radarr):
+    return [call.args[0] for call in radarr.get_movie_by_id.call_args_list]
+
+
+@pytest.mark.parametrize(
+    "failure", [_SLOW, requests.ReadTimeout("slow"), SafeHTTPError(504, "", "u")]
+)
+def test_a_title_radarr_never_answers_for_does_not_hold_up_the_others(conn, root, failure):
+    for number in (1, 2, 3):
+        _due(conn, root, number)
+    radarr = _radarr_stuck_on(root, 1, failure=failure)
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert _unmonitored(radarr) == [2, 3]
+    assert _asked(radarr).count(1) == 1
+    assert _skips(conn) == ["m1"]
+
+
+def test_a_pass_that_waited_long_enough_asks_about_no_more_titles(conn, root, monkeypatch):
+    for number in (1, 2, 3, 4):
+        _due(conn, root, number)
+    clock = iter(range(0, 10_000, 100))
+    monkeypatch.setattr(deletions, "monotonic", lambda: next(clock))
+    radarr = _radarr_stuck_on(root, 1, 2, 3, 4)
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert _asked(radarr) == [1, 2]
+
+
+def test_the_titles_given_no_answer_are_asked_about_last_the_next_time(conn, root, monkeypatch):
+    for number in (1, 2, 3, 4):
+        _due(conn, root, number)
+    down = _radarr_stuck_on(root, 1, 2, 3, 4)
+    clock = iter(range(0, 10_000, 100))
+    monkeypatch.setattr(deletions, "monotonic", lambda: next(clock))
+    DeletionExecutor(conn=conn, radarr_client=down).execute()
+    radarr = _radarr_stuck_on(root, 1, 2)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == [3, 4]
+    assert _asked(radarr) == [3, 4, 1, 2]
 
 
 def test_a_radarr_that_refuses_the_unmonitor_is_not_asked_again(conn, root):
@@ -625,16 +695,22 @@ def test_a_title_left_monitored_is_not_rescanned(conn, root):
     assert _rescanned(radarr) == []
 
 
-def test_a_rescan_that_fails_leaves_the_deletion_booked_and_ends_radarrs_turn(conn, root):
+@pytest.mark.parametrize(
+    ("failure", "asked"),
+    [(_NO_ANSWER, [1]), (_SLOW, [1, 2]), (SafeHTTPError(503, "", "u"), [1, 2])],
+)
+def test_a_rescan_that_fails_leaves_the_deletion_booked_and_ends_the_turn_of_a_radarr_that_is_down(
+    conn, root, failure, asked
+):
     for number in (1, 2):
         _due(conn, root, number)
     radarr = _radarr(root)
-    radarr.rescan_movie.side_effect = requests.ReadTimeout("slow")
+    radarr.rescan_movie.side_effect = failure
 
     result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
 
     assert result["deleted"] == 2
-    assert _rescanned(radarr) == [1]
+    assert _rescanned(radarr) == asked
     assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 'unmonitor_skipped'").fetchone()
 
 

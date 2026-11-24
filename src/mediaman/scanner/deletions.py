@@ -21,9 +21,10 @@ import logging
 import os
 import re
 import sqlite3
-from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 import requests
@@ -51,6 +52,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_fully_removed,
     is_kept_deletion,
     is_latest_audit,
+    mark_unanswered,
     record_removed_files,
     tracked_paths,
     was_audited_since,
@@ -418,11 +420,40 @@ def _is_not_found(exc: Exception) -> bool:
 
 
 def _gave_no_answer(exc: Exception) -> bool:
-    """Return True when *exc* says the service cannot be used now, rather than refused the request."""
+    """Return True when *exc* says the service did not deal with the request, rather than refused it."""
     if isinstance(exc, SafeHTTPError):
         # 0 is a transport error; a proxy answers 502-504 for a service that is down.
         return exc.status_code in (0, 401, 403, 502, 503, 504)
     return isinstance(exc, (requests.ConnectionError, requests.Timeout))
+
+
+def _is_down(exc: Exception) -> bool:
+    """Return True when *exc* says the service would answer no other request now either."""
+    if isinstance(exc, SafeHTTPError):
+        return exc.status_code in (401, 403) or isinstance(exc.__cause__, requests.ConnectionError)
+    return isinstance(exc, requests.ConnectionError)
+
+
+# The time one pass may spend waiting for answers a service does not give.
+_MAX_WAIT_SECONDS = 120.0
+
+
+@dataclass
+class ArrTurn:
+    """What one pass has found out about Radarr and Sonarr.
+
+    *unusable* names those not to ask anything more; *unanswered* holds the
+    marks, by audit id, not to ask about again.
+    """
+
+    unusable: set[str] = field(default_factory=set)
+    unanswered: set[int] = field(default_factory=set)
+    waited: dict[str, float] = field(default_factory=dict)
+
+    def note_no_answer(self, service: str, exc: Exception, began: float) -> None:
+        self.waited[service] = self.waited.get(service, 0.0) + monotonic() - began
+        if _is_down(exc) or self.waited[service] >= _MAX_WAIT_SECONDS:
+            self.unusable.add(service)
 
 
 def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
@@ -646,12 +677,12 @@ def _tell(
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-    unusable: set[str],
+    turn: ArrTurn,
 ) -> _Told:
-    """Unmonitor a booked deletion, or find why not; a service giving no answer joins *unusable*."""
+    """Unmonitor a booked deletion, or find why not; *turn* learns of a service giving no answer."""
     service = _service(row)
     client = radarr_client if row.media_type == "movie" else sonarr_client
-    if client is None and service not in unusable:
+    if client is None and service not in turn.unusable:
         return _Told()
     left = f"Left monitored in {service}: {row.title}"
     if _on_disk_again(row):
@@ -661,8 +692,9 @@ def _tell(
         "it may download it again until it is told",
         keep=True,
     )
-    if client is None or service in unusable:
+    if client is None or service in turn.unusable:
         return later
+    began = monotonic()
     if was_requested_since(conn, row):
         note = f"{left} — it was asked for again after its deletion"
         try:
@@ -670,13 +702,15 @@ def _tell(
         except _ARR_ERRORS as exc:
             logger.warning("Lookup for a rescan failed for %r", row.title, exc_info=True)
             if _gave_no_answer(exc):
-                unusable.add(service)
+                turn.note_no_answer(service, exc, began)
+            turn.unanswered.add(row.id)
             return _Told(keep=True)
     try:
         outcome = _unmonitor(row, client)
-    except _ARR_ERRORS:
+    except _ARR_ERRORS as exc:
         logger.warning("%s gave no answer to unmonitor %r", service, row.title, exc_info=True)
-        unusable.add(service)
+        turn.note_no_answer(service, exc, began)
+        turn.unanswered.add(row.id)
         return later
     return _Told(rescan_id=outcome) if isinstance(outcome, int) else _Told(note=outcome)
 
@@ -686,32 +720,33 @@ def unmonitor_deleted(
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-    unusable: set[str] | None = None,
+    turn: ArrTurn,
 ) -> None:
     """Unmonitor in Radarr/Sonarr every booked deletion still marked for it.
 
     The mark of an entry unmonitored then waits for rescan_deleted. A service
-    without a client is not set up, so there is nothing to unmonitor; one named
-    in *unusable* is set up but cannot be used now, and one that gives no
-    answer is added to it, so it is not waited for again.
+    without a client is not set up, so there is nothing to unmonitor; one *turn*
+    finds unusable is set up but cannot be used now. *turn* is the pass's own,
+    so a title given no answer is not waited for again.
 
     Runs after the deletion committed, so a slow response never holds the write
     lock, and commits each item's outcome as it goes: one a dead process left
     marked is done by the next call. It is tried once, or kept marked while its
-    service cannot be used; a skip is audited once as ``unmonitor_skipped``
-    and the deletion stays booked either way. A title
+    service gives no answer, but not for ever; a skip is audited once as
+    ``unmonitor_skipped`` and the deletion stays booked either way. A title
     that came back meanwhile is left monitored; one asked for again is only
     rescanned, as Radarr/Sonarr would not fetch files it still lists.
     """
-    unusable = set() if unusable is None else unusable
     for row in fetch_pending_unmonitors(conn):
+        if row.id in turn.unanswered:
+            continue
         try:
             told = _tell(
                 conn,
                 row,
                 radarr_client=radarr_client,
                 sonarr_client=sonarr_client,
-                unusable=unusable,
+                turn=turn,
             )
         except sqlite3.Error:
             raise
@@ -728,6 +763,8 @@ def unmonitor_deleted(
                 news = told.note is not None and not was_audited_since(
                     conn, row.id, row.media_item_id, "unmonitor_skipped", told.note
                 )
+                if row.id in turn.unanswered:
+                    mark_unanswered(conn, row.id)
             elif told.rescan_id is not None:
                 news = await_rescan(conn, row.id, told.rescan_id)
             else:
@@ -741,38 +778,48 @@ def rescan_deleted(
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-    unusable: Collection[str] = (),
+    turn: ArrTurn,
 ) -> None:
     """Ask Radarr/Sonarr to look at the disk again for the entries whose files were deleted.
 
     Until it does it still lists the files, so a title asked for again reads as
-    already there. An entry's mark goes once its rescan is asked for, so the
-    next call asks for one a dead process or a failure left. The first failure
-    of a service ends its turn, unless it refused the entry itself; one in
-    *unusable* gets none. The marks of one without a client, so not set up, go.
+    already there. An entry's mark goes once its rescan is asked for or the
+    service refused the entry itself, so the next call asks for one a dead
+    process or a failure left. A service *turn* finds unusable is asked nothing
+    more. The marks of one without a client, so not set up, go.
     """
     for movies, client in ((True, radarr_client), (False, sonarr_client)):
-        if ("Radarr" if movies else "Sonarr") in unusable:
-            continue
+        service = "Radarr" if movies else "Sonarr"
         try:
             for entry_id, audit_ids in fetch_pending_rescans(conn, movies=movies).items():
-                try:
-                    if client is not None:
-                        (client.rescan_movie if movies else client.rescan_series)(entry_id)
-                except SafeHTTPError as exc:
-                    if exc.status_code not in (400, 404):
-                        raise
-                    logger.info("engine.delete.rescan_refused entry_id=%s", entry_id)
+                if service in turn.unusable:
+                    break
+                asked = client is None or _ask_rescan(client, entry_id, service, turn)
                 with conn:
                     for audit_id in audit_ids:
-                        finish_unmonitor(conn, audit_id)
+                        if asked:
+                            finish_unmonitor(conn, audit_id)
+                        else:
+                            mark_unanswered(conn, audit_id)
         # rationale: the deletions are booked and the marks stay for the next call.
         except Exception:
-            logger.warning(
-                "Rescan of deleted titles failed (%s)",
-                "Radarr" if movies else "Sonarr",
-                exc_info=True,
-            )
+            logger.warning("Rescan of deleted titles failed (%s)", service, exc_info=True)
+
+
+def _ask_rescan(client: ArrClient, entry_id: int, service: str, turn: ArrTurn) -> bool:
+    """Ask for a rescan of the entry; return False when it is to be asked for again later."""
+    began = monotonic()
+    try:
+        (client.rescan_movie if service == "Radarr" else client.rescan_series)(entry_id)
+    # rationale: one entry's failure, whatever it is, must not hold up the others.
+    except Exception as exc:
+        if isinstance(exc, SafeHTTPError) and exc.status_code in (400, 404):
+            logger.info("engine.delete.rescan_refused entry_id=%s", entry_id)
+            return True
+        logger.warning("Rescan failed (%s entry %s)", service, entry_id, exc_info=True)
+        turn.note_no_answer(service, exc, began)
+        return False
+    return True
 
 
 def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
@@ -988,8 +1035,7 @@ class DeletionExecutor:
         self._radarr = radarr_client
         # Action row id -> the folder found missing or empty that holds it back.
         self._waiting: dict[int, str] = {}
-        # Radarr/Sonarr, when it gave this pass no answer.
-        self._unusable: set[str] = set()
+        self._turn = ArrTurn()
 
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
@@ -1010,7 +1056,7 @@ class DeletionExecutor:
         6. Live: ask Radarr/Sonarr to rescan what was unmonitored, then or by an earlier run.
         """
         now = now_utc()
-        self._unusable = set()
+        self._turn = ArrTurn()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
             self._preview(rows, now)
@@ -1021,7 +1067,7 @@ class DeletionExecutor:
             self._conn,
             radarr_client=self._radarr,
             sonarr_client=self._sonarr,
-            unusable=self._unusable,
+            turn=self._turn,
         )
         return result
 
@@ -1068,7 +1114,7 @@ class DeletionExecutor:
                 self._conn,
                 radarr_client=self._radarr,
                 sonarr_client=self._sonarr,
-                unusable=self._unusable,
+                turn=self._turn,
             )
         # rationale: the deletions are committed and the marks stay for the next pass, so
         # nothing here may leave the rows still due unhandled.
