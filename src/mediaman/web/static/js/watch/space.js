@@ -287,7 +287,9 @@
       var fill = el('span', 'space-meter__fill');
       fill.style.setProperty('--used', s.total_bytes ? s.used_bytes / s.total_bytes : 0);
       bar.append(fill);
-      add(b, bar, el('span', 'space-meter__free', trim(s.free) + ' free'));
+      var free = el('span', 'space-meter__free', trim(s.free));
+      free.append(el('span', 'space-meter__word', ' free'));
+      add(b, bar, free);
       b.setAttribute('aria-label', 'Storage: ' + trim(s.free) + ' free of ' + trim(s.total) +
         (p.level === 'bad' ? ', nearly full' : p.limit !== null ? ', above your ' + p.limit + '% limit' : '') +
         marks(b) + leavingLabel());

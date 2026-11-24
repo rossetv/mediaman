@@ -57,9 +57,22 @@
 @media (max-width: 1099.98px) { .space-meter__leaving { display: none; } }
 @media (max-width: 699.98px) {
   .space-meter { display: none; }
-  .space-meter--phone { display: inline-flex; min-width: 0; padding: 0 10px; gap: 9px; }
+  .space-meter--phone { display: inline-flex; flex: 0 1 auto; min-width: 44px; padding: 0 10px; gap: 9px; }
+  .space-meter--phone .space-meter__free { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .space-meter--phone > .ico { flex: none; }
   .space-meter--phone .space-meter__bar { width: 36px; }
   .space-meter--phone .space-meter__skel { width: 80px; }
+}
+/* The profile button beside it must keep its place: the marks stand before the bar and the words. */
+@media (max-width: 399.98px) {
+  .space-meter--off:has(> .space-meter__warn):has(> .space-meter__info) > .ico:first-child { display: none; }
+}
+@media (max-width: 389.98px) {
+  .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) > .space-meter__bar { display: none; }
+}
+@media (max-width: 359.98px) {
+  .space-meter--phone > .space-meter__bar { display: none; }
+  .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) .space-meter__word { display: none; }
 }
 
 /* Beside Leaving soon's heading: how much, and the way to Scheduled. */
@@ -228,8 +241,9 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space-fig > * { grid-area: 1 / 1; min-width: 0; }
 .space-fig__n {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 9px;
+  gap: 0 9px;
   font-family: var(--font-display);
   font-size: 40px;
   font-weight: 600;

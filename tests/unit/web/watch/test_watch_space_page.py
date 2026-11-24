@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from mediaman.db import set_connection
 from mediaman.main import create_app
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_settings
 
+_CSS = Path(__file__).resolve().parents[4] / "src/mediaman/web/static/css/_watch_space.css"
 _OF_IT = ("space-meter", "data-space-open", 'id="space"', "watch/space.js", "_watch_space.css")
 
 
@@ -100,3 +102,22 @@ def test_what_the_panel_reads_and_does_is_refused_to_a_viewer(
 
     assert resp.status_code == 403
     assert "Leaving Film" not in resp.text
+
+
+def _rules(selector: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
+    return " ".join(re.findall(rf"(?:^|[}}{{])\s*{re.escape(selector)} \{{([^}}]*)\}}", css))
+
+
+def test_the_phone_s_meter_gives_way_to_the_profile_button_beside_it():
+    meter = _rules(".space-meter--phone")
+    words = _rules(".space-meter--phone .space-meter__free")
+
+    assert "flex: 0 1 auto" in meter
+    assert "min-width: 44px" in meter
+    assert "min-width: 0" in words
+    assert "text-overflow: ellipsis" in words
+
+
+def test_a_figure_too_long_for_a_phone_wraps():
+    assert "flex-wrap: wrap" in _rules(".space-fig__n")
