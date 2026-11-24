@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from html.parser import HTMLParser
+from pathlib import Path
 
 import pytest
 from fastapi.templating import Jinja2Templates
@@ -26,11 +29,14 @@ class _Page(HTMLParser):
         self._form: str | None = None
         self.passwords: list[dict] = []
         self.rail: dict[str, list[str]] = {}
+        self.settings: set[str] = set()
         self._rail_link: str | None = None
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         classes = (a.get("class") or "").split()
+        if tag in ("input", "select") and a.get("id") and not self._form:
+            self.settings.add(a["id"])
         if tag == "form":
             self._form = a.get("id")
             self.forms[self._form] = []
@@ -83,6 +89,18 @@ def test_every_password_field_can_be_shown(page, request):
     assert passwords
     assert [p["id"] for p in passwords if "data-show-password" not in p] == []
     assert '<script src="/static/js/show-password.js?v=" defer></script>' in html
+
+
+def test_every_setting_on_the_page_is_sent_when_it_is_saved(settings_html):
+    harness = Path(__file__).parent / "js" / "settings_harness.js"
+    sent = subprocess.run(
+        ["node", str(harness), "payloadKeys"], capture_output=True, text=True, check=True
+    )
+
+    # the subscriber to add has its own button
+    on_page = _parse(settings_html).settings - {"new-subscriber-email"}
+    assert "base_url" in on_page
+    assert on_page - set(json.loads(sent.stdout)) == set()
 
 
 def test_integrations_rail_item_carries_no_fixed_count(settings_html):

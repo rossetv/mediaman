@@ -221,6 +221,13 @@ const scenarios = {
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
+  // The settings a save sends.
+  async payloadKeys() {
+    const h = build();
+    h.load('settings/general.js');
+    return Object.keys(h.ctx.MM.settings.general.collectSettings());
+  },
+
   // An edit made while a save is under way, or just after it, is not in what was sent.
   async editDuringSave() {
     const h = build();

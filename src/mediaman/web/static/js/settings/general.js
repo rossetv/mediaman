@@ -67,6 +67,7 @@
       mailgun_from_address:  v('mailgun_from_address'),
       mailgun_api_key:       v('mailgun_api_key'),
       openai_api_key:        v('openai_api_key'),
+      openai_model:          v('openai_model'),
       tmdb_api_key:          v('tmdb_api_key'),
       tmdb_read_token:       v('tmdb_read_token'),
       omdb_api_key:          v('omdb_api_key'),
