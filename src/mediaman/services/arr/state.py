@@ -133,7 +133,7 @@ def season_on_disk(season: ArrSeason) -> bool:
 
 
 def _aired_monitored_seasons(series: SonarrSeries) -> list[ArrSeason]:
-    """The seasons a show is judged by: Specials and a season skipped on purpose are not."""
+    """The seasons wanted whole by now: not Specials, and none skipped on purpose."""
     return [
         s
         for s in series.get("seasons") or []
@@ -142,17 +142,33 @@ def _aired_monitored_seasons(series: SonarrSeries) -> list[ArrSeason]:
 
 
 def series_ready(series: SonarrSeries, season_number: int | None = None) -> bool:
-    """Whether there is all there can be of a show by now, or of its one season: every aired
-    episode of every monitored season, with at least one such season.
+    """Whether there is all there will be of a show by now, or of its one season.
+
+    ``episodeCount`` counts the aired episodes that are monitored, one by one or with their
+    season, and those with a file, so in any season it is above ``episodeFileCount`` while
+    something is wanted. Of a season skipped or abandoned, what is on disk is all there will
+    be. Specials count only where nothing else is wanted or there.
     """
+    seasons = series.get("seasons") or []
     if season_number is not None:
-        return any(
-            season_on_disk(s)
-            for s in series.get("seasons") or []
-            if s.get("seasonNumber") == season_number
-        )
-    seasons = _aired_monitored_seasons(series)
-    return bool(seasons) and all(season_on_disk(s) for s in seasons)
+        judged = [s for s in seasons if s.get("seasonNumber") == season_number]
+    else:
+        judged = _aired_monitored_seasons(series)
+        judged += [
+            s
+            for s in seasons
+            if s.get("seasonNumber", 0) > 0
+            and s not in judged
+            and _season_stats(s).get("episodeCount")
+        ]
+        if not judged:
+            return series_has_files(series) and not _sonarr_will_fetch(series)
+    return bool(judged) and all(_wanted_is_there(s) for s in judged)
+
+
+def _wanted_is_there(season: ArrSeason) -> bool:
+    stats = _season_stats(season)
+    return (stats.get("episodeFileCount") or 0) >= (stats.get("episodeCount") or 0) > 0
 
 
 def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches) -> str | None:
@@ -162,7 +178,7 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
     """
     aired_seasons = _aired_monitored_seasons(series)
     if aired_seasons:
-        # ``season_on_disk`` requires ``episodeCount > 0`` per season on purpose:
+        # ``series_ready`` requires ``episodeCount > 0`` per season on purpose:
         # right after Sonarr flips a brand-new season to ``aired``, it
         # briefly reports ``episodeCount == 0`` and ``episodeFileCount ==
         # 0``.  Without the ``> 0`` guard the boolean ``0 >= 0`` would

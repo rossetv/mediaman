@@ -707,7 +707,10 @@ def test_attach_does_not_swallow_programming_errors():
         attach_download_states([_batch(movie)], arr)
 
 
-def test_tv_unmonitored_aired_season_is_ignored():
+@pytest.mark.parametrize(
+    ("wanted", "state"), [(0, "in_library"), (1, "partial")], ids=["skipped", "one episode wanted"]
+)
+def test_tv_unmonitored_aired_season_counts_only_by_an_episode_wanted_by_itself(wanted, state):
     """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
     series = {
         "tmdbId": 800,
@@ -728,7 +731,8 @@ def test_tv_unmonitored_aired_season_is_ignored():
                 # report ``partial``.
                 "monitored": False,
                 "statistics": {
-                    "episodeCount": 8,
+                    "episodeCount": wanted,
+                    "totalEpisodeCount": 8,
                     "episodeFileCount": 0,
                     "previousAiring": "2021-01-01",
                 },
@@ -741,7 +745,7 @@ def test_tv_unmonitored_aired_season_is_ignored():
         "sonarr_series": {800: series},
         "sonarr_queue_tmdb_ids": set(),
     }
-    assert compute_download_state("tv", 800, caches) == "in_library"
+    assert compute_download_state("tv", 800, caches) == state
 
 
 def test_radarr_cache_queue_progress_from_size_and_sizeleft():

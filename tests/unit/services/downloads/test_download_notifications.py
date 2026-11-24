@@ -356,7 +356,9 @@ class TestSonarrSeriesMatching:
             (_season(2, 10, 10), True),
             (_season(2, 4, 4), True),
             (_season(2, 0, 0, aired=False), True),
-            (_season(2, 1, 3, monitored=False), True),
+            (_season(2, 1, 2, monitored=False), False),
+            (_season(2, 3, 3, monitored=False), True),
+            (_season(2, 0, 0, monitored=False), True),
             (_season(0, 0, 5), True),
         ],
         ids=[
@@ -366,6 +368,8 @@ class TestSonarrSeriesMatching:
             "whole",
             "whole so far",
             "still to air",
+            "an episode wanted by itself",
+            "abandoned with files",
             "skipped",
             "specials",
         ],
@@ -387,7 +391,28 @@ class TestSonarrSeriesMatching:
 
         assert len(sent) == (1 if ready else 0)
 
-    def test_a_show_with_no_season_monitored_is_not_announced(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        ("seasons", "ready"),
+        [
+            ([_season(1, 0, 1, monitored=False)], False),
+            ([_season(1, 1, 1, monitored=False)], True),
+            ([_season(1, 10, 10, monitored=False), _season(2, 10, 10, monitored=False)], True),
+            ([_season(1, 0, 0, monitored=False)], False),
+            ([_season(0, 2, 2, monitored=False)], True),
+            ([_season(0, 2, 2, monitored=False), _season(1, 0, 0, aired=False)], False),
+        ],
+        ids=[
+            "one episode wanted",
+            "one episode there",
+            "all there",
+            "nothing there",
+            "specials alone",
+            "specials before the show airs",
+        ],
+    )
+    def test_a_show_with_no_aired_season_monitored_is_announced_once_nothing_more_is_wanted(
+        self, tmp_path, monkeypatch, seasons, ready
+    ):
         conn, sent = self._setup(tmp_path, monkeypatch)
         insert_download_notification(
             conn,
@@ -398,9 +423,9 @@ class TestSonarrSeriesMatching:
             service="sonarr",
         )
 
-        self._run_with_seasons(conn, monkeypatch, self._season(1, 3, 3, monitored=False))
+        self._run_with_seasons(conn, monkeypatch, *seasons)
 
-        assert sent == []
+        assert len(sent) == (1 if ready else 0)
 
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""
