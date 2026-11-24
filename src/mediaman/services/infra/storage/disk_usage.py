@@ -22,30 +22,28 @@ logger = logging.getLogger(__name__)
 def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
     """Sum ``shutil.disk_usage`` across *paths*, counting each disk once.
 
-    Two paths on the same physical disk are de-duplicated by their
-    ``(total, used, free)`` reading rather than by ``st_dev``.  ``st_dev``
-    is unreliable across container bind mounts: OrbStack/Docker present
-    every host bind under a single synthetic device id, so a device-keyed
-    de-dup collapses genuinely-separate disks (e.g. a movies drive and a
-    TV drive) into whichever path is scanned first — undercounting the
-    total.  The byte-tuple is stable per filesystem and differs between
-    real disks (their *used* byte counts essentially never coincide), so
-    it both merges same-disk paths (``/media/tv`` + ``/media/anime`` on
-    one drive) and keeps separate disks separate.
+    Two paths are one disk when they share ``st_dev`` and a total size.
+    ``st_dev`` alone is not enough: OrbStack/Docker present every host bind
+    under a single synthetic device id, so it would merge a movies drive and
+    a TV drive into one; their totals tell them apart.  The *used* and *free*
+    bytes are left out of the key on purpose: they move between two reads of
+    the same live disk, and keying on them counted one disk twice.  The first
+    reading of each disk is the one summed.
 
     Non-existent or unreadable paths are skipped.
     """
-    seen: set[tuple[int, int, int]] = set()
+    seen: set[tuple[int, int]] = set()
     total = used = free = 0
     for p in paths:
         if not p or not Path(p).exists():
             continue
         try:
             usage = shutil.disk_usage(p)
+            dev = os.stat(p).st_dev
         except OSError:
             logger.debug("disk_usage failed for %s — skipping", p)
             continue
-        key = (usage.total, usage.used, usage.free)
+        key = (dev, usage.total)
         if key in seen:
             continue
         seen.add(key)
