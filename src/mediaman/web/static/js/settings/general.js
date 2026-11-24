@@ -32,6 +32,8 @@
   MM.settings = MM.settings || {};
 
   var BOOT = {};
+  // The values of the last save, by id.
+  var SENT = {};
 
   function parseBootstrap() {
     try {
@@ -44,6 +46,7 @@
   // `now` and `saved` are the save bar's snapshots: what is sent comes from them, as the
   // live values go on changing while a save is under way.
   function collectSettings(now, saved) {
+    if (now) SENT = now.values;
     function v(id) {
       if (now && id in now.values) return now.values[id];
       var el = document.getElementById(id);
@@ -92,7 +95,7 @@
 
   function refreshOverviewHero() {
     if (MM.settings.overview && MM.settings.overview.refreshOverviewHero) {
-      MM.settings.overview.refreshOverviewHero();
+      MM.settings.overview.refreshOverviewHero(SENT);
     }
   }
 

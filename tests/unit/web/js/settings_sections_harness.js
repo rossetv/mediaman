@@ -1,0 +1,274 @@
+// Runs the settings page's library, overview and newsletter scripts against the
+// small fake DOM and prints the outcome of one scenario as JSON.
+// Usage: node settings_sections_harness.js <scenario>
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const { Node, makeDocument, build, click, settle } = require('./fake_dom.js');
+
+const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+
+Object.defineProperty(Node.prototype, 'dataset', {
+  get() {
+    const attr = (k) => 'data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+    return new Proxy({}, {
+      get: (_, k) => { const v = this.getAttribute(attr(k)); return v === null ? undefined : v; },
+      set: (_, k, v) => { this.setAttribute(attr(k), v); return true; },
+    });
+  },
+});
+Object.defineProperty(Node.prototype, 'type', {
+  get() { return this.getAttribute('type') || ''; },
+  set(v) { this.setAttribute('type', v); },
+});
+Node.prototype.replaceChildren = function (...kids) { this.textContent = ''; kids.forEach((k) => this.appendChild(k)); };
+
+function page(markup, files) {
+  const doc = makeDocument();
+  doc.body.appendChild(build(doc, ['div', { class: 'setg-pg' }, ...markup]));
+  const ctx = {
+    document: doc, console, Promise, setTimeout: () => 0, clearTimeout: () => {},
+    addEventListener: () => {}, matchMedia: () => ({ matches: true }), getComputedStyle: () => ({}),
+    MM: { dom: { focusStillIn: (el) => el.contains(doc.activeElement), inView: () => true } },
+    UIFeedback: { confirm: () => Promise.resolve(true), success() {}, error() {}, toast() {} },
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  files.forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, 'settings', f + '.js'), 'utf8'), ctx));
+  const id = (x) => doc.getElementById(x);
+  const fire = (el, type) => (el.listeners[type] || []).forEach((f) => f({ target: el, preventDefault() {} }));
+  return { doc, ctx, id, fire, click: (el) => click(doc, el) };
+}
+
+const refused = (error, message, status) => Promise.reject({ error, message, status });
+
+// The libraries section. `usage` answers a disk usage read by its path.
+async function libraries(opts, usage, answer) {
+  const p = page([
+    ['div', { id: 'plex-library-pills' }, 'served hint'],
+    ['span', { id: 'lib-pill-count' }],
+    ['div', { id: 'disk-threshold-rows' }],
+  ], ['disk_thresholds']);
+  const dirty = [];
+  p.ctx.MM.settings.savebar = { markDirty: () => dirty.push(1) };
+  p.ctx.MM.api = {
+    get: (u) => (u === '/api/plex/libraries'
+      ? (answer ? answer() : Promise.resolve({ libraries: [{ id: 1, title: 'Films' }, { id: 2, title: 'Shows' }] }))
+      : (usage || (() => Promise.resolve({ usage_pct: 90 })))(decodeURIComponent(u.split('path=')[1]))),
+    messageOf: (e, words) => (e && e.message) || words,
+  };
+  const disk = p.ctx.MM.settings.diskThresholds;
+  disk.init(Object.assign({ selectedLibs: ['1'], diskThresholds: {} }, opts));
+  await settle();
+  const card = (n) => p.doc.querySelector('.lp-card[data-lib-id="' + n + '"]');
+  const input = (n, f) => card(n).querySelector('[data-field="' + f + '"]');
+  return Object.assign(p, {
+    disk, dirty, card,
+    pill: (n) => p.doc.querySelector('.lib-pill[data-lib-id="' + n + '"]'),
+    pills: () => p.id('plex-library-pills').textContent,
+    rows: () => p.id('disk-threshold-rows').textContent,
+    says: (n) => card(n).querySelector('[data-role="state"]').textContent,
+    type: async (n, folder, percent) => {
+      input(n, 'path').value = folder; p.fire(input(n, 'path'), 'blur');
+      input(n, 'threshold').value = percent; p.fire(input(n, 'threshold'), 'change');
+      await settle();
+    },
+  });
+}
+
+const scenarios = {
+  async pills() {
+    const p = await libraries({});
+    const look = (n) => [p.pill(n).tagName, p.pill(n).type, p.pill(n).getAttribute('aria-pressed')];
+    const out = { before: [look(1), look(2)] };
+    p.click(p.pill(2));
+    p.click(p.pill(1));
+    out.after = [look(1), look(2)];
+    p.disk.restore({ libs: ['1'], disk: {} });
+    out.restored = [look(1), look(2)];
+    p.disk.show({ libs: ['2'], disk: {} });
+    out.shown = [look(1), look(2)];
+    return out;
+  },
+
+  // What the card of library 1 says for each stored entry, or undefined for no entry.
+  async stored(entries) {
+    const out = [];
+    for (const entry of JSON.parse(entries)) {
+      const p = await libraries({ diskThresholds: entry === null ? {} : { 1: entry } });
+      out.push(p.says(1));
+    }
+    return out;
+  },
+
+  // What the cards say for each whole stored setting.
+  async wholes(settings) {
+    const out = [];
+    for (const diskThresholds of JSON.parse(settings)) out.push((await libraries({ diskThresholds })).says(1));
+    return out;
+  },
+
+  async typing() {
+    const p = await libraries({ diskThresholds: { 1: { path: '/a', threshold: 80 } } });
+    const out = { limited: p.says(1) };
+    await p.type(1, '', 80);
+    out.noPath = p.says(1);
+    await p.type(1, '/a', 95);
+    out.below = p.says(1);
+    await p.type(1, '/a', 0);
+    out.noLimit = p.says(1);
+    return out;
+  },
+
+  async mended() {
+    const p = await libraries({ selectedLibs: ['1', '2'], diskThresholds: 'odd' });
+    const out = { before: [p.says(1), p.says(2)] };
+    await p.type(1, '/a', 80);
+    await p.type(2, '/b', 0);
+    out.typed = [p.says(1), p.says(2)];
+    const stored = { 1: { path: '/a', threshold: 80 }, 2: { path: '/b', threshold: 0 } };
+    p.disk.show(p.disk.fromServer({ plex_libraries: ['1', '2'], disk_thresholds: stored }));
+    await settle();
+    out.saved = [p.says(1), p.says(2)];
+    return out;
+  },
+
+  // A read that comes back after the folder was changed says nothing about the new one.
+  async lateRead() {
+    const reads = {};
+    const p = await libraries({ diskThresholds: { 1: { path: '/slow', threshold: 80 } } },
+      (folder) => new Promise((done) => { reads[folder] = done; }));
+    await p.type(1, '/quick', 80);
+    reads['/quick']({ usage_pct: 10 });
+    await settle();
+    reads['/slow']({ usage_pct: 99 });
+    await settle();
+    return p.says(1);
+  },
+
+  async unreadDisk() {
+    const p = await libraries({ diskThresholds: { 1: { path: '/gone', threshold: 80 } } },
+      () => refused('not_found', 'Folder not found.', 404));
+    const q = await libraries({ diskThresholds: { 1: { path: '/a', threshold: 80 } } },
+      () => refused('network_error', 'No connection.', 0));
+    return [p.says(1), q.says(1)];
+  },
+
+  async plexAnswers() {
+    const look = async (answer) => { const p = await libraries({}, null, answer); return [p.pills(), p.rows()]; };
+    return {
+      notSetUp: await look(() => refused('plex_not_configured', 'x', 200)),
+      failed: await look(() => refused('fetch_failed', 'x', 200)),
+      none: await look(() => Promise.resolve({ libraries: [] })),
+    };
+  },
+
+  async overview() {
+    const p = page([
+      ['div', { id: 'ov-scan-big' }], ['div', { id: 'ov-scan-when' }],
+      ['div', { id: 'ov-storage-big' }], ['div', { id: 'ov-storage-bar' }], ['div', { id: 'ov-storage-chips' }],
+      ['select', { id: 'scan_day' }], ['input', { id: 'scan_time' }], ['select', { id: 'scan_timezone' }],
+      ['div', { id: 'plex-library-pills' }], ['div', { id: 'disk-threshold-rows' }],
+      ['script', { id: 'setg-bootstrap' }, JSON.stringify({
+        scan_day: 'mon,thu', scan_time: '09:00', scan_timezone: 'Asia/Kolkata', disk_thresholds: {}, selected_libraries: ['1'],
+      })],
+    ], ['disk_thresholds', 'overview', 'general']);
+    const edited = [];
+    let savebar;
+    p.ctx.MM.settings.savebar = { init: (o) => { savebar = o; }, isEdited: (el) => edited.includes(el.id), markDirty() {} };
+    let used = '1 TB';
+    p.ctx.MM.api = {
+      get: (u) => (u === '/api/dashboard/stats'
+        ? Promise.resolve({ storage: { used, total: '4 TB', free: '3 TB', movies_pct: 25 } })
+        : Promise.resolve({ libraries: [] })),
+      messageOf: (e, w) => w,
+    };
+    const set = (day, time, zone) => { p.id('scan_day').value = day; p.id('scan_time').value = time; p.id('scan_timezone').value = zone; };
+    const scan = () => p.id('ov-scan-big').textContent + ' ' + p.id('ov-scan-when').textContent;
+    const storage = () => [p.id('ov-storage-big').textContent.replace(/ /g, ' '), p.id('ov-storage-bar').children.length];
+    const save = async (values, thresholds) => {
+      savebar.getPayload({ values, disk: { libs: [], disk: {} } }, { disk: { disk: {} } });
+      p.ctx.MM.settings.diskThresholds.fromServer({ plex_libraries: ['1'], disk_thresholds: thresholds });
+      savebar.refreshOverviewHero();
+      await settle();
+      return { scan: scan(), storage: storage() };
+    };
+    // what a browser put back over the served values
+    set('fri', '01:00', 'UTC');
+    p.ctx.MM.settings.general.init();
+    await settle();
+    const out = { loaded: { scan: scan(), storage: storage() } };
+    set('tue', '10:00', 'Europe/London');
+    out.saved = await save({ scan_day: 'tue', scan_time: '10:00', scan_timezone: 'Europe/London' }, { 1: { path: '/a', threshold: 80 } });
+    used = '2 TB';
+    out.other = await save({ scan_day: 'tue', scan_time: '10:00', scan_timezone: 'Europe/London' }, { 1: { path: '/b', threshold: 80 } });
+    // changed again while its save is under way
+    set('wed', '10:00', 'Europe/London');
+    edited.push('scan_day');
+    out.during = await save({ scan_day: 'sat', scan_time: '10:00', scan_timezone: 'Europe/London' }, {});
+    return out;
+  },
+
+  async recipients() {
+    const p = page([
+      ['div', { id: 'subscriber-list' }],
+      ['input', { id: 'new-subscriber-email' }], ['button', { id: 'btn-add-subscriber' }, 'Add'],
+      ['button', { id: 'btn-send-newsletter' }],
+      ['div', { id: 'newsletter-send-panel', class: 'setg-fold' },
+        ['div', { id: 'newsletter-recipient-list' }], ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
+        ['span', { id: 'newsletter-send-status' }]],
+    ], ['rows', 'newsletter']);
+    let subs = [1, 2].map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
+    const person = (n, active) => ({ id: n, email: 'p' + n + '@example.com', active: active !== false });
+    p.ctx.MM.api = {
+      get: () => Promise.resolve({ subscribers: subs.slice() }),
+      postForm: () => Promise.resolve({}),
+      delete: (u) => { subs = subs.filter((s) => '/api/subscribers/' + s.id !== u); return Promise.resolve({}); },
+      messageOf: (e, w) => w,
+    };
+    Node.prototype.scrollIntoView = () => {};
+    const panel = p.id('newsletter-send-panel');
+    panel.hidden = true;
+    p.ctx.MM.settings.newsletter.init();
+    await settle();
+    const boxes = () => p.id('newsletter-recipient-list').querySelectorAll('input');
+    const ticks = () => boxes().map((b) => [b.value, b.checked]);
+    const add = async (who, meanwhile) => {
+      subs = subs.concat(who);
+      p.id('new-subscriber-email').value = who.email;
+      p.click(p.id('btn-add-subscriber'));
+      if (meanwhile) meanwhile();
+      await settle();
+    };
+    const remove = async (n) => {
+      p.click(p.doc.querySelector('.sub-row[data-id="' + n + '"]').querySelector('.link-danger'));
+      await settle();
+    };
+    const out = {};
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    out.opened = ticks();
+    await add(person(3));
+    out.added = ticks();
+    boxes()[1].checked = false;
+    const held = boxes()[1];
+    await add(person(4), () => held.focus());
+    out.addedAfterAChoice = ticks();
+    out.focusKept = p.doc.activeElement === held && p.doc.documentElement.contains(held);
+    await remove(1);
+    out.removed = ticks();
+    await add(person(5, false));
+    out.optedOut = ticks().length;
+    await remove(2); await remove(3); await remove(4);
+    out.none = p.id('newsletter-recipient-list').textContent;
+    await add(person(6));
+    out.again = [ticks(), p.id('newsletter-recipient-list').textContent.includes('No active')];
+    return out;
+  },
+};
+
+scenarios[process.argv[2]](...process.argv.slice(3)).then(
+  (out) => process.stdout.write(JSON.stringify(out)),
+  (err) => { console.error(err); process.exit(1); }
+);

@@ -2,18 +2,19 @@
  * settings/overview.js — overview hero refresh + storage bar.
  *
  * Responsibilities:
- *   - Repaint the "Next scan" line (#ov-scan-big / #ov-scan-when) whenever
- *     the schedule fields change or after a save round-trip.
+ *   - Paint the "Next scan" line (#ov-scan-big / #ov-scan-when) from the saved
+ *     schedule, on load and after a save or Discard.
  *   - Render the storage stack bar (#ov-storage-bar / -chips / -big) by
- *     calling /api/dashboard/stats — shown only when at least one disk
- *     threshold is configured.
+ *     calling /api/dashboard/stats, at the same times — shown only when at
+ *     least one disk threshold is saved.
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
+ *   MM.settings.savebar.isEdited, MM.settings.diskThresholds.stored
  *
  * Exposes:
  *   MM.settings.overview.init({ boot, diskThresholds })
- *   MM.settings.overview.refreshOverviewHero()
+ *   MM.settings.overview.refreshOverviewHero(sent) — `sent`: the values of the last save, by id
  */
 (function () {
   'use strict';
@@ -21,31 +22,38 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
-  var BOOT = {};
+  var DAYS = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 
-  function refreshOverviewHero() {
+  // The schedule as the server has it.
+  var SCHEDULE = { scan_day: 'mon', scan_time: '09:00', scan_timezone: 'UTC' };
+
+  // A blank value is one the server was not sent or does not keep.
+  function setSchedule(values) {
+    Object.keys(SCHEDULE).forEach(function (key) { if (values[key]) SCHEDULE[key] = values[key]; });
+  }
+
+  function paintSchedule() {
     var big = document.getElementById('ov-scan-big');
     var when = document.getElementById('ov-scan-when');
     if (!big || !when) return;
-    var dayEl  = document.getElementById('scan_day');
-    var timeEl = document.getElementById('scan_time');
-    var tzEl   = document.getElementById('scan_timezone');
-    var days   = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
-    var dayKey = dayEl ? dayEl.value : BOOT.scan_day;
-    var day    = days[dayKey] || 'Monday';
-    var time   = (timeEl && timeEl.value) || BOOT.scan_time || '09:00';
-    var tz     = (tzEl && tzEl.value) || BOOT.scan_timezone || 'UTC';
+    var days = String(SCHEDULE.scan_day).split(',').map(function (token) {
+      return DAYS[token.trim().toLowerCase()] || token.trim();
+    });
+    // Several days are named short.
+    var day = days.length > 1 ? days.map(function (name) { return name.slice(0, 3); }).join(', ') : days[0];
     big.replaceChildren();
     big.appendChild(document.createTextNode(day + ' '));
     var small = document.createElement('small');
-    small.textContent = time;
+    small.textContent = SCHEDULE.scan_time;
     big.appendChild(small);
     when.replaceChildren();
     when.appendChild(document.createTextNode('Timezone: '));
     var strong = document.createElement('b');
-    strong.textContent = tz;
+    strong.textContent = SCHEDULE.scan_timezone;
     when.appendChild(strong);
   }
+
+  var storageAsked = 0;
 
   function paintStorageBar(diskThresholds) {
     var bar   = document.getElementById('ov-storage-bar');
@@ -55,6 +63,7 @@
 
     function renderUnconfigured() {
       big.textContent = 'Not configured';
+      bar.replaceChildren();
       chips.replaceChildren();
       var note = document.createElement('span');
       note.style.color = 'var(--t3)';
@@ -108,20 +117,34 @@
       });
     }
 
+    var mine = ++storageAsked;
     var entries = Object.keys(diskThresholds || {});
     if (!entries.length) { renderUnconfigured(); return; }
 
     MM.api.get('/api/dashboard/stats')
       .then(function (data) {
-        if (!data || !data.storage) return;
+        if (mine !== storageAsked || !data || !data.storage) return;
         renderStorage(data.storage);
       })
       .catch(function () { /* leave placeholder — network/backend hiccup */ });
   }
 
+  // A field changed since the last save was sent shows something else than the server has.
+  function refreshOverviewHero(sent) {
+    var saved = {};
+    Object.keys(SCHEDULE).forEach(function (key) {
+      var el = document.getElementById(key);
+      if (!el) return;
+      saved[key] = MM.settings.savebar.isEdited(el) ? sent && sent[key] : el.value;
+    });
+    setSchedule(saved);
+    paintSchedule();
+    paintStorageBar(MM.settings.diskThresholds.stored());
+  }
+
   function init(opts) {
-    BOOT = (opts && opts.boot) || {};
-    refreshOverviewHero();
+    setSchedule((opts && opts.boot) || {});
+    paintSchedule();
     paintStorageBar((opts && opts.diskThresholds) || {});
   }
 
