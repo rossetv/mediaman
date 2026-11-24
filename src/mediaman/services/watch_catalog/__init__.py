@@ -37,19 +37,10 @@ from ._genres import GENRES, Genre
 from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
-from ._title_meta import (
-    LIBRARY_PAGE,
-    Coverage,
-    LibraryPeople,
-    fill_title_meta,
-    library_people,
-    library_titles,
-)
 
 __all__ = [
     "GENRES",
     "KNOWN_FOR_LIMIT",
-    "LIBRARY_PAGE",
     "MAX_PAGE",
     "MAX_QUERY_LEN",
     "MIN_QUERY_LEN",
@@ -57,10 +48,8 @@ __all__ = [
     "SORTS",
     "TYPES",
     "ArrView",
-    "Coverage",
     "Genre",
     "LibraryIndex",
-    "LibraryPeople",
     "PersonNotFound",
     "SeenTitles",
     "TitleNotFound",
@@ -76,14 +65,11 @@ __all__ = [
     "discover_page",
     "discover_shelves",
     "explore_page",
-    "fill_title_meta",
     "genre_posters",
     "invalidate",
     "library_href",
     "library_ids",
     "library_index",
-    "library_people",
-    "library_titles",
     "normalise_title",
     "people",
     "person",
