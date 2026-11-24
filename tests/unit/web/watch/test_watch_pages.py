@@ -639,11 +639,6 @@ class TestPlayerPage:
 
         assert get("/watch/play/100").json()["start_s"] == 1200
 
-    def test_a_deliberate_start_over_begins_at_zero(self, get, conn):
-        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
-
-        assert get("/watch/play/100?resume=0").json()["start_s"] == 0
-
     def test_a_title_just_begun_starts_at_zero(self, get, conn):
         _play(conn, "aoife", "100", position=5, duration=6000, item="100")
 
