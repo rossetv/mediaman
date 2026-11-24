@@ -42,7 +42,13 @@ from mediaman.web.responses import respond_failure
 from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
 from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
 
-from ._season import deleted_season, season_on_disk, sonarr_media_id
+from ._season import (
+    already_there,
+    deleted_season,
+    season_name,
+    season_on_disk,
+    sonarr_media_id,
+)
 from ._tokens import (
     _mark_token_used,
     _unmark_token_used,
@@ -126,7 +132,9 @@ def _record_and_respond(
         secret_key=secret_key,
     )
     service_label = "Radarr" if service == "radarr" else "Sonarr"
-    what = f"'{title}'" if season_number is None else f"season {season_number} of '{title}'"
+    what = f"'{title}'"
+    if season_number is not None:
+        what = f"{season_name(season_number).lower()} of '{title}'"
     return JSONResponse(
         {
             "ok": True,
@@ -454,7 +462,9 @@ def _build_dl_payload(
     audit_action = "re_downloaded" if is_redownload else "downloaded"
     by_clause = f" by {email}" if email else ""
     season = deleted_season(conn, payload)
-    season_clause = f" season {season.season_number} of '{title}'" if season else ""
+    season_clause = ""
+    if season and season.season_number is not None:
+        season_clause = f" {season_name(season.season_number).lower()} of '{title}'"
     audit_detail = (
         f"Re-downloaded{season_clause}{by_clause}"
         if is_redownload
@@ -522,10 +532,10 @@ def _handle_already_exists_error(
                 secret_key=secret_key,
             )
         extra: dict[str, object] = {"poll_token": poll_token} if poll_token else {}
-        what = f"'{title}'" if season_number is None else f"Season {season_number} of '{title}'"
-        return respond_failure(
-            f"{what} already exists in your {svc_label} library", status=409, **extra
-        )
+        said = f"'{title}' already exists"
+        if season_number is not None:
+            said = already_there(season_number, title)
+        return respond_failure(f"{said} in your {svc_label} library", status=409, **extra)
     # Phase 2 (failure): release the reservation so the user can
     # retry once the upstream recovers.
     _unmark_token_used(token)

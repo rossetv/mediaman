@@ -209,6 +209,31 @@ class TestSubmit:
         mails = conn.execute("SELECT email FROM download_notifications").fetchall()
         assert [m["email"] for m in mails] == ["a@example.com"]
 
+    @pytest.mark.parametrize(
+        ("series", "field", "said"),
+        [
+            (None, "message", "Added specials of 'Fargo'"),
+            (
+                _series({**ON_DISK, "seasonNumber": 0}),
+                "error",
+                "Specials of 'Fargo' already exist ",
+            ),
+        ],
+    )
+    def test_season_0_is_answered_and_audited_as_specials(
+        self, client, secret_key, series, field, said
+    ):
+        conn = client.app.state.db
+        _delete_season(conn, 0)
+
+        resp = _post(client, _cards(conn, secret_key)[0], _sonarr(series))
+
+        assert said in resp.json()[field]
+        audits = conn.execute("SELECT detail FROM audit_log WHERE action = 're_downloaded'")
+        assert [a["detail"] for a in audits] == (
+            [] if series else ["Re-downloaded specials of 'Fargo' by a@example.com"]
+        )
+
     def test_a_season_with_some_episodes_left_is_fetched(self, client, link):
         sonarr = _sonarr(_series(PART_LEFT))
 
@@ -356,6 +381,15 @@ class TestPage:
         assert f'"download_state": "{state}"' in page
         assert ('"notify_by_email": true' in page) == (state != "queued")
         assert ("Re-Download Season 2" in page) == (state == "")
+
+    def test_the_button_for_season_0_says_specials(self, client, secret_key):
+        _delete_season(client.app.state.db, 0)
+        link = _cards(client.app.state.db, secret_key)[0]
+        with patch(f"{_ROUTES}.confirm.build_sonarr_from_db", return_value=_sonarr(None)):
+            page = client.get(link).text
+
+        assert "Re-Download Specials" in page
+        assert "Season 0" not in page
 
     def test_a_reopened_link_still_promises_the_season_s_email(self, client, secret_key):
         _delete_season(client.app.state.db, 2)

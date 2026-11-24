@@ -18,7 +18,7 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.library_api import record_redownload
 from mediaman.web.responses import respond_failure
-from mediaman.web.routes.download._season import season_on_disk
+from mediaman.web.routes.download._season import already_there, season_name, season_on_disk
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ def _redownload_season(
     A Library Delete leaves the series in Sonarr, so the lookup comes first. A season Sonarr
     has complete is a 409. Sonarr errors propagate to the caller.
     """
+    what = f"{season_name(season_number).lower()} of '{title}'"
     existing = client.get_series_by_tvdb(tvdb_id)
     if existing is not None:
         series_id = existing.get("id")
@@ -62,9 +63,7 @@ def _redownload_season(
             None,
         )
         if season is not None and season_on_disk(season):
-            return respond_failure(
-                f"Season {season_number} of '{title}' already exists in Sonarr", status=409
-            )
+            return respond_failure(f"{already_there(season_number, title)} in Sonarr", status=409)
         was_unmonitored = season is not None and not season.get("monitored")
         try:
             client.remonitor_season(int(series_id), season_number)
@@ -74,7 +73,7 @@ def _redownload_season(
             if was_unmonitored:
                 _put_back_unmonitored(client, int(series_id), season_number)
             raise
-        message = f"Re-monitored season {season_number} of '{title}' in Sonarr and started a search"
+        message = f"Re-monitored {what} in Sonarr and started a search"
     else:
         try:
             client.add_series_with_seasons(tvdb_id, title, [season_number])
@@ -82,7 +81,7 @@ def _redownload_season(
             # A slow Sonarr can add the series after the request gave up waiting.
             if not series_add_landed(exc, client, tvdb_id):
                 raise AddRefused(exc) from exc
-        message = f"Added season {season_number} of '{title}' to Sonarr"
+        message = f"Added {what} to Sonarr"
     email = get_user_email(conn, username)
     if email is None:
         logger.info("Re-download ready notice skipped: the requesting admin has no email set")
@@ -91,7 +90,7 @@ def _redownload_season(
         audit_id=_redownload_audit_id(
             media_type="tv", tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
         ),
-        audit_detail=f"Re-downloaded season {season_number} of '{title}' by {username}",
+        audit_detail=f"Re-downloaded {what} by {username}",
         actor=username,
         email=email,
         title=title,

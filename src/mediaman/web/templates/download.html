@@ -135,7 +135,7 @@
     {# Normal confirm — download button #}
     <div class="dl-action" id="download-action">
       <button class="btn-download-hero" id="btn-download" type="button">
-        {{ 'Re-Download' if item.action == 'redownload' else 'Download' }}{% if item.season_number is not none %} Season {{ item.season_number }}{% endif %}
+        {{ 'Re-Download' if item.action == 'redownload' else 'Download' }}{% if item.season_number is not none %} {{ 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number }}{% endif %}
       </button>
     </div>
   {% endif %}

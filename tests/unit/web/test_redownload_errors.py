@@ -285,3 +285,23 @@ def test_a_season_complete_on_disk_is_refused_and_one_with_gaps_is_fetched(
     assert sonarr.remonitor_season.called is fetched
     audited = conn.execute("SELECT 1 FROM audit_log WHERE action = 're_downloaded'").fetchall()
     assert bool(audited) is fetched
+
+
+def test_season_0_is_answered_and_audited_as_specials(app_factory, authed_client, conn):
+    specials = {"seasonNumber": 0, "monitored": True}
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.side_effect = [
+        None,
+        {"id": 3, "seasons": [specials]},
+        {"id": 3, "seasons": [{**specials, "statistics": {"episodeFileCount": 1}}]},
+    ]
+    client = _client(app_factory, authed_client, conn)
+    asked = {"title": "Severance", "tvdb_id": 999, "season_number": 0}
+    with patch(SONARR, return_value=sonarr):
+        added, held, on_disk = (_post(client, asked).json() for _ in range(3))
+
+    assert added["message"] == "Added specials of 'Severance' to Sonarr"
+    assert held["message"].startswith("Re-monitored specials of 'Severance'")
+    assert on_disk["error"] == "Specials of 'Severance' already exist in Sonarr"
+    audits = conn.execute("SELECT detail FROM audit_log WHERE action = 're_downloaded'").fetchall()
+    assert {a["detail"] for a in audits} == {"Re-downloaded specials of 'Severance' by admin"}

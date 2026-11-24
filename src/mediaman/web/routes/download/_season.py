@@ -43,6 +43,16 @@ def season_of_media_id(media_item_id: str) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def season_name(season_number: int) -> str:
+    return "Specials" if season_number == 0 else f"Season {season_number}"
+
+
+def already_there(season_number: int, title: str) -> str:
+    """The start of the answer for a season Sonarr has complete."""
+    verb = "exist" if season_number == 0 else "exists"
+    return f"{season_name(season_number)} of '{title}' already {verb}"
+
+
 def season_on_disk(season: ArrSeason) -> bool:
     """Whether Sonarr has every episode of *season*.
 
