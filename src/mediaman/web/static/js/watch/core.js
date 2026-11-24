@@ -229,7 +229,7 @@
   function watchedBadge() {
     var badge = el('span', 'watch-badge watch-badge--watched');
     badge.appendChild(window.MM.dom.icon('i-eye'));
-    badge.appendChild(el('span', 'sr-only', 'Watched'));
+    badge.appendChild(el('span', 'watch-badge__word', 'Watched'));
     return badge;
   }
 

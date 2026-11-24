@@ -481,16 +481,15 @@
 /* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched {
   right: 8px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   background: color-mix(in srgb, var(--scrim) 78%, transparent);
   border: 1px solid color-mix(in srgb, var(--t1) 28%, transparent);
-  font-size: 13px;
+  font-weight: 600;
 }
+.watch-badge--watched > .ico { flex: none; font-size: 13px; }
+.watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
 .watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
 @media (max-width: 1279.98px) {
   .watch-card__wide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
@@ -500,7 +499,8 @@
   .watch-card__poster { --card-pad: 8px; }
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
   .watch-badge--leaving { left: 6px; }
-  .watch-badge--watched { right: 6px; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; }
+  .watch-badge--watched { right: 6px; gap: 4px; }
+  .watch-badge--watched > .ico { font-size: 12px; }
 }
 
 /* What an AI chose: the icon and the words. */

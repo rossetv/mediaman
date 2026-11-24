@@ -1000,7 +1000,7 @@ def test_a_watched_poster_says_so_in_words_and_not_with_the_tick_of_in_library()
     html = _watch(rows=[{"title": "Movies", "items": [_marked(watched=True)]}])
     badge = re.search(r'<span class="watch-badge watch-badge--watched">(.*?)</span></span>', html)
     assert badge
-    assert '<span class="sr-only">Watched' in badge.group(1)
+    assert '<span class="watch-badge__word">Watched' in badge.group(1)
     assert "#i-eye" in badge.group(1) and "#i-check" not in badge.group(1)
 
 
