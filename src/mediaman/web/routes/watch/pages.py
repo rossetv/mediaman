@@ -113,6 +113,13 @@ def safe_origin(value: str | None) -> str | None:
     return value if value and _ORIGIN_RE.fullmatch(value) else None
 
 
+def _banner_art(key: str) -> dict[str, str]:
+    """The banner's pictures, in the order a title's details try them: its own backdrop, then
+    TMDB's, then the poster as a poster."""
+    art = title_art(key)
+    return {**art, "next_backdrop_url": f"{art['backdrop_url']}&source=tmdb"}
+
+
 def play_href(rating_key: str, *, resume: bool = False, origin: str | None = None) -> str:
     params = ["resume=1"] if resume else []
     if origin:
@@ -469,7 +476,7 @@ def _banner(
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        **title_art(key),
+        **_banner_art(key),
     }
 
 
@@ -545,7 +552,7 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},
             "episodes_href": None,
-            **title_art(key),
+            **_banner_art(key),
         }
 
     # (title, cards, under the "Your library" divider); Discover goes between the two groups.

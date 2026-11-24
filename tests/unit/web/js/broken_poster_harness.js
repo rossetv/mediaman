@@ -23,14 +23,33 @@ const events = {
 const before = { earlyPortrait: image(ART, 1000, 1500, true), earlyWide: image(ART, 1920, 1080, true), pending: image(ART, 0, 0, false) };
 
 const listeners = {};
-vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), {
-  document: {
-    addEventListener: (t, fn) => { listeners[t] = fn; },
-    querySelectorAll: (sel) => Object.values(before).filter((i) => i.matches(sel)),
-  },
-});
+function run(pictures) {
+  vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), {
+    document: {
+      addEventListener: (t, fn) => { listeners[t] = fn; },
+      querySelectorAll: (sel) => pictures.filter((i) => i.matches(sel)),
+    },
+  });
+}
+run(Object.values(before));
 Object.values(events).forEach(([type, img]) => listeners[type] && listeners[type]({ target: img }));
 const marked = (img) => 'broken' in img.dataset;
-process.stdout.write(JSON.stringify(Object.fromEntries(
+/* A picture with one more to try: its mark, its address and whether it is between the two, at each step. */
+function retried(first, second, early) {
+  const img = image(ART, ...first, early);
+  img.dataset.nextSrc = '/next.jpg';
+  const look = () => ({ src: img.src || null, marked: marked(img), retrying: 'retrying' in img.dataset });
+  const fire = ([w, h]) => { img.naturalWidth = w; img.naturalHeight = h; listeners[w ? 'load' : 'error']({ target: img }); };
+  if (early) run([img]); else fire(first);
+  const between = look();
+  if (second) fire(second);
+  return [between, look()];
+}
+const WIDE = [1280, 720], TALL = [1000, 1500], GONE = [0, 0];
+const retries = {
+  unfitThenWide: retried(TALL, WIDE), goneThenWide: retried(GONE, WIDE), unfitTwice: retried(TALL, TALL),
+  unfitThenGone: retried(TALL, GONE), wide: retried(WIDE), early: retried(TALL, WIDE, true), earlyGone: retried(GONE, WIDE, true),
+};
+process.stdout.write(JSON.stringify({ retries, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
-    .concat(Object.entries(before).map(([k, img]) => [k, marked(img)])))));
+    .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));

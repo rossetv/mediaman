@@ -1317,6 +1317,7 @@ class TestPosterTmdbBackdrop:
             details,
             tmdb=True,
             signed=False,
+            query="",
             tmdb_id_for_tvdb=lambda _c, tvdb: tvdb + 1,
         ):
             asked = []
@@ -1336,10 +1337,10 @@ class TestPosterTmdbBackdrop:
 
             monkeypatch.setattr(TmdbClient, "from_db", from_db)
             if signed:
-                url = sign_poster_url(key, self._KEY) + "&kind=art"
+                url = sign_poster_url(key, self._KEY) + "&kind=art" + query
             else:
                 client.cookies.set("session_token", token)
-                url = f"/api/poster/{key}?kind=art"
+                url = f"/api/poster/{key}?kind=art{query}"
             return client.get(url, follow_redirects=False), asked
 
         ask.conn = conn
@@ -1470,8 +1471,60 @@ class TestPosterTmdbBackdrop:
         assert (r.status_code, r.headers["location"]) == (302, self._IMAGE)
         assert asked == [("movie", 42)]
 
+    @pytest.fixture
+    def plex_art(self, monkeypatch):
+        from mediaman.web.routes import poster
+
+        monkeypatch.setattr(poster, "_load_plex_credentials", lambda *_a: ("https://p", "t", None))
+        monkeypatch.setattr(poster, "_fetch_plex_art", lambda *_a: (b"plex-art", "image/jpeg"))
+
+    def test_source_tmdb_leaves_plexs_backdrop_out_and_neither_is_served_for_the_other(
+        self, ask, plex_art
+    ):
+        self._item(ask, id="700", tmdb_id=42)
+        details = {"backdrop_url": self._IMAGE}
+
+        for _ in range(2):
+            r, asked = ask("700", details=details, query="&source=tmdb")
+            assert (r.status_code, r.headers["location"]) == (302, self._IMAGE)
+            assert r.headers["cache-control"] == "private, max-age=300"
+            assert asked == [("movie", 42)]
+
+            r, asked = ask("700", details=details)
+            assert (r.status_code, r.content, asked) == (200, b"plex-art", [])
+            assert r.headers["cache-control"] == "public, max-age=604800"
+        assert ask.timeouts == [3.0, 3.0]
+
+    @pytest.mark.parametrize("value", ["", "plex", "TMDB", "tmdb,plex"])
+    def test_any_other_source_still_serves_plexs_backdrop(self, ask, plex_art, value):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE}, query=f"&source={value}")
+
+        assert (r.status_code, r.content, asked) == (200, b"plex-art", [])
+
+    def test_source_tmdb_on_a_signed_url_makes_no_tmdb_request(self, ask, plex_art):
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask(
+            "700", details={"backdrop_url": self._IMAGE}, signed=True, query="&source=tmdb"
+        )
+
+        assert (r.status_code, asked) == (404, [])
+
+    def test_source_tmdb_is_not_asked_again_at_once_after_no_answer(self, ask, plex_art):
+        from mediaman.services.watch_catalog import TmdbUnavailable
+
+        self._item(ask, id="700", tmdb_id=42)
+        ask("700", details=TmdbUnavailable("details"), query="&source=tmdb")
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE}, query="&source=tmdb")
+
+        assert (r.status_code, asked) == (404, [])
+
+    @pytest.mark.parametrize("query", ["", "&source=tmdb"])
     @pytest.mark.parametrize("held_in", [None, 2], ids=["deleted", "library not scanned"])
-    def test_a_title_outside_the_scanned_libraries_is_not_sent_to_tmdb(self, ask, held_in):
+    def test_a_title_outside_the_scanned_libraries_is_not_sent_to_tmdb(self, ask, held_in, query):
         # Recorded as deleted, so its poster may still be served.
         insert_audit_log(ask.conn, media_item_id="700", action="deleted")
         if held_in is not None:
@@ -1479,6 +1532,6 @@ class TestPosterTmdbBackdrop:
             ask.conn.execute("UPDATE media_items SET tmdb_id = 42 WHERE id = ?", (key,))
             ask.conn.commit()
 
-        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE}, query=query)
 
         assert (r.status_code, asked) == (404, [])

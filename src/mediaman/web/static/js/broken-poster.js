@@ -23,6 +23,20 @@
     return img.naturalWidth < MIN_ART_WIDTH || img.naturalWidth < MIN_ART_RATIO * img.naturalHeight;
   }
 
+  // ``data-next-src`` names one more picture to try before the mark. The image
+  // carries ``data-retrying`` until that one has loaded or failed too.
+  function fail(img) {
+    var next = img.dataset.nextSrc;
+    if (next) {
+      delete img.dataset.nextSrc;
+      img.dataset.retrying = '';
+      img.src = next;
+      return;
+    }
+    delete img.dataset.retrying;
+    img.dataset.broken = '';
+  }
+
   document.addEventListener(
     'load',
     function (event) {
@@ -30,10 +44,10 @@
       if (
         target &&
         target.tagName === 'IMG' &&
-        target.hasAttribute('data-wide-art') &&
-        unfit(target)
+        target.hasAttribute('data-wide-art')
       ) {
-        target.dataset.broken = '';
+        if (unfit(target)) fail(target);
+        else delete target.dataset.retrying;
       }
     },
     true,
@@ -52,7 +66,7 @@
         target.tagName === 'IMG' &&
         target.hasAttribute('data-broken-on-error')
       ) {
-        target.dataset.broken = '';
+        fail(target);
       }
     },
     true,
@@ -64,11 +78,11 @@
   for (var i = 0; i < failed.length; i++) {
     var img = failed[i];
     if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) {
-      img.dataset.broken = '';
+      fail(img);
     }
   }
   var wide = document.querySelectorAll('img[data-wide-art]');
   for (var j = 0; j < wide.length; j++) {
-    if (wide[j].complete && wide[j].naturalWidth && unfit(wide[j])) wide[j].dataset.broken = '';
+    if (wide[j].complete && wide[j].naturalWidth && unfit(wide[j])) fail(wide[j]);
   }
 })();

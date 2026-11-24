@@ -270,6 +270,7 @@ def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> No
         "primary": {"label": "Play", "href": "/watch/play/1"},
         "episodes_href": None,
         "backdrop_url": "/api/poster/1?kind=art",
+        "next_backdrop_url": "/api/poster/1?kind=art&source=tmdb",
         "poster_url": "/api/poster/1",
     }
     html = _watch(banner=banner)
@@ -284,6 +285,14 @@ def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> No
     assert all("data-broken-on-error" in i for i in images)
     # The backdrop is judged on its shape once it has loaded; the poster copies never are.
     assert ["data-wide-art" in i for i in images] == [True, False, False]
+    # Only the backdrop has another picture to try first.
+    assert ['data-next-src="/api/poster/1?kind=art&amp;source=tmdb"' in i for i in images] == [
+        True,
+        False,
+        False,
+    ]
+    retrying = _declarations_of("_watch.css", ".watch-banner__bg--art[data-retrying]")
+    assert "opacity: 0" in retrying
     css = (CSS / "_watch.css").read_text()
     for part in ("bg--fill", "poster"):
         assert f".watch-banner__bg--art:not([data-broken]) ~ .watch-banner__{part}" in css

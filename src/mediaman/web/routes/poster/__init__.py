@@ -117,12 +117,14 @@ def proxy_poster(
     rating_key: str,
     sig: str | None = None,
     kind: str = "poster",
+    source: str = "",
     admin: str | None = Depends(get_optional_admin),
 ) -> Response:
     """Serve a poster image, fetching from Plex only on cache miss.
 
     ?kind=art asks for the item's wide backdrop instead: Plex's, else (with a session) a
-    redirect to TMDB's, else 404. A poster never stands in for it.
+    redirect to TMDB's, else 404. A poster never stands in for it. &source=tmdb leaves Plex's
+    out, for a page that found it to be no wide picture; any other value changes nothing.
 
     Needs an admin session or a valid HMAC signature in ?sig=. The 401 comes before any
     rating_key validity or existence check, so the endpoint is no oracle for enumerating
@@ -142,7 +144,7 @@ def proxy_poster(
             return Response(status_code=404)
 
     if kind == "art":
-        art = _serve_art(config, rating_key)
+        art = None if source == "tmdb" else _serve_art(config, rating_key)
         if art is not None:
             return art
         # The TMDB image proxy needs a session, so a signed-URL caller is not sent there.

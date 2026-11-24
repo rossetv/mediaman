@@ -400,6 +400,15 @@ class TestWatchRows:
 
         assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/500?kind=art"
 
+    def test_the_banner_names_tmdbs_backdrop_to_try_next(self, get, conn):
+        banner = get("/watch").json()["banner"]
+        assert banner["next_backdrop_url"] == "/api/poster/101?kind=art&source=tmdb"
+
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        banner = get("/watch").json()["banner"]
+        assert banner["next_backdrop_url"] == "/api/poster/500?kind=art&source=tmdb"
+
     def test_the_banner_carries_the_poster_apart_from_the_backdrop(self, get, conn):
         assert get("/watch").json()["banner"]["poster_url"] == "/api/poster/101"
 

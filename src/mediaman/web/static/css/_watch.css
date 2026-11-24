@@ -342,6 +342,9 @@
 .watch-banner__bg--art:not([data-broken]) ~ .watch-banner__poster { display: none; }
 .has-poster-fade .watch-banner__bg--fill:not(.is-loaded) ~ .watch-banner__poster { opacity: 0; }
 
+/* The next backdrop is on its way: the one that did not fit is not shown. */
+.watch-banner__bg--art[data-retrying] { opacity: 0; transition: none; }
+
 /* Rows run to the screen edge; at rest the first card lines up with the
    title, and whatever is cut off at either edge fades out across the gutter.
    With a mouse, arrow buttons in the gutters page a screenful; on touch each
