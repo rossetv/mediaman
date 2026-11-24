@@ -464,6 +464,11 @@
   .setg-pg .intg-card-hd .intg-chev { margin-left: auto; }
 }
 
+@media (max-width: 359.98px) {
+  /* "Unsubscribed" gives up its indent, so Remove stays on its line. */
+  .setg-pg .sub-row .sub-stat { margin-left: 0; }
+}
+
 @media (max-width: 699.98px) {
   .setg-pg .btn--sm,
   .setg-pg .recipient-toggles .btn { min-height: 44px; }

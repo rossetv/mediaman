@@ -49,6 +49,19 @@ def test_buttons_whose_label_changes_have_a_minimum_width() -> None:
     assert "min-width" in _declarations(".setg-pg #btn-send-newsletter")
 
 
+def _narrow_phone_rule(selector: str) -> str:
+    """The last declarations under 360px for `selector`, which must come after the phone ones."""
+    start = PANELS.rindex("@media (max-width: 359.98px)")
+    assert start > PANELS.rindex("@media (max-width: 520px)")
+    match = re.search(re.escape(selector) + r"\s*\{([^{}]*)\}", PANELS[start:])
+    assert match
+    return match.group(1)
+
+
+def test_the_longest_subscriber_state_leaves_remove_on_its_line_on_a_narrow_phone() -> None:
+    assert "margin-left: 0" in _narrow_phone_rule(".setg-pg .sub-row .sub-stat")
+
+
 def _phone_block_with(selector: str) -> str:
     """The body of the phone `@media` block that holds a rule for `selector`."""
     for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):
