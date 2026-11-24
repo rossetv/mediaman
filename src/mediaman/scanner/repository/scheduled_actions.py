@@ -93,6 +93,7 @@ __all__ = [
     "save_pruned_keeps",
     "take_pruned_keeps",
     "tracked_paths",
+    "was_audited_since",
     "was_requested_since",
 ]
 
@@ -709,6 +710,18 @@ def finish_unmonitor(conn: sqlite3.Connection, audit_id: int) -> bool:
     """Drop the mark of the deletion booked as *audit_id*; return False if it is already gone."""
     cursor = conn.execute("DELETE FROM pending_unmonitors WHERE audit_id = ?", (audit_id,))
     return cursor.rowcount == 1
+
+
+def was_audited_since(
+    conn: sqlite3.Connection, audit_id: int, media_item_id: str, action: str, detail: str
+) -> bool:
+    """Return True if *media_item_id* has an entry of *action* with *detail* later than *audit_id*."""
+    row = conn.execute(
+        "SELECT 1 FROM audit_log "
+        "WHERE media_item_id = ? AND id > ? AND action = ? AND detail = ? LIMIT 1",
+        (media_item_id, audit_id, action, detail),
+    ).fetchone()
+    return row is not None
 
 
 def was_requested_since(conn: sqlite3.Connection, row: DeletionRow) -> bool:

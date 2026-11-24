@@ -357,6 +357,39 @@ def test_an_unreadable_radarr_key_does_not_stop_the_library_sync(conn, root, mon
     assert plex.called
 
 
+def test_an_unreadable_radarr_key_keeps_its_titles_marked_and_sonarrs_told(conn, root, monkeypatch):
+    for number in (1, 2):
+        _due(conn, root, number)
+    conn.execute(
+        "UPDATE media_items SET media_type = 'tv_season', season_number = 1, sonarr_id = 7, "
+        "tvdb_id = 9, tmdb_id = NULL WHERE id = 'm2'"
+    )
+    conn.commit()
+    DeletionExecutor(conn=conn).execute()
+    sonarr, radarr = MagicMock(), _radarr(root)
+    sonarr.get_series_by_id.return_value = {
+        "id": 7,
+        "tvdbId": 9,
+        "path": str(root),
+        "seasons": [{"seasonNumber": 1}],
+    }
+    sonarr.get_episode_files.return_value = []
+    monkeypatch.setattr(runner, "_build_sonarr", lambda *a: sonarr)
+    with monkeypatch.context() as m:
+        m.setattr(runner, "_build_plex_client", lambda *a: None)
+        m.setattr(
+            runner,
+            "_build_radarr",
+            MagicMock(side_effect=ConfigDecryptError("radarr_api_key", ValueError())),
+        )
+        runner.run_library_sync(conn, "secret")
+    sonarr.unmonitor_season.assert_called_once_with(7, 1)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == [1]
+
+
 def test_an_older_database_without_the_table_gets_it(conn, db_path, root):
     _due(conn, root, 1)
     conn.execute("DROP TABLE pending_unmonitors")

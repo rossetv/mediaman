@@ -53,6 +53,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_latest_audit,
     record_removed_files,
     tracked_paths,
+    was_audited_since,
     was_requested_since,
 )
 from mediaman.services.arr.base import ArrError
@@ -569,22 +570,16 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> int | str:
     return sonarr_id
 
 
-def _unmonitor(
-    row: DeletionRow, *, radarr_client: ArrClient | None, sonarr_client: ArrClient | None
-) -> int | str | None:
+def _unmonitor(row: DeletionRow, client: ArrClient) -> int | str | None:
     """Stop Radarr/Sonarr re-downloading a deleted item.
 
     Returns the id of the entry unmonitored, or why none was when that must be
     told. Only ever unmonitors, after checking it is the same item: the files are
     already gone, so a wrong match could at worst stop a download, never delete
-    anything. With no client for the item's kind, or no entry for the item in
-    it, there is nothing to unmonitor.
+    anything. With no entry for the item, there is nothing to unmonitor.
     """
     is_movie = row.media_type == "movie"
     service = _service(row)
-    client = radarr_client if is_movie else sonarr_client
-    if client is None:
-        return None
     try:
         outcome = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS:
@@ -637,10 +632,14 @@ def _entry_to_rescan(row: DeletionRow, client: ArrClient) -> int | None:
 
 
 class _Told(NamedTuple):
-    """What became of a booked deletion's mark: the entry left to rescan, and what to audit."""
+    """What became of a booked deletion's mark: the entry left to rescan, and what to audit.
+
+    With *keep* the mark stays as it is, for the next call to try again.
+    """
 
     rescan_id: int | None = None
     note: str | None = None
+    keep: bool = False
 
 
 def _tell(
@@ -649,22 +648,27 @@ def _tell(
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-) -> _Told | None:
-    """Unmonitor a booked deletion, or find why not; None when the next call must try again."""
-    left = f"Left monitored in {_service(row)}: {row.title}"
+) -> _Told:
+    """Unmonitor a booked deletion, or find why not."""
+    service = _service(row)
+    left = f"Left monitored in {service}: {row.title}"
     if _on_disk_again(row):
         return _Told(note=f"{left} — a copy of it is on disk again")
     client = radarr_client if row.media_type == "movie" else sonarr_client
+    if client is None:
+        return _Told(
+            note=f"Not unmonitored in {service} yet: {row.title} — {service} is not set up, or "
+            f"its settings cannot be read; {service} may download it again until it is told",
+            keep=True,
+        )
     if was_requested_since(conn, row):
         note = f"{left} — it was asked for again after its deletion"
-        if client is None:
-            return _Told(note=note)
         try:
             return _Told(_entry_to_rescan(row, client), note)
         except _ARR_ERRORS:
             logger.warning("Lookup for a rescan failed for %r", row.title, exc_info=True)
-            return None
-    outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+            return _Told(keep=True)
+    outcome = _unmonitor(row, client)
     return _Told(rescan_id=outcome) if isinstance(outcome, int) else _Told(note=outcome)
 
 
@@ -680,13 +684,13 @@ def unmonitor_deleted(
 
     Runs after the deletion committed, so a slow response never holds the write
     lock, and commits each item's outcome as it goes: one a dead process left
-    marked is done by the next call. It is tried once; a skip is audited as
-    ``unmonitor_skipped`` and the deletion stays booked either way. A title
+    marked is done by the next call. It is tried once, or kept marked while there
+    is no client to try it with; a skip is audited once as ``unmonitor_skipped``
+    and the deletion stays booked either way. A title
     that came back meanwhile is left monitored; one asked for again is only
     rescanned, as Radarr/Sonarr would not fetch files it still lists.
     """
     for row in fetch_pending_unmonitors(conn):
-        told: _Told | None
         try:
             told = _tell(conn, row, radarr_client=radarr_client, sonarr_client=sonarr_client)
         except sqlite3.Error:
@@ -699,15 +703,16 @@ def unmonitor_deleted(
                     row, f"an unexpected error stopped it ({exc.__class__.__name__})"
                 )
             )
-        if told is None:
-            continue
         with conn:
-            taken = (
-                finish_unmonitor(conn, row.id)
-                if told.rescan_id is None
-                else await_rescan(conn, row.id, told.rescan_id)
-            )
-            if taken and told.note is not None:
+            if told.keep:
+                news = told.note is not None and not was_audited_since(
+                    conn, row.id, row.media_item_id, "unmonitor_skipped", told.note
+                )
+            elif told.rescan_id is not None:
+                news = await_rescan(conn, row.id, told.rescan_id)
+            else:
+                news = finish_unmonitor(conn, row.id)
+            if news and told.note is not None:
                 log_audit(conn, row.media_item_id, "unmonitor_skipped", told.note)
 
 

@@ -159,4 +159,5 @@ def test_a_removal_finished_before_its_library_was_unselected_is_booked(conn, ro
     DeletionExecutor(conn=conn).execute()
 
     assert _status(conn, "m1") is None
-    assert _audits(conn, "m1") == ["deleted"]
+    # With no Radarr set up, that it was not told is audited too.
+    assert _audits(conn, "m1") == ["deleted", "unmonitor_skipped"]
