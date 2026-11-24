@@ -308,3 +308,63 @@ def test_a_preview_whose_card_goes_fades_where_it_stands_with_its_trailer() -> N
 
 def test_a_preview_is_never_folded_into_a_card_that_has_gone() -> None:
     assert _run("escapeAfterGone") == [True, []]
+
+
+def test_back_resize_typing_a_drag_and_a_mouse_out_of_the_window_close_it_or_call_it_off() -> None:
+    assert _run("waysOut") == {
+        "back": ["Fieldwork", "fades", False, 0, False, 0],
+        "resize": ["Fieldwork", "fades", False, 0, False, 0],
+        "typing": ["Fieldwork", "fades", False, 0, False, 0],
+        "mouseOut": ["Fieldwork", "folds", False, 0, False, 0],
+        "drag": ["Fieldwork", "folds", False, 0, False, 0],
+        "pagehide": ["Fieldwork", "gone", False, 0, False, 0],
+    }
+
+
+def test_a_mouse_out_of_the_window_leaves_a_preview_whose_menu_is_open() -> None:
+    assert _run("mouseOutPinned") == "Fieldwork"
+
+
+def test_a_press_on_its_card_hands_it_to_the_detail_and_on_another_closes_it() -> None:
+    assert _run("cardPressed") == {"film": [True, None, 0], "other": [False, None, 0]}
+
+
+def test_back_on_the_card_mid_fold_the_same_preview_turns_round() -> None:
+    assert _run("reopened") == {
+        "folding": [None, False],
+        "back": [True, True],
+        "later": True,
+        "layers": 1,
+        "gets": 1,
+    }
+
+
+def test_a_card_crossed_fast_waits_until_the_mouse_rests() -> None:
+    assert _run("crossingFast") == {"fast": 0, "atRest": "Fieldwork"}
+
+
+def test_a_card_more_than_half_out_of_sight_or_with_no_room_opens_nothing() -> None:
+    assert _run("noRoom") == {
+        "whole": "Fieldwork",
+        "justOver": "Fieldwork",
+        "mostlyLeft": None,
+        "mostlyRight": None,
+        "mostlyUnder": None,
+        "tooTall": [None, 0],
+    }
+
+
+def test_a_dialog_that_opens_while_the_mouse_rests_calls_it_off() -> None:
+    assert _run("dialogWhileArmed") == []
+
+
+def test_a_press_in_a_preview_takes_no_focus() -> None:
+    assert _run("focusKept") is True
+
+
+def test_a_trailer_leaves_no_timer_running_however_it_ends() -> None:
+    out = _run("trailerTimers")
+    assert out.pop("beforeItStarts") == [0, False]
+    for running, left in out.values():
+        assert running > 0
+        assert left == 0

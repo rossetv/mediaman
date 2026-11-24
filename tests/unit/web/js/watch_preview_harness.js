@@ -652,6 +652,142 @@ const scenarios = {
     h.key('Escape', h.doc.body);
     return [h.doc.querySelector('.pv').classList.contains('is-fading'), set];
   },
+  /* Each way the page closes it: what is left then, how it goes, and what is left in the end. */
+  async waysOut() {
+    const out = {};
+    const ways = {
+      back: (h) => h.winFire('popstate'),
+      resize: (h) => h.winFire('resize'),
+      typing: (h) => h.fire(h.doc, 'input', { target: h.doc.querySelector('#watch-search') }),
+      mouseOut: (h) => h.fire(h.doc.documentElement, 'pointerleave', {}),
+      drag: (h) => h.fire(h.doc, 'dragstart', {}),
+      pagehide: (h) => h.winFire('pagehide'),
+    };
+    for (const how of Object.keys(ways)) {
+      const h = await trailer();
+      const before = h.title();
+      ways[how](h);
+      const n = h.doc.querySelector('.pv');
+      const then = !n ? 'gone' : n.classList.contains('is-fading') ? 'fades' : n.classList.contains('is-open') ? 'stays' : 'folds';
+      const lifted = h.link('film').classList.contains('is-previewed');
+      await h.pass(400);
+      out[how] = [before, then, lifted, h.doc.querySelectorAll('.pv').length, !!h.frame()];
+      // Called off too while it is only about to open.
+      const armed = load();
+      armed.over(armed.link('film'));
+      armed.over(armed.link('film'), { clientX: armed.x - 6 });
+      await armed.pass(200);
+      ways[how](armed);
+      await armed.pass(1500);
+      out[how].push(armed.gets.length);
+    }
+    return out;
+  },
+  /* The mouse leaves for a menu of the preview's that hangs past the window. */
+  async mouseOutPinned() {
+    const h = load();
+    await h.rest('film');
+    h.pv().querySelector('[data-preview-more]').click();
+    h.fire(h.doc.documentElement, 'pointerleave', {});
+    return h.title();
+  },
+  /* A press that opens the detail: on its own card, on another's. */
+  async cardPressed() {
+    const out = {};
+    for (const id of ['film', 'other']) {
+      const h = load();
+      await h.rest('film');
+      h.link(id).addEventListener('click', () => h.ctx.MMWatch.detail.open('x', {}));
+      h.link(id).click();
+      const n = h.doc.querySelector('.pv');
+      const handed = n.classList.contains('is-handed');
+      await h.pass(400);
+      out[id] = [handed, h.title(), h.doc.querySelectorAll('.pv').length];
+    }
+    return out;
+  },
+  async reopened() {
+    const h = load();
+    await h.rest('film');
+    const n = h.pv();
+    h.away();
+    await h.pass(150);
+    const folding = [h.title(), n.classList.contains('is-open')];
+    h.over(h.link('film'));
+    const back = [h.pv() === n, h.link('film').classList.contains('is-previewed')];
+    await h.pass(1000);
+    return { folding, back, later: h.pv() === n && n.classList.contains('is-settled'), layers: h.doc.querySelectorAll('.pv').length, gets: h.gets.length };
+  },
+  /* Still on one card when the time is up, but crossing it fast; then at rest. */
+  async crossingFast() {
+    const h = load();
+    h.over(h.link('film'));
+    await h.pass(300);
+    h.over(h.link('film'), { clientX: 100 });
+    await h.pass(40);
+    h.over(h.link('film'), { clientX: 180 });
+    await h.pass(60);
+    const fast = h.gets.length;
+    await h.pass(1000);
+    return { fast, atRest: h.title() };
+  },
+  async noRoom() {
+    const at = (left, top, w, hgt) => ({ left, top, width: w, height: hgt, right: left + w, bottom: top + hgt });
+    const out = {};
+    const boxes = { whole: at(0, 100, 150, 225), mostlyLeft: at(-80, 100, 150, 225), mostlyRight: at(1210, 100, 150, 225), mostlyUnder: at(0, 720, 150, 225), justOver: at(-70, 100, 150, 225) };
+    for (const [name, box] of Object.entries(boxes)) {
+      const h = load();
+      h.link('film').querySelector('.watch-card__poster').getBoundingClientRect = () => box;
+      await h.rest('film', 900);
+      out[name] = h.title();
+    }
+    const h = load();
+    h.ctx.innerHeight = 30;
+    h.link('film').querySelector('.watch-card__poster').getBoundingClientRect = () => at(0, 8, 10, 10);
+    await h.rest('film', 900);
+    out.tooTall = [h.title(), h.doc.querySelectorAll('.pv').length];
+    return out;
+  },
+  async dialogWhileArmed() {
+    const h = load();
+    h.over(h.link('film'));
+    h.over(h.link('film'), { clientX: h.x - 6 });
+    await h.pass(200);
+    h.doc.body.appendChild(build(h.doc, ['div', { class: 'modal-backdrop' }]));
+    await h.pass(1500);
+    return h.gets;
+  },
+  async focusKept() {
+    const h = load();
+    await h.rest('film');
+    let held = false;
+    h.pv().listeners.mousedown.forEach((fn) => fn({ preventDefault() { held = true; } }));
+    return held;
+  },
+  /* What is left to run after each end of a trailer. */
+  async trailerTimers() {
+    const ends = {
+      left: (h) => h.away(),
+      switchedOff: (h) => { h.pv().querySelector('[data-preview-more]').click(); h.doc.querySelector('.pv-menu [data-act="trailers"]').click(); },
+      ended: (h) => h.message({ event: 'onStateChange', info: 0 }),
+      error: (h) => h.message({ event: 'onError', info: 150 }),
+      hidden: (h) => { h.doc.hidden = true; h.fire(h.doc, 'visibilitychange', {}); },
+    };
+    const out = {};
+    for (const [name, end] of Object.entries(ends)) {
+      const h = await trailer();
+      const running = h.timers();
+      end(h);
+      await h.pass(1000);
+      out[name] = [running, h.timers()];
+    }
+    const h = load();
+    await h.rest('film', 600);
+    h.away();
+    await h.pass(500);
+    out.beforeItStarts = [h.timers(), !!h.frame()];
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
