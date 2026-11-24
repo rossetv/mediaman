@@ -309,6 +309,7 @@ function boot(html, reduced, saved, serverPlays) {
     }
   }
   Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed' };
+  Hls.ErrorDetails = { FRAG_LOAD_TIMEOUT: 'fragLoadTimeOut' };
   Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 
   const toasts = [];
@@ -597,6 +598,22 @@ const scenarios = {
     for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); fire(p.video, 'playing'); }
     await settle();
     return p.starts();
+  },
+
+  /* The line is too slow for the first picture to come. */
+  async auto_never_starts(p) {
+    const slow = () => p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: false, details: 'fragLoadTimeOut' });
+    p.replies[0] = answer(p.win.serverPlays);
+    p.replies.push(answer('720p-4000'));
+    await settle();
+    /* What hls.js says before it has measured anything. */
+    p.hlsList[0].bandwidthEstimate = 5e5;
+    slow();
+    await settle();
+    const once = p.starts();
+    slow();
+    await settle();
+    return { once: once, twice: p.starts() };
   },
 
   /* A quality the person picked stays, however it stalls. */

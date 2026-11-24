@@ -404,11 +404,14 @@
   function noteStall() {
     if (!rolling || swapping) return;
     stopRolling();
-    if (quality !== 'auto') return;
+    if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
+  }
+
+  /* Whether this sign of a slow connection, with the last, made for a step down. */
+  function countSlow() {
     stalls = playedS - stalledAt <= STALL_WINDOW_S ? stalls + 1 : 1;
     stalledAt = playedS;
-    if (stalls > 1) stepDown();
-    else stallTimer = setTimeout(stepDown, STALL_MS);
+    return stalls > 1 && stepDown();
   }
 
   function stepTo(row) {
@@ -418,16 +421,20 @@
     restartStream(true);
   }
 
-  /* One step, or further where the connection measured slower than that. */
+  /* One step, or further where the connection measured slower than that. One
+     that has played nothing has measured nothing: half of what is left. */
   function stepDown() {
-    if (starting || !streamId) return;
+    if (starting || !streamId) return false;
     var converts = convertRows();
     var lower = converts.slice(converts.indexOf(rowFor(playing)) + 1);
-    if (!lower.length) return;
+    if (!lower.length) return false;
     if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
+    var last = lower[lower.length - 1];
     var kbps = (hls && hls.bandwidthEstimate || 0) / 1000;
-    stepTo(kbps ? lower.filter(function (r) { return r.bitrate_kbps <= kbps * 0.8; })[0] ||
-                  lower[lower.length - 1] : lower[0]);
+    if (!streamPlayed) stepTo(lower[Math.floor((lower.length - 1) / 2)]);
+    else if (!kbps) stepTo(lower[0]);
+    else stepTo(lower.filter(function (r) { return r.bitrate_kbps <= kbps * 0.8; })[0] || last);
+    return true;
   }
 
   function maybeStepUp() {
@@ -605,6 +612,8 @@
       streamGone();
       return;
     }
+    /* Also how a connection too slow to start at all shows. */
+    if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
     if (!data.fatal) return;
     if (playing === 'original' && !streamPlayed) { leaveOriginal(); return; }
     if (isNew()) {

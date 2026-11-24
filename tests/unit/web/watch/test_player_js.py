@@ -206,6 +206,14 @@ def test_automatic_goes_straight_to_what_a_slow_connection_can_carry(markup):
     assert run(markup, "auto_jumps") == ["auto", "480p-1500"]
 
 
+def test_automatic_steps_down_when_the_video_cannot_even_start(markup):
+    out = run(markup, "auto_never_starts", plays="1080p-8000")
+    assert out == {"once": ["auto"], "twice": ["auto", "720p-4000"]}
+    saved = {"mediaman.watch.quality": "1080p-8000"}
+    out = run(markup, "auto_never_starts", saved=saved, plays="1080p-8000")
+    assert out["twice"] == ["1080p-8000"]
+
+
 def test_a_picked_quality_never_changes_by_itself(markup):
     saved = {"mediaman.watch.quality": "1080p-8000"}
     assert run(markup, "fixed_stalls", saved=saved) == ["1080p-8000"]
