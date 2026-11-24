@@ -915,6 +915,19 @@ def test_an_old_place_never_goes_out_over_a_newer_one(markup):
     assert run(markup, "fail_unsaved") == [None, 420]
 
 
+@pytest.mark.parametrize("subtitle", ["S2 · E5 — High Tide", "S2 · E5 — High Water"])
+def test_the_next_episodes_title_is_said_once(markup, tmp_path_factory, subtitle):
+    item = {**EPISODE["item"], "rating_key": "502", "subtitle": subtitle}
+    page = _markup(tmp_path_factory, {**EPISODE, "item": item})
+    out = run(markup, "next_said", pages={"/watch/play/502": page})
+    assert out["item"] == "502"
+    label = EPISODE["next"]["label"]
+    # One renamed meanwhile is put right.
+    again = [] if subtitle == label else [EPISODE["item"]["title"], subtitle]
+    assert out["said"] == [label, *again]
+    assert subtitle in out["shown"]
+
+
 def test_what_is_pressed_while_the_next_episode_is_on_its_way_holds_for_it(markup, season):
     out = run(markup, "next_waits", pages=season)
     assert (out["paused"], out["plays"]) == ("Play", 1)

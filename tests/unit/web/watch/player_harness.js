@@ -1461,6 +1461,23 @@ const scenarios = {
     return out;
   },
 
+  /* The next episode takes over: the title says it as it is asked for, and not again. */
+  async next_said(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    const slot = p.q('[data-slot="titles"]');
+    const said = [];
+    const add = slot.appendChild;
+    const sub = p.q('.player-subtitle');
+    slot.appendChild = function (n) { said.push(n.textContent.trim()); return add.call(this, n); };
+    sub.appendChild = function (n) { said.push(n.textContent); return Node.prototype.appendChild.call(this, n); };
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    await streamPlays(p, 0);
+    return { said: said.filter(Boolean), item: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body.rating_key, shown: slot.textContent };
+  },
+
   /* What each way of saying "stop" does while the next-episode card counts down. */
   async upnext_stops(p) {
     const ways = {

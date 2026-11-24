@@ -1883,6 +1883,8 @@
     var slot = q('[data-slot="' + name + '"]');
     var from = el.querySelector('[data-slot="' + name + '"]');
     var hadFocus = slot.contains(document.activeElement);
+    /* The same title put in again would be said again. */
+    if (name === 'titles' && from && from.textContent === slot.textContent) return;
     slot.textContent = '';
     while (from && from.firstChild) slot.appendChild(from.firstChild);
     if (hadFocus) (slot.querySelector('a') || els.play).focus();
