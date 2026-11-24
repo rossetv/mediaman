@@ -51,6 +51,15 @@ from mediaman.web.repository.library_query import (
 router = APIRouter()
 
 
+def _is_count(text: str, most: int) -> bool:
+    return (
+        len(text) <= len(str(most))
+        and text.isascii()
+        and text.isdecimal()
+        and 1 <= int(text) <= most
+    )
+
+
 @router.get("/library")
 def library_page(
     request: Request,
@@ -72,8 +81,9 @@ def library_page(
         params["type"] = type
     if sort in VALID_SORTS:
         params["sort"] = sort
-    if page.isascii() and page.isdecimal() and 1 <= int(page) <= 100_000:
+    # The length test comes first: int() refuses a string of thousands of digits.
+    if _is_count(page, 100_000):
         params["page"] = page
-    if per_page.isascii() and per_page.isdecimal() and 1 <= int(per_page) <= 100:
+    if _is_count(per_page, 100):
         params["per_page"] = per_page
     return RedirectResponse(f"/watch?{urlencode(params)}", status_code=302)
