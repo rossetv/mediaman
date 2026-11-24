@@ -1,5 +1,6 @@
 /**
- * Force-password-change page — client-side password meter and sign-out wire.
+ * Force-password-change page — client-side password meter, the check that the
+ * two new passwords match, and sign-out wire.
  *
  * Lives in an external file so the page-level CSP needs no
  * 'unsafe-inline'.
@@ -133,6 +134,22 @@
 
   newPw.addEventListener('input', render);
   confirmPw.addEventListener('input', updateMatch);
+
+  // The server answers two passwords that differ with the page again and every
+  // field empty: keep what was typed and put the cursor where the fix is. The
+  // submit guard, on the document, must not see this submit, or it holds the next.
+  var form = document.getElementById('fpc-form');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      if (!newPw.value || newPw.value === confirmPw.value) return;
+      e.preventDefault();
+      e.stopPropagation();
+      matchEl.textContent = 'Passwords don’t match';
+      matchEl.className = 'fpc-caption fpc-caption-weak';
+      confirmPw.focus();
+      confirmPw.select();
+    });
+  }
 
   var signOutLink = document.getElementById('fpc-signout');
   if (signOutLink) {

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +25,17 @@ def _reset_limiters() -> None:
 
 
 SESSION_PATCH = "mediaman.web.routes.force_password_change.resolve_page_session"
+HARNESS = Path(__file__).parent / "js" / "force_password_change_harness.js"
+WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
+
+
+def _submit(typed: str, again: str) -> dict:
+    """What the page's own script does with a submit of these two new passwords."""
+    result = subprocess.run(
+        ["node", str(HARNESS), typed, again], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
 
 class TestForceChangeGet:
@@ -115,13 +129,31 @@ class TestForceChangePost:
         assert resp.headers["location"] == "/watch"
 
 
-def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
-    from pathlib import Path
+def test_new_passwords_that_differ_are_not_sent_and_the_cursor_goes_to_the_second() -> None:
+    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd?")
+    # sending them would bring the page back with all three fields emptied
+    assert (out["sent"], out["focused"]) == (False, "confirm_password")
+    assert "match" in out["says"]
+    # and the form is free for the next try at once
+    assert out["busy"] is False
 
+
+def test_an_empty_second_password_is_not_sent_either() -> None:
+    out = _submit("a-New-long-passw0rd!", "")
+    assert (out["sent"], out["focused"], out["busy"]) == (False, "confirm_password", False)
+    assert "match" in out["says"]
+
+
+def test_new_passwords_that_match_are_sent_once() -> None:
+    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd!")
+    assert (out["sent"], out["busy"], out["focused"]) == (True, True, "old_password")
+
+
+def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
     from fastapi.templating import Jinja2Templates
     from starlette.requests import Request
 
-    template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+    template_dir = WEB / "templates"
     template = Jinja2Templates(directory=str(template_dir)).env.get_template(
         "force_password_change.html"
     )
