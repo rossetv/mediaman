@@ -7,7 +7,7 @@ mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatc
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/screens-still.png">
-  <img src="docs/images/screens.webp" alt="Watch in turn: the rows with a storage meter at the top and titles leaving soon; the storage panel with the heaviest movies first; the titles scheduled for deletion, each with Keep; and the library list with sizes and last-watched dates.">
+  <img src="docs/images/screens.webp" alt="mediaman in turn: Watch, with a storage meter at the top and the titles leaving soon; a title; everything leaving soon, each with Keep; the storage panel with the heaviest movies first; the titles scheduled for deletion; the library list with sizes and last-watched dates; Downloads; and the newsletter with a Keep button for each title.">
 </picture>
 
 ![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
@@ -51,7 +51,7 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 ## On a phone
 
 <p>
-  <img src="docs/images/phone-watch.png" width="140" alt="Watch on a phone: the storage meter in the top bar, a featured film and the Leaving soon row.">
+  <img src="docs/images/phone-watch.png" width="140" alt="Watch on a phone: the storage meter in the top bar, a featured film and the Leaving soon row, the first with a red badge.">
   <img src="docs/images/phone-storage.png" width="140" alt="Storage on a phone: free space, a bar by type, and movies, TV shows and anime with their sizes.">
   <img src="docs/images/phone-scheduled.png" width="140" alt="Scheduled for deletion on a phone: each title with its day, its size and Keep.">
   <img src="docs/images/phone-list.png" width="140" alt="The library list on a phone: counts of movies, TV shows, anime and stale titles above each title with Keep and Delete.">
@@ -59,11 +59,11 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 
 ## Watch
 
-Watch is a Netflix-style player for the Plex libraries mediaman scans. Plex converts the video and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
+Watch plays the Plex libraries mediaman scans. Plex sends the video, converted where it must be, and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
 
 Rest the pointer on a card and it grows into a preview that plays its trailer from youtube-nocookie.com. Play trailers on hover, in the preview's More menu, turns trailers off in that browser.
 
-An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see Downloads and Recommended, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password and sign out their other devices. A viewer has no settings, library tools, history or way to cancel downloads.
+An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices and link their Plex account, so what they play in Plex apps shapes their recommendations. With an OpenAI key, the titles each person played are sent to OpenAI, names are not; AI recommendations in Settings turns that off. A viewer has no settings, library tools, history or way to cancel downloads.
 
 Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 
@@ -82,7 +82,7 @@ location /api/watch/stream/ {
 }
 ```
 
-Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Best (1080p), Medium (720p) or Low (480p).
+Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
 
 ## Environment
 
