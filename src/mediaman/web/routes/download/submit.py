@@ -19,7 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.audit import log_audit
-from mediaman.core.deleted_media import DeletedMedia
+from mediaman.core.deleted_media import DeletedMedia, fill_show_tvdb_id
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
@@ -103,6 +103,8 @@ def _record_and_respond(
         )
     with conn:
         log_audit(conn, audit_id, audit_action, audit_detail)
+        if season_number is not None and tmdb_id is not None and tvdb_id is not None:
+            fill_show_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
         if email:
             record_download_notification(
                 conn,

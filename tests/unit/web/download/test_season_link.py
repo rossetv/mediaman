@@ -23,6 +23,7 @@ from mediaman.services.mail.newsletter.subscribers import _mint_deleted_tokens
 from mediaman.services.mail.newsletter.summary import _load_deleted_items
 from mediaman.services.media_meta._plex_types import _season_to_item
 from mediaman.web.repository.library_api import snapshot_media_for_delete
+from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
 from mediaman.web.routes.download import (
     reset_download_caches,
     reset_download_limiters,
@@ -272,6 +273,22 @@ class TestScannedSeason:
 
         assert _post(client, _cards(conn, secret_key)[2], sonarr).status_code == 200
         sonarr.remonitor_season.assert_called_once_with(3, 2)
+
+    def test_the_card_of_a_show_known_by_its_tmdb_id_alone_leaves_once_re_downloaded(
+        self, client, secret_key
+    ):
+        conn = client.app.state.db
+        _scan_and_delete_season(conn, [f"tmdb://{_TMDB}"])
+        _record_deletion(conn, 1, _TMDB, None)
+        link = _cards(conn, secret_key)[2]
+        sonarr = _sonarr(_series(UNMONITORED))
+        sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": _TVDB}]
+
+        assert _post(client, link, sonarr).status_code == 200
+
+        assert set(_cards(conn, secret_key)) == {1}
+        left = [i["redownload"] for i in _fetch_recently_deleted(conn, secret_key)]
+        assert [r["season_number"] for r in left] == [1]
 
     def test_a_season_recorded_without_one_gets_it_from_its_tvdb_id(self, client, secret_key):
         conn = client.app.state.db

@@ -8,7 +8,11 @@ from mediaman.core.delete_root_state import (
     read_delete_root_waiting,
     write_delete_root_state,
 )
-from mediaman.core.deleted_media import fetch_deleted_media, record_deleted_media
+from mediaman.core.deleted_media import (
+    fetch_deleted_media,
+    fill_show_tvdb_id,
+    record_deleted_media,
+)
 from mediaman.db import init_db
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
@@ -66,6 +70,35 @@ def test_redownload_tokens_by_media_type():
     assert redownload_tokens(season) == ["tvdb:9", "tvdb:9:s3"]
     assert redownload_tokens(DeletedMedia(3, "movie", None, None, None, "M")) == []
     assert redownload_tokens(None) == []
+
+
+def test_a_learned_tvdb_id_goes_to_every_deletion_of_that_show_and_no_other(tmp_path):
+    conn = init_db(str(tmp_path / "h.db"))
+    deletions = [
+        ("tv_season", 7, None, 1),
+        ("anime_season", 7, None, 2),
+        ("tv_season", 7, 4, 3),
+        ("tv_season", 8, None, 1),
+        ("movie", 7, None, None),
+    ]
+    ids = []
+    for media_type, tmdb_id, tvdb_id, season in deletions:
+        ids.append(log_audit(conn, "m", "deleted", "x"))
+        record_deleted_media(
+            conn,
+            ids[-1],
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            season_number=season,
+            title="T",
+        )
+
+    fill_show_tvdb_id(conn, tmdb_id=7, tvdb_id=9)
+
+    stored = fetch_deleted_media(conn, ids)
+    assert [stored[i].tvdb_id for i in ids] == [9, 9, 4, None, None]
+    conn.close()
 
 
 def test_was_redownloaded_after_needs_a_newer_match():
