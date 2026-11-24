@@ -478,8 +478,13 @@
   .abandon-modal-actions .btn { width: 100%; min-height: 44px; }
 }
 
-/* The system's colours take every fill: the bars get an edge and the system's own. */
+/* The system's colours take every fill: the art makes no room, the bars get an edge and the system's own. */
 @media (forced-colors: active) {
+  .dl-hero-bg,
+  .dl-hero-overlay,
+  .dl-hero-scrim,
+  .dl-hero-poster { display: none; }
+  .dl-hero { min-height: 0; border: 1px solid CanvasText; }
   .dl-bar,
   .dl-hero-bar,
   .dl-row-bar,

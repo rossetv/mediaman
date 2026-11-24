@@ -100,6 +100,13 @@ def test_forced_colours_show_what_is_on_and_how_far_a_download_is(
     assert "background: Highlight" in _of(selector, FORCED, sheet)
 
 
+def test_forced_colours_give_a_download_s_hidden_art_no_room() -> None:
+    sheet = SHEET.with_name("_dl.css")
+    for art in (".dl-hero-bg", ".dl-hero-overlay", ".dl-hero-scrim", ".dl-hero-poster"):
+        assert "display: none" in _of(art, FORCED, sheet)
+    assert "min-height: 0" in _of(".dl-hero", FORCED, sheet)
+
+
 def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None:
     assert "border: 1px solid" in _of(".keep-trigger", FORCED, SHEET.with_name("_buttons.css"))
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
