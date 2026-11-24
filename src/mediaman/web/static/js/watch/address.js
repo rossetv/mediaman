@@ -27,7 +27,7 @@
   var TITLES_KEY = 'mm:watch:titles';
   var HEADINGS = { grid: '.watch-all__title', explore: '.explore-title', search: '.results-group__title' }; // of the layers that are views
   var HOLD_MS = 1000; // how long a page, or a row, stays where it was put before it is left there
-  var MOST_MS = 5000; // how long the page is held at most
+  var MOST_MS = 5000; // how long the page is held at most, from when it last grew on its way
   var STILL_FRAMES = 3; // frames of standing still that are rest; the first can be the one it moved in
   var RUN_FRAMES = 3; // frames of moving the same way that are the person's
   var KEY_MS = 500; // focus this soon after a key was moved by it
@@ -339,6 +339,8 @@
   function putBack(target) {
     var mine = placing;
     var timer = null;
+    var end = null;
+    var furthest = 0; // where the page was too short to go on
     function there() { return Math.abs(window.scrollY - target()) < 2; }
     function go() {
       if (placing !== mine) return;
@@ -346,6 +348,10 @@
       if (there()) return;
       window.scrollTo({ left: 0, top: target(), behavior: 'instant' });
       steps.put();
+      if (!there() && window.scrollY > furthest) {
+        furthest = window.scrollY;
+        bound();
+      }
     }
     // Safari moves a page that is put back while what fills it takes the place of its skeletons.
     function wait() {
@@ -354,6 +360,10 @@
         if (filling()) wait();
         else stopPlacing();
       }, there() ? HOLD_MS : GROW_MS);
+    }
+    function bound() {
+      clearTimeout(end);
+      end = setTimeout(stopPlacing, MOST_MS);
     }
     function theirs() {
       if (placing !== mine) return;
@@ -366,7 +376,7 @@
       window.addEventListener(type, theirs, { passive: true, capture: true });
       mine.stop.push(function () { window.removeEventListener(type, theirs, { capture: true }); });
     });
-    var end = setTimeout(stopPlacing, MOST_MS);
+    bound();
     mine.stop.push(function () { clearTimeout(timer); clearTimeout(end); });
     window.addEventListener('scroll', steps.moved, { passive: true });
     mine.stop.push(function () { window.removeEventListener('scroll', steps.moved); });

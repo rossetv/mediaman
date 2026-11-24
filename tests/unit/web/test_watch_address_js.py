@@ -204,7 +204,12 @@ def test_a_row_that_loads_late_is_put_back_unless_the_person_scrolls_it() -> Non
 
 
 def test_a_page_that_goes_on_growing_is_waited_for() -> None:
-    assert _run("aSlowPageGrowsBack") == {"y": 5000, "waits": 0}
+    assert _run("aSlowPageGrowsBack") == {
+        "left": [0, 0],
+        "y": 5000,
+        "waits": 0,
+        "stopped": 900,
+    }
 
 
 def test_a_link_to_the_player_carries_the_whole_address_it_was_followed_at() -> None:

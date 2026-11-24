@@ -183,21 +183,32 @@ const scenarios = {
     p.scroll(5000);
     p.fire('pagehide');
     p = open(tab, { tallest: 900 });
-    const waits = () => p.timers.filter((t) => t.on).length;
-    for (const tall of [2000, 4000]) {
-      const old = p.timers.filter((t) => t.on)[0];
+    const on = () => p.timers.filter((t) => t.on);
+    // What was running before the page grew has run out: nothing ends for it.
+    const grow = (tall) => {
       p.frame(4);
+      const old = on();
       p.win.tallest = tall;
       p.observers[0].fn();
       p.frame(4);
-      if (old.on && old.ms < 5000) { old.on = false; old.fn(); }
-    }
-    p.frame(4);
-    p.win.tallest = 9000;
-    if (!p.observers[0].off) p.observers[0].fn();
+      const left = old.filter((t) => t.on).length;
+      old.forEach((t) => { if (t.on) { t.on = false; t.fn(); } });
+      return left;
+    };
+    const left = [2000, 4000].map(grow);
+    grow(9000);
     const y = p.win.scrollY;
     p.late();
-    return { y, waits: waits() };
+    const waits = on().length;
+    // One that stops growing is let go.
+    p = open(tab, { tallest: 900 });
+    p.frame(4);
+    p.observers[0].fn();
+    p.frame(4);
+    p.late(5000);
+    p.win.tallest = 9000;
+    if (!p.observers[0].off) p.observers[0].fn();
+    return { left, y, waits, stopped: p.win.scrollY };
   },
 
   // Safari moves the page as what it waits for takes the place of its skeleton; the person may too.
