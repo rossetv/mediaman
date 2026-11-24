@@ -17,8 +17,7 @@
   Season {{ other.season }} {% if other.days <= 0 %}leaves today{% elif other.days == 1 %}leaves in 1 day{% else %}leaves in {{ other.days }} days{% endif %}
 {%- endmacro %}
 
-{# "Leaving in N days" on a wide card, "N days left" on a narrow one (CSS picks). Today and
-   tomorrow stand out. #}
+{# "N days left"; the preview reads the words that are not drawn. Today and tomorrow stand out. #}
 {% macro leaving_badge(days) -%}
 <span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}Leaving today{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
 {%- endmacro %}

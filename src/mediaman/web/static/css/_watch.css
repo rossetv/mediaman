@@ -474,7 +474,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.watch-badge__short { display: none; }
+.watch-badge__long { display: none; }
 /* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red. */
 .watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--scrim) 72%, transparent); font-weight: 600; }
 .watch-badge--leaving-now { background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
@@ -493,8 +493,7 @@
 }
 .watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
 @media (max-width: 1279.98px) {
-  .watch-badge__long { display: none; }
-  .watch-badge__short { display: inline; }
+  .watch-card__wide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
 }
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }

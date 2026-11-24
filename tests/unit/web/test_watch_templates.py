@@ -454,7 +454,7 @@ def test_card_without_time_in_its_caption_gets_it_appended():
     assert "Movie · 2 h left" in _watch(rows=[{"title": "Continue watching", "items": [item]}])
 
 
-def test_leaving_badge_has_a_short_wording_for_narrow_cards():
+def test_leaving_badge_has_a_short_wording():
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=90, keep_id="k")]}])
 
     assert "Leaving in 90 days" in html
