@@ -339,6 +339,10 @@ class TestThePageBehind:
             "link": "1 · 10 GB to reclaim",
         }
 
+    def test_a_row_s_see_all_is_fitted_once_its_new_cards_have_their_width(self):
+        for came in ("rowGrown", "rowUndone"):
+            assert _run(came) == {"before": 0, "after": ["leaving"]}, came
+
     def test_the_page_is_asked_for_only_for_new_cards_and_a_keep_outdates_the_answer(self):
         assert _run("pageAsked") == {"none": 0, "cards": ["1", "2"]}
 

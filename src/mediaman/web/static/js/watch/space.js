@@ -1447,7 +1447,7 @@
       if (!mine) {
         mine = document.importNode(card, true);
         scroller.insertBefore(mine, before);
-        if (mine.getClientRects().length) watch.keep.growIn(mine, true);
+        if (mine.getClientRects().length) watch.keep.growCard(mine, row);
       }
       before = mine;
     });

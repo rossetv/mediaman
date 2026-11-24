@@ -608,6 +608,34 @@ const scenarios = {
     await p.run(3000);
     return { cards: p.cards(), same: before.every((c) => c.isConnected), told: p.told, asked: p.server.pages, link: p.all('.space-row-link').length };
   },
+  async rowUndone() {
+    const p = await page(['1', '2'].map((id) => row(id)), undefined, { motion: true });
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this, cancel() {} }; anims.push(a); return a; };
+    await p.click(p.$('card-keep-1'));
+    await p.click(p.one('#watch-keep-menu [data-days="7"]'));
+    anims.splice(0).forEach((a) => a.onfinish && a.onfinish());
+    p.last().opts.action.onClick();
+    const before = p.started.length;
+    anims.filter((a) => a.node.classList.contains('watch-card')).forEach((a) => a.onfinish());
+    await settle();
+    return { before, after: p.started };
+  },
+  // See all is fitted again once the cards that came have their width.
+  async rowGrown() {
+    const p = await page(undefined, undefined, { motion: true });
+    await p.open();
+    p.server.rows = ['1', '2', '9'].map((id) => row(id));
+    p.server.page = leavingSection('1', '2', '9');
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this }; anims.push(a); return a; };
+    await p.click(p.$('space-scan'));
+    await p.run(3000);
+    delete Node.prototype.animate;
+    const before = p.started.length;
+    anims.filter((a) => a.node.classList.contains('watch-card')).forEach((a) => a.onfinish());
+    return { before, after: p.started };
+  },
   async rowAfterScan() {
     const p = await page(['1', '2'].map((id) => row(id)));
     await p.open();

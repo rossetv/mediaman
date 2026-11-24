@@ -88,8 +88,8 @@
   }
 
   /* Grow a node that was just put back from nothing to its own size: the
-     same motion played backwards. */
-  function growIn(node, sideways) {
+     same motion played backwards. *done*: called once it has its size. */
+  function growIn(node, sideways, done) {
     if (reduceMotion() || !node.animate) return;
     var motion = shrinkMotion(node, sideways);
     var frames = motion.frames.reverse().map(function (f) {
@@ -98,7 +98,19 @@
     var unpin = pinContent(node, sideways);
     node.style.overflow = 'hidden';
     var anim = node.animate(frames, { duration: motion.duration });
-    anim.onfinish = anim.oncancel = function () { node.style.overflow = ''; unpin(); };
+    anim.onfinish = anim.oncancel = function () {
+      node.style.overflow = '';
+      unpin();
+      if (done) done();
+    };
+  }
+
+  /* The same for a card of *row*: its See all is fitted to the cards' width,
+     which the new one has only at the end. */
+  function growCard(card, row) {
+    growIn(card, true, function () {
+      if (window.MMWatch.expand) window.MMWatch.expand.row(row);
+    });
   }
 
   /* Where a node is: its parent and every node after it, so it can go back
@@ -398,7 +410,7 @@
         if (rowBack) {
           if (row.getClientRects().length) growIn(row, false);
         } else if (cardBack && card.getClientRects().length) {
-          growIn(card, true);
+          growCard(card, row);
         }
         return card.querySelector(control);
       }
@@ -634,6 +646,7 @@
     fromRow: keepFromRow,
     foldAway: foldAway,
     growIn: growIn,
+    growCard: growCard,
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; },
     joinPanel: function (joined) { panel = joined; }
