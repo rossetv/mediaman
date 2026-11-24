@@ -68,8 +68,8 @@ def abandon_series(
     series_id: int,
     dl_id: str,
 ) -> AbandonResult:
-    """Unmonitor every monitored season of *series_id* in Sonarr, skipping
-    already-unmonitored ones. Used for not-yet-released series, which have no per-season
+    """Unmonitor every season of *series_id* in Sonarr that is monitored or holds an episode
+    monitored by itself with no file. Used for not-yet-released series, which have no per-season
     stuck-search rows. A failure to fetch the series is reported as 0 in failed.
     """
     client = build_sonarr_from_db(conn, secret_key)
@@ -78,8 +78,13 @@ def abandon_series(
         return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
     try:
         series = client.get_series_by_id(series_id)
+        lone = {
+            episode.get("seasonNumber")
+            for episode in client.get_episodes(series_id)
+            if episode.get("monitored") and not episode.get("hasFile")
+        }
     except (SafeHTTPError, requests.RequestException, ArrError):
-        logger.warning("abandon_series: get_series_by_id failed for %s", dl_id, exc_info=True)
+        logger.warning("abandon_series: reading the series failed for %s", dl_id, exc_info=True)
         return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
 
     seasons_raw = series.get("seasons") if isinstance(series, dict) else None
@@ -88,7 +93,7 @@ def abandon_series(
         for s in seasons_raw:
             if (
                 isinstance(s, dict)
-                and s.get("monitored")
+                and (s.get("monitored") or s.get("seasonNumber") in lone)
                 and isinstance(s.get("seasonNumber"), int)
             ):
                 monitored_seasons.append(s["seasonNumber"])

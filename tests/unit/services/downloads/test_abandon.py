@@ -208,6 +208,28 @@ class TestAbandonSeries:
         assert sorted(result.succeeded) == [1, 2]
         assert result.failed == []
 
+    def test_a_season_with_an_episode_monitored_by_itself_is_unmonitored_too(
+        self, db_conn, monkeypatch
+    ):
+        client = MagicMock()
+        client.get_series_by_id.return_value = {
+            "id": 7,
+            "seasons": [{"seasonNumber": n, "monitored": n == 3} for n in (1, 2, 3)],
+        }
+        client.get_episodes.return_value = [
+            {"seasonNumber": 1, "monitored": False},
+            {"seasonNumber": 2, "monitored": False},
+            {"seasonNumber": 2, "monitored": True, "airDateUtc": "2099-01-01T00:00:00Z"},
+        ]
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db", lambda c, sk: client
+        )
+
+        result = abandon_series(db_conn, "secret", series_id=7, dl_id="sonarr:Future Show")
+
+        assert client.unmonitor_season.call_args_list == [((7, 2),), ((7, 3),)]
+        assert (result.succeeded, result.failed) == ([2, 3], [])
+
     def test_no_monitored_seasons_is_a_noop_success(self, db_conn, monkeypatch):
         """Series already fully unmonitored → success, no calls made."""
         client = MagicMock()
