@@ -35,7 +35,7 @@ from mediaman.services.arr.completion import (
 )
 from mediaman.services.arr.fetcher import fetch_arr_queue_result
 from mediaman.services.arr.search_trigger import maybe_trigger_search
-from mediaman.services.arr.state import series_ready
+from mediaman.services.arr.state import series_has_files, series_ready
 from mediaman.services.downloads.download_queue.classify import (
     arr_base_urls as _arr_base_urls,
 )
@@ -57,6 +57,7 @@ from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
+    from mediaman.services.arr._types import SonarrSeries
     from mediaman.services.arr.fetcher import ArrCard, FetchResult
 
 logger = logging.getLogger(__name__)
@@ -89,24 +90,23 @@ _DATED_BEFORE_SEEN = timedelta(minutes=15)
 # The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
 _last_cards: list[ArrCard] = []
 
-# The titles of the shows that lack an aired episode they should have, as Sonarr last told (None
-# when it has not), and when it was last asked: an open page polls every two seconds, and need
-# not read them each time.
-_UNREADY_KEPT_SECONDS = 30.0
-_unready_shows: frozenset[str] | None = None
-_unready_read_at: float | None = None
+# What there is of each show by its title, as Sonarr last told, and when it was last asked: an
+# open page polls every two seconds, and need not read them each time.
+_READINESS_KEPT_SECONDS = 30.0
+_show_readiness: dict[str, str] = {}
+_readiness_read_at: float | None = None
 
 _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    global _previous_queue, _previous_initialised, _last_cards, _unready_shows, _unready_read_at
+    global _previous_queue, _previous_initialised, _last_cards, _show_readiness, _readiness_read_at
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
         _last_cards = []
-        _unready_shows = None
-        _unready_read_at = None
+        _show_readiness = {}
+        _readiness_read_at = None
     _reset_unchecked()
 
 
@@ -254,33 +254,42 @@ def _maybe_record_completions(
         record_verified_completions(conn, completed, secret_key)
 
 
-def _read_unready_shows(
+def _readiness_of(series: SonarrSeries) -> str:
+    if series_ready(series):
+        return "ready"
+    return "part" if series_has_files(series) else "unknown"
+
+
+def _read_show_readiness(
     conn: sqlite3.Connection, secret_key: str, unreachable: Collection[str]
-) -> frozenset[str] | None:
-    """Return the titles of the shows that are not all there; those last known while Sonarr
-    does not answer, None when it has not since mediaman started.
+) -> dict[str, str]:
+    """Return what there is of each show, by its title; as last told while Sonarr does not
+    answer. Two shows of one title that differ are unknown.
     """
     from mediaman.services.arr.build import build_sonarr_from_db
 
-    global _unready_shows, _unready_read_at
+    global _show_readiness, _readiness_read_at
     now = time.monotonic()
     with _state_lock:
-        known, read_at = _unready_shows, _unready_read_at
+        known, read_at = _show_readiness, _readiness_read_at
         if "Sonarr" in unreachable or (
-            read_at is not None and now - read_at < _UNREADY_KEPT_SECONDS
+            read_at is not None and now - read_at < _READINESS_KEPT_SECONDS
         ):
             return known
-        _unready_read_at = now
+        _readiness_read_at = now
     try:
         client = build_sonarr_from_db(conn, secret_key)
         series = client.get_series() if client else []
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("Failed to read which shows are complete", exc_info=True)
         return known
-    unready = frozenset(s.get("title") or "" for s in series if not series_ready(s))
+    read: dict[str, str] = {}
+    for show in series:
+        title, readiness = show.get("title") or "", _readiness_of(show)
+        read[title] = readiness if read.get(title, readiness) == readiness else "unknown"
     with _state_lock:
-        _unready_shows = unready
-    return unready
+        _show_readiness = read
+    return read
 
 
 def _mark_readiness(
@@ -290,17 +299,14 @@ def _mark_readiness(
     unreachable: Collection[str],
 ) -> None:
     """Say of each recent item whether it is "ready", there in "part" (a show lacking episodes)
-    or "unknown" (a show while nothing is known of it).
+    or "unknown" (a show Sonarr has not told of, or has no file of).
     """
     shows = [item for item in recent if item["media_type"] == "series"]
-    unready = _read_unready_shows(conn, secret_key, unreachable) if shows else None
+    readiness = _read_show_readiness(conn, secret_key, unreachable) if shows else {}
     for item in recent:
         item["readiness"] = "ready"
     for item in shows:
-        if unready is None:
-            item["readiness"] = "unknown"
-        elif item["title"] in unready:
-            item["readiness"] = "part"
+        item["readiness"] = readiness.get(cast(str, item["title"]), "unknown")
 
 
 def _downloads_subtitle(

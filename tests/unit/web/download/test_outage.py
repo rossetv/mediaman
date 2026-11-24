@@ -391,3 +391,38 @@ def test_a_recent_show_is_not_called_ready_before_sonarr_has_told(
     sonarr.get_series.side_effect = None
     sonarr.get_series.return_value = [_show("Half", 8, 0)]
     assert readiness() == ["part"]
+
+
+def test_a_recent_show_added_since_sonarr_last_told_is_not_called_ready(
+    services, client, conn, monkeypatch
+):
+    sonarr = services[1]
+    clock = [1000.0]
+    monkeypatch.setattr(
+        "mediaman.services.downloads.download_queue.time.monotonic", lambda: clock[0]
+    )
+    insert = "INSERT INTO recent_downloads (dl_id, title, media_type) VALUES (?, ?, 'series')"
+    with conn:
+        conn.execute(insert, ("sonarr:Whole", "Whole"))
+    sonarr.get_series.return_value = [_show("Whole", 8)]
+    assert [r["readiness"] for r in _get(client)["recent"]] == ["ready"]
+
+    with conn:
+        conn.execute(insert, ("sonarr:New", "New"))
+    clock[0] += 31
+    sonarr.get_queue.side_effect = sonarr.get_series.side_effect = _DOWN
+    told = {r["id"]: r["readiness"] for r in _get(client)["recent"]}
+    assert told == {"sonarr:Whole": "ready", "sonarr:New": "unknown"}
+
+
+@pytest.mark.parametrize("shows", [[_show("Gone", 0, 0)], [_show("Gone", 8, 0), _show("Gone", 8)]])
+def test_a_recent_show_with_no_file_or_two_verdicts_claims_no_episodes(
+    services, client, conn, shows
+):
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type)"
+            " VALUES ('sonarr:Gone', 'Gone', 'series')"
+        )
+    services[1].get_series.return_value = shows
+    assert [r["readiness"] for r in _get(client)["recent"]] == ["unknown"]
