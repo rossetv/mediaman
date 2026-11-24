@@ -39,3 +39,33 @@ def test_toasts_on_a_phone_leave_the_open_keep_menu_alone() -> None:
     host = _rule(css, 'body:has(.player-keep [aria-expanded="true"]) .ui-toast-host')
     # Back row 44, Keep row 44, the menu's three 44 px choices and the gaps between them.
     assert int(re.search(r"\+ (\d+)px", host).group(1)) >= 44 + 8 + 44 + 4 + 3 * 44 + 12
+
+
+def _luminance(level: float) -> float:
+    c = level / 255
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _contrast(a: float, b: float) -> float:
+    hi, lo = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+@pytest.mark.parametrize(
+    ("bar", "row", "reach"),
+    [
+        # The subtitle ends 54 px into the top bar; the times end 82 px up the bottom one.
+        (".player-top", ".player-subtitle", "var(--player-top) + 54px"),
+        (".player-bottom", ".player-seek-row", "var(--player-foot) + 82px"),
+    ],
+)
+def test_text_over_a_white_frame_keeps_aa_contrast(bar: str, row: str, reach: str) -> None:
+    css = _text("_player.css")
+    stops = re.search(r"linear-gradient\((.*)\);", _rule(css, bar)).group(1)
+    assert f"calc({reach})" in stops
+    scrims = [int(p) for p in re.findall(r"var\(--scrim\) (\d+)%", stops)]
+    assert len(scrims) == 2
+    frame = 255 * (1 - min(scrims) / 100)
+    token = re.search(r"color:\s*var\(--([\w-]+)\)", _rule(css, row)).group(1)
+    share = int(re.search(rf"--{token}:[^;]*?(\d+)%", css).group(1)) / 100
+    assert _contrast(255 * share + frame * (1 - share), frame) >= 4.5

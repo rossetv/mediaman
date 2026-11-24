@@ -6,6 +6,10 @@
   /* Dark enough that pill text keeps 4.5:1 even over a white frame. */
   --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
   --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
+  /* The quieter text over the picture. */
+  --player-t2: color-mix(in srgb, var(--t1) 90%, transparent);
+  --player-top: max(26px, env(safe-area-inset-top));
+  --player-foot: max(14px, env(safe-area-inset-bottom));
   position: fixed;
   inset: 0;
   z-index: var(--z-nav);
@@ -29,7 +33,11 @@
 
 /* Controls fade out while playing and nobody touches anything. */
 .player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
-.player.is-idle .player-chrome { opacity: 0; pointer-events: none; }
+.player.is-idle .player-chrome { opacity: 0; }
+/* The bars shade more of the picture than they hold; only what they hold takes a press. */
+.player-chrome,
+.player.is-idle .player-chrome > * { pointer-events: none; }
+.player-chrome > * { pointer-events: auto; }
 .player.is-idle { cursor: none; }
 
 /* Top bar: back, title, optional "Leaving" chip. */
@@ -40,8 +48,9 @@
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 12px 18px;
-  padding: max(26px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) 40px max(32px, env(safe-area-inset-left));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 70%, transparent), transparent);
+  padding: var(--player-top) max(32px, env(safe-area-inset-right)) 80px max(32px, env(safe-area-inset-left));
+  /* Dark enough behind the title and subtitle for 4.5:1 even over a white frame. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 62%, transparent) calc(var(--player-top) + 54px), transparent);
 }
 .player-back {
   flex: none;
@@ -77,7 +86,7 @@
 }
 .player-subtitle {
   font-size: 14px;
-  color: var(--t2);
+  color: var(--player-t2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,15 +100,16 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 48px max(32px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
-  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), transparent);
+  padding: 88px max(32px, env(safe-area-inset-right)) var(--player-foot) max(32px, env(safe-area-inset-left));
+  /* The same for the controls and the times above them. */
+  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), color-mix(in srgb, var(--scrim) 62%, transparent) calc(var(--player-foot) + 82px), transparent);
 }
 .player-seek-row {
   display: flex;
   align-items: center;
   gap: 14px;
   font-size: 13px;
-  color: var(--t2);
+  color: var(--player-t2);
 }
 .player-time {
   flex: none;
@@ -366,10 +376,11 @@
 }
 
 @media (max-width: 600px) {
-  .player-top { padding: max(12px, env(safe-area-inset-top)) 12px 32px; gap: 8px 12px; }
+  .player { --player-top: max(12px, env(safe-area-inset-top)); --player-foot: max(6px, env(safe-area-inset-bottom)); }
+  .player-top { padding: var(--player-top) 12px 72px; gap: 8px 12px; }
   .player-title { font-size: 16px; }
   .player-subtitle { font-size: 13px; }
-  .player-bottom { padding: 40px 12px max(6px, env(safe-area-inset-bottom)); gap: 0; }
+  .player-bottom { padding: 80px 12px var(--player-foot); gap: 0; }
   .player-seek-row { gap: 8px; font-size: 12px; }
   .player-controls { gap: 2px; }
   .player-pill { padding: 0 10px; }
