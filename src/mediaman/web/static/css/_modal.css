@@ -131,6 +131,7 @@
 
 .keep-dialog { max-width: 540px; }
 .keep-dialog h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
+.keep-dialog h3:focus { outline: none; }
 .keep-duration-bar { display: flex; gap: 6px; padding: 4px; background: var(--s1); border-radius: var(--r-pill); margin-bottom: 14px; flex-wrap: wrap; }
 .keep-dur-btn { padding: 6px 12px; border-radius: var(--r-pill); font-size: 12px; color: var(--t2); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .keep-dur-btn:hover { color: var(--t1); }

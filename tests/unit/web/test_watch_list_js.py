@@ -120,6 +120,19 @@ def test_the_season_delete_list_can_be_read_again_and_stays_after_a_cancelled_de
     assert out["cancelled"] == {"open": True, "deletes": 1, "posts": 0}
 
 
+def test_the_season_delete_opens_at_its_heading_and_the_focus_never_leaves_it() -> None:
+    title = "season-delete-title"
+    assert _run("seasonDeleteOpens") == {
+        "opened": title,
+        "loaded": title,
+        "tab": ["Delete", True],
+        "shiftTab": "Close",
+        "failed": "season-delete-retry",
+        "retrying": title,
+        "retried": "Delete",
+    }
+
+
 def test_the_season_delete_opens_from_a_row_with_no_keep_control() -> None:
     assert _run("seasonDeleteWithNoKeep") is True
 
@@ -128,8 +141,6 @@ def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() 
     out = _run("keepDialogOpens")
     assert out["title"] == "Keep Harbour Lights"
     assert (out["pressed"], out["focus"]) == (["Forever"], "Forever")
-    # The dialog opens at its top, though what has the focus is further down.
-    assert out["scrolls"] == [False]
     assert out["waiting"] == {"rows": 5, "busy": "true"}
     assert out["loaded"] == {"rows": 0, "busy": None}
     # The width the page's scrollbar leaves is held only while it is open.

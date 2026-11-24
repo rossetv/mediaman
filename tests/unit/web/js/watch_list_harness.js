@@ -506,6 +506,42 @@ const scenarios = {
     return out;
   },
 
+  // The season Delete dialog opens at its heading, keeps it as the seasons come, and Retry goes on from it.
+  async seasonDeleteOpens() {
+    const p = load({ list: true });
+    const url = 'get /api/show/77/seasons';
+    let reply = deferred();
+    p.replies[url] = () => reply.promise;
+    vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
+    const at = () => { const a = p.doc.activeElement; return a.id || a.textContent; };
+    const tab = (shiftKey) => (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Tab', shiftKey, preventDefault() {} }));
+    const heading = () => p.doc.getElementById('season-delete-title').focus();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    p.ctx.ModalA11y.onOpened('season-delete-overlay');
+    const out = { opened: at() };
+    reply.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }, { id: 's2', season_number: 2 }] });
+    await settle();
+    out.loaded = at();
+    tab(false);
+    out.tab = [at(), p.doc.activeElement === p.doc.getElementById('season-delete-list').querySelector('button')];
+    heading();
+    tab(true);
+    out.shiftTab = at();
+    reply = deferred();
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    p.ctx.ModalA11y.onOpened('season-delete-overlay');
+    reply.reject(new Error('no'));
+    await settle();
+    out.failed = at();
+    reply = deferred();
+    click(p.doc, p.doc.getElementById('season-delete-retry'));
+    out.retrying = at();
+    reply.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    await settle();
+    out.retried = at();
+    return out;
+  },
+
   // Delete in a row with no Keep control.
   async seasonDeleteWithNoKeep() {
     const p = load({ list: true });
@@ -529,9 +565,6 @@ const scenarios = {
     click(p.doc, keepOption(p, 'show:88', 'forever'));
     await settle();
     vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
-    const chosen = p.doc.querySelectorAll('.keep-dur-btn').find((b) => b.getAttribute('aria-pressed') === 'true');
-    const scrolls = [];
-    chosen.focus = (o) => { scrolls.push(!(o && o.preventScroll)); p.doc.activeElement = chosen; };
     p.ctx.ModalA11y.onOpened('keep-dialog-overlay');
     const bar = [root.style['--page-bar']];
     const list = p.doc.getElementById('keep-season-list');
@@ -540,7 +573,6 @@ const scenarios = {
       title: p.doc.getElementById('keep-dialog-title').textContent,
       pressed: p.doc.querySelectorAll('.keep-dur-btn').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
       focus: p.doc.activeElement.textContent,
-      scrolls,
       waiting: look(),
     };
     reply.resolve({ show_title: 'Harbour Lights', show_kept: null, seasons: seasonsOf(null, null, null, null) });

@@ -332,7 +332,7 @@
     root.appendChild(card);
     /* A click inside the card must not reach the overlay's backdrop close. */
     card.addEventListener('click', function (e) { e.stopPropagation(); });
-    return { root: root, card: card };
+    return { root: root, card: card, heading: heading };
   }
 
   function buildKeepDialog() {
@@ -372,6 +372,9 @@
 
   function buildSeasonDeleteDialog() {
     var d = overlay('season-delete-overlay', 'season-delete-title', 'Delete seasons');
+    // It opens at its heading: the first control there is Close, at its end.
+    d.heading.tabIndex = -1;
+    d.heading.setAttribute('data-modal-focus', '');
     var list = el('div', 'keep-season-list');
     list.id = 'season-delete-list';
     var actions = el('div', 'keep-dialog-actions');
@@ -1134,6 +1137,7 @@
   /* focusAfter: whether the focus goes on to the first season once they are in. */
   function loadSeasonDeletes(showRk, showTitle, seasons, focusAfter) {
     var list = byId('season-delete-list');
+    var title = byId('season-delete-title');
     var request = ++_seasonDeleteRequest;
     if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
     seasonSkeleton(list, seasons || 2);
@@ -1142,14 +1146,14 @@
         if (request !== _seasonDeleteRequest) return;
         renderSeasonDeleteList(data, showRk, showTitle);
         var first = list.querySelector('button');
-        if (focusAfter && first && MM.dom.focusStillIn(list)) first.focus();
+        if (focusAfter && first && (document.activeElement === title || MM.dom.focusStillIn(list))) first.focus();
       })
       .catch(function () {
         if (request !== _seasonDeleteRequest) return;
         var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'season-delete-retry' });
         retry.addEventListener('click', function () {
-          list.tabIndex = -1;
-          list.focus();
+          /* The button goes with the message; park focus on the heading meanwhile. */
+          title.focus();
           loadSeasonDeletes(showRk, showTitle, seasons, true);
         });
         seasonsFailed(list, retry);
