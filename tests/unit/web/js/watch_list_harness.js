@@ -95,7 +95,7 @@ const ROWS = [
 
 function fragment(doc, state, rows) {
   const s = Object.assign({ q: '', type: '', sort: 'added_desc', page: '1', per_page: '20' }, state);
-  return build(doc, ['div', { class: 'wl', 'data-list-root': '', 'data-q': s.q, 'data-type': s.type, 'data-sort': s.sort, 'data-page': s.page, 'data-per-page': s.per_page },
+  return build(doc, ['div', { class: 'wl', 'data-list-root': '', 'data-q': s.q, 'data-type': s.type, 'data-sort': s.sort, 'data-page': s.page, 'data-per-page': s.per_page, 'data-said': s.said || '' },
     ['div', { 'data-list-part': 'stats' }, 'stats ' + (s.label || '')],
     ['p', { 'data-list-part': 'summary' }, 'summary ' + (s.label || '')],
     ['form', { 'data-list-part': 'toolbar' },
@@ -108,6 +108,9 @@ function fragment(doc, state, rows) {
         ['thead', {}, ['tr', {}, ['th', {}, ['a', { class: 'th-sort', href: '/watch?view=list&sort=name_asc', 'data-list-nav': '', 'data-sort-col': 'name' }, 'Title']]]],
         ['tbody', {}, ...rows.map(row)]],
       ['nav', { class: 'pagination' },
+        ...(s.arrows || []).map(([label, to]) => [to ? 'a' : 'button', { class: 'page-btn' + (to ? '' : ' disabled'), 'aria-label': label,
+          ...(to ? { href: '/watch?view=list' + (to > 1 ? '&page=' + to : ''), 'data-list-nav': '' } : {}) }, label]),
+        ...(s.arrows ? [['button', { class: 'page-btn active' }, s.page]] : []),
         ['a', { class: 'page-btn', href: '/watch?view=list&page=2', 'data-list-nav': '' }, '2'],
         ['span', { class: 'page-info' }, 'range ' + (s.label || '')]]]]);
 }
@@ -133,6 +136,8 @@ function load(opts = {}) {
   const list = doc.getElementById('watch-list');
   const browse = doc.getElementById('watch-browse');
   doc.getElementById('watch-results').hidden = true;
+  const search = doc.getElementById('watch-search');
+  search.value = (opts.state && opts.state.q) || '';
   if (opts.list) {
     list.appendChild(fragment(doc, opts.state || {}, opts.rows || ROWS));
     browse.hidden = true;
@@ -147,6 +152,8 @@ function load(opts = {}) {
   const fetches = [];
   const history = [];
   const events = [];
+  const inputs = []; // what the search field held each time its input event was sent
+  search.dispatchEvent = (ev) => { if (ev.type === 'input') inputs.push(search.value); };
   const winListeners = {};
   const replies = {}; // url -> function returning a promise
   const pages = {}; // fetch url -> { state, rows } or a deferred
@@ -180,6 +187,7 @@ function load(opts = {}) {
     sessionStorage: { getItem: () => null, setItem() {} },
     scrollTo() {},
     Infinity,
+    Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
     DOMParser: class { parseFromString(token) { const d = makeDocument(); d.body.appendChild(pages[token].node(d)); return d; } },
     fetch: (url) => {
@@ -222,7 +230,7 @@ function load(opts = {}) {
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
   return {
-    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, replies,
+    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, inputs, replies,
     /* What GET /watch/list answers for *url*: a list for *state* with *rows*. */
     serve(url, state, rows, wait) { pages[url] = { node: (d) => fragment(d, state, rows), wait }; },
     /* GET /watch/list answers *url* with a server error. */
@@ -688,6 +696,115 @@ const scenarios = {
     p.toasts[0].action.onClick();
     await settle();
     return { phases, errors: p.errors.length, toasts: p.toasts.length, undo: p.calls[p.calls.length - 1] };
+  },
+
+  // Next, Next and Previous again on a list of three pages: the focus after each.
+  async pageArrows() {
+    const arrows = { 1: [['Previous page', 0], ['Next page', 2]], 2: [['Previous page', 1], ['Next page', 3]], 3: [['Previous page', 2], ['Next page', 0]] };
+    const p = load({ list: true, state: { page: '1', arrows: arrows[1] } });
+    [1, 2, 3].forEach((n) => p.serve('/watch/list' + (n > 1 ? '?page=' + n : ''), { page: String(n), arrows: arrows[n] }, ROWS));
+    const press = async (label) => {
+      const a = p.doc.querySelectorAll('a.page-btn').find((n) => n.getAttribute('aria-label') === label);
+      a.focus();
+      click(p.doc, a);
+      await settle();
+      const now = p.doc.activeElement;
+      return [p.doc.querySelector('.page-btn.active').textContent, now.getAttribute('aria-label'), p.doc.body.contains(now)];
+    };
+    return [await press('Next page'), await press('Next page'), await press('Previous page')];
+  },
+
+  // A keep that fails while the rows show.
+  async failsOutOfSight() {
+    const p = load({ list: true });
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    const before = p.row('id:m1').classList.contains('is-busy');
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    await settle();
+    reply.reject(new Error('no'));
+    await settle();
+    click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[1]);
+    await settle();
+    const row = p.row('id:m1');
+    return { before, busy: row.classList.contains('is-busy'), label: row.querySelector('.keep-trigger').textContent, disabled: !!row.querySelector('.keep-trigger').disabled };
+  },
+
+  // A sort while a keep saves; two seasons of one show at once; a list read before the keep was saved.
+  async busyThroughASort() {
+    const look = (p, key) => {
+      const b = p.row(key).querySelector('.keep-trigger');
+      return [p.row(key).classList.contains('is-busy'), !!b.disabled];
+    };
+    const sort = async (p) => { click(p.doc, p.doc.querySelector('.th-sort')); await settle(); };
+    const p = load({ list: true });
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS);
+    const reply = deferred();
+    p.replies['post /api/watch/keep'] = () => reply.promise;
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await sort(p);
+    const out = { during: look(p, 'id:m1') };
+    reply.reject(new Error('no'));
+    await settle();
+    out.after = look(p, 'id:m1');
+
+    const two = load({ list: true });
+    const say = (phase, id) => two.doc.dispatchEvent(new two.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action: 'delete', id, showRk: '77' } }));
+    say('busy', 's1');
+    say('busy', 's2');
+    say('failed', 's1');
+    out.oneLeft = look(two, 'show:77')[0];
+    say('failed', 's2');
+    out.noneLeft = look(two, 'show:77')[0];
+
+    const late = load({ list: true });
+    const wait = deferred();
+    late.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS, wait);
+    click(late.doc, late.doc.querySelector('.th-sort'));
+    click(late.doc, keepOption(late, 'id:m1', '30 days'));
+    late.serve('/watch/list', {}, ROWS);
+    await settle();
+    wait.resolve();
+    await settle();
+    out.lateListReads = late.fetches.filter((url) => /sort=/.test(url)).length;
+    return out;
+  },
+
+  // Back and Forward bring the search field along.
+  async textFollowsBack() {
+    const p = load({ list: true, state: { q: 'ab' } });
+    const field = p.doc.getElementById('watch-search');
+    p.serve('/watch/list?q=ab', { q: 'ab' }, ROWS);
+    p.serve('*', {}, ROWS);
+    p.popstate('?view=list');
+    await settle();
+    const out = { otherList: [field.value, p.inputs.slice()] };
+    field.value = 'typed';
+    p.popstate('');
+    await settle();
+    out.rows = field.value;
+    p.popstate('?view=list&q=ab');
+    await settle();
+    out.forward = field.value;
+    return out;
+  },
+
+  // What a screen reader hears: the list that was asked for, not one read again by itself.
+  async listSaid() {
+    const p = load({ list: true });
+    const status = () => p.doc.querySelectorAll('[role="status"]').map((n) => n.textContent).join('');
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', said: '57 titles, Title (A–Z).' }, ROWS);
+    const out = [status()];
+    click(p.doc, p.doc.querySelector('.th-sort'));
+    await settle();
+    out.push(status());
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', said: '56 titles, Title (A–Z).' }, ROWS);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
+    await settle();
+    out.push(status());
+    return out;
   },
 
   // A row changed, or its keep removed, after another admin changed that keep.

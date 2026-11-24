@@ -30,6 +30,7 @@
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _again = false; // what is scheduled changed while a list was loading
   var _stale = false; // an admin action changed the library while the list was hidden
+  var _working = Object.create(null); // the admin actions still running, by the key of their row
 
   /* ── State and addresses ── */
 
@@ -94,7 +95,12 @@
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var fresh = doc.querySelector('[data-list-root]');
       if (!fresh) throw new Error('list: no root');
-      return document.importNode(fresh, true);
+      fresh = document.importNode(fresh, true);
+      Object.keys(_working).forEach(function (key) {
+        var row = rowByKey(key, fresh);
+        if (row) setBusy(row, true, _working[key][0]);
+      });
+      return fresh;
     });
   }
 
@@ -121,7 +127,15 @@
     if (stat) return function (fresh) { return fresh.querySelector('.wl-stat[data-stat="' + stat + '"]'); };
     var col = node.getAttribute('data-sort-col');
     if (col) return function (fresh) { return fresh.querySelector('.th-sort[data-sort-col="' + col + '"]'); };
-    if (node.classList.contains('page-btn')) return function (fresh) { return fresh.querySelector('.page-btn.active'); };
+    if (node.classList.contains('page-btn')) {
+      // A phone shows only the two arrows: the same one, or the other at either end of the pages.
+      var label = node.getAttribute('aria-label');
+      return function (fresh) {
+        var arrows = toArray(fresh.querySelectorAll('a.page-btn')).filter(function (a) { return a.hasAttribute('aria-label'); });
+        return label && (arrows.filter(function (a) { return a.getAttribute('aria-label') === label; })[0] || arrows[0]) ||
+          fresh.querySelector('.page-btn.active');
+      };
+    }
     return null;
   }
 
@@ -192,7 +206,13 @@
     list.removeAttribute('aria-busy');
   }
 
-  /* Show the list for *state*. opts.history: 'push' or 'replace' to move
+  /* What the list now shows, for a screen reader. */
+  var status = el('p', 'sr-only');
+  status.setAttribute('role', 'status');
+  list.parentNode.insertBefore(status, list.nextSibling);
+
+  /* Show the list for *state*. opts.quiet: nobody asked for it, so it is not told.
+     opts.history: 'push' or 'replace' to move
      the address along once the list is in, so a failed load leaves it as
      it was; opts.focus: what to focus once it is in. */
   function load(state, opts) {
@@ -213,6 +233,7 @@
       if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
       apply(fresh, opts.focus);
       if (opts.toTop) toTop();
+      if (!opts.quiet && _view === 'list') status.textContent = fresh.dataset.said || '';
       if (_again) reload();
     }, function () {
       if (request !== _request) return;
@@ -312,9 +333,14 @@
     var state = opts.state;
     if (view === _view) {
       if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history });
+      if (view === 'list' && state) sayText(state.q)();
       return;
     }
     _view = view;
+    status.textContent = '';
+    // Text typed in the list stays there when Back leaves it.
+    if (view === 'rows' && opts.history === null) sayText('')();
+    var said = view === 'list' && state ? sayText(state.q) : null;
     markToggle(view);
     var current = state || norm({ q: search ? search.value : '' });
     var rowsOff = browse.hidden;
@@ -325,6 +351,7 @@
     giveWay([view === 'list' ? browse : list], function () {
       // The search puts its results away or shows them first.
       document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
+      if (said) said();
       if (view === 'list') reveal(list);
       else showRows();
     });
@@ -341,6 +368,15 @@
 
   function plainClick(e) {
     return !(e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey);
+  }
+
+  /* The search field says what the address searches for. Its input event brings the rest of
+     the bar (its clear button, a search still waiting to be sent) into line; it is for the
+     list only, the rows would search. */
+  function sayText(q) {
+    if (!search || search.value.trim() === q) return function () {};
+    search.value = q;
+    return function () { search.dispatchEvent(new Event('input', { bubbles: true })); };
   }
 
   /* ── Rows ── */
@@ -507,6 +543,7 @@
   /* The change is saved but the row as it now is could not be read: let go
      of it, showing a saved keep as kept, and give focus back to the control. */
   function letGo(row, action) {
+    if (_working[row.getAttribute('data-row-key')]) return;
     var refocus = focusBelongsTo(row);
     setBusy(row, false, action);
     if (action === 'keep') markKept(row);
@@ -573,26 +610,40 @@
     });
   }
 
+  /* Note that an action on a row starts or ends; true while another one on it still runs. */
+  function working(key, d) {
+    var running = _working[key] || [];
+    if (d.phase === 'busy') running.push(d.action);
+    else running.splice(Math.max(0, running.indexOf(d.action)), 1);
+    if (running.length) _working[key] = running;
+    else delete _working[key];
+    return running.length > 0;
+  }
+
   document.addEventListener('mm:watch-admin', function (e) {
     var d = e.detail || {};
-    if (_view !== 'list' || !root()) {
-      if (d.phase === 'done') _stale = true;
+    var key = keyFor(d);
+    var more = working(key, d);
+    var row = rowByKey(key);
+    if (d.phase === 'done' && (_view !== 'list' || !root())) {
+      _stale = true;
+      if (row && !more) setBusy(row, false, d.action);
       return;
     }
-    var key = keyFor(d);
-    var row = rowByKey(key);
     if (d.phase === 'busy') {
       if (row) setBusy(row, true, d.action);
       return;
     }
     if (d.phase === 'failed') {
-      if (!row) return;
-      var refocus = focusBelongsTo(row);
+      if (!row || more) return;
+      var refocus = _view === 'list' && focusBelongsTo(row);
       setBusy(row, false, d.action);
       var btn = actionButton(row, d.action);
       if (refocus && btn) btn.focus({ preventScroll: true });
       return;
     }
+    // The list on its way may have been read before this was saved.
+    if (_asked) _again = true;
     if (d.action === 'delete' && !d.showRk) {
       if (row) leave(row);
       refresh([], 'delete');
@@ -615,7 +666,7 @@
   /* The list as it is now, its totals and dates too. */
   function reload() {
     _again = false;
-    load(stateOf(root()), { focus: sameControl });
+    load(stateOf(root()), { focus: sameControl, quiet: true });
   }
 
   document.addEventListener('mm:watch-scheduled', function () {

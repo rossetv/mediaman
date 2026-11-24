@@ -570,6 +570,41 @@ def test_a_film_whose_keep_changed_meanwhile_is_read_again_and_its_undo_names_it
     assert out["undo"] == ["post", "/api/media/m2/unprotect", {"read": MADE}]
 
 
+def test_the_arrow_pressed_keeps_the_focus_and_at_the_last_page_the_other_one_has_it() -> None:
+    assert _run("pageArrows") == [
+        ["2", "Next page", True],
+        ["3", "Previous page", True],
+        ["2", "Previous page", True],
+    ]
+
+
+def test_an_action_that_fails_while_the_rows_show_lets_go_of_its_row() -> None:
+    assert _run("failsOutOfSight") == {
+        "before": True,
+        "busy": False,
+        "label": "Keep",
+        "disabled": False,
+    }
+
+
+def test_a_row_stays_busy_through_a_sort_until_its_last_action_ends() -> None:
+    out = _run("busyThroughASort")
+    assert (out["during"], out["after"]) == ([True, True], [False, False])
+    assert (out["oneLeft"], out["noneLeft"]) == (True, False)
+    # The list that was on its way when the keep was saved is read again.
+    assert out["lateListReads"] == 2
+
+
+def test_the_search_field_says_what_back_and_forward_lead_to() -> None:
+    out = _run("textFollowsBack")
+    assert out["otherList"] == ["", [""]]
+    assert (out["rows"], out["forward"]) == ("", "ab")
+
+
+def test_a_sort_is_told_to_a_screen_reader_and_a_reload_of_its_own_is_not() -> None:
+    assert _run("listSaid") == ["", "57 titles, Title (A–Z).", "57 titles, Title (A–Z)."]
+
+
 def test_a_row_whose_keep_changed_meanwhile_is_left_alone_read_again_and_said_so() -> None:
     out = _run("staleRow")
     for name in ("keep", "remove", "scheduled"):
