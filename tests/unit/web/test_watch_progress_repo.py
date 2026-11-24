@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from mediaman.scanner.repository import rekeyed
+from mediaman.scanner.repository.media_items import delete_media_items
 from mediaman.web.repository.watch_progress import (
     _CONTINUE_CANDIDATES,
     MarkTarget,
@@ -274,6 +276,25 @@ class TestDismiss:
         dismiss(users, "aoife", "sh", NOON + timedelta(minutes=1))
         _mark(users, "e1", show="sh", now=NOON + timedelta(minutes=2))
         assert continue_watching(users, "aoife") == []
+
+    def test_a_dismissal_goes_once_its_title_is_gone_for_good(self, users):
+        now = NOON
+        for key in ("inlib", "aside", "gone"):
+            insert_media_item(users, id=key, plex_rating_key=key, title=key)
+            _save(users, rating_key=key, position=600.0, now=now)
+            dismiss(users, "aoife", key, now)
+        with users:
+            rekeyed.save_pruned_progress(users, ["aside"])
+            delete_media_items(users, ["aside", "gone"])
+
+        dismiss(users, "admin", "inlib", now)
+
+        left = users.execute("SELECT username, title_key FROM watch_dismissed ORDER BY 1, 2")
+        assert [tuple(r) for r in left] == [
+            ("admin", "inlib"),
+            ("aoife", "aside"),
+            ("aoife", "inlib"),
+        ]
 
     def test_dismissed_titles_do_not_use_up_the_titles_read(self, users):
         _save(users, rating_key="old", position=600.0)

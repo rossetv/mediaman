@@ -310,6 +310,14 @@ def dismiss(conn: sqlite3.Connection, username: str, title_key: str, now: dateti
             " ON CONFLICT(username, title_key) DO UPDATE SET dismissed_at = excluded.dismissed_at",
             (username, title_key, _utc_iso(now)),
         )
+        # A title gone from the library, with no progress left or set aside, has nothing to hide.
+        conn.execute(
+            "DELETE FROM watch_dismissed WHERE title_key NOT IN ("
+            "SELECT id FROM media_items"
+            " UNION SELECT show_rating_key FROM media_items WHERE show_rating_key IS NOT NULL"
+            " UNION SELECT COALESCE(show_rating_key, rating_key) FROM watch_progress"
+            " UNION SELECT COALESCE(show_rating_key, rating_key) FROM pruned_progress)"
+        )
 
 
 def undismiss(conn: sqlite3.Connection, username: str, title_key: str) -> None:
