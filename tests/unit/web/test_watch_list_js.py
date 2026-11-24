@@ -619,3 +619,7 @@ def test_setting_all_seasons_leaves_a_longer_keep_that_is_a_seasons_own() -> Non
     assert out["days"] == [["/api/show/77/keep", "7 days", ["s1", "s3"]]]
     sent, errors = out["own"]
     assert (sent, len(errors)) == ([], 1)
+
+
+def test_ctrl_z_reaches_the_undo_of_an_admin_keep_made_in_details() -> None:
+    assert _run("keepToastDialog") == ["ttl", None]

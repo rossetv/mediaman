@@ -189,7 +189,7 @@ function load(opts = {}) {
     },
     UIFeedback: {
       toast: (message, o) => {
-        const entry = { message, undo: !!(o && o.action), action: o && o.action, dismissed: false };
+        const entry = { message, dialog: (o && o.dialog && o.dialog.id) || null, undo: !!(o && o.action), action: o && o.action, dismissed: false };
         toasts.push(entry);
         // Like the real toast: pressing its button dismisses it, then runs the action.
         const button = { click() { entry.dismissed = true; o.action.onClick(); } };
@@ -850,6 +850,19 @@ const scenarios = {
     click(own.doc, own.set('all'));
     await own.confirm();
     return { forever: p.sent(), told: p.told(), days: days.sent(), own: [own.sent(), own.errors] };
+  },
+
+  // The dialog the Undo of a keep says it came from, in Details and on the list.
+  async keepToastDialog() {
+    const p = load({ list: true });
+    p.serve('/watch/list', {}, ROWS);
+    p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }]));
+    p.doc.documentElement.classList.add('has-ttl');
+    await p.ctx.MMWatch.admin.keep({ id: '42', is_tv: false, title: 'Dune' }, '7 days');
+    p.doc.documentElement.classList.remove('has-ttl');
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    return p.toasts.map((t) => t.dialog);
   },
 
   // The detail calls the same actions with a plain object, list or no list.

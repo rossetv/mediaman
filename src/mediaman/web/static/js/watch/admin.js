@@ -158,6 +158,7 @@
     var entry = { spent: false };
     entry.node = window.UIFeedback.toast(message, {
       variant: 'success',
+      dialog: document.documentElement.classList.contains('has-ttl') ? byId('ttl') : null,
       action: { label: 'Undo', onClick: function () {
         ids.forEach(function (id) { if (_undoToasts[id] === entry) delete _undoToasts[id]; });
         if (!entry.spent) run();
