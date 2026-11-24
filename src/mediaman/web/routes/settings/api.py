@@ -40,6 +40,7 @@ from mediaman.services.infra import (
     disk_usage_allowed_roots,
     resolve_safe_readonly_path,
 )
+from mediaman.services.infra.storage.disk_reads import settings_disk_reads
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
@@ -413,6 +414,26 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         )
 
 
+def _read_safe_disk_usage(path: str) -> dict[str, float]:
+    """Return the usage of *path*'s disk; empty when it is not there or not allowed."""
+    resolved = resolve_safe_readonly_path(path, disk_usage_allowed_roots())
+    if resolved is None:
+        return {}
+    try:
+        usage = shutil.disk_usage(str(resolved))
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        logger.exception("Failed to read disk usage for %s", resolved)
+        raise
+    return {
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "usage_pct": round(usage.used / usage.total * 100, 1) if usage.total > 0 else 0.0,
+    }
+
+
 @router.get("/api/settings/disk-usage")
 def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
@@ -422,26 +443,9 @@ def api_disk_usage(
     if len(path) > 4096:
         return respond_err("path_too_long", status=400)
 
-    roots = disk_usage_allowed_roots()
-    resolved = resolve_safe_readonly_path(path, roots)
-    if resolved is None:
-        return respond_err("not_found", status=404, message="Folder not found.")
-
-    try:
-        usage = shutil.disk_usage(str(resolved))
-        total = usage.total
-        used = usage.used
-        pct = round(used / total * 100, 1) if total > 0 else 0.0
-        return JSONResponse(
-            {
-                "total_bytes": total,
-                "used_bytes": used,
-                "free_bytes": usage.free,
-                "usage_pct": pct,
-            }
-        )
-    except FileNotFoundError:
-        return respond_err("not_found", status=404, message="Folder not found.")
-    except OSError:
-        logger.exception("Failed to read disk usage for %s", resolved)
+    usage = settings_disk_reads.read(path, _read_safe_disk_usage)
+    if usage is None:
         return respond_err("fetch_failed", message="Failed to read disk usage")
+    if not usage:
+        return respond_err("not_found", status=404, message="Folder not found.")
+    return JSONResponse(usage)
