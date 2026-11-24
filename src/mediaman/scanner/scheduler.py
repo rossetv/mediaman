@@ -84,6 +84,9 @@ def _close_tracked_connections() -> None:
         # rationale: shutdown path — close every connection regardless of individual failures.
         try:
             conn.close()
+        except sqlite3.ProgrammingError:
+            # A connection only its own thread may close, which is when that thread ends.
+            logger.debug("scheduler.shutdown.close_db_left_to_its_thread")
         except Exception:
             logger.exception("scheduler.shutdown.close_db_failed")
 
