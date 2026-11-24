@@ -73,15 +73,13 @@
 </div>
 
 {% if can_abandon %}{% include "_dl_abandon_modal.html" %}{% endif %}
-<script src="{{ url_for('static', path='js/core/api.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/core/dom.js') }}" defer></script>
 {# Renderer + helper modules must register on MM.downloads before downloads.js
    wires them into the poll loop. #}
-<script src="{{ url_for('static', path='js/downloads/build_dom.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_hero.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_row.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_recent.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/poll.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/dl-abandon.js') }}" defer></script>
+<script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_hero.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_row.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_recent.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/poll.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads.js?v={{ static_v }}" defer></script>
+<script src="/static/js/dl-abandon.js?v={{ static_v }}" defer></script>
 {% endblock %}
