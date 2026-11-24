@@ -4,6 +4,9 @@ import sqlite3
 from collections import OrderedDict
 from datetime import date, datetime
 
+from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.openai.recommendations.user_picks import fetch_picks
+
 _SUGGESTIONS_COLS = (
     "id, title, year, media_type, category, tmdb_id, description, reason, "
     "poster_url, trailer_url, rating, rt_rating, tagline, runtime, genres, cast_json, "
@@ -16,17 +19,27 @@ _SUGGESTIONS_COLS = (
 # ``batch_id``, adds each pick's download state to the row and shapes the
 # Watch page's cards from it with ``.get(...)``; a dataclass would add ceremony
 # without removing that column coupling.
-def fetch_recommendations(conn: sqlite3.Connection) -> list[dict[str, object]]:
-    """Return **all** cached recommendations from the DB, newest batch first.
+def fetch_recommendations(conn: sqlite3.Connection, username: str) -> list[dict[str, object]]:
+    """Return **all** cached recommendations *username* may see, newest batch first: their
+    own, with ``own`` true, and the shared ones.
 
     Returns ``dict[str, object]`` rather than a dataclass: the caller reads
     rows with ``.get(...)`` and annotates them in place. Callers that need
     pagination should use `fetch_recommendations_page` instead.
     """
-    rows = conn.execute(
-        f"SELECT {_SUGGESTIONS_COLS} FROM suggestions ORDER BY batch_id DESC, category DESC, id ASC"
+    shared = conn.execute(
+        f"SELECT {_SUGGESTIONS_COLS} FROM suggestions WHERE {SHARED_ONLY}"
+        " ORDER BY batch_id DESC, id ASC"
     ).fetchall()
-    return [dict(r) for r in rows]
+    rows = [{**row, "own": True} for row in fetch_picks(conn, username)]
+    rows += [{**dict(r), "own": False} for r in shared]
+    rows.sort(key=_batch_of, reverse=True)
+    return rows
+
+
+def _batch_of(row: dict[str, object]) -> str:
+    created = row.get("created_at")
+    return str(row.get("batch_id") or (created[:10] if isinstance(created, str) else ""))
 
 
 def fetch_recommendations_page(
@@ -35,7 +48,7 @@ def fetch_recommendations_page(
     limit: int,
     offset: int,
 ) -> tuple[list[dict[str, object]], int]:
-    """Return a paginated page of recommendations plus the total row count.
+    """Return a paginated page of the shared recommendations plus the total row count.
 
     Pushes ``LIMIT``/``OFFSET`` into SQL so the full table is never loaded
     into memory for a single API request.
@@ -43,10 +56,10 @@ def fetch_recommendations_page(
     Returns ``(rows, total)`` where *rows* is at most *limit* dicts and
     *total* is the count of all rows matching the query.
     """
-    total: int = conn.execute("SELECT COUNT(*) FROM suggestions").fetchone()[0]
+    total: int = conn.execute(f"SELECT COUNT(*) FROM suggestions WHERE {SHARED_ONLY}").fetchone()[0]
     rows = conn.execute(
-        f"SELECT {_SUGGESTIONS_COLS} FROM suggestions "
-        "ORDER BY batch_id DESC, category DESC, id ASC "
+        f"SELECT {_SUGGESTIONS_COLS} FROM suggestions WHERE {SHARED_ONLY} "
+        "ORDER BY batch_id DESC, id ASC "
         "LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
@@ -80,14 +93,12 @@ def group_into_batches(
     """Group recommendations by batch, newest first, every batch kept.
 
     A batch is ``{"id", "label", "date_label", "items"}``; its items are the
-    watch-history picks followed by the trending picks. A row without a
+    person's own picks followed by the shared ones. A row without a
     ``batch_id`` falls back to the date of its ``created_at``.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
-        created = row.get("created_at")
-        bid = str(row.get("batch_id") or (created[:10] if isinstance(created, str) else ""))
-        group = groups.setdefault(bid, {"personal": [], "trending": []})
+        group = groups.setdefault(_batch_of(row), {"personal": [], "trending": []})
         group["trending" if row.get("category") == "trending" else "personal"].append(row)
 
     batches: list[dict[str, object]] = []

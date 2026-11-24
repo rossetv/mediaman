@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,7 @@ from mediaman.services.arr.state import (
 )
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
+from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations.repository import (
     SuggestionDetail,
     fetch_suggestion_by_id,
@@ -161,7 +163,7 @@ def _add_rec_to_radarr(
     notify_email: str | None,
     actor: str,
     row: SuggestionDetail,
-    recommendation_id: int,
+    mark: Callable[[], None],
     secret_key: str,
 ) -> JSONResponse:
     """Add a movie recommendation to Radarr, record the notification and return the response.
@@ -194,7 +196,7 @@ def _add_rec_to_radarr(
         return respond_failure("Radarr entry is in an unexpected state", status=502)
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
-        mark_downloaded(conn, recommendation_id, now_iso())
+        mark()
         log_audit(
             conn,
             safe_title,
@@ -220,7 +222,7 @@ def _add_rec_to_sonarr(
     notify_email: str | None,
     actor: str,
     row: SuggestionDetail,
-    recommendation_id: int,
+    mark: Callable[[], None],
     secret_key: str,
 ) -> JSONResponse:
     """Add a TV recommendation to Sonarr, record the notification and return the response.
@@ -272,7 +274,7 @@ def _add_rec_to_sonarr(
             raise
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
-        mark_downloaded(conn, recommendation_id, now_iso())
+        mark()
         log_audit(
             conn,
             safe_title,
@@ -299,38 +301,56 @@ def api_download_recommendation(
 ) -> JSONResponse:
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return respond_failure("Too many requests", status=429)
-
     conn = get_db()
-    config = request.app.state.config
-
     row = fetch_suggestion_by_id(conn, recommendation_id)
+    return _download(
+        conn, request, admin, row, lambda: mark_downloaded(conn, recommendation_id, now_iso())
+    )
+
+
+@router.post("/api/watch/picks/{pick_id}/download")
+def api_download_pick(
+    pick_id: int, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
+    """Download one of the person's own picks; anyone else's is not found."""
+    if not _DOWNLOAD_ACTION_LIMITER.check(username):
+        return respond_failure("Too many requests", status=429)
+    conn = get_db()
+    row = user_picks.fetch_pick(conn, username, pick_id)
+    return _download(
+        conn,
+        request,
+        username,
+        row,
+        lambda: user_picks.mark_downloaded(conn, username, pick_id, now_iso()),
+    )
+
+
+def _download(
+    conn: sqlite3.Connection,
+    request: Request,
+    username: str,
+    row: SuggestionDetail | None,
+    mark: Callable[[], None],
+) -> JSONResponse:
     if not row:
         return respond_failure("Recommendation not found", status=404)
 
     if not row.tmdb_id:
         return respond_failure("No TMDB ID -- cannot add to Radarr/Sonarr", status=200)
 
-    # ``admin`` is a username; resolve it to the admin's notification email
-    # once (``None`` when unset) and hand the resolved value to the helpers.
-    notify_email = get_user_email(conn, admin)
-
+    # Resolve the username to the notification email once (``None`` when unset) and hand
+    # the resolved value to the helpers.
+    notify_email = get_user_email(conn, username)
+    add = _add_rec_to_radarr if row.media_type == "movie" else _add_rec_to_sonarr
     try:
-        if row.media_type == "movie":
-            return _add_rec_to_radarr(
-                conn,
-                notify_email=notify_email,
-                actor=admin,
-                row=row,
-                recommendation_id=recommendation_id,
-                secret_key=config.secret_key,
-            )
-        return _add_rec_to_sonarr(
+        return add(
             conn,
             notify_email=notify_email,
-            actor=admin,
+            actor=username,
             row=row,
-            recommendation_id=recommendation_id,
-            secret_key=config.secret_key,
+            mark=mark,
+            secret_key=request.app.state.config.secret_key,
         )
 
     except SafeHTTPError as exc:

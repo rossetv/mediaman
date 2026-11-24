@@ -3,7 +3,8 @@ library, the discover rows, a title's detail and a season's episodes, for admins
 viewers alike, and a library title's size, dates and keeps for admins only.
 
 A title is named by a ref: ``movie-<key>`` and ``show-<key>`` for the library,
-``tmdb-movie-<id>`` and ``tmdb-tv-<id>`` for TMDB, ``rec-<id>`` for a recommendation.
+``tmdb-movie-<id>`` and ``tmdb-tv-<id>`` for TMDB, ``rec-<id>`` for a shared
+recommendation and ``pick-<id>`` for one of the person's own, which no one else has.
 A malformed ref, or a library ref outside the scanned libraries, is a 404. TMDB not set
 up is never an error for the library; Radarr or Sonarr out of reach only leaves out the
 download state.
@@ -40,6 +41,7 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations.repository import fetch_suggestion_by_id
+from mediaman.services.openai.recommendations.user_picks import fetch_pick
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
@@ -70,7 +72,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-REF_RE = re.compile(r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$")
+REF_RE = re.compile(
+    r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^(rec|pick)-[0-9]{1,10}$"
+)
 _SHELF_IDS = frozenset(shelf[0] for shelf in catalog.SHELVES)
 # Pages of discover rows TMDB is asked for, apart from the query limit so a long scroll does
 # not use up the day's searches. The day's cap is each of the three lists to its end.
@@ -323,6 +327,8 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "cast": [],
         "trailer_key": None,
         "reason": None,
+        "ai_pick": False,
+        "because_of": [],
         "play": None,
         "leaving": None,
         "keep_allowed": False,
@@ -671,7 +677,11 @@ def api_watch_title(
                     allow_fetch,
                 )
             )
-        rec = fetch_suggestion_by_id(conn, int(rest))
+        rec = (
+            fetch_pick(conn, username, int(rest))
+            if kind == "pick"
+            else fetch_suggestion_by_id(conn, int(rest))
+        )
         if rec is None or rec.media_type not in ("movie", "tv"):
             return _not_found()
         if rec.tmdb_id:
@@ -683,7 +693,9 @@ def api_watch_title(
                 ref,
                 rec.media_type,
                 rec.tmdb_id,
-                f"/api/recommended/{rec.id}/download",
+                f"/api/watch/picks/{rec.id}/download"
+                if kind == "pick"
+                else f"/api/recommended/{rec.id}/download",
             )
         else:
             out = _payload(ref, "movie" if rec.media_type == "movie" else "show", True)
@@ -698,7 +710,7 @@ def api_watch_title(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    out["reason"] = rec.reason
+    out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))
     return respond_ok(out)
 
 

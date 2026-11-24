@@ -16,25 +16,28 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr.state import ACTION_QUEUED, clear_stale_downloaded_at
 from mediaman.services.infra import get_bool_setting
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.recommended.own import my_refresh
 from mediaman.web.routes.recommended.refresh import _refresh_thread_alive
 
 router = APIRouter()
 
 
 def _attach_states(
-    conn: sqlite3.Connection, rows: list[dict[str, object]], arr: catalog.ArrView
+    conn: sqlite3.Connection, rows: list[dict[str, object]], arr: catalog.ArrView, username: str
 ) -> None:
     """Mark each pick with its download state and percent done. A pick marked as sent
     for download that the service, set up and answering, no longer tracks loses the
     mark here and in the database, so it stops showing as queued. A view that an
     invalidate has outdated heals nothing: the flag may have been set since."""
     stale: list[object] = []
+    stale_own: list[object] = []
     for row in rows:
         tmdb_id = row.get("tmdb_id")
         media_type = row.get("media_type")
@@ -46,14 +49,16 @@ def _attach_states(
             row["download_pct"] = pct
         elif row.get("downloaded_at") and arr.answers_for(media_type) and arr.is_current():
             row["downloaded_at"] = None
-            stale.append(row["id"])
+            (stale_own if row["own"] else stale).append(row["id"])
     clear_stale_downloaded_at(conn, stale)
+    user_picks.clear_downloaded(conn, username, stale_own)
 
 
 def _card(
     row: dict[str, object], index: catalog.LibraryIndex, arr: catalog.ArrView, seen: set[str]
 ) -> dict[str, object]:
-    rec_id = row["id"]
+    own = bool(row["own"])
+    pick_ref = f"{'pick' if own else 'rec'}-{row['id']}"
     kind: Literal["movie", "tv"] = "movie" if row.get("media_type") == "movie" else "tv"
     tmdb_id = row.get("tmdb_id")
     title = str(row.get("title") or "")
@@ -69,7 +74,7 @@ def _card(
         state = ACTION_QUEUED
     rating = row.get("rating")
     card = catalog.discover_card(
-        ref=library_ref or f"rec-{rec_id}",
+        ref=library_ref or pick_ref,
         kind="movie" if kind == "movie" else "show",
         title=title,
         year=year if isinstance(year, int) else None,
@@ -82,7 +87,10 @@ def _card(
     return {
         **card,
         **lib.mark_fields(library_ref, seen),
-        "rec_id": rec_id,
+        "rec_id": None if own else row["id"],
+        "pick_ref": pick_ref,
+        "own": own,
+        "ai_pick": True,
         "reason": row.get("reason") or None,
     }
 
@@ -131,8 +139,9 @@ def api_watch_recommended(
     start: str | None = None,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """The picks of one batch (the latest unless *batch* names another), the list of
-    batches, and for an admin the refresh cooldown. No title comes twice: *start* names
+    """The person's own picks and the shared ones of one batch (the latest unless *batch*
+    names another), the list of batches, whether they may have their own made again, and for
+    an admin the cooldown of the shared ones. No title comes twice: *start* names
     the batch the row began with, and what the batches from it to this one hold is left
     out. ``next_batch`` is the older batch to go on with, or None when the picks are
     finished."""
@@ -143,10 +152,11 @@ def api_watch_recommended(
     payload["next_batch"] = None
     if is_admin:
         payload["refresh"] = _refresh_block(conn)
+    payload["my_refresh"] = my_refresh(conn, username, request.app.state.config.secret_key)
     if not enabled:
         return respond_ok(payload)
 
-    batches = group_into_batches(fetch_recommendations(conn), date.today())
+    batches = group_into_batches(fetch_recommendations(conn, username), date.today())
     places = {b["id"]: place for place, b in enumerate(batches)}
     if any(b is not None and b not in places for b in (batch, start)):
         return respond_err("not_found", status=404)
@@ -159,7 +169,7 @@ def api_watch_recommended(
         batches, places[start] if start is not None else chosen, chosen
     )
     arr = catalog.arr_view(conn, request.app.state.config.secret_key)
-    _attach_states(conn, rows, arr)
+    _attach_states(conn, rows, arr, username)
     libraries = lib.scanned_library_ids(conn)
     index = catalog.library_index(
         conn,

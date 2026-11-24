@@ -384,7 +384,7 @@ class TestSonarrTmdbIdFiltering:
                 notify_email=None,
                 actor="admin",
                 row=row,
-                recommendation_id=1,
+                mark=lambda: None,
                 secret_key=_SECRET,
             )
 
@@ -430,7 +430,7 @@ class TestSonarrTmdbIdFiltering:
                 notify_email=None,
                 actor="admin",
                 row=row,
-                recommendation_id=1,
+                mark=lambda: None,
                 secret_key=_SECRET,
             )
 
@@ -476,7 +476,7 @@ class TestSonarrTmdbIdFiltering:
                 notify_email=None,
                 actor="admin",
                 row=self._tv_suggestion(99999),
-                recommendation_id=1,
+                mark=lambda: None,
                 secret_key=_SECRET,
             )
 
@@ -500,7 +500,7 @@ class TestSonarrTmdbIdFiltering:
                 notify_email=None,
                 actor="admin",
                 row=self._tv_suggestion(99999),
-                recommendation_id=1,
+                mark=lambda: None,
                 secret_key=_SECRET,
             )
 

@@ -332,7 +332,7 @@ class TestDownloadActionRateLimit:
             conn,
             title="Dune",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=42,
             created_at="2026-01-01T00:00:00",
         )
@@ -388,7 +388,7 @@ class TestOnDemandShareToken:
             conn,
             title="Interstellar",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=157336,
             created_at="2026-01-01T00:00:00",
         )
@@ -484,7 +484,7 @@ class TestDownloadRecommendationSuccess:
             conn,
             title="Inception",
             media_type="movie",
-            category="personal",
+            category="trending",
             tmdb_id=27205,
             created_at="2026-01-01T00:00:00",
         )
@@ -494,7 +494,7 @@ class TestDownloadRecommendationSuccess:
             conn,
             title="Breaking Bad",
             media_type="tv",
-            category="personal",
+            category="trending",
             tmdb_id=1396,
             created_at="2026-01-01T00:00:00",
         )

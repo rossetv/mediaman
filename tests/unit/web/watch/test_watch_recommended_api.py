@@ -23,6 +23,7 @@ from tests.helpers.factories import (
     insert_media_item,
     insert_settings,
     insert_suggestion,
+    insert_user_pick,
 )
 from tests.unit.web.watch.test_watch_catalog_api import DictCache, FakeArr, FakeTmdb
 
@@ -72,7 +73,7 @@ def _get(client, **params) -> dict:
 class TestBatches:
     def test_the_latest_batch_is_shown_with_personal_picks_before_trending(self, viewer, conn):
         insert_suggestion(conn, title="Trend", category="trending", batch_id="2099-01-02")
-        insert_suggestion(conn, title="Mine", category="personal", batch_id="2099-01-02")
+        insert_user_pick(conn, "viewer", title="Mine", batch_id="2099-01-02")
         insert_suggestion(conn, title="Old", batch_id="2098-12-01")
         conn.commit()
 
