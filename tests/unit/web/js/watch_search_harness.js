@@ -935,6 +935,28 @@ const scenarios = {
     return out;
   },
 
+  // People and no titles: they lead, and that no title matches is a line of text.
+  async peopleLead() {
+    const find = async (p, q, people, items) => {
+      await p.search(q);
+      await p.answer('/api/watch/search?', { items: [] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items, people });
+    };
+    const look = (p) => ({ leads: p.doc.querySelector('.results-page').classList.contains('is-people'), empty: p.doc.querySelectorAll('.results-empty').length,
+      none: p.doc.querySelectorAll('.results-none').map((n) => n.textContent), kinds: p.doc.querySelectorAll('.watch-suggestion').map((n) => n.className.match(/--(\w+)/)[1]) });
+    const p = await ready(ADMIN);
+    const out = {};
+    await find(p, 'mara', [MARA], []);
+    out.person = look(p);
+    await find(p, 'ma', [MARA], [{ ...TM, title: 'Man' }]);
+    out.both = look(p);
+    await find(p, 'hor', [{ ...MARA, name: 'Horace Pell' }], []);
+    out.mixed = look(p);
+    await find(p, 'sci', [], []);
+    out.category = look(p);
+    return out;
+  },
+
   // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
   async personPages() {
     const p = await ready(ADMIN, '', '/watch?person=9001');

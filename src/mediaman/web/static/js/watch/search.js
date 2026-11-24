@@ -37,6 +37,7 @@
   var SHORT_LABEL = 'Search';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
+  var NO_TITLE = 'no-title'; // the line under people who were found alone
   var TRIES_EMPTY = ['popular action movies', 'popular comedy movies', 'something scary'];
   var LENS = 'M10.5 4a6.5 6.5 0 100 13 6.5 6.5 0 000-13M15.5 15.5L20 20';
   var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null };
@@ -903,10 +904,9 @@
       });
     }
 
-    function suggestionsFor(q, c) {
+    /* The people *q* names. */
+    function peopleFor(q, c) {
       var typed = q.toLowerCase();
-      var asked = canExplore() ? explore.parse(q) : { genres: [], words: '' };
-      var cats = asked.genres.slice(0, 2);
       var who = [];
       if (typed.length > 1) {
         people.forEach(function (p) { if (begins(p.name, typed)) who.push(p); });
@@ -917,7 +917,15 @@
           }));
         }
       }
-      who = canExplore() ? who.slice(0, 3) : [];
+      return canExplore() ? who.slice(0, 3) : [];
+    }
+
+    /* *lead*: the people come first. */
+    function suggestionsFor(q, c, lead) {
+      var typed = q.toLowerCase();
+      var asked = canExplore() ? explore.parse(q) : { genres: [], words: '' };
+      var cats = asked.genres.slice(0, 2);
+      var who = peopleFor(q, c);
       var list = cats.map(function (genre) { return genreSuggestion(genre, asked, asked.sort, asked.words); });
       if (cats.length === 1 && !who.length) {
         ['top_rated', 'newest'].forEach(function (sort) {
@@ -927,9 +935,10 @@
           list.push(personSuggestion(p, 'In ' + p.titles + ' ' + lower(cats[0].name) + ' titles', ''));
         });
       }
-      who.forEach(function (p) {
-        list.push(personSuggestion(p, [p.job].concat((p.known_for || []).slice(0, 2).join(', ')).filter(Boolean).join(' · '), typed));
+      var named = who.map(function (p) {
+        return personSuggestion(p, [p.job].concat((p.known_for || []).slice(0, 2).join(', ')).filter(Boolean).join(' · '), typed);
       });
+      list = lead ? named.concat(list) : list.concat(named);
       titles(c).filter(function (t) { return t.ref && begins(t.title, typed); }).slice(0, 3).forEach(function (t) {
         list.push(suggestion('t-' + t.ref, 'title', {
           name: t.title, ref: t.ref, href: t.href, typed: typed,
@@ -955,7 +964,10 @@
     function draw(q, c, rows, settled) {
       live.rows = rows;
       glide(live.grid, rows, function () {
-        var list = suggestionsFor(q, c);
+        // With no title to show, the people are what was found.
+        var lead = rows.some(function (x) { return x.key === NO_TITLE; }) && peopleFor(q, c).length > 0;
+        live.node.classList.toggle('is-people', lead);
+        var list = suggestionsFor(q, c, lead);
         var at = picked && picked.id;
         if (list.length || settled) live.node.classList.toggle('has-no-suggestions', !list.length);
         live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
@@ -1241,7 +1253,11 @@
       } else if (all.out.length) {
         rows = rows.concat(headRow('tmdb', 'Available to download', all.out.length), cardRows(all.out));
       } else if (settled && !all.lib.length && lib.state === 'ok') {
-        rows.push(plain('nothing-' + c.q, function () { return nothing(c.q, false); }));
+        if (peopleFor(c.q, c).length) {
+          rows.push({ key: NO_TITLE, sig: c.q, make: function () { return el('p', 'results-none', 'No title matches “' + c.q + '”'); } });
+        } else {
+          rows.push(plain('nothing-' + c.q, function () { return nothing(c.q, false); }));
+        }
       }
       // Said once there is a library result to put it under.
       if (tmdb.state === 'unconfigured' && (all.lib.length || (settled && lib.state === 'ok'))) {

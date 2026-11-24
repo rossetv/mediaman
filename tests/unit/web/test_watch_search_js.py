@@ -381,6 +381,19 @@ def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
         assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
 
 
+def test_people_lead_where_no_title_matches() -> None:
+    out = _run("peopleLead")
+    assert out["person"] == {
+        "leads": True,
+        "empty": 0,
+        "none": ["No title matches “mara”"],
+        "kinds": ["person"],
+    }
+    assert (out["both"]["leads"], out["both"]["none"]) == (False, [])
+    assert (out["mixed"]["leads"], out["mixed"]["kinds"]) == (True, ["person", "category"])
+    assert (out["category"]["leads"], out["category"]["empty"]) == (False, 1)
+
+
 def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
     out = _run("person")
     assert out["kept"] == [2, ["known_for", "person"]]
