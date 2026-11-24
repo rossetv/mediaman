@@ -1959,6 +1959,32 @@ const scenarios = {
     return out;
   },
 
+  // The Keep menu open on one season while another, asked for before, comes in.
+  async keepMenuAcrossSeasons() {
+    const leaving = [{ days: 2, keep_id: '3030', season: 3 }, { days: 9, keep_id: '3020', season: 2 }];
+    const seasons = [1, 2, 3].map((n) => ({ number: n, name: 'Season ' + n, episode_count: 2, in_library: true, selected: n === 3 }));
+    const show = Object.assign({}, LIB_SHOW, { leaving: leaving[0], leaving_seasons: leaving, seasons });
+    const out = {};
+    for (const n of [2, 1]) {
+      let answer = null;
+      const p = load({ routes: { '/api/watch/title/show-300': show,
+        ['/api/watch/title/show-300/season/' + n]: () => new Promise((resolve) => { answer = () => resolve({ ok: true, episodes: [] }); }) } });
+      p.run();
+      await openCard(p, 'show-300');
+      click(p.doc, p.q('.watch-pill[data-season="' + n + '"]'));
+      click(p.doc, p.q('.watch-btn--keep'));
+      const menu = p.doc.getElementById('watch-keep-menu');
+      const before = menu.classList.contains('is-open');
+      answer();
+      await settle();
+      click(p.doc, menu.children[0]);
+      await settle();
+      out[n] = { before, after: menu.classList.contains('is-open'), focus: p.doc.activeElement.getAttribute('data-ttl-act'), live: p.ttl().contains(p.doc.activeElement),
+        label: p.doc.activeElement.getAttribute('aria-label'), posts: p.posts };
+    }
+    return out;
+  },
+
   // The director leads to the page of their titles, and Back finds the focus on them; one TMDB gives no id for is words.
   async directorLink() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { director: 'Ada Rimmington', director_id: 9008 }) } });

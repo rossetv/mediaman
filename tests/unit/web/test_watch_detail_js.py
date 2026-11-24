@@ -915,6 +915,19 @@ def test_removing_the_keep_of_a_show_asks_which_and_takes_no_season_of_its_own()
     assert _run("leavingSeasonsAdmin")["removed"] == [["keep", "", None]]
 
 
+def test_an_open_keep_menu_closes_when_the_actions_are_for_another_season() -> None:
+    out = _run("keepMenuAcrossSeasons")
+    assert out["2"] == {
+        "before": True,
+        "after": False,
+        "focus": "keep",
+        "live": True,
+        "label": "Keep Brightwater, Season 2",
+        "posts": [],
+    }
+    assert (out["1"]["after"], out["1"]["live"], out["1"]["posts"]) == (False, True, [])
+
+
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",

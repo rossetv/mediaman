@@ -850,6 +850,7 @@
      drawn again (or on the first action when it is gone). */
   function renderContent(fresh) {
     var d = cur.data;
+    closeOtherKeep();
     var key = focusKey();
     var line = body.querySelector('.watch-seasons');
     var lineAt = line ? line.scrollLeft : null;
@@ -1078,6 +1079,16 @@
     b.appendChild(el('span', '', 'Keep'));
     b.appendChild(icon('i-chevron-down', 'watch-keep__chev'));
     return b;
+  }
+
+  /* The Keep menu open on a season that the actions about to be drawn are not of
+     closes, its focus on the button they take the place of. */
+  function closeOtherKeep() {
+    var keep = window.MMWatch.keep;
+    var trigger = keep && keep.menuTrigger();
+    if (!trigger || !root.contains(trigger)) return;
+    var leaves = leavingNow();
+    if (!leaves || leaves.id !== trigger.getAttribute('data-watch-keep')) keep.closeMenu(true);
   }
 
   /* ── Download ── */
@@ -1412,6 +1423,7 @@
     var actions = root.querySelector('[data-ttl-part="actions"]');
     var under = root.querySelector('[data-ttl-part="under"]');
     if (!actions || !under) return;
+    closeOtherKeep();
     var key = focusKey();
     var before = actions.querySelector('[data-ttl-act="primary"]');
     var beforeClass = before ? before.className : '';

@@ -648,6 +648,7 @@
     foldAway: foldAway,
     growIn: growIn,
     growCard: growCard,
+    menuTrigger: function () { return keepMenu && keepMenu.trigger(); },
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; },
     joinPanel: function (joined) { panel = joined; }
