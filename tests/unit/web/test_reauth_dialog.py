@@ -69,6 +69,21 @@ def test_pressing_enter_again_sends_the_password_and_the_protected_request_no_se
     assert _run("again") == {"passwords": 1, "runs": 2}
 
 
+def test_enter_held_down_presses_nothing_after_the_dialog_until_it_is_let_go() -> None:
+    # the focus goes back to the button that asked, which the repeats would press again
+    assert _run("heldKey") == {
+        "enter": True,
+        "space": True,
+        "aNewPress": False,
+        "otherKey": False,
+        "afterRelease": False,
+    }
+
+
+def test_enter_held_down_after_a_refusal_sends_the_password_no_second_time() -> None:
+    assert _run("heldAfterRefusal") == {"held": 1, "pressedAgain": 2}
+
+
 def test_an_answer_that_comes_after_the_dialog_was_closed_does_nothing() -> None:
     quiet = {"keyboardStays": True, "cancels": 1, "said": ""}
     assert _run("lateAnswer") == {"refused": quiet, "accepted": quiet}

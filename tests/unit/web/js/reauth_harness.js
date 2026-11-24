@@ -43,6 +43,15 @@ const doc = {
   createElement: (t) => new El(t),
   querySelectorAll: () => [],
   activeElement: null,
+  listeners: {},
+  addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
+  removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); },
+};
+// A key event as the document sees it first; true when what the key would do was stopped.
+const key = (type, e) => {
+  let stopped = false;
+  (doc.listeners[type] || []).forEach((fn) => fn({ preventDefault() { stopped = true; }, ...e }));
+  return stopped;
 };
 const ctx = {
   document: doc, Promise, TypeError,
@@ -91,6 +100,36 @@ const scenarios = {
     const { sheet } = open({ ok: true });
     const text = (attr) => (sheet.all().find((e) => e.id && e.id === sheet.attrs[attr]) || {}).textContent || null;
     return { name: text('aria-labelledby'), about: text('aria-describedby') };
+  },
+  // Enter held down in the dialog: what its repeats do once the dialog has gone, and after the key is let go
+  async heldKey() {
+    const d = open({ ok: true });
+    await d.submit('pw');
+    const out = {
+      enter: key('keydown', { key: 'Enter', repeat: true }),
+      space: key('keydown', { key: ' ', repeat: true }),
+      aNewPress: key('keydown', { key: 'Enter', repeat: false }),
+      otherKey: key('keydown', { key: 'a', repeat: true }),
+    };
+    key('keyup', { key: 'Enter' });
+    out.afterRelease = key('keydown', { key: 'Enter', repeat: true });
+    return out;
+  },
+  // Enter held down after a refusal: how often the password was sent, and after a new press
+  async heldAfterRefusal() {
+    let sent = 0;
+    ctx.MM.reauth.openModal({ onSubmit: () => { sent += 1; return Promise.resolve({ ok: false, error: 'No' }); } });
+    const input = doc.body.children[doc.body.children.length - 1].children[0].querySelector('.inp');
+    input.value = 'pw';
+    input.emit('keydown', { key: 'Enter' });
+    await flush();
+    input.emit('keydown', { key: 'Enter', repeat: true });
+    input.emit('keydown', { key: 'Enter', repeat: true });
+    await flush();
+    const held = sent;
+    input.emit('keydown', { key: 'Enter' });
+    await flush();
+    return { held, pressedAgain: sent };
   },
   // the answer to a password comes after the dialog was closed and another opened: refused, then accepted
   async lateAnswer() {
