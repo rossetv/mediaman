@@ -88,11 +88,7 @@ def _entries(stored: str | None) -> list[object]:
 def _files(title: sqlite3.Row | Mapping[str, Any]) -> set[str]:
     """Return the paths of the files a title is known to have."""
     entries = _entries(title["tracked_files"]) + _entries(title["episode_keys"])
-    paths = {str(e["path"]) for e in entries if isinstance(e, dict) and e.get("path")}
-    # A film's path is that of its file, a season's that of its folder.
-    if title["season_number"] is None:
-        paths.add(title["file_path"])
-    return paths
+    return {str(e["path"]) for e in entries if isinstance(e, dict) and e.get("path")}
 
 
 def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) -> bool:
