@@ -321,6 +321,21 @@ class TestKeepPageRoute:
 
         assert f"{date_text} — {word}" in text
 
+    def test_a_date_that_has_passed_is_shown_without_a_word(self, conn, freezer):
+        freezer.move_to("2026-05-03T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+        text = " ".join(TestClient(app).get(f"/keep/{token}").text.split())
+
+        assert "1 May 2026 </div>" in text
+        assert "Keep for" in text
+
     @pytest.mark.parametrize(
         ("action", "execute_at", "duration", "text"),
         [

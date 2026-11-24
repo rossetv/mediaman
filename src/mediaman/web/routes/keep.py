@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
-from mediaman.core.format import normalise_media_type
+from mediaman.core.format import calendar_days_until, normalise_media_type
 from mediaman.core.time import now_utc
 from mediaman.crypto import sign_poster_url
 from mediaman.db import get_db
@@ -42,7 +42,6 @@ from mediaman.services.scheduled_actions import (
     parse_execute_at,
     token_hash,
 )
-from mediaman.services.scheduled_actions.days_left import days_left as _days_left
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
@@ -203,7 +202,7 @@ def _keep_context(
 
     # Computed here, not in the template: ``execute_at.today()`` is tz-naive and
     # jitters across midnight.
-    days_left = _days_left(execute_at, now)
+    days_left = calendar_days_until(execute_at, now)
 
     # The page is opened logged out from an email, so the poster needs a signed URL.
     rating_key = item_dict.get("plex_rating_key")
