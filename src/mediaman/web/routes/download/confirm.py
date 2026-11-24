@@ -31,7 +31,6 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
     season_on_disk,
-    series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.notifications import has_unsent_notification, requested_tvdb_id
@@ -378,12 +377,8 @@ def _shown_state(mt: str, tmdb_id: int, caches: ArrCaches) -> str | None:
         and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
     ):
         # What is not downloading is on its way only if Sonarr has something to look for.
-        if not series.get("monitored", True):
-            state = None
-        elif _aired_missing(series):
-            state = ACTION_QUEUED
-        else:
-            state = ACTION_IN_LIBRARY if series_has_files(series) else None
+        on_its_way = series.get("monitored", True) and _aired_missing(series)
+        state = ACTION_QUEUED if on_its_way else None
     # The page shows one "on its way" view, whose progress polling fills in.
     if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
         state = ACTION_QUEUED

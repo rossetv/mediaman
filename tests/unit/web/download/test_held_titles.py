@@ -17,10 +17,12 @@ from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.scanner.repository.scheduled_actions import DeletionRow, was_requested_since
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.state import compute_download_state
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download import confirm as confirm_module
 from mediaman.web.routes.download import reset_used_tokens
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
+from mediaman.web.routes.download.status import _sonarr_series_fallback
 from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
 from tests.helpers.factories import insert_audit_log
 
@@ -188,6 +190,62 @@ class TestConfirmPage:
         resp = self._page(client, secret_key, "tv", series=series)
 
         assert f'"download_state": "{state}"' in resp.text
+
+
+def _season_of(number, files, wanted, *, monitored=False, aired=True):
+    stats = {"episodeFileCount": files, "episodeCount": wanted, "totalEpisodeCount": 10}
+    if aired:
+        stats["previousAiring"] = "2020-01-01T00:00:00Z"
+    return {"seasonNumber": number, "monitored": monitored, "statistics": stats}
+
+
+@pytest.mark.parametrize(
+    ("seasons", "state"),
+    [
+        ([_season_of(1, 10, 10), _season_of(2, 10, 10)], "in_library"),
+        ([_season_of(1, 10, 10), _season_of(0, 0, 1)], "in_library"),
+        ([_season_of(1, 10, 10, monitored=True), _season_of(2, 3, 3)], "in_library"),
+        ([_season_of(1, 10, 10, monitored=True), _season_of(2, 1, 2)], "queued"),
+        ([_season_of(1, 0, 1)], "queued"),
+        ([_season_of(1, 1, 1)], "tracked"),
+        ([_season_of(1, 3, 3)], "tracked"),
+        ([_season_of(1, 1, 1, monitored=True, aired=False)], "tracked"),
+        ([_season_of(1, 10, 10, monitored=True, aired=False)], "in_library"),
+    ],
+    ids=[
+        "whole but not monitored",
+        "whole but for a wanted special",
+        "whole beside one abandoned in part",
+        "whole beside one lacking a wanted episode",
+        "one episode wanted",
+        "that one episode there",
+        "abandoned in part",
+        "one file before it airs",
+        "whole and undated",
+    ],
+)
+def test_the_emailed_page_the_status_and_the_state_say_the_same_of_a_show(
+    client, secret_key, seasons, state
+):
+    files = sum(s["statistics"]["episodeFileCount"] for s in seasons)
+    series = {
+        "tmdbId": 500,
+        "title": "Far Shore",
+        "monitored": True,
+        "statistics": {"episodeFileCount": files},
+        "seasons": seasons,
+    }
+    cache = {"sonarr_series": {500: series}, "sonarr_queue_tmdb_ids": set()}
+    with patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache):
+        page = client.get(f"/download/{_token(secret_key, 'tv')}").text
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [series]
+
+    assert f'"download_state": "{state}"' in page
+    ready = state == "in_library"
+    assert (_sonarr_series_fallback(sonarr, 500)["state"] == "ready") is ready
+    caches = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set(), **cache}
+    assert (compute_download_state("tv", 500, caches) == "in_library") is ready
 
 
 class TestReopeningAUsedLink:

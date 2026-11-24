@@ -191,13 +191,10 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
 
     *series* is the already-resolved cache entry (never ``None``).
     """
-    aired_seasons = [s for s in _judged_seasons(series) if _wanted_by_now(s)]
-    if aired_seasons:
-        have_any = any(_season_stats(s).get("episodeFileCount", 0) > 0 for s in aired_seasons)
-        if series_ready(series):
-            return ACTION_IN_LIBRARY
-        if have_any:
-            return ACTION_PARTIAL
+    if series_ready(series):
+        return ACTION_IN_LIBRARY
+    if any((_season_stats(s).get("episodeFileCount") or 0) > 0 for s in _judged_seasons(series)):
+        return ACTION_PARTIAL
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
         return ACTION_DOWNLOADING
