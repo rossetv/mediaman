@@ -124,14 +124,12 @@ class ArrClient(
         else:
             extra = "&includeMovie=true"
         for _ in range(max_pages):  # hard cap to prevent runaway paging
-            data = self._get(f"/api/v3/queue?page={page}&pageSize={page_size}{extra}")
-            if not isinstance(data, dict):
-                break
-            records = cast(list[ArrQueueItem], data.get("records") or [])
+            records, total = self._get_page(
+                f"/api/v3/queue?page={page}&pageSize={page_size}{extra}"
+            )
             if not records:
                 break
-            out.extend(records)
-            total = data.get("totalRecords") or 0
+            out.extend(cast(list[ArrQueueItem], records))
             if page * page_size >= total:
                 break
             page += 1

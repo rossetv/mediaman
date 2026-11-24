@@ -10,9 +10,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 from xml.etree.ElementTree import ParseError
 
+import pytest
 import requests
 
 from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher
+from mediaman.services.infra import SafeHTTPError
 
 
 def _make_movie(rk="101", title="Test Film"):
@@ -152,9 +154,17 @@ class TestFetchShowLibrary:
         assert fetched.items[0].item["plex_rating_key"] == "202"
         assert fetched.skipped_keys == frozenset({"201"})
 
-    def test_malformed_season_history_reply_skips_only_that_key(self):
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ParseError("syntax error"),
+            SafeHTTPError(status_code=200, body_snippet="too large", url="http://plex"),
+        ],
+        ids=["bad_xml", "too_large"],
+    )
+    def test_malformed_season_history_reply_skips_only_that_key(self, error):
         plex = _make_plex(seasons=[_make_season("1"), _make_season("2")])
-        plex.get_season_watch_history.side_effect = [ParseError("syntax error"), []]
+        plex.get_season_watch_history.side_effect = [error, []]
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "show"})
         fetched = fetcher.fetch_library_items("10")
         assert [r.item["plex_rating_key"] for r in fetched.items] == ["2"]

@@ -84,7 +84,7 @@ def test_every_password_field_can_be_shown(page, request):
 
     assert passwords
     assert [p["id"] for p in passwords if "data-show-password" not in p] == []
-    assert '<script src="/static/js/show-password.js" defer></script>' in html
+    assert '<script src="/static/js/show-password.js?v=" defer></script>' in html
 
 
 def test_integrations_rail_item_carries_no_fixed_count(settings_html):

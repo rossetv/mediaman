@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
+import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -16,6 +17,7 @@ from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
+from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -38,6 +40,7 @@ from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
 from mediaman.web.responses import respond_failure
+from mediaman.web.routes.download.confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +185,9 @@ def _add_rec_to_radarr(
             exc.status_code == 400 and radarr_holds_movie(client, tmdb_id)
         ):
             return _already_there(row)
-        raise
+        if not movie_add_landed(exc, client, tmdb_id):
+            raise
+        outcome = "added"
     if outcome == "already_tracked":
         return _already_there(row)
     if outcome == "bad_entry":
@@ -263,7 +268,8 @@ def _add_rec_to_sonarr(
             exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id)
         ):
             return _already_there(row)
-        raise
+        if not series_add_landed(exc, client, tvdb_id):
+            raise
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
@@ -334,9 +340,11 @@ def api_download_recommendation(
             exc.status_code,
         )
         return respond_failure("Failed to add to download queue", status=502)
-    except (ArrError, ValueError):
+    except (requests.RequestException, ArrError, ValueError):
         logger.exception("Failed to add recommendation '%s'", row.title)
         return respond_failure("Failed to add to download queue", status=502)
     finally:
-        # Watch holds Radarr and Sonarr state briefly; drop it so the title shows queued.
+        # Watch and the emailed page hold Radarr and Sonarr state briefly; drop it so the
+        # title shows queued.
         watch_catalog.invalidate()
+        drop_arr_cache()

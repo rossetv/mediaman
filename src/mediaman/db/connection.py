@@ -98,6 +98,9 @@ _ADDED_COLUMNS = (
     ("media_items", "tracked_files", "TEXT"),
     ("scheduled_actions", "removed_files", "TEXT"),
     ("admin_users", "role", "TEXT NOT NULL DEFAULT 'admin'"),
+    ("download_notifications", "season_number", "INTEGER"),
+    ("delete_intents", "confirmed_at", "TEXT"),
+    ("arr_searching_since", "last_seen", "TEXT"),
 )
 
 

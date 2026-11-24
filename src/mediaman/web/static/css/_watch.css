@@ -52,7 +52,30 @@
 .watch-bar--banner::-webkit-progress-value { background: var(--t1); }
 .watch-bar--banner::-moz-progress-bar { background: var(--t1); }
 .watch-card__poster > .watch-bar,
-.watch-ep__thumb > .watch-bar { position: absolute; left: 0; right: 0; bottom: 0; }
+.watch-ep__thumb > .watch-bar {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  bottom: 8px;
+  width: calc(100% - 16px);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--t1) 30%, transparent);
+}
+.watch-card__poster > .watch-bar::-webkit-progress-bar,
+.watch-ep__thumb > .watch-bar::-webkit-progress-bar { background: none; }
+/* The bar lines up with the title, which sits just above it on a deeper shade. */
+.watch-card__poster:has(> .watch-bar) { padding-bottom: 20px; }
+.watch-card__poster > .watch-bar { left: var(--card-pad); width: calc(100% - 2 * var(--card-pad)); }
+.watch-card__poster:has(> .watch-bar)::after {
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--scrim) 35%, transparent), transparent 25%),
+    linear-gradient(to bottom, transparent 35%, color-mix(in srgb, var(--scrim) 34%, transparent) 46%, color-mix(in srgb, var(--scrim) 62%, transparent) 58%, color-mix(in srgb, var(--scrim) 82%, transparent) 76%, color-mix(in srgb, var(--scrim) 92%, transparent));
+}
+/* A title barely begun still shows a mark; one not begun shows none. */
+.watch-bar::-webkit-progress-value { border-radius: var(--r-pill); }
+.watch-bar::-moz-progress-bar { border-radius: var(--r-pill); }
+.watch-bar:not([value="0"])::-webkit-progress-value { min-width: 6px; }
+.watch-bar:not([value="0"])::-moz-progress-bar { min-width: 6px; }
 
 /* Search box, top of the content. */
 .watch-top { padding: 20px var(--pad) 4px; }
@@ -215,19 +238,29 @@
 /* Banner */
 .watch-banner {
   position: relative;
-  height: 420px;
+  min-height: clamp(420px, 27vw, 600px); /* grows for a long title */
   margin-top: 16px;
   display: flex;
   align-items: flex-end;
-  padding: 0 var(--pad) 44px;
+  padding: 24px var(--pad) 44px;
   overflow: hidden;
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
+  /* Dark enough for the text up to where the title can reach, then eased out with no edge;
+     below, the picture melts into the page. */
+  --banner-foot: linear-gradient(0deg, var(--bg), color-mix(in srgb, var(--bg) 74%, transparent) 25px, color-mix(in srgb, var(--bg) 45%, transparent) 55px, color-mix(in srgb, var(--bg) 18%, transparent) 90px, transparent 130px);
+  --banner-side: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 94%, transparent), color-mix(in srgb, var(--scrim) 88%, transparent) 24%, color-mix(in srgb, var(--scrim) 70%, transparent) 48%, color-mix(in srgb, var(--scrim) 42%, transparent) 63%, color-mix(in srgb, var(--scrim) 18%, transparent) 78%, color-mix(in srgb, var(--scrim) 5%, transparent) 90%, transparent);
+  /* Behind the text on a smaller screen, as wide as the text. */
+  --banner-text-side: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 70%, transparent) calc(100% - 220px), color-mix(in srgb, var(--scrim) 52%, transparent) calc(100% - 165px), color-mix(in srgb, var(--scrim) 25%, transparent) calc(100% - 95px), color-mix(in srgb, var(--scrim) 7%, transparent) calc(100% - 38px), transparent);
+}
+/* The text is at most 560px wide, so on a wide screen the dark ends where it does. */
+@media (min-width: 1280px) {
+  .watch-banner { --banner-side: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 94%, transparent), color-mix(in srgb, var(--scrim) 88%, transparent) 320px, color-mix(in srgb, var(--scrim) 62%, transparent) 620px, color-mix(in srgb, var(--scrim) 25%, transparent) 900px, color-mix(in srgb, var(--scrim) 8%, transparent) 1040px, transparent 1150px); }
 }
 .watch-banner::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--bg) 18%, color-mix(in srgb, var(--scrim) 20%, transparent) 60%, transparent);
+  background: var(--banner-foot), var(--banner-side);
   pointer-events: none;
 }
 .watch-banner__bg {
@@ -236,25 +269,88 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 75% 30%;
+  object-position: 75% 25%;
 }
 .watch-banner__body {
   position: relative;
   z-index: 1;
-  max-width: 560px;
+  max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px));
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-.watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
-.watch-banner__title { font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; }
+/* On a smaller screen a long title runs far over the picture, so the dark follows the text's width. */
+@media (min-width: 600px) and (max-width: 1279.98px) {
+  .watch-banner__body::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -100vh -220px -100px calc(-1 * var(--pad));
+    background: var(--banner-text-side);
+    pointer-events: none;
+  }
+}
+.watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); }
+/* A title clamps to --title-lines. A clamp can cut inside a word, so a long title gets smaller
+   text and enough lines to fit. The padding keeps the last line's descenders unclipped. */
+.watch-banner__title {
+  --title-lines: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--title-lines);
+  line-clamp: var(--title-lines);
+  overflow: hidden;
+  padding-bottom: .12em;
+  margin-bottom: -.12em;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+.watch-banner__title--long { --title-lines: 7; font-size: 36px; line-height: 1.1; text-wrap: balance; }
+.watch-banner__title--longest { --title-lines: 8; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; text-wrap: balance; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
 .watch-banner__line--short { display: none; }
 @media (max-width: 599.98px) {
   .watch-banner__line--long { display: none; }
   .watch-banner__line--short { display: block; }
 }
+
+/* With no backdrop (none given, or it failed) the poster stands in: blurred as the fill and
+   sharp at 2:3 on the right. The title keeps clear of that place at every width, so nothing
+   moves when the backdrop fails. Hidden, the lazy images are not fetched. */
+.watch-banner { --banner-poster-w: min(clamp(150px, 19vw, 320px), calc((clamp(420px, 27vw, 600px) - 72px) / 1.5)); }
+.watch-banner__bg--fill { filter: blur(40px) brightness(.7); transform: scale(1.2); object-position: center; }
+.watch-banner__poster {
+  position: absolute;
+  z-index: 2;
+  right: var(--pad);
+  top: 50%;
+  width: var(--banner-poster-w);
+  height: auto;
+  aspect-ratio: auto 2 / 3; /* its own shape, once known */
+  max-height: calc(100% - 72px);
+  object-fit: contain;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-50%);
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.watch-banner__bg--art:not([data-broken]) ~ .watch-banner__bg--fill,
+.watch-banner__bg--art:not([data-broken]) ~ .watch-banner__poster { display: none; }
+.has-poster-fade .watch-banner__bg--fill:not(.is-loaded) ~ .watch-banner__poster { opacity: 0; }
+
+/* With scripts on, a backdrop waits to be known for a wide picture (broken-poster.js),
+   so one that is not never shows. One that had already loaded does not fade in. */
+@media (scripting: enabled) {
+  .watch-banner__bg--art:not([data-fit]) { opacity: 0; }
+}
+.watch-banner__bg--art[data-fit="at-once"] { transition: none; }
+
+/* The next backdrop is on its way: the one that did not fit is not shown. */
+.watch-banner__bg--art[data-retrying] { opacity: 0; transition: none; }
 
 /* Rows run to the screen edge; at rest the first card lines up with the
    title, and whatever is cut off at either edge fades out across the gutter.
@@ -342,7 +438,8 @@
   align-items: flex-end;
   width: 100%;
   aspect-ratio: 2 / 3;
-  padding: 10px;
+  --card-pad: 10px;
+  padding: var(--card-pad);
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
@@ -383,8 +480,12 @@
   line-height: 1.15;
   text-shadow: 0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent);
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }
-.watch-card__poster > .watch-bar { z-index: 2; height: 4px; }
 .watch-card__sub {
   font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
@@ -414,7 +515,7 @@
 }
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
-  .watch-card__poster { padding: 8px; }
+  .watch-card__poster { --card-pad: 8px; }
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
   .watch-badge--leaving { left: 6px; }
   .watch-badge--watched { right: 6px; }
@@ -634,11 +735,24 @@
 @media (max-width: 599.98px) {
   .watch-top { padding-top: 12px; }
   .watch-search { max-width: none; }
-  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 64px var(--pad) 20px; }
-  .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, transparent 60%); }
+  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
+  /* Above the title, in the room the padding keeps for it. */
+  .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; max-height: 132px; transform: none; border-radius: var(--r-sm); }
+  /* The picture is clear only above the text, whatever height the text takes. */
+  .watch-banner::after { background: linear-gradient(0deg, var(--bg), transparent 90px); }
+  .watch-banner__body::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -110px calc(-1 * var(--pad)) -20px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--scrim) 12%, transparent) 20px, color-mix(in srgb, var(--scrim) 34%, transparent) 46px, color-mix(in srgb, var(--scrim) 60%, transparent) 74px, color-mix(in srgb, var(--scrim) 80%, transparent) 110px, color-mix(in srgb, var(--scrim) 88%, transparent));
+  }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
-  .watch-banner__title { font-size: 30px; }
+  .watch-banner__title { --title-lines: 4; font-size: 30px; }
+  .watch-banner__title--long { --title-lines: 6; font-size: 24px; }
+  .watch-banner__title--longest { --title-lines: 8; font-size: 20px; }
+  .watch-bar--banner { width: 100%; }
   .watch-banner__line { font-size: 13px; }
   .watch-actions { flex-direction: column; }
   .watch-actions .btn { width: 100%; }
@@ -664,6 +778,40 @@
   }
   .watch-ep__num { font-size: 14px; padding-top: 2px; }
   .watch-ep__state { justify-self: start; align-self: end; }
+}
+
+/* A phone held sideways: a shorter banner that leaves its buttons on screen. */
+@media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
+  .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
+  .watch-banner__title { --title-lines: 3; font-size: 28px; }
+  .watch-banner__title--long { --title-lines: 4; font-size: 24px; }
+  .watch-banner__title--longest { --title-lines: 5; font-size: 20px; }
+  .watch-banner__line { font-size: 13px; }
+  .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
+}
+/* One narrower than 600px too: the dark beside the text, not above it, and the buttons in a row. */
+@media (max-width: 599.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  /* Its tab bar leaves little height: no taller than the text and its buttons need. */
+  .watch-banner { --banner-poster-w: 92px; min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner__poster { --banner-poster-w: 92px; max-height: calc(100% - 24px); }
+  .watch-banner__title--longest { font-size: 18px; line-height: 1.1; }
+  .watch-banner::after { background: var(--banner-foot), var(--banner-side); }
+  .watch-banner__body::before { inset: -100vh -160px -100px calc(-1 * var(--pad)); background: var(--banner-text-side); }
+  .watch-banner .watch-actions .btn,
+  .watch-banner .watch-actions .watch-btn--play { flex: none; padding-inline: 22px; }
+  .watch-bar--banner { width: min(320px, 100%); }
+}
+
+/* The system's colours: no picture behind the text, and a bar whose value still shows. */
+@media (forced-colors: active) {
+  .watch-banner__bg { display: none; }
+  progress.watch-bar,
+  .watch-card__poster > .watch-bar,
+  .watch-ep__thumb > .watch-bar { forced-color-adjust: none; height: 6px; border: 1px solid CanvasText; background: Canvas; }
+  progress.watch-bar::-webkit-progress-bar { background: Canvas; }
+  progress.watch-bar::-webkit-progress-value { background: Highlight; }
+  progress.watch-bar::-moz-progress-bar { background: Highlight; }
 }
 
 /* Inline notice above the rows when Plex cannot be reached. */

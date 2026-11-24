@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
+
+import pytest
+import requests
 
 # rationale: make_arr_card, fetch_sonarr_queue, and _aggregate_pack_episodes
 # are internal helpers not in __all__; _aggregate_pack_episodes in particular
@@ -25,6 +29,19 @@ def _client(queue=None, series=None, episodes=None):
 
 def _series_payload(series_id=1, title="Breaking Bad", year=2008):
     return {"id": series_id, "title": title, "year": year, "images": []}
+
+
+def _searching_series(**overrides):
+    return {
+        "id": 99,
+        "title": "Andor",
+        "year": 2022,
+        "monitored": True,
+        "statistics": {"episodeFileCount": 0},
+        "images": [],
+        "added": "2024-01-01T00:00:00Z",
+        **overrides,
+    }
 
 
 def _queue_ep(
@@ -254,6 +271,134 @@ class TestFetchSonarrQueueSearching:
         client = _client(queue=[], series=series)
         cards = fetch_sonarr_queue(client)
         assert not any(c["title"] == "Already Got It" for c in cards)
+
+    def test_abandoned_show_is_not_listed(self):
+        """Abandon leaves the series monitored with its seasons off and no files."""
+        client = _client(
+            series=[_searching_series(seasons=[{"seasonNumber": 1, "monitored": False}])]
+        )
+        assert fetch_sonarr_queue(client) == []
+
+    def test_single_monitored_episode_in_an_unmonitored_season_is_listed(self):
+        season = {
+            "seasonNumber": 1,
+            "monitored": False,
+            "statistics": {"episodeCount": 1, "episodeFileCount": 0},
+        }
+        cards = fetch_sonarr_queue(_client(series=[_searching_series(seasons=[season])]))
+        assert [c["title"] for c in cards] == ["Andor"]
+
+    def test_searching_show_names_every_monitored_season(self):
+        """Without them the show has nothing Abandon can act on."""
+        seasons = [
+            {"seasonNumber": 0, "monitored": False},
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {"episodeCount": 8, "episodeFileCount": 0},
+            },
+            {"seasonNumber": 2, "monitored": True},
+        ]
+        (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
+        assert card["stuck_seasons"] == [
+            {"number": 1, "missing_episodes": 8, "aired": False},
+            {"number": 2, "missing_episodes": 0, "aired": False},
+        ]
+
+    def test_a_season_says_whether_any_of_it_has_aired(self):
+        seasons = [
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {"episodeCount": 8, "previousAiring": "2020-01-01T00:00:00Z"},
+            },
+            {"seasonNumber": 2, "monitored": True},
+            {"seasonNumber": 3, "monitored": True},
+        ]
+        episodes = [
+            {"seasonNumber": 2, "airDateUtc": "2021-01-01T00:00:00Z"},
+            {"seasonNumber": 3, "airDateUtc": "2099-01-01T00:00:00Z"},
+            {"seasonNumber": 3},
+        ]
+        (card,) = fetch_sonarr_queue(
+            _client(series=[_searching_series(seasons=seasons)], episodes=episodes)
+        )
+        assert [s["aired"] for s in card["stuck_seasons"]] == [True, True, False]
+
+    _S2_NEXT = {"seasonNumber": 2, "airDateUtc": "2099-01-01T00:00:00Z"}
+
+    def _card(self, monitored, episodes):
+        seasons = [{"seasonNumber": n, "monitored": n in monitored} for n in (0, 1, 2)]
+        (card,) = fetch_sonarr_queue(
+            _client(series=[_searching_series(seasons=seasons)], episodes=episodes)
+        )
+        return card
+
+    def test_show_whose_only_monitored_season_has_not_aired_is_upcoming(self):
+        card = self._card(
+            {2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
+        )
+        assert card["is_upcoming"] is True
+        assert card["release_label"] == "Premieres 1 Jan 2099"
+        assert card["released_at"] == 0.0
+
+    @pytest.mark.parametrize("season_2", [[{"seasonNumber": 2}], []], ids=["undated", "unlisted"])
+    def test_show_with_nothing_aired_to_fetch_is_not_searched_for(self, season_2):
+        card = self._card(
+            {2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, *season_2]
+        )
+        assert (card["is_upcoming"], card["release_label"]) == (True, "Not yet aired")
+
+    def test_show_whose_episodes_cannot_be_read_is_still_searching(self):
+        client = _client(series=[_searching_series(status="continuing")])
+        client.get_episodes.side_effect = requests.ConnectionError
+        (card,) = fetch_sonarr_queue(client)
+        assert card["is_upcoming"] is False
+
+    def test_continuing_show_sonarr_lists_no_episode_of_is_still_searching(self):
+        """Just added, Sonarr has yet to refresh it: it may have aired for years."""
+        series = _searching_series(
+            status="continuing", seasons=[{"seasonNumber": 1, "monitored": True}]
+        )
+        (card,) = fetch_sonarr_queue(_client(series=[series], episodes=[]))
+        assert card["is_upcoming"] is False
+
+    def test_monitored_season_whose_aired_episodes_are_unmonitored_has_aired(self):
+        card = self._card(
+            {2},
+            [
+                {"seasonNumber": 2, "monitored": False, "airDateUtc": "2015-01-01T00:00:00Z"},
+                {"seasonNumber": 2, "monitored": True},
+            ],
+        )
+        assert (card["is_upcoming"], card["release_label"]) == (False, "")
+
+    def test_ended_show_with_an_undated_season_is_still_searching(self):
+        series = _searching_series(status="ended", seasons=[{"seasonNumber": 2, "monitored": True}])
+        (card,) = fetch_sonarr_queue(_client(series=[series], episodes=[{"seasonNumber": 2}]))
+        assert card["is_upcoming"] is False
+
+    def test_show_with_a_monitored_aired_season_is_searching(self):
+        card = self._card(
+            {1, 2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
+        )
+        assert card["is_upcoming"] is False
+
+    def test_aired_episode_monitored_by_itself_is_being_searched(self):
+        episode = {"seasonNumber": 1, "monitored": True, "airDateUtc": "2015-01-01T00:00:00Z"}
+        assert self._card({2}, [episode, self._S2_NEXT])["is_upcoming"] is False
+
+    @pytest.mark.parametrize("other", [0, 2])
+    def test_release_date_leaves_out_specials_and_unmonitored_seasons(self, other):
+        """A show searched for an old season is not fresh because something else aired since."""
+        card = self._card(
+            {0, 1},
+            [
+                {"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"},
+                {"seasonNumber": other, "airDateUtc": "2020-01-01T00:00:00Z"},
+            ],
+        )
+        assert card["released_at"] == datetime(2015, 1, 1, tzinfo=UTC).timestamp()
 
     def test_get_series_exception_does_not_crash(self):
         """Network error from get_series is swallowed; queue cards returned."""

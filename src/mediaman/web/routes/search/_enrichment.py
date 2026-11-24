@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from collections.abc import Callable
 from concurrent.futures import (
     CancelledError,
@@ -27,7 +28,7 @@ from mediaman.services.arr.state import (
     annotate_download_states,
 )
 from mediaman.services.infra import SafeHTTPError, disk_cache
-from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
+from mediaman.services.media_meta.omdb import get_omdb_key, lookup_ratings
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import TmdbUnavailable
 from mediaman.web.repository.search import (
@@ -138,12 +139,19 @@ def _annotate_states(results: list[dict[str, object]], request: Request) -> None
 # stuck future would block the whole iterator.
 _ENRICH_BUDGET_SECONDS = 6.0
 
+# After OMDb gives no answer (an outage, a spent quota) nothing is cached, so
+# every search would ask again for each miss and wait out the budget. Pause the
+# asking for this long and show what is stored instead.
+_NO_ANSWER_PAUSE_SECONDS = 60.0
+_paused_until = 0.0
+_OUTAGE_MIN_MISSES = 3
+
 # Type alias for the ``(key, group)`` pairs threaded through the ratings
 # fan-out: a ``(tmdb_id, media_type)`` key and the result dicts sharing it.
 _RatingsKeyGroup = tuple[tuple[int, str], list[dict[str, object]]]
 # What a single ratings future resolves to: the key, its group, and the
-# ratings dict fetched from OMDb (empty on a fetch failure).
-_RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, str]]
+# ratings dict fetched from OMDb (None when OMDb gave no answer).
+_RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, str] | None]
 
 
 def _apply_ratings(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
@@ -164,9 +172,10 @@ def _partition_cached(
         cached = next(
             (row for row in rows if row.tmdb_id == key[0] and row.media_type == key[1]), None
         )
-        if cached and cached.fetched_at >= cutoff:
+        if cached:
+            # A stale row still shows if OMDb cannot be asked or does not answer.
             _apply_ratings(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
-        else:
+        if not cached or cached.fetched_at < cutoff:
             misses.append((key, group))
     return misses
 
@@ -175,15 +184,15 @@ def _fetch_ratings_for_group(
     key_group: _RatingsKeyGroup, omdb_key: str | None
 ) -> _RatingsFetchResult:
     """Fetch OMDb ratings for one miss group on the enrichment pool. Returns (key, group,
-    data); data is empty on any fetch failure so a single bad lookup cannot abort the
-    fan-out.
+    data); data is None when OMDb gave no answer, so a single bad lookup cannot abort the
+    fan-out and is not cached as "no ratings".
     """
     key, group = key_group
     probe = group[0]
     try:
         year_raw = probe.get("year")
         year_int: int | None = year_raw if isinstance(year_raw, int) else None
-        data: dict[str, str] = fetch_ratings(
+        data: dict[str, str] | None = lookup_ratings(
             str(probe["title"]),
             year_int,
             str(probe["media_type"]),
@@ -191,7 +200,7 @@ def _fetch_ratings_for_group(
         )
     except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
         logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
-        data = {}
+        data = None
     return key, group, data
 
 
@@ -202,25 +211,37 @@ def _drain_futures(
     batch-write to the cache. On TimeoutError unfinished futures are dropped silently, but
     results from the misses that did complete are still returned so they are warm next time.
     """
+    global _paused_until
     pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
+    answered = unanswered = False
     try:
         for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
             try:
                 key, group, data = fut.result()
             except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
+                unanswered = True
                 continue
+            if data is None:
+                unanswered = True
+                continue
+            answered = True
             rt = data.get("rt")
             imdb = data.get("imdb")
             meta = data.get("metascore")
             _apply_ratings(group, rt=rt, imdb=imdb)
             pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
     except TimeoutError:
+        unanswered = True
         logger.debug(
             "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
             _ENRICH_BUDGET_SECONDS,
             sum(1 for f in futures if f.done()),
             len(futures),
         )
+    # One bad title, a slow but answering OMDb, or a round of fewer than three misses is not
+    # an outage: pause only when three or more misses got no answer at all.
+    if unanswered and not answered and len(futures) >= _OUTAGE_MIN_MISSES:
+        _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
     return pending_writes
 
 
@@ -247,6 +268,8 @@ def _stamp_omdb_ratings(results: list[dict[str, object]], request: Request) -> N
     # Read the OMDb key in the request thread — SQLite connections must not
     # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
+    if not resolved_omdb_key or time.monotonic() < _paused_until:
+        return
 
     now_iso = _now_iso()
     futures = [

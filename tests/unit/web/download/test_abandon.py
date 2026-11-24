@@ -12,11 +12,14 @@ Covers mediaman.web.routes.downloads:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.services.arr.fetcher import FetchResult
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
@@ -74,6 +77,35 @@ class TestAbandonEndpoint:
         body = resp.json()
         assert body["ok"] is True
         assert body["abandoned"]["kind"] == "movie"
+
+    def test_a_failed_abandon_still_drops_the_emailed_pages_arr_lists(
+        self, db_path, secret_key, monkeypatch
+    ):
+        from mediaman.services.downloads.abandon import AbandonResult
+        from mediaman.web.routes.download import confirm
+
+        monkeypatch.setitem(confirm._RADARR_CACHE, "held", (0.0, MagicMock()))
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.abandon_movie",
+            lambda conn, sk, *, arr_id, dl_id: AbandonResult(
+                kind="movie", failed=[arr_id], dl_id=dl_id
+            ),
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.build_downloads_response",
+            lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+        )
+
+        resp = self._make_client(db_path, secret_key).post(
+            "/api/downloads/radarr%3ATenet/abandon", json={}
+        )
+
+        assert resp.status_code == 502
+        assert confirm._RADARR_CACHE == {}
 
     def test_series_happy_path(self, db_path, secret_key, monkeypatch):
         """POST with seasons on a series item → 200, abandon_seasons called with correct numbers."""
@@ -204,7 +236,7 @@ class TestAbandonEndpoint:
 
         monkeypatch.setattr("mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie)
 
-        # A searching movie item — matches what fetch_arr_queue returns for a
+        # A searching movie item — matches what fetch_arr_queue_result returns for a
         # monitored Radarr title that has no NZBGet match.
         searching_item = {
             "kind": "movie",
@@ -226,8 +258,8 @@ class TestAbandonEndpoint:
         }
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [searching_item],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[searching_item]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",
@@ -250,3 +282,45 @@ class TestAbandonEndpoint:
         )
         assert called.get("arr_id") == 42
         assert called.get("dl_id") == "radarr:Tenet"
+
+    def test_searching_show_is_abandoned_with_the_seasons_its_card_offers(
+        self, db_path, secret_key, monkeypatch
+    ):
+        series = {
+            "id": 3,
+            "title": "Show",
+            "monitored": True,
+            "added": "2024-01-01T00:00:00Z",
+            "statistics": {"episodeFileCount": 0},
+            "seasons": [
+                {"seasonNumber": 1, "monitored": True, "statistics": {"episodeCount": 8}},
+                {"seasonNumber": 2, "monitored": True},
+            ],
+        }
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = []
+        sonarr.get_series.return_value = [series]
+        sonarr.get_episodes.return_value = [{"airDateUtc": "2020-01-01T00:00:00Z"}]
+
+        def unmonitor_season(series_id, number):
+            for season in series["seasons"]:
+                if season["seasonNumber"] == number:
+                    # Sonarr counts monitored episodes only.
+                    season.update(monitored=False, statistics={"episodeCount": 0})
+
+        sonarr.unmonitor_season.side_effect = unmonitor_season
+        for module in ("arr.build", "arr.search_trigger", "downloads.abandon"):
+            monkeypatch.setattr(
+                f"mediaman.services.{module}.build_sonarr_from_db", lambda *a: sonarr
+            )
+
+        client = self._make_client(db_path, secret_key)
+        hero = client.get("/api/downloads").json()["hero"]
+        resp = client.post(
+            "/api/downloads/sonarr%3AShow/abandon",
+            json={"seasons": [s["number"] for s in hero["stuck_seasons"]]},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["abandoned"]["succeeded"] == [1, 2]
+        assert resp.json()["queue"]["hero"] is None

@@ -86,8 +86,9 @@
     var container = document.getElementById('dl-upcoming-container');
     var upcoming = data.upcoming || [];
 
+    var shown = container ? container.querySelectorAll('.dl-upcoming-row') : [];
     if (upcoming.length === 0) {
-      if (container && !d.isCollapsing(container)) {
+      if (container && !d.isCollapsing(container) && !d.dropAbsent(shown, {}, data)) {
         d.collapseAway(container);
       }
       return;
@@ -118,10 +119,10 @@
     var listEl = document.getElementById('dl-upcoming-list');
     if (!listEl) return;
 
-    var activeIds = {};
+    var present = {};
     for (var i = 0; i < upcoming.length; i++) {
       var item = upcoming[i];
-      activeIds[item.id] = true;
+      present[item.id] = true;
       var rowEl = d.findByDlId(listEl, item.id);
       if (rowEl) {
         if (d.isCollapsing(rowEl)) d.reveal(rowEl);
@@ -131,12 +132,7 @@
         if (!opening) d.reveal(rowEl);
       }
     }
-    /* Close departed rows */
-    var rows = listEl.querySelectorAll('.dl-upcoming-row');
-    for (var j = 0; j < rows.length; j++) {
-      var id = rows[j].getAttribute('data-dl-id');
-      if (id && !activeIds[id] && !d.isCollapsing(rows[j])) d.collapseAway(rows[j]);
-    }
+    d.dropAbsent(shown, present, data);
     if (opening) d.reveal(container);
   }
 

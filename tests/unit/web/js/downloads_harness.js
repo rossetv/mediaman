@@ -308,6 +308,25 @@ scenarios.abandonSwitchesLocked = async function () {
   return { picked, oneLeft, during, after: status(r) };
 };
 
+// what the season picker starts with, and which seasons a confirm sends
+scenarios.abandonSeasons = async function () {
+  const r = abandonRig();
+  r.openItem('s1', 'series', [
+    { number: 0, missing_episodes: 4, aired: true },
+    { number: 1, missing_episodes: 1, aired: true },
+    { number: 2, missing_episodes: 6, aired: true },
+    { number: 3, missing_episodes: 0, aired: true },
+    { number: 4, missing_episodes: 0, aired: false },
+  ]);
+  const rows = r.list.querySelectorAll('.setg-row').map((row) => [
+    row.querySelector('.setg-row-lbl').textContent,
+    row.querySelector('.setg-row-sub').textContent,
+    row.querySelector('.tog').classList.contains('on'),
+    row.querySelector('.tog').getAttribute('aria-checked'),
+  ]);
+  return { rows, ...status(r) };
+};
+
 scenarios.hero = async function () {
   const h = build(() => Promise.resolve({}));
   ['core/dom.js', 'downloads/build_dom.js'].forEach(h.load);
@@ -386,6 +405,153 @@ scenarios.emptyState = async function () {
     during,
     after: { hero: hero.children.length, queue: queue.children.length, empty: empty.children.length, emptyFold: p.folding(empty) },
   };
+};
+
+// a service that does not answer never reads as "All caught up" or empties a section
+scenarios.outage = async function () {
+  const down = { hero: null, queue: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const card = (p) => p.byId('dl-empty-container').querySelectorAll('h3').map((e) => e.textContent);
+  const live = pageRig(true);
+  const upcoming = [item('radarr:u1')];
+  live.upd({ hero: item('radarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2')], upcoming });
+  live.upd(down);
+  const count = (id, cls) => { const b = live.byId(id); return b ? b.querySelectorAll(cls).length : 0; };
+  const held = {
+    hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'),
+    upcoming: count('dl-upcoming-container', '.dl-upcoming-row'), cards: card(live),
+  };
+  live.upd({ hero: null, queue: [] });
+  const back = { hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'), upcoming: count('dl-upcoming-container', '.dl-upcoming-row') };
+
+  const other = pageRig(true);
+  other.upd({ hero: item('sonarr:h1'), queue: [] });
+  other.upd(down);
+
+  const idle = pageRig(true);
+  idle.upd({ hero: null, queue: [] });
+  const cards = [card(idle)];
+  idle.upd(down);
+  cards.push(card(idle));
+  idle.upd(down);
+  idle.upd({ hero: null, queue: [] });
+  cards.push(card(idle));
+  return { held, back, finishedElsewhere: other.byId('dl-hero-container').querySelectorAll('.dl-hero').length, cards };
+};
+
+// what stays during an outage is decided row by row, by the service of each
+scenarios.outageRows = async function () {
+  const ids = (p, box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
+  const look = (p) => ({ hero: ids(p, 'dl-hero-container', '.dl-hero'), queue: ids(p, 'dl-queue-container', '.dl-compact'), upcoming: ids(p, 'dl-upcoming-container', '.dl-upcoming-row') });
+  const start = () => {
+    const p = pageRig(true);
+    p.upd({
+      hero: item('sonarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2'), item('sonarr:q3')],
+      upcoming: [item('radarr:u1'), item('sonarr:u2'), item('sonarr:u3')],
+    });
+    return p;
+  };
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const some = start();
+  some.upd({ ...down, hero: item('sonarr:h1'), queue: [item('sonarr:q2')], upcoming: [item('sonarr:u2')] });
+  const promoted = start();
+  promoted.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const heldHero = pageRig(true);
+  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
+  heldHero.upd({ ...down, hero: null, queue: [] });
+  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const displaced = look(heldHero);
+  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const stays = look(heldHero);
+  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
+  const back = look(heldHero);
+  heldHero.upd({ hero: null, queue: [] });
+  heldHero.upd({ ...down, hero: item('sonarr:q9'), queue: [] });
+  const ended = look(heldHero);
+  const all = start();
+  all.upd({ ...down, hero: null, queue: [] });
+  const nothingElse = look(all);
+  all.upd({ hero: null, queue: [] });
+  return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
+};
+
+// what is kept through an outage is marked as such and counts nothing down
+scenarios.outageDim = async function () {
+  const p = pageRig(true);
+  const eta = (c) => { const e = c.querySelector('[data-v="eta"]'); return e ? e.textContent : ''; };
+  const look = () => [
+    ['dl-hero-container', '.dl-hero'], ['dl-queue-container', '.dl-compact'], ['dl-upcoming-container', '.dl-upcoming-row'],
+  ].flatMap(([box, cls]) => p.byId(box).querySelectorAll(cls)).map((c) => {
+    const hint = c.querySelector('[data-v="search-hint"]');
+    return [c.getAttribute('data-dl-id'), c.classList.contains('is-held'), eta(c), !!hint && !hint.hidden];
+  });
+  const live = {
+    hero: item('radarr:h1', { progress: 79, eta: '~1 min' }),
+    queue: [item('sonarr:q2', { eta: '~2 min' }), item('radarr:q3', { state: 'searching', search_hint: 'next attempt in 3m' })],
+    upcoming: [item('radarr:u1')],
+  };
+  p.upd(live);
+  const up = look();
+  p.upd({ hero: null, queue: [], unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: "Can't reach" });
+  const down = look();
+  p.upd(live);
+  const back = look();
+  p.upd({ ...live, hero: live.queue[0], queue: [], upcoming: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" });
+  return { up, down, back, demoted: look() };
+};
+
+// rows stay in order of state through an outage and the line above counts them
+scenarios.outageOrder = async function () {
+  const p = pageRig(true);
+  const line = () => p.h.root.querySelector('.ph').querySelector('p').textContent;
+  const searching = { state: 'searching', state_label: 'Looking' };
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  p.upd({
+    subtitle: '5 items in progress · 2 coming soon', hero: item('radarr:h1', { title: 'One' }),
+    queue: [item('sonarr:q1'), item('sonarr:q2', searching), item('radarr:q3', { title: 'Three', ...searching }), item('sonarr:q4', searching)],
+    upcoming: [item('radarr:u1'), item('sonarr:u2')],
+  });
+  p.upd({
+    ...down, subtitle: "4 items in progress · 1 coming soon · can't reach Radarr", hero: item('sonarr:q1'),
+    queue: [item('Other.2024', { title: 'Other' }), item('sonarr:q4'), item('sonarr:q2', searching)], upcoming: [item('sonarr:u2')],
+  });
+  const part = { line: line(), rows: p.rows() };
+  p.upd({ ...down, subtitle: "Can't reach Radarr", hero: null, queue: [] });
+  const alone = { line: line(), rows: p.rows() };
+  p.upd({ subtitle: '1 item in progress', hero: item('sonarr:q1'), queue: [] });
+  const keeps = pageRig(true);
+  keeps.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q1', searching)] });
+  keeps.upd({ ...down, hero: item('sonarr:q1', searching), queue: [] });
+  const hero = keeps.byId('dl-hero-container').querySelector('.dl-hero');
+  return {
+    part, alone, back: line(),
+    keeps: { hero: hero.getAttribute('data-dl-id'), dimmed: hero.classList.contains('is-held'), rows: keeps.rows() },
+  };
+};
+
+// a service that answers in part: what the payload lists is drawn from it, once
+scenarios.outagePart = async function () {
+  const p = pageRig(true);
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const ids = (box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
+  p.upd({ hero: item('radarr:h1', { progress: 40 }), queue: [item('sonarr:q2')], upcoming: [item('radarr:u1')] });
+  p.upd({ ...down, hero: item('sonarr:q2', { progress: 60 }), queue: [item('radarr:h1', { progress: 50 }), item('radarr:u1')] });
+  const row = p.byId('dl-queue-list').querySelector('.dl-compact');
+  return { rows: p.rows(), pct: row.querySelector('[data-v="pct"]').textContent, upcoming: ids('dl-upcoming-container', '.dl-upcoming-row') };
+};
+
+// a held download that NZBGet still lists under its own name is shown once
+scenarios.outageNzb = async function () {
+  const p = pageRig(true);
+  p.upd({
+    hero: item('radarr:h1', { title: 'Ember Coast' }),
+    queue: [item('radarr:q1', { title: 'It' }), item('radarr:q2', { title: 'Dune: Part Two' }), item('sonarr:q3', { title: 'Dune' })],
+  });
+  p.upd({
+    hero: item('Ember.Coast.2021', { title: 'Ember Coast' }),
+    queue: [item('Dune.Part.Two.2024', { title: 'dune part two' }), item('Edit.2020', { title: 'Edit' }), item('sonarr:q3', { title: 'It' })],
+    unreachable: ['Radarr'], outage: "Can't reach Radarr",
+  });
+  return { rows: p.rows() };
 };
 
 // an episode list opens, and on close stays shown until it has folded away

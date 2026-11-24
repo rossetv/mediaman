@@ -25,7 +25,7 @@ class _LookupsMixin:
     """
 
     def lookup_by_tmdb_id(self, tmdb_id: int, *, endpoint: str) -> list[ArrLookupResult]:
-        result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []  # type: ignore[attr-defined]
+        result = self._get_list(f"{endpoint}?term=tmdb:{tmdb_id}")  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
     def lookup_by_term(self, term: str, *, endpoint: str) -> list[ArrLookupResult]:
@@ -36,7 +36,7 @@ class _LookupsMixin:
         query parameter into the upstream request. Callers pass the raw
         title — do NOT pre-encode.
         """
-        result = self._get(f"{endpoint}?term={quote(term, safe='')}") or []  # type: ignore[attr-defined]
+        result = self._get_list(f"{endpoint}?term={quote(term, safe='')}")  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
     def get_release(self, item_id: int, *, endpoint: str) -> dict[str, object] | None:

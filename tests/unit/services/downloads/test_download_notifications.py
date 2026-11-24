@@ -245,6 +245,48 @@ class TestSonarrSeriesMatching:
         assert row["notified"] == 1
         assert sent, "Mailgun send should have been invoked"
 
+    def _run_with_season_files(self, conn, monkeypatch, files: dict[int, int]) -> None:
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads._notification_backoff import _backoff_state
+        from mediaman.services.downloads.notifications import check_download_notifications
+
+        _backoff_state.clear()
+        sonarr = MagicMock()
+        sonarr.get_series.return_value = [
+            {
+                "tvdbId": 370524,
+                "title": "Severance",
+                "statistics": {"episodeFileCount": sum(files.values())},
+                "seasons": [
+                    {"seasonNumber": n, "statistics": {"episodeFileCount": count}}
+                    for n, count in files.items()
+                ],
+            }
+        ]
+        monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: sonarr)
+        monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: None)
+        check_download_notifications(conn, secret_key="x" * 64)
+
+    def test_a_season_is_announced_only_once_that_season_has_a_file(self, tmp_path, monkeypatch):
+        conn, sent = self._setup(tmp_path, monkeypatch)
+        for season in (0, 2):
+            insert_download_notification(
+                conn,
+                email=f"s{season}@example.com",
+                title="Severance",
+                media_type="tv",
+                tvdb_id=370524,
+                service="sonarr",
+                season_number=season,
+            )
+
+        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 0})
+        assert sent == []
+
+        self._run_with_season_files(conn, monkeypatch, {0: 0, 1: 10, 2: 1})
+        assert [m["to"] for m in sent] == ["s2@example.com"]
+
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""
         from unittest.mock import MagicMock
@@ -339,7 +381,7 @@ class TestSonarrSeriesMatching:
 
         rows = _claim_pending_notifications(conn)
         assert len(rows) == 1
-        _release_claim(conn, rows[0].id)
+        _release_claim(conn, rows[0])
 
         # Visible to a follow-up claim again.
         rows2 = _claim_pending_notifications(conn)
@@ -1105,3 +1147,315 @@ class TestNoticeWithoutEmailAddress:
             assert call.kwargs["to"] != "alice"
         assert "alice" not in caplog.text
         assert sum("no email address" in r.message for r in caplog.records) == 1
+
+
+class TestOneUnsentNoticePerRequest:
+    """Asking again before the email is sent must not send the email twice."""
+
+    @staticmethod
+    def _record(conn, **fields):
+        from mediaman.services.downloads.notifications import record_download_notification
+
+        row = {
+            "email": "a@example.com",
+            "title": "Dune",
+            "media_type": "movie",
+            "service": "radarr",
+            "tmdb_id": 42,
+            **fields,
+        }
+        record_download_notification(conn, **row)
+
+    @staticmethod
+    def _count(conn) -> int:
+        return conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0]
+
+    def test_a_second_request_for_an_unsent_notice_adds_none(self, conn):
+        self._record(conn)
+        self._record(conn, email="A@Example.com")
+        assert self._count(conn) == 1
+
+    def test_a_second_request_while_the_notice_is_being_checked_adds_none(self, conn):
+        insert_download_notification(conn, email="a@example.com", tmdb_id=42, notified=2)
+        self._record(conn)
+        assert self._count(conn) == 1
+
+    def test_a_series_known_by_either_id_is_the_same_request(self, conn):
+        tv = {"title": "Show", "media_type": "tv", "service": "sonarr"}
+        self._record(conn, **tv, tmdb_id=5, tvdb_id=9)
+        self._record(conn, **tv, tmdb_id=None, tvdb_id=9)
+        assert self._count(conn) == 1
+
+    def test_a_request_after_the_email_was_sent_gets_its_own_notice(self, conn):
+        insert_download_notification(conn, email="a@example.com", tmdb_id=42, notified=1)
+        self._record(conn)
+        assert self._count(conn) == 2
+
+    def test_another_person_title_service_or_season_gets_its_own_notice(self, conn):
+        self._record(conn)
+        self._record(conn, email="b@example.com")
+        self._record(conn, tmdb_id=43)
+        self._record(conn, service="sonarr", media_type="tv")
+        for season in (None, 1, 2):
+            self._record(
+                conn,
+                service="sonarr",
+                media_type="tv",
+                tmdb_id=None,
+                tvdb_id=9,
+                season_number=season,
+            )
+        assert self._count(conn) == 7
+
+    def test_requests_without_any_id_are_never_taken_for_one_another(self, conn):
+        self._record(conn, tmdb_id=None)
+        self._record(conn, tmdb_id=None, title="Heat")
+        assert self._count(conn) == 2
+
+
+class TestClaimFreesStrandedRowsWhileRunning:
+    """A claim held at a crash is freed by a later tick, without a restart."""
+
+    def _stamp(self, conn, *, age_seconds):
+        from datetime import datetime, timedelta
+
+        claimed_at = (datetime.now(UTC) - timedelta(seconds=age_seconds)).isoformat()
+        return insert_download_notification(
+            conn, email="u@x", title="T", tmdb_id=1, notified=2, claimed_at=claimed_at
+        )
+
+    def test_a_claim_older_than_the_grace_is_claimed_again_by_the_next_tick(self, conn):
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            _claim_pending_notifications,
+        )
+
+        row_id = self._stamp(conn, age_seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+
+        assert [r.id for r in _claim_pending_notifications(conn)] == [row_id]
+
+    def test_a_claim_inside_the_grace_is_left_to_the_send_in_flight(self, conn):
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        self._stamp(conn, age_seconds=60)
+
+        assert _claim_pending_notifications(conn) == []
+
+
+class TestClaimIsRestampedBeforeTheSend:
+    def test_a_row_sent_late_in_a_batch_holds_a_fresh_claim_while_the_email_goes_out(
+        self, conn, monkeypatch
+    ):
+        from datetime import datetime, timedelta
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads import notifications
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            ClaimedNotificationRow,
+        )
+
+        stale = (
+            datetime.now(UTC) - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+        ).isoformat()
+        row_id = insert_download_notification(
+            conn, email="u@example.com", title="T", tmdb_id=1, notified=2, claimed_at=stale
+        )
+        monkeypatch.setattr(notifications, "_check_arr_availability", lambda *a, **k: (True, None))
+        monkeypatch.setattr(notifications, "_build_email_payload", lambda *a, **k: ("s", "h"))
+        seen: list[int] = []
+        mailgun = MagicMock()
+        mailgun.send.side_effect = lambda **_: seen.append(
+            notifications.reconcile_stranded_notifications(conn)
+        )
+        row = ClaimedNotificationRow(
+            id=row_id,
+            email="u@example.com",
+            title="T",
+            media_type="movie",
+            tmdb_id=1,
+            tvdb_id=None,
+            service="radarr",
+            claimed_at=stale,
+        )
+
+        notifications._process_one_notification(
+            conn, row, MagicMock(), mailgun, MagicMock(), {}, datetime.now(UTC)
+        )
+
+        assert seen == [0], "a reconcile during the send must not free the row"
+        assert (
+            conn.execute(
+                "SELECT notified FROM download_notifications WHERE id=?", (row_id,)
+            ).fetchone()[0]
+            == 1
+        )
+
+
+class TestAnOverlappingBatchOwnsWhatItClaimedAgain:
+    """A batch over the grace period old has its waiting rows claimed by the next one."""
+
+    def _two_claims(self, conn):
+        from dataclasses import replace
+        from datetime import datetime, timedelta
+
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            _claim_pending_notifications,
+        )
+
+        insert_download_notification(conn, email="u@example.com", title="T", tmdb_id=1)
+        [first] = _claim_pending_notifications(conn)
+        old = (datetime.now(UTC) - timedelta(seconds=2 * STRANDED_CLAIM_GRACE_SECONDS)).isoformat()
+        with conn:
+            conn.execute("UPDATE download_notifications SET claimed_at = ?", (old,))
+        [second] = _claim_pending_notifications(conn)
+        return replace(first, claimed_at=old), second
+
+    def _process(self, conn, row, mailgun, *, radarr_index=None):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads import notifications
+
+        index = {1: {"hasFile": True}} if radarr_index is None else radarr_index
+        notifications._process_one_notification(
+            conn,
+            row,
+            MagicMock(),
+            mailgun,
+            _load_template(),
+            {},
+            datetime.now(UTC),
+            radarr_index=index,
+        )
+
+    def _state(self, conn):
+        return tuple(
+            conn.execute("SELECT notified, claimed_at FROM download_notifications").fetchone()
+        )
+
+    def test_the_email_goes_out_once(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+        mailgun = MagicMock()
+
+        self._process(conn, first, mailgun)
+        assert mailgun.send.call_count == 0
+        assert self._state(conn) == (2, second.claimed_at)
+        self._process(conn, second, mailgun)
+
+        assert mailgun.send.call_count == 1
+        assert self._state(conn)[0] == 1
+
+    def test_the_older_batch_does_not_send_what_the_newer_one_sent(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+        mailgun = MagicMock()
+
+        self._process(conn, second, mailgun)
+        self._process(conn, first, mailgun)
+
+        assert mailgun.send.call_count == 1
+        assert self._state(conn)[0] == 1
+
+    def test_the_older_batch_finding_no_file_leaves_the_newer_claim(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+
+        self._process(conn, first, MagicMock(), radarr_index={1: {"hasFile": False}})
+
+        assert self._state(conn) == (2, second.claimed_at)
+
+    def test_the_older_batch_releasing_all_it_claimed_leaves_the_newer_claim(self, conn):
+        from mediaman.services.downloads._notification_claims import _release_claims_bulk
+
+        first, second = self._two_claims(conn)
+
+        _release_claims_bulk(conn, [first])
+        assert self._state(conn) == (2, second.claimed_at)
+        _release_claims_bulk(conn, [second])
+
+        assert self._state(conn) == (0, None)
+
+    def test_a_failed_send_frees_the_row_for_a_retry(self, conn):
+        from unittest.mock import MagicMock
+
+        from mediaman.services.infra import SafeHTTPError
+
+        _, second = self._two_claims(conn)
+        mailgun = MagicMock()
+        mailgun.send.side_effect = SafeHTTPError(503, "", "mailgun")
+
+        self._process(conn, second, mailgun)
+
+        assert self._state(conn) == (0, None)
+
+
+class TestUnsentNoticeIsAskedPerSeason:
+    def _ask(self, conn, **kw):
+        from mediaman.services.downloads.notifications import has_unsent_notification
+
+        return has_unsent_notification(
+            conn, email="user@example.com", service="sonarr", tmdb_id=5, tvdb_id=9, **kw
+        )
+
+    def test_a_season_notice_does_not_cover_the_whole_show(self, conn):
+        insert_download_notification(
+            conn, media_type="tv", service="sonarr", tmdb_id=5, tvdb_id=9, season_number=2
+        )
+
+        assert self._ask(conn) is False
+        assert self._ask(conn, season_number=2) is True
+        assert self._ask(conn, season_number=3) is False
+
+    def test_a_whole_show_notice_is_found_for_the_whole_show_only(self, conn):
+        insert_download_notification(conn, media_type="tv", service="sonarr", tmdb_id=5, tvdb_id=9)
+
+        assert self._ask(conn) is True
+        assert self._ask(conn, season_number=2) is False
+
+
+class TestAvailableEmailNamesTheSeason:
+    def _payload(self, season_number):
+        from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
+        from mediaman.services.downloads._notification_email import build_email_payload
+
+        row = ClaimedNotificationRow(
+            id=1,
+            email="u@x",
+            title="Severance",
+            media_type="tv",
+            tmdb_id=None,
+            tvdb_id=7,
+            service="sonarr",
+            claimed_at="",
+            season_number=season_number,
+        )
+        return build_email_payload(row, None, {}, _load_template())
+
+    def test_two_seasons_of_one_show_do_not_send_the_same_text(self):
+        subject_two, html_two = self._payload(2)
+        subject_three, html_three = self._payload(3)
+
+        assert "season 2" in subject_two and "season 3" in subject_three
+        assert "Season 2" in html_two and "Season 3" not in html_two
+        assert "Season 3" in html_three
+
+    def test_season_zero_is_called_the_specials(self):
+        subject, html = self._payload(0)
+
+        assert subject == "'Severance' specials are now available to watch"
+        assert "Specials" in html
+        assert "Season 0" not in html
+
+    def test_a_row_with_no_season_reads_as_before(self):
+        subject, html = self._payload(None)
+
+        assert subject == "'Severance' is now available to watch"
+        assert "Season" not in html

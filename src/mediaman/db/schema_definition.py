@@ -112,6 +112,31 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     removed_files TEXT
 );
 
+-- Booked deletions Radarr/Sonarr still has to be told of, by their audit entry.
+CREATE TABLE IF NOT EXISTS pending_unmonitors (
+    audit_id INTEGER PRIMARY KEY,
+    radarr_id INTEGER,
+    sonarr_id INTEGER,
+    tracked_files TEXT,
+    removed_files TEXT
+);
+
+-- Keeps of items Plex stopped listing, given back if Plex lists them again.
+CREATE TABLE IF NOT EXISTS pruned_keeps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    action TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    execute_at TEXT,
+    token_used INTEGER NOT NULL,
+    snoozed_at TEXT,
+    snooze_duration TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     media_item_id TEXT NOT NULL,
@@ -189,7 +214,8 @@ CREATE TABLE IF NOT EXISTS download_notifications (
     notified INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     tvdb_id INTEGER,
-    claimed_at TEXT
+    claimed_at TEXT,
+    season_number INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS recent_downloads (
@@ -213,6 +239,12 @@ CREATE TABLE IF NOT EXISTS arr_search_throttle (
     key TEXT PRIMARY KEY,
     last_triggered_at TEXT NOT NULL,
     search_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS arr_searching_since (
+    key TEXT PRIMARY KEY,
+    since TEXT NOT NULL,
+    last_seen TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
@@ -269,7 +301,8 @@ CREATE TABLE IF NOT EXISTS delete_intents (
     target_id TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    last_error TEXT
+    last_error TEXT,
+    confirmed_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media ON scheduled_actions(media_item_id);
@@ -286,6 +319,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sessions_token_hash ON admin_session
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_username ON admin_sessions(username);
 CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id ON media_items(plex_library_id);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
+CREATE INDEX IF NOT EXISTS idx_media_items_file_path ON media_items(file_path);
 CREATE INDEX IF NOT EXISTS idx_media_items_show_rating_key ON media_items(show_rating_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscribers_email_nocase ON subscribers(email COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_used_download_tokens_expires ON used_download_tokens(expires_at);

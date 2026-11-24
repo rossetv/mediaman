@@ -52,6 +52,7 @@ class PlexSeasonItem(TypedDict):
     episode_count: int
     show_rating_key: str
     is_anime: bool
+    tmdb_id: int | None  # the show's
     tvdb_id: int | None
     tracked_files: list[PlexTrackedFile]
 
@@ -183,6 +184,7 @@ def _season_to_item(show: Any, season: Any) -> PlexSeasonItem:
         "episode_count": len(episodes),
         "show_rating_key": str(show.ratingKey),
         "is_anime": _is_anime_show(show),
+        "tmdb_id": _external_id(show, "tmdb", _LEGACY_TMDB_PREFIX),
         "tvdb_id": _external_id(show, "tvdb", _LEGACY_TVDB_PREFIX),
         "tracked_files": _part_files(ep.media for ep in episodes),
     }

@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
-from mediaman.services.arr.base import SeasonsNotListed
+from mediaman.services.arr.base import ArrClient, ArrUpstreamError, SeasonsNotListed
+from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_subscriber
 
@@ -465,6 +466,70 @@ class TestEnrichRatingsHelpers:
     "a bad fetch must not abort the fan-out" degradation, and the
     "drop incomplete, still keep the completed misses" timeout path."""
 
+    @pytest.fixture(autouse=True)
+    def _no_pause(self, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+
+    @staticmethod
+    def _done(tmdb_id, data):
+        from concurrent.futures import Future
+
+        fut: Future = Future()
+        fut.set_result(((tmdb_id, "movie"), [{"tmdb_id": tmdb_id}], data))
+        return fut
+
+    @staticmethod
+    def _pending(tmdb_id):
+        from concurrent.futures import Future
+
+        return Future()
+
+    @staticmethod
+    def _drain(futures, *, overrun=False):
+        from mediaman.web.routes.search import _enrichment
+
+        def fake_as_completed(fs, timeout=None):
+            yield from (f for f in fs if f.done())
+            if overrun:
+                raise TimeoutError
+
+        with patch.object(_enrichment, "as_completed", fake_as_completed):
+            _enrichment._drain_futures(futures, now_iso="2026-05-14T00:00:00")
+        return _enrichment._paused_until
+
+    def test_one_bad_title_among_answers_does_not_pause(self):
+        futs = [self._done(1, {"imdb": "8.0"}), self._done(2, None), self._done(3, None)]
+        assert self._drain(futs) == 0.0
+
+    def test_every_lookup_raising_pauses(self):
+        from concurrent.futures import Future
+
+        from mediaman.services.infra import SafeHTTPError
+
+        futs: list[Future] = []
+        for _ in range(3):
+            fut: Future = Future()
+            fut.set_exception(SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"))
+            futs.append(fut)
+
+        assert self._drain(futs) > 0.0
+
+    def test_a_budget_overrun_with_some_answers_does_not_pause(self):
+        futs = [self._done(1, {"imdb": "8.0"}), self._pending(2), self._pending(3)]
+        assert self._drain(futs, overrun=True) == 0.0
+
+    def test_a_budget_overrun_with_no_answer_pauses(self):
+        assert self._drain([self._pending(i) for i in range(3)], overrun=True) > 0.0
+
+    def test_fewer_than_three_misses_without_an_answer_do_not_pause(self):
+        assert self._drain([self._done(1, None), self._done(2, None)]) == 0.0
+        assert self._drain([self._pending(1)], overrun=True) == 0.0
+
+    def test_every_lookup_giving_no_answer_pauses(self):
+        assert self._drain([self._done(i, None) for i in range(3)]) > 0.0
+
     def _row(self, tmdb_id, media_type, *, fetched_at, rt="80%", imdb="7.5"):
         from mediaman.web.repository.search import RatingsCacheRow
 
@@ -491,18 +556,19 @@ class TestEnrichRatingsHelpers:
         assert item["rt_rating"] == "80%"
         assert item["imdb_rating"] == "7.5"
 
-    def test_partition_treats_stale_cache_row_as_miss(self):
+    def test_partition_queues_a_stale_row_as_a_miss_and_still_shows_its_ratings(self):
         from mediaman.web.routes.search._enrichment import _partition_cached
 
         item = {"tmdb_id": 2, "media_type": "tv", "title": "Arcane"}
         by_key = {(2, "tv"): [item]}
-        # Row predates the cutoff — must be treated as a miss, not applied.
+        # Row predates the cutoff — a miss to ask OMDb about again, yet what it holds shows.
         rows = [self._row(2, "tv", fetched_at="2026-01-01T00:00:00")]
 
         misses = _partition_cached(by_key, rows, cutoff="2026-04-01T00:00:00")
 
         assert misses == [((2, "tv"), [item])]
-        assert "rt_rating" not in item
+        assert item["rt_rating"] == "80%"
+        assert item["imdb_rating"] == "7.5"
 
     def test_partition_treats_absent_row_as_miss(self):
         from mediaman.web.routes.search._enrichment import _partition_cached
@@ -520,7 +586,7 @@ class TestEnrichRatingsHelpers:
 
         group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune", "year": 2021}]
         with patch.object(
-            _enrichment, "fetch_ratings", return_value={"rt": "83%", "imdb": "8.0"}
+            _enrichment, "lookup_ratings", return_value={"rt": "83%", "imdb": "8.0"}
         ) as mock_fetch:
             key, returned_group, data = _fetch_ratings_for_group(
                 ((1, "movie"), group), omdb_key="k"
@@ -532,7 +598,7 @@ class TestEnrichRatingsHelpers:
         # The OMDb key is threaded through explicitly, not closed over.
         assert mock_fetch.call_args.kwargs["omdb_key"] == "k"
 
-    def test_fetch_for_group_degrades_to_empty_on_failure(self):
+    def test_fetch_for_group_degrades_to_no_answer_on_failure(self):
         from mediaman.services.infra import SafeHTTPError
         from mediaman.web.routes.search import _enrichment
         from mediaman.web.routes.search._enrichment import _fetch_ratings_for_group
@@ -540,16 +606,94 @@ class TestEnrichRatingsHelpers:
         group = [{"tmdb_id": 9, "media_type": "movie", "title": "Boom", "year": 2000}]
         with patch.object(
             _enrichment,
-            "fetch_ratings",
+            "lookup_ratings",
             side_effect=SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"),
         ):
             key, returned_group, data = _fetch_ratings_for_group(
                 ((9, "movie"), group), omdb_key="k"
             )
 
-        # A single bad lookup must not raise — it degrades to empty data.
+        # A single bad lookup must not raise; it is no answer, which is not "no ratings".
         assert key == (9, "movie")
-        assert data == {}
+        assert data is None
+
+    def _stale_search(self, conn, monkeypatch, lookup):
+        from datetime import timedelta
+        from unittest.mock import MagicMock
+
+        from mediaman.core.time import now_utc
+        from mediaman.web.routes.search import _enrichment
+
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+        monkeypatch.setattr(_enrichment, "get_db", lambda: conn)
+        monkeypatch.setattr(_enrichment, "get_omdb_key", lambda *_a: "k")
+        monkeypatch.setattr(_enrichment, "lookup_ratings", lookup)
+        conn.executemany(
+            "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+            " fetched_at) VALUES (?, 'movie', '7.5', '80%', '74', ?)",
+            [(i, (now_utc() - timedelta(days=90)).isoformat()) for i in (1, 2, 3)],
+        )
+        conn.commit()
+        request = MagicMock()
+        request.app.state.config.secret_key = "s"
+
+        def search():
+            items = [
+                {"tmdb_id": i, "media_type": "movie", "title": "Dune", "year": 2021}
+                for i in (1, 2, 3)
+            ]
+            _enrichment._stamp_omdb_ratings(items, request)
+            return items[0]
+
+        return search
+
+    def test_search_shows_a_stale_row_when_omdb_gives_no_answer(self, conn, monkeypatch):
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: None)
+
+        item = search()
+
+        assert item["rt_rating"] == "80%"
+        assert item["imdb_rating"] == "7.5"
+
+    def test_search_shows_a_stale_row_when_there_is_no_omdb_key(self, conn, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: {"imdb": "1.0"})
+        monkeypatch.setattr(_enrichment, "get_omdb_key", lambda *_a: None)
+
+        assert search()["imdb_rating"] == "7.5"
+
+    def test_after_no_answer_a_search_does_not_ask_omdb_again_for_a_while(self, conn, monkeypatch):
+        asked = []
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: asked.append(1) or None)
+
+        search()
+        second = search()
+
+        assert len(asked) == 3
+        assert second["imdb_rating"] == "7.5"
+
+    def test_the_pause_after_no_answer_ends(self, conn, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        asked = []
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: asked.append(1) or None)
+        search()
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+        search()
+
+        assert len(asked) == 6
+
+    def test_drain_futures_writes_nothing_for_a_lookup_that_got_no_answer(self):
+        from concurrent.futures import Future
+
+        from mediaman.web.routes.search._enrichment import _drain_futures
+
+        group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune"}]
+        fut: Future = Future()
+        fut.set_result(((1, "movie"), group, None))
+
+        assert _drain_futures([fut], now_iso="2026-05-14T00:00:00") == []
 
     def test_drain_futures_applies_results_and_returns_writes(self):
         from concurrent.futures import Future
@@ -690,6 +834,39 @@ class TestDetailEndpoint:
         assert data["sonarr_tracked"] is True
         by_num = {s["season_number"]: s["in_library"] for s in data["seasons"]}
         assert by_num == {1: True, 2: False}
+
+    @pytest.mark.parametrize(("kind", "service"), [("movie", "radarr"), ("tv", "sonarr")])
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_detail_opens_when_the_arr_answers_with_the_wrong_shape(
+        self, _ratings, authed_client, fake_http, fake_response, kind, service
+    ):
+        payload = _tmdb_movie_payload() if kind == "movie" else _tmdb_tv_payload()
+        fake_http.default(fake_response(json_data=payload))
+        arr = ArrClient(RADARR_SPEC if kind == "movie" else SONARR_SPEC, "http://arr", "k")
+        with patch(f"mediaman.web.routes.search.detail.build_{service}_from_db", return_value=arr):
+            resp = authed_client.get(f"/api/search/detail/{kind}/1")
+        assert resp.status_code == 200
+        assert resp.json()["download_state"] is None
+
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_tv_detail_knows_a_held_show_when_the_lookup_answers_with_the_wrong_shape(
+        self, _ratings, authed_client, fake_http, fake_response
+    ):
+        fake_http.default(fake_response(json_data=_tmdb_tv_payload()))
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = []
+        sonarr.get_series.return_value = [
+            {
+                "tmdbId": 12345,
+                "tvdbId": 9,
+                "seasons": [{"seasonNumber": 1, "statistics": {"episodeFileCount": 9}}],
+            }
+        ]
+        sonarr.lookup_series_by_tmdb.side_effect = ArrUpstreamError("not a list")
+        with patch("mediaman.web.routes.search.detail.build_sonarr_from_db", return_value=sonarr):
+            data = authed_client.get("/api/search/detail/tv/12345").json()
+        assert data["sonarr_tracked"] is True
+        assert [s["in_library"] for s in data["seasons"]] == [True, False]
 
     def test_rejects_invalid_media_type(self, authed_client):
         resp = authed_client.get("/api/search/detail/foo/1")

@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
+from mediaman.bootstrap import scan_jobs
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION
 from mediaman.core.time import now_utc
+from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.services.infra import SafeHTTPError
-from mediaman.web.repository.delete_intents import build_verify_gone
+from mediaman.web.repository.delete_intents import build_verify_gone, reconcile_before_scan
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -18,7 +22,9 @@ from mediaman.web.routes.library_api import (
     _record_delete_intent,
     reconcile_pending_delete_intents,
 )
+from mediaman.web.routes.library_api import delete as delete_route
 from mediaman.web.routes.library_api import router as library_api_router
+from mediaman.web.routes.scan import router as scan_router
 from tests.helpers.factories import insert_scheduled_action
 from tests.helpers.library_index import library_movies
 from tests.unit.web.test_library_mutations import (
@@ -298,6 +304,144 @@ class TestReconcilePendingDeleteIntents:
         assert (
             reconcile_pending_delete_intents(conn, started_before="9999-01-01T00:00:00+00:00") == 1
         )
+
+    def test_a_delete_whose_cleanup_failed_is_booked_though_plex_drops_the_item_first(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+        with (
+            patch(RADARR, return_value=_radarr()),
+            patch(
+                "mediaman.web.routes.library_api.delete.finalise_delete_in_tx",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(sqlite3.OperationalError),
+        ):
+            client.post("/api/media/m1/delete")
+        library = conn.execute("SELECT plex_library_id FROM media_items").fetchone()[0]
+        listed = {f"other-{i}" for i in range(5)}
+
+        remove_orphans(conn, listed, {library})
+        reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True)
+
+        assert "deleted" in _audit_actions(conn, "m1")
+        assert conn.execute("SELECT title FROM deleted_media").fetchone()
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
+
+    def test_a_delete_whose_intent_cannot_be_completed_is_booked_once(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        conn.execute(
+            "CREATE TRIGGER busy BEFORE UPDATE OF completed_at ON delete_intents "
+            "BEGIN SELECT RAISE(ABORT, 'busy'); END"
+        )
+        with patch(RADARR, return_value=_radarr()), pytest.raises(sqlite3.IntegrityError):
+            client.post("/api/media/m1/delete")
+        conn.execute("DROP TRIGGER busy")
+        # Plex lists the title again before the intent is closed.
+        conn.execute("DELETE FROM media_items WHERE id = 'm1'")
+        _insert_movie(conn)
+
+        reconcile_pending_delete_intents(conn)
+
+        assert _audit_actions(conn, "m1").count("deleted") == 1
+
+    def test_a_delete_the_reconcile_books_first_is_not_booked_again(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        _insert_movie(conn)
+        client = authed_client(_app(app_factory, conn), conn)
+        real = delete_route._confirm_delete_intent
+
+        def confirm_then_reconcile(conn, intent_id):
+            real(conn, intent_id)
+            reconcile_pending_delete_intents(conn)
+
+        monkeypatch.setattr(delete_route, "_confirm_delete_intent", confirm_then_reconcile)
+        with patch(RADARR, return_value=_radarr()):
+            assert client.post("/api/media/m1/delete").status_code == 200
+
+        assert _audit_actions(conn, "m1").count("deleted") == 1
+
+    def _delete_season_with_failing_cleanup(self, app_factory, authed_client, conn):
+        client = authed_client(_app(app_factory, conn), conn)
+        with (
+            patch(SONARR, return_value=_sonarr()),
+            patch(
+                "mediaman.web.routes.library_api.delete.finalise_delete_in_tx",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(sqlite3.OperationalError),
+        ):
+            client.post("/api/media/s1/delete")
+
+    def test_a_season_whose_cleanup_failed_is_booked_though_sonarr_keeps_the_show(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        self._delete_season_with_failing_cleanup(app_factory, authed_client, conn)
+
+        for _ in range(2):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: False)
+
+        booked = conn.execute(
+            "SELECT space_reclaimed_bytes, tvdb_id, season_number FROM audit_log a "
+            "JOIN deleted_media d ON d.audit_id = a.id WHERE media_item_id = 's1'"
+        ).fetchall()
+        assert [tuple(r) for r in booked] == [(2_000_000, 81189, 1)]
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
+
+    def test_a_new_copy_since_the_confirmed_delete_stays_with_its_keep_and_no_schedule(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        _insert_tv_season(conn)
+        self._delete_season_with_failing_cleanup(app_factory, authed_client, conn)
+        new = tmp_path / "S01E01.mkv"
+        new.write_bytes(b"x")
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(new), "size": 1}]),),
+        )
+        insert_scheduled_action(conn, media_item_id="s1", action=ACTION_SCHEDULED_DELETION)
+        insert_scheduled_action(
+            conn, media_item_id="s1", action=ACTION_PROTECTED_FOREVER, token="kept"
+        )
+        conn.commit()
+
+        for _ in range(2):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: False)
+
+        assert _audit_actions(conn, "s1") == ["deleted"]
+        assert conn.execute("SELECT 1 FROM media_items").fetchone()
+        actions = [r[0] for r in conn.execute("SELECT action FROM scheduled_actions")]
+        assert actions == [ACTION_PROTECTED_FOREVER]
+
+    def test_a_confirmation_that_cannot_be_written_does_not_stop_the_delete(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        conn.execute(
+            "CREATE TRIGGER no_confirm BEFORE UPDATE OF confirmed_at ON delete_intents "
+            "BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        with patch(SONARR, return_value=_sonarr()):
+            assert client.post("/api/media/s1/delete").status_code == 200
+
+        assert "deleted" in _audit_actions(conn, "s1")
+
+    def test_an_item_whose_delete_was_closed_goes_when_plex_drops_it(self, conn):
+        _insert_movie(conn)
+        _complete_delete_intent(conn, _record_delete_intent(conn, "m1", "radarr", "42"))
+        library = conn.execute("SELECT plex_library_id FROM media_items").fetchone()[0]
+
+        remove_orphans(conn, {f"other-{i}" for i in range(5)}, {library})
+
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
 
     def test_reconcile_is_idempotent(self, conn):
         """Running reconcile twice is safe; second run resolves nothing new."""
@@ -615,6 +759,84 @@ def _progress_keys(conn) -> list[str]:
     return [r["rating_key"] for r in conn.execute("SELECT rating_key FROM watch_progress")]
 
 
+class TestReconcileBeforeAScan:
+    """Every scan closes the intents left open since the app started, none in flight."""
+
+    def _leave_open(self, conn, *, hours):
+        intent_id = _record_delete_intent(conn, "gone", "radarr", "42")
+        conn.execute(
+            "UPDATE delete_intents SET started_at = ? WHERE id = ?",
+            ((now_utc() - timedelta(hours=hours)).isoformat(), intent_id),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _open(conn):
+        return conn.execute(
+            "SELECT COUNT(*) FROM delete_intents WHERE completed_at IS NULL"
+        ).fetchone()[0]
+
+    def test_a_scheduled_scan_starts_with_it(self, conn, monkeypatch):
+        self._leave_open(conn, hours=2)
+        open_at_scan = []
+        monkeypatch.setattr("mediaman.db.get_db", lambda: conn)
+        monkeypatch.setattr(
+            "mediaman.scanner.runner.run_scan_from_db",
+            lambda c, *a, **k: open_at_scan.append(self._open(c)),
+        )
+
+        scan_jobs._run_scheduled_scan(None, "0123456789abcdef" * 4)
+
+        assert open_at_scan == [0]
+
+    def test_a_manual_scan_starts_with_it(
+        self, app_factory, authed_client, conn, db_path, monkeypatch
+    ):
+        self._leave_open(conn, hours=2)
+        open_at_scan, scanned = [], threading.Event()
+
+        def scan(c, *args, **kwargs):
+            open_at_scan.append(self._open(c))
+            scanned.set()
+            return {}
+
+        monkeypatch.setattr("mediaman.scanner.runner.run_scan_from_db", scan)
+        app = app_factory(scan_router, conn=conn, state_extras={"db_path": str(db_path)})
+
+        assert authed_client(app, conn).post("/api/scan/trigger").status_code == 200
+
+        assert scanned.wait(timeout=5)
+        assert open_at_scan == [0]
+
+    def test_a_delete_still_in_flight_is_left_to_its_request(self, conn):
+        self._leave_open(conn, hours=0)
+
+        reconcile_before_scan(conn, "0123456789abcdef" * 4)
+
+        assert self._open(conn) == 1
+
+    def test_a_failure_does_not_stop_the_scan(self, conn):
+        self._leave_open(conn, hours=2)
+        conn.execute("DROP TABLE delete_intents")
+
+        reconcile_before_scan(conn, "0123456789abcdef" * 4)
+
+        assert not conn.in_transaction
+
+    @pytest.mark.parametrize("gone", [True, False])
+    def test_two_reconciles_at_once_close_an_intent_once(self, conn, gone):
+        _insert_movie(conn)
+        _record_delete_intent(conn, "m1", "radarr", "42")
+
+        def verify(_intent):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: gone)
+            return gone
+
+        reconcile_pending_delete_intents(conn, verify_gone=verify)
+
+        assert _audit_actions(conn, "m1") == ["deleted" if gone else "delete_failed"]
+
+
 def test_reconciling_a_verified_gone_season_drops_its_episodes_progress(conn):
     _insert_tv_season(conn, "s1", sonarr_id=None)
     _insert_tv_season(conn, "s2", sonarr_id=None, season=2)
@@ -652,7 +874,12 @@ def test_finishing_a_season_delete_drops_its_episodes_progress(conn):
     )
 
     finalise_delete_in_tx(
-        conn, snapshot, media_id="s1", audit_detail="Deleted: The Show", actor="admin"
+        conn,
+        snapshot,
+        media_id="s1",
+        intent_id=_record_delete_intent(conn, "s1", "sonarr", "202"),
+        audit_detail="Deleted: The Show",
+        actor="admin",
     )
 
     assert _progress_keys(conn) == ["other-ep"]

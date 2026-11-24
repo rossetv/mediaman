@@ -108,12 +108,16 @@ def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     return True, "Not yet released"
 
 
-def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> tuple[bool, str]:
+def classify_series_upcoming(
+    series: _ArrLike, episodes: Sequence[_ArrLike], *, none_aired: bool = False
+) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
 
-    Returns (is_upcoming, release_label), label "" when not upcoming. Episodes with a
-    missing or unparseable airDateUtc go into an unknown-airdate bucket and are counted
-    at DEBUG rather than silently dropped.
+    *episodes* are those Sonarr is set to fetch; *none_aired* says it lists episodes of the
+    series and none of a monitored season has aired, which makes it upcoming with no date
+    too, unless it has ended. Returns (is_upcoming, release_label), label "" when not
+    upcoming. Episodes with a missing or unparseable airDateUtc go into an unknown-airdate
+    bucket and are counted at DEBUG rather than silently dropped.
     """
     if not series.get("monitored"):
         return False, ""
@@ -161,16 +165,31 @@ def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> 
     if future_airs and not has_aired:
         return True, f"Premieres {_format_release_date(min(future_airs))}"
 
+    if none_aired and not has_aired and status != "ended":
+        return True, "Not yet aired"
+
     return False, ""
+
+
+_NZBGET_POST_PROCESSING = (
+    "PP_",
+    "LOADING_PARS",
+    "VERIFYING",
+    "REPAIRING",
+    "RENAMING",
+    "UNPACKING",
+    "MOVING",
+    "EXECUTING_SCRIPT",
+)
 
 
 def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     if not has_nzbget_match or nzbget_status is None:
         return "searching"
     upper = nzbget_status.upper()
-    if "UNPACKING" in upper or "PP_" in upper:
+    if any(stage in upper for stage in _NZBGET_POST_PROCESSING):
         return "almost_ready"
-    if "DOWNLOADING" in upper or "PAUSED" in upper:
+    if any(stage in upper for stage in ("DOWNLOADING", "PAUSED", "FETCHING")):
         return "downloading"
     return "searching"
 
@@ -203,7 +222,8 @@ def map_episode_state(ep: _ArrLike) -> str:
 
     NZBGet transfers one NZB at a time, so paused, queued or delayed items with partial
     or zero progress are labelled queued; calling them downloading would overstate
-    progress.
+    progress. One that failed, that no download client holds, or that a warning keeps from
+    starting is bringing nothing, whatever the sizes it reports.
     """
     progress_raw = ep.get("progress", 0)
     progress = progress_raw if isinstance(progress_raw, int) else 0
@@ -214,10 +234,13 @@ def map_episode_state(ep: _ArrLike) -> str:
     status_raw = ep.get("status") or ""
     status = status_raw.lower() if isinstance(status_raw, str) else ""
 
-    if progress == 100 or (sizeleft == 0 and size > 0):
+    if status in ("failed", "downloadclientunavailable"):
+        return "searching"
+    # A completed entry may report no size at all.
+    if status == "completed" or progress == 100 or (sizeleft == 0 and size > 0):
         return "ready"
     if status == "downloading":
         return "downloading"
-    if status in ("paused", "queued", "delay", "warning") or progress > 0:
+    if status in ("paused", "queued", "delay") or progress > 0:
         return "queued"
     return "searching"

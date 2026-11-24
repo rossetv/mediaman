@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from mediaman.core.time import now_iso
-from mediaman.scanner.repository import fetch_protected_media_ids
+from mediaman.scanner.repository import book_removed_files, fetch_protected_media_ids
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -264,13 +264,27 @@ def delete_protections(conn: sqlite3.Connection, media_item_id: str) -> int:
     """Delete every keep (forever or snoozed) on the item and return how many went.
 
     Scheduled-deletion rows, and any row the deletion pass is working on, are left alone.
+    What a keep's row records as removed is booked first.
     """
-    return conn.execute(
-        "DELETE FROM scheduled_actions "
-        "WHERE media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
-        "AND delete_status IS NOT 'deleting'",
-        (media_item_id,),
+    where = (
+        "media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
+        "AND delete_status IS NOT 'deleting'"
+    )
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    _book_removed(conn, where, (media_item_id,))
+    return conn.execute(  # nosec B608
+        f"DELETE FROM scheduled_actions WHERE {where}", (media_item_id,)
     ).rowcount
+
+
+def _book_removed(conn: sqlite3.Connection, where: str, params: Sequence[object]) -> None:
+    """Book what the matching rows record as removed; *where* is a fixed condition."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT id FROM scheduled_actions WHERE {where} AND removed_files IS NOT NULL", params
+    ).fetchall()
+    if rows:
+        book_removed_files(conn, [row["id"] for row in rows])
 
 
 def upsert_kept_show(
@@ -302,7 +316,8 @@ def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: s
 
     Returns True when one of them is being removed by the deletion pass right
     now. That row is left in place: the pass, or crash recovery, needs it to
-    book a removal that may already have taken the files.
+    book a removal that may already have taken the files. What a deleted row
+    records as removed is booked first.
     """
     where = (
         "action = 'scheduled_deletion' AND token_used = 0 "
@@ -313,6 +328,7 @@ def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: s
         f"SELECT 1 FROM scheduled_actions WHERE {where} AND delete_status = 'deleting' LIMIT 1",
         (show_rating_key,),
     ).fetchone()
+    _book_removed(conn, where, (show_rating_key,))
     conn.execute(  # nosec B608
         f"DELETE FROM scheduled_actions WHERE {where} "
         "AND (delete_status IS NULL OR delete_status != 'deleting')",
@@ -331,7 +347,7 @@ def set_protected_state(
     """Apply batched updates, inserts and deletes to scheduled_actions for season keeps.
 
     ``to_delete`` ids are the older rows a keep replaces; one the deletion pass is
-    working on is never deleted.
+    working on is never deleted. What the rows record as removed is booked first.
 
     ``to_update`` rows: (action, execute_at, snoozed_at, snooze_duration, id)
     ``to_insert`` rows: (media_item_id, action, scheduled_at, execute_at,
@@ -342,6 +358,7 @@ def set_protected_state(
     stays kept.
     """
     deletion_running = False
+    book_removed_files(conn, [row[4] for row in to_update] + list(to_delete))
     if to_update:
         ids = [row[4] for row in to_update]
         # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text

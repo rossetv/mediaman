@@ -8,6 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,7 @@ from mediaman.db import set_connection
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
+from mediaman.web.routes.download import confirm
 from mediaman.web.routes.recommended.api import (
     reset_download_action_limiter,
     reset_share_token_limiter,
@@ -418,3 +420,47 @@ class TestDownloadRecommendationAsksTheArrFirst:
         resp = self._post(conn, "tv", 136315, sonarr)
 
         assert resp.status_code == 502
+
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    def test_an_add_with_no_answer_that_landed_is_a_success_and_mails_the_person(self, conn, kind):
+        arr = MagicMock()
+        arr.get_movie_by_tmdb.side_effect = [None, {"id": 4, "monitored": True}]
+        arr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        arr.get_series.side_effect = [[], [{"tvdbId": 999, "monitored": True}]]
+        arr.add_movie.side_effect = arr.add_series.side_effect = SafeHTTPError(0, "timeout", "a/b")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        set_user_email(conn, "admin", "admin@example.com")
+
+        resp = self._post(conn, kind, 136315, arr)
+
+        assert resp.status_code == 200
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is not None
+        note = conn.execute("SELECT email FROM download_notifications").fetchone()
+        assert note["email"] == "admin@example.com"
+
+    def test_an_add_with_no_answer_that_did_not_land_is_a_failure(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.add_movie.side_effect = SafeHTTPError(0, "timeout", "a/b")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+
+    def test_a_refused_connection_is_a_failure_answer_not_a_crash(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = requests.ConnectionError("refused")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+
+    def test_the_emailed_page_forgets_its_arr_list_when_a_pick_is_added(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        confirm._RADARR_CACHE["key"] = (0.0, {"radarr_movies": {}})
+
+        self._post(conn, "movie", 27205, radarr)
+
+        assert confirm._RADARR_CACHE == {}

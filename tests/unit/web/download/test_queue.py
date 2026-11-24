@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.services.arr.fetcher import FetchResult
 from mediaman.services.arr.search_trigger import reset_search_triggers
 from mediaman.services.downloads.download_queue import (
     _reset_previous_queue,
@@ -49,7 +50,8 @@ class TestBuildDownloadsResponseBuckets:
         conn.execute.return_value = cursor
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue", lambda c, _sk: []
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db", lambda c, _sk: None
@@ -88,8 +90,8 @@ class TestBuildDownloadsResponseBuckets:
             "release_label": "Releases 14 Jun 2099",
         }
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [upcoming_item],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[upcoming_item]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db", lambda c, _sk: None
@@ -151,8 +153,8 @@ class TestBuildDownloadsResponseBuckets:
             "release_label": "Not yet released",
         }
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [released, upcoming],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[released, upcoming]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db", lambda c, _sk: None
@@ -254,8 +256,8 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [arr_series],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[arr_series]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",
@@ -341,8 +343,8 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [arr_movie, arr_series],  # Radarr iterated first
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[arr_movie, arr_series]),  # Radarr iterated first
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",
@@ -380,7 +382,8 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue", lambda c, _sk: []
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",
@@ -446,8 +449,8 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [arr_series],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[arr_series]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",
@@ -499,7 +502,8 @@ class TestDownloadsSubtitle:
     def test_response_includes_subtitle(self, monkeypatch):
         conn = _fake_conn_empty_recent()
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue", lambda c, _sk: []
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db", lambda c, _sk: None

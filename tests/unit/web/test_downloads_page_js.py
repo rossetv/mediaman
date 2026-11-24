@@ -71,6 +71,94 @@ def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
     }
 
 
+def test_an_outage_keeps_live_sections_and_never_reads_as_all_caught_up() -> None:
+    out = _run("outage")
+    assert out["held"] == {"hero": 1, "queue": 1, "upcoming": 1, "cards": []}
+    assert out["back"] == {"hero": 0, "queue": 0, "upcoming": 0}
+    # a download of a service that does answer is really over
+    assert out["finishedElsewhere"] == 0
+    assert [len(c) for c in out["cards"]] == [1, 1, 1]
+    assert out["cards"][0] == out["cards"][2] == ["All caught up"]
+    assert out["cards"][1] != ["All caught up"]
+
+
+def test_an_outage_holds_only_the_rows_of_the_service_that_is_down() -> None:
+    out = _run("outageRows")
+    # the rest of the list goes on as usual
+    assert out["some"] == {
+        "hero": ["sonarr:h1"],
+        "queue": ["radarr:q1", "sonarr:q2"],
+        "upcoming": ["radarr:u1", "sonarr:u2"],
+    }
+    # a row that became the hero is not shown twice
+    assert out["promoted"] == {
+        "hero": ["sonarr:q2"],
+        "queue": ["radarr:q1"],
+        "upcoming": ["radarr:u1"],
+    }
+    # nothing of a service that answers is kept
+    assert out["nothingElse"] == {"hero": [], "queue": ["radarr:q1"], "upcoming": ["radarr:u1"]}
+    assert out["over"] == {"hero": [], "queue": [], "upcoming": []}
+
+
+def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> None:
+    out = _run("outageRows")
+    assert out["displaced"] == {"hero": ["sonarr:q2"], "queue": ["radarr:h1"], "upcoming": []}
+    assert out["stays"] == out["displaced"]
+    assert out["back"] == {"hero": ["radarr:h1"], "queue": ["sonarr:q2"], "upcoming": []}
+    # one that was over before the outage does not come back
+    assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
+
+
+def test_what_an_outage_keeps_is_dimmed_and_counts_nothing_down() -> None:
+    out = _run("outageDim")
+    # id, dimmed, ETA, search countdown shown
+    live = [
+        ["radarr:h1", False, "~1 min", False],
+        ["sonarr:q2", False, "~2 min", False],
+        ["radarr:q3", False, "", True],
+        ["radarr:u1", False, "", False],
+    ]
+    assert out["up"] == live
+    assert out["down"] == [[row[0], True, "", False] for row in live]
+    assert out["back"] == live
+    # a hero whose service went down is dimmed as a row, the one that took over is not
+    assert out["demoted"][0] == ["sonarr:q2", False, "~2 min", False]
+    assert ["radarr:h1", True, "", False] in out["demoted"]
+
+
+def test_through_an_outage_rows_stay_in_order_and_the_line_above_counts_them() -> None:
+    out = _run("outageOrder")
+    # downloading first, the held hero ahead of the new ones; then searching as it was
+    assert out["part"] == {
+        "line": "6 items in progress · 2 coming soon · can't reach Radarr",
+        "rows": ["radarr:h1", "sonarr:q4", "Other.2024", "sonarr:q2", "radarr:q3"],
+    }
+    assert out["alone"] == {
+        "line": "2 items in progress · 1 coming soon · can't reach Radarr",
+        "rows": ["radarr:h1", "radarr:q3"],
+    }
+    assert out["back"] == "1 item in progress"
+    # a title still searched for does not take the place of a held download
+    assert out["keeps"] == {"hero": "radarr:h1", "dimmed": True, "rows": ["sonarr:q1"]}
+
+
+def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
+    out = _run("outagePart")
+    assert out["rows"] == ["radarr:h1", "radarr:u1"]
+    assert out["pct"] == "50%"
+    assert out["upcoming"] == []
+
+
+def test_a_held_download_that_nzbget_still_lists_is_shown_once() -> None:
+    assert _run("outageNzb")["rows"] == [
+        "radarr:q1",
+        "sonarr:q3",
+        "Dune.Part.Two.2024",
+        "Edit.2020",
+    ]
+
+
 def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
     out = _run("pillSize")
     assert "dl-state-pill--xs" in out["before"]
@@ -271,3 +359,15 @@ def test_a_second_reauth_cancels_the_first() -> None:
 def test_the_season_picker_is_hidden_unless_a_show_has_several_stuck_seasons() -> None:
     out = _run("abandonList")
     assert out == {"movie": True, "picker": False, "movieAgain": True}
+
+
+def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> None:
+    out = _run("abandonSeasons")
+    assert out["rows"] == [
+        ["Specials", "4 missing episodes", False, "false"],
+        ["Season 1", "1 missing episode", True, "true"],
+        ["Season 2", "6 missing episodes", True, "true"],
+        ["Season 3", "No missing episodes", False, "false"],
+        ["Season 4", "Not aired yet", False, "false"],
+    ]
+    assert out["label"] == "Abandon 2 seasons"

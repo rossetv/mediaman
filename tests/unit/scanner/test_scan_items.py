@@ -62,6 +62,7 @@ class _StubEngine:
     def __init__(self, conn, *, dry_run: bool = True):
         self._conn = conn
         self._arr_cache = ArrDateCache()
+        self._listed_keys = set()
         self._dry_run = dry_run  # dry-run avoids needing a real secret_key / HMAC
         self._grace_days = 14
         self._secret_key = "0123456789abcdef" * 4
@@ -288,3 +289,27 @@ class TestBatchingProtectionParity:
         for mid in media_ids:
             assert (mid in protected) == repository.is_protected(conn, mid)
             assert (mid in scheduled) == repository.is_already_scheduled(conn, mid)
+
+
+class TestAnItemIsWrittenWholeOrNotAtAll:
+    def test_a_deletion_whose_audit_row_fails_is_not_left_scheduled(self, conn):
+        conn.execute(
+            "CREATE TRIGGER full_disk BEFORE INSERT ON audit_log WHEN NEW.media_item_id = 'bad' "
+            "BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+        summary = {"scanned": 0, "skipped": 0, "scheduled": 0, "errors": 0}
+
+        scan_items(
+            _StubEngine(conn, dry_run=False),
+            [_make_fetch("bad"), _make_fetch("good")],
+            media_type_fn=lambda f: "movie",
+            evaluate_fn=lambda f, added_at, history: "schedule_deletion",
+            item_label="Movie",
+            summary=summary,
+        )
+        conn.commit()
+
+        assert [r[0] for r in conn.execute("SELECT media_item_id FROM scheduled_actions")] == [
+            "good"
+        ]
+        assert (summary["scheduled"], summary["errors"]) == (1, 1)

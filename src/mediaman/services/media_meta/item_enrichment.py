@@ -96,17 +96,18 @@ def enrich_redownload_item(
     """Enrich *item* from the recommendations cache first (no API calls), falling back to
     TMDB and OMDb.
     """
-    title = item.get("title", "")
     media_type = item.get("media_type", "movie")
+    tmdb_id = item.get("tmdb_id") or None
 
-    # 1. Try the recommendations cache — item was likely a recommendation originally
+    # 1. Try the recommendations cache — item was likely a recommendation originally.
+    # A title alone can be a namesake's, so it is matched only when there is no id.
     row = conn.execute(
         "SELECT poster_url, year, description, reason, rating, rt_rating, "
         "tagline, runtime, genres, cast_json, director, trailer_key, "
         "imdb_rating, metascore, tmdb_id "
-        "FROM suggestions WHERE title = ? AND media_type = ? "
+        "FROM suggestions WHERE media_type = ? AND (tmdb_id = ? OR (? IS NULL AND title = ?)) "
         "ORDER BY created_at DESC LIMIT 1",
-        (title, media_type),
+        (media_type, tmdb_id, tmdb_id, item.get("title", "")),
     ).fetchone()
 
     if row and row["poster_url"]:
@@ -128,7 +129,7 @@ def enrich_redownload_item(
                 "metascore": row["metascore"],
             }
         )
-        if row["tmdb_id"] and not item.get("tmdb_id"):
+        if row["tmdb_id"] and not tmdb_id:
             item["tmdb_id"] = row["tmdb_id"]
         return
 

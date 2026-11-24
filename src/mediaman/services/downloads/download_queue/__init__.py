@@ -27,7 +27,7 @@ from mediaman.services.arr.completion import (
     fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
-from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.arr.fetcher import fetch_arr_queue_result
 from mediaman.services.arr.search_trigger import maybe_trigger_search
 from mediaman.services.downloads.download_queue.classify import (
     arr_base_urls as _arr_base_urls,
@@ -56,7 +56,7 @@ __all__ = [
     "build_downloads_response",
     "build_episode_dicts",
     "build_nzbget_from_db",
-    "fetch_arr_queue",
+    "fetch_arr_queue_result",
     "maybe_trigger_search",
     "nzb_matches_arr",
     "record_verified_completions",
@@ -215,13 +215,16 @@ def _downloads_subtitle(
     hero: dict[str, object] | None,
     queue: list[dict[str, object]],
     upcoming: list[dict[str, object]],
+    outage: str = "",
 ) -> str:
-    """Build the page-header subtitle, the single source for the server-rendered page and
-    the poll-driven JS update.
+    """Build the page-header subtitle for the server-rendered page and the poll. While the
+    page holds rows of a service that does not answer, downloads.js counts them in itself,
+    in the same words.
 
     Something downloading gives "2 items in progress" (plus " · 3 coming soon" when
     releases are scheduled). Nothing downloading gives "Nothing downloading · 3 coming
     soon", or "" when nothing is scheduled either (the empty-state card says it all).
+    An *outage* is named in place of "Nothing downloading", which nobody can then tell.
     """
     active = (1 if hero else 0) + len(queue)
     coming = len(upcoming)
@@ -229,10 +232,18 @@ def _downloads_subtitle(
         line = f"{active} item{'s' if active != 1 else ''} in progress"
         if coming:
             line += f" · {coming} coming soon"
-        return line
+        return f"{line} · {outage[0].lower()}{outage[1:]}" if outage else line
     if coming:
-        return f"Nothing downloading · {coming} coming soon"
-    return ""
+        return f"{outage or 'Nothing downloading'} · {coming} coming soon"
+    return outage
+
+
+def _outage_line(unreachable: list[str]) -> str:
+    """Return "Can't reach Radarr, Sonarr and NZBGet", or "" when everything answered."""
+    if not unreachable:
+        return ""
+    *rest, last = unreachable
+    return f"Can't reach {', '.join(rest) + ' and ' if rest else ''}{last}"
 
 
 def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
@@ -240,12 +251,14 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     queues by fuzzy title match and adding recent downloads from the database.
 
     *secret_key* decrypts the stored API credentials. Returns {"hero", "queue",
-    "upcoming", "recent", "subtitle"}.
+    "upcoming", "recent", "subtitle", "unreachable", "outage"}: unreachable names the
+    services that did not answer, outage says so in a line.
     """
     from mediaman.services.downloads.download_format import select_hero
 
     # 1. Fetch *arr queue
-    arr_items = fetch_arr_queue(conn, secret_key)
+    arr_result = fetch_arr_queue_result(conn, secret_key)
+    unreachable = list(arr_result.unreachable)
     arr_base_urls_map = _arr_base_urls(conn, secret_key)
 
     # 2. Fetch NZBGet queue + status
@@ -261,6 +274,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
             nzb_fetch_failed = True
+            unreachable.append("NZBGet")
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
     download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
@@ -273,7 +287,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # download_queue module level is correctly intercepted by tests.
     items, upcoming_items = _build_arr_items(
         conn,
-        arr_items,
+        arr_result.cards,
         nzb_parsed,
         arr_base_urls_map,
         download_rate,
@@ -311,10 +325,13 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     recent = fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key)
 
     upcoming = cast(list[dict[str, object]], upcoming_items)
+    outage = _outage_line(unreachable)
     return {
         "hero": hero,
         "queue": queue,
         "upcoming": upcoming,
         "recent": cast(list[dict[str, object]], recent),
-        "subtitle": _downloads_subtitle(hero, queue, upcoming),
+        "subtitle": _downloads_subtitle(hero, queue, upcoming, outage),
+        "unreachable": unreachable,
+        "outage": outage,
     }

@@ -15,6 +15,7 @@ from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
 from mediaman.services.arr.base import ArrClient, SeasonsNotListed
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import add_or_remonitor_movie, is_series_already_tracked
@@ -25,6 +26,7 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.responses import respond_failure
+from mediaman.web.routes.download.confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
 
@@ -178,32 +180,37 @@ def _submit_movie(
             return respond_failure(f"'{body.title}' is already in Radarr", status=409)
         if outcome == "bad_entry":
             return respond_failure("Radarr entry is in an unexpected state", status=502)
-    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
+    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
         # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
         # responses, RequestException covers transport failures, ValueError
         # covers add_movie's own ``tmdb_id <= 0`` guard, ArrError covers
         # configuration failures (e.g. no root folder configured). A bare
         # ``except Exception`` would silently swallow programming bugs.
-        logger.exception("Failed to add movie")
-        return respond_failure("Failed to add to Radarr", status=502)
-    if notify_email is not None:
-        _record_dn(
+        if not (isinstance(exc, SafeHTTPError) and movie_add_landed(exc, radarr, body.tmdb_id)):
+            logger.exception("Failed to add movie")
+            return respond_failure("Failed to add to Radarr", status=502)
+    with conn:
+        if notify_email is not None:
+            _record_dn(
+                conn,
+                email=notify_email,
+                title=body.title,
+                media_type="movie",
+                tmdb_id=body.tmdb_id,
+                service="radarr",
+            )
+        else:
+            logger.info(
+                "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
+                body.tmdb_id,
+            )
+        log_audit(
             conn,
-            email=notify_email,
-            title=body.title,
-            media_type="movie",
-            tmdb_id=body.tmdb_id,
-            service="radarr",
+            body.title,
+            "downloaded",
+            f"Added '{body.title}' to Radarr by {actor}",
+            actor=actor,
         )
-    else:
-        logger.info(
-            "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
-            body.tmdb_id,
-        )
-    log_audit(
-        conn, body.title, "downloaded", f"Added '{body.title}' to Radarr by {actor}", actor=actor
-    )
-    conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
 
@@ -273,28 +280,33 @@ def _submit_tv(
                 " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
             )
         return respond_failure(message, status=422)
-    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
-        logger.exception("Failed to add series")
-        return respond_failure("Failed to add to Sonarr", status=502)
-    if notify_email is not None:
-        _record_dn(
+    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
+        if not (isinstance(exc, SafeHTTPError) and series_add_landed(exc, sonarr, tvdb_id)):
+            logger.exception("Failed to add series")
+            return respond_failure("Failed to add to Sonarr", status=502)
+    with conn:
+        if notify_email is not None:
+            _record_dn(
+                conn,
+                email=notify_email,
+                title=body.title,
+                media_type="tv",
+                tmdb_id=body.tmdb_id,
+                tvdb_id=tvdb_id,
+                service="sonarr",
+            )
+        else:
+            logger.info(
+                "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
+                body.tmdb_id,
+            )
+        log_audit(
             conn,
-            email=notify_email,
-            title=body.title,
-            media_type="tv",
-            tmdb_id=body.tmdb_id,
-            tvdb_id=tvdb_id,
-            service="sonarr",
+            body.title,
+            "downloaded",
+            f"Added '{body.title}' to Sonarr by {actor}",
+            actor=actor,
         )
-    else:
-        logger.info(
-            "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
-            body.tmdb_id,
-        )
-    log_audit(
-        conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr by {actor}", actor=actor
-    )
-    conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
 
@@ -328,4 +340,6 @@ def api_download(
     # A 409 says the Arr holds the title, which the held view may not yet show.
     if resp.status_code < 400 or resp.status_code == 409:
         watch_catalog.invalidate()
+    # A failed request may have added the title too.
+    drop_arr_cache()
     return resp

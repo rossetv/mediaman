@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
+from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
@@ -657,19 +658,23 @@ class TestYoutubeTrailerKeyValidation:
         assert ctx["item"]["trailer_key"] is None
 
 
-def _render_queued_page(
-    app_factory, conn, secret_key, email: str | None, recommendation_id: int | None = None
-) -> str:
+def _app_with_real_templates(app_factory, conn):
     from pathlib import Path
 
     from fastapi.templating import Jinja2Templates
 
     template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
-    app = app_factory(
+    return app_factory(
         download_router,
         conn=conn,
         state_extras={"templates": Jinja2Templates(directory=str(template_dir))},
     )
+
+
+def _render_queued_page(
+    app_factory, conn, secret_key, email: str | None, recommendation_id: int | None = None
+) -> str:
+    app = _app_with_real_templates(app_factory, conn)
     token = generate_download_token(
         email=email,
         action="download",
@@ -691,7 +696,7 @@ def _render_queued_page(
 
 
 class TestDownloadPageEmailPromise:
-    """The page only promises an email when the link carries an address to send it to."""
+    """The page only promises an email that will come."""
 
     @pytest.fixture(autouse=True)
     def _clear_state(self):
@@ -704,11 +709,37 @@ class TestDownloadPageEmailPromise:
         assert "notified by email" not in page
         assert '"notify_by_email": false' in page
 
-    def test_link_with_email_still_promises_one(self, app_factory, conn, secret_key):
+    def test_a_queued_title_the_person_asked_for_promises_one(self, app_factory, conn, secret_key):
+        with conn:
+            record_download_notification(
+                conn,
+                email="a@example.com",
+                title="Dune",
+                media_type="movie",
+                tmdb_id=42,
+                service="radarr",
+            )
+
         page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
         assert "notified by email" in page
         assert '"notify_by_email": true' in page
+
+    def test_a_queued_title_they_did_not_ask_for_promises_none(self, app_factory, conn, secret_key):
+        with conn:
+            record_download_notification(
+                conn,
+                email="other@example.com",
+                title="Dune",
+                media_type="movie",
+                tmdb_id=42,
+                service="radarr",
+            )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
+
+        assert "notified by email" not in page
+        assert '"notify_by_email": false' in page
 
 
 class TestDownloadPageTrailer:
@@ -743,3 +774,41 @@ class TestDownloadPageTrailer:
             "allow-popups",
             "allow-popups-to-escape-sandbox",
         }
+
+
+class TestDownloadPageCast:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_the_stored_cast_is_shown_and_a_broken_entry_is_left_out(
+        self, app_factory, conn, secret_key
+    ):
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            cast_json='[{"name": "Ada Vale", "character": "Lead"}, {"name": null}, 7]',
+            created_at="2026-01-01",
+        )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        assert re.findall(r'class="cast-name">([^<]*)<', page) == ["Ada Vale"]
+        assert re.findall(r'class="cast-char">([^<]*)<', page) == ["Lead"]
+
+
+class TestRateLimitedPage:
+    def test_it_is_a_styled_429_that_offers_the_same_link_again(self, app_factory, conn):
+        client = TestClient(_app_with_real_templates(app_factory, conn))
+        with patch.object(_download_confirm._DOWNLOAD_LIMITER_GET, "check", return_value=False):
+            resp = client.get("/download/any-token")
+
+        assert resp.status_code == 429
+        assert "/static/css/" in resp.text
+        assert '<h1 class="dl-expired-title">Too many requests</h1>' in resp.text
+        assert '<a href="">Try again</a>' in resp.text
+        assert "expired" not in resp.text.split("<title>")[1].split("</title>")[0].lower()

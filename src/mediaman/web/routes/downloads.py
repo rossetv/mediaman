@@ -20,6 +20,7 @@ from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.routes.download import drop_arr_cache
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ def _lookup_dl_item(
     conn: sqlite3.Connection, secret_key: str, dl_id: str
 ) -> dict[str, object] | None:
     """Find the queue item with the given dl_id in a freshly built response, never trusting
-    stale client-side state.
+    stale client-side state. Raises 503 when it is missing while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
     for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
@@ -42,6 +43,8 @@ def _lookup_dl_item(
     hero = payload.get("hero")
     if hero and hero.get("id") == dl_id:
         return hero
+    if outage := payload.get("outage"):
+        raise HTTPException(status_code=503, detail=f"{outage} right now. Try again later.")
     return None
 
 
@@ -78,6 +81,7 @@ def downloads_page(request: Request) -> Response:
             "upcoming": data["upcoming"],
             "recent": data["recent"],
             "subtitle": data["subtitle"],
+            "outage": data["outage"],
             "can_abandon": can_abandon,
         },
     )
@@ -138,6 +142,9 @@ def downloads_abandon(
             dl_id=dl_id,
         )
 
+    # The emailed page must not offer again what was just unmonitored; a failed abandon may
+    # have changed the Arr too.
+    drop_arr_cache()
     refreshed = build_downloads_response(conn, secret_key)
     return JSONResponse(
         {

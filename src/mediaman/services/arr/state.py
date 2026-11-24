@@ -94,6 +94,15 @@ def _season_stats(season: ArrSeason) -> ArrSeasonStatistics:
     return stats if isinstance(stats, dict) else ArrSeasonStatistics()
 
 
+def missing_episodes(season: ArrSeason) -> int:
+    """Return how many aired, monitored episodes a season without files misses.
+
+    Sonarr's ``episodeCount`` leaves out those still to air. Abandon stops chasing a season
+    only when this is above zero; Specials it leaves alone.
+    """
+    return _season_stats(season).get("episodeCount", 0)
+
+
 def _season_has_aired(season: ArrSeason) -> bool:
     """Return True if Sonarr signals at least one episode of *season* has aired.
 
@@ -259,18 +268,25 @@ def _build_arr_index(
 
 def _queue_progress(queue: Sequence[Mapping[str, Any]], media_key: str) -> dict[int, int]:
     """Return ``{tmdbId: pct}`` for queue entries, summing ``size``/``sizeleft`` per item
-    so a series with several queued episodes reports one overall percentage.
+    so a series with several queued episodes reports one overall percentage. An entry the
+    downloads page shows as still searched for is left out.
     """
     from mediaman.services.arr.fetcher._base import clamp_progress
+    from mediaman.services.downloads.download_format import map_episode_state
 
     totals: dict[int, list[int]] = {}
     for q in queue:
         tid = (q.get(media_key) or {}).get("tmdbId")
         if not tid:
             continue
+        size, left = q.get("size") or 0, q.get("sizeleft") or 0
+        status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
+        entry = {"size": size, "sizeleft": left, "progress": clamp_progress(size, left)}
+        if map_episode_state({**entry, "status": status}) == "searching":
+            continue
         acc = totals.setdefault(tid, [0, 0])
-        acc[0] += q.get("size") or 0
-        acc[1] += q.get("sizeleft") or 0
+        acc[0] += size
+        acc[1] += left
     return {tid: clamp_progress(size, left) for tid, (size, left) in totals.items()}
 
 
@@ -365,7 +381,7 @@ def annotate_download_states(
 
     try:
         radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+    except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
         logger.warning(
             "Radarr cache build failed; search results will not reflect Radarr state",
             exc_info=True,
@@ -374,7 +390,7 @@ def annotate_download_states(
 
     try:
         sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+    except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
         logger.warning(
             "Sonarr cache build failed; search results will not reflect Sonarr state",
             exc_info=True,

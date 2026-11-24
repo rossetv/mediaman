@@ -102,31 +102,32 @@ def save_progress(
     threshold = min(CREDIT_SECONDS, WATCHED_FRACTION * duration) if duration > 0 else CREDIT_SECONDS
     now_iso = ensure_tz(now).astimezone(UTC).isoformat()
     credited_at = now_iso if _finite(played_s) >= threshold else None
-    conn.execute(
-        "INSERT INTO watch_progress (username, rating_key, media_item_id, show_rating_key,"
-        " position_s, duration_s, watched, credited_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        " ON CONFLICT(username, rating_key) DO UPDATE SET"
-        " media_item_id = excluded.media_item_id,"
-        " show_rating_key = excluded.show_rating_key,"
-        " position_s = excluded.position_s,"
-        " duration_s = excluded.duration_s,"
-        " watched = excluded.watched,"
-        " credited_at = COALESCE(excluded.credited_at, watch_progress.credited_at),"
-        " updated_at = excluded.updated_at",
-        (
-            username,
-            rating_key,
-            media_item_id,
-            show_rating_key,
-            position,
-            duration,
-            int(watched),
-            credited_at,
-            now_iso,
-        ),
-    )
-    conn.commit()
+    # with conn: a failed write rolls back, so the connection is not left holding the lock
+    with conn:
+        conn.execute(
+            "INSERT INTO watch_progress (username, rating_key, media_item_id, show_rating_key,"
+            " position_s, duration_s, watched, credited_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(username, rating_key) DO UPDATE SET"
+            " media_item_id = excluded.media_item_id,"
+            " show_rating_key = excluded.show_rating_key,"
+            " position_s = excluded.position_s,"
+            " duration_s = excluded.duration_s,"
+            " watched = excluded.watched,"
+            " credited_at = COALESCE(excluded.credited_at, watch_progress.credited_at),"
+            " updated_at = excluded.updated_at",
+            (
+                username,
+                rating_key,
+                media_item_id,
+                show_rating_key,
+                position,
+                duration,
+                int(watched),
+                credited_at,
+                now_iso,
+            ),
+        )
     return watched
 
 

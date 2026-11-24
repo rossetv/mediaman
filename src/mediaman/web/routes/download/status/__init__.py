@@ -28,8 +28,9 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
+from mediaman.web.routes.download._season import season_of_media_id
 
-from ._radarr import _radarr_fallback_item, _radarr_queue_item, _radarr_ready_item
+from ._radarr import _radarr_queue_item, _radarr_ready_item, _radarr_searching_item
 
 # ``_format_timeleft`` is re-exported from ``._shared`` because the status
 # unit tests import it from this module path; the ``as`` form marks the
@@ -71,8 +72,8 @@ _STATUS_CACHE_LOCK = threading.Lock()
 # Per-process per-(service, tmdb_id) status cache; must be in-process state
 # so the short TTL reduces outbound amplification for unauthenticated polls
 # across requests handled by the same worker.
-# (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
-_STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
+# (service, tmdb_id, season, secret_key_fingerprint) -> (timestamp, status_dict)
+_STATUS_CACHE: dict[tuple[str, int, int | None, str], tuple[float, DownloadItem]] = {}
 
 # A poll token with less than this many seconds left (half its default
 # 600-second life) is replaced in the status response, so a page left open
@@ -119,27 +120,34 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     if queued is not None:
         return queued
 
-    return _radarr_fallback_item(conn, movie)
+    return _radarr_searching_item(movie)
 
 
-def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
+def _sonarr_status(
+    conn: sqlite3.Connection, secret_key: str, tmdb_id: int, season_number: int | None = None
+) -> DownloadItem:
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return _UNKNOWN_ITEM
 
     queue = client.get_queue()
-    series_title, series_poster, ep_entries = _sonarr_queue_entries(queue, tmdb_id)
+    series_title, series_poster, ep_entries = _sonarr_queue_entries(queue, tmdb_id, season_number)
 
     if ep_entries:
         return _sonarr_aggregate(series_title, series_poster, ep_entries)
 
-    return _sonarr_series_fallback(client, conn, tmdb_id)
+    return _sonarr_series_fallback(client, tmdb_id, season_number)
 
 
 def _cached_status(
-    *, service: str, tmdb_id: int, conn: sqlite3.Connection, secret_key: str
+    *,
+    service: str,
+    tmdb_id: int,
+    season_number: int | None,
+    conn: sqlite3.Connection,
+    secret_key: str,
 ) -> DownloadItem:
-    key = (service, tmdb_id, _key_fingerprint(secret_key))
+    key = (service, tmdb_id, season_number, _key_fingerprint(secret_key))
     now = time.monotonic()
     with _STATUS_CACHE_LOCK:
         hit = _STATUS_CACHE.get(key)
@@ -148,7 +156,7 @@ def _cached_status(
     if service == "radarr":
         result = _radarr_status(conn, secret_key, tmdb_id)
     else:
-        result = _sonarr_status(conn, secret_key, tmdb_id)
+        result = _sonarr_status(conn, secret_key, tmdb_id, season_number)
     with _STATUS_CACHE_LOCK:
         if len(_STATUS_CACHE) >= _STATUS_CACHE_MAX_ENTRIES:
             # Evict expired entries first; if still full, clear wholesale.
@@ -179,10 +187,21 @@ def download_status(
     config = request.app.state.config
 
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
-        return respond_err("too_many_requests", status=429)
+        limited = respond_err("too_many_requests", status=429)
+        limited.headers["Retry-After"] = "60"
+        return limited
+
+    poll_payload = None
+    if poll_token is not None and len(poll_token) <= 4096:
+        poll_payload = validate_poll_token(poll_token, config.secret_key)
+        if poll_payload is not None and (
+            poll_payload.get("svc") != service or poll_payload.get("tmdb") != tmdb_id
+        ):
+            poll_payload = None
+    poll_media_item_id = poll_payload["mid"] if poll_payload else ""
+    season_number = season_of_media_id(poll_media_item_id)
 
     renewal_due = False
-    poll_media_item_id = ""
     poll_first_issued = 0
     if not admin:
         # Unauthenticated polling must use a short-lived poll_token.  The
@@ -190,28 +209,15 @@ def download_status(
         # is single-use and only valid for the /download/{token} POST.
         # Clients receive a poll_token in the submit response and must use
         # it exclusively for polling.
-        authenticated = False
-
-        if poll_token is not None and len(poll_token) <= 4096:
-            poll_payload = validate_poll_token(poll_token, config.secret_key)
-            if (
-                poll_payload is not None
-                and poll_payload.get("svc") == service
-                and poll_payload.get("tmdb") == tmdb_id
-            ):
-                authenticated = True
-                now = time.time()
-                if poll_payload["exp"] - now < _POLL_TOKEN_REFRESH_SECONDS:
-                    poll_first_issued = int(
-                        poll_payload.get(
-                            "first", poll_payload["exp"] - _LEGACY_POLL_TOKEN_TTL_SECONDS
-                        )
-                    )
-                    renewal_due = now - poll_first_issued < _POLL_TOKEN_MAX_CHAIN_SECONDS
-                    poll_media_item_id = poll_payload["mid"]
-
-        if not authenticated:
+        if poll_payload is None:
             return respond_err("not_authenticated", status=401)
+
+        now = time.time()
+        if poll_payload["exp"] - now < _POLL_TOKEN_REFRESH_SECONDS:
+            poll_first_issued = int(
+                poll_payload.get("first", poll_payload["exp"] - _LEGACY_POLL_TOKEN_TTL_SECONDS)
+            )
+            renewal_due = now - poll_first_issued < _POLL_TOKEN_MAX_CHAIN_SECONDS
 
     conn = get_db()
 
@@ -227,10 +233,14 @@ def download_status(
             if service == "radarr":
                 result = _radarr_status(conn, config.secret_key, tmdb_id)
             else:
-                result = _sonarr_status(conn, config.secret_key, tmdb_id)
+                result = _sonarr_status(conn, config.secret_key, tmdb_id, season_number)
         else:
             result = _cached_status(
-                service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
+                service=service,
+                tmdb_id=tmdb_id,
+                season_number=season_number,
+                conn=conn,
+                secret_key=config.secret_key,
             )
     except (requests.RequestException, SafeHTTPError, ArrError):
         # Both transport (RequestException) and Arr-level non-2xx

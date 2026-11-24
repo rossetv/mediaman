@@ -1,7 +1,7 @@
 /* Watch page: the title detail overlay (#ttl, filled by watch/detail.js).
    Desktop: a 980px sheet over a blurred dim layer, grown out of the card
    that opened it. Below 700px: a full-screen sheet that rises. Motion is
-   transform and opacity only. */
+   transform and opacity only, but for a short hero that grows for its trailer. */
 
 html.has-ttl { overflow: hidden; }
 /* Menus and dialogs opened from inside the overlay sit above it. */
@@ -75,45 +75,81 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl__hero {
   position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: min(62vh, 552px);
+  display: flex;
+  align-items: flex-end;
+  gap: 32px;
+  min-height: min(calc((100vw - 48px) * .5625), 62vh, 552px); /* 16:9; grows for a long title */
+  padding: 24px 32px 22px;
   overflow: hidden;
   background: linear-gradient(160deg, var(--s3), var(--s1));
 }
 .ttl__hero-skel { position: absolute; inset: 0; border-radius: 0; }
-.ttl__art {
+.ttl__art,
+.ttl__fill {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
-  transition: opacity var(--dur-slow) var(--ease-out);
 }
-.ttl__art.is-loaded { opacity: 1; }
+.ttl__art { object-position: 50% 25%; }
+.ttl__fill { filter: blur(40px) brightness(.7); transform: scale(1.2); }
+/* A title with no picture: a short head. Its height is settled before the buttons
+   can be pressed (.is-short), and only the trailer changes it (detail.js eases it). */
+.ttl.is-short .ttl__hero { padding-top: 72px; }
+.ttl.is-short:not(.is-trailer) .ttl__hero { min-height: 190px; }
+.ttl.is-short .ttl__poster { display: none; }
+.ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
+  background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--s1) 80%);
+}
+/* With no wide picture the poster stands beside the title, whole and at its own shape. */
+.ttl__poster {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: min(220px, 26%, 26vh); /* at 26vh it stays clear of the close button */
+  height: auto;
+  aspect-ratio: auto 2 / 3;
+  max-height: 45vh;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+.ttl__art,
+.ttl__fill,
+.ttl__poster { opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+.ttl__art.is-loaded,
+.ttl__fill.is-loaded,
+.ttl__poster.is-loaded { opacity: 1; }
 .ttl__hero::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    linear-gradient(0deg, var(--s1) 0%, color-mix(in srgb, var(--s1) 78%, transparent) 22%, transparent 58%),
-    linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%);
 }
 .ttl__head {
-  position: absolute;
+  position: relative;
   z-index: 1;
-  left: 32px;
-  right: 32px;
-  bottom: 22px;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
 }
+/* The shade rises with the text, whatever height it takes, and runs the hero's full width. */
+.ttl__head::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -72px -100vw -22px;
+  background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--s1) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--s1) 14%, transparent) calc(100% - 18px), transparent);
+  pointer-events: none;
+}
 .ttl__kind { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); min-height: 1em; }
 .ttl__title { font-size: clamp(30px, 4.2vw, 46px); font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; max-width: 22ch; }
+.ttl__title--long { font-size: clamp(26px, 3.2vw, 36px); line-height: 1.1; max-width: 30ch; }
 .ttl__title:focus { outline: none; }
 .ttl__title-skel { width: min(320px, 70%); height: .8em; }
 .ttl__tagline {
@@ -126,14 +162,21 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.ttl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 22px; font-size: 15px; color: var(--t2); }
-.ttl__meta > span + span::before { content: "·"; margin-right: 8px; color: var(--t3); }
+/* Each part carries its dot in front; the dot that starts a line falls in the clipped margin. */
+.ttl__meta { --dot: 17px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-height: 22px; margin-left: calc(-1 * var(--dot)); clip-path: inset(0 -20px 0 var(--dot)); font-size: 15px; color: var(--t2); }
+.ttl__meta > span { position: relative; padding-left: var(--dot); }
+.ttl__meta > span::before { content: "·"; position: absolute; left: 0; width: var(--dot); text-align: center; color: var(--t3); }
+.ttl__meta > .ttl__cert,
+.ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
+/* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
+.ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
 .ttl__meta > .ttl__meta-skel { width: min(300px, 70%); height: 14px; }
 .ttl__meta > .ttl__meta-skel::before { content: none; }
 .ttl__cert { display: inline-flex; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: var(--r-xxs); font-size: 12px; line-height: 18px; font-weight: 600; }
+.ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
-/* The trailer takes the hero's box, so nothing below it moves. */
+/* The trailer takes the hero's box, so nothing below it moves (a short hero grows first). */
 .ttl__player {
   position: absolute;
   inset: 0;
@@ -331,11 +374,16 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__sheet { max-width: none; min-height: 100%; border: 0; border-radius: 0; box-shadow: none; transform-origin: 50% 100%; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
-  .ttl__hero { max-height: none; }
+  .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: 64px 20px 14px; }
+  .ttl__poster { width: min(140px, 24vw, 30vh); border-radius: var(--r-sm); }
+  /* Too late for the buttons to move, so only its blurred copy shows: beside it a
+     title can take another line. */
+  .ttl.is-late .ttl__poster { display: none; }
   .ttl__close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
-  .ttl__head { left: 20px; right: 20px; bottom: 14px; gap: 6px; }
+  .ttl__head { gap: 6px; }
   .ttl__kind { font-size: 11px; }
   .ttl__title { font-size: 28px; }
+  .ttl__title--long { font-size: 22px; }
   .ttl__tagline { font-size: 13px; -webkit-line-clamp: 1; }
   .ttl__meta { font-size: 13px; }
   .ttl__body { padding: 8px 20px calc(36px + env(safe-area-inset-bottom, 0px)); gap: 28px; }
@@ -353,6 +401,23 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .season-chip { flex: 1 1 calc(50% - 4px); display: grid; grid-template-columns: 18px 1fr; column-gap: 10px; row-gap: 1px; align-items: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; white-space: nowrap; }
   .season-chip__box { grid-row: span 2; }
   .season-chip__sub { grid-column: 2; }
+}
+
+/* A small hero: the shade keeps close to the text, so the picture stays clear above it. */
+@media (max-width: 639.98px) {
+  .ttl__head::before {
+    inset-block: -40px -14px;
+    background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--s1) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--s1) 20%, transparent) calc(100% - 16px), transparent);
+  }
+}
+
+@media (forced-colors: active) {
+  .ttl__art,
+  .ttl__fill,
+  .ttl__hero::after,
+  .ttl__head::before { display: none; }
+  .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
+  .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }
 
 /* Reduced motion: the overlay still fades in and out, without moving. */

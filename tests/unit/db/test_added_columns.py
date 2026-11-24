@@ -1,10 +1,12 @@
-"""init_db adds the later media_items columns to a database made before them."""
+"""init_db adds the later columns to a database made before them."""
 
 from __future__ import annotations
 
 import sqlite3
 
 from mediaman.db import init_db
+from mediaman.services.downloads._notification_claims import _claim_pending_notifications
+from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
 _OLD_MEDIA_ITEMS = """
 CREATE TABLE media_items (
@@ -58,4 +60,81 @@ def test_old_database_gains_columns_and_keeps_rows(tmp_path):
 def test_fresh_database_has_columns(tmp_path):
     conn = init_db(str(tmp_path / "new.db"))
     assert {"tmdb_id", "tvdb_id", "tracked_files"} <= _columns(conn)
+    conn.close()
+
+
+_OLD_DOWNLOAD_NOTIFICATIONS = """
+CREATE TABLE download_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    title TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER,
+    service TEXT NOT NULL,
+    notified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    tvdb_id INTEGER,
+    claimed_at TEXT
+);
+INSERT INTO download_notifications (email, title, media_type, service, created_at, tvdb_id)
+VALUES ('a@example.com', 'Show', 'tv', 'sonarr', '2020', 9);
+"""
+
+
+def test_a_pending_notification_of_an_old_database_can_still_be_claimed(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_DOWNLOAD_NOTIFICATIONS)
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    claimed = _claim_pending_notifications(conn)
+    assert [(r.tvdb_id, r.season_number) for r in claimed] == [(9, None)]
+    conn.close()
+
+
+_OLD_DELETE_INTENTS = """
+CREATE TABLE delete_intents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    last_error TEXT
+);
+INSERT INTO delete_intents (media_item_id, target_kind, target_id, started_at)
+VALUES ('m1', 'radarr', '1', '2020');
+"""
+
+
+def test_an_open_delete_intent_of_an_old_database_can_still_be_closed(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_DELETE_INTENTS)
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    assert reconcile_pending_delete_intents(conn) == 1
+    conn.close()
+
+
+def test_an_old_database_records_when_a_search_was_last_seen_and_keeps_its_start(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE arr_searching_since (key TEXT PRIMARY KEY, since TEXT NOT NULL);"
+        "INSERT INTO arr_searching_since VALUES ('radarr:1', '2020');"
+    )
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    row = conn.execute("SELECT since, last_seen FROM arr_searching_since").fetchone()
+    assert tuple(row) == ("2020", None)
     conn.close()

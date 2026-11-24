@@ -12,7 +12,14 @@ import logging
 from collections.abc import Sequence
 from typing import cast
 
-from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError, SeasonsNotListed
+import requests
+
+from mediaman.services.arr._transport import (
+    ArrConfigError,
+    ArrError,
+    ArrUpstreamError,
+    SeasonsNotListed,
+)
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
 from mediaman.services.infra import SafeHTTPError
 
@@ -78,8 +85,7 @@ class _SonarrMixin:
 
     def get_series(self) -> list[SonarrSeries]:
         self._require_series("get_series")  # type: ignore[attr-defined]
-        data = self._get("/api/v3/series")  # type: ignore[attr-defined]
-        return cast(list[SonarrSeries], data) if isinstance(data, list) else []
+        return cast(list[SonarrSeries], self._get_list("/api/v3/series"))  # type: ignore[attr-defined]
 
     def get_series_by_id(self, series_id: int) -> SonarrSeries:
         """Return a single series by its Sonarr ID.
@@ -101,22 +107,21 @@ class _SonarrMixin:
         which returns a (possibly empty) list of matching library entries.
         """
         self._require_series("get_series_by_tvdb")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/series?tvdbId={tvdb_id}")  # type: ignore[attr-defined]
-        if not isinstance(data, list) or not data:
+        data = self._get_list(f"/api/v3/series?tvdbId={tvdb_id}")  # type: ignore[attr-defined]
+        if not data:
             logger.debug("get_series_by_tvdb: no match for tvdb_id=%s", tvdb_id)
             return None
-        first = data[0]
-        return cast(SonarrSeries, first) if isinstance(first, dict) else None
+        return cast(SonarrSeries, data[0])
 
     def get_episodes(self, series_id: int) -> list[ArrEpisode]:
         self._require_series("get_episodes")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[ArrEpisode], data) if isinstance(data, list) else []
+        data = self._get_list(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
+        return cast(list[ArrEpisode], data)
 
     def get_episode_files(self, series_id: int) -> list[ArrEpisodeFile]:
         self._require_series("get_episode_files")  # type: ignore[attr-defined]
-        data = self._get(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[ArrEpisodeFile], data) if isinstance(data, list) else []
+        data = self._get_list(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
+        return cast(list[ArrEpisodeFile], data)
 
     def unmonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *season_number* of *series_id*.
@@ -160,7 +165,10 @@ class _SonarrMixin:
         )
 
     def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
-        """Set ``monitored=True`` for *season_number* and trigger a search.
+        """Set ``monitored=True`` for *season_number* and its series, and trigger a search.
+
+        Sonarr fetches nothing for an unmonitored series, whatever its seasons say. A series
+        monitored here is put back when the search cannot be started.
 
         Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
@@ -171,6 +179,7 @@ class _SonarrMixin:
         by a SeasonSearch for a season Sonarr never re-monitored.
         """
         self._require_series("remonitor_season")  # type: ignore[attr-defined]
+        series_was_unmonitored = False
 
         def fetch_entity() -> SonarrSeries:
             series = self.get_series_by_id(series_id)
@@ -187,9 +196,13 @@ class _SonarrMixin:
             if target is None:
                 raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
             # "already done" for remonitor means it's already monitored.
-            return bool(target.get("monitored", False))
+            return bool(target.get("monitored", False)) and entity.get("monitored") is not False
 
         def apply_remonitor(entity: SonarrSeries) -> None:
+            nonlocal series_was_unmonitored
+            if entity.get("monitored") is False:
+                series_was_unmonitored = True
+                entity["monitored"] = True
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is not None:
@@ -204,14 +217,45 @@ class _SonarrMixin:
             log_id=f"series_id={series_id} season={season_number}",
             max_retries=max_retries,
         )
-        self._post(  # type: ignore[attr-defined]
-            "/api/v3/command",
-            {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-        )
+        try:
+            self._post(  # type: ignore[attr-defined]
+                "/api/v3/command",
+                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
+            )
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            if series_was_unmonitored:
+                self._put_series_back_unmonitored(series_id)
+            raise
+
+    def _put_series_back_unmonitored(self, series_id: int) -> None:
+        """Best effort: a failure here is logged, so the error being raised is not hidden."""
+
+        def apply_unmonitor(entity: SonarrSeries) -> None:
+            entity["monitored"] = False
+
+        try:
+            self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                fetch_entity=lambda: self.get_series_by_id(series_id),
+                put_url=f"/api/v3/series/{series_id}",
+                is_already_unmonitored=lambda series: not series.get("monitored"),
+                apply_unmonitor=apply_unmonitor,
+                log_prefix="sonarr.remonitor_season",
+                log_id=f"series_id={series_id}",
+                max_retries=1,
+            )
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            logger.exception("Could not put sonarr series_id=%s back to unmonitored", series_id)
 
     def search_series(self, series_id: int) -> None:
         self._require_series("search_series")  # type: ignore[attr-defined]
         self._post("/api/v3/command", {"name": "SeriesSearch", "seriesId": series_id})  # type: ignore[attr-defined]
+
+    def rescan_series(self, series_id: int) -> None:
+        """Ask Sonarr to look at the series' files on disk again; it does so in the background."""
+        self._require_series("rescan_series")  # type: ignore[attr-defined]
+        self._post(  # type: ignore[attr-defined]
+            "/api/v3/command", {"name": "RescanSeries", "seriesId": series_id}
+        )
 
     def get_missing_series(self) -> dict[int, str]:
         """Return ``{series_id: series_title}`` for every series with at least
@@ -223,13 +267,10 @@ class _SonarrMixin:
         page_size = 250
         max_pages = 100
         for _ in range(max_pages):  # hard cap to prevent runaway paging
-            data = self._get(  # type: ignore[attr-defined]
+            records, total = self._get_page(  # type: ignore[attr-defined]
                 f"/api/v3/wanted/missing?page={page}&pageSize={page_size}"
                 "&includeSeries=true&monitored=true"
             )
-            if not isinstance(data, dict):
-                break
-            records = data.get("records") or []
             if not records:
                 break
             for rec in records:
@@ -238,7 +279,6 @@ class _SonarrMixin:
                 title = series.get("title", "")
                 if sid and sid not in out:
                     out[sid] = title
-            total = data.get("totalRecords") or 0
             if page * page_size >= total:
                 break
             page += 1
@@ -323,7 +363,7 @@ class _SonarrMixin:
 
         lookup = cast(
             list[ArrLookupResult],
-            self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"),  # type: ignore[attr-defined]
+            self._get_list(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"),  # type: ignore[attr-defined]
         )
         if not lookup:
             raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")

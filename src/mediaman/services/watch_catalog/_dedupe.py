@@ -4,8 +4,9 @@ A title matches on its TMDB id: the one Plex gave the library item, or for a sho
 its TVDB id maps to (through Sonarr, or through TMDB itself). Failing that it matches on
 its title and year together. The library keeps no year of its own, so the year is read
 from a "(2005)" in the title or in the folder Plex holds it in; without one, an exact
-title counts only when Radarr or Sonarr reports the title downloaded, so a remake that
-shares a title is left out of the library rather than hidden.
+title counts only when Radarr or Sonarr reports the title downloaded and the years, where
+both are known, are at most one apart, so a remake that shares a title is left out of the library rather
+than hidden.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ class LibraryIndex:
     shows_by_title: dict[str, str] = field(default_factory=dict)
     movies_by_title_year: dict[tuple[str, int], str] = field(default_factory=dict)
     shows_by_title_year: dict[tuple[str, int], str] = field(default_factory=dict)
+    year_of: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -108,6 +110,7 @@ class LibraryIndex:
             by_tmdb.setdefault(tmdb_id, ref)
         (self.movies_by_title if movie else self.shows_by_title).setdefault(name, ref)
         if year:
+            self.year_of[ref] = year
             by_title_year = self.movies_by_title_year if movie else self.shows_by_title_year
             by_title_year.setdefault((name, year), ref)
 
@@ -138,5 +141,11 @@ class LibraryIndex:
         if found is not None:
             return found
         if arr.state(kind, tmdb_id)[0] in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
-            return by_title.get(name)
+            candidate = by_title.get(name)
+            held_year = self.year_of.get(candidate) if candidate else None
+            # A remake shares the title of an older library title, so known years apart are
+            # two titles; one apart is one title, dated by two of its releases.
+            if year and held_year and abs(year - held_year) > 1:
+                return None
+            return candidate
         return None

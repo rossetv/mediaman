@@ -124,23 +124,23 @@ def create_session(
     # columns therefore receive the SAME hash value here; any future code
     # reading ``admin_sessions.token`` gets the hash, not the raw token.
     # Schema change is destructive and deferred — this is documentation only.
-    conn.execute(
-        "INSERT INTO admin_sessions "
-        "(token, token_hash, username, created_at, expires_at, last_used_at, "
-        " fingerprint, issued_ip) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            token_hash,
-            token_hash,
-            username,
-            now_iso,
-            expires_at,
-            now_iso,
-            fingerprint,
-            client_ip or "",
-        ),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "INSERT INTO admin_sessions "
+            "(token, token_hash, username, created_at, expires_at, last_used_at, "
+            " fingerprint, issued_ip) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                token_hash,
+                token_hash,
+                username,
+                now_iso,
+                expires_at,
+                now_iso,
+                fingerprint,
+                client_ip or "",
+            ),
+        )
     logger.info("session.created user=%s ip=%s", _sanitise_log_field(username), client_ip or "-")
     return token
 
@@ -285,8 +285,8 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     does not leave stale tickets that an attacker holding a related cookie
     could replay.
     """
-    cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
-    conn.commit()
+    with conn:
+        cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     # rationale: best-effort reauth revocation — a failure here must not roll
     # back the bulk session delete that already committed, so we do not
     # re-raise; but a bulk purge leaving every reauth ticket alive is a

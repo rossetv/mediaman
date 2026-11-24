@@ -519,11 +519,11 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
     if not username:
         return
     _ensure_table(conn)
-    conn.execute(
-        "DELETE FROM login_failures WHERE username = ?",
-        (username,),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "DELETE FROM login_failures WHERE username = ?",
+            (username,),
+        )
 
 
 def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> None:

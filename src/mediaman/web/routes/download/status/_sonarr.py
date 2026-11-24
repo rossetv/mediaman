@@ -5,11 +5,10 @@ build_sonarr_from_db stays patchable.
 
 from __future__ import annotations
 
-import sqlite3
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from mediaman.core.format import format_bytes
-from mediaman.services.arr._types import ArrQueueItem
+from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
@@ -19,7 +18,6 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
-from mediaman.web.repository.download import fetch_recent_download
 
 from ._shared import _format_timeleft, _safe_int, _safe_progress
 
@@ -36,13 +34,14 @@ class _SonarrEpEntry(TypedDict):
     status: str
     tracked_state: str
     timeleft: str
+    download_id: str
 
 
 def _sonarr_queue_entries(
-    queue: list[ArrQueueItem], tmdb_id: int
+    queue: list[ArrQueueItem], tmdb_id: int, season_number: int | None = None
 ) -> tuple[str, str, list[_SonarrEpEntry]]:
     """Return (series_title, series_poster, ep_entries) from the first matching queue item;
-    ep_entries has one accumulator per matching episode.
+    ep_entries has one accumulator per matching episode, of one season when given.
     """
     series_title = ""
     series_poster = ""
@@ -50,7 +49,9 @@ def _sonarr_queue_entries(
 
     for item in queue:
         item_series = item.get("series") or {}
-        if item_series.get("tmdbId") != tmdb_id:
+        episode = item.get("episode") or {}
+        season_num = episode.get("seasonNumber")
+        if item_series.get("tmdbId") != tmdb_id or season_number not in (None, season_num):
             continue
 
         if not series_title:
@@ -58,11 +59,9 @@ def _sonarr_queue_entries(
         if not series_poster:
             series_poster = extract_poster_url(item_series.get("images"))
 
-        episode = item.get("episode") or {}
         size = _safe_int(item.get("size"))
         sizeleft = _safe_int(item.get("sizeleft"))
         ep_progress = _safe_progress(size, sizeleft) if size else 0
-        season_num = episode.get("seasonNumber")
         ep_num = episode.get("episodeNumber")
         ep_label = format_episode_label(season_num, ep_num)
 
@@ -76,6 +75,7 @@ def _sonarr_queue_entries(
                 "status": item.get("status") or "",
                 "tracked_state": item.get("trackedDownloadState") or "",
                 "timeleft": item.get("timeleft", ""),
+                "download_id": item.get("downloadId") or "",
             }
         )
 
@@ -88,8 +88,13 @@ def _sonarr_aggregate(
     """Fold ep_entries into one multi-episode item; callers must pass a non-empty list."""
     ep_entries.sort(key=lambda e: e["label"])
     episodes = build_episode_dicts(cast("list[dict[str, object]]", ep_entries))
-    total_size = sum(e["size"] for e in ep_entries)
-    total_left = sum(e["sizeleft"] for e in ep_entries)
+    # Every episode of a season pack reports the whole pack's size, under one download id.
+    sizes = {
+        e["download_id"] or f"episode {i}": (e["size"], e["sizeleft"])
+        for i, e in enumerate(ep_entries)
+    }
+    total_size = sum(size for size, _ in sizes.values())
+    total_left = sum(left for _, left in sizes.values())
     overall_progress = _safe_progress(total_size, total_left) if total_size else 0
     raw_statuses = [e["status"] for e in ep_entries]
     raw_tracked = [e["tracked_state"] for e in ep_entries]
@@ -121,8 +126,18 @@ def _sonarr_aggregate(
     )
 
 
+def _episode_files(series: SonarrSeries, season_number: int | None) -> int:
+    if season_number is None:
+        return (series.get("statistics") or {}).get("episodeFileCount", 0)
+    return sum(
+        (season.get("statistics") or {}).get("episodeFileCount", 0)
+        for season in series.get("seasons") or []
+        if season.get("seasonNumber") == season_number
+    )
+
+
 def _sonarr_series_fallback(
-    client: ArrClient, conn: sqlite3.Connection, tmdb_id: int
+    client: ArrClient, tmdb_id: int, season_number: int | None = None
 ) -> DownloadItem:
     all_series = client.get_series()
     matched = next(
@@ -130,28 +145,13 @@ def _sonarr_series_fallback(
         None,
     )
     if matched:
-        stats = matched.get("statistics") or {}
         s_title = matched.get("title", "")
-        if stats.get("episodeFileCount", 0) > 0:
+        if _episode_files(matched, season_number) > 0:
             return build_item(
                 dl_id=f"sonarr:{s_title}",
                 title=s_title,
                 media_type="series",
                 poster_url="",
-                state="ready",
-                progress=100,
-                eta="",
-                size_done="",
-                size_total="",
-            )
-
-        recent = fetch_recent_download(conn, f"sonarr:{s_title}")
-        if recent is not None:
-            return build_item(
-                dl_id=recent.dl_id,
-                title=recent.title,
-                media_type="series",
-                poster_url=recent.poster_url,
                 state="ready",
                 progress=100,
                 eta="",

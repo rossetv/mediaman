@@ -118,7 +118,7 @@ def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResp
 @router.post("/api/subscribers")
 def api_add_subscriber(
     request: Request,
-    email: str = Form(...),
+    email: str = Form(default=""),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Add a new subscriber. The SELECT-then-INSERT race is closed in the repository's

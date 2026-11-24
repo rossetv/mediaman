@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import timedelta
 
+from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.core.time import now_iso, now_utc
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.scanner.runner import get_day_setting
@@ -115,13 +116,15 @@ _SHOW_KEPT_SQL = """EXISTS(
 
 # The soonest pending deletion of a media item, by the rule of
 # watch_library.pending_deletions; NULL when none is scheduled.
-_ITEM_DELETION_SQL = """(
+_ITEM_DELETION_SQL = f"""(
                 SELECT MIN(da.execute_at) FROM scheduled_actions da
+                JOIN media_items mi ON mi.id = da.media_item_id
                 WHERE da.media_item_id = filtered.id
                 AND da.action = 'scheduled_deletion'
                 AND da.token_used = 0
                 AND (da.delete_status IS NULL OR da.delete_status = 'pending')
                 AND da.execute_at >= (SELECT now FROM clock)
+                AND {LIBRARY_SELECTED}
             )"""
 
 

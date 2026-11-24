@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 # rationale: make_arr_card is an internal helper not in fetcher/__all__;
 # it is the canonical way to build ArrCard dicts for unit tests of queue items.
 from mediaman.services.arr.fetcher._base import make_arr_card
@@ -128,6 +130,40 @@ class TestBuildUnmatchedArrItem:
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_movie_radarr_is_downloading_is_downloading_without_nzbget(self, _mock_search):
+        arr = make_arr_card(
+            "movie",
+            "Dune",
+            source="Radarr",
+            progress=40,
+            size=100,
+            sizeleft=60,
+            status="downloading",
+        )
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["state"] == "downloading"
+
+    @pytest.mark.parametrize(
+        ("status", "progress"),
+        [("failed", 40), ("failed", 100), ("downloadClientUnavailable", 40), ("warning", 0)],
+    )
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_movie_whose_download_brings_nothing_is_not_downloading(
+        self, _mock_search, status, progress
+    ):
+        arr = make_arr_card(
+            "movie",
+            "Dune",
+            source="Radarr",
+            progress=progress,
+            size=100,
+            sizeleft=100 - progress,
+            status=status,
+        )
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["state"] == "searching"
+
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):
         arr = make_arr_card("series", "Breaking Bad", source="Sonarr", episodes=[])
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
@@ -157,9 +193,9 @@ _TEN_HOURS = 10 * 3600
 class TestAbandonVisibleThreshold:
     """abandon_visible flips on once an item has been searching for ≥10 h."""
 
-    def _make_item(self, added_at: float, progress: int = 0) -> dict:
+    def _make_item(self, searching_since: float, progress: int = 0) -> dict:
         arr = make_arr_card("movie", "Dune", source="Radarr", progress=progress)
-        arr["added_at"] = added_at
+        arr["searching_since"] = searching_since
         with patch(
             "mediaman.services.arr.search_trigger.get_search_info",
             return_value=(5, 1.0),
@@ -168,42 +204,55 @@ class TestAbandonVisibleThreshold:
 
     def test_hidden_when_added_under_ten_hours_ago(self):
         now = __import__("time").time()
-        item = self._make_item(added_at=now - _TEN_HOURS + 3600)  # 9 h ago
+        item = self._make_item(searching_since=now - _TEN_HOURS + 3600)  # 9 h ago
         assert item["abandon_visible"] is False
 
     def test_hidden_just_before_ten_hours(self):
         now = __import__("time").time()
-        item = self._make_item(added_at=now - _TEN_HOURS + 60)  # 1 min short
+        item = self._make_item(searching_since=now - _TEN_HOURS + 60)  # 1 min short
         assert item["abandon_visible"] is False
 
     def test_visible_at_ten_hours(self):
         now = __import__("time").time()
-        item = self._make_item(added_at=now - _TEN_HOURS)
+        item = self._make_item(searching_since=now - _TEN_HOURS)
         assert item["abandon_visible"] is True
 
     def test_visible_well_past_ten_hours(self):
         now = __import__("time").time()
-        item = self._make_item(added_at=now - 48 * 3600)  # 2 days
+        item = self._make_item(searching_since=now - 48 * 3600)  # 2 days
         assert item["abandon_visible"] is True
 
     def test_hidden_when_state_is_not_searching(self):
         """Even after 10 h, non-searching items must not show the button."""
         now = __import__("time").time()
-        item = self._make_item(added_at=now - 48 * 3600, progress=100)
+        item = self._make_item(searching_since=now - 48 * 3600, progress=100)
         assert item["abandon_visible"] is False
 
     def test_abandon_escalated_key_absent(self):
         """abandon_escalated must not appear in the item dict at all."""
         now = __import__("time").time()
-        item = self._make_item(added_at=now - 48 * 3600)
+        item = self._make_item(searching_since=now - 48 * 3600)
         assert "abandon_escalated" not in item
 
-    def test_hidden_when_added_at_is_zero(self):
-        """added_at=0 must never show the Abandon button regardless of clock value."""
+    def test_hidden_when_searching_since_is_zero(self):
+        """searching_since=0 must never show the Abandon button regardless of clock value."""
         # now - 0.0 ≈ 1.7e9 s — far past any threshold — but missing timestamp
         # should not trick us into showing the button.
-        item = self._make_item(added_at=0.0)
+        item = self._make_item(searching_since=0.0)
         assert item["abandon_visible"] is False
+
+    def test_hidden_on_a_show_with_no_season_to_unmonitor(self):
+        arr = make_arr_card("series", "Show", source="Sonarr")
+        arr["searching_since"] = __import__("time").time() - 48 * 3600
+        with patch(
+            "mediaman.services.arr.search_trigger.get_search_info",
+            return_value=(5, 1.0),
+        ):
+            bare = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+            arr["stuck_seasons"] = [{"number": 1, "missing_episodes": 3}]
+            with_season = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert bare["abandon_visible"] is False
+        assert with_season["abandon_visible"] is True
 
 
 def _ep_with_season(label: str, season_number: int) -> dict:

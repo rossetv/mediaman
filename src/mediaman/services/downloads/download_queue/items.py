@@ -29,6 +29,8 @@ class DownloadsResponse(TypedDict):
     upcoming: list[dict[str, object]]
     recent: list[dict[str, object]]
     subtitle: str
+    unreachable: list[str]
+    outage: str
 
 
 def _contains_word_run(haystack: list[str], needle: list[str]) -> bool:
@@ -137,7 +139,7 @@ def build_matched_item(
     )
 
 
-def _derive_series_state(episodes: list[dict[str, object]]) -> str:
+def _derive_state(episodes: list[dict[str, object]]) -> str:
     if episodes and all(e["state"] == "ready" for e in episodes):
         return "almost_ready"
     if any(e["state"] in ("downloading", "queued") for e in episodes):
@@ -156,7 +158,7 @@ def _build_unmatched_series_item(
     abandon_visible_now: bool,
 ) -> DownloadItem:
     episodes = build_episode_dicts(arr.get("episodes", []))
-    state = _derive_series_state(episodes)
+    state = _derive_state(episodes)
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -165,7 +167,11 @@ def _build_unmatched_series_item(
         else ""
     )
     raw_episodes = arr.get("episodes", [])
-    stuck_seasons = _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
+    stuck_seasons = (
+        arr.get("stuck_seasons") or _stuck_seasons_from_episodes(raw_episodes)
+        if state == "searching"
+        else []
+    )
     return build_item(
         dl_id=arr.get("dl_id", ""),
         title=arr.get("title", "Unknown"),
@@ -185,7 +191,8 @@ def _build_unmatched_series_item(
         search_hint=search_hint,
         arr_link=build_arr_link(arr, arr_base_urls),
         arr_source=arr.get("source", ""),
-        abandon_visible=(state == "searching" and abandon_visible_now),
+        # Without a season there is nothing Abandon could unmonitor.
+        abandon_visible=(state == "searching" and abandon_visible_now and bool(stuck_seasons)),
         stuck_seasons=stuck_seasons,
         arr_id=arr.get("arr_id") or 0,
         kind="series",
@@ -202,11 +209,7 @@ def _build_unmatched_movie_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    state = (
-        "almost_ready"
-        if (arr.get("progress") or 0) >= 100
-        else map_state(None, has_nzbget_match=False)
-    )
+    state = _derive_state([{"state": map_episode_state(arr)}])
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -247,7 +250,7 @@ def build_unmatched_arr_item(
     progress (series) or percentage (movie).
 
     abandon_visible turns True once the item has been searching for at least
-    _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS (10 hours by default) since added_at.
+    _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS (10 hours by default).
     """
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     from mediaman.services.arr.search_trigger import get_search_info
@@ -255,10 +258,11 @@ def build_unmatched_arr_item(
     search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
     added_at = arr.get("added_at", 0.0)
     now = time.time()
-    # Guard: added_at=0 means the timestamp is missing; now - 0 ≈ 1.7e9 s
+    since = arr.get("searching_since", 0.0)
+    # Guard: 0 means the start time is missing; now - 0 ≈ 1.7e9 s
     # which would make every such item look like it has been searching for
     # years, showing the Abandon button immediately.
-    abandon_visible_now = added_at > 0.0 and now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
+    abandon_visible_now = since > 0.0 and now - since >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     if arr.get("kind") == "series":
         return _build_unmatched_series_item(
             arr,

@@ -21,6 +21,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.responses import respond_err
+from mediaman.web.routes.download import drop_arr_cache
 from mediaman.web.routes.library_api._redownload_match import AddRefused
 from mediaman.web.routes.library_api._redownload_radarr import _redownload_movie
 from mediaman.web.routes.library_api._redownload_sonarr import _redownload_season
@@ -134,6 +135,9 @@ def api_media_redownload(
             )
         except _ARR_FAILURES as exc:
             return _arr_failure(exc, "Radarr", title)
+        finally:
+            # A failed request may have added the title too.
+            drop_arr_cache()
 
     if tvdb_id is not None and tmdb_id is None and season_number is not None:
         sonarr = build_sonarr_from_db(conn, secret_key)
@@ -150,5 +154,7 @@ def api_media_redownload(
             )
         except _ARR_FAILURES as exc:
             return _arr_failure(exc, "Sonarr", title)
+        finally:
+            drop_arr_cache()
 
     return _bad_request("Provide tmdb_id for a movie, or tvdb_id and season_number for a season")

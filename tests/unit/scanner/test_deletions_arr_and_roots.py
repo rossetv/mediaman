@@ -417,6 +417,14 @@ class TestVerifiedUnmonitor:
         assert _status(conn, "m1") is None
         assert _audit(conn, "m1", "unmonitor_skipped") == []
 
+    def test_a_radarr_set_up_only_after_the_deletion_unmonitors_nothing(self, conn, movie):
+        DeletionExecutor(conn=conn).execute()
+        radarr = _radarr(_MOVIE)
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert radarr.mock_calls == []
+
     @pytest.mark.parametrize("failing", ["get_movie_by_id", "unmonitor_movie"])
     def test_a_radarr_error_is_audited_and_the_deletion_stands(self, conn, movie, failing):
         radarr = _radarr(_MOVIE)

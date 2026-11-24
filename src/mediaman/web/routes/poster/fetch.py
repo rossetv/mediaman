@@ -26,6 +26,7 @@ import requests
 from fastapi.responses import Response
 
 from mediaman.config import Config
+from mediaman.core.format import log_snippet
 from mediaman.crypto import decrypt_value
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -66,6 +67,9 @@ _MISSING_POSTERS: dict[str, float] = {}
 # original of many megabytes under the body cap.
 _POSTER_WIDTH = 600
 _POSTER_HEIGHT = 900
+# The Watch banner fills the page width, so its backdrop is asked for at full-screen size.
+_ART_WIDTH = 1920
+_ART_HEIGHT = 1080
 
 
 def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
@@ -205,13 +209,10 @@ def load_plex_credentials(
 
 
 def _log_snippet(snippet: str, token: str | None = None, limit: int = 200) -> str:
-    """Make an upstream body snippet safe to log: the token is redacted before the cut, so one
-    straddling the limit cannot leak, and any line break is folded to a space so the body
-    cannot forge log lines.
-    """
+    """An upstream body snippet for the log, its token redacted before the cut to *limit*."""
     if token:
         snippet = snippet.replace(token, "***")
-    return " ".join(snippet.split())[:limit]
+    return log_snippet(snippet, limit)
 
 
 # The safe client reports a transport error as a status-0 SafeHTTPError whose snippet names the
@@ -225,30 +226,35 @@ def _is_connect_failure(exc: BaseException) -> bool:
     return isinstance(exc, requests.ConnectionError | requests.ConnectTimeout)
 
 
-def fetch_plex_poster(
-    plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
+def _fetch_plex_image(
+    plex_base: str,
+    plex_token: str,
+    rating_key: str,
+    *,
+    image: str,
+    width: int,
+    height: int,
+    http_client: SafeHTTPClient | None,
 ) -> tuple[bytes | None, str]:
-    """Fetch a poster from Plex; returns (content, content_type) or (None, 'image/jpeg').
+    """Fetch one of an item's Plex images (``thumb`` or ``art``); (content, content_type), or
+    (None, 'image/jpeg') when Plex has none.
 
-    Asks Plex's photo transcoder for a card-sized copy first, so an original over the body cap
-    still shows, and falls back to the original when the transcoder answers with an HTTP error
-    or a rejected body or a read timeout. A connect failure (Plex unreachable) ends the fetch:
-    the original would fail the same way, after the same retries. Both are GETs.
-    http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
-    _make_poster_client.
+    Asks Plex's photo transcoder for a copy at the size shown first, so an original over the
+    body cap still shows, and falls back to the original when the transcoder answers with an
+    HTTP error or a rejected body or a read timeout. A connect failure (Plex unreachable) ends
+    the fetch: the original would fail the same way, after the same retries. Both are GETs.
     """
     client = http_client if http_client is not None else _POSTER_HTTP
-    thumb_path = f"/library/metadata/{rating_key}/thumb"
-    query = urlencode(
-        {"width": _POSTER_WIDTH, "height": _POSTER_HEIGHT, "minSize": 1, "url": thumb_path}
-    )
-    for url in (f"{plex_base}/photo/:/transcode?{query}", f"{plex_base}{thumb_path}"):
+    image_path = f"/library/metadata/{rating_key}/{image}"
+    query = urlencode({"width": width, "height": height, "minSize": 1, "url": image_path})
+    for url in (f"{plex_base}/photo/:/transcode?{query}", f"{plex_base}{image_path}"):
         try:
             response = client.get(url, headers={"X-Plex-Token": plex_token})
             return response.content, safe_mime(response.headers.get("Content-Type"))
         except SafeHTTPError as exc:
             logger.warning(
-                "Plex poster fetch failed for rating_key=%s (%s): %s",
+                "Plex %s fetch failed for rating_key=%s (%s): %s",
+                image,
                 rating_key,
                 exc.status_code,
                 _log_snippet(exc.body_snippet, plex_token),
@@ -257,11 +263,58 @@ def fetch_plex_poster(
                 break
         except requests.RequestException as exc:
             logger.warning(
-                "Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True
+                "Failed to fetch Plex %s for rating_key=%s", image, rating_key, exc_info=True
             )
             if _is_connect_failure(exc):
                 break
     return None, "image/jpeg"
+
+
+def fetch_plex_poster(
+    plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
+) -> tuple[bytes | None, str]:
+    """Fetch a poster from Plex; returns (content, content_type) or (None, 'image/jpeg').
+
+    http_client defaults to _POSTER_HTTP; callers that need the SSRF allowlist pass one from
+    _make_poster_client.
+    """
+    return _fetch_plex_image(
+        plex_base,
+        plex_token,
+        rating_key,
+        image="thumb",
+        width=_POSTER_WIDTH,
+        height=_POSTER_HEIGHT,
+        http_client=http_client,
+    )
+
+
+def fetch_plex_art(
+    conn: sqlite3.Connection, rating_key: str, plex_base: str, plex_token: str
+) -> tuple[bytes, str] | None:
+    """Fetch the wide backdrop Plex holds for an item; None when it has none.
+
+    An item with no backdrop is not asked for again for a few minutes, as with a poster.
+    """
+    pause_key = f"{rating_key}:art"
+    now = monotonic()
+    if _MISSING_POSTERS.get(pause_key, 0.0) > now:
+        return None
+    content, content_type = _fetch_plex_image(
+        plex_base,
+        plex_token,
+        rating_key,
+        image="art",
+        width=_ART_WIDTH,
+        height=_ART_HEIGHT,
+        http_client=_make_poster_client(conn),
+    )
+    if content is None:
+        if len(_MISSING_POSTERS) >= _MISSING_POSTERS_MAX:
+            _MISSING_POSTERS.clear()
+        _MISSING_POSTERS[pause_key] = now + _MISSING_POSTER_PAUSE_SECONDS
+        return None
+    return content, content_type
 
 
 def _resolve_arr_poster_url(

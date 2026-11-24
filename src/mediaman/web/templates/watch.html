@@ -6,10 +6,10 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="/static/css/_watch_browse.css">
-<link rel="stylesheet" href="/static/css/_watch_search.css">
-<link rel="stylesheet" href="/static/css/_watch_detail.css">
-{% if is_admin %}<link rel="stylesheet" href="/static/css/_watch_list.css">{% endif %}
+<link rel="stylesheet" href="/static/css/_watch_browse.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_search.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
+{% if is_admin %}<link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">{% endif %}
 {% endblock %}
 
 {% macro row_section(row) -%}
@@ -68,10 +68,15 @@
     {% else %}
     {% if banner %}
     <section class="watch-banner" aria-label="Featured">
-      {% if banner.backdrop_url %}<img class="watch-banner__bg" src="{{ banner.backdrop_url }}" alt="" data-broken-on-error>{% endif %}
+      {% if banner.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ banner.backdrop_url }}" alt=""{% if banner.next_backdrop_url %} data-next-src="{{ banner.next_backdrop_url }}"{% endif %} data-wide-art data-broken-on-error>{% endif %}
+      {# Lazy and hidden until no backdrop loads that is a wide picture, so the browser only then asks for the poster. #}
+      {% if banner.poster_url %}
+      <img class="watch-banner__bg watch-banner__bg--fill" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
+      <img class="watch-banner__poster" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
+      {% endif %}
       <div class="watch-banner__body">
         {% if banner.kicker %}<span class="watch-banner__kicker">{{ banner.kicker }}</span>{% endif %}
-        <h1 class="watch-banner__title">{{ banner.title }}</h1>
+        <h1 class="watch-banner__title{% if banner.title|length > 80 %} watch-banner__title--longest{% elif banner.title|length > 40 %} watch-banner__title--long{% endif %}">{{ banner.title }}</h1>
         {% if banner.line %}
         <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>
         <p class="watch-banner__line watch-banner__line--short">{{ banner.line_short or banner.line }}</p>
@@ -137,15 +142,15 @@
 </div>
 
 <script type="application/json" id="watch-page-data">{{ page_data | tojson }}</script>
-<script src="/static/js/watch/core.js" defer></script>
-<script src="/static/js/watch/keep.js" defer></script>
-<script src="/static/js/watch/search.js" defer></script>
-<script src="/static/js/watch/browse.js" defer></script>
-<script src="/static/js/watch/detail.js" defer></script>
+<script src="/static/js/watch/core.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/keep.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/search.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/detail.js?v={{ static_v }}" defer></script>
 {% if is_admin %}
-<script src="/static/js/watch/admin.js" defer></script>
-<script src="/static/js/watch/list.js" defer></script>
+<script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/list.js?v={{ static_v }}" defer></script>
 {% endif %}
-<script src="/static/js/watch.js" defer></script>
-<script src="/static/js/watch-rows.js" defer></script>
+<script src="/static/js/watch.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}

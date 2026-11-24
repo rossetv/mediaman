@@ -72,6 +72,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
         start_scan_run,
     )
     from mediaman.scanner.runner import run_scan_from_db
+    from mediaman.web.repository.delete_intents import reconcile_before_scan
 
     db_conn = get_db()
     run_id = start_scan_run(db_conn)
@@ -105,6 +106,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
     heartbeat_thread = threading.Thread(target=_heartbeat_loop, name="scan-heartbeat", daemon=True)
     heartbeat_thread.start()
     try:
+        reconcile_before_scan(db_conn, secret_key)
         run_scan_from_db(db_conn, secret_key)
         finish_scan_run(db_conn, run_id, "done")
     except Exception as exc:  # rationale: scheduler must survive a single bad row

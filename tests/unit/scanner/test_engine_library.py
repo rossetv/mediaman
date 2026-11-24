@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
+from xml.etree.ElementTree import ParseError
 
 import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_kept_show, insert_media_item
 
 
@@ -446,3 +448,43 @@ class TestUnknownLibraryType:
         assert result["scanned"] == 0
         msgs = " ".join(r.getMessage() for r in caplog.records)
         assert "unsupported_library_type" in msgs
+
+
+class TestSyncWithOneBadLibrary:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SafeHTTPError(status_code=200, body_snippet="too large", url="http://plex"),
+            ValueError("invalid literal"),
+            ParseError("no element found"),
+        ],
+        ids=["too_large", "bad_value", "bad_xml"],
+    )
+    def test_the_other_libraries_still_sync(self, conn, mock_plex, error):
+        def movies(library_id):
+            if library_id == "1":
+                raise error
+            return [
+                {
+                    "plex_rating_key": "20",
+                    "title": "Film",
+                    "added_at": datetime(2020, 1, 1, tzinfo=UTC),
+                    "file_path": "/media/film.mkv",
+                    "file_size_bytes": 1,
+                }
+            ]
+
+        insert_media_item(conn, id="10", plex_rating_key="10", plex_library_id=1)
+        conn.commit()
+        mock_plex.get_movie_items.side_effect = movies
+
+        summary = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1", "2"],
+            library_types={"1": "movie", "2": "movie"},
+            secret_key="test-key",
+        ).sync_library()
+
+        assert summary["errors"] == 1
+        assert {r[0] for r in conn.execute("SELECT id FROM media_items")} == {"10", "20"}

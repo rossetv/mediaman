@@ -393,6 +393,29 @@ class TestWatchRows:
         assert banner["progress_pct"] == 40
         assert banner["ref"] == "show-500"
 
+    def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
+        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
+
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/500?kind=art"
+
+    def test_the_banner_names_tmdbs_backdrop_to_try_next(self, get, conn):
+        banner = get("/watch").json()["banner"]
+        assert banner["next_backdrop_url"] == "/api/poster/101?kind=art&source=tmdb"
+
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        banner = get("/watch").json()["banner"]
+        assert banner["next_backdrop_url"] == "/api/poster/500?kind=art&source=tmdb"
+
+    def test_the_banner_carries_the_poster_apart_from_the_backdrop(self, get, conn):
+        assert get("/watch").json()["banner"]["poster_url"] == "/api/poster/101"
+
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        assert get("/watch").json()["banner"]["poster_url"] == "/api/poster/500"
+
     def test_the_banner_says_continue_watching_for_a_title_in_progress(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
@@ -626,6 +649,20 @@ class TestPlayerPage:
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
         assert get("/watch/play/100?resume=1").json()["start_s"] == 1200
+
+    def test_reloading_the_plain_address_keeps_the_saved_place(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["start_s"] == 1200
+
+    def test_a_title_just_begun_starts_at_zero(self, get, conn):
+        _play(conn, "aoife", "100", position=5, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["start_s"] == 0
+
+    def test_a_finished_title_starts_at_zero_without_resume(self, get, conn):
+        _play(conn, "aoife", "100", position=5900, duration=6000, item="100")
+
         assert get("/watch/play/100").json()["start_s"] == 0
 
     def test_resume_of_a_watched_item_starts_from_the_beginning(self, get, conn):

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Collection
 
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 
 logger = logging.getLogger(__name__)
@@ -281,3 +283,97 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
         "WHERE action = 'snoozed' AND token_used = 0 AND execute_at < ?",
         (now_iso,),
     )
+
+
+_KEEP_COLUMNS = "action, scheduled_at, execute_at, token_used, snoozed_at, snooze_duration"
+
+
+def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
+    """Set aside the live keeps of items about to be removed, and forget lapsed ones.
+
+    Run it in the transaction that removes the items.
+    """
+    now = now_iso()
+    conn.execute("DELETE FROM pruned_keeps WHERE action = 'snoozed' AND execute_at < ?", (now,))
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    conn.executemany(  # nosec B608
+        f"INSERT INTO pruned_keeps (media_item_id, file_path, season_number, {_KEEP_COLUMNS}) "
+        f"SELECT mi.id, mi.file_path, mi.season_number, {_KEEP_COLUMNS} "
+        "FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
+        "WHERE mi.id = ? AND (sa.action = 'protected_forever' "
+        "  OR (sa.action = 'snoozed' AND sa.execute_at >= ?))",
+        [(media_id, now) for media_id in media_ids],
+    )
+    # A keep the item's new key already holds goes back to the old key alone:
+    # by path, the next new key would take it though it was removed meanwhile.
+    conn.execute(
+        "UPDATE pruned_keeps SET file_path = '' WHERE EXISTS ("
+        "  SELECT 1 FROM media_items mi JOIN scheduled_actions sa ON sa.media_item_id = mi.id "
+        "  WHERE mi.file_path = pruned_keeps.file_path "
+        "    AND mi.season_number IS pruned_keeps.season_number "
+        "    AND sa.action = pruned_keeps.action AND sa.scheduled_at = pruned_keeps.scheduled_at "
+        "    AND sa.execute_at IS pruned_keeps.execute_at "
+        "    AND NOT EXISTS (SELECT 1 FROM pruned_keeps own WHERE own.media_item_id = mi.id))"
+    )
+
+
+def take_pruned_keeps(
+    conn: sqlite3.Connection, media_id: str, file_path: str, season_number: object
+) -> list[sqlite3.Row]:
+    """Remove and return the live keeps set aside for this item.
+
+    Plex gives an item it removed and found again a new key, so one that is
+    not in the library yet also takes those of its path and season.
+    """
+    keeps = conn.execute(
+        "SELECT * FROM pruned_keeps "
+        "WHERE (action = 'protected_forever' OR execute_at >= ?) "
+        "  AND (media_item_id = ? OR (file_path != '' AND file_path = ? AND season_number IS ? "
+        "    AND NOT EXISTS (SELECT 1 FROM media_items WHERE id = ?)))",
+        (now_iso(), media_id, file_path, season_number, media_id),
+    ).fetchall()
+    conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(keep["id"],) for keep in keeps])
+    return keeps
+
+
+def fetch_replaced_keep(
+    conn: sqlite3.Connection,
+    media_id: str,
+    file_path: str,
+    season_number: object,
+    listed: Collection[str],
+) -> list[sqlite3.Row]:
+    """Return the longest live keep of the item *media_id* replaces, none if it replaces no item.
+
+    Plex gives an item a new key and drops the old one, which is still in the
+    library: of the same path and season, and not in *listed*, the keys Plex
+    lists now. Only a key not in the library yet replaces another. The keep is
+    left on the old key too, as a list that is too short may miss it.
+    """
+    rows = conn.execute(
+        "SELECT sa.* FROM media_items mi JOIN scheduled_actions sa ON sa.media_item_id = mi.id "
+        "WHERE mi.file_path = ? AND mi.file_path != '' AND mi.season_number IS ? "
+        "  AND (sa.action = 'protected_forever' OR (sa.action = 'snoozed' AND sa.execute_at >= ?)) "
+        "  AND NOT EXISTS (SELECT 1 FROM media_items WHERE id = ?) "
+        "ORDER BY sa.action = 'protected_forever' DESC, sa.execute_at DESC",
+        (file_path, season_number, now_iso(), media_id),
+    )
+    return [row for row in rows if row["media_item_id"] not in listed][:1]
+
+
+def restore_keeps(conn: sqlite3.Connection, media_id: str, keeps: list[sqlite3.Row]) -> None:
+    """Put *keeps* of take_pruned_keeps or fetch_replaced_keep on the item and audit each."""
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    conn.executemany(  # nosec B608
+        f"INSERT INTO scheduled_actions (media_item_id, {_KEEP_COLUMNS}) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(media_id, *(keep[c] for c in _KEEP_COLUMNS.split(", "))) for keep in keeps],
+    )
+    for keep in keeps:
+        log_audit(
+            conn,
+            media_id,
+            "kept" if keep["action"] == "protected_forever" else "snoozed",
+            "Keep given back: Plex lists the title again"
+            + ("" if keep["media_item_id"] == media_id else " under a new key"),
+        )

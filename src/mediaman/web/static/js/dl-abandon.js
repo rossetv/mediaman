@@ -77,6 +77,9 @@
   }
 
   function buildSeasonRow(s) {
+    var missing = s.missing_episodes || 0;
+    /* Only what is being searched for in vain is ticked to begin with. */
+    var on = missing > 0 && s.number !== 0;
     var row = document.createElement('div');
     row.className = 'setg-row';
     row.dataset.seasonRow = '';
@@ -86,20 +89,21 @@
     var lbl = document.createElement('div');
     lbl.className = 'setg-row-lbl';
     lbl.id = 'abandon-season-lbl-' + s.number;
-    lbl.textContent = 'Season ' + s.number;
+    lbl.textContent = s.number === 0 ? 'Specials' : 'Season ' + s.number;
     var sub = document.createElement('div');
     sub.className = 'setg-row-sub';
-    sub.textContent = s.missing_episodes + ' missing episode'
-      + (s.missing_episodes === 1 ? '' : 's');
+    sub.textContent = missing === 0 && s.aired === false
+      ? 'Not aired yet'
+      : (missing || 'No') + ' missing episode' + (missing === 1 ? '' : 's');
     left.appendChild(lbl);
     left.appendChild(sub);
 
     var right = document.createElement('div');
     var tog = document.createElement('span');
-    tog.className = 'tog on';
+    tog.className = on ? 'tog on' : 'tog';
     tog.setAttribute('role', 'switch');
     tog.setAttribute('tabindex', '0');
-    tog.setAttribute('aria-checked', 'true');
+    tog.setAttribute('aria-checked', on ? 'true' : 'false');
     tog.setAttribute('aria-labelledby', lbl.id);
     function flip() {
       if (isBusy()) return;

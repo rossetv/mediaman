@@ -3,11 +3,16 @@ title's detail and a season's episodes, for viewers and admins alike."""
 
 from __future__ import annotations
 
+import sys
+import time
 from dataclasses import replace
+from datetime import timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
@@ -16,6 +21,7 @@ from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
+from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search import download as search_download
 from mediaman.web.routes.watch import catalog_api, pages
 from tests.helpers.factories import (
@@ -148,16 +154,21 @@ def _fresh_memo(monkeypatch):
     monkeypatch.setattr(_library, "_tvdb", {})
     monkeypatch.setattr(_library, "_held", {})
     monkeypatch.setattr(_library, "sync", True)
+    monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+    monkeypatch.setattr(catalog_api, "_title_paused", {})
+    monkeypatch.setattr(catalog_api, "_unanswered_streak", 0)
+    monkeypatch.setattr(catalog_api, "_outage_until", 0.0)
     yield
     catalog.invalidate()
 
 
 @pytest.fixture
-def tmdb(monkeypatch):
+def tmdb(monkeypatch, conn):
+    insert_settings(conn, omdb_api_key="omdb-key")
     fake = FakeTmdb()
     monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: fake)
     monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
-    monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: {})
+    monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {})
     return fake
 
 
@@ -430,7 +441,7 @@ class TestTmdbTitle:
     ):
         monkeypatch.setattr(
             catalog_api,
-            "fetch_ratings",
+            "lookup_ratings",
             lambda *_a, **_k: {"imdb": "7.1", "rt": "92%", "metascore": "81"},
         )
 
@@ -553,13 +564,227 @@ class TestTmdbTitle:
         cache = DictCache()
         monkeypatch.setattr(_discover, "_cache", lambda: cache)
         monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(1, 60))
+        # Nothing is remembered of OMDb's answers, so only the limit can refuse the second ask.
+        monkeypatch.setattr(catalog_api, "upsert_ratings_cache", lambda *_a, **_k: None)
         asked = []
-        monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: asked.append(1) or {})
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
 
         for _ in range(2):
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
 
         assert len(asked) == 1
+
+    def test_an_omdb_answer_with_no_ratings_is_remembered_for_a_day(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        asked = []
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
+
+        for _ in range(3):
+            assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
+        assert len(asked) == 1
+
+        stale = (now_utc() - timedelta(days=1, minutes=1)).isoformat()
+        conn.execute("UPDATE ratings_cache SET fetched_at = ?", (stale,))
+        conn.commit()
+        viewer.get("/api/watch/title/tmdb-movie-12")
+
+        assert len(asked) == 2
+
+    def _hold_ratings(self, conn, fetched_at):
+        conn.execute(
+            "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+            " fetched_at) VALUES (12, 'movie', '7.1', '92%', '81', ?)",
+            (fetched_at,),
+        )
+        conn.commit()
+
+    def test_an_omdb_that_gives_no_answer_keeps_the_ratings_held_and_caches_nothing_new(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        old = (now_utc() - timedelta(days=40)).isoformat()
+        self._hold_ratings(conn, old)
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: None)
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        row = conn.execute(
+            "SELECT imdb_rating, rt_rating, fetched_at FROM ratings_cache"
+        ).fetchone()
+        assert (row["imdb_rating"], row["rt_rating"], row["fetched_at"]) == ("7.1", "92%", old)
+        assert body["ratings"]["imdb"] == "7.1"
+
+    def test_an_omdb_answer_of_no_ratings_does_not_wipe_the_ratings_held(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        row = conn.execute("SELECT imdb_rating, rt_rating, metascore FROM ratings_cache").fetchone()
+        assert (row["imdb_rating"], row["rt_rating"], row["metascore"]) == ("7.1", "92%", "81")
+        assert body["ratings"]["imdb"] == "7.1"
+        assert body["ratings"]["rt"] == "92%"
+        assert body["ratings"]["metascore"] == "81"
+
+    def test_an_omdb_answer_with_some_ratings_adds_to_the_ratings_held(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {"imdb": "8.0"})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["ratings"]["imdb"] == "8.0"
+        assert body["ratings"]["rt"] == "92%"
+
+    def test_a_refused_allowance_shows_the_ratings_held_and_does_not_ask_omdb(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        viewer.get("/api/watch/title/tmdb-movie-12")  # TMDB is now cached
+        conn.execute("DELETE FROM ratings_cache")
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", MagicMock(check=lambda *_a, **_k: False))
+        asked = []
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert asked == []
+        assert body["ratings"]["imdb"] == "7.1"
+
+    def test_after_no_answer_a_second_open_asks_nothing_and_is_not_counted(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        limiter = MagicMock(check=MagicMock(return_value=True))
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", limiter)
+        asked = []
+        monkeypatch.setattr(
+            catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or None
+        )
+
+        for _ in range(2):
+            assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
+
+        assert len(asked) == 1
+        assert limiter.check.call_count == 1
+
+    def test_one_title_without_an_answer_does_not_pause_the_ratings_of_another(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(
+            catalog_api,
+            "lookup_ratings",
+            lambda title, *_a, **_k: None if title == "The Glasshouse" else {"imdb": "6.5"},
+        )
+
+        viewer.get("/api/watch/title/tmdb-movie-11")
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["ratings"]["imdb"] == "6.5"
+        assert _enrichment._paused_until == 0.0
+
+    def test_three_titles_in_a_row_without_an_answer_pause_omdb_for_all(self, monkeypatch):
+        for tmdb_id in range(3):
+            catalog_api._pause_title((tmdb_id, "movie"))
+
+        assert catalog_api._title_is_paused((99, "movie"))
+
+    def test_an_answer_resets_the_run_of_titles_without_one(self):
+        for tmdb_id in range(2):
+            catalog_api._pause_title((tmdb_id, "movie"))
+        catalog_api._note_answer()
+        catalog_api._pause_title((5, "movie"))
+
+        assert not catalog_api._title_is_paused((99, "movie"))
+
+    def test_one_title_opened_three_times_at_once_does_not_pause_the_others(self):
+        for _ in range(3):
+            catalog_api._pause_title((1, "movie"))
+
+        assert catalog_api._title_is_paused((1, "movie"))
+        assert not catalog_api._title_is_paused((99, "movie"))
+
+    def test_ratings_resets_the_run_of_titles_without_an_answer_when_omdb_answers(
+        self, conn, monkeypatch
+    ):
+        asked = []
+
+        def lookup(title, *_a, **_k):
+            asked.append(title)
+            return {"imdb": "7.0"} if title == "answered" else None
+
+        monkeypatch.setattr(catalog_api, "get_omdb_key", lambda *_a: "omdb-key")
+        monkeypatch.setattr(catalog_api, "is_key_refused", lambda _key: False)
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lookup)
+
+        for tmdb_id, title in enumerate(["a", "b", "answered", "c", "new"], start=1):
+            catalog_api._ratings(conn, "secret", "movie", tmdb_id, title, None, lambda: True)
+
+        assert asked[-1] == "new"
+
+    def test_the_title_pause_map_holds_up_under_threads_when_full(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        for i in range(catalog_api._TITLE_PAUSE_MAX):
+            catalog_api._title_paused[(i, "movie")] = time.monotonic() + 900
+
+        def work(n):
+            for i in range(300):
+                catalog_api._pause_title((n * 1000 + i, "tv"))
+                catalog_api._title_is_paused((i, "movie"))
+
+        switch = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            with ThreadPoolExecutor(8) as pool:
+                list(pool.map(work, range(8)))
+        finally:
+            sys.setswitchinterval(switch)
+
+        assert len(catalog_api._title_paused) <= catalog_api._TITLE_PAUSE_MAX
+
+    def test_a_title_is_not_asked_of_omdb_while_search_has_paused_it(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(_enrichment, "_paused_until", time.monotonic() + 60)
+        asked = []
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert asked == []
+        assert body["ratings"]["imdb"] == "7.1"
+
+    def test_a_title_is_not_counted_while_omdb_refuses_the_key(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        viewer.get("/api/watch/title/tmdb-movie-11")  # TMDB is now cached
+        monkeypatch.setattr(catalog_api, "is_key_refused", lambda _key: True)
+        limiter = MagicMock(check=MagicMock(return_value=True))
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", limiter)
+        monkeypatch.setattr(catalog_api, "fetch_ratings_cache", lambda *_a: [])
+
+        assert viewer.get("/api/watch/title/tmdb-movie-11").status_code == 200
+
+        limiter.check.assert_not_called()
+
+    def test_an_omdb_that_gives_no_answer_is_not_remembered_as_no_ratings(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: None)
+
+        viewer.get("/api/watch/title/tmdb-movie-12")
+
+        assert conn.execute("SELECT COUNT(*) FROM ratings_cache").fetchone()[0] == 0
 
 
 class TestShowsSonarrDoesNotTrack:

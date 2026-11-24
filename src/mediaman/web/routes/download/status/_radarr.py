@@ -4,7 +4,6 @@ barrel so build_radarr_from_db stays patchable.
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any, cast
 
 from mediaman.core.format import format_bytes
@@ -15,7 +14,6 @@ from mediaman.services.downloads.download_format import (
     map_arr_status,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
-from mediaman.web.repository.download import fetch_recent_download
 
 from ._shared import _format_timeleft, _safe_int, _safe_progress
 
@@ -72,26 +70,8 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
     return None
 
 
-def _radarr_fallback_item(conn: sqlite3.Connection, movie: RadarrMovie | None) -> DownloadItem:
-    """Return a recent-download or searching envelope when the queue had no match. Falling back
-    to a recent download preserves the after-import UX where a movie leaves the queue
-    between polls.
-    """
+def _radarr_searching_item(movie: RadarrMovie | None) -> DownloadItem:
     title = (movie or {}).get("title", "")
-    if title:
-        recent = fetch_recent_download(conn, f"radarr:{title}")
-        if recent is not None:
-            return build_item(
-                dl_id=recent.dl_id,
-                title=recent.title,
-                media_type="movie",
-                poster_url=recent.poster_url,
-                state="ready",
-                progress=100,
-                eta="",
-                size_done="",
-                size_total="",
-            )
     return build_item(
         dl_id=f"radarr:{title}" if title else "",
         title=title,

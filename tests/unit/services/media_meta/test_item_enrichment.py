@@ -254,3 +254,25 @@ class TestEnrichRedownloadItem:
         enrich_redownload_item(item, conn, SECRET)
 
         mock_fetch.assert_called_once()
+
+    @patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb")
+    def test_a_title_known_by_its_id_is_not_given_the_details_of_a_namesake(self, mock_fetch, conn):
+        for tmdb_id, year, created in [(438631, 2021, "2026-01-01"), (841, 1984, "2026-02-01")]:
+            insert_suggestion(
+                conn,
+                title="Dune" if tmdb_id == 841 else "Dune: Part One",
+                media_type="movie",
+                tmdb_id=tmdb_id,
+                year=year,
+                poster_url=f"https://example.com/{year}.jpg",
+                created_at=created,
+            )
+
+        item = {"title": "Dune", "media_type": "movie", "tmdb_id": 438631}
+        enrich_redownload_item(item, conn, SECRET)
+        assert item["year"] == 2021
+
+        other = {"title": "Dune", "media_type": "movie", "tmdb_id": 9}
+        enrich_redownload_item(other, conn, SECRET)
+        assert "year" not in other
+        mock_fetch.assert_called_once_with(other, conn, SECRET)

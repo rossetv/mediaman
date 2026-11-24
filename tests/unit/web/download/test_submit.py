@@ -438,3 +438,23 @@ class TestDownloadSubmitRefusesMissingTmdbId:
         # The replay set should not contain the rejected token.
         with _USED_TOKENS_LOCK:
             assert token not in _USED_TOKENS
+
+
+def test_a_failed_audit_write_takes_the_notification_row_with_it(conn):
+    from mediaman.web.routes.download.submit import _record_and_respond
+
+    with pytest.raises(UnicodeEncodeError):
+        _record_and_respond(
+            conn=conn,
+            email="viewer@example.com",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            service="radarr",
+            audit_action="re-downloaded",
+            audit_detail="\ud800",
+            secret_key="k" * 64,
+        )
+
+    assert not conn.in_transaction
+    assert conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0] == 0

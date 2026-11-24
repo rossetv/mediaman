@@ -4,7 +4,7 @@ Public entry points:
 
 - ``fetch_arr_queue`` -- returns a plain list of cards.
 - ``fetch_arr_queue_result`` -- returns a ``FetchResult`` that also
-  carries any fetch errors so the UI can display a banner.
+  carries any fetch errors and the names of the services that failed.
 
 All public symbols are re-exported here so imports such as
 ``from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue``
@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -26,8 +28,12 @@ from mediaman.services.arr.fetcher._base import (
     FetchResult,
 )
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
+from mediaman.services.arr.fetcher._searching_since import stamp_searching_since
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 logger = logging.getLogger(__name__)
 
@@ -48,43 +54,45 @@ def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchRe
     in DB settings.
 
     Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
-    callers can show a UI banner when a service is unreachable.
+    callers can show when a service is unreachable.
     """
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
     result = FetchResult()
-
-    try:
-        radarr_client = build_radarr_from_db(conn, secret_key)
-        if radarr_client is not None:
-            result.cards.extend(fetch_radarr_queue(radarr_client))
-    except (
-        SafeHTTPError,
-        requests.RequestException,
-        ArrError,
-        sqlite3.Error,
-        ConfigDecryptError,
-    ) as exc:
-        msg = f"Radarr fetch failed: {exc}"
-        logger.warning("Failed to fetch Radarr queue: %s", exc, exc_info=True)
-        result.errors.append(msg)
-
-    try:
-        sonarr_client = build_sonarr_from_db(conn, secret_key)
-        if sonarr_client is not None:
-            result.cards.extend(fetch_sonarr_queue(sonarr_client))
-    except (
-        SafeHTTPError,
-        requests.RequestException,
-        ArrError,
-        sqlite3.Error,
-        ConfigDecryptError,
-    ) as exc:
-        msg = f"Sonarr fetch failed: {exc}"
-        logger.warning("Failed to fetch Sonarr queue: %s", exc, exc_info=True)
-        result.errors.append(msg)
-
+    _fetch_service(conn, secret_key, "Radarr", build_radarr_from_db, fetch_radarr_queue, result)
+    _fetch_service(conn, secret_key, "Sonarr", build_sonarr_from_db, fetch_sonarr_queue, result)
     return result
+
+
+def _fetch_service(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    name: str,
+    build: Callable[[sqlite3.Connection, str], ArrClient | None],
+    fetch: Callable[..., list[ArrCard]],
+    result: FetchResult,
+) -> None:
+    """Add one service's cards to *result*, or the error that kept them out."""
+    failures: list[str] = []
+    try:
+        client = build(conn, secret_key)
+        if client is None:
+            return
+        cards = fetch(client, on_failure=lambda: failures.append(name))
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ) as exc:
+        logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
+        result.errors.append(f"{name} fetch failed: {exc}")
+        result.unreachable.append(name)
+        return
+    result.unreachable.extend(failures)
+    stamp_searching_since(conn, name.lower(), cards, complete=not failures)
+    result.cards.extend(cards)
 
 
 def fetch_arr_queue(conn: sqlite3.Connection, secret_key: str) -> list[ArrCard]:

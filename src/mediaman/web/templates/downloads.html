@@ -12,6 +12,9 @@
 {%- set dl_empty_icon %}
 <i class="fa-solid fa-download" aria-hidden="true"></i>
 {%- endset %}
+{%- set dl_outage_icon %}
+<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+{%- endset %}
 <div class="container" id="dl-root" data-can-abandon="{{ 'true' if can_abandon else 'false' }}">
 
   <div class="ph">
@@ -41,8 +44,10 @@
   {#- Empty state sits where active downloads go — above "Coming soon".
       The container is always present so the poll loop just fills or
       clears it; #dl-root child order stays fixed. -#}
-  <div id="dl-empty-container">
-    {% if not hero and not queue %}
+  <div id="dl-empty-container" role="status">
+    {% if outage and not hero and not queue %}
+    {{ c.empty("Downloads can't be checked right now", "This page keeps trying.", icon_svg=dl_outage_icon) }}
+    {% elif not hero and not queue %}
     {{ c.empty("All caught up", "Nothing downloading right now.", icon_svg=dl_empty_icon) }}
     {% endif %}
   </div>
@@ -68,15 +73,13 @@
 </div>
 
 {% if can_abandon %}{% include "_dl_abandon_modal.html" %}{% endif %}
-<script src="{{ url_for('static', path='js/core/api.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/core/dom.js') }}" defer></script>
 {# Renderer + helper modules must register on MM.downloads before downloads.js
    wires them into the poll loop. #}
-<script src="{{ url_for('static', path='js/downloads/build_dom.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_hero.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_row.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/render_recent.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads/poll.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/downloads.js') }}" defer></script>
-<script src="{{ url_for('static', path='js/dl-abandon.js') }}" defer></script>
+<script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_hero.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_row.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/render_recent.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads/poll.js?v={{ static_v }}" defer></script>
+<script src="/static/js/downloads.js?v={{ static_v }}" defer></script>
+<script src="/static/js/dl-abandon.js?v={{ static_v }}" defer></script>
 {% endblock %}

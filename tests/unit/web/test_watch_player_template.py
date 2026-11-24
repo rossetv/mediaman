@@ -92,7 +92,7 @@ def test_page_has_no_inline_script_or_style(name):
 def test_hls_loads_before_the_player_script():
     _, page = _render(EPISODE)
     srcs = [a["src"] for t, a in page.elements if t == "script" and a.get("src")]
-    assert srcs.index("/static/vendor/hls/hls.min.js") < srcs.index("/static/js/player.js")
+    assert srcs.index("/static/vendor/hls/hls.min.js?v=") < srcs.index("/static/js/player.js?v=")
 
 
 @pytest.mark.parametrize("name", CONTEXTS)

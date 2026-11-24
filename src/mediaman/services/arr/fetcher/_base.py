@@ -25,6 +25,7 @@ def _iter_still_searching[T](
     fetch_items: Callable[[], Iterable[T]],
     *,
     service_label: str,
+    on_failure: Callable[[], None],
 ) -> Iterable[T]:
     """Yield items from *fetch_items*, swallowing transient HTTP failures.
 
@@ -36,6 +37,8 @@ def _iter_still_searching[T](
     pattern so both fetchers use the same exception list
     (``RequestException`` AND ``SafeHTTPError``, since SafeHTTPClient
     raises the latter for non-2xx responses) and the same log format.
+    *on_failure* is called so the caller can tell "nothing searching" from
+    "could not ask".
 
     The caller does its per-item filtering and card construction inside
     its own loop body — this helper only owns the outer try/except.
@@ -44,6 +47,7 @@ def _iter_still_searching[T](
         yield from fetch_items()
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check %s for searching items", service_label, exc_info=True)
+        on_failure()
 
 
 def clamp_progress(size: int, sizeleft: int) -> int:
@@ -81,12 +85,13 @@ class FetchResult:
 
     ``cards`` is the list of download cards (same content as ``fetch_arr_queue``).
     ``errors`` is a list of human-readable error strings -- one per service that
-    failed.  Empty when all fetches succeeded.  UI layers should surface these
-    as a dismissible banner rather than hiding them silently.
+    failed, with the cause.  Empty when all fetches succeeded.  ``unreachable``
+    names every service whose list is missing or incomplete, for the page to show.
     """
 
     cards: list[ArrCard] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    unreachable: list[str] = field(default_factory=list)
 
 
 class _ArrEpisodeRequired(TypedDict):
@@ -147,6 +152,9 @@ class ArrCard(BaseArrCard, total=False):
     arr_id: int
     title_slug: str
     added_at: float
+    # Epoch since which the title has been searching without a break. Absent while
+    # it is not searching, or when that could not be read.
+    searching_since: float
     # Earliest known release-date epoch (movies) or latest past airing epoch
     # (series). 0.0 means "release date unknown" — auto-abandon treats that
     # as a hard skip so it never abandons something whose age it can't
@@ -158,6 +166,9 @@ class ArrCard(BaseArrCard, total=False):
     episode_count: int
     downloading_count: int
     has_pack: bool
+    # Seasons Abandon can unmonitor, as {"number", "missing_episodes", "aired"}; only
+    # on a series still searching, which has no queue episodes to read them from.
+    stuck_seasons: list[dict[str, int]]
 
 
 def make_arr_card(

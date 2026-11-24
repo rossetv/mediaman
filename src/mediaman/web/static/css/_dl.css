@@ -215,6 +215,18 @@
 .dl-compact-eta { font-size: 11px; color: var(--t3); }
 .dl-upcoming-row { opacity: .85; }
 
+/* Last known state of a service that does not answer: the art and the colours
+   step back, the text stays readable. */
+.is-held .dl-hero-title,
+.is-held .dl-compact-title { color: var(--t2); }
+.is-held .dl-hero-bg { opacity: .2; }
+.is-held .dl-hero-poster img,
+.is-held .dl-compact-poster img { opacity: .45; }
+.is-held .dl-state-pill { background: var(--rgba-overlay-md); color: var(--t2); }
+.is-held .dl-hero-fill,
+.is-held .dl-compact-fill { background: var(--t4); }
+.is-held .dl-hero-fill::after { display: none; }
+
 .dl-compact-header {
   font-family: var(--font-display);
   font-size: 22px;

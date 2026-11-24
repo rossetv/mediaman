@@ -5,8 +5,6 @@ Covers the per-route SQL that backs:
 * ``used_download_tokens`` — the persistent single-use store backing
   `mediaman.web.routes.download._tokens` (the in-memory LRU cache
   itself stays in the route module — it is process state, not SQL).
-* ``recent_downloads`` — short-window cache of ``ready`` items used as a
-  fallback during status polling when the Arr API lags.
 * ``suggestions`` — the per-suggestion enrichment fields fetched when the
   confirm page renders a previously-suggested item.
 """
@@ -18,13 +16,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from mediaman.core.time import now_utc
-
-
-@dataclass(frozen=True)
-class RecentDownload:
-    dl_id: str
-    title: str
-    poster_url: str
 
 
 @dataclass(frozen=True)
@@ -55,37 +46,30 @@ def claim_download_token(conn: sqlite3.Connection, *, digest: str, exp: int) -> 
     """
     expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
     used_at = now_utc().isoformat()
-    cursor = conn.execute(
-        "INSERT OR IGNORE INTO used_download_tokens "
-        "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
-        (digest, expires_at, used_at),
-    )
-    conn.commit()
+    with conn:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO used_download_tokens "
+            "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
+            (digest, expires_at, used_at),
+        )
     return cursor.rowcount == 1
 
 
+def download_token_claimed(conn: sqlite3.Connection, digest: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM used_download_tokens WHERE token_hash = ?", (digest,)
+    ).fetchone()
+    return row is not None
+
+
 def release_download_token(conn: sqlite3.Connection, digest: str) -> None:
-    conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
-    conn.commit()
+    with conn:
+        conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
 
 
 def purge_expired_download_tokens(conn: sqlite3.Connection, *, now_iso: str) -> None:
-    conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
-    conn.commit()
-
-
-def fetch_recent_download(conn: sqlite3.Connection, dl_id: str) -> RecentDownload | None:
-    row = conn.execute(
-        "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
-        (dl_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    return RecentDownload(
-        dl_id=row["dl_id"],
-        title=row["title"],
-        poster_url=row["poster_url"] or "",
-    )
+    with conn:
+        conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
 
 
 def fetch_suggestion_enrichment(
@@ -119,10 +103,9 @@ def fetch_suggestion_enrichment(
 
 
 __all__ = [
-    "RecentDownload",
     "SuggestionEnrichment",
     "claim_download_token",
-    "fetch_recent_download",
+    "download_token_claimed",
     "fetch_suggestion_enrichment",
     "purge_expired_download_tokens",
     "release_download_token",

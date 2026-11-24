@@ -192,7 +192,7 @@ def test_each_row_is_a_keyboard_reachable_region_named_after_its_title() -> None
 
 
 def test_watch_page_loads_the_row_script_from_a_file() -> None:
-    assert '<script src="/static/js/watch-rows.js" defer></script>' in _watch()
+    assert '<script src="/static/js/watch-rows.js?v=" defer></script>' in _watch()
 
 
 @pytest.mark.parametrize(
@@ -260,6 +260,52 @@ def test_banner_shows_the_label_it_is_given_and_none_when_it_has_none() -> None:
     assert '<span class="watch-banner__kicker">From your library</span>' in html
     assert "Recently added" not in html and "Continue watching" not in html
     assert "watch-banner__kicker" not in _watch(banner={**banner, "kicker": None})
+
+
+def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> None:
+    banner = {
+        "title": "Salt & Iron",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+        "backdrop_url": "/api/poster/1?kind=art",
+        "next_backdrop_url": "/api/poster/1?kind=art&source=tmdb",
+        "poster_url": "/api/poster/1",
+    }
+    html = _watch(banner=banner)
+    images = re.findall(r'<img class="watch-banner__[^>]*>', html)
+
+    assert [re.search(r'src="([^"]*)"', i).group(1) for i in images] == [
+        "/api/poster/1?kind=art",
+        "/api/poster/1",
+        "/api/poster/1",
+    ]
+    assert ['loading="lazy"' in i for i in images] == [False, True, True]
+    assert all("data-broken-on-error" in i for i in images)
+    # The backdrop is judged on its shape once it has loaded; the poster copies never are.
+    assert ["data-wide-art" in i for i in images] == [True, False, False]
+    # Only the backdrop has another picture to try first.
+    assert ['data-next-src="/api/poster/1?kind=art&amp;source=tmdb"' in i for i in images] == [
+        True,
+        False,
+        False,
+    ]
+    retrying = _declarations_of("_watch.css", ".watch-banner__bg--art[data-retrying]")
+    assert "opacity: 0" in retrying
+    css = (CSS / "_watch.css").read_text()
+    for part in ("bg--fill", "poster"):
+        assert f".watch-banner__bg--art:not([data-broken]) ~ .watch-banner__{part}" in css
+
+
+def test_with_scripts_on_the_backdrop_waits_to_be_known_for_a_wide_picture() -> None:
+    art = ".watch-banner__bg--art"
+    scripted = _in_media("_watch.css", "(scripting: enabled)")
+
+    assert "opacity: 0" in _declarations_in(scripted, f"{art}:not([data-fit])")
+    # Only there: with scripts off nothing would ever mark it.
+    assert (CSS / "_watch.css").read_text().count(f"{art}:not([data-fit])") == 1
+    assert "transition: none" in _declarations_of("_watch.css", f'{art}[data-fit="at-once"]')
 
 
 def test_not_set_up_links_to_settings_for_admins_only() -> None:
@@ -349,7 +395,7 @@ def test_pages_have_no_inline_script_or_style() -> None:
         found = _Inspect()
         found.feed(html)
         assert (found.inline_scripts, found.style_attrs, found.style_tags) == (0, 0, 0)
-        assert 'src="/static/js/watch.js"' in html
+        assert 'src="/static/js/watch.js?v="' in html
 
 
 def test_base_links_the_watch_and_player_styles() -> None:
@@ -431,7 +477,7 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
 def test_title_pages_load_the_poster_fade_script(page):
     name, ctx = page
 
-    assert 'src="/static/js/watch-rows.js"' in _render(name, **ctx)
+    assert 'src="/static/js/watch-rows.js?v="' in _render(name, **ctx)
 
 
 @pytest.mark.parametrize(
@@ -547,3 +593,213 @@ def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -
     assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
     assert "gap: var(--share-gap)" in group
     assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .fa-solid")
+
+
+def test_the_banner_grows_with_the_screen_and_with_a_long_title() -> None:
+    body = _declarations_of("_watch.css", ".watch-banner")
+
+    assert "min-height: clamp(420px, 27vw, 600px)" in body
+    assert not re.search(r"(?<!-)\bheight: \d+px", body)
+
+
+def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
+    css = (CSS / "_watch.css").read_text(encoding="utf-8")
+    block = re.search(r"@media \(max-height: 500px\)[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+
+    assert block and "min-height: 260px" in block.group(1)
+
+
+def test_a_list_poster_of_any_shape_fills_its_frame() -> None:
+    body = _declarations_of("_tables.css", ".thumb img")
+
+    assert "width: 100%" in body and "height: 100%" in body and "object-fit: cover" in body
+
+
+def test_the_list_actions_column_hugs_its_buttons() -> None:
+    assert "width: 1%" in _declarations_of("_watch_list.css", ".wl-table .col-act")
+
+
+def test_the_dash_of_an_unscheduled_title_is_hidden_on_phone_cards() -> None:
+    rules = dict(_phone_rules("_watch_list.css"))
+
+    assert "display: none" in rules[".wl-del--none > [aria-hidden]"]
+
+
+@pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
+def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
+    body = _declarations_of("_watch.css", f"{place} > .watch-bar")
+
+    assert "left: 8px" in body and "bottom: 8px" in body and "calc(100% - 16px)" in body
+
+
+@pytest.mark.parametrize("part", ["::-webkit-progress-value", "::-moz-progress-bar"])
+def test_a_little_progress_still_shows_a_mark_and_none_shows_nothing(part: str) -> None:
+    assert "min-width: 6px" in _declarations_of("_watch.css", f'.watch-bar:not([value="0"]){part}')
+    assert "min-width" not in _declarations_of("_watch.css", f".watch-bar{part}")
+
+
+def _in_media(sheet: str, query: str) -> str:
+    """The rules inside every `@media` block whose query holds *query*."""
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(r"@media ([^{]*)\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    return "".join(body for head, body in blocks if query in head)
+
+
+def _declarations_in(rules: str, selector: str) -> str:
+    return "".join(
+        body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+        if selector in [s.strip() for s in head.split(",")]
+    )
+
+
+@pytest.mark.parametrize(
+    ("sheet", "poster"),
+    [
+        ("_watch.css", ".watch-banner__poster"),
+        ("_watch_detail.css", ".ttl__poster"),
+        ("_download_page.css", ".dl-cinema__poster"),
+    ],
+)
+def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, poster: str) -> None:
+    body = _declarations_of(sheet, poster)
+
+    assert "aspect-ratio: auto 2 / 3" in body and "height: auto" in body
+    assert "object-fit: cover" not in body and "filter" not in body
+
+
+def test_the_banner_poster_keeps_clear_of_the_banner_edges() -> None:
+    assert "max-height: calc(100% - 72px)" in _declarations_of(
+        "_watch.css", ".watch-banner__poster"
+    )
+
+
+def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
+    banner = {
+        "title": "It",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+    }
+    long = "An Improbable Chronicle of the Winter Orchard and the Ferryman"
+
+    assert "watch-banner__title--long" not in _watch(banner=banner)
+    assert "watch-banner__title--long" in _watch(banner={**banner, "title": long})
+    smaller = ".watch-banner__title--long"
+    assert "font-size: 36px" in _declarations_of("_watch.css", smaller)
+    # 80 characters, all capitals, beside the poster's place at 600 wide.
+    assert "--title-lines: 7" in _declarations_of("_watch.css", smaller)
+    for query, lines in (("(max-width: 599.98px)", 6), ("(max-height: 500px)", 4)):
+        rules = _declarations_in(_in_media("_watch.css", query), smaller)
+        assert f"--title-lines: {lines}" in rules
+    assert "line-clamp: var(--title-lines)" in _declarations_of(
+        "_watch.css", ".watch-banner__title"
+    )
+    phone = _declarations_in(
+        _in_media("_watch.css", "(max-width: 599.98px)"), ".watch-banner__title"
+    )
+    assert "--title-lines: 4" in phone
+
+
+def test_a_very_long_banner_title_gets_the_smallest_text_and_lines_enough_to_fit() -> None:
+    banner = {
+        "title": "Dr. Aldermoor's Improbable Chronicle of the Winter Orchard, the Ferryman, "
+        "and Everything That Happened After the Lanterns Went Out: Part Two",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+    }
+    very_long = ".watch-banner__title--longest"
+
+    assert f"watch-banner__title {very_long[1:]}" in _watch(banner=banner)
+    sideways = _in_media("_watch.css", "(max-height: 500px)")
+    assert "--title-lines: 8" in _declarations_of("_watch.css", very_long)
+    assert "--title-lines: 8" in _declarations_in(
+        _in_media("_watch.css", "(max-width: 599.98px)"), very_long
+    )
+    assert "--title-lines: 5" in _declarations_in(sideways, very_long)
+
+
+def test_the_shade_on_a_small_title_hero_keeps_close_to_the_text() -> None:
+    small = _declarations_in(
+        _in_media("_watch_detail.css", "(max-width: 639.98px)"), ".ttl__head::before"
+    )
+
+    assert "inset-block: -40px" in small
+    assert "55%, transparent) calc(100% - 40px)" in small
+
+
+def test_a_title_with_no_picture_has_a_short_hero_until_its_trailer_plays() -> None:
+    short = _declarations_of("_watch_detail.css", ".ttl.is-short:not(.is-trailer) .ttl__hero")
+    bare = ".ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden])))"
+
+    assert "min-height: 190px" in short
+    assert "var(--hero-hi)" in _declarations_of("_watch_detail.css", bare)
+    phone = _in_media("_watch_detail.css", "(max-width: 699.98px)")
+    assert "display: none" in _declarations_in(phone, ".ttl.is-late .ttl__poster")
+
+
+def test_the_certificate_sits_8px_after_the_text_before_it() -> None:
+    body = _declarations_of("_watch_detail.css", ".ttl__meta > span:has(+ .ttl__cert)")
+
+    assert "margin-right: calc(8px - var(--dot))" in body
+
+
+def test_a_detail_that_wraps_stays_clear_of_the_clipped_dot_margin() -> None:
+    sheet = "_watch_detail.css"
+
+    assert "padding-left: var(--dot)" in _declarations_of(sheet, ".ttl__meta > span")
+    assert "position: absolute" in _declarations_of(sheet, ".ttl__meta > span::before")
+
+
+def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
+    wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
+
+    stops = re.findall(r"(\d+)px", wide)
+    assert stops[0] == "320" and stops[-1] == "1150"
+
+
+def test_a_card_progress_bar_lines_up_with_the_title_above_it() -> None:
+    assert "padding: var(--card-pad)" in _declarations_of("_watch.css", ".watch-card__poster")
+    assert "left: var(--card-pad)" in _declarations_of(
+        "_watch.css", ".watch-card__poster > .watch-bar"
+    )
+
+
+def test_the_shade_behind_a_title_over_a_progress_bar_starts_higher_and_ends_darker() -> None:
+    body = _declarations_of("_watch.css", ".watch-card__poster:has(> .watch-bar)::after")
+
+    assert "transparent 35%" in body and "var(--scrim) 92%" in body
+
+
+def test_the_phone_banner_bar_is_as_wide_as_the_text() -> None:
+    phone = _in_media("_watch.css", "(max-width: 599.98px)")
+
+    assert "width: 100%" in _declarations_in(phone, ".watch-bar--banner")
+
+
+def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_buttons_in_a_row() -> (
+    None
+):
+    sideways = _in_media("_watch.css", "(max-width: 599.98px) and (max-height: 500px)")
+
+    assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
+    assert "min-height: 0" in _declarations_in(sideways, ".watch-banner")
+    assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
+    assert "flex: none" in _declarations_in(
+        sideways, ".watch-banner .watch-actions .watch-btn--play"
+    )
+
+
+def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
+    forced = _in_media("_watch.css", "forced-colors: active")
+
+    assert "display: none" in _declarations_in(forced, ".watch-banner__bg")
+    bar = _declarations_in(forced, "progress.watch-bar")
+    assert "forced-color-adjust: none" in bar and "CanvasText" in bar
+    for part in ("::-webkit-progress-value", "::-moz-progress-bar"):
+        assert "Highlight" in _declarations_in(forced, f"progress.watch-bar{part}")
+    overlay = _in_media("_watch_detail.css", "forced-colors: active")
+    assert "display: none" in _declarations_in(overlay, ".ttl__art")

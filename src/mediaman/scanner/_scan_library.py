@@ -18,7 +18,8 @@ from __future__ import annotations
 import enum
 import logging
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ScanDecision",
+    "item_savepoint",
     "scan_items",
     "scan_movie_library",
     "scan_tv_library",
@@ -56,6 +58,28 @@ def with_mediaman_play(f: PlexItemFetch, credited: Mapping[str, datetime]) -> Pl
     if credited_at is None:
         return f
     return replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
+
+
+@contextmanager
+def item_savepoint(conn: sqlite3.Connection) -> Iterator[None]:
+    """Roll back only this item's writes when the body raises, so none is left half-written.
+
+    Shared by the cleanup scan and the library sync. A fatal SQLite error (disk
+    full, I/O) ends the transaction and the savepoint with it; the job's own
+    rollback still runs.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN")
+    conn.execute("SAVEPOINT scan_item")
+    try:
+        yield
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK TO scan_item")
+            conn.execute("RELEASE scan_item")
+        raise
+    if conn.in_transaction:
+        conn.execute("RELEASE scan_item")
 
 
 class ScanDecision(enum.Enum):
@@ -85,12 +109,12 @@ class _GuardSets:
     SELECTs. ``credited`` maps a media item id to the last time anyone
     played it in mediaman long enough to count as a watch, and
     ``last_watched`` to the ``last_watched_at`` stored before this scan.
-    ``already_scheduled`` is mutable: when an item is freshly scheduled mid-loop it is added so
-    a later item sharing the same ``plex_rating_key`` observes it, as the
-    connection's uncommitted view would.
+    ``protected`` and ``already_scheduled`` are mutable: when an item is given its
+    keep back or freshly scheduled mid-loop it is added so a later item sharing the
+    same ``plex_rating_key`` observes it, as the connection's uncommitted view would.
     """
 
-    protected: frozenset[str]
+    protected: set[str]
     already_scheduled: set[str]
     credited: Mapping[str, datetime]
     last_watched: Mapping[str, datetime]
@@ -105,7 +129,7 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
     byte-for-byte.
     """
     return _GuardSets(
-        protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
+        protected=repository.fetch_protected_media_ids(conn, media_ids, now_iso()),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
         credited=repository.last_credited_by_media_item(conn, media_ids),
         last_watched=last_watched_by_media_item(conn, media_ids),
@@ -135,24 +159,24 @@ def scan_items(
     *seen_keys*, when provided, accumulates Plex rating keys so orphan
     detection can exclude them later.
     """
-    # One batched query per guard, built before the loop — the
-    # protection state of an item cannot change under the per-item
-    # ``media_items`` upserts, so a single up-front read gives the
-    # same answer as a read per item.
+    # One batched query per guard, built before the loop: the per-item upserts
+    # change no item's protection but for a keep given back, which they report.
     media_ids = [f.item["plex_rating_key"] for f in fetched]
     guards = _build_guard_sets(engine._conn, media_ids)
+    engine._listed_keys.update(media_ids, seen_keys or ())
     for f in fetched:
         summary["scanned"] += 1
         try:
-            media_id, decision = _evaluate_scan_item(
-                engine, f, media_type_fn, evaluate_fn, seen_keys, guards
-            )
-            if decision is not ScanDecision.SCHEDULE:
-                # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
-                # (too new / watched recently / kept show) — count and move on.
-                summary["skipped"] += 1
-                continue
-            _apply_scan_decision(engine, media_id, summary, guards)
+            with item_savepoint(engine._conn):
+                media_id, decision = _evaluate_scan_item(
+                    engine, f, media_type_fn, evaluate_fn, seen_keys, guards
+                )
+                if decision is not ScanDecision.SCHEDULE:
+                    # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
+                    # (too new / watched recently / kept show) — count and move on.
+                    summary["skipped"] += 1
+                    continue
+                _apply_scan_decision(engine, media_id, summary, guards)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation boundary, narrowed to the
             # exception types a corrupt/malformed Plex item or a transient
@@ -191,8 +215,8 @@ def _evaluate_scan_item(
 
     The protection and already-scheduled guards are answered from the
     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
-    The ``media_items`` upsert below cannot change either guard's answer
-    because neither guard reads ``media_items``.
+    The ``media_items`` upsert below changes neither guard's answer, but for a
+    keep it gives back to an item Plex had stopped listing, which it reports.
 
     A mediaman play credited to the item joins its Plex watch history, so
     both ``last_watched_at`` and the inactivity check count it. The stored
@@ -205,7 +229,8 @@ def _evaluate_scan_item(
     if seen_keys is not None:
         seen_keys.add(media_id)
     f = with_mediaman_play(f, guards.credited)
-    _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
+    if _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f), engine._listed_keys):
+        guards.protected.add(media_id)
 
     if media_id in guards.protected:
         return media_id, ScanDecision.SKIP_GUARD

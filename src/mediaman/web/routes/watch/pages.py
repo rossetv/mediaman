@@ -49,6 +49,7 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
+from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import list_page
 
 router = APIRouter()
@@ -110,6 +111,13 @@ def poster_url(key: str) -> str:
 def safe_origin(value: str | None) -> str | None:
     """*value* when it is one of the Watch pages a person can come from, else None."""
     return value if value and _ORIGIN_RE.fullmatch(value) else None
+
+
+def _banner_art(key: str) -> dict[str, str]:
+    """The banner's pictures, in the order a title's details try them: its own backdrop, then
+    TMDB's, then the poster as a poster."""
+    art = title_art(key)
+    return {**art, "next_backdrop_url": f"{art['backdrop_url']}&source=tmdb"}
 
 
 def play_href(rating_key: str, *, resume: bool = False, origin: str | None = None) -> str:
@@ -468,7 +476,7 @@ def _banner(
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        "backdrop_url": poster_url(key),
+        **_banner_art(key),
     }
 
 
@@ -517,34 +525,34 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     plex.check_reachable()
     leaving_row = [_leaving_card(p, now) for p in pending]
 
-    # (added, card, where the banner's Play goes, its detail ref): a movie plays, a show
-    # opens its page.
+    # (added, card, where the banner's Play goes, kind, key): a movie plays, a show opens its
+    # page.
     newest = sorted(
         [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"), f"movie-{m.key}")
+            (_added(m.added_at), c, play_href(m.key, origin="/watch"), "movie", m.key)
             for m, c in zip(movies, movie_row, strict=True)
         ]
         + [
-            (_added(s.added_at), c, c["href"], f"show-{s.key}")
+            (_added(s.added_at), c, c["href"], "show", s.key)
             for s, c in zip(shows, show_row, strict=True)
         ],
         key=lambda entry: entry[0],
         reverse=True,
     )
     cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, _, _ in newest if added >= cutoff]
+    recent_row = [c for added, c, *_ in newest if added >= cutoff]
     if banner is None and newest:
-        added, latest, play, ref = newest[0]
+        added, latest, play, kind, key = newest[0]
         banner = {
             # Only as true as the Recently added row: an older newest title gets a neutral label.
             "kicker": "Recently added" if added >= cutoff else "From your library",
             "title": latest["title"],
-            "ref": ref,
+            "ref": f"{kind}-{key}",
             "line": latest["subtitle"],
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},
             "episodes_href": None,
-            "backdrop_url": latest["poster_url"],
+            **_banner_art(key),
         }
 
     # (title, cards, under the "Your library" divider); Discover goes between the two groups.
@@ -898,9 +906,11 @@ def play_page(
 
     back_href = origin or back_href
     progress = get_progress(conn, username, [rating_key]).get(rating_key)
+    # A reload or Back reopens the bare address and must not restart the video and overwrite
+    # the place already saved.
     start_s = (
         progress.position_s
-        if resume == "1" and progress is not None and not progress.watched
+        if progress is not None and not progress.watched and (resume == "1" or resumable(progress))
         else 0
     )
     return _render(

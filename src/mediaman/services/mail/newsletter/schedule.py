@@ -6,6 +6,7 @@ import logging
 import sqlite3
 from datetime import datetime
 
+from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.crypto import sign_poster_url
 from mediaman.crypto.tokens import rebuild_keep_token, validate_keep_token
 from mediaman.services.scheduled_actions import parse_execute_at
@@ -82,10 +83,13 @@ def _build_scheduled_card(
 
     media_type = row["media_type"] or "movie"
     season_num = row["season_number"]
+    season_label = ""
+    if season_num is not None:
+        season_label = f" · Season {season_num}" if season_num else " · Specials"
     if media_type in ("tv_season", "season", "tv"):
-        type_label = f"TV · Season {season_num}" if season_num else "TV"
+        type_label = f"TV{season_label}"
     elif media_type in ("anime_season", "anime"):
-        type_label = f"Anime · Season {season_num}" if season_num else "Anime"
+        type_label = f"Anime{season_label}"
     else:
         type_label = "Movie"
 
@@ -112,31 +116,23 @@ def _load_scheduled_items(
     mark_notified: bool,
 ) -> list[ScheduledNewsletterItem]:
     """Query the scheduled-deletion cards: only unnotified rows when *mark_notified*, all
-    pending-token rows otherwise.
+    pending-token rows otherwise. An item whose library is not selected in Settings is not
+    leaving, so it has no card.
 
     Sorted oldest first; items with a corrupt timestamp (added_days_ago None) sort last
     as unknown age rather than as most recent.
     """
-    if mark_notified:
-        rows = conn.execute(
-            "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
-            "sa.is_reentry, sa.delete_status, "
-            "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
-            "mi.added_at, mi.last_watched_at "
-            "FROM scheduled_actions sa "
-            "JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.action='scheduled_deletion' AND sa.notified=0"
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
-            "sa.is_reentry, sa.delete_status, "
-            "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
-            "mi.added_at, mi.last_watched_at "
-            "FROM scheduled_actions sa "
-            "JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.action='scheduled_deletion' AND sa.token_used=0"
-        ).fetchall()
+    due = "sa.notified=0" if mark_notified else "sa.token_used=0"
+    # rationale: the interpolated conditions are fixed strings
+    rows = conn.execute(  # nosec B608
+        "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
+        "sa.is_reentry, sa.delete_status, "
+        "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
+        "mi.added_at, mi.last_watched_at "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        f"WHERE sa.action='scheduled_deletion' AND {due} AND {LIBRARY_SELECTED}"
+    ).fetchall()
 
     items = [_build_scheduled_card(row, now, base_url, secret_key) for row in rows]
 

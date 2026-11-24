@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.db import get_db
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ArrCaches,
@@ -28,7 +29,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
-from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
+from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _QUERY_LIMITER, _poster_url
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +61,17 @@ def _fetch_sonarr_series_detail(
 ) -> _SonarrDetail:
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
-    lookup = client.lookup_series_by_tmdb(tmdb_id)
-    if not lookup:
-        return {"tracked": False, "seasons_in_library": set()}
-    tvdb_id = lookup.get("tvdbId")
-    if not tvdb_id:
-        return {"tracked": False, "seasons_in_library": set()}
-    all_series = list(sonarr_cache.get("sonarr_series", {}).values())
-    added = next((series for series in all_series if series.get("tvdbId") == tvdb_id), None)
+    held = sonarr_cache.get("sonarr_series", {})
+    try:
+        lookup = client.lookup_series_by_tmdb(tmdb_id)
+    except (_requests.RequestException, SafeHTTPError, ArrError):
+        logger.warning("Sonarr lookup failed during detail fetch", exc_info=True)
+        added = held.get(tmdb_id)
+    else:
+        tvdb_id = lookup.get("tvdbId") if lookup else None
+        if not tvdb_id:
+            return {"tracked": False, "seasons_in_library": set()}
+        added = next((series for series in held.values() if series.get("tvdbId") == tvdb_id), None)
     if not added:
         return {"tracked": False, "seasons_in_library": set()}
     in_library: set[int] = {
@@ -122,7 +126,7 @@ def _build_arr_caches(
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-        except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+        except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
             logger.warning("Radarr cache build failed during detail fetch", exc_info=True)
             radarr_cache = build_radarr_cache(None)
         return radarr_cache, build_sonarr_cache(None), None
@@ -131,7 +135,7 @@ def _build_arr_caches(
     try:
         sonarr_client = build_sonarr_from_db(conn, secret_key)
         sonarr_cache = build_sonarr_cache(sonarr_client)
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+    except (_requests.RequestException, SafeHTTPError, ArrError, sqlite3.Error):
         logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
         sonarr_client = None
         sonarr_cache = build_sonarr_cache(None)
@@ -216,6 +220,10 @@ def api_detail(
     """
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
+    if not _QUERY_LIMITER.check(admin):
+        return respond_err(
+            "too_many_requests", status=429, message="Too many search requests — slow down"
+        )
 
     conn = get_db()
     secret_key = request.app.state.config.secret_key

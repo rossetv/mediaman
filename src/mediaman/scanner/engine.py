@@ -34,6 +34,7 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import ParseError
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -43,9 +44,11 @@ if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
 
 from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner._scan_library import (
+    item_savepoint,
     scan_movie_library,
     scan_tv_library,
     with_mediaman_play,
@@ -143,6 +146,10 @@ class ScanEngine:
         self._dry_run = dry_run
         self._sonarr = sonarr_client
         self._radarr = radarr_client
+        # When the current run began, before it listed anything in Plex.
+        self._started_at: str | None = None
+        # The keys Plex lists in the current run, as far as it has been read.
+        self._listed_keys: set[str] = set()
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -182,6 +189,8 @@ class ScanEngine:
            so the SQLite write lock is held only for a single library's
            worth of writes at a time.
         """
+        self._started_at = now_iso()
+        self._listed_keys = set()
         summary = {"synced": 0, "errors": 0, "removed": 0}
         try:
             per_lib_fetches = self._sync_phase_fetch(summary)
@@ -229,7 +238,14 @@ class ScanEngine:
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
-            except (PlexApiException, requests.RequestException, sqlite3.Error):
+            except (
+                PlexApiException,
+                requests.RequestException,
+                SafeHTTPError,
+                ParseError,
+                ValueError,
+                sqlite3.Error,
+            ):
                 # skip-one-bad-library — a fetch failure must not abort other libraries
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
@@ -259,6 +275,10 @@ class ScanEngine:
                 for f in fetched.items
             ],
         )
+        for fetched in per_lib_fetches.values():
+            self._listed_keys.update(
+                fetched.skipped_keys, (f.item["plex_rating_key"] for f in fetched.items)
+            )
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they
@@ -289,25 +309,16 @@ class ScanEngine:
         A failure rolls back only this item so the rest of the library
         still syncs.
         """
-        if not self._conn.in_transaction:
-            self._conn.execute("BEGIN")
-        self._conn.execute("SAVEPOINT sync_item")
         try:
-            _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
+            with item_savepoint(self._conn):
+                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type, self._listed_keys)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation, same narrow set as the scan loop
-            # A fatal SQLite error (disk full, I/O) ends the transaction and the savepoint
-            # with it; the job's own rollback still runs.
-            if self._conn.in_transaction:
-                self._conn.execute("ROLLBACK TO sync_item")
-                self._conn.execute("RELEASE sync_item")
             logger.exception(
                 "Library sync item failed (plex_rating_key=%s)",
                 f.item.get("plex_rating_key", "?"),
             )
             return False
-        if self._conn.in_transaction:
-            self._conn.execute("RELEASE sync_item")
         return True
 
     def run_scan(self) -> dict[str, int]:
@@ -324,6 +335,8 @@ class ScanEngine:
             - ``deleted``: items whose grace period elapsed and were deleted from disk.
             - ``reclaimed_bytes``: total bytes freed by deletions this run.
         """
+        self._started_at = now_iso()
+        self._listed_keys = set()
         summary = {
             "scanned": 0,
             "scheduled": 0,
@@ -529,4 +542,4 @@ class ScanEngine:
         fail-closed safeguard logic. Only considers items belonging
         to libraries that were successfully scanned.
         """
-        return remove_orphans(self._conn, seen_keys, scanned_libs)
+        return remove_orphans(self._conn, seen_keys, scanned_libs, listed_since=self._started_at)

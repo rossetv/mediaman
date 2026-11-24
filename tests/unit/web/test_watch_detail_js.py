@@ -99,6 +99,19 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
     assert out["closedSecond"] is True
 
 
+def test_the_head_eases_between_the_heights_it_really_has_as_its_trailer_comes_and_goes() -> None:
+    out = _run("trailerHeight")
+    grow = {"from": "234px", "to": "552px", "ms": 250, "cut": False}
+    shrink = {"from": "552px", "to": "234px", "ms": 250, "cut": False}
+
+    assert out["openAndClose"] == [grow, shrink]
+    halfway = {**shrink, "from": "400px"}
+    assert out["closedHalfway"] == [{**grow, "cut": True}, halfway]
+    # The next title's head stands at its own height at once.
+    assert all(ease["cut"] for ease in out["anotherTitle"])
+    assert out["still"] == []
+
+
 def test_a_title_without_a_trailer_has_no_trailer_button() -> None:
     assert _run("noTrailerKey") == {"trailer": False, "primary": "Download"}
 
@@ -516,3 +529,51 @@ def test_safe_path_keeps_only_same_site_paths_and_refuses_ones_with_tabs_or_newl
     for refused in ("/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "/watch\t/x"):
         assert out.pop(refused) == "", refused
     assert set(out.values()) == {""}
+
+
+PLEX_ART = "/api/poster/120?kind=art"
+BACKDROP = "/api/watch/img/tmdb/w1280/a.jpg"
+POSTER = "/api/poster/120"
+
+
+def test_a_library_title_shows_the_banners_picture_then_the_backdrop_then_the_poster() -> None:
+    out = _run("pictures")
+
+    assert {name: run["first"]["art"] for name, run in out.items()} == dict.fromkeys(out, PLEX_ART)
+    assert out["plex"]["end"] == {"art": PLEX_ART, "fill": None, "poster": None, "loaded": True}
+    assert out["tmdb"]["end"] == {"art": BACKDROP, "fill": None, "poster": None, "loaded": True}
+    stand_in = {"art": None, "fill": POSTER, "poster": POSTER, "loaded": False}
+    assert out["poster"]["end"] == stand_in
+
+
+def test_art_that_is_no_wide_picture_gives_way_to_the_backdrop_before_the_poster() -> None:
+    out = _run("pictures")
+
+    assert out["unfit"]["end"] == {"art": BACKDROP, "fill": None, "poster": None, "loaded": True}
+    assert out["unfitBoth"]["end"] == {
+        "art": None,
+        "fill": POSTER,
+        "poster": POSTER,
+        "loaded": False,
+    }
+
+
+def test_the_heads_height_is_settled_before_the_buttons_come_and_stays() -> None:
+    out = _run("headHeight")
+    waiting = {"buttons": False, "short": False, "late": False}
+    tall = {"buttons": True, "short": False, "late": False}
+    late = {"buttons": True, "short": False, "late": True}
+
+    assert out["none"] == [waiting, waiting, {"buttons": True, "short": True, "late": False}]
+    assert out["slow"] == [waiting, late, late, late]
+    assert out["wide"] == [waiting, tall]
+    assert out["failed"] is True
+
+
+def test_a_title_outside_the_library_never_stretches_its_poster() -> None:
+    out = _run("picturesOutsideTheLibrary")
+
+    assert out["backdrop"]["art"] == BACKDROP
+    poster = "/api/watch/img/tmdb/w500/p.jpg"
+    assert (out["posterOnly"]["art"], out["posterOnly"]["poster"]) == (None, poster)
+    assert (out["none"]["art"], out["none"]["poster"]) == (None, None)

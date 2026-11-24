@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
@@ -134,6 +136,25 @@ class TestMapState:
     def test_unpacking_returns_almost_ready(self):
         assert map_state("UNPACKING", has_nzbget_match=True) == "almost_ready"
 
+    def test_fetching_returns_downloading(self):
+        assert map_state("FETCHING", has_nzbget_match=True) == "downloading"
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "LOADING_PARS",
+            "VERIFYING_SOURCES",
+            "REPAIRING",
+            "VERIFYING_REPAIRED",
+            "RENAMING",
+            "MOVING",
+            "POST_UNPACK_RENAMING",
+            "EXECUTING_SCRIPT",
+        ],
+    )
+    def test_post_processing_returns_almost_ready(self, status):
+        assert map_state(status, has_nzbget_match=True) == "almost_ready"
+
     def test_pp_state_returns_almost_ready(self):
         assert map_state("PP_PROCESS", has_nzbget_match=True) == "almost_ready"
 
@@ -174,6 +195,17 @@ class TestMapEpisodeState:
     def test_paused_status_returns_queued(self):
         ep = {"progress": 0, "sizeleft": 500, "size": 500_000_000, "status": "paused"}
         assert map_episode_state(ep) == "queued"
+
+    @pytest.mark.parametrize("status", ["failed", "downloadClientUnavailable"])
+    @pytest.mark.parametrize(("progress", "left"), [(0, 100), (40, 60), (100, 0)])
+    def test_a_dead_download_is_searching_whatever_it_reports(self, status, progress, left):
+        ep = {"progress": progress, "sizeleft": left, "size": 100, "status": status}
+        assert map_episode_state(ep) == "searching"
+
+    @pytest.mark.parametrize(("progress", "state"), [(0, "searching"), (40, "queued")])
+    def test_a_warning_is_searching_until_something_has_come(self, progress, state):
+        ep = {"progress": progress, "sizeleft": 100 - progress, "size": 100, "status": "warning"}
+        assert map_episode_state(ep) == state
 
     def test_no_progress_no_status_returns_searching(self):
         ep = {"progress": 0, "sizeleft": 500, "size": 500_000_000, "status": ""}

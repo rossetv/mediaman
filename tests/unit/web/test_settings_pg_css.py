@@ -86,3 +86,40 @@ def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None
     for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
         if ".setg-block" in head and "-hd" not in head:
             assert "scroll-margin" not in body
+
+
+def test_every_select_draws_its_own_chevron_clear_of_the_edge() -> None:
+    forms = re.sub(r"/\*.*?\*/", "", (CSS / "_forms.css").read_text(), flags=re.S)
+    rule = re.search(r"select\.inp,\s*\.form-select \{([^{}]*)\}", forms)
+    assert rule and "appearance: none" in rule.group(1)
+    assert "background-position: right 12px center" in rule.group(1)
+    forced = re.search(r"@media \(forced-colors: active\) \{[^{}]*\{([^{}]*)\}", forms)
+    assert forced and "appearance: auto" in forced.group(1)
+
+
+def test_no_field_rule_wipes_the_select_chevron() -> None:
+    for sheet in ("_forms.css", "_settings_pg.css", "_watch_list.css"):
+        css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            fields = [p.strip() for p in head.split(",")]
+            if any(re.search(r"(\.inp|\.form-select)(:focus)?$", f) for f in fields):
+                shorthand = re.search(r"(?<![\w-])background\s*:", body)
+                assert not shorthand or "background-image" in body, (sheet, fields)
+
+
+def test_a_switch_shows_in_forced_colours_and_no_page_redraws_its_thumb() -> None:
+    forms = re.sub(r"/\*.*?\*/", "", (CSS / "_forms.css").read_text(), flags=re.S)
+    blocks = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", forms)
+    rules = {
+        head.strip(): body
+        for block in blocks
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+    }
+    assert "border: 1px solid CanvasText" in rules[".tog"]
+    assert "background: CanvasText" in rules[".tog::after"]
+    assert "Highlight" in rules[".tog.on"] and "Highlight" in rules[".tog.on::after"]
+    # A later, more specific thumb would paint over the one above.
+    for sheet in CSS.glob("*.css"):
+        if sheet.name != "_forms.css":
+            css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+            assert not re.search(r"\.tog(\.on)?::after", css), sheet.name

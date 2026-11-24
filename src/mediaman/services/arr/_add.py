@@ -41,8 +41,10 @@ class _AddFlowMixin:
         """
         if self._root_folder_cache is not None:
             return self._root_folder_cache
-        result = self._get("/api/v3/rootfolder")  # type: ignore[attr-defined]
-        root_folders = cast(list[ArrRootFolder], result) if isinstance(result, list) else []
+        root_folders = cast(
+            list[ArrRootFolder],
+            self._get_list("/api/v3/rootfolder"),  # type: ignore[attr-defined]
+        )
         if not root_folders:
             raise ArrConfigError(
                 f"{type(self).__name__}: no root folders configured — "
@@ -70,8 +72,10 @@ class _AddFlowMixin:
         """
         if self._quality_profile_cache is not None:
             return self._quality_profile_cache
-        result = self._get("/api/v3/qualityprofile")  # type: ignore[attr-defined]
-        profiles = cast(list[ArrQualityProfile], result) if isinstance(result, list) else []
+        profiles = cast(
+            list[ArrQualityProfile],
+            self._get_list("/api/v3/qualityprofile"),  # type: ignore[attr-defined]
+        )
         valid = [p for p in profiles if isinstance(p.get("id"), int)]
         if not valid:
             raise ArrConfigError(

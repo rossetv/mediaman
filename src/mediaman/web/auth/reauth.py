@@ -231,18 +231,18 @@ def grant_recent_reauth(
     now = _now()
     expires = now + timedelta(seconds=window_seconds)
     token_hash = _hash_token(session_token)
-    conn.execute(
-        """
-        INSERT INTO reauth_tickets (session_token_hash, username, granted_at, expires_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(session_token_hash) DO UPDATE SET
-            granted_at = excluded.granted_at,
-            expires_at = excluded.expires_at,
-            username = excluded.username
-        """,
-        (token_hash, username, now.isoformat(), expires.isoformat()),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO reauth_tickets (session_token_hash, username, granted_at, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(session_token_hash) DO UPDATE SET
+                granted_at = excluded.granted_at,
+                expires_at = excluded.expires_at,
+                username = excluded.username
+            """,
+            (token_hash, username, now.isoformat(), expires.isoformat()),
+        )
 
 
 def has_recent_reauth(
@@ -327,11 +327,11 @@ def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
     if not token_hash:
         return
     _ensure_table(conn)
-    conn.execute(
-        "DELETE FROM reauth_tickets WHERE session_token_hash = ?",
-        (token_hash,),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "DELETE FROM reauth_tickets WHERE session_token_hash = ?",
+            (token_hash,),
+        )
 
 
 def revoke_reauth_by_hash_in_tx(conn: sqlite3.Connection, token_hash: str) -> None:
@@ -369,11 +369,11 @@ def cleanup_expired_reauth(conn: sqlite3.Connection, now_iso: str | None = None)
     """
     _ensure_table(conn)
     cutoff = now_iso or _now().isoformat()
-    cur = conn.execute(
-        "DELETE FROM reauth_tickets WHERE expires_at < ?",
-        (cutoff,),
-    )
-    conn.commit()
+    with conn:
+        cur = conn.execute(
+            "DELETE FROM reauth_tickets WHERE expires_at < ?",
+            (cutoff,),
+        )
     return cur.rowcount or 0
 
 
@@ -387,9 +387,9 @@ def revoke_all_reauth_for(conn: sqlite3.Connection, username: str) -> int:
     if not username:
         return 0
     _ensure_table(conn)
-    cur = conn.execute(
-        "DELETE FROM reauth_tickets WHERE username = ?",
-        (username,),
-    )
-    conn.commit()
+    with conn:
+        cur = conn.execute(
+            "DELETE FROM reauth_tickets WHERE username = ?",
+            (username,),
+        )
     return cur.rowcount or 0

@@ -28,6 +28,7 @@ from mediaman.services.rate_limit.instances import (
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.middleware.rate_limit import rate_limit
+from mediaman.web.repository.delete_intents import reconcile_before_scan
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ def trigger_scan(
             thread_conn = open_thread_connection(db_path)
             from mediaman.scanner.runner import run_scan_from_db
 
+            reconcile_before_scan(thread_conn, secret_key)
             summary = run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
             reason = summary.get("skipped_reason")
             if reason:

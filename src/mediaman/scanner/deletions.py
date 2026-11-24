@@ -22,29 +22,43 @@ import os
 import re
 import sqlite3
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from time import monotonic
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 import requests
 
 from mediaman.core.audit import log_audit
 from mediaman.core.delete_root_state import read_delete_root_state, write_delete_root_state
-from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
+    await_rescan,
+    book_deletion,
+    book_removed_files,
     cancel_kept_deletion,
     claim_due_deletion,
     claim_due_deletions_under,
+    fetch_deletion,
     fetch_media_held_outside_pass,
+    fetch_old_marks,
+    fetch_pending_rescans,
+    fetch_pending_unmonitors,
     fetch_tracked_paths_in_folders,
+    finish_unmonitor,
     is_claimed_deletion,
+    is_fully_removed,
     is_kept_deletion,
     is_latest_audit,
+    mark_unanswered,
     record_removed_files,
+    tracked_paths,
+    was_audited_since,
+    was_requested_since,
 )
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.match import build_arr_index, index_match_movie, index_match_season
@@ -65,23 +79,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_RECORD_ATTEMPTS = 3
+
 
 class DeletionResult(TypedDict):
     deleted: int
     reclaimed_bytes: int
-
-
-def _tracked_paths(row: DeletionRow) -> list[str] | None:
-    """Return the paths of the row's tracked files, or None when they are not usable.
-
-    None when the scan has not recorded them yet, or an entry has no path.
-    """
-    if not row.tracked_files:
-        return None
-    paths = [entry.get("path") if isinstance(entry, dict) else None for entry in row.tracked_files]
-    if not all(isinstance(path, str) and path for path in paths):
-        return None
-    return [str(path) for path in paths]
 
 
 _SEASON_FOLDER = re.compile(r"(?:season|series|s)[ ._-]*(\d+)", re.IGNORECASE)
@@ -141,16 +144,15 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       earlier pass of this deletion -> nothing proves mediaman removed it
       (it may only have moved). Reset to ``pending`` and audit once that it
       waits for a scan, as the live pass does.
-    * Every tracked file absent and recorded as removed, **and** each stored
-      path was within the configured delete roots -> the removal completed
+    * Every tracked file absent and recorded as removed -> the removal completed
       but the follow-up bookkeeping was never committed. Convert to a normal
       ``deleted`` cleanup: write the audit entry (crediting the recorded
       bytes) and drop the row. Folders left holding only artwork do not
       count as files. If a keep or snooze was written over the row during
-      the removal, the keep stands: audit that the media is gone and reset
-      to ``pending``, never booking it as a scheduled deletion.
-    * Files absent **but** a stored path was NOT within the configured
-      delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
+      the removal, the keep stands: reset
+      to ``pending``; the live pass then books what was removed.
+    * Files absent **but** one not recorded as removed was NOT within the
+      configured delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
       the crash and restart, or the path was always bogus) -> mediaman
       could never have deleted it, so we must NOT fabricate a "deleted N
       bytes" audit row (that would corrupt the audit trail and the
@@ -182,7 +184,10 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
     allowed_roots = repository.read_delete_allowed_roots_setting(conn)
 
     for row in rows:
-        paths = _tracked_paths(row)
+        paths = tracked_paths(row)
+        # A file this deletion removed is expected to be gone, whatever became of its
+        # root since, and the folder walk after it may have emptied the folder above.
+        unrecorded = [p for p in paths or () if str(Path(p)) not in row.removed_paths]
         if paths is None:
             logger.warning(
                 "engine.delete.recover id=%s — no tracked files recorded, reverting "
@@ -198,8 +203,8 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not all(path_within_delete_roots(path, allowed_roots) for path in paths):
-            # Files are gone but a path was never inside an allowed root —
+        elif not all(path_within_delete_roots(path, allowed_roots) for path in unrecorded):
+            # Files are gone but an unrecorded path was never inside an allowed root —
             # mediaman did not (and could not) delete it. Do NOT write a
             # phantom "deleted" audit row. Reset to pending and shout.
             logger.error(
@@ -211,14 +216,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif (
-            unavailable := _first_unavailable(
-                # A file this deletion removed is expected to be gone, and the
-                # folder walk after it may have emptied the folder above.
-                [path for path in paths if str(Path(path)) not in row.removed_paths],
-                allowed_roots,
-            )
-        ) is not None:
+        elif (unavailable := _first_unavailable(unrecorded, allowed_roots)) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — files absent but their delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -228,7 +226,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
             )
             _audit_root_unavailable(conn, row, unavailable)
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not {str(Path(path)) for path in paths} <= row.removed_paths:
+        elif unrecorded:
             logger.warning(
                 "engine.delete.recover id=%s path=%r — files gone, but this deletion did not "
                 "record removing them all; reverting status to 'pending' until a scan "
@@ -253,14 +251,6 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
                 row.action,
             )
-            rk = row.plex_rating_key
-            log_audit(
-                conn,
-                row.media_item_id,
-                "media_missing",
-                f"Files gone (recovered): {row.title} — kept while it was being deleted"
-                + (f" [rk:{rk}]" if rk else ""),
-            )
             repository.mark_delete_status(conn, row.id, "pending")
         elif not book:
             logger.warning(
@@ -276,7 +266,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
             )
-            _book_deleted(conn, row, "Deleted (recovered)", row.removed_bytes or None)
+            book_deletion(
+                conn, row, "Deleted (recovered)", row.removed_bytes or None, unmonitor=True
+            )
             booked.append(row)
         conn.commit()
     return booked
@@ -420,28 +412,6 @@ def _remove_bare_folders(
         )
 
 
-def _book_deleted(
-    conn: sqlite3.Connection, row: DeletionRow, label: str, space_bytes: int | None
-) -> None:
-    """Write the ``deleted`` audit entry with its identity row and drop the action row.
-
-    Does not commit: the caller's commit covers all three writes.
-    """
-    rk = row.plex_rating_key
-    detail = f"{label}: {row.title}" + (f" [rk:{rk}]" if rk else "")
-    audit_id = log_audit(conn, row.media_item_id, "deleted", detail, space_bytes=space_bytes)
-    record_deleted_media(
-        conn,
-        audit_id,
-        media_type=row.media_type or "",
-        tmdb_id=row.tmdb_id,
-        tvdb_id=row.tvdb_id,
-        season_number=row.season_number,
-        title=row.title or "",
-    )
-    repository.delete_scheduled_action(conn, row.id)
-
-
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
 
 
@@ -449,6 +419,45 @@ def _is_not_found(exc: Exception) -> bool:
     if getattr(exc, "status_code", None) == 404:
         return True
     return getattr(getattr(exc, "response", None), "status_code", None) == 404
+
+
+def _gave_no_answer(exc: Exception) -> bool:
+    """Return True when *exc* says the service did not deal with the request, rather than refused it."""
+    if isinstance(exc, SafeHTTPError):
+        # 0 is a transport error; a proxy answers 502-504 for a service that is down.
+        return exc.status_code in (0, 401, 403, 502, 503, 504)
+    return isinstance(exc, (requests.ConnectionError, requests.Timeout))
+
+
+def _is_down(exc: Exception) -> bool:
+    """Return True when *exc* says the service would answer no other request now either."""
+    if isinstance(exc, SafeHTTPError):
+        return exc.status_code in (401, 403) or isinstance(exc.__cause__, requests.ConnectionError)
+    return isinstance(exc, requests.ConnectionError)
+
+
+# The time one pass may spend waiting for answers a service does not give.
+_MAX_WAIT_SECONDS = 120.0
+# A mark left longer is dropped: the title may have been added back in Radarr/Sonarr since.
+_MARK_MAX_AGE = timedelta(days=7)
+
+
+@dataclass
+class ArrTurn:
+    """What one pass has found out about Radarr and Sonarr.
+
+    *unusable* names those not to ask anything more; *unanswered* holds the
+    marks, by audit id, not to ask about again.
+    """
+
+    unusable: set[str] = field(default_factory=set)
+    unanswered: set[int] = field(default_factory=set)
+    waited: dict[str, float] = field(default_factory=dict)
+
+    def note_no_answer(self, service: str, exc: Exception, began: float) -> None:
+        self.waited[service] = self.waited.get(service, 0.0) + monotonic() - began
+        if _is_down(exc) or self.waited[service] >= _MAX_WAIT_SECONDS:
+            self.unusable.add(service)
 
 
 def _arr_file_key(arr_file: object) -> tuple[str, int] | None:
@@ -511,8 +520,8 @@ def _no_entry(is_movie: bool) -> str:
     return "Radarr has no entry for this movie" if is_movie else "Sonarr has no entry for this show"
 
 
-def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
-    """Unmonitor the Radarr entry matching *row*; return why not when it does not match."""
+def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> int | str:
+    """Unmonitor the Radarr entry matching *row*; return its id, or why none matches."""
     tmdb_id = row.tmdb_id
     if not tmdb_id:
         return "Plex has no TMDB id for this movie"
@@ -525,7 +534,7 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
     radarr_id = next(
         (
             found
-            for path in _tracked_paths(row) or []
+            for path in tracked_paths(row) or []
             if (found := index_match_movie(index, tmdb_id=tmdb_id, plex_file_path=path)) is not None
         ),
         None,
@@ -540,11 +549,11 @@ def _unmonitor_movie(row: DeletionRow, client: ArrClient) -> str | None:
         if key is None or key not in _removed_file_keys(row):
             return "Radarr's file for this movie is not one mediaman deleted"
     client.unmonitor_movie(radarr_id)
-    return None
+    return radarr_id
 
 
-def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
-    """Unmonitor the Sonarr season matching *row*; return why not when it does not match."""
+def _unmonitor_season(row: DeletionRow, client: ArrClient) -> int | str:
+    """Unmonitor the Sonarr season matching *row*; return its show's id, or why none matches."""
     tvdb_id = row.tvdb_id
     if not tvdb_id:
         return "Plex has no TVDB id for this show"
@@ -565,7 +574,7 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     sonarr_id = next(
         (
             found
-            for folder in {os.path.dirname(path) for path in _tracked_paths(row) or []}
+            for folder in {os.path.dirname(path) for path in tracked_paths(row) or []}
             if (
                 found := index_match_season(
                     index, tvdb_id=tvdb_id, season_number=season, plex_file_path=folder
@@ -588,55 +597,261 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
         ):
             return "Sonarr has a file in this season that mediaman did not delete"
     client.unmonitor_season(sonarr_id, season)
-    return None
+    return sonarr_id
 
 
-def _unmonitor_deleted(
+def _unmonitor(row: DeletionRow, client: ArrClient) -> int | str | None:
+    """Stop Radarr/Sonarr re-downloading a deleted item.
+
+    Returns the id of the entry unmonitored, or why none was when that must be
+    told. Only ever unmonitors, after checking it is the same item: the files are
+    already gone, so a wrong match could at worst stop a download, never delete
+    anything. With no entry for the item, there is nothing to unmonitor. Raises
+    when the service gives no answer.
+    """
+    is_movie = row.media_type == "movie"
+    service = _service(row)
+    try:
+        outcome = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
+    except _ARR_ERRORS as exc:
+        if _gave_no_answer(exc):
+            raise
+        logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
+        outcome = f"{service} returned an error"
+    if isinstance(outcome, int):
+        return outcome
+    reason = outcome
+    if reason == _no_entry(is_movie):
+        # Nothing to unmonitor, and nothing it could download again.
+        logger.info("engine.delete.unmonitor_none media_id=%s — %s", row.media_item_id, reason)
+        return None
+    return _not_unmonitored(row, reason)
+
+
+def _service(row: DeletionRow) -> str:
+    return "Radarr" if row.media_type == "movie" else "Sonarr"
+
+
+def _not_unmonitored(row: DeletionRow, reason: str) -> str:
+    logger.warning("engine.delete.unmonitor_skipped media_id=%s — %s", row.media_item_id, reason)
+    return (
+        f"Not unmonitored in {_service(row)}: {row.title} — {reason}; it was deleted, but "
+        f"{_service(row)} may download it again"
+    )
+
+
+def _on_disk_again(row: DeletionRow) -> bool:
+    paths = row.removed_paths.union(tracked_paths(row) or [])
+    return any(os.path.lexists(path) for path in paths)
+
+
+def _entry_to_rescan(row: DeletionRow, client: ArrClient) -> int | None:
+    """Return the id of the Radarr/Sonarr entry with *row*'s TMDB/TVDB id, or None."""
+    if row.media_type == "movie":
+        own_id, key, stored_id = row.tmdb_id, "tmdbId", row.radarr_id
+        lookups: tuple[Callable[[int], Any], Callable[[int], Any]] = (
+            client.get_movie_by_id,
+            client.get_movie_by_tmdb,
+        )
+    else:
+        own_id, key, stored_id = row.tvdb_id, "tvdbId", row.sonarr_id
+        lookups = client.get_series_by_id, client.get_series_by_tvdb
+    if not own_id:
+        return None
+    entry = _lookup_entry(stored_id, *lookups, own_id)
+    if not entry or entry.get(key) != own_id or not isinstance(entry.get("id"), int):
+        return None
+    return int(entry["id"])
+
+
+class _Told(NamedTuple):
+    """What became of a booked deletion's mark: the entry left to rescan, and what to audit.
+
+    With *keep* the mark stays as it is, for the next call to try again.
+    """
+
+    rescan_id: int | None = None
+    note: str | None = None
+    keep: bool = False
+
+
+def _tell(
     conn: sqlite3.Connection,
     row: DeletionRow,
     *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
-) -> None:
-    """Stop Radarr/Sonarr re-downloading a deleted item, after checking it is the same item.
-
-    Only ever unmonitors: the files are already gone, so a wrong match could
-    at worst stop a download, never delete anything. With no client for the
-    item's kind, or no entry for the item in it, there is nothing to unmonitor;
-    any other skip is audited as ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
-    committed, so a slow response never holds the write lock; does not commit.
-    """
-    is_movie = row.media_type == "movie"
-    service = "Radarr" if is_movie else "Sonarr"
-    client = radarr_client if is_movie else sonarr_client
-    if client is None:
-        return
+    turn: ArrTurn,
+) -> _Told:
+    """Unmonitor a booked deletion, or find why not; *turn* learns of a service giving no answer."""
+    service = _service(row)
+    client = radarr_client if row.media_type == "movie" else sonarr_client
+    if client is None and service not in turn.unusable:
+        return _Told()
+    left = f"Left monitored in {service}: {row.title}"
+    if _on_disk_again(row):
+        return _Told(note=f"{left} — a copy of it is on disk again")
+    later = _Told(
+        note=f"Not unmonitored in {service} yet: {row.title} — {service} cannot be used now; "
+        "it may download it again until it is told",
+        keep=True,
+    )
+    if client is None or service in turn.unusable:
+        return later
+    began = monotonic()
+    if was_requested_since(conn, row):
+        note = f"{left} — it was asked for again after its deletion"
+        try:
+            return _Told(_entry_to_rescan(row, client), note)
+        except _ARR_ERRORS as exc:
+            logger.warning("Lookup for a rescan failed for %r", row.title, exc_info=True)
+            if _gave_no_answer(exc):
+                turn.note_no_answer(service, exc, began)
+            turn.unanswered.add(row.id)
+            return _Told(keep=True)
     try:
-        reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
-    except _ARR_ERRORS:
-        logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
-        reason = f"{service} could not be reached or returned an error"
-    if reason is None:
-        return
-    if reason == _no_entry(is_movie):
-        # Nothing to unmonitor, and nothing it could download again.
-        logger.info(
-            "engine.delete.unmonitor_none id=%s media_id=%s — %s",
-            row.id,
-            row.media_item_id,
-            reason,
+        outcome = _unmonitor(row, client)
+    except _ARR_ERRORS as exc:
+        logger.warning("%s gave no answer to unmonitor %r", service, row.title, exc_info=True)
+        turn.note_no_answer(service, exc, began)
+        turn.unanswered.add(row.id)
+        return later
+    return _Told(rescan_id=outcome) if isinstance(outcome, int) else _Told(note=outcome)
+
+
+def _drop_old_marks(
+    conn: sqlite3.Connection,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+    turn: ArrTurn,
+) -> None:
+    """Drop, auditing each, the marks older than _MARK_MAX_AGE of a service that is set up."""
+    for row, rescan in fetch_old_marks(conn, (now_utc() - _MARK_MAX_AGE).isoformat()):
+        service = _service(row)
+        client = radarr_client if row.media_type == "movie" else sonarr_client
+        if client is None and service not in turn.unusable:
+            continue
+        waited = f"within {_MARK_MAX_AGE.days} days of its deletion"
+        note = (
+            f"Not rescanned in {service}: {row.title} — {service} could not be asked to {waited}; "
+            "it may still list the deleted files"
+            if rescan
+            else f"Left monitored in {service}: {row.title} — {service} could not be told "
+            f"{waited}, so it may download it again"
         )
-        return
-    logger.warning(
-        "engine.delete.unmonitor_skipped id=%s media_id=%s — %s", row.id, row.media_item_id, reason
-    )
-    log_audit(
-        conn,
-        row.media_item_id,
-        "unmonitor_skipped",
-        f"Not unmonitored in {service}: {row.title} — {reason}; it was deleted, but "
-        f"{service} may download it again",
-    )
+        logger.warning("engine.delete.mark_dropped media_id=%s — %s", row.media_item_id, note)
+        with conn:
+            if finish_unmonitor(conn, row.id):
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", note)
+
+
+def unmonitor_deleted(
+    conn: sqlite3.Connection,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+    turn: ArrTurn,
+) -> None:
+    """Unmonitor in Radarr/Sonarr every booked deletion still marked for it.
+
+    The mark of an entry unmonitored then waits for rescan_deleted. A service
+    without a client is not set up, so there is nothing to unmonitor; one *turn*
+    finds unusable is set up but cannot be used now. *turn* is the pass's own,
+    so a title given no answer is not waited for again.
+
+    Runs after the deletion committed, so a slow response never holds the write
+    lock, and commits each item's outcome as it goes: one a dead process left
+    marked is done by the next call. It is tried once, or kept marked while its
+    service gives no answer, but not for ever; a skip is audited once as
+    ``unmonitor_skipped`` and the deletion stays booked either way. A title
+    that came back meanwhile is left monitored; one asked for again is only
+    rescanned, as Radarr/Sonarr would not fetch files it still lists.
+    """
+    _drop_old_marks(conn, radarr_client=radarr_client, sonarr_client=sonarr_client, turn=turn)
+    for row in fetch_pending_unmonitors(conn):
+        if row.id in turn.unanswered:
+            continue
+        try:
+            told = _tell(
+                conn,
+                row,
+                radarr_client=radarr_client,
+                sonarr_client=sonarr_client,
+                turn=turn,
+            )
+        except sqlite3.Error:
+            raise
+        # rationale: the mark of a row that always fails would stop every later pass and sync.
+        except Exception as exc:
+            logger.exception("engine.delete.unmonitor_failed media_id=%s", row.media_item_id)
+            told = _Told(
+                note=_not_unmonitored(
+                    row, f"an unexpected error stopped it ({exc.__class__.__name__})"
+                )
+            )
+        with conn:
+            if told.keep:
+                news = told.note is not None and not was_audited_since(
+                    conn, row.id, row.media_item_id, "unmonitor_skipped", told.note
+                )
+                if row.id in turn.unanswered:
+                    mark_unanswered(conn, row.id)
+            elif told.rescan_id is not None:
+                news = await_rescan(conn, row.id, told.rescan_id)
+            else:
+                news = finish_unmonitor(conn, row.id)
+            if news and told.note is not None:
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", told.note)
+
+
+def rescan_deleted(
+    conn: sqlite3.Connection,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+    turn: ArrTurn,
+) -> None:
+    """Ask Radarr/Sonarr to look at the disk again for the entries whose files were deleted.
+
+    Until it does it still lists the files, so a title asked for again reads as
+    already there. An entry's mark goes once its rescan is asked for or the
+    service refused the entry itself, so the next call asks for one a dead
+    process or a failure left. A service *turn* finds unusable is asked nothing
+    more. The marks of one without a client, so not set up, go.
+    """
+    for movies, client in ((True, radarr_client), (False, sonarr_client)):
+        service = "Radarr" if movies else "Sonarr"
+        try:
+            for entry_id, audit_ids in fetch_pending_rescans(conn, movies=movies).items():
+                if service in turn.unusable:
+                    break
+                asked = client is None or _ask_rescan(client, entry_id, service, turn)
+                with conn:
+                    for audit_id in audit_ids:
+                        if asked:
+                            finish_unmonitor(conn, audit_id)
+                        else:
+                            mark_unanswered(conn, audit_id)
+        # rationale: the deletions are booked and the marks stay for the next call.
+        except Exception:
+            logger.warning("Rescan of deleted titles failed (%s)", service, exc_info=True)
+
+
+def _ask_rescan(client: ArrClient, entry_id: int, service: str, turn: ArrTurn) -> bool:
+    """Ask for a rescan of the entry; return False when it is to be asked for again later."""
+    began = monotonic()
+    try:
+        (client.rescan_movie if service == "Radarr" else client.rescan_series)(entry_id)
+    # rationale: one entry's failure, whatever it is, must not hold up the others.
+    except Exception as exc:
+        if isinstance(exc, SafeHTTPError) and exc.status_code in (400, 404):
+            logger.info("engine.delete.rescan_refused entry_id=%s", entry_id)
+            return True
+        logger.warning("Rescan failed (%s entry %s)", service, entry_id, exc_info=True)
+        turn.note_no_answer(service, exc, began)
+        return False
+    return True
 
 
 def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
@@ -711,7 +926,7 @@ def _files_left(row: DeletionRow, result: TrackedFilesResult, tracked: set[str])
     A failed sidecar counts against each row with a tracked file in its folder.
     A file an earlier pass of this deletion removed is not left, though not found.
     """
-    own = {str(Path(path)) for path in _tracked_paths(row) or []}
+    own = {str(Path(path)) for path in tracked_paths(row) or []}
     folders = {os.path.dirname(path) for path in own}
     missing = own - row.removed_paths
     return _FilesLeft(
@@ -726,6 +941,12 @@ def _files_left(row: DeletionRow, result: TrackedFilesResult, tracked: set[str])
     )
 
 
+def _own_removed(row: DeletionRow, result: TrackedFilesResult) -> set[str]:
+    """Return *row*'s tracked files that *result* removed."""
+    removed = {str(Path(path)) for path in result.removed}
+    return {str(Path(path)) for path in tracked_paths(row) or []} & removed
+
+
 def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
     """Name the folder found missing or empty above *row*'s files, else None.
 
@@ -734,7 +955,7 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
     expected to be gone, so it says nothing about the mount.
     """
     stored = row.file_path or ""
-    tracked = _tracked_paths(row)
+    tracked = tracked_paths(row)
     if tracked is not None:
         paths = [path for path in tracked if str(Path(path)) not in row.removed_paths]
     else:
@@ -744,6 +965,22 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
         if (folder := _unavailable(path, allowed_roots)) is not None:
             return folder
     return None
+
+
+def _new_copy(row: DeletionRow) -> bool:
+    """Return True when the disk holds a copy of *row*'s item that came after its removal began.
+
+    A file this deletion removed is there again, or its item tracks a file
+    that was not among those still to remove.
+    """
+    if any(os.path.lexists(path) for path in row.removed_paths):
+        return True
+    if not row.removed_paths or row.left_paths is None:
+        return False
+    known = row.removed_paths | row.left_paths
+    return any(
+        str(Path(path)) not in known and os.path.lexists(path) for path in tracked_paths(row) or []
+    )
 
 
 # Audit rows about a folder rather than an item carry this prefix and the
@@ -830,6 +1067,7 @@ class DeletionExecutor:
         self._radarr = radarr_client
         # Action row id -> the folder found missing or empty that holds it back.
         self._waiting: dict[int, str] = {}
+        self._turn = ArrTurn()
 
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
@@ -847,13 +1085,23 @@ class DeletionExecutor:
            mark 'deleting', delete its tracked files, commit audit + unmonitor.
         4. Live: record which roots or folders held rows back, for the dashboard.
         5. Clean up expired snoozes unless dry-run.
+        6. Live: ask Radarr/Sonarr to rescan what was unmonitored, then or by an earlier run.
         """
         now = now_utc()
+        self._turn = ArrTurn()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
             self._preview(rows, now)
             return {"deleted": 0, "reclaimed_bytes": 0}
-        return self._execute_live(rows, now)
+        result = self._execute_live(rows, now)
+        # Last, so a slow answer delays no deletion.
+        rescan_deleted(
+            self._conn,
+            radarr_client=self._radarr,
+            sonarr_client=self._sonarr,
+            turn=self._turn,
+        )
+        return result
 
     def _preview(self, rows: list[DeletionRow], now: datetime) -> None:
         """Record what *would* be deleted and which folders would hold rows back.
@@ -863,7 +1111,11 @@ class DeletionExecutor:
         from the last live pass however long the passes stay dry runs.
         """
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
-        due = [row for row in rows if not is_kept_deletion(self._conn, row.id, now.isoformat())]
+        due = [
+            row
+            for row in rows
+            if row.library_selected and not is_kept_deletion(self._conn, row.id, now.isoformat())
+        ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
         waiting: dict[str, list[int]] = {}
         for row in due:
@@ -884,21 +1136,33 @@ class DeletionExecutor:
         documented "dry-run mutates nothing" contract honest.
         """
         if not self._dry_run:
-            for row in recover_stuck_deletions(self._conn):
-                self._unmonitor(row)
+            recover_stuck_deletions(self._conn)
+            self._unmonitor()
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
 
-    def _unmonitor(self, row: DeletionRow) -> None:
-        _unmonitor_deleted(self._conn, row, radarr_client=self._radarr, sonarr_client=self._sonarr)
-        # Its audit write must not hold the write lock through the next row's calls.
-        self._conn.commit()
+    def _unmonitor(self) -> None:
+        try:
+            unmonitor_deleted(
+                self._conn,
+                radarr_client=self._radarr,
+                sonarr_client=self._sonarr,
+                turn=self._turn,
+            )
+        # rationale: the deletions are committed and the marks stay for the next pass, so
+        # nothing here may leave the rows still due unhandled.
+        except Exception:
+            logger.exception("engine.delete.unmonitor_pass_failed — the next pass tries again")
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
         deleted_count = 0
         reclaimed_bytes = 0
         self._waiting = {}
+        book_removed_files(self._conn)
+        self._conn.commit()
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
+        # Booking what was removed deletes nothing, so it does not wait for roots.
+        rows = self._book_over(rows, allowed_roots, now.isoformat())
         # Fail closed once, before the loop: deletion must refuse when
         # MEDIAMAN_DELETE_ROOTS is unset. Checked outside the per-row
         # loop so the refusal is logged a single time, not once per pending
@@ -924,6 +1188,67 @@ class DeletionExecutor:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
+
+    def _book_over(
+        self, rows: list[DeletionRow], allowed_roots: list[str], now_iso: str
+    ) -> list[DeletionRow]:
+        """Book each row with nothing to remove any more; return the other rows.
+
+        That is an item with a new copy on disk: the notice was for the copy
+        already removed, so the new one starts afresh, and Radarr/Sonarr keep
+        monitoring it. Or an item whose files are all removed, which the
+        removal could not close. Runs over every row first, as a row may
+        close with another's.
+        """
+        others = []
+        for row in rows:
+            replaced = _new_copy(row)
+            if not replaced and not self._cannot_close(row, allowed_roots, now_iso):
+                others.append(row)
+                continue
+            booked = claim_due_deletion(self._conn, row.id, now_iso) and not self._cancel_if_kept(
+                row, now_iso
+            )
+            if booked:
+                logger.warning(
+                    "engine.delete.over id=%s media_id=%s path=%r new_copy=%s — booking what "
+                    "was removed; removing nothing more",
+                    row.id,
+                    row.media_item_id,
+                    row.file_path,
+                    replaced,
+                )
+                if replaced:
+                    log_audit(
+                        self._conn,
+                        row.media_item_id,
+                        "delete_refused",
+                        f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
+                        "of the old one is recorded",
+                    )
+                book_deletion(
+                    self._conn,
+                    row,
+                    "Deleted (recovered)",
+                    row.removed_bytes or None,
+                    unmonitor=not replaced,
+                )
+            self._conn.commit()
+            if booked:
+                self._unmonitor()
+        return others
+
+    def _cannot_close(self, row: DeletionRow, allowed_roots: list[str], now_iso: str) -> bool:
+        """Return True for a fully removed row the removal would hold back, refuse or drop."""
+        path = row.file_path or ""
+        files = tracked_paths(row)
+        return is_fully_removed(row) and (
+            not row.library_selected
+            or files is None
+            or not all(path_within_delete_roots(file, allowed_roots) for file in files)
+            or not path.strip()
+            or bool(fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso))
+        )
 
     def _delete_one(
         self,
@@ -955,7 +1280,6 @@ class DeletionExecutor:
         each closes once all its own files are gone. They go back to pending
         if the removal fails, or if a keep or clear made after the claim stops it.
         """
-        path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
         unavailable = _unavailable_for(row, allowed_roots)
@@ -968,9 +1292,18 @@ class DeletionExecutor:
             )
             return [], 0
 
+        # A row that closed with another's removal may hold a newer record.
+        row = fetch_deletion(self._conn, row.id) or row
         if self._cancel_if_kept(row, now_iso):
             self._conn.commit()
             return [], 0
+
+        if not row.library_selected:
+            self._refuse_unselected(row)
+            self._conn.commit()
+            return [], 0
+
+        path = row.file_path or ""
 
         if not path.strip():
             logger.error(
@@ -990,7 +1323,7 @@ class DeletionExecutor:
             self._conn.commit()
             return [], 0
 
-        if _tracked_paths(row) is None:
+        if tracked_paths(row) is None:
             logger.warning(
                 "engine.delete.unrecorded id=%s media_id=%s — the item's files are not "
                 "recorded yet; leaving the row pending until a scan records them",
@@ -1026,18 +1359,29 @@ class DeletionExecutor:
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
         unavailable = _unavailable_for(row, allowed_roots)
+        replaced = [claimed.id for claimed in (row, *co_located) if _new_copy(claimed)]
+        if replaced:
+            logger.warning(
+                "engine.delete.new_copy_after_claim id=%s path=%r replaced_rows=%s — a new copy "
+                "is on disk; leaving the files",
+                row.id,
+                path,
+                replaced,
+            )
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):
+        if replaced or not self._still_removable(
+            row, co_located, path, now_iso, unavailable=unavailable
+        ):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
             return [], 0
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
-        closing = [row, *(other for other in co_located if _tracked_paths(other) is not None)]
+        closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
         tracked = [entry for done in closing for entry in done.tracked_files or []]
-        owned = [(done, file) for done in closing for file in _tracked_paths(done) or []]
+        owned = [(done, file) for done in closing for file in tracked_paths(done) or []]
         protected = fetch_tracked_paths_in_folders(
             self._conn,
             {os.path.dirname(file) for _, file in owned},
@@ -1060,38 +1404,65 @@ class DeletionExecutor:
             return [], 0
         # Recovery books a stuck row only from this record, so it is committed
         # before anything else can fail or the process can die.
-        self._record_removal(row, closing, result)
-        self._conn.commit()
+        unrecorded = self._commit_record(row, closing, result)
         if result.removed:
             _remove_bare_folders(self._conn, row, result.removed, allowed_roots, limits)
-        closed = self._settle(row, closing, co_located, result)
+        closed = self._settle(row, closing, co_located, result, unrecorded)
         # Commit *before* the Radarr/Sonarr unmonitor HTTP calls: the unmonitor
         # is best-effort and a slow response must not hold the write lock.
         self._conn.commit()
-        for done in closed:
-            self._unmonitor(done)
+        if closed:
+            self._unmonitor()
         return closed, result.bytes_freed
+
+    def _commit_record(
+        self, row: DeletionRow, closing: list[DeletionRow], result: TrackedFilesResult
+    ) -> set[int]:
+        """Write and commit the record of *result*, trying again on a database error.
+
+        Returns the ids of the rows a clear made during the removal left without
+        one. Not rolled back in between: once the files are gone nothing but this
+        record says so.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                unrecorded = self._record_removal(row, closing, result)
+                self._conn.commit()
+                return unrecorded
+            except sqlite3.OperationalError:
+                if attempt == _RECORD_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "engine.delete.record_failed id=%s attempt=%d — trying again",
+                    row.id,
+                    attempt,
+                    exc_info=True,
+                )
 
     def _record_removal(
         self, row: DeletionRow, closing: list[DeletionRow], result: TrackedFilesResult
-    ) -> None:
+    ) -> set[int]:
         """Add what *result* removed to each closing row's record of removed files.
 
         The bytes freed are credited to *row* alone, so the audit total matches
-        what left the disk.
+        what left the disk. Returns the ids of the rows that are gone.
         """
-        removed = {str(Path(path)) for path in result.removed}
+        unrecorded: set[int] = set()
         for done in closing:
-            gone = {str(Path(path)) for path in _tracked_paths(done) or []} & removed
+            gone = _own_removed(done, result)
             freed = result.bytes_freed if done is row else 0
-            if gone or freed:
-                record_removed_files(
-                    self._conn,
-                    done.id,
-                    done.removed_paths | gone,
-                    done.removed_bytes + freed,
-                    {**done.removed_sizes, **_tracked_sizes(done)},
-                )
+            if (gone or freed) and not record_removed_files(
+                self._conn,
+                done.id,
+                done.removed_paths | gone,
+                done.removed_bytes + freed,
+                {**done.removed_sizes, **_tracked_sizes(done)},
+                {str(Path(path)) for path in tracked_paths(done) or []} - gone - done.removed_paths,
+            ):
+                unrecorded.add(done.id)
+        return unrecorded
 
     def _settle(
         self,
@@ -1099,6 +1470,7 @@ class DeletionExecutor:
         closing: list[DeletionRow],
         co_located: list[DeletionRow],
         result: TrackedFilesResult,
+        unrecorded: set[int],
     ) -> list[DeletionRow]:
         """Book each closing row whose files are all gone; return the rest to pending.
 
@@ -1106,12 +1478,22 @@ class DeletionExecutor:
         (or a sidecar failed beside one) stays pending; its record of the files
         removed so far lets the pass that finishes it close it. The bytes freed
         are credited to *row* alone, and reach its ``deleted`` audit entry
-        once it closes.
+        once it closes. A row a clear took once its record was written was
+        booked by the clear with that record; one it took before, in
+        *unrecorded*, was booked with what earlier passes freed.
         """
-        tracked = {str(Path(path)) for done in closing for path in _tracked_paths(done) or []}
+        tracked = {str(Path(path)) for done in closing for path in tracked_paths(done) or []}
         closed: list[DeletionRow] = []
+        # The lock comes before the reads, so no clear lands between them and the booking.
+        if not self._conn.in_transaction:
+            self._conn.execute("BEGIN IMMEDIATE")
         for done in closing:
-            space = done.removed_bytes + (result.bytes_freed if done is row else 0)
+            cleared = fetch_deletion(self._conn, done.id) is None
+            if cleared and done.id not in unrecorded:
+                continue
+            space = (0 if cleared else done.removed_bytes) + (
+                result.bytes_freed if done is row else 0
+            )
             left = _files_left(done, result, tracked)
             if left:
                 logger.warning(
@@ -1125,13 +1507,41 @@ class DeletionExecutor:
                 )
                 repository.mark_delete_status(self._conn, done.id, "pending")
                 _audit_files_left(self._conn, done, left)
+                # No later pass will book what this one removed.
+                if cleared and _own_removed(done, result):
+                    book_deletion(self._conn, done, "Deleted", space or None)
             else:
-                _book_deleted(self._conn, done, "Deleted", space or None)
+                book_deletion(self._conn, done, "Deleted", space or None, unmonitor=True)
                 closed.append(done)
         for other in co_located:
             if other not in closing:
                 repository.mark_delete_status(self._conn, other.id, "pending")
         return closed
+
+    def _refuse_unselected(self, row: DeletionRow) -> None:
+        """Cancel a claimed row whose library is not ticked, booking what it removed.
+
+        Cancelled rather than left pending, so ticking the library again cannot
+        fire it with no fresh scan, grace and notice.
+        """
+        logger.info(
+            "engine.delete.library_unselected id=%s media_id=%s — its library is not selected",
+            row.id,
+            row.media_item_id,
+        )
+        finished = is_fully_removed(row)
+        if row.removed_paths:
+            book_deletion(self._conn, row, "Deleted", row.removed_bytes or None, unmonitor=finished)
+        if finished:
+            return
+        repository.delete_scheduled_action(self._conn, row.id)
+        log_audit(
+            self._conn,
+            row.media_item_id,
+            "delete_refused",
+            f"Not deleted: {row.title} — its library is not selected in Settings, so its "
+            "scheduled deletion is cancelled",
+        )
 
     def _cancel_if_kept(self, row: DeletionRow, now_iso: str) -> bool:
         """Cancel a claimed row, logging and auditing why, when a keep the scan honours covers it.
@@ -1140,6 +1550,16 @@ class DeletionExecutor:
         """
         if not cancel_kept_deletion(self._conn, row.id, now_iso):
             return False
+        if row.removed_paths:
+            book_deletion(self._conn, row, "Deleted", row.removed_bytes or None)
+        if is_fully_removed(row):
+            logger.warning(
+                "engine.delete.kept_too_late id=%s media_id=%s — kept after its files were "
+                "removed; booking their removal",
+                row.id,
+                row.media_item_id,
+            )
+            return True
         logger.warning(
             "engine.delete.kept id=%s media_id=%s — the item is kept; cancelling its "
             "scheduled deletion",
@@ -1165,15 +1585,15 @@ class DeletionExecutor:
     ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
-        The row must still be a claimed ``scheduled_deletion``, no keep the scan
+        The row must still be a claimed ``scheduled_deletion`` of a selected library, no keep the scan
         honours may cover it or a co-located row, and _may_remove must still
         pass, so an item under *path* kept since the claim blocks it as it
         would have before.
         """
         if not is_claimed_deletion(self._conn, row.id):
             logger.warning(
-                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept or "
-                "cleared since the claim; leaving the files",
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept, "
+                "cleared or its library unselected since the claim; leaving the files",
                 row.id,
                 row.media_item_id,
                 path,

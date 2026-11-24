@@ -1,8 +1,14 @@
-"""Tests for mediaman.services.downloads.download_queue.items.nzb_matches_arr."""
+"""Tests for matching NZBGet downloads to Radarr/Sonarr titles, and for those left unmatched."""
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_queue.items import nzb_matches_arr
+from mediaman.services.downloads.download_queue.queue import (
+    add_unmatched_nzb_items,
+    parse_nzb_queue,
+)
 
 
 class TestNzbMatchesArr:
@@ -54,3 +60,20 @@ class TestNzbMatchesArrWholeWords:
 
     def test_whole_word_run_inside_release_name_matches(self):
         assert nzb_matches_arr("up 2009 1080p bluray", ["up"]) is True
+
+
+@pytest.mark.parametrize(
+    ("category", "media_type"),
+    [
+        ("tv", "series"),
+        ("Series", "series"),
+        ("tv-sonarr", "series"),
+        ("Movies", "movie"),
+        ("", "movie"),
+    ],
+)
+def test_an_unmatched_nzb_without_an_episode_marker_goes_by_its_category(category, media_type):
+    items: list = []
+    nzb = {"NZBName": "Severance.1080p", "Status": "DOWNLOADING", "Category": category}
+    add_unmatched_nzb_items(items, parse_nzb_queue([nzb]), 0)
+    assert items[0]["media_type"] == media_type

@@ -8,7 +8,10 @@ Covers:
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from mediaman.web.routes.search.download import _submit_movie, _submit_tv
 
@@ -161,3 +164,71 @@ class TestSubmitTvAudit:
         assert resp.status_code == 503
         mock_sonarr.add_series.assert_not_called()
         mock_sonarr.add_series_with_seasons.assert_not_called()
+
+
+class TestFailedWriteRollsBack:
+    def test_a_failed_audit_write_takes_the_notification_row_with_it(self, conn):
+        body = MagicMock()
+        body.tmdb_id = 100
+        body.title = "Dune"
+        body.media_type = "movie"
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+
+        with (
+            patch(f"{_MODULE}.build_radarr_from_db", return_value=radarr),
+            pytest.raises(UnicodeEncodeError),
+        ):
+            _submit_movie(conn, "secret", body, "admin@example.com", "\ud800")
+
+        assert not conn.in_transaction
+        assert conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0] == 0
+
+
+class TestSubmitTvTransaction:
+    def _body(self) -> MagicMock:
+        body = MagicMock()
+        body.tmdb_id = 200
+        body.title = "Lost"
+        body.media_type = "tv"
+        body.monitored_seasons = None
+        body.search_seasons = None
+        return body
+
+    @staticmethod
+    def _seen_elsewhere(db_path, table: str) -> int:
+        other = sqlite3.connect(str(db_path))
+        try:
+            return other.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            other.close()
+
+    def _submit(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 5678}
+        with (
+            patch(f"{_MODULE}.build_sonarr_from_db", return_value=sonarr),
+            patch(f"{_MODULE}.is_series_already_tracked", return_value=False),
+        ):
+            return _submit_tv(conn, "secret", self._body(), "admin@example.com", "admin")
+
+    def test_a_failed_audit_write_takes_the_notification_row_with_it(self, conn, db_path):
+        conn.execute(
+            "CREATE TRIGGER no_audit BEFORE INSERT ON audit_log "
+            "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            self._submit(conn)
+
+        assert not conn.in_transaction
+        assert self._seen_elsewhere(db_path, "download_notifications") == 0
+
+    def test_the_notification_and_audit_rows_are_committed_for_other_connections(
+        self, conn, db_path
+    ):
+        assert self._submit(conn).status_code == 200
+
+        assert not conn.in_transaction
+        assert self._seen_elsewhere(db_path, "download_notifications") == 1
+        assert self._seen_elsewhere(db_path, "audit_log") == 1

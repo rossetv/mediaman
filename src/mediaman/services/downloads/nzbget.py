@@ -115,7 +115,10 @@ class NzbgetClient:
         return self._call("status", dict)
 
     def get_queue(self) -> list[dict[str, object]]:
-        return self._call("listgroups", list)
+        groups = self._call("listgroups", list)
+        if not all(isinstance(group, dict) for group in groups):
+            raise NzbgetError("NZBGet reply for method 'listgroups' is not a list of objects")
+        return groups
 
     def check_reachable(self) -> None:
         """Probe NZBGet; raise ``SafeHTTPError``, ``requests.RequestException`` or

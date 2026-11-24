@@ -11,6 +11,7 @@ from mediaman.services.arr.base import (
     SeasonsNotListed,
 )
 from mediaman.services.arr.spec import SONARR_SPEC
+from mediaman.services.infra import SafeHTTPError
 
 
 @pytest.fixture
@@ -40,6 +41,13 @@ class TestArrClientSonarr:
         series = client.get_series()
         assert len(series) == 1
         assert series[0]["title"] == "Modern Family"
+
+    def test_rescan_series_posts_the_rescan_command(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+        client.rescan_series(7)
+        post_call = _calls(fake_http, "POST")[0]
+        assert post_call[2]["json"] == {"name": "RescanSeries", "seriesId": 7}
+        assert "/api/v3/command" in post_call[1]
 
     def test_unmonitor_season(self, client, fake_http, fake_response):
         fake_http.queue(
@@ -182,6 +190,44 @@ class TestArrClientSonarr:
         assert put_call[2]["json"]["seasons"][0]["monitored"] is True
         assert len(_calls(fake_http, "POST")) == 1
 
+    @pytest.mark.parametrize("season_monitored", [False, True])
+    def test_remonitor_season_monitors_an_unmonitored_series_too(
+        self, client, fake_http, fake_response, season_monitored
+    ):
+        seasons = [
+            {"seasonNumber": 1, "monitored": False},
+            {"seasonNumber": 2, "monitored": season_monitored},
+        ]
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "monitored": False, "seasons": seasons})
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+
+        client.remonitor_season(series_id=1, season_number=2)
+
+        (put,) = _calls(fake_http, "PUT")
+        assert put[2]["json"]["monitored"] is True
+        assert [s["monitored"] for s in put[2]["json"]["seasons"]] == [False, True]
+        assert len(_calls(fake_http, "POST")) == 1
+
+    @pytest.mark.parametrize(("was_monitored", "puts"), [(False, [True, False]), (True, [True])])
+    def test_a_series_is_put_back_only_if_monitoring_it_led_to_no_search(
+        self, client, fake_http, fake_response, was_monitored, puts
+    ):
+        seasons = [{"seasonNumber": 2, "monitored": False}]
+        first = {"id": 1, "monitored": was_monitored, "seasons": seasons}
+        fake_http.queue("GET", fake_response(json_data=first))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=500, text="no"))
+        fake_http.queue("GET", fake_response(json_data={"id": 1, "monitored": True}))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+
+        with pytest.raises(SafeHTTPError):
+            client.remonitor_season(series_id=1, season_number=2)
+
+        assert [p[2]["json"]["monitored"] for p in _calls(fake_http, "PUT")] == puts
+
     def test_remonitor_season_retries_on_failed_put(self, client, fake_http, fake_response):
 
         def _series():
@@ -280,11 +326,44 @@ class TestArrClientSonarr:
         assert "episode?seriesId=42" in get_call[1]
         assert result[0]["id"] == 1
 
-    def test_get_episodes_returns_empty_list_on_non_list_response(
-        self, client, fake_http, fake_response
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda c: c.get_series(),
+            lambda c: c.get_series_by_tvdb(1),
+            lambda c: c.get_episodes(1),
+            lambda c: c.get_episode_files(1),
+            lambda c: c.lookup_series_by_tmdb(1),
+            lambda c: c.add_series_with_seasons(1, "T", [1]),
+        ],
+        ids=["series", "by_tvdb", "episodes", "files", "lookup", "add_lookup"],
+    )
+    @pytest.mark.parametrize("answer", [{"error": "x"}, ["x"], [None, {"id": 1}], "x"])
+    def test_an_answer_that_is_no_list_of_objects_is_an_error(
+        self, client, fake_http, fake_response, read, answer
     ):
-        fake_http.queue("GET", fake_response(json_data={"error": "unexpected"}))
-        assert client.get_episodes(1) == []
+        client._root_folder_cache, client._quality_profile_cache = "/tv", 1
+        fake_http.default(fake_response(json_data=answer))
+        with pytest.raises(ArrUpstreamError):
+            read(client)
+
+    @pytest.mark.parametrize("read", ["get_queue", "get_missing_series"])
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            [],
+            {"error": "x"},
+            {"records": None, "totalRecords": 0},
+            {"records": ["x"], "totalRecords": 1},
+            {"records": [{"id": 1}], "totalRecords": "1"},
+        ],
+    )
+    def test_a_page_that_is_no_page_of_objects_is_an_error(
+        self, client, fake_http, fake_response, read, answer
+    ):
+        fake_http.default(fake_response(json_data=answer))
+        with pytest.raises(ArrUpstreamError):
+            getattr(client, read)()
 
     def test_add_series_sends_correct_payload(self, client, fake_http, fake_response):
         # GET /rootfolder + GET /qualityprofile (in that order) — both must be present.
@@ -304,6 +383,16 @@ class TestArrClientSonarr:
         # Picks the lowest-numbered profile id rather than a hardcoded default.
         assert payload["qualityProfileId"] == 6
         assert result["id"] == 10
+
+    @pytest.mark.parametrize("answer", [{"message": "busy"}, ["/media"], [None]])
+    @pytest.mark.parametrize("listed_first", [[], [[{"path": "/media"}]]])
+    def test_add_series_raises_an_upstream_error_for_a_list_of_the_wrong_shape(
+        self, client, fake_http, fake_response, listed_first, answer
+    ):
+        for body in [*listed_first, answer]:
+            fake_http.queue("GET", fake_response(json_data=body))
+        with pytest.raises(ArrUpstreamError):
+            client.add_series(tvdb_id=1, title="Test")
 
     def test_add_series_raises_when_no_root_folder(self, client, fake_http, fake_response):
         """Empty rootfolder list fails loudly instead of inventing /tv."""

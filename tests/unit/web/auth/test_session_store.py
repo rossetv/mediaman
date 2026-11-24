@@ -1022,3 +1022,63 @@ class TestSessionIdleTimeout:
 
         # Should now be rejected.
         assert validate_session(conn, token) is None
+
+
+class TestFailedWritesLeaveNothingOpen:
+    def test_a_failed_create_session_leaves_no_transaction_open(self, conn):
+        with pytest.raises(UnicodeEncodeError):
+            create_session(conn, "\ud800")
+        assert not conn.in_transaction
+
+
+class TestDestroyAllSessionsTransactions:
+    @staticmethod
+    def _seen_elsewhere(db_path, table: str) -> int:
+        other = sqlite3.connect(str(db_path))
+        try:
+            return other.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            other.close()
+
+    def test_a_failed_purge_leaves_the_connection_free_and_every_session(self, conn, db_path):
+        create_session(conn, "alice")
+        conn.execute(
+            "CREATE TRIGGER no_session_delete BEFORE DELETE ON admin_sessions "
+            "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            destroy_all_sessions_for(conn, "alice")
+
+        assert not conn.in_transaction
+        assert self._seen_elsewhere(db_path, "admin_sessions") == 1
+
+    def test_a_purge_is_committed_for_other_connections(self, conn, db_path):
+        from mediaman.web.auth.reauth import grant_recent_reauth
+
+        token = create_session(conn, "alice")
+        create_session(conn, "alice")
+        grant_recent_reauth(conn, token, "alice")
+
+        assert destroy_all_sessions_for(conn, "alice") == 2
+
+        assert not conn.in_transaction
+        assert self._seen_elsewhere(db_path, "admin_sessions") == 0
+        assert self._seen_elsewhere(db_path, "reauth_tickets") == 0
+
+    def test_a_ticket_revoke_that_fails_keeps_the_committed_purge_and_frees_the_connection(
+        self, conn, db_path
+    ):
+        from mediaman.web.auth.reauth import grant_recent_reauth
+
+        token = create_session(conn, "alice")
+        grant_recent_reauth(conn, token, "alice")
+        conn.execute(
+            "CREATE TRIGGER no_ticket_delete BEFORE DELETE ON reauth_tickets "
+            "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        )
+
+        assert destroy_all_sessions_for(conn, "alice") == 1
+
+        assert not conn.in_transaction
+        assert self._seen_elsewhere(db_path, "admin_sessions") == 0

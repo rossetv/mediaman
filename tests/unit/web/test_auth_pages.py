@@ -34,6 +34,18 @@ def test_failed_login_keeps_the_escaped_username_and_never_the_password(client):
     assert "hunter2-secret" not in resp.text
 
 
+@pytest.mark.parametrize(
+    "data",
+    [{"username": "admin"}, {"password": "x"}, {"username": "", "password": ""}, {}],
+)
+def test_sign_in_with_an_empty_field_shows_the_normal_error_page(client, data):
+    resp = client.post("/login", data=data)
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Invalid username or password." in resp.text
+
+
 def test_failed_login_message_is_the_same_for_wrong_user_and_wrong_password(client):
     wrong_pw = client.post("/login", data={"username": "admin", "password": "nope"}).text
     wrong_user = client.post("/login", data={"username": "ghost", "password": "nope"}).text

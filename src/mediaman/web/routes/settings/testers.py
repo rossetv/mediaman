@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
+from mediaman.services.media_meta.omdb import clear_refusal
 from mediaman.web.models import _API_KEY_RE
 from mediaman.web.responses import respond_failure
 
@@ -283,6 +284,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
         )
         data = resp.json()
         if data.get("Response") == "True":
+            clear_refusal(api_key)
             return JSONResponse({"ok": True})
         omdb_error = data.get("Error")
         if omdb_error:

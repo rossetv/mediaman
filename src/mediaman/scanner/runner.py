@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 import requests
 
 from mediaman.scanner import repository
+from mediaman.scanner.repository.scheduled_actions import has_pending_unmonitors
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
@@ -31,6 +32,7 @@ from mediaman.services.arr.build import (
 from mediaman.services.infra import SafeHTTPError, SSRFRefused, get_int_setting
 
 if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
     from mediaman.services.media_meta.plex import PlexClient
 
 
@@ -382,6 +384,32 @@ def run_scan_from_db(
     return cast(ScanSummary, engine.run_scan())
 
 
+def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
+    """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
+    if repository.read_setting(conn, "dry_run") == "true":
+        return
+    if not has_pending_unmonitors(conn):
+        return
+    from mediaman.scanner.deletions import ArrTurn, rescan_deleted, unmonitor_deleted
+
+    clients: dict[str, ArrClient | None] = {}
+    turn = ArrTurn()
+    for service, build in (("Radarr", _build_radarr), ("Sonarr", _build_sonarr)):
+        try:
+            clients[service] = build(conn, secret_key)
+        # rationale: one service's unreadable setting must not stop the other's, nor the sync.
+        except Exception:
+            logger.exception("Building the %s client failed — sync unaffected", service)
+            turn.unusable.add(service)
+    radarr, sonarr = clients.get("Radarr"), clients.get("Sonarr")
+    try:
+        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, turn=turn)
+        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, turn=turn)
+    # rationale: an unreadable setting or a payload of the wrong shape must not stop the sync.
+    except Exception:
+        logger.exception("Unmonitoring deleted titles failed — sync unaffected")
+
+
 def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     """Sync library from Plex without running deletion evaluation.
 
@@ -391,6 +419,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     """
     from mediaman.scanner.engine import ScanEngine
 
+    _unmonitor_deleted(conn, secret_key)
     bundle = _build_plex_client(conn, secret_key)
     if bundle is None:
         logger.debug("Library sync skipped — Plex not configured")

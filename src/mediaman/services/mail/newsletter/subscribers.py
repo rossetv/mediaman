@@ -133,7 +133,10 @@ def _mint_deleted_tokens(
                 title=del_item["title"],
                 media_type=del_item.get("media_type", "movie"),
                 tmdb_id=item_tmdb,
-                recommendation_id=None,
+                # A season's link names its deletion here, so only that season is fetched.
+                recommendation_id=(
+                    del_item.get("audit_id") if del_item.get("season_number") is not None else None
+                ),
                 secret_key=secret_key,
             )
             del_item["redownload_url"] = f"{base_url}/download/{token}"

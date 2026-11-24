@@ -138,6 +138,10 @@ def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
     *delete_status* to control the two-phase-delete state column
     (defaults to ``"pending"``).  Pass *scheduled_at* to override the
     timestamp of when the action was created.
+
+    A deletion is only ever scheduled in a library ticked in Settings, so
+    library 1, the one media items default to, is ticked unless the test
+    saved a selection of its own.
     """
     # rationale: scheduled_actions.token_hash stores SHA-256(token); the
     # factory must compute the same value to produce realistic DB fixtures.
@@ -145,6 +149,11 @@ def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
 
     defaults = {**make_scheduled_action(), "delete_status": "pending"}
     row = {**defaults, **fields}
+    if row["action"] == "scheduled_deletion":
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value, updated_at) "
+            "VALUES ('plex_libraries', '[\"1\"]', '2026-01-01')"
+        )
     cursor = conn.execute(
         "INSERT INTO scheduled_actions ("
         " media_item_id, action, scheduled_at, execute_at, token, token_hash,"
@@ -400,14 +409,16 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
         "created_at": datetime.now(UTC).isoformat(),
         "tvdb_id": None,
         "claimed_at": None,
+        "season_number": None,
         **fields,
     }
     if isinstance(row.get("created_at"), datetime):
         row["created_at"] = row["created_at"].isoformat()
     cursor = conn.execute(
         "INSERT INTO download_notifications"
-        " (email, title, media_type, tmdb_id, service, notified, created_at, tvdb_id, claimed_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (email, title, media_type, tmdb_id, service, notified, created_at, tvdb_id, claimed_at,"
+        " season_number)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row["email"],
             row["title"],
@@ -418,6 +429,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
             row["created_at"],
             row["tvdb_id"],
             row["claimed_at"],
+            row["season_number"],
         ),
     )
     conn.commit()

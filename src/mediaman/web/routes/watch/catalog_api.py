@@ -15,6 +15,8 @@ import contextlib
 import logging
 import re
 import sqlite3
+import threading
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -28,7 +30,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
-from mediaman.services.media_meta.omdb import fetch_ratings
+from mediaman.services.media_meta.omdb import get_omdb_key, is_key_refused, lookup_ratings
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -47,6 +49,7 @@ from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_c
 from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
+from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.pages import (
     _episode_row,
@@ -66,6 +69,23 @@ router = APIRouter()
 
 REF_RE = re.compile(r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$")
 _RATINGS_TTL = timedelta(days=30)
+# OMDb with nothing to give (no rating yet, or the day's quota spent) is asked again the
+# next day, not on every open.
+_NO_RATINGS_TTL = timedelta(days=1)
+
+# Titles OMDb gave no answer for, and when each may be asked again: one title it cannot
+# answer for must not leave the other titles' ratings empty.
+_TITLE_PAUSE_SECONDS = 900.0
+_TITLE_PAUSE_MAX = 512
+_title_paused: dict[tuple[int, str], float] = {}
+# Opens run in threads: the map, the streak and the pause below are touched under this lock.
+_pause_lock = threading.Lock()
+# OMDb down answers no title, and each first open would wait out its timeout: after this many
+# different titles in a row with no answer, none is asked for a minute; any answer resets it.
+_OUTAGE_STREAK = 3
+_OUTAGE_PAUSE_SECONDS = 60.0
+_unanswered_streak = 0
+_outage_until = 0.0
 
 
 class _OutsideLibraries(Exception):
@@ -142,6 +162,37 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
 
 
+def _title_is_paused(pause_key: tuple[int, str]) -> bool:
+    with _pause_lock:
+        now = time.monotonic()
+        return now < _outage_until or now < _title_paused.get(pause_key, 0.0)
+
+
+def _note_answer() -> None:
+    global _unanswered_streak
+    with _pause_lock:
+        _unanswered_streak = 0
+
+
+def _pause_title(pause_key: tuple[int, str]) -> None:
+    global _unanswered_streak, _outage_until
+    with _pause_lock:
+        now = time.monotonic()
+        if _title_paused.get(pause_key, 0.0) > now:
+            return
+        if len(_title_paused) >= _TITLE_PAUSE_MAX:
+            for k in [k for k, until in _title_paused.items() if until <= now]:
+                del _title_paused[k]
+            while len(_title_paused) >= _TITLE_PAUSE_MAX:
+                del _title_paused[next(iter(_title_paused))]
+        _title_paused.pop(pause_key, None)
+        _title_paused[pause_key] = now + _TITLE_PAUSE_SECONDS
+        _unanswered_streak += 1
+        if _unanswered_streak >= _OUTAGE_STREAK:
+            _unanswered_streak = 0
+            _outage_until = now + _OUTAGE_PAUSE_SECONDS
+
+
 def _ratings(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -149,37 +200,54 @@ def _ratings(
     tmdb_id: int,
     title: str,
     year: int | None,
-    allow_fetch: Callable[[], bool] | None = None,
+    allow_fetch: Callable[[], bool],
 ) -> dict[str, str]:
     """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
-    none when OMDb would be asked and *allow_fetch* says no."""
+    none when OMDb has no key, is paused, or would be asked and *allow_fetch* says no. A title
+    OMDb gave no answer for is not asked again for 15 minutes; search's whole-round pause is
+    obeyed here but never set. An answer with
+    nothing in it is cached too, for a shorter time, but only when OMDb answered: a timeout
+    or a spent quota caches nothing and leaves the ratings already held (old ones are shown
+    in its place)."""
     media_type = "movie" if kind == "movie" else "tv"
-    cutoff = (now_utc() - _RATINGS_TTL).isoformat()
+    now = now_utc()
+    stale: dict[str, str] = {}
     for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
-        if row.fetched_at >= cutoff:
-            cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
-            return {k: v for k, v in cached.items() if v}
-    if allow_fetch is not None and not allow_fetch():
-        return {}
-    data = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
-    if data:
-        try:
-            upsert_ratings_cache(
-                conn,
-                [
-                    (
-                        tmdb_id,
-                        media_type,
-                        data.get("imdb"),
-                        data.get("rt"),
-                        data.get("metascore"),
-                        now_iso(),
-                    )
-                ],
-            )
-        except sqlite3.Error:
-            logger.warning("watch: ratings_cache write failed", exc_info=True)
-    return data
+        cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
+        found = {k: v for k, v in cached.items() if v}
+        if row.fetched_at >= (now - (_RATINGS_TTL if found else _NO_RATINGS_TTL)).isoformat():
+            return found
+        stale = found
+    omdb_key = get_omdb_key(conn, secret_key)
+    if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
+        return stale
+    pause_key = (tmdb_id, media_type)
+    if _title_is_paused(pause_key):
+        return stale
+    if not allow_fetch():
+        return stale
+    data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
+    if data is None:
+        _pause_title(pause_key)
+        return stale
+    _note_answer()
+    try:
+        upsert_ratings_cache(
+            conn,
+            [
+                (
+                    tmdb_id,
+                    media_type,
+                    data.get("imdb"),
+                    data.get("rt"),
+                    data.get("metascore"),
+                    now_iso(),
+                )
+            ],
+        )
+    except sqlite3.Error:
+        logger.warning("watch: ratings_cache write failed", exc_info=True)
+    return {**stale, **data}
 
 
 def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
@@ -221,11 +289,13 @@ def _apply_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
+    username: str,
     allow_fetch: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
     from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
-    when TMDB would be asked and *allow_fetch* says no."""
+    when TMDB would be asked and *allow_fetch* says no. OMDb is asked only within the
+    query limit: *allow_fetch*, or *username*'s own when it is not given."""
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     for name in (
         "year",
@@ -251,7 +321,7 @@ def _apply_tmdb(
         tmdb_id,
         out["title"],
         out["year"],
-        allow_fetch,
+        allow_fetch or (lambda: _QUERY_LIMITER.check(username)),
     )
     out["ratings"] = {
         "imdb": ratings.get("imdb"),
@@ -311,7 +381,7 @@ def _movie_title(
     out["keep_allowed"] = is_admin or out["leaving"] is not None
     if client is not None and movie.tmdb_id:
         with contextlib.suppress(catalog.TmdbUnavailable):
-            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
+            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id, username)
     return out
 
 
@@ -402,7 +472,7 @@ def _show_title(
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
-            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id)
+            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id, username)
         except catalog.TmdbUnavailable:
             pass
         else:
@@ -427,7 +497,7 @@ def _tmdb_title(
     """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable and, as
     ``_apply_tmdb``, disk_cache.Refused."""
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, allow_fetch)
+    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch)
     arr = _arr(request, conn)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows

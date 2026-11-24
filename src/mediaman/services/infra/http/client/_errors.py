@@ -10,6 +10,8 @@ from __future__ import annotations
 import json as _json
 from urllib.parse import urlparse
 
+from mediaman.core.format import log_snippet
+
 
 def _safe_url(url: str) -> str:
     """Return ``host/path`` of *url* with the query string stripped.
@@ -43,7 +45,7 @@ class SafeHTTPError(Exception):
         self.status_code = status_code
         self.body_snippet = body_snippet
         self.url = _safe_url(url)
-        super().__init__(f"HTTP {status_code} from {self.url}: {body_snippet[:120]}")
+        super().__init__(f"HTTP {status_code} from {self.url}: {log_snippet(body_snippet, 120)}")
 
     def json_error(self) -> dict[str, object] | None:
         try:

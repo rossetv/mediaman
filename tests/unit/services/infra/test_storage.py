@@ -76,10 +76,10 @@ class TestAggregateDiskUsage:
         assert agg["total_bytes"] > 0
         assert agg["free_bytes"] > 0
 
-    def test_dedups_binds_by_usage_tuple_not_stdev(self, tmp_path, mocker):
-        """Container binds share a synthetic ``st_dev``; the dedup must key on
-        the ``(total, used, free)`` reading so genuinely-separate drives are
-        summed while same-drive subdirs are merged.
+    def test_separate_drives_behind_one_stdev_are_still_summed(self, tmp_path, mocker):
+        """Container binds share a synthetic ``st_dev``; the dedup must also
+        key on the total size so genuinely-separate drives are summed while
+        same-drive subdirs are merged.
 
         Mirrors the OrbStack/Docker layout: ``/media`` (overlay) with movies
         on one disk and tv+anime on another single disk.
@@ -126,6 +126,28 @@ class TestDiskUsageForPaths:
         assert agg["total_bytes"] == 4_600 + 13_000
         assert agg["used_bytes"] == 221 + 209
 
+    def test_two_equal_big_drives_with_different_free_space_are_both_counted(
+        self, tmp_path, mocker
+    ):
+        """0.1% of a 16 TB drive is 16 GB: a nearly full drive and an empty one are two."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tb = 1000**4
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        for d in (a, b):
+            d.mkdir()
+        readings = {
+            str(a): usage(16 * tb, 16 * tb, 0),
+            str(b): usage(16 * tb, 16 * tb - 10 * 10**9, 10 * 10**9),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(a), str(b)])
+
+        assert agg["total_bytes"] == 32 * tb
+
     def test_same_disk_paths_counted_once(self, tmp_path, mocker):
         """Two library folders on one physical drive must not double-count."""
         from collections import namedtuple
@@ -141,6 +163,79 @@ class TestDiskUsageForPaths:
         agg = get_disk_usage_for_paths([str(tv), str(anime)])
         assert agg["total_bytes"] == 13_000  # not 26_000
         assert agg["used_bytes"] == 209
+
+    def test_one_disk_read_twice_a_moment_apart_is_counted_once(self, tmp_path, mocker):
+        """A live disk's used/free bytes move between two reads; the same device is still one disk."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        readings = {
+            str(tv): usage(13_000, 209, 12_791),
+            str(anime): usage(13_000, 211, 12_789),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg == {"total_bytes": 13_000, "used_bytes": 209, "free_bytes": 12_791}
+
+    def test_aggregate_counts_one_disk_once_when_its_reading_moves(self, tmp_path, mocker):
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        (tmp_path / "a").mkdir()
+        readings = {
+            str(tmp_path): usage(13_000, 209, 12_791),
+            str(tmp_path / "a"): usage(13_000, 215, 12_785),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        assert get_aggregate_disk_usage(str(tmp_path))["total_bytes"] == 13_000
+
+    def test_equal_sized_drives_with_different_free_space_are_both_counted(self, tmp_path, mocker):
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        readings = {
+            str(tv): usage(13_000, 1_000, 12_000),
+            str(anime): usage(13_000, 8_000, 5_000),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg == {"total_bytes": 26_000, "used_bytes": 9_000, "free_bytes": 17_000}
+
+    def test_one_filesystem_under_two_device_ids_is_counted_once(self, tmp_path, mocker):
+        import os
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        mocker.patch("shutil.disk_usage", return_value=usage(13_000, 209, 12_791))
+        real_stat = os.stat
+
+        def stat_with_own_device(path, *args, **kwargs):
+            st = real_stat(path, *args, **kwargs)
+            if str(path) != str(anime):
+                return st
+            fields = list(st)
+            fields[2] = st.st_dev + 1  # st_dev is index 2
+            return os.stat_result(fields)
+
+        mocker.patch("os.stat", side_effect=stat_with_own_device)
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg["total_bytes"] == 13_000
 
     def test_skips_missing_paths(self, tmp_path, mocker):
         """A non-existent configured path is ignored, not fatal."""

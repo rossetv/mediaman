@@ -13,6 +13,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.core.time import now_utc
 
 # The redownload index only needs the most-recent timestamp per title to
@@ -64,8 +65,10 @@ def fetch_scheduled_deletions(
     conn: sqlite3.Connection,
     deletion_action: str,
 ) -> list[ScheduledDeletionRow]:
-    rows = conn.execute(
-        """
+    """Return the deletions to come; an item whose library is not selected is not leaving."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"""
         SELECT
             sa.id          AS sa_id,
             sa.media_item_id,
@@ -81,6 +84,7 @@ def fetch_scheduled_deletions(
         JOIN media_items mi ON mi.id = sa.media_item_id
         WHERE sa.action = ?
           AND sa.token_used = 0
+          AND {LIBRARY_SELECTED}
         ORDER BY sa.execute_at ASC
         """,
         (deletion_action,),

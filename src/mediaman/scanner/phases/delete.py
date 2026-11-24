@@ -136,6 +136,8 @@ def remove_orphans(
     conn: sqlite3.Connection,
     seen_keys: set[str],
     scanned_libs: set[int],
+    *,
+    listed_since: str | None = None,
 ) -> int:
     """Remove ``media_items`` whose ``plex_rating_key`` is gone from Plex.
 
@@ -152,13 +154,20 @@ def remove_orphans(
     shrunk library (e.g. the last show deleted) reconcile on the next scan
     instead of sticking forever, while still absorbing a one-off glitch.
     Pruning only removes mediaman's tracking rows — never media files — and a
-    later healthy scan re-populates anything Plex still has, so the cost of a
-    wrong prune is bounded.
+    later healthy scan re-populates anything Plex still has, with the keeps
+    set aside here, so a wrong prune leaves nothing unprotected.
+
+    An item whose deletion removed files that are not booked yet stays until
+    that is done: its rows are the only record of them.
+
+    An item another run saw, or anyone scheduled or kept, after the run began
+    stays too: the run's list may be from before the item came to Plex.
 
     Args:
         conn: Open SQLite connection.
         seen_keys: Set of ``plex_rating_key`` values observed in the scan.
         scanned_libs: Integer library IDs that were successfully fetched.
+        listed_since: When the run began, before it listed anything.
 
     Returns:
         Number of rows deleted.
@@ -175,9 +184,8 @@ def remove_orphans(
         return 0
 
     all_ids = repository.fetch_ids_in_libraries(conn, list(prune_libs))
-    orphan_ids = [i for i in all_ids if i not in seen_keys]
-
-    if not orphan_ids:
+    unlisted = [i for i in all_ids if i not in seen_keys]
+    if not unlisted:
         return 0
 
     # Atomic two-table delete: the matching ``scheduled_actions`` rows
@@ -187,8 +195,20 @@ def remove_orphans(
     # deleted ``media_items`` row. Each repository call chunks its own
     # IN-clause; the ``with conn:`` here owns the transaction boundary.
     with conn:
+        # The lock comes before the read, so no deletion starts in between.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        if listed_since is not None:
+            touched = repository.fetch_ids_touched_since(conn, listed_since)
+            unlisted = [i for i in unlisted if i not in touched]
+        unbooked = repository.fetch_unbooked_media_ids(conn)
+        repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
+        orphan_ids = [i for i in unlisted if i not in unbooked]
+        repository.save_pruned_keeps(conn, orphan_ids)
         repository.delete_actions_for_media_items(conn, orphan_ids)
         repository.delete_media_items(conn, orphan_ids)
+    if not orphan_ids:
+        return 0
     logger.info(
         "Removed %d orphaned media items no longer in Plex",
         len(orphan_ids),

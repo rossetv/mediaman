@@ -8,7 +8,7 @@ no DB connection required.
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from mediaman.core.format import days_ago as _days_ago_fmt
 from mediaman.core.format import format_bytes
@@ -47,11 +47,13 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
         now = now_utc()
         if execute_at < now:
             return None
-        # Whole days of elapsed time left, not UTC calendar days: a keep ending in two
+        # Days of elapsed time left, to the nearest day: a keep of 7 days made a moment ago
+        # has a few seconds fewer than 7 and must still read 7, and a keep ending in two
         # hours must not read "1 more day" just because midnight UTC falls in between.
-        days = (execute_at - now).days
-        if days < 1:
+        left = execute_at - now
+        if left < timedelta(days=1):
             return "Kept for less than a day"
+        days = (left + timedelta(hours=12)) // timedelta(days=1)
         if days == 1:
             return "Kept for 1 more day"
         return f"Kept for {days} more days"

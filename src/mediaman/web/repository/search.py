@@ -58,21 +58,27 @@ def fetch_ratings_cache(
 def upsert_ratings_cache(
     conn: sqlite3.Connection, rows: list[tuple[int, str, str | None, str | None, str | None, str]]
 ) -> None:
-    """Insert-or-replace a batch of ``ratings_cache`` rows.
+    """Insert-or-update a batch of ``ratings_cache`` rows.
 
     Each tuple is ``(tmdb_id, media_type, imdb_rating, rt_rating,
-    metascore, fetched_at)``.  Commits on success; the caller catches
-    ``sqlite3.Error`` to log and continue.
+    metascore, fetched_at)``.  A rating the row already holds is kept when the new one is
+    empty, so an answer with fewer ratings never wipes good ones.  Commits on success;
+    the caller catches ``sqlite3.Error`` to log and continue.
     """
     if not rows:
         return
-    conn.executemany(
-        "INSERT OR REPLACE INTO ratings_cache "
-        "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    conn.commit()
+    with conn:
+        conn.executemany(
+            "INSERT INTO ratings_cache "
+            "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (tmdb_id, media_type) DO UPDATE SET "
+            "imdb_rating = COALESCE(excluded.imdb_rating, imdb_rating), "
+            "rt_rating = COALESCE(excluded.rt_rating, rt_rating), "
+            "metascore = COALESCE(excluded.metascore, metascore), "
+            "fetched_at = excluded.fetched_at",
+            rows,
+        )
 
 
 __all__ = [

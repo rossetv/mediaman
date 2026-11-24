@@ -26,6 +26,7 @@ from mediaman.web.routes.download.status import (
 from mediaman.web.routes.download.status import (
     router as status_router,
 )
+from tests.helpers.factories import insert_recent_download
 
 
 def _download_token(secret_key: str, media_type: str = "movie", tmdb_id: int = 42) -> str:
@@ -415,3 +416,53 @@ class TestPollTokenRefresh:
         assert payload is not None
         # Its life began 600 seconds before it was due to expire.
         assert payload["first"] == pytest.approx(time.time() - 540, abs=5)
+
+
+class TestStatusTellsWhatTheArrHolds:
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
+        _DOWNLOAD_STATUS_LIMITER.reset()
+
+    def _status(self, app_factory, authed_client, conn, service, arr):
+        client = authed_client(app_factory(status_router, conn=conn), conn)
+        with patch(
+            f"mediaman.web.routes.download.status.build_{service}_from_db", return_value=arr
+        ):
+            return client.get(f"/api/download/status?service={service}&tmdb_id=42").json()
+
+    @pytest.mark.parametrize("service", ["radarr", "sonarr"])
+    def test_a_title_with_no_file_is_not_ready_for_a_download_of_its_name_days_ago(
+        self, app_factory, authed_client, conn, service
+    ):
+        insert_recent_download(conn, dl_id=f"{service}:Dune", title="Dune")
+        arr = MagicMock()
+        arr.get_queue.return_value = []
+        arr.get_movie_by_tmdb.return_value = {"tmdbId": 42, "title": "Dune", "hasFile": False}
+        arr.get_series.return_value = [{"tmdbId": 42, "title": "Dune", "statistics": {}}]
+
+        data = self._status(app_factory, authed_client, conn, service, arr)
+
+        assert data["state"] == "searching"
+
+    def test_a_season_pack_is_counted_once_and_single_episodes_each(
+        self, app_factory, authed_client, conn
+    ):
+        gib = 2**30
+        queue = [
+            {
+                "series": {"tmdbId": 42, "title": "Show"},
+                "episode": {"seasonNumber": 1, "episodeNumber": n},
+                "size": size * gib,
+                "sizeleft": size * gib // 2,
+                "downloadId": download_id,
+                "status": "downloading",
+            }
+            for n, size, download_id in [(1, 10, "PACK"), (2, 10, "PACK"), (3, 4, ""), (4, 4, "")]
+        ]
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = queue
+
+        data = self._status(app_factory, authed_client, conn, "sonarr", sonarr)
+
+        assert (data["size_done"], data["size_total"]) == ("9.0 GB", "18.0 GB")
+        assert len(data["episodes"]) == 4

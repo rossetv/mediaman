@@ -6,9 +6,9 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block head %}
-<script src="/static/js/core/reauth.js" defer></script>
-<script src="/static/js/show-password.js" defer></script>
-<script src="/static/js/account.js" defer></script>
+<script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
+<script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
+<script src="/static/js/account.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
 {% block content %}

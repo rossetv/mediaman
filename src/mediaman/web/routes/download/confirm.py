@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 import requests
 from fastapi import APIRouter, Request
@@ -17,16 +17,23 @@ from fastapi.templating import Jinja2Templates
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
+from mediaman.services.arr._types import SonarrSeries
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ACTION_DOWNLOADING,
+    ACTION_IN_LIBRARY,
+    ACTION_PARTIAL,
+    ACTION_QUEUED,
     ArrCaches,
     RadarrCaches,
     SonarrCaches,
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
+    series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
+from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -35,6 +42,7 @@ from mediaman.web.repository.download import (
     fetch_suggestion_enrichment,
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
+from mediaman.web.routes.download._season import deleted_season, season_on_disk, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -75,6 +83,19 @@ _ARR_CACHE_LOCK = threading.Lock()
 # without a cast or type suppression.
 _RADARR_CACHE: dict[str, tuple[float, RadarrCaches]] = {}
 _SONARR_CACHE: dict[str, tuple[float, SonarrCaches]] = {}
+# Counts drops, so a list fetched before a drop is not stored after it.
+_arr_cache_drops = 0
+
+
+def drop_arr_cache() -> None:
+    """Forget the Radarr and Sonarr lists: whatever asks an Arr for a title calls this, so the
+    emailed page does not offer again what is already on its way.
+    """
+    global _arr_cache_drops
+    with _ARR_CACHE_LOCK:
+        _arr_cache_drops += 1
+        _RADARR_CACHE.clear()
+        _SONARR_CACHE.clear()
 
 
 def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
@@ -87,13 +108,14 @@ def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Radar
         hit = _RADARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
             return hit[1]
+        drops = _arr_cache_drops
     radarr_client = build_radarr_from_db(conn, secret_key)
     cache = build_radarr_cache(radarr_client)
     with _ARR_CACHE_LOCK:
         # Double-check: another thread may have populated the cache while
         # we were fetching.  Only write if the slot is still stale.
         hit = _RADARR_CACHE.get(fp)
-        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+        if drops == _arr_cache_drops and (not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS):
             if len(_RADARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
                 _RADARR_CACHE.clear()
             _RADARR_CACHE[fp] = (now, cache)
@@ -107,13 +129,14 @@ def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Sonar
         hit = _SONARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
             return hit[1]
+        drops = _arr_cache_drops
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     cache = build_sonarr_cache(sonarr_client)
     with _ARR_CACHE_LOCK:
         # Double-check: another thread may have populated the cache while
         # we were fetching.  Only write if the slot is still stale.
         hit = _SONARR_CACHE.get(fp)
-        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+        if drops == _arr_cache_drops and (not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS):
             if len(_SONARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
                 _SONARR_CACHE.clear()
             _SONARR_CACHE[fp] = (now, cache)
@@ -121,9 +144,7 @@ def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Sonar
 
 
 def _reset_arr_cache_for_tests() -> None:
-    with _ARR_CACHE_LOCK:
-        _RADARR_CACHE.clear()
-        _SONARR_CACHE.clear()
+    drop_arr_cache()
 
 
 def validate_youtube_id(s: str | None) -> str | None:
@@ -134,11 +155,27 @@ def validate_youtube_id(s: str | None) -> str | None:
 
 def _coerce_string_list(value: object) -> list[str]:
     """Return value as a list of plain strings, dropping anything else: a tampered DB row could
-    carry nested objects or ints in genres/cast_json.
+    carry nested objects or ints in genres.
     """
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_cast(value: object) -> list[dict[str, str]]:
+    """Return value as name and character pairs, dropping an entry with no plain-string name."""
+    if not isinstance(value, list):
+        return []
+    members = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name, character = entry.get("name"), entry.get("character")
+        if isinstance(name, str) and name:
+            members.append(
+                {"name": name, "character": character if isinstance(character, str) else ""}
+            )
+    return members
 
 
 def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
@@ -164,6 +201,7 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
         "metascore": None,
         "genres_list": [],
         "cast_list": [],
+        "season_number": None,
     }
 
 
@@ -200,6 +238,10 @@ def _build_item_from_payload(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> dict[str, object]:
+    if payload.get("act") == "redownload":
+        item = _base_download_item(payload)
+        enrich_redownload_item(item, conn, secret_key)
+        return item
     sid = payload.get("sid")
     if sid:
         # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
@@ -216,11 +258,6 @@ def _build_item_from_payload(
                 if enrichment is not None
                 else _base_download_item(payload)
             )
-        return _base_download_item(payload)
-    if payload.get("act") == "redownload":
-        item = _base_download_item(payload)
-        enrich_redownload_item(item, conn, secret_key)
-        return item
     return _base_download_item(payload)
 
 
@@ -238,9 +275,39 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
     cast_value = item.get("cast_json")
     if isinstance(cast_value, (str, bytes, bytearray)):
         try:
-            item["cast_list"] = _coerce_string_list(json.loads(cast_value))
+            item["cast_list"] = _coerce_cast(json.loads(cast_value))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
+
+
+def _season_state(series: SonarrSeries, season_number: int) -> str | None:
+    """Like compute_download_state for one season: None when Sonarr holds the series but is
+    not set to fetch the season.
+    """
+    for season in series.get("seasons") or []:
+        if season.get("seasonNumber") != season_number:
+            continue
+        if season_on_disk(season):
+            return ACTION_IN_LIBRARY
+        if series.get("monitored", True) and season.get("monitored"):
+            return ACTION_QUEUED
+    return None
+
+
+def _aired_missing(series: SonarrSeries) -> bool:
+    """Whether Sonarr reports an aired episode it wants and lacks; a show just added, whose
+    episodes it has yet to list, counts as lacking them.
+    """
+    reported = False
+    for season in series.get("seasons") or []:
+        stats: dict[str, Any] = {**(season.get("statistics") or {})}
+        if stats.get("episodeCount", 0) > stats.get("episodeFileCount", 0):
+            return True
+        reported = reported or any(
+            stats.get(k)
+            for k in ("episodeCount", "totalEpisodeCount", "previousAiring", "nextAiring")
+        )
+    return not reported
 
 
 def _resolve_download_state(
@@ -273,9 +340,30 @@ def _resolve_download_state(
             sonarr_cache = _get_sonarr_cache_cached(conn, secret_key)
             caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
             caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
+        season_number = item["season_number"]
+        if isinstance(season_number, int):
+            held = caches["sonarr_series"].get(tmdb_id)
+            item["download_state"] = _season_state(held, season_number) if held else None
+            return
         state = compute_download_state(mt, tmdb_id, caches)
-        # A show Sonarr holds but will not fetch has no state: say it is tracked, not queued.
-        if state is None and mt != "movie" and tmdb_id in caches["sonarr_series"]:
+        series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
+        if (
+            series is not None
+            and state in (ACTION_PARTIAL, ACTION_QUEUED)
+            and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
+        ):
+            # What is not downloading is on its way only if Sonarr has something to look for.
+            if not series.get("monitored", True):
+                state = None
+            elif _aired_missing(series):
+                state = ACTION_QUEUED
+            else:
+                state = ACTION_IN_LIBRARY if series_has_files(series) else None
+        # The page shows one "on its way" view, whose progress polling fills in.
+        if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
+            state = ACTION_QUEUED
+        # A show Sonarr holds but has nothing to fetch for has no state: say it is tracked, not queued.
+        if state is None and series is not None:
             state = "tracked"
         if state is not None:
             item["download_state"] = state
@@ -312,7 +400,11 @@ def _build_hero_context(
     poll_token = None
     if tmdb_id:
         poll_token = generate_poll_token(
-            media_item_id=f"{service}:{hero_title}",
+            media_item_id=(
+                sonarr_media_id(hero_title, cast("int | None", item["season_number"]))
+                if service == "sonarr"
+                else f"radarr:{hero_title}"
+            ),
             service=service,
             tmdb_id=tmdb_id,
             secret_key=secret_key,
@@ -327,7 +419,12 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     conn = get_db()
 
     if not _DOWNLOAD_LIMITER_GET.check(get_client_ip(request)):
-        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+        limited = templates.TemplateResponse(
+            request, "download.html", {"state": "limited", "item": None}
+        )
+        limited.status_code = 429
+        limited.headers["Retry-After"] = "60"
+        return limited
 
     _expired = templates.TemplateResponse(
         request,
@@ -344,11 +441,25 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     item = _build_item_from_payload(payload, conn, config.secret_key)
     _enrich_item_fields(item)
+    season = deleted_season(conn, payload)
+    item["season_number"] = season.season_number if season else None
 
     mt = "movie" if payload.get("mt") == "movie" else "tv"
     tmdb_id_raw = payload.get("tmdb")
     tmdb_id: int | None = int(tmdb_id_raw) if isinstance(tmdb_id_raw, int) else None
     _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt)
+
+    item["notify_by_email"] = bool(item["email"])
+    if item["download_state"] == ACTION_QUEUED and item["email"] and tmdb_id:
+        # The button is gone, so nobody can ask for the email any more: promise it only if asked for.
+        item["notify_by_email"] = has_unsent_notification(
+            conn,
+            email=str(item["email"]),
+            service="radarr" if mt == "movie" else "sonarr",
+            tmdb_id=tmdb_id,
+            tvdb_id=season.tvdb_id if season else None,
+            season_number=season.season_number if season else None,
+        )
 
     hero_item, poll_token = _build_hero_context(item, tmdb_id, config.secret_key)
 

@@ -111,6 +111,27 @@ class TestApiDashboardScheduled:
         assert "countdown" in items[0]
         assert "file_size" in items[0]
 
+    def test_an_item_of_a_library_not_selected_is_not_listed(
+        self, app_factory, authed_client, conn
+    ):
+        for media_id, library in (("leaving", 1), ("staying", 2)):
+            insert_media_item(
+                conn, id=media_id, title=media_id, plex_rating_key=media_id, plex_library_id=library
+            )
+            insert_scheduled_action(
+                conn, media_item_id=media_id, token=f"tok-{media_id}", token_used=False
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            "VALUES ('plex_libraries', '[\"1\"]', '2026')"
+        )
+        conn.commit()
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+
+        items = client.get("/api/dashboard/scheduled").json()["items"]
+
+        assert [item["media_item_id"] for item in items] == ["leaving"]
+
 
 class TestApiDashboardDeleted:
     def test_deleted_requires_auth(self, app_factory, conn):

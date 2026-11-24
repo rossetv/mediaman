@@ -15,6 +15,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from mediaman.web.error_pages import refusal
+
 # State-changing methods that must carry an Origin/Referer from the
 # same host. GET/HEAD/OPTIONS are never state-changing in a correct
 # REST app.
@@ -181,9 +183,8 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         # own host is unknowable must be rejected, never waved through.
         if not expected_host:
             if has_session:
-                return Response(
-                    status_code=403,
-                    content=b"CSRF: cannot resolve request host for cookie-authenticated request",
+                return refusal(
+                    request, b"CSRF: cannot resolve request host for cookie-authenticated request"
                 )
             return await call_next(request)
 
@@ -196,10 +197,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         # exploited via a CSRF form. Reject those to close the gap.
         if not origin and not referer:
             if has_session:
-                return Response(
-                    status_code=403,
-                    content=b"CSRF: origin required for cookie-authenticated requests",
-                )
+                return refusal(request, b"CSRF: origin required for cookie-authenticated requests")
             return await call_next(request)
 
         def _scheme_host_of(url: str) -> tuple[str, str]:
@@ -228,7 +226,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
             return require_https_scheme and scheme != "https"
 
         if origin and _origin_rejected(origin):
-            return Response(status_code=403, content=b"CSRF: origin mismatch")
+            return refusal(request, b"CSRF: origin mismatch")
         if not origin and referer and _origin_rejected(referer):
-            return Response(status_code=403, content=b"CSRF: referer mismatch")
+            return refusal(request, b"CSRF: referer mismatch")
         return await call_next(request)

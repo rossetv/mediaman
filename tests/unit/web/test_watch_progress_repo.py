@@ -188,3 +188,9 @@ class TestClamping:
         assert (p.position_s, p.duration_s) == expected
         assert watched is (expected == (6000.0, 6000.0))
         assert _credited(users, "m1") is None
+
+
+def test_a_failed_save_leaves_no_transaction_open(users):
+    with pytest.raises(sqlite3.IntegrityError):
+        _save(users, username="ghost")
+    assert not users.in_transaction

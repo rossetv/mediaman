@@ -27,13 +27,18 @@
      is the Arr catching up rather than the download being gone. */
   var DOWNLOAD_GRACE_MS = 30000;
   var COPIED_MS = 2000;
+  /* How long a title's buttons wait for its picture, which settles the hero's height. */
+  var PICTURE_WAIT_MS = 400;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
+  var hero = root.querySelector('.ttl__hero');
   var titleEl = root.querySelector('#ttl-title');
   var part = function (name) { return root.querySelector('[data-ttl-part="' + name + '"]'); };
   var heroSkel = part('hero-skel');
   var art = part('art');
+  var fill = part('fill');
+  var poster = part('poster');
   var player = part('player');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
@@ -49,6 +54,10 @@
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
   var leaving = null;  // the close still animating, finished early by a new open
+  var pictures = '';   // the addresses the hero shows or is trying
+  var trying = false;  // the hero's picture is not known yet
+  var onSettled = null;
+  var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
   var shareTimer = null;
@@ -310,13 +319,17 @@
     if (c.ctrl) c.ctrl.abort();
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     c.ctrl = ctrl;
+    // Asked for with the title, so that it is mostly known when the title arrives.
+    var first = ownPicture(c.ref);
+    if (first) el('img').setAttribute('src', first);
     get(apiUrl(c.ref), ctrl).then(function (data) {
       if (c !== cur || !isOpen) return;
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
         switchTo(c, data);
         return;
       }
-      arrive(c, data);
+      showPictures(data);
+      afterPictures(function () { if (c === cur && isOpen) arrive(c, data); });
     }).catch(function (err) {
       if (err && err.name === 'AbortError') return;
       if (c !== cur || !isOpen) return;
@@ -344,6 +357,7 @@
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
     learn(c.ref, data);
     takeDownload(c.ref, data.download, true);
+    root.classList.toggle('is-short', [heroSkel, art, fill, poster].every(function (n) { return n.hidden; }));
     renderContent(true);
     if (isAdmin && /^(movie|show)-/.test(c.ref)) loadFacts(c);
     if (pollable()) schedulePoll(0);
@@ -432,11 +446,10 @@
 
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
-    root.classList.remove('ttl--admin');
+    root.classList.remove('ttl--admin', 'is-short', 'is-late');
+    if (heroEase) heroEase.cancel();
     hide(heroSkel, false);
-    hide(art, true);
-    art.removeAttribute('src');
-    art.classList.remove('is-loaded');
+    clearPictures();
     kindEl.textContent = cur.kind ? kindLabel({ kind: cur.kind }) : '';
     titleEl.textContent = cur.title;
     if (!cur.title) titleEl.appendChild(skel('skel--line ttl__title-skel'));
@@ -477,6 +490,8 @@
   function renderFailed(err) {
     root.removeAttribute('aria-busy');
     hide(heroSkel, true);
+    clearPictures();
+    root.classList.add('is-short');
     metaEl.textContent = '';
     if (!cur.title) titleEl.textContent = 'Details';
     body.textContent = '';
@@ -516,9 +531,105 @@
     return parts;
   }
 
+  /* ── The hero's picture ── */
+
+  function clearPictures() {
+    pictures = '';
+    trying = false;
+    onSettled = null;
+    [art, fill, poster].forEach(function (img) {
+      hide(img, true);
+      img.onload = img.onerror = null;
+      img.removeAttribute('src');
+      img.removeAttribute('data-broken');
+      img.classList.remove('is-loaded');
+    });
+  }
+
+  function ownPicture(ref) {
+    var key = /^(?:movie|show)-([0-9]+)$/.exec(ref || '');
+    return key && '/api/poster/' + key[1] + '?kind=art';
+  }
+
+  /* Wide pictures to try in turn. For a title in the library the first is the
+     banner's own, so opening the banner's title does not change its picture. */
+  function widePictures(d) {
+    return [d.in_library && ownPicture(d.library_ref), safePath(d.backdrop_url)].filter(Boolean);
+  }
+
+  function pictureSettled() {
+    trying = false;
+    var fn = onSettled;
+    onSettled = null;
+    if (fn) fn();
+  }
+
+  /* Run *fn* once the hero's picture has loaded or is known to be missing, or
+     when that takes too long: the hero then keeps its full height. */
+  function afterPictures(fn) {
+    if (!trying) { fn(); return; }
+    var timer = setTimeout(function () {
+      if (onSettled !== go) return;
+      onSettled = null;
+      root.classList.add('is-late');
+      fn();
+    }, PICTURE_WAIT_MS);
+    function go() {
+      clearTimeout(timer);
+      fn();
+    }
+    onSettled = go;
+  }
+
+  /* The first picture that loads and is wide, else the poster as a poster. */
+  function showPictures(d) {
+    var wide = widePictures(d);
+    var last = safePath(d.poster_url);
+    var wanted = wide.concat(last || '').join(' ');
+    if (wanted === pictures) return;
+    clearPictures();
+    pictures = wanted;
+    trying = true;
+    hide(heroSkel, false);
+    tryNext();
+
+    function tryNext() {
+      var src = wide.shift();
+      if (!src) { showPoster(last); return; }
+      art.removeAttribute('data-broken');
+      art.onload = function () {
+        // Loaded but marked: no wide picture (broken-poster.js).
+        if (art.hasAttribute('data-broken')) { tryNext(); return; }
+        hide(heroSkel, true);
+        art.classList.add('is-loaded');
+        pictureSettled();
+      };
+      art.onerror = tryNext;
+      hide(art, false);
+      art.setAttribute('src', src);
+    }
+  }
+
+  /* Sharp and whole at its own shape, over a blurred copy that fills the hero. */
+  function showPoster(src) {
+    hide(art, true);
+    hide(heroSkel, true);
+    if (!src) { pictureSettled(); return; }
+    var left = 2;
+    function done() { if (!--left) pictureSettled(); }
+    [fill, poster].forEach(function (img) {
+      img.onload = function () { img.classList.add('is-loaded'); done(); };
+      img.onerror = function () { hide(img, true); done(); };
+      hide(img, false);
+      img.setAttribute('src', src);
+    });
+  }
+
   function renderHead(d, fresh) {
     kindEl.textContent = kindLabel(d);
-    titleEl.textContent = d.title || cur.title;
+    var name = d.title || cur.title;
+    titleEl.textContent = name;
+    titleEl.classList.toggle('ttl__title--long', name.length > 40);
     taglineEl.textContent = d.tagline || '';
     hide(taglineEl, !d.tagline);
     metaEl.textContent = '';
@@ -528,15 +639,7 @@
       cert.setAttribute('aria-label', 'Rated ' + d.certificate);
       metaEl.appendChild(cert);
     }
-    var src = safePath(d.backdrop_url) || safePath(d.poster_url);
-    hide(heroSkel, true);
-    if (src && art.getAttribute('src') !== src) {
-      art.classList.remove('is-loaded');
-      art.onload = function () { art.classList.add('is-loaded'); };
-      art.onerror = function () { hide(art, true); };
-      art.setAttribute('src', src);
-    }
-    hide(art, !src);
+    showPictures(d);
     if (fresh) [kindEl, metaEl, taglineEl].forEach(core.fadeIn);
   }
 
@@ -1209,7 +1312,22 @@
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
-  /* The player takes the hero's box, so nothing below it moves. */
+  /* Make a *change* that alters the hero's height, and ease between the heights
+     measured before and after: the text can hold it taller than its CSS asks. */
+  function easeHero(change) {
+    var from = hero.offsetHeight;
+    if (heroEase) heroEase.cancel();
+    change();
+    var to = hero.offsetHeight;
+    if (from === to || !hero.animate || core.reduceMotion()) return;
+    heroEase = hero.animate([{ minHeight: from + 'px' }, { minHeight: to + 'px' }], {
+      duration: core.tokenMs('--dur-slow', 250),
+      easing: core.token('--ease-out', 'ease-out')
+    });
+  }
+
+  /* The player takes the hero's box, so nothing below it moves; a short hero
+     grows to full height for it. */
   function openTrailer() {
     var key = cur && trailerKey(cur.data);
     if (!key) return;
@@ -1223,13 +1341,13 @@
     frame.setAttribute('allowfullscreen', '');
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
-    root.classList.add('is-trailer');
+    easeHero(function () { root.classList.add('is-trailer'); });
     setTrailerButton(true);
   }
 
   function closeTrailer(refocus) {
     if (!root.classList.contains('is-trailer')) return;
-    root.classList.remove('is-trailer');
+    easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
     var frame = player.querySelector('iframe');
     // Gone at once stops the sound; the box fades as it empties.

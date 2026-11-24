@@ -41,6 +41,18 @@ def record_deleted_media(
     )
 
 
+def fill_show_tvdb_id(conn: sqlite3.Connection, *, tmdb_id: int, tvdb_id: int) -> None:
+    """Store *tvdb_id* with every deletion of the show *tmdb_id* that was recorded without one.
+
+    A re-download of the show is audited under its TVDB id (see redownload_tokens).
+    """
+    conn.execute(
+        "UPDATE deleted_media SET tvdb_id = ? "
+        "WHERE tmdb_id = ? AND tvdb_id IS NULL AND media_type != 'movie'",
+        (tvdb_id, tmdb_id),
+    )
+
+
 def fetch_deleted_media(
     conn: sqlite3.Connection, audit_ids: Iterable[int]
 ) -> dict[int, DeletedMedia]:

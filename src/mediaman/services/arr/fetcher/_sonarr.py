@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, cast
 
 import requests
 
 from mediaman.services.arr import ArrError
-from mediaman.services.arr._types import ArrEpisode
+from mediaman.services.arr._types import ArrEpisode, SonarrSeries
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
@@ -14,12 +15,17 @@ from mediaman.services.arr.fetcher._base import (
     clamp_progress,
     make_arr_card,
 )
+from mediaman.services.arr.state import (
+    _season_has_aired,
+    _sonarr_will_fetch,
+    missing_episodes,
+)
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 from mediaman.core.format import format_bytes
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.downloads.download_format import (
     classify_series_upcoming,
     compute_series_released_at,
@@ -206,8 +212,45 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     return items
 
 
+def _monitored_seasons(
+    series: SonarrSeries, episodes: Sequence[ArrEpisode]
+) -> list[dict[str, int]]:
+    """Return the monitored seasons of a series without files, with the episodes each misses.
+
+    A season still to air counts none missing but is listed: left monitored, it keeps
+    the series searching after the others are abandoned.
+    """
+    now = now_utc()
+    aired = {
+        ep.get("seasonNumber")
+        for ep in episodes
+        if (airs := parse_iso_utc(ep.get("airDateUtc"))) is not None and airs <= now
+    }
+    return [
+        {
+            "number": season["seasonNumber"],
+            "missing_episodes": missing_episodes(season),
+            "aired": _season_has_aired(season) or season["seasonNumber"] in aired,
+        }
+        for season in series.get("seasons") or []
+        if season.get("monitored") and isinstance(season.get("seasonNumber"), int)
+    ]
+
+
+def _wanted_episodes(series: SonarrSeries, episodes: Sequence[ArrEpisode]) -> list[ArrEpisode]:
+    """Return the episodes Sonarr is set to fetch; one that does not say follows its season."""
+    unmonitored = {
+        season.get("seasonNumber")
+        for season in series.get("seasons") or []
+        if not season.get("monitored")
+    }
+    return [ep for ep in episodes if ep.get("monitored", ep.get("seasonNumber") not in unmonitored)]
+
+
 def _build_still_searching_cards(
-    client: ArrClient, queue_series_title_years: set[tuple[str, int | None]]
+    client: ArrClient,
+    queue_series_title_years: set[tuple[str, int | None]],
+    on_failure: Callable[[], None],
 ) -> list[ArrCard]:
     """Phase 2: build cards for monitored series still searching (not yet in queue).
 
@@ -218,7 +261,9 @@ def _build_still_searching_cards(
     phase 1.
     """
     items: list[ArrCard] = []
-    for series in _iter_still_searching(client.get_series, service_label="Sonarr"):
+    for series in _iter_still_searching(
+        client.get_series, service_label="Sonarr", on_failure=on_failure
+    ):
         s_title = series.get("title", "")
         s_year = series.get("year")
         if not series.get("monitored"):
@@ -227,6 +272,9 @@ def _build_still_searching_cards(
         if stats.get("episodeFileCount", 0) > 0:
             continue
         if (s_title, s_year) in queue_series_title_years:
+            continue
+        # Abandon unmonitors seasons and leaves the series monitored.
+        if not _sonarr_will_fetch(series):
             continue
 
         series_id = series.get("id", 0)
@@ -245,8 +293,13 @@ def _build_still_searching_cards(
             )
             episodes_raw = []
 
-        is_upcoming, release_label = classify_series_upcoming(series, episodes_raw)
-        released_at = compute_series_released_at(episodes_raw)
+        wanted = _wanted_episodes(series, episodes_raw)
+        seasons = _monitored_seasons(series, episodes_raw)
+        # A series listing no episode may only be waiting for Sonarr to refresh it.
+        none_aired = bool(episodes_raw) and not any(season["aired"] for season in seasons)
+        is_upcoming, release_label = classify_series_upcoming(series, wanted, none_aired=none_aired)
+        # Auto-abandon leaves specials alone, so an old one must not age the season it may abandon.
+        released_at = compute_series_released_at([e for e in wanted if e.get("seasonNumber") != 0])
 
         added_at = 0.0
         added_dt = parse_iso_utc(series.get("added", ""))
@@ -255,34 +308,36 @@ def _build_still_searching_cards(
 
         poster_url = extract_poster_url(series.get("images"))
 
-        items.append(
-            make_arr_card(
-                "series",
-                s_title,
-                source="Sonarr",
-                poster_url=poster_url,
-                arr_id=series_id,
-                title_slug=series.get("titleSlug", ""),
-                added_at=added_at,
-                released_at=released_at,
-                is_upcoming=is_upcoming,
-                release_label=release_label,
-            )
+        card = make_arr_card(
+            "series",
+            s_title,
+            source="Sonarr",
+            poster_url=poster_url,
+            arr_id=series_id,
+            title_slug=series.get("titleSlug", ""),
+            added_at=added_at,
+            released_at=released_at,
+            is_upcoming=is_upcoming,
+            release_label=release_label,
         )
+        card["stuck_seasons"] = seasons
+        items.append(card)
     return items
 
 
-def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
+def fetch_sonarr_queue(
+    client: ArrClient, *, on_failure: Callable[[], None] = lambda: None
+) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
     Groups queue episodes by series into one card each, then appends
     cards for monitored series still searching. The inner loop over
     ``get_series()`` keeps its own try/except for the same reason as
-    ``fetch_radarr_queue``.
+    ``fetch_radarr_queue``, and reports it through *on_failure*.
     """
     items = _build_queue_cards(client)
     queue_series_title_years = {
         (i["title"], i.get("year")) for i in items if i.get("kind") == "series"
     }
-    items.extend(_build_still_searching_cards(client, queue_series_title_years))
+    items.extend(_build_still_searching_cards(client, queue_series_title_years, on_failure))
     return items

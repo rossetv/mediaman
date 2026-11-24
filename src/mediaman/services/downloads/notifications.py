@@ -47,6 +47,7 @@ from mediaman.services.downloads._notification_claims import (
     _release_claim,
     _release_claims_bulk,
     reconcile_stranded_notifications,
+    restamp_claim,
 )
 from mediaman.services.downloads._notification_email import (
     SuggestionsMeta,
@@ -70,20 +71,29 @@ def record_download_notification(
     service: str,
     tmdb_id: int | None = None,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> None:
     """Insert a pending notification; the library sync sends it once the item has a file.
 
-    Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. Does not
-    commit; the caller owns the transaction.
+    Radarr uses TMDB ids and Sonarr TVDB ids, so each goes in its own column. With a
+    *season_number* the notification waits for a file of that season. A request that
+    already has an unsent notification gets no second one. Does not commit; the caller
+    owns the transaction.
     """
     from mediaman.core.time import now_iso
 
     now = now_iso()
     conn.execute(
         "INSERT INTO download_notifications "
-        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, tvdb_id, service, now),
+        "(email, title, media_type, tmdb_id, tvdb_id, service, season_number, notified, "
+        "created_at) SELECT ?, ?, ?, ?, ?, ?, ?, 0, ? WHERE NOT EXISTS ("
+        "SELECT 1 FROM download_notifications "
+        "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?))",
+        (
+            *(email, title, media_type, tmdb_id, tvdb_id, service, season_number, now),
+            *(email, service, season_number, tmdb_id, tvdb_id),
+        ),
     )
 
 
@@ -94,15 +104,17 @@ def has_unsent_notification(
     service: str,
     tmdb_id: int,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> bool:
     """Whether a notification for the title is still to be sent to *email*. A Sonarr row
-    may carry only its TVDB id.
+    may carry only its TVDB id. Without *season_number* only a whole-show row counts, so a
+    pending notice for one season does not read as covering the show.
     """
     row = conn.execute(
         "SELECT 1 FROM download_notifications "
         "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
-        "AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
-        (email, service, tmdb_id, tvdb_id),
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
+        (email, service, season_number, tmdb_id, tvdb_id),
     ).fetchone()
     return row is not None
 
@@ -131,17 +143,21 @@ def _sonarr_has_files(
     *,
     tvdb_id: int | None,
     tmdb_id: int | None,
+    season_number: int | None = None,
 ) -> bool:
-    """Return True if the series has an episode file, matching by TVDB id first and then
-    TMDB id. *series_index* is pre-fetched once per tick.
+    """Return True if the series, or its *season_number* when given, has an episode file,
+    matching by TVDB id first and then TMDB id. *series_index* is pre-fetched once per tick.
     """
     for s in series_index:
-        if tvdb_id and s.get("tvdbId") == tvdb_id:
-            stats = s.get("statistics") or {}
-            return int(stats.get("episodeFileCount") or 0) > 0
-        if tmdb_id and s.get("tmdbId") == tmdb_id:
-            stats = s.get("statistics") or {}
-            return int(stats.get("episodeFileCount") or 0) > 0
+        if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
+            if season_number is None:
+                stats = s.get("statistics") or {}
+                return int(stats.get("episodeFileCount") or 0) > 0
+            return any(
+                int((season.get("statistics") or {}).get("episodeFileCount") or 0) > 0
+                for season in s.get("seasons") or []
+                if season.get("seasonNumber") == season_number
+            )
     return False
 
 
@@ -165,7 +181,7 @@ def _build_mailgun_client(
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
         # to issue one fsync each.
-        _release_claims_bulk(conn, [r.id for r in pending])
+        _release_claims_bulk(conn, pending)
         return None
     return MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
 
@@ -182,7 +198,7 @@ def _partition_runnable(
     # not turn into N claim/release cycles per tick. Released back to
     # ``notified=0`` in bulk so the next tick can pick them up if their
     # backoff has elapsed.
-    deferred_ids: list[int] = []
+    deferred: list[ClaimedNotificationRow] = []
     runnable: list[ClaimedNotificationRow] = []
     for row in pending:
         if "@" not in row.email:
@@ -190,14 +206,13 @@ def _partition_runnable(
             logger.warning(
                 "Download notification id=%s has no email address — marking as notified", row.id
             )
-            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
-            conn.commit()
+            with conn:
+                conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
         elif _is_backed_off(row.id, now_dt):
-            deferred_ids.append(row.id)
+            deferred.append(row)
         else:
             runnable.append(row)
-    if deferred_ids:
-        _release_claims_bulk(conn, deferred_ids)
+    _release_claims_bulk(conn, deferred)
     return runnable
 
 
@@ -310,8 +325,9 @@ def _check_sonarr_series(
     tvdb_id: int | None,
     tmdb_id: int | None,
     sonarr_series_index: list[SonarrSeries] | None,
+    season_number: int | None = None,
 ) -> tuple[bool, bool]:
-    """Probe Sonarr for a series' episode-file availability, returning (ready,
+    """Probe Sonarr for a series' or season's episode-file availability, returning (ready,
     arr_unreachable). *sonarr_series_index* is the library list pre-fetched once per
     tick.
     """
@@ -330,7 +346,9 @@ def _check_sonarr_series(
             if sonarr_series_index is not None
             else _build_sonarr_index(sonarr_client)
         )
-        ready = _sonarr_has_files(index, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+        ready = _sonarr_has_files(
+            index, tvdb_id=tvdb_id, tmdb_id=tmdb_id, season_number=season_number
+        )
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Sonarr lookup failed for notification id=%s",
@@ -367,7 +385,7 @@ def _check_arr_availability(
         ready, movie, arr_unreachable = result.ready, result.movie, result.arr_unreachable
     elif service == "sonarr":
         ready, arr_unreachable = _check_sonarr_series(
-            arr, row_id, row.tvdb_id, row.tmdb_id, sonarr_series_index
+            arr, row_id, row.tvdb_id, row.tmdb_id, sonarr_series_index, row.season_number
         )
         movie = None
     else:
@@ -380,16 +398,16 @@ def _check_arr_availability(
             row_id,
             service,
         )
-        conn.execute(
-            "UPDATE download_notifications SET notified=1 WHERE id=?",
-            (row_id,),
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "UPDATE download_notifications SET notified=1 WHERE id=?",
+                (row_id,),
+            )
         return False, _ARR_UNKNOWN_SERVICE
 
     if arr_unreachable:
         _record_arr_failure(row_id, now_dt)
-        _release_claim(conn, row_id)
+        _release_claim(conn, row)
         return False, _ARR_UNREACHABLE
 
     return ready, movie
@@ -443,17 +461,24 @@ def _process_one_notification(
             # connection.  The backoff counter is deliberately NOT bumped
             # here; it is reserved for genuine *arr reachability failures.
             _record_poll_attempt(int(row_id), now_dt)
-            _release_claim(conn, row_id)
+            _release_claim(conn, row)
             return
 
         # Sentinels are exhausted above; cast narrows the union for mypy
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
         subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
+        # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
+        # reconcile does not free a row whose email is going out.
+        restamped = restamp_claim(conn, row)
+        if restamped is None:
+            logger.info("Download notification id=%s was claimed by another tick", row_id)
+            return
+        row = restamped
         mailgun.send(to=email, subject=subject, html=html)
 
-        conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
-        conn.commit()
+        with conn:
+            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
         # Successful send — drop any backoff/poll-throttle state we may
         # have built up for this row during a previous outage or wait.
         _clear_backoff(int(row_id))
@@ -470,7 +495,7 @@ def _process_one_notification(
         # Release the claim so a later scheduler tick can retry —
         # otherwise a transient Mailgun outage strands the row at
         # ``notified=2`` forever.
-        _release_claim(conn, row_id)
+        _release_claim(conn, row)
 
 
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:

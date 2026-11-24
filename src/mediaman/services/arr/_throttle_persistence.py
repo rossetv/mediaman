@@ -97,12 +97,12 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
         from datetime import datetime
 
         ts = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
-        conn.execute(
-            "INSERT OR REPLACE INTO arr_search_throttle "
-            "(key, last_triggered_at, search_count) VALUES (?, ?, ?)",
-            (dl_id, ts, count),
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO arr_search_throttle "
+                "(key, last_triggered_at, search_count) VALUES (?, ?, ?)",
+                (dl_id, ts, count),
+            )
     # See _load_throttle_from_db: DatabaseError covers OperationalError.
     # sqlite3.InterfaceError is deliberately not caught (programmer error).
     except sqlite3.DatabaseError:
@@ -249,11 +249,11 @@ def reconcile_stranded_throttle(
     """
     cutoff = (now_utc() - timedelta(seconds=ttl_seconds)).isoformat()
     try:
-        cur = conn.execute(
-            "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",
-            (cutoff,),
-        )
-        conn.commit()
+        with conn:
+            cur = conn.execute(
+                "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",
+                (cutoff,),
+            )
     # DatabaseError covers OperationalError. InterfaceError deliberately
     # excluded (programmer error, not a transient DB hiccup).
     except sqlite3.DatabaseError:
@@ -296,8 +296,8 @@ def clear_throttle(conn: sqlite3.Connection, dl_id: str, *, service: str | None 
         if service is not None:
             _last_search_trigger_by_arr.pop(_arr_throttle_key(service), None)
     try:
-        conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
-        conn.commit()
+        with conn:
+            conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
     # DatabaseError covers OperationalError. InterfaceError deliberately
     # excluded (programmer error).
     except sqlite3.DatabaseError:

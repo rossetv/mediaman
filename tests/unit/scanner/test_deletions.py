@@ -1462,7 +1462,7 @@ class TestKeepAndClearAroundARemoval:
         assert self._row(conn) is None
         assert "deleted" not in _audits(conn, "m1")
 
-    def test_recovery_of_a_kept_row_whose_files_are_gone_audits_it_and_keeps_the_row(
+    def test_a_kept_row_whose_files_are_gone_is_only_booked_as_deleted_and_stays(
         self, conn, tmp_path, monkeypatch
     ):
         root = tmp_path / "movies"
@@ -1486,15 +1486,15 @@ class TestKeepAndClearAroundARemoval:
             token_used=False,
             delete_status="deleting",
         )
-        _record_removed(conn, "m1", root / "Gone.mkv")
+        _record_removed(conn, "m1", root / "Gone.mkv", size=500)
 
-        recover_stuck_deletions(conn)
+        DeletionExecutor(conn=conn).execute()
 
         assert self._row(conn) == ("protected_forever", "pending")
         audits = conn.execute(
             "SELECT action, space_reclaimed_bytes FROM audit_log WHERE media_item_id='m1'"
         ).fetchall()
-        assert [tuple(a) for a in audits] == [("media_missing", None)]
+        assert [tuple(a) for a in audits] == [("deleted", 500)]
 
 
 class TestKeepBetweenClaimAndRemoval:

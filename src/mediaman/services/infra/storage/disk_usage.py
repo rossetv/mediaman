@@ -19,23 +19,24 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# 0.1% of a multi-terabyte drive is gigabytes, enough to fold two real drives into one.
+_FREE_TOLERANCE_CAP = 256 * 1024 * 1024
+
+
 def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
     """Sum ``shutil.disk_usage`` across *paths*, counting each disk once.
 
-    Two paths on the same physical disk are de-duplicated by their
-    ``(total, used, free)`` reading rather than by ``st_dev``.  ``st_dev``
-    is unreliable across container bind mounts: OrbStack/Docker present
-    every host bind under a single synthetic device id, so a device-keyed
-    de-dup collapses genuinely-separate disks (e.g. a movies drive and a
-    TV drive) into whichever path is scanned first — undercounting the
-    total.  The byte-tuple is stable per filesystem and differs between
-    real disks (their *used* byte counts essentially never coincide), so
-    it both merges same-disk paths (``/media/tv`` + ``/media/anime`` on
-    one drive) and keeps separate disks separate.
+    Two paths are one disk when their totals are equal and their free bytes
+    differ by under 0.1% of the total, at most 256 MiB.  The device id is left out of the
+    comparison on purpose: one filesystem can show several ids (btrfs
+    subvolumes, NFS mounts), and container binds can put two drives behind a
+    single id.  The free bytes get a tolerance because they move between two
+    reads of the same live disk, while two equal-sized drives rarely hold the
+    same free space.  The first reading of each disk is the one summed.
 
     Non-existent or unreadable paths are skipped.
     """
-    seen: set[tuple[int, int, int]] = set()
+    seen: list[tuple[int, int]] = []
     total = used = free = 0
     for p in paths:
         if not p or not Path(p).exists():
@@ -45,10 +46,13 @@ def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
         except OSError:
             logger.debug("disk_usage failed for %s — skipping", p)
             continue
-        key = (usage.total, usage.used, usage.free)
-        if key in seen:
+        if any(
+            usage.total == total_seen
+            and abs(usage.free - free_seen) <= min(usage.total * 0.001, _FREE_TOLERANCE_CAP)
+            for total_seen, free_seen in seen
+        ):
             continue
-        seen.add(key)
+        seen.append((usage.total, usage.free))
         total += usage.total
         used += usage.used
         free += usage.free
