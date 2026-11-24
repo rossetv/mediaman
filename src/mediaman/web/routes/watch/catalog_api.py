@@ -349,12 +349,15 @@ def _apply_tmdb(
     tmdb_id: int,
     username: str,
     allow_fetch: Callable[[], bool] | None = None,
+    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
-    from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
-    when TMDB would be asked and *allow_fetch* says no. OMDb is asked only within the
-    query limit: *allow_fetch*, or *username*'s own when it is not given."""
-    fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    from Plex; returns the TMDB fields, asked for unless the caller has them. Raises
+    TmdbUnavailable, and disk_cache.Refused when TMDB would be asked and *allow_fetch* says
+    no. OMDb is asked only within the query limit: *allow_fetch*, or *username*'s own when
+    it is not given."""
+    if fields is None:
+        fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     for name in (
         "year",
         "year_end",
@@ -567,11 +570,12 @@ def _tmdb_title(
     tmdb_id: int,
     download_url: str | None,
     allow_fetch: Callable[[], bool] | None = None,
+    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable and, as
-    ``_apply_tmdb``, disk_cache.Refused."""
+    """A TMDB title (*kind* "movie" or "tv"); *fields* is as in ``_apply_tmdb``. Raises
+    TmdbUnavailable and, as that, disk_cache.Refused."""
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch)
+    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch, fields)
     arr = _arr(request, conn)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows

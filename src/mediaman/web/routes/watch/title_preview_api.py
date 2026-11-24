@@ -143,9 +143,9 @@ def _fill_from_tmdb(
     ask: Callable[[], bool],
 ) -> None:
     """Fill *out* from TMDB and the ratings held; raises as ``catalog.details``."""
-    catalog.details(client, kind, tmdb_id, allow_fetch=ask)
-    # Cached by now: refusing every further ask leaves only OMDb unasked.
-    _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, lambda: False)
+    fields = catalog.details(client, kind, tmdb_id, allow_fetch=ask)
+    # Refusing every further ask leaves OMDb unasked.
+    _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, lambda: False, fields)
 
 
 def _library_title(
@@ -338,9 +338,18 @@ def _outside_title(
     ask: Callable[[], bool],
 ) -> dict[str, Any]:
     """The preview of a TMDB title; raises as ``catalog.details``."""
-    catalog.details(client, media_type, tmdb_id, allow_fetch=ask)
+    fields = catalog.details(client, media_type, tmdb_id, allow_fetch=ask)
     return _tmdb_title(
-        request, conn, username, client, ref, media_type, tmdb_id, download_url, lambda: False
+        request,
+        conn,
+        username,
+        client,
+        ref,
+        media_type,
+        tmdb_id,
+        download_url,
+        lambda: False,
+        fields,
     )
 
 

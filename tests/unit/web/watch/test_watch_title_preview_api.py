@@ -3,6 +3,7 @@ searches or asking Plex for what is already known."""
 
 from __future__ import annotations
 
+import shutil
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -394,6 +395,15 @@ class TestPicks:
             ("Stored.", "Because."),
             ("Stored.", "Shared."),
         ]
+
+
+@pytest.mark.parametrize("ref", ["tmdb-movie-12", "movie-100"])
+def test_a_cache_that_cannot_be_written_takes_nothing_from_it(viewer, tmdb, plex, tmp_path, ref):
+    shutil.rmtree(tmp_path / "watch_cache")
+
+    body = _preview(viewer, ref).json()
+
+    assert (body["overview"], plex.calls) == ("From TMDB.", 0)
 
 
 class TestAdult:
