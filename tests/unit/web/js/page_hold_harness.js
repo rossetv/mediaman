@@ -23,7 +23,7 @@ const bar = () => {
 const closers = []; // each password dialog's close, as the shared modal would run it
 const ctx = vm.createContext({
   document: doc, navigator: { platform: 'Linux' }, innerWidth: 1280, setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {},
-  Array, Math, Date, WeakMap, parseFloat, Promise, TypeError,
+  Array, Math, Date, performance, WeakMap, parseFloat, Promise, TypeError,
   getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   MM: { api: { APIError: Error }, modal: { setupDetail: (_el, o) => { const close = () => o.onClose(); closers.push(close); return { open() {}, close }; } } },
 });

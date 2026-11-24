@@ -39,6 +39,10 @@ def test_a_confirm_is_not_answered_by_the_rest_of_a_double_click_on_what_asked()
     assert out["byKey"] == [True, False]
 
 
+def test_a_confirm_can_be_answered_after_the_clock_was_put_back_under_it() -> None:
+    assert _run("stray")["meant"] == [True, False, False]
+
+
 def test_a_confirm_is_answered_by_a_run_of_clicks_that_began_in_it() -> None:
     out = _run("stray")
     assert out["run"] == [True, True, False]

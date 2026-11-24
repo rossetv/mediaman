@@ -23,7 +23,7 @@ function press({ dialog, own, other, confirm, key = {}, field } = {}) {
   }
   if (other) doc.body.appendChild(build(doc, ['div', { role: 'dialog', 'aria-modal': 'true' }]));
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, performance, WeakMap, parseFloat, Promise,
     matchMedia: () => ({ matches: false }),
     getComputedStyle: () => ({ display: 'flex', visibility, transitionDuration: '0s', transitionDelay: '0s' }),
   };
@@ -45,7 +45,7 @@ async function stacked(close) {
   const doc = makeDocument();
   let now = 0; // each look at the clock is a second on, so no click comes too soon after a dialog opens
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date: { now: () => (now += 1000) }, WeakMap, parseFloat, Promise,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, performance: { now: () => (now += 1000) }, WeakMap, parseFloat, Promise,
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };
   ctx.window = ctx;
@@ -91,7 +91,7 @@ function underPointer(show, pointer) {
   const doc = makeDocument();
   const timers = []; // a toast's own time, not the short wait for its fade
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout(fn, ms) { if (ms >= 2000) timers.push(fn); }, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout(fn, ms) { if (ms >= 2000) timers.push(fn); }, requestAnimationFrame() {}, Array, Math, Date, performance, WeakMap, parseFloat, Promise,
     matchMedia: (q) => ({ matches: /hover/.test(q) && pointer }),
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };
@@ -114,14 +114,15 @@ const held = () => ({
 });
 
 /* What a confirm answers to clicks, each [on, ms, detail]: on its main button, its Cancel, its title or its backdrop,
-   *ms* after it opened, as click number *detail* of a run of clicks. null where they did nothing. */
+   *ms* after it opened, whatever the time of day is put to since, as click number *detail* of a run of clicks. null where they did nothing. */
 const clicked = (on, ms, detail) => clicks([[on, ms, detail]]);
 async function clicks(list) {
   const doc = makeDocument();
   let now = 1000;
   const ctx = {
     document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, WeakMap, parseFloat, Promise,
-    Date: { now: () => now },
+    // the wall clock is put back as soon as the dialog is open
+    performance: { now: () => now }, Date: { now: () => (now === 1000 ? 5000 : 0) },
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };
   ctx.window = ctx;
@@ -177,7 +178,7 @@ const pressed = () => ({
 function page(phone) {
   const doc = makeDocument();
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, performance, WeakMap, parseFloat, Promise,
     matchMedia: (q) => ({ matches: /max-width/.test(q) && !!phone }),
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };

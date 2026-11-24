@@ -286,14 +286,14 @@
       open.push(cancel);
       // The rest of a double click on what asked lands on the dialog, and a slow
       // one comes before it could be read: neither answers yes, nor no by the backdrop.
-      var openedAt = Date.now();
+      var openedAt = performance.now();
       // A click that begins a run of its own here makes the run the dialog's.
       var begun = false;
       function stray(e) {
         if (!(e.detail > 1)) begun = true;
         return !begun;
       }
-      function early() { return Date.now() - openedAt < 300; }
+      function early() { return performance.now() - openedAt < 300; }
       cancelBtn.addEventListener('click', function (e) { if (!stray(e)) cancel(); });
       confirmBtn.addEventListener('click', function (e) { if (!stray(e) && !early()) cleanup(true); });
       overlay.addEventListener('click', function (e) {
