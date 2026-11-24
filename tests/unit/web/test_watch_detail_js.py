@@ -258,16 +258,32 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     assert library["refetched"]["primary"]["text"] == "Play"
 
 
-def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_it_is_in_the_library() -> None:
+def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says_more() -> None:
     out = _run("downloadShowTracked")
     tracked = out["tracked"]
     assert tracked["at409"] == {"primary": "Already in Sonarr", "retry": False}
     assert tracked["gets"].count("/api/watch/title/tmdb-tv-90") == 2
     assert (tracked["refetched"], tracked["retry"]) == ("Already in Sonarr", False)
     assert tracked["events"] == []
+    assert (tracked["polls"], tracked["reopened"]) == (0, "Already in Sonarr")
+    # Queued, coming in or all there: the panel and every card say it, once, before any reopening.
+    event = {"ref": "tmdb-tv-90", "title": "Hollow Pines", "kind": "show", "year": 2026}
+    for name, state, pct, text, polls in (
+        ("queued", "queued", None, "Queued", 1),
+        ("downloading", "downloading", 40, "Downloading 40%", 1),
+        ("allThere", "in_library", None, "In library", 0),
+    ):
+        run = out[name]
+        assert run["at409"]["primary"] == "Already in Sonarr", name
+        assert (run["refetched"], run["reopened"]) == (text, text), name
+        assert run["events"] == [{**event, "download_state": state, "download_pct": pct}], name
+        assert run["polls"] == polls, name
     # The title asked for again is in the library: it opens as the library show.
     assert out["inLibrary"]["at409"]["primary"] == "Already in Sonarr"
     assert out["inLibrary"]["refetched"] == "Resume S2 · E4"
+    assert out["inLibrary"]["events"] == [
+        {**event, "download_state": "in_library", "download_pct": None}
+    ]
 
 
 def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None:

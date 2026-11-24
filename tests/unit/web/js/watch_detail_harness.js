@@ -635,7 +635,8 @@ const scenarios = {
     };
   },
 
-  // Sonarr already tracks the show: "Already in Sonarr", unless the title asked for again is in the library.
+  // Sonarr already tracks the show: "Already in Sonarr", unless the title asked for again says more, to
+  // the panel and to the cards.
   async downloadShowTracked() {
     const run = async (again) => {
       let gets = 0;
@@ -654,10 +655,22 @@ const scenarios = {
       await Promise.resolve();
       const at409 = { primary: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]') };
       await settle();
-      return { at409, refetched: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]'), events: p.events, gets: p.gets.slice() };
+      const out = { at409, refetched: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]'), events: p.events, gets: p.gets.slice(),
+        polls: p.timers.filter((t) => t.fn && t.ms === 5000).length };
+      p.ctx.MMWatch.detail.open('show-300', {});
+      await settle();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      return Object.assign(out, { reopened: primary(p).text });
     };
+    const dl = (state, pct) => Object.assign({}, TV_DL, {
+      sonarr_tracked: true, download: Object.assign({}, TV_DL.download, { state, pct, answered: true }),
+    });
     return {
       tracked: await run(Object.assign({}, TV_DL, { sonarr_tracked: true })),
+      queued: await run(dl('queued', 0)),
+      downloading: await run(dl('downloading', 40)),
+      allThere: await run(dl('in_library', null)),
       inLibrary: await run(Object.assign({}, TV_DL, { in_library: true, library_ref: 'show-300' })),
     };
   },

@@ -949,29 +949,28 @@
         schedulePoll(POLL_MS);
       }
     }).catch(function (err) {
-      // 409: the Arr already has it, so trying again can only fail again. For a
-      // movie the title asked for again says whether it is queued, coming in or
-      // in the library, and the panel stays busy until it answers. Sonarr tracking
-      // a show says nothing of what is downloaded: the show's own reply decides.
-      if (err && err.status === 409 && d.kind === 'movie') {
-        core.toast(MM.api.messageOf(err, title + ' is already in Radarr.'));
+      // 409: the Arr already has it, so trying again can only fail again. The
+      // title asked for again says whether it is queued, coming in or in the
+      // library. A movie's panel stays busy until it answers; a show is already
+      // in Sonarr whatever of it is downloaded, and says so meanwhile.
+      if (err && err.status === 409) {
+        var movie = d.kind === 'movie';
+        core.toast(MM.api.messageOf(err, title + ' is already in ' + (movie ? 'Radarr.' : 'Sonarr.')));
+        if (!movie) {
+          k.busy = false;
+          k.tracked = true;
+          redrawActions(ref);
+        }
         settleExisting(ref, k);
         return;
       }
       k.busy = false;
-      if (err && err.status === 409) {
-        k.tracked = true;
-        core.toast(MM.api.messageOf(err, title + ' is already in Sonarr.'));
-        redrawActions(ref);
-        if (cur && cur.ref === ref) refresh();
-        return;
-      }
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
       redrawActions(ref);
     });
   }
 
-  /* A movie the Arr already has: what its reply says is the title's state, on
+  /* A title the Arr already has: what its reply says is the title's state, on
      the panel and on every card of it. */
   function settleExisting(ref, k) {
     get(apiUrl(ref)).then(function (data) {
@@ -981,9 +980,13 @@
         k.pct = null;
         fire(ref, 'in_library', null);
       } else {
+        if (cur && cur.ref === ref) {
+          data.reason = data.reason || cur.reason;
+          cur.data = data;
+        }
         takeDownload(ref, data.download);
-        // Radarr has it yet lists nothing: pressing Download again can only 409 again.
-        if (!k.state) k.tracked = true;
+        // The Arr has it yet lists nothing: pressing Download again can only 409 again.
+        k.tracked = !k.state;
       }
       redrawActions(ref);
       if (!cur || cur.ref !== ref || !isOpen) return;
