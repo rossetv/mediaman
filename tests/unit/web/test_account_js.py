@@ -58,6 +58,11 @@ def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() 
     assert out["rows"] == 1
 
 
+def test_a_new_password_on_its_way_is_said_in_the_form_s_own_words() -> None:
+    tone, words = _run("password")["working"]
+    assert tone == "inline-form-msg" and words
+
+
 def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     out = _run("email")
     assert [body["email"] for _url, body in out["sent"]] == [

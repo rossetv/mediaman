@@ -66,6 +66,8 @@
       if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
 
       setBusy(submit, true);
+      result.className = 'inline-form-msg';
+      result.textContent = 'Updating…';
       MM.reauth.run(function () {
         return MM.api.post('/api/users/change-password', {
           old_password: oldPw,

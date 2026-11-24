@@ -93,8 +93,9 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     p.fire('account-password-form', 'submit');
     const whileSending = p.focused();
+    const working = p.say('account-password-result');
     await settle();
-    return { posts, whileSending, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
+    return { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
   },
   async strength() {
     const doc = makeDocument();
