@@ -468,3 +468,19 @@ def test_a_failed_abandon_leaves_the_focus_in_the_dialog_whatever_a_click_does_w
     assert out["posts"] == 1 and out["errors"] == 1
     # a click beside the buttons stays in the dialog too
     assert out["dialog"] == "-1"
+
+
+def test_on_a_phone_a_hero_that_changes_height_keeps_its_top_where_it_is() -> None:
+    phone = "(max-width: 639.98px)"
+    for card in (".dl-hero", ".dl-hero-ghost__card"):
+        assert "align-items: flex-start" in _in_media(phone, card)
+    # what is shorter than the card still sits at its foot
+    content = _in_media(phone, ".dl-hero-content")
+    assert "justify-content: flex-end" in content
+    room = int(re.findall(r"min-height: (\d+)px", content)[0])
+    card = int(re.findall(r"min-height: (\d+)px", _rule(".dl-hero"))[0])
+    padding = int(re.findall(r"padding: (\d+)px", _in_media(phone, ".dl-hero"))[0])
+    assert room == card - 2 * padding
+    assert "flex: none" in _in_media(phone, ".dl-hero-info")
+    # the old card's ground goes on under it while the card grows
+    assert "min-height: 100%" in _rule(".dl-hero-ghost__card")

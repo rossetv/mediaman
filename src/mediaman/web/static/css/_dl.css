@@ -414,6 +414,7 @@
 .dl-hero-ghost__card {
   position: absolute;
   inset: 0 0 auto;
+  min-height: 100%; /* its art goes on to the foot of a card that grows */
   display: flex;
   align-items: flex-end;
   padding: 32px;
@@ -503,11 +504,13 @@
 /* Phone: the hero poster sits above the info so long titles get the full
    width, and a row's abandon button gets its own column beside the percentage. */
 @media (max-width: 639.98px) {
+  /* Held by its top, so that a card on its way to another height shows its poster from the
+     start; the content is as tall as the card at its least, and sits at its foot. */
   .dl-hero,
-  .dl-hero-ghost__card { padding: 20px; }
-  .dl-hero-content { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .dl-hero-ghost__card { padding: 20px; align-items: flex-start; }
+  .dl-hero-content { flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 16px; min-height: 320px; }
   .dl-hero-poster { width: 110px; }
-  .dl-hero-info { width: 100%; }
+  .dl-hero-info { flex: none; width: 100%; }
   .dl-hero-title { overflow-wrap: anywhere; }
   .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
@@ -559,6 +562,7 @@
   .dl-hero-scrim,
   .dl-hero-poster { display: none; }
   .dl-hero { min-height: 0; border: 1px solid CanvasText; }
+  .dl-hero-content { min-height: 0; }
   .dl-bar,
   .dl-hero-bar,
   .dl-row-bar,
