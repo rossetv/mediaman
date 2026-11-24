@@ -155,7 +155,7 @@ const scenarios = {
   // everything coming soon gives way to something else in one poll
   async upcomingReplaced() {
     const p = page(spec);
-    p.upd({ upcoming: [item('v')] });
+    p.upd({ hero: item('h'), upcoming: [item('v')] });
     return { rows: p.qa('.dl-upcoming-row').map((r) => r.getAttribute('data-dl-id')) };
   },
 

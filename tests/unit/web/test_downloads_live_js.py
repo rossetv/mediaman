@@ -181,4 +181,5 @@ def test_a_poster_that_fails_to_load_leaves_no_broken_icon_anywhere_on_the_page(
 
 
 def test_what_is_coming_soon_gives_way_to_what_replaces_it() -> None:
-    assert _run("upcomingReplaced", upcoming=[_item("u")]) == {"rows": ["v"]}
+    out = _run("upcomingReplaced", hero=_item("h"), upcoming=[_item("u")])
+    assert out == {"rows": ["v"]}
