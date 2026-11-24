@@ -152,7 +152,7 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         return respond_failure("Radarr not configured", status=503)
 
     try:
-        outcome = add_or_remonitor_movie(client, tmdb_id, title)
+        outcome = add_or_remonitor_movie(client, tmdb_id, title, keep_filed=True)
     except SafeHTTPError as exc:
         # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
         if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):

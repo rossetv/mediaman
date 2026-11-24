@@ -111,6 +111,20 @@ class TestSubmitRefusedForAHeldTitle:
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
 
+    def test_an_unmonitored_movie_that_has_its_file_is_left_alone_and_the_link_is_used(
+        self, client, secret_key
+    ):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False, "hasFile": True}
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["error"]
+        radarr.remonitor_movie.assert_not_called()
+        radarr.add_movie.assert_not_called()
+        assert _consumed(token)
+
     def test_a_movie_radarr_holds_monitored_is_already_exists_and_the_link_is_used(
         self, client, secret_key
     ):

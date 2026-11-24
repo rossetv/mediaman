@@ -467,13 +467,16 @@ class ExistingMovieError(ArrError):
     """
 
 
-def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -> MovieAddOutcome:
+def add_or_remonitor_movie(
+    radarr_client: ArrClient, tmdb_id: int, title: str, *, keep_filed: bool = False
+) -> MovieAddOutcome:
     """Get a movie wanted in Radarr: add it, or re-monitor the entry it already holds.
 
     A monitored entry is genuinely tracked (``"already_tracked"``), so a
     double-click does not churn it. An unmonitored one is the residue of an
     abandon: re-monitoring it (which also searches) is what pressing Download
-    again means. An entry with no usable id is ``"bad_entry"``.
+    again means. An entry with no usable id is ``"bad_entry"``. With
+    *keep_filed* an entry that already has its file is left alone too.
 
     Raises:
         SafeHTTPError: On a non-2xx response to the add only.
@@ -488,7 +491,7 @@ def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -
     if existing is None:
         radarr_client.add_movie(tmdb_id, title)
         return "added"
-    if existing.get("monitored"):
+    if existing.get("monitored") or (keep_filed and existing.get("hasFile")):
         return "already_tracked"
     movie_id = existing.get("id")
     if not isinstance(movie_id, int) or movie_id <= 0:
