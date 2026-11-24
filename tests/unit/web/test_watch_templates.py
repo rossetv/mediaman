@@ -602,3 +602,16 @@ def test_the_dash_of_an_unscheduled_title_is_hidden_on_phone_cards() -> None:
     rules = dict(_phone_rules("_watch_list.css"))
 
     assert "display: none" in rules[".wl-del--none > [aria-hidden]"]
+
+
+@pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
+def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
+    body = _declarations_of("_watch.css", f"{place} > .watch-bar")
+
+    assert "left: 8px" in body and "bottom: 8px" in body and "calc(100% - 16px)" in body
+
+
+@pytest.mark.parametrize("part", ["::-webkit-progress-value", "::-moz-progress-bar"])
+def test_a_little_progress_still_shows_a_mark_and_none_shows_nothing(part: str) -> None:
+    assert "min-width: 6px" in _declarations_of("_watch.css", f'.watch-bar:not([value="0"]){part}')
+    assert "min-width" not in _declarations_of("_watch.css", f".watch-bar{part}")

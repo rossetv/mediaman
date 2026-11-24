@@ -52,7 +52,24 @@
 .watch-bar--banner::-webkit-progress-value { background: var(--t1); }
 .watch-bar--banner::-moz-progress-bar { background: var(--t1); }
 .watch-card__poster > .watch-bar,
-.watch-ep__thumb > .watch-bar { position: absolute; left: 0; right: 0; bottom: 0; }
+.watch-ep__thumb > .watch-bar {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  bottom: 8px;
+  width: calc(100% - 16px);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--t1) 30%, transparent);
+}
+.watch-card__poster > .watch-bar::-webkit-progress-bar,
+.watch-ep__thumb > .watch-bar::-webkit-progress-bar { background: none; }
+/* Lifts the title off the bar. */
+.watch-card__poster:has(> .watch-bar) { padding-bottom: 20px; }
+/* A title barely begun still shows a mark; one not begun shows none. */
+.watch-bar::-webkit-progress-value { border-radius: var(--r-pill); }
+.watch-bar::-moz-progress-bar { border-radius: var(--r-pill); }
+.watch-bar:not([value="0"])::-webkit-progress-value { min-width: 6px; }
+.watch-bar:not([value="0"])::-moz-progress-bar { min-width: 6px; }
 
 /* Search box, top of the content. */
 .watch-top { padding: 20px var(--pad) 4px; }
@@ -421,7 +438,6 @@
   text-shadow: 0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent);
   overflow-wrap: anywhere;
 }
-.watch-card__poster > .watch-bar { z-index: 2; height: 4px; }
 .watch-card__sub {
   font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
