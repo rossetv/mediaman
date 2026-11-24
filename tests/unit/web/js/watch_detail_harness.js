@@ -1692,9 +1692,11 @@ const scenarios = {
       p.run();
       p.ctx.MMWatch.detail.open('movie-120', {});
       const look = () => ({ tagline: p.q('[data-ttl-part="tagline"]').hidden ? 'none' : 'held', first: p.q('.ttl__main').children[0].className.split(' ')[0] });
+      const bar = () => p.q('[data-ttl-part="tagline"]').querySelectorAll('.ttl__tagline-skel').length;
       const loading = look();
+      const bars = [bar()];
       await settle();
-      return { loading, loaded: look(), leaving: p.text('[data-ttl-part="under"] .ttl__leaving') };
+      return { loading, loaded: look(), bars: bars.concat(bar()), leaving: p.text('[data-ttl-part="under"] .ttl__leaving') };
     };
     return { tagline: await run({}), without: await run({ tagline: null }) };
   },

@@ -694,6 +694,8 @@ def test_a_title_that_arrives_moves_neither_its_name_nor_its_buttons() -> None:
     for run in (out["tagline"], out["without"]):
         assert (run["loading"], run["loaded"]) == (held, held)
         assert "Leaving in 3 days" in run["leaving"]
+        # An empty tagline gives its place to the meta line, so one that is to come is drawn.
+        assert run["bars"] == [1, 0]
 
 
 def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
