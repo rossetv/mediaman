@@ -14,7 +14,7 @@ from mediaman.db import init_db
 from mediaman.scanner import deletions, runner
 from mediaman.scanner.deletions import DeletionExecutor
 from mediaman.services.infra import ConfigDecryptError
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_settings
 
 
 class _Died(BaseException):
@@ -128,6 +128,20 @@ def test_a_dry_run_leaves_it_for_a_live_pass(conn, root):
     DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False, radarr_client=radarr).execute()
 
     assert radarr.mock_calls == []
+
+
+def test_a_library_sync_in_dry_run_leaves_it_for_a_live_one(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    insert_settings(conn, dry_run="true")
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+    assert radarr.mock_calls == []
+
+    conn.execute("UPDATE settings SET value = 'false' WHERE key = 'dry_run'")
+    _sync(conn, monkeypatch, radarr)
+    assert _unmonitored(radarr) == [1]
 
 
 def test_a_recovery_that_fails_midway_still_gets_its_booked_rows_unmonitored(

@@ -384,6 +384,8 @@ def run_scan_from_db(
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
     """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
+    if repository.read_setting(conn, "dry_run") == "true":
+        return
     if not repository.fetch_pending_unmonitors(conn):
         return
     from mediaman.scanner.deletions import rescan_unmonitored, unmonitor_deleted
