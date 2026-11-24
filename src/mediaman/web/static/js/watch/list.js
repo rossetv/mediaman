@@ -409,16 +409,34 @@
     return (action === 'delete' ? deleteButton(row) : row.querySelector('.keep-trigger')) || firstAction(row);
   }
 
-  function focusWasIn(row) {
+  /* Nothing has the focus, or a toast whose button was pressed, which takes it along as it
+     goes. Not while Details or a dialog is open over the list: the focus is theirs. */
+  function focusIsFree() {
     var active = document.activeElement;
-    return !active || active === document.body || row.contains(active);
+    if (document.documentElement.classList.contains('has-ttl') || document.querySelector('.wl-dialog.active')) return false;
+    return !active || active === document.body || !!active.closest('.ui-toast.is-leaving');
+  }
+
+  function focusWasIn(row) {
+    return row.contains(document.activeElement) || focusIsFree();
   }
 
   /* Focus is in the row, or was until the row went busy and disabled the
      focused button (the browser then drops focus to the page). */
   function focusBelongsTo(row) {
-    var active = document.activeElement;
-    return row.contains(active) || (row.classList.contains('is-busy') && (!active || active === document.body));
+    return row.contains(document.activeElement) || (row.classList.contains('is-busy') && focusIsFree());
+  }
+
+  /* The focus of an Undo whose row is not on this page: to the first row in sight, or the
+     filter that shows none. */
+  function focusNearby() {
+    if (_view !== 'list' || !root() || !focusIsFree()) return;
+    var top = core.clearArea().top;
+    var row = rows().filter(function (n) {
+      return !n.matches('.is-busy, .is-leaving') && n.getBoundingClientRect().top >= top;
+    })[0];
+    var target = firstAction(row) || root().querySelector('.fpill.on');
+    if (target) target.focus({ preventScroll: true });
   }
 
   function parseJson(value) {
@@ -638,6 +656,7 @@
     }
     if (d.phase === 'busy') {
       if (row) showWorking(row);
+      else if (d.action === 'unkeep') focusNearby();
       return;
     }
     if (d.phase === 'failed') {
