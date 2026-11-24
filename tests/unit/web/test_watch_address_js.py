@@ -214,3 +214,19 @@ def test_a_link_to_the_player_carries_the_whole_address_it_was_followed_at() -> 
         ["/watch/play/7", None, "/watch?all=movies"],
         ["/watch/movie/7", None, None],
     ]
+
+
+def test_a_page_moved_while_it_fills_is_put_back_until_it_has_settled_or_the_person_takes_over() -> (
+    None
+):
+    assert _run("aPageMovedWhileItFills") == {
+        "swapping": 2400,
+        "settled": 2400,
+        "later": 1600,
+        "taken": [800] * 5,
+        "anchor": "",
+    }
+
+
+def test_a_row_off_the_screen_is_put_back_however_late_the_rest_of_it_loads() -> None:
+    assert _run("aRowOffTheScreen") == {"left": 1148}

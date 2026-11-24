@@ -24,8 +24,8 @@
   var LATE_MS = 1000; // a step through the history this late is not coming
   var GROW_MS = 3000; // how long a page, or a row, may go without growing on its way back to its scroll
   var ROWS_KEY = 'mm:watch:rows';
-  var HOLD_MS = 120; // how long a row stays where it was put before it is left there
-  var TAKES = ['wheel', 'touchstart', 'pointerdown', 'keydown']; // the person takes over
+  var HOLD_MS = 1000; // how long a page, or a row, stays where it was put before it is left there
+  var TAKES = ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'click', 'keydown']; // the person takes over
 
   var layers = []; // lowest first
   var values = {}; // what each open layer is open at, by name
@@ -284,30 +284,39 @@
     current = (mark() || {}).id || null;
   }
 
+  /* The rows that load after the page are still on their way. */
+  function filling() { return !!document.querySelector('#watch-discover-slot[aria-busy="true"]'); }
+
   function putBack(y) {
     var mine = placing;
     function go() {
       if (placing !== mine) return;
       window.scrollTo({ left: 0, top: y, behavior: 'instant' });
-      if (Math.abs(window.scrollY - y) < 2) stopPlacing();
+      wait();
+    }
+    function there() { return Math.abs(window.scrollY - y) < 2; }
+    // Safari moves a page that is put back while what fills it takes the place of its skeletons.
+    function wait() {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        if (filling()) wait();
+        else stopPlacing();
+      }, there() ? HOLD_MS : GROW_MS);
     }
     TAKES.forEach(function (type) {
       window.addEventListener(type, stopPlacing, { passive: true, capture: true });
       mine.stop.push(function () { window.removeEventListener(type, stopPlacing, { capture: true }); });
     });
     var timer = null;
-    function wait() {
-      clearTimeout(timer);
-      timer = setTimeout(stopPlacing, GROW_MS);
-    }
-    wait();
     mine.stop.push(function () { clearTimeout(timer); });
+    var anchor = document.documentElement.style;
+    anchor.overflowAnchor = 'none';
+    mine.stop.push(function () { anchor.overflowAnchor = ''; });
+    window.addEventListener('scroll', go, { passive: true });
+    mine.stop.push(function () { window.removeEventListener('scroll', go); });
     // A page still filling is too short for it yet.
     if ('ResizeObserver' in window) {
-      var grows = new ResizeObserver(function () {
-        if (placing === mine) wait();
-        go();
-      });
+      var grows = new ResizeObserver(go);
       grows.observe(document.body);
       mine.stop.push(function () { grows.disconnect(); });
     }
@@ -340,12 +349,13 @@
     var left = rowsBack[id];
     var timer = null;
     var watching = [];
+    var takes = TAKES.concat('focusin');
     function done() {
       if (!watching) return;
       clearTimeout(timer);
       watching.forEach(function (o) { o.disconnect(); });
       watching = null;
-      TAKES.forEach(function (type) { row.removeEventListener(type, done, { capture: true }); });
+      takes.forEach(function (type) { row.removeEventListener(type, done, { capture: true }); });
       delete rowsBack[id];
       rowsNow[id] = scroller.scrollLeft;
       scroller.style.scrollSnapType = '';
@@ -361,9 +371,11 @@
       if (!there()) scroller.scrollTo({ left: left, behavior: 'instant' });
       clearTimeout(timer);
       // Safari may take a scroll back a frame later while the row fills.
-      timer = there() ? setTimeout(held, HOLD_MS) : setTimeout(done, GROW_MS);
+      if (there()) timer = setTimeout(held, HOLD_MS);
+      // Off the screen it loads nothing more, however long it takes to come there.
+      else if (!scroller.parentNode.hasAttribute('data-row-more')) timer = setTimeout(done, GROW_MS);
     }
-    TAKES.forEach(function (type) { row.addEventListener(type, done, { passive: true, capture: true }); });
+    takes.forEach(function (type) { row.addEventListener(type, done, { passive: true, capture: true }); });
     if ('ResizeObserver' in window) {
       watching.push(new ResizeObserver(go));
       watching[0].observe(scroller);

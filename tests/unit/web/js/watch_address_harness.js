@@ -24,7 +24,11 @@ function open(tab, opts = {}) {
   const win = { scrollY: 0, tallest: opts.tallest === undefined ? 100000 : opts.tallest };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, event) => (listeners[type] || []).slice().forEach((fn) => fn(event || {}));
-  const scroll = (y) => { win.scrollY = Math.max(0, Math.min(win.tallest, y)); fire('scroll'); };
+  const scroll = (y) => {
+    const was = win.scrollY;
+    win.scrollY = Math.max(0, Math.min(win.tallest, y));
+    if (win.scrollY !== was) fire('scroll');
+  };
   const go = (by) => {
     const to = tab.index + by;
     if (to < 0 || to >= tab.entries.length || by === 0) return;
@@ -173,7 +177,53 @@ const scenarios = {
     }
     p.win.tallest = 9000;
     if (!p.observers[0].off) p.observers[0].fn();
-    return { y: p.win.scrollY, waits: waits() };
+    const y = p.win.scrollY;
+    p.late();
+    return { y, waits: waits() };
+  },
+
+  // Safari moves the page as what it waits for takes the place of its skeleton; the person may too.
+  async aPageMovedWhileItFills() {
+    const come = () => {
+      const tab = makeTab('/watch');
+      let p = open(tab);
+      p.scroll(2400);
+      p.fire('pagehide');
+      p = open(tab, { unstarted: true });
+      const slot = p.doc.body.appendChild(build(p.doc, ['div', { id: 'watch-discover-slot', 'aria-busy': 'true' }]));
+      p.address.start();
+      return { p, slot };
+    };
+    const { p, slot } = come();
+    p.late();
+    p.late();
+    p.scroll(1460);
+    const swapping = p.win.scrollY;
+    slot.removeAttribute('aria-busy');
+    p.scroll(1500);
+    const settled = p.win.scrollY;
+    p.late();
+    p.scroll(1600);
+    const later = p.win.scrollY;
+    const taken = ['wheel', 'touchstart', 'mousedown', 'keydown', 'click'].map((type) => {
+      const q = come().p;
+      q.fire(type);
+      q.scroll(800);
+      return q.win.scrollY;
+    });
+    return { swapping, settled, later, taken, anchor: p.ctx.document.documentElement.style.overflowAnchor };
+  },
+
+  // A row off the screen is still waited for while there is more of it to load.
+  async aRowOffTheScreen() {
+    const p = comeBack();
+    const movies = rowOf(p, 'movies', 600);
+    movies.parentNode.setAttribute('data-row-more', '');
+    p.address.start();
+    p.late();
+    movies.width = 2000;
+    p.observers.forEach((o) => { if (!o.off) o.fn(); });
+    return { left: movies.scrollLeft };
   },
 
   async playLinks() {
