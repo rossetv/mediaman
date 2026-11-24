@@ -388,6 +388,18 @@ const scenarios = {
     return { refs: refsOf(scrollerOf(p, 'recommended')), asked: p.calls.length, more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
   },
 
+  // The row has no batch to start at, and the first older batch is gone: the same address is not asked twice.
+  async goneWithoutStart() {
+    layout();
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), batch: null, next_batch: '2026-11-14' }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return p.calls.filter((c) => c.indexOf('batch=2026-11-14') > 0);
+  },
+
   // Picks of one name, kind and year: another TMDB id is another title, the same or an unknown one is not.
   async picksOfOneName() {
     layout();

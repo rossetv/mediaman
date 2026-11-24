@@ -430,6 +430,10 @@ def test_a_row_whose_older_batches_are_gone_ends() -> None:
     assert out == {"refs": ["rec-7", "rec-8"], "asked": 4, "more": False}
 
 
+def test_a_gone_batch_is_not_asked_for_twice_when_the_row_has_no_start() -> None:
+    assert _run("goneWithoutStart") == ["GET /api/watch/recommended?batch=2026-11-14"]
+
+
 def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> None:
     assert _run("picksOfOneName") == ["pick-1", "rec-1", "rec-3", "rec-6"]
 

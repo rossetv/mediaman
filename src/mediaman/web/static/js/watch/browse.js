@@ -525,20 +525,26 @@
     var start = payload.batch;
     function gone(err) { if (!err || err.status !== 404) throw err; }
     function page(older) { return { cards: pickCards(older), next: older.next_batch }; }
-    return function load(batch) {
+    function skip(batch) {
+      var after = ids.indexOf(batch) + 1;
+      return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+    }
+    function load(batch) {
       return fetchRec(batch, start).then(page, function (err) {
         gone(err);
+        // With no start the second request would repeat the first.
+        if (!start) return skip(batch);
         // Deleted meanwhile: the one the row starts at, so it starts at this one now, or this one.
         return fetchRec(batch).then(function (older) {
           start = batch;
           return page(older);
         }, function (err) {
           gone(err);
-          var after = ids.indexOf(batch) + 1;
-          return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+          return skip(batch);
         });
       });
-    };
+    }
+    return load;
   }
 
   function recBody(payload) {
