@@ -37,8 +37,10 @@ def _redownload_movie(
     it again would only be refused as a duplicate. Radarr errors propagate to the caller.
     """
     existing = client.get_movie_by_tmdb(tmdb_id)
-    movie_id = existing.get("id") if existing else None
-    if existing is not None and movie_id is not None:
+    if existing is not None:
+        movie_id = existing.get("id")
+        if movie_id is None:
+            raise ArrError("Radarr holds the movie with no usable id")
         try:
             client.remonitor_movie(int(movie_id))
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):

@@ -248,3 +248,15 @@ def test_a_held_series_with_no_id_is_a_failure_and_is_not_added_again(
         )
     assert resp.json()["ok"] is False
     sonarr.add_series_with_seasons.assert_not_called()
+
+
+def test_a_held_movie_with_no_id_is_a_failure_and_is_not_added_again(
+    app_factory, authed_client, conn
+):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = {"monitored": True}
+    radarr.add_movie.side_effect = _err(0, "timeout")
+    with patch(RADARR, return_value=radarr):
+        resp = _post(_client(app_factory, authed_client, conn), {"title": "Dune", "tmdb_id": 42})
+    assert resp.json()["ok"] is False
+    radarr.add_movie.assert_not_called()
