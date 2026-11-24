@@ -7,6 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.services.downloads.abandon import AbandonResult
+
+_DONE = AbandonResult(kind="movie")
+
 
 def test_abandon_button_threshold_is_ten_hours():
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
@@ -31,21 +35,21 @@ class TestMaybeAutoAbandon:
 
     def _movie_item(
         self,
-        added_at: float,
+        searching_since: float,
         dl_id: str = "radarr:Old",
         arr_id: int = 1,
         released_at: float | None = None,
     ) -> dict:
-        # Default ``released_at`` to a year before ``added_at`` so the
+        # Default ``released_at`` to a year before ``searching_since`` so the
         # release-grace gate doesn't unintentionally short-circuit tests
         # that aren't exercising it.
         if released_at is None:
-            released_at = added_at - 365 * 86_400
+            released_at = searching_since - 365 * 86_400
         return {
             "kind": "movie",
             "dl_id": dl_id,
             "arr_id": arr_id,
-            "added_at": added_at,
+            "searching_since": searching_since,
             "released_at": released_at,
             "is_upcoming": False,
         }
@@ -60,11 +64,11 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
-        item = self._movie_item(added_at=now - 30 * 86_400)  # 30 days
+        item = self._movie_item(searching_since=now - 30 * 86_400)  # 30 days
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         assert called == []
@@ -79,12 +83,12 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
         # 13 days, 23 hours — under 14 d.
-        item = self._movie_item(added_at=now - (14 * 86_400 - 3600))
+        item = self._movie_item(searching_since=now - (14 * 86_400 - 3600))
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         assert called == []
@@ -105,11 +109,11 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
-        item = self._movie_item(added_at=now - 15 * 86_400, arr_id=42)
+        item = self._movie_item(searching_since=now - 15 * 86_400, arr_id=42)
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         # Movie was abandoned with the right arr_id.
@@ -139,7 +143,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -148,7 +152,7 @@ class TestMaybeAutoAbandon:
             "kind": "movie",
             "dl_id": "",
             "arr_id": 1,
-            "added_at": now - 15 * 86_400,
+            "searching_since": now - 15 * 86_400,
             "released_at": old_release,
         }
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
@@ -156,14 +160,14 @@ class TestMaybeAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:X",
             "arr_id": 0,
-            "added_at": now - 15 * 86_400,
+            "searching_since": now - 15 * 86_400,
             "released_at": old_release,
         }
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
         assert called == []
 
-    def test_skips_when_added_at_is_zero(self, monkeypatch):
-        """added_at=0 must never trigger auto-abandon (missing timestamp, not ancient)."""
+    def test_skips_when_searching_since_is_zero(self, monkeypatch):
+        """searching_since=0 must never trigger auto-abandon (missing timestamp, not ancient)."""
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 
         monkeypatch.setattr(
@@ -173,11 +177,11 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
-        item = self._movie_item(added_at=0.0)
+        item = self._movie_item(searching_since=0.0)
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         assert called == []
@@ -198,7 +202,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_seasons",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -206,7 +210,7 @@ class TestMaybeAutoAbandon:
             "kind": "series",
             "dl_id": "sonarr:Show",
             "arr_id": 7,
-            "added_at": now - 15 * 86_400,
+            "searching_since": now - 15 * 86_400,
             "released_at": now - 200 * 86_400,
             "is_upcoming": False,
             "episodes": [
@@ -237,7 +241,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_seasons",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -245,7 +249,7 @@ class TestMaybeAutoAbandon:
             "kind": "series",
             "dl_id": "sonarr:Show",
             "arr_id": 7,
-            "added_at": now - 15 * 86_400,
+            "searching_since": now - 15 * 86_400,
             "released_at": now - 200 * 86_400,
             "is_upcoming": False,
             "episodes": [
@@ -276,7 +280,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -284,7 +288,7 @@ class TestMaybeAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:Avatar 3",
             "arr_id": 99,
-            "added_at": now - 60 * 86_400,
+            "searching_since": now - 60 * 86_400,
             # Future release date.
             "released_at": now + 90 * 86_400,
             "is_upcoming": True,
@@ -304,7 +308,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -313,7 +317,7 @@ class TestMaybeAutoAbandon:
             "dl_id": "radarr:Fresh",
             "arr_id": 11,
             # Searching for ages, but the movie only came out 10 days ago.
-            "added_at": now - 60 * 86_400,
+            "searching_since": now - 60 * 86_400,
             "released_at": now - 10 * 86_400,
             "is_upcoming": False,
         }
@@ -332,7 +336,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -340,7 +344,7 @@ class TestMaybeAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:NoDate",
             "arr_id": 12,
-            "added_at": now - 60 * 86_400,
+            "searching_since": now - 60 * 86_400,
             # released_at omitted (or 0.0) → unknown release date.
             "is_upcoming": False,
         }
@@ -359,7 +363,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_movie",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -367,7 +371,7 @@ class TestMaybeAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:Stale",
             "arr_id": 13,
-            "added_at": now - 20 * 86_400,
+            "searching_since": now - 20 * 86_400,
             "released_at": now - 90 * 86_400,
             "is_upcoming": False,
         }
@@ -386,7 +390,7 @@ class TestMaybeAutoAbandon:
         called = []
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.abandon_seasons",
-            lambda *a, **kw: called.append(kw),
+            lambda *a, **kw: called.append(kw) or _DONE,
         )
 
         now = _time_mod.time()
@@ -394,7 +398,7 @@ class TestMaybeAutoAbandon:
             "kind": "series",
             "dl_id": "sonarr:Future Show",
             "arr_id": 88,
-            "added_at": now - 60 * 86_400,
+            "searching_since": now - 60 * 86_400,
             "released_at": 0.0,  # nothing aired yet
             "is_upcoming": True,
             "episodes": [{"season_number": 1}],
@@ -410,7 +414,7 @@ class TestMaybeAutoAbandon:
             "kind": "series",
             "dl_id": "sonarr:Stuck Show",
             "arr_id": 42,
-            "added_at": now - 20 * 86_400,
+            "searching_since": now - 20 * 86_400,
             "released_at": now - 400 * 86_400,
             "is_upcoming": False,
             "episodes": [],
@@ -542,7 +546,7 @@ class TestShouldAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:X",
             "arr_id": 1,
-            "added_at": now - 30 * 86_400,
+            "searching_since": now - 30 * 86_400,
             "released_at": now - 365 * 86_400,
             "is_upcoming": False,
         }
@@ -557,7 +561,7 @@ class TestShouldAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:Stale",
             "arr_id": 77,
-            "added_at": now - 20 * 86_400,
+            "searching_since": now - 20 * 86_400,
             "released_at": now - 90 * 86_400,
             "is_upcoming": False,
         }
@@ -565,10 +569,10 @@ class TestShouldAutoAbandon:
         assert decision is not None
         assert decision.dl_id == "radarr:Stale"
         assert decision.arr_id == 77
-        # searching_for_seconds is int(now - added_at) — ~20 days.
+        # searching_for_seconds is int(now - searching_since) — ~20 days.
         assert decision.searching_for_seconds == 20 * 86_400
 
-    def test_returns_none_when_added_at_zero(self, monkeypatch):
+    def test_returns_none_when_searching_since_zero(self, monkeypatch):
         from mediaman.services.arr.auto_abandon import _should_auto_abandon
 
         self._enabled(monkeypatch)
@@ -577,7 +581,7 @@ class TestShouldAutoAbandon:
             "kind": "movie",
             "dl_id": "radarr:X",
             "arr_id": 1,
-            "added_at": 0.0,
+            "searching_since": 0.0,
             "released_at": now - 365 * 86_400,
             "is_upcoming": False,
         }
@@ -590,7 +594,7 @@ class TestShouldAutoAbandon:
         now = _time_mod.time()
         base = {
             "kind": "movie",
-            "added_at": now - 20 * 86_400,
+            "searching_since": now - 20 * 86_400,
             "released_at": now - 90 * 86_400,
             "is_upcoming": False,
         }

@@ -248,7 +248,7 @@ def build_unmatched_arr_item(
     progress (series) or percentage (movie).
 
     abandon_visible turns True once the item has been searching for at least
-    _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS (10 hours by default) since added_at.
+    _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS (10 hours by default).
     """
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     from mediaman.services.arr.search_trigger import get_search_info
@@ -256,10 +256,11 @@ def build_unmatched_arr_item(
     search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
     added_at = arr.get("added_at", 0.0)
     now = time.time()
-    # Guard: added_at=0 means the timestamp is missing; now - 0 ≈ 1.7e9 s
+    since = arr.get("searching_since", 0.0)
+    # Guard: 0 means the start time is missing; now - 0 ≈ 1.7e9 s
     # which would make every such item look like it has been searching for
     # years, showing the Abandon button immediately.
-    abandon_visible_now = added_at > 0.0 and now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
+    abandon_visible_now = since > 0.0 and now - since >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     if arr.get("kind") == "series":
         return _build_unmatched_series_item(
             arr,

@@ -1,0 +1,196 @@
+"""How long a title has been searching, as auto-abandon and the Abandon button see it."""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
+import pytest
+import requests
+
+from mediaman.db import init_db
+from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.arr.search_trigger import reset_search_triggers
+from mediaman.services.downloads.download_queue.items import build_unmatched_arr_item
+from tests.helpers.factories import insert_settings
+
+_START = datetime(2026, 1, 10, 12, tzinfo=UTC)
+_DAY = timedelta(days=1)
+
+
+def _movie(**overrides):
+    return {
+        "id": 7,
+        "title": "Dune",
+        "year": 2021,
+        "monitored": True,
+        "hasFile": False,
+        "isAvailable": True,
+        "added": "2023-01-01T00:00:00Z",
+        "digitalRelease": "2021-01-01T00:00:00Z",
+        **overrides,
+    }
+
+
+def _show(*monitored):
+    return {
+        "id": 3,
+        "title": "Show",
+        "year": 2019,
+        "monitored": True,
+        "added": "2023-01-01T00:00:00Z",
+        "statistics": {"episodeFileCount": 0},
+        "seasons": [{"seasonNumber": n, "monitored": n in monitored} for n in (1, 2)],
+    }
+
+
+class Stack:
+    """A Radarr and a Sonarr on a real database, with a clock that is stepped by hand."""
+
+    def __init__(self, conn: sqlite3.Connection, monkeypatch) -> None:
+        self.conn = conn
+        self.now = _START
+        self.radarr, self.sonarr = MagicMock(), MagicMock()
+        for client in (self.radarr, self.sonarr):
+            client.get_queue.return_value = []
+        self.radarr.get_movies.return_value = []
+        self.sonarr.get_series.return_value = []
+        self.sonarr.get_episodes.return_value = [{"airDateUtc": "2020-01-01T00:00:00Z"}]
+        for module in ("arr.build", "arr.auto_abandon", "downloads.abandon"):
+            for name, client in (("radarr", self.radarr), ("sonarr", self.sonarr)):
+                monkeypatch.setattr(
+                    f"mediaman.services.{module}.build_{name}_from_db",
+                    lambda *a, client=client: client,
+                    raising=False,
+                )
+        monkeypatch.setattr(
+            "mediaman.services.arr.fetcher._searching_since.now_iso",
+            lambda: self.now.isoformat(),
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.items.time.time",
+            lambda: self.now.timestamp(),
+        )
+
+    def sweep(self, after: timedelta = timedelta()) -> None:
+        self.now += after
+        for card in fetch_arr_queue(self.conn, "x" * 64):
+            maybe_auto_abandon(self.conn, "x" * 64, item=card, now=self.now.timestamp())
+
+    def abandon_offered(self) -> bool:
+        (card,) = fetch_arr_queue(self.conn, "x" * 64)
+        return build_unmatched_arr_item(card, {}, lambda *a, **k: "", lambda *a: "")[
+            "abandon_visible"
+        ]
+
+
+@pytest.fixture
+def stack(tmp_path, monkeypatch):
+    reset_search_triggers()
+    conn = init_db(str(tmp_path / "mediaman.db"))
+    insert_settings(conn, auto_abandon_enabled="true")
+    yield Stack(conn, monkeypatch)
+    conn.close()
+
+
+def test_movie_re_monitored_years_after_it_was_added_is_not_abandoned(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    assert not stack.abandon_offered()
+    stack.sweep(13 * _DAY)
+    stack.radarr.unmonitor_movie.assert_not_called()
+
+
+def test_movie_searching_for_over_fourteen_days_is_abandoned(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    stack.now += timedelta(hours=11)
+    assert stack.abandon_offered()
+    stack.sweep(14 * _DAY)
+    stack.radarr.unmonitor_movie.assert_called_once_with(7)
+
+
+def test_movie_re_monitored_right_after_auto_abandon_starts_over(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    stack.sweep(15 * _DAY)
+    stack.sweep(timedelta(minutes=5))
+    stack.radarr.unmonitor_movie.assert_called_once_with(7)
+
+
+def test_failed_auto_abandon_is_tried_again_on_the_next_sweep(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    stack.radarr.unmonitor_movie.side_effect = requests.ConnectionError("down")
+    stack.sweep(15 * _DAY)
+    stack.sweep(timedelta(minutes=5))
+    assert stack.radarr.unmonitor_movie.call_count == 2
+
+
+def test_movie_that_stopped_searching_starts_over_when_it_searches_again(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    stack.radarr.get_movies.return_value = [_movie(hasFile=True)]
+    stack.sweep(10 * _DAY)
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep(10 * _DAY)
+    stack.sweep(10 * _DAY)
+    stack.radarr.unmonitor_movie.assert_not_called()
+
+
+@pytest.mark.parametrize("call", ["get_queue", "get_movies"])
+def test_radarr_outage_does_not_restart_the_clock(stack, call):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    getattr(stack.radarr, call).side_effect = requests.ConnectionError("down")
+    stack.sweep(_DAY)
+    getattr(stack.radarr, call).side_effect = None
+    stack.sweep(14 * _DAY)
+    stack.radarr.unmonitor_movie.assert_called_once_with(7)
+
+
+def test_show_re_monitored_years_after_it_was_added_is_not_abandoned(stack):
+    stack.sonarr.get_series.return_value = [_show(1)]
+    stack.sonarr.get_series_by_id.return_value = _show(1)
+    stack.sweep()
+    stack.sweep(13 * _DAY)
+    stack.sonarr.unmonitor_season.assert_not_called()
+    stack.sweep(2 * _DAY)
+    stack.sonarr.unmonitor_season.assert_called_once_with(3, 1)
+
+
+def test_season_re_monitored_on_a_searching_show_restarts_its_clock(stack):
+    stack.sonarr.get_series.return_value = [_show(1)]
+    stack.sweep()
+    stack.sonarr.get_series.return_value = [_show(1, 2)]
+    stack.sonarr.get_series_by_id.return_value = _show(1, 2)
+    stack.sweep(10 * _DAY)
+    stack.sweep(5 * _DAY)
+    stack.sonarr.unmonitor_season.assert_not_called()
+
+
+def test_title_already_searching_at_an_upgrade_starts_its_clock_then(tmp_path, monkeypatch):
+    path = str(tmp_path / "old.db")
+    old = init_db(path)
+    insert_settings(old, auto_abandon_enabled="true")
+    old.execute("DROP TABLE arr_searching_since")
+    old.execute(
+        "INSERT INTO arr_search_throttle (key, last_triggered_at, search_count)"
+        " VALUES ('radarr:Dune', '2025-12-31T00:00:00+00:00', 40)"
+    )
+    old.commit()
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+    stack = Stack(conn, monkeypatch)
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    stack.sweep(13 * _DAY)
+    stack.radarr.unmonitor_movie.assert_not_called()
+    assert conn.execute("SELECT search_count FROM arr_search_throttle").fetchone()[0] == 40
+    stack.sweep(2 * _DAY)
+    stack.radarr.unmonitor_movie.assert_called_once_with(7)
+    conn.close()

@@ -25,6 +25,7 @@ def _iter_still_searching[T](
     fetch_items: Callable[[], Iterable[T]],
     *,
     service_label: str,
+    on_failure: Callable[[], None],
 ) -> Iterable[T]:
     """Yield items from *fetch_items*, swallowing transient HTTP failures.
 
@@ -36,6 +37,8 @@ def _iter_still_searching[T](
     pattern so both fetchers use the same exception list
     (``RequestException`` AND ``SafeHTTPError``, since SafeHTTPClient
     raises the latter for non-2xx responses) and the same log format.
+    *on_failure* is called so the caller can tell "nothing searching" from
+    "could not ask".
 
     The caller does its per-item filtering and card construction inside
     its own loop body — this helper only owns the outer try/except.
@@ -44,6 +47,7 @@ def _iter_still_searching[T](
         yield from fetch_items()
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check %s for searching items", service_label, exc_info=True)
+        on_failure()
 
 
 def clamp_progress(size: int, sizeleft: int) -> int:
@@ -147,6 +151,9 @@ class ArrCard(BaseArrCard, total=False):
     arr_id: int
     title_slug: str
     added_at: float
+    # Epoch since which the title has been searching without a break. Absent while
+    # it is not searching, or when that could not be read.
+    searching_since: float
     # Earliest known release-date epoch (movies) or latest past airing epoch
     # (series). 0.0 means "release date unknown" — auto-abandon treats that
     # as a hard skip so it never abandons something whose age it can't

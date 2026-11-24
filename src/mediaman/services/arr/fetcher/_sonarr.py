@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import requests
@@ -224,7 +225,9 @@ def _monitored_seasons(series: SonarrSeries) -> list[dict[str, int]]:
 
 
 def _build_still_searching_cards(
-    client: ArrClient, queue_series_title_years: set[tuple[str, int | None]]
+    client: ArrClient,
+    queue_series_title_years: set[tuple[str, int | None]],
+    on_failure: Callable[[], None],
 ) -> list[ArrCard]:
     """Phase 2: build cards for monitored series still searching (not yet in queue).
 
@@ -235,7 +238,9 @@ def _build_still_searching_cards(
     phase 1.
     """
     items: list[ArrCard] = []
-    for series in _iter_still_searching(client.get_series, service_label="Sonarr"):
+    for series in _iter_still_searching(
+        client.get_series, service_label="Sonarr", on_failure=on_failure
+    ):
         s_title = series.get("title", "")
         s_year = series.get("year")
         if not series.get("monitored"):
@@ -292,17 +297,19 @@ def _build_still_searching_cards(
     return items
 
 
-def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
+def fetch_sonarr_queue(
+    client: ArrClient, *, on_failure: Callable[[], None] = lambda: None
+) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
     Groups queue episodes by series into one card each, then appends
     cards for monitored series still searching. The inner loop over
     ``get_series()`` keeps its own try/except for the same reason as
-    ``fetch_radarr_queue``.
+    ``fetch_radarr_queue``, and reports it through *on_failure*.
     """
     items = _build_queue_cards(client)
     queue_series_title_years = {
         (i["title"], i.get("year")) for i in items if i.get("kind") == "series"
     }
-    items.extend(_build_still_searching_cards(client, queue_series_title_years))
+    items.extend(_build_still_searching_cards(client, queue_series_title_years, on_failure))
     return items

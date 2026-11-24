@@ -24,17 +24,18 @@ import requests
 from mediaman.core.audit import security_event
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_sonarr_from_db
+from mediaman.services.arr.fetcher._searching_since import forget_searching_since
 from mediaman.services.infra import SafeHTTPError, get_bool_setting
 
 logger = logging.getLogger(__name__)
 
 # How long an item has to sit in `searching` state before the manual Abandon
-# button appears in the queue UI. Time-based (clock = item.added_at) so the
+# button appears in the queue UI. Time-based (clock = item.searching_since) so the
 # threshold is independent of how often the page is polled.
 _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS = 10 * 3600  # 10 h
 
-# When auto-abandon is enabled in settings, items older than this since
-# added_at get unmonitored automatically.
+# When auto-abandon is enabled in settings, items searching for longer than this
+# get unmonitored automatically.
 _AUTO_ABANDON_AFTER_SECONDS = 14 * 86_400  # 14 d
 
 # Refuse to abandon anything whose release date isn't at least this far in
@@ -89,7 +90,7 @@ def _should_auto_abandon(
 
     Returns ``None`` (skip — do not abandon) when any guard fails: the
     setting is off, the item is upcoming, its release date is unknown or
-    too recent, its ``added_at`` is missing, it hasn't been searching long
+    too recent, its ``searching_since`` is missing, it hasn't been searching long
     enough, or ``dl_id``/``arr_id`` are missing. Otherwise returns the
     parsed ``_AbandonDecision``.
     """
@@ -116,13 +117,14 @@ def _should_auto_abandon(
         # is meant to clean up genuinely stuck items, not bin recent
         # releases that just haven't surfaced yet.
         return None
-    _added_at_raw = item.get("added_at")
-    added_at: float = float(_added_at_raw) if isinstance(_added_at_raw, (int, float)) else 0.0
-    if added_at <= 0.0:
+    # Not added_at: an old title re-monitored today has only just begun its search.
+    _since_raw = item.get("searching_since")
+    since: float = float(_since_raw) if isinstance(_since_raw, (int, float)) else 0.0
+    if since <= 0.0:
         # No reliable timestamp — treat as unknown age and skip rather than
         # immediately abandoning (now - 0.0 ≈ 1.7e9 s, way past any threshold).
         return None
-    if now - added_at < _AUTO_ABANDON_AFTER_SECONDS:
+    if now - since < _AUTO_ABANDON_AFTER_SECONDS:
         return None
 
     _dl_id_raw = item.get("dl_id")
@@ -132,7 +134,7 @@ def _should_auto_abandon(
     if not dl_id or not arr_id:
         return None
 
-    return _AbandonDecision(dl_id=dl_id, arr_id=arr_id, searching_for_seconds=int(now - added_at))
+    return _AbandonDecision(dl_id=dl_id, arr_id=arr_id, searching_for_seconds=int(now - since))
 
 
 def _abandon_movie_with_audit(
@@ -165,7 +167,9 @@ def _abandon_movie_with_audit(
             "searching_for_seconds": decision.searching_for_seconds,
         },
     )
-    abandon_movie(conn, secret_key, arr_id=decision.arr_id, dl_id=decision.dl_id)
+    result = abandon_movie(conn, secret_key, arr_id=decision.arr_id, dl_id=decision.dl_id)
+    if not result.failed:
+        forget_searching_since(conn, "radarr", decision.arr_id)
 
 
 def _monitored_seasons(
@@ -253,13 +257,15 @@ def _abandon_series_with_audit(
             "searching_for_seconds": decision.searching_for_seconds,
         },
     )
-    abandon_seasons(
+    result = abandon_seasons(
         conn,
         secret_key,
         series_id=decision.arr_id,
         season_numbers=seasons,
         dl_id=decision.dl_id,
     )
+    if not result.failed:
+        forget_searching_since(conn, "sonarr", decision.arr_id)
 
 
 def maybe_auto_abandon(
@@ -272,7 +278,7 @@ def maybe_auto_abandon(
     """Auto-unmonitor *item* if it has been searching beyond the time threshold.
 
     Driven by the boolean ``auto_abandon_enabled`` setting (default off).
-    Time clock is ``item["added_at"]``, matching the manual Abandon button's
+    Time clock is ``item["searching_since"]``, matching the manual Abandon button's
     visibility threshold. Series with no positive-numbered seasons in the
     queue are skipped — Sonarr only knows about specials there, and we
     never want to auto-unmonitor specials.

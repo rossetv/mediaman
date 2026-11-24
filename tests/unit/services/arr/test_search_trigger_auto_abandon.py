@@ -16,7 +16,9 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.search_trigger import reset_search_triggers
+from mediaman.services.downloads.abandon import AbandonResult
 
+_DONE = AbandonResult(kind="movie")
 _OVER_THRESHOLD = _time.time() - 20 * 86_400  # 20 days ago — over 14 d threshold
 _OLD_RELEASE = _time.time() - 365 * 86_400  # past 30 d release-grace window
 
@@ -60,7 +62,7 @@ class TestAutoAbandon:
                 "kind": "movie",
                 "dl_id": "radarr:X",
                 "arr_id": 1,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -78,6 +80,7 @@ class TestAutoAbandon:
         def fake_abandon_movie(conn, secret, *, arr_id, dl_id):
             called["arr_id"] = arr_id
             called["dl_id"] = dl_id
+            return _DONE
 
         import mediaman.services.downloads.abandon as abandon_module
 
@@ -91,7 +94,7 @@ class TestAutoAbandon:
                 "kind": "movie",
                 "dl_id": "radarr:X",
                 "arr_id": 42,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -122,7 +125,7 @@ class TestAutoAbandon:
                 "kind": "movie",
                 "dl_id": "radarr:X",
                 "arr_id": 1,
-                "added_at": under_threshold,
+                "searching_since": under_threshold,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -140,6 +143,7 @@ class TestAutoAbandon:
             called["series_id"] = series_id
             called["seasons"] = sorted(season_numbers)
             called["dl_id"] = dl_id
+            return _DONE
 
         import mediaman.services.downloads.abandon as abandon_module
 
@@ -153,7 +157,7 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 21},
@@ -192,7 +196,7 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:Specials",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 0},
@@ -214,6 +218,7 @@ class TestAutoAbandon:
 
         def fake_abandon_seasons(conn, secret, *, series_id, season_numbers, dl_id):
             called["seasons"] = sorted(season_numbers)
+            return _DONE
 
         import mediaman.services.downloads.abandon as abandon_module
 
@@ -227,7 +232,7 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:Mixed",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 0},  # special — must be excluded
@@ -262,7 +267,7 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [],
             },
@@ -292,7 +297,7 @@ class TestAutoAbandonAuditLog:
         )
         import mediaman.services.downloads.abandon as abandon_module
 
-        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: _DONE)
 
         now = _time.time()
         maybe_auto_abandon(
@@ -302,7 +307,7 @@ class TestAutoAbandonAuditLog:
                 "kind": "movie",
                 "dl_id": "radarr:Dune",
                 "arr_id": 42,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -334,7 +339,7 @@ class TestAutoAbandonAuditLog:
         )
         import mediaman.services.downloads.abandon as abandon_module
 
-        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
+        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: _DONE)
 
         now = _time.time()
         maybe_auto_abandon(
@@ -344,7 +349,7 @@ class TestAutoAbandonAuditLog:
                 "kind": "series",
                 "dl_id": "sonarr:Foundation",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 1},
@@ -372,7 +377,7 @@ class TestAutoAbandonAuditLog:
         )
         import mediaman.services.downloads.abandon as abandon_module
 
-        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: _DONE)
 
         now = _time.time()
         maybe_auto_abandon(
@@ -382,7 +387,7 @@ class TestAutoAbandonAuditLog:
                 "kind": "movie",
                 "dl_id": "radarr:X",
                 "arr_id": 1,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -398,7 +403,7 @@ class TestAutoAbandonAuditLog:
         )
         import mediaman.services.downloads.abandon as abandon_module
 
-        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: _DONE)
 
         now = _time.time()
         under_threshold = now - (14 * 86_400 - 3600)  # 1 hour under
@@ -409,7 +414,7 @@ class TestAutoAbandonAuditLog:
                 "kind": "movie",
                 "dl_id": "radarr:X",
                 "arr_id": 1,
-                "added_at": under_threshold,
+                "searching_since": under_threshold,
                 "released_at": _OLD_RELEASE,
             },
             now=now,
@@ -425,7 +430,7 @@ class TestAutoAbandonAuditLog:
         )
         import mediaman.services.downloads.abandon as abandon_module
 
-        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
+        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: _DONE)
 
         now = _time.time()
         maybe_auto_abandon(
@@ -435,7 +440,7 @@ class TestAutoAbandonAuditLog:
                 "kind": "series",
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
-                "added_at": _OVER_THRESHOLD,
+                "searching_since": _OVER_THRESHOLD,
                 "released_at": _OLD_RELEASE,
                 "episodes": [],
             },
@@ -471,7 +476,7 @@ class TestAutoAbandonAuditLog:
                     "kind": "movie",
                     "dl_id": "radarr:Y",
                     "arr_id": 42,
-                    "added_at": _OVER_THRESHOLD,
+                    "searching_since": _OVER_THRESHOLD,
                     "released_at": _OLD_RELEASE,
                 },
                 now=now,

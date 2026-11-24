@@ -216,6 +216,11 @@ CREATE TABLE IF NOT EXISTS arr_search_throttle (
     search_count INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS arr_searching_since (
+    key TEXT PRIMARY KEY,
+    since TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
     token_hash TEXT PRIMARY KEY,
     used_at TEXT NOT NULL

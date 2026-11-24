@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from mediaman.services.arr.fetcher._base import (
@@ -52,7 +53,9 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
 
 
 def _build_still_searching_cards(
-    client: ArrClient, queue_title_years: set[tuple[str, int | None]]
+    client: ArrClient,
+    queue_title_years: set[tuple[str, int | None]],
+    on_failure: Callable[[], None],
 ) -> list[ArrCard]:
     """Phase 2: build cards for monitored movies still searching (not yet in queue).
 
@@ -62,7 +65,9 @@ def _build_still_searching_cards(
     *queue_title_years* dedupes against movies already covered by phase 1.
     """
     items: list[ArrCard] = []
-    for movie in _iter_still_searching(client.get_movies, service_label="Radarr"):
+    for movie in _iter_still_searching(
+        client.get_movies, service_label="Radarr", on_failure=on_failure
+    ):
         m_title = movie.get("title", "")
         m_year = movie.get("year")
         if not movie.get("monitored"):
@@ -99,14 +104,17 @@ def _build_still_searching_cards(
     return items
 
 
-def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
+def fetch_radarr_queue(
+    client: ArrClient, *, on_failure: Callable[[], None] = lambda: None
+) -> list[ArrCard]:
     """Build Radarr download cards from an already-constructed client.
 
     Returns cards for queue entries plus monitored movies still searching.
     The inner loop over ``get_movies()`` keeps its own try/except so a
-    failure there doesn't wipe out the queue entries we already have.
+    failure there doesn't wipe out the queue entries we already have;
+    *on_failure* is called instead.
     """
     items = _build_queue_cards(client)
     queue_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "movie"}
-    items.extend(_build_still_searching_cards(client, queue_title_years))
+    items.extend(_build_still_searching_cards(client, queue_title_years, on_failure))
     return items
