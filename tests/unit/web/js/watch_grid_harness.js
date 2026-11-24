@@ -501,6 +501,18 @@ const scenarios = {
     return { same, other, jump, midway: [label(p), p.refs(), p.state().all, p.leftovers()] };
   },
 
+  /* Pages that load as it opens, and one loaded later. */
+  async opensAndLoads() {
+    const p = load();
+    vm.runInContext('Date.now = () => clock', Object.assign(p.ctx, { clock: 50000 }));
+    const pages = { a: { cards: [20, 21].map(p.card), next: 'b' }, b: { cards: [22].map(p.card), next: 'c' }, c: { cards: [23].map(p.card), next: null } };
+    const gives = {};
+    p.grid.open(p.opts({ next: 'a', fetchPage: (n) => new Promise((ok) => { gives[n] = () => ok(pages[n]); }) }));
+    const said = [p.say()];
+    for (const [page, at] of [['a', 50400], ['b', 52900], ['c', 53100]]) { p.ctx.clock = at; gives[page](); await settle(); said.push(p.say()); }
+    return said;
+  },
+
   // Nothing loads while it moves; once it has landed it does, and once it is closed no more.
   async loadsOnlyWhenStill() {
     const p = load({ motion: true });

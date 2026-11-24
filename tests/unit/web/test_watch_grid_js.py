@@ -313,3 +313,10 @@ def test_a_page_made_short_for_a_moment_moves_no_layer_from_where_it_stood() -> 
     assert out["closing"][:2] == [74, 120]
     assert out["closing"][2].startswith("translate(0px, -54px)")
     assert out["closing"][3] == ""
+
+
+def test_what_loads_as_a_grid_opens_does_not_cut_off_what_it_says_of_itself() -> None:
+    opened, *early, later = _run("opensAndLoads")
+    assert opened == "Movies, 12 titles, as a grid. Press Escape to go back."
+    assert early == [opened, opened]
+    assert later == "1 more loaded. That is everything."

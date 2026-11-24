@@ -24,6 +24,7 @@
 
   var AHEAD_PX = 700; // the next page is asked for this near the last card
   var AWAKE_SCREENS = 3; // cards further off than this have their posters unloaded
+  var HEARD_MS = 3000; // how long what a grid says of itself as it opens is left to be heard
   var JUMP_MS = 4000; // a jump whose next page takes longer is not awaited any more
   var SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
 
@@ -504,6 +505,7 @@
   var move = null; // what moves: { to, gridY, tracks, token }
   var place = null; // the rows as they were: { y, lefts, focus }
   var lastY = 0;
+  var saidAt = 0; // when the grid last said what it is
 
   function build() {
     var all = document.getElementById('watch-all') || el('section', 'watch-all');
@@ -1110,7 +1112,8 @@
     now.list = list(dom.body, {
       title: opts.title, cards: cards, next: opts.next, fetchPage: opts.fetchPage,
       total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/watch' },
-      clearTop: headBottom, say: say
+      clearTop: headBottom,
+      say: function (text) { if (Date.now() - saidAt > HEARD_MS) say(text); }
     });
     drawHead();
   }
@@ -1118,6 +1121,7 @@
   function announce() {
     dom.title.focus({ preventScroll: true });
     var o = now.opts;
+    saidAt = Date.now();
     say(o.title + (typeof o.total === 'number' ? ', ' + plural(o.total) : '') + ', as a grid. Press Escape to go back.');
   }
 
