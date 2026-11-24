@@ -2,7 +2,8 @@
 
 Plex gives a title it removed and found again a new key. The same title is one
 at the same path, of the same season; an episode also has the same number. For
-keeps, films of one library with the same TMDB id are the same title too.
+keeps, films of one library with the same TMDB id are the same title too, or
+with the one they last had while Plex has none for them.
 Nothing here commits: each caller runs it in the transaction that adds or
 removes the title.
 """
@@ -70,7 +71,7 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
 
 _TITLE = (
     "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
-    "tracked_files, episode_keys, media_type, plex_library_id"
+    "tracked_files, episode_keys, plex_library_id, last_tmdb_id"
 )
 
 
@@ -182,7 +183,8 @@ def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
 
 def _copy_keeps(conn: sqlite3.Connection, film: sqlite3.Row) -> list[sqlite3.Row]:
     """Return the live keeps of the library's other films with the TMDB id of *film*."""
-    if film["media_type"] != "movie" or film["tmdb_id"] is None:
+    tmdb_id = film["last_tmdb_id"] if film["tmdb_id"] is None else film["tmdb_id"]
+    if tmdb_id is None:
         return []
     # CROSS JOIN reads the few keeps first, as no index finds a film by its TMDB id.
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -190,23 +192,10 @@ def _copy_keeps(conn: sqlite3.Connection, film: sqlite3.Row) -> list[sqlite3.Row
         "SELECT sa.* FROM scheduled_actions sa "
         "CROSS JOIN media_items mi ON mi.id = sa.media_item_id "
         f"WHERE {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie' "
-        "  AND mi.tmdb_id = ? AND mi.plex_library_id = ? AND mi.id != ?",
-        (now_iso(), film["tmdb_id"], film["plex_library_id"], film["id"]),
+        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = ? AND mi.plex_library_id = ? "
+        "  AND mi.id != ?",
+        (now_iso(), tmdb_id, film["plex_library_id"], film["id"]),
     ).fetchall()
-
-
-def _other_copies(
-    conn: sqlite3.Connection, media_id: str, removed: Collection[str]
-) -> list[sqlite3.Row]:
-    """Return the library's other films with the TMDB id of *media_id* that are not in *removed*."""
-    rows = conn.execute(
-        "SELECT mi.id FROM media_items film JOIN media_items mi "
-        "ON mi.plex_library_id = film.plex_library_id AND mi.tmdb_id = film.tmdb_id "
-        "WHERE film.id = ? AND film.media_type = 'movie' AND mi.media_type = 'movie' "
-        "  AND mi.id != film.id",
-        (media_id,),
-    )
-    return [row for row in rows if row["id"] not in removed]
 
 
 def is_kept_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:
@@ -284,14 +273,15 @@ def _keep_removed_since(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: s
     return removed_since is not None
 
 
-def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> None:
+def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> bool:
     """Keep *media_id* for as long as *keep* of pruned_keeps says, unless it already is for longer.
 
     Either way its scheduled deletion is cancelled, but for one being carried out.
-    A keep someone removed from it since *keep* was made is not given again.
+    Return False if it was refused: a keep someone removed from it since *keep* was
+    made is not given again.
     """
     if _keep_removed_since(conn, keep, media_id):
-        return
+        return False
     now = now_iso()
     forever = keep["action"] == "protected_forever"
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -315,6 +305,7 @@ def _give_keep(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> No
         "media_item_id = ? AND action = 'scheduled_deletion' AND token_used = 0",
         (media_id,),
     )
+    return True
 
 
 def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
@@ -322,46 +313,39 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
 
     Such a key is in the library already, so it would never take them as a new
     one does. A title's own key still takes its keep back; by path no other
-    does, or the next new key would take one removed from this one meanwhile;
-    nor does one by its TMDB id.
+    does, or the next new key would take one removed from this one meanwhile.
     """
     for keep in conn.execute(
         "SELECT pk.* FROM pruned_keeps pk JOIN media_items mi ON mi.id = pk.media_item_id"
     ).fetchall():
         if keep["media_item_id"] not in media_ids:
             continue
-        others = {row["id"] for row in other_keys(conn, keep["media_item_id"], media_ids)}
-        copies = {row["id"] for row in _other_copies(conn, keep["media_item_id"], media_ids)}
-        for other in others | copies:
-            _give_keep(conn, keep, other)
+        others = other_keys(conn, keep["media_item_id"], media_ids)
+        for other in others:
+            _give_keep(conn, keep, other["id"])
         if others:
             conn.execute("UPDATE pruned_keeps SET file_path = '' WHERE id = ?", (keep["id"],))
-        if others or copies:
-            conn.execute("UPDATE pruned_keeps SET tmdb_id = NULL WHERE id = ?", (keep["id"],))
     _set_carried_up_to(conn)
 
 
 def carry_film_keeps(conn: sqlite3.Connection) -> None:
-    """Give the keeps save_pruned_keeps set aside to the films listed since with their TMDB ids.
+    """Give the keeps save_pruned_keeps set aside to the library's films with their TMDB ids.
 
     A film replaced by another file has a new path and a new key, and Plex may
     match it only after it lists it. Its own key and one at its path still take
-    its keep. Run it once a run has stored all Plex lists.
+    its keep; no other does once a film has it. Run it once the items set aside
+    are removed, and once a run has stored all Plex lists.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
         "SELECT sa.*, mi.id AS film_id FROM pruned_keeps sa CROSS JOIN media_items mi "
-        "ON mi.plex_library_id = sa.plex_library_id AND mi.tmdb_id = sa.tmdb_id "
-        f"WHERE sa.tmdb_id IS NOT NULL AND {_LIVE_ITEM_KEEP} "
-        "  AND mi.media_type = 'movie' AND mi.id != sa.media_item_id",
+        "ON mi.plex_library_id = sa.plex_library_id "
+        "  AND COALESCE(mi.tmdb_id, mi.last_tmdb_id) = sa.tmdb_id "
+        f"WHERE sa.tmdb_id IS NOT NULL AND {_LIVE_ITEM_KEEP} AND mi.media_type = 'movie'",
         (now_iso(),),
     ).fetchall()
-    for keep in keeps:
-        _give_keep(conn, keep, keep["film_id"])
-    conn.executemany(
-        "UPDATE pruned_keeps SET tmdb_id = NULL WHERE id = ?",
-        [(keep["id"],) for keep in keeps],
-    )
+    given = [keep["id"] for keep in keeps if _give_keep(conn, keep, keep["film_id"])]
+    conn.executemany("UPDATE pruned_keeps SET tmdb_id = NULL WHERE id = ?", [(i,) for i in given])
 
 
 def carry_stranded_keeps(conn: sqlite3.Connection) -> None:

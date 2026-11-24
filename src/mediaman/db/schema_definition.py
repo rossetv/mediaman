@@ -117,7 +117,9 @@ CREATE TABLE IF NOT EXISTS media_items (
     -- JSON [{"key", "number", "path"}]: the season's episodes in Plex.
     episode_keys TEXT,
     -- The movie's, or the first year of a season's show.
-    year INTEGER
+    year INTEGER,
+    -- What tmdb_id last was, for keeps: Plex may lose a match and find it again.
+    last_tmdb_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (

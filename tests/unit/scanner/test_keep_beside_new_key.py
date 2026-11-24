@@ -90,7 +90,8 @@ class _Library:
         getattr(engine, run)()
 
     def sync(self, *keys):
-        self._run("sync_library", keys)
+        # As the app builds a sync's engine, whatever the person's own dry-run setting.
+        self._run("sync_library", keys, dry_run=True)
 
     def scan(self, *keys, **options):
         self._run("run_scan", keys, **options)
@@ -149,8 +150,7 @@ def _schedule(conn, media_id, **kwargs):
         action="scheduled_deletion",
         token=f"due-{media_id}",
         execute_at="2020-01-01",
-        token_used=False,
-        **{"delete_status": "pending"} | kwargs,
+        **{"delete_status": "pending", "token_used": False} | kwargs,
     )
     conn.commit()
 
@@ -162,6 +162,11 @@ def _actions(conn, media_id):
             "SELECT action FROM scheduled_actions WHERE media_item_id = ? ORDER BY id", (media_id,)
         )
     ]
+
+
+def _dry_run(conn):
+    conn.execute("INSERT INTO settings (key, value, updated_at) VALUES ('dry_run', 'true', '2026')")
+    conn.commit()
 
 
 def _strand(conn, library):
@@ -368,6 +373,17 @@ class TestKeyBesideAKeptOne:
 
 
 class TestKeepGivenAsTheOldKeyGoes:
+    @pytest.mark.parametrize("library", ["film", "season"], indirect=True)
+    def test_a_shorter_one_is_not_added_to_one_forever(self, conn, freezer, library):
+        library.sync("old", "new")
+        _keep(conn, "old", action="snoozed", days=9)
+        _keep(conn, "new")
+
+        freezer.tick(60)
+        library.sync("new")
+
+        assert _actions(conn, "new") == ["protected_forever"]
+
     @pytest.mark.parametrize("own", [5, 20])
     def test_the_longer_of_two_stays(self, conn, freezer, library, own):
         library.sync("old", "new")
@@ -590,6 +606,130 @@ class TestFilmReplacedByAnotherFile:
 
         assert _actions(conn, "new") == []
 
+    def test_it_is_kept_in_a_dry_run_too(self, conn, freezer, two_files):
+        _dry_run(conn)
+        two_files.sync("old")
+        _keep(conn, "old")
+        freezer.tick(60)
+        two_files.sync()
+
+        two_files.scan("new", dry_run=True)
+
+        assert _actions(conn, "new") == ["protected_forever"]
+
+    def test_it_is_kept_though_another_copy_went_with_the_kept_one(self, conn, freezer, two_files):
+        two_files.sync("old", "new")
+        _keep(conn, "old")
+        for keys in ([], ["newer"]):
+            freezer.tick(60)
+            two_files.sync(*keys)
+
+        assert _actions(conn, "newer") == ["protected_forever"]
+
+    @pytest.mark.parametrize("lists", [[], [["new"]], [["new"], ["new"]]], ids=str)
+    def test_it_is_kept_though_another_copy_lost_its_own_keep_to_a_person(
+        self, conn, freezer, two_files, monkeypatch, lists
+    ):
+        two_files.sync("old", "new")
+        _keep(conn, "old")
+        _keep(conn, "new")
+        freezer.tick(60)
+        _remove_keep(conn, "new", monkeypatch)
+        for keys in [*lists, ["new", "newer"]]:
+            freezer.tick(60)
+            two_files.sync(*keys)
+
+        freezer.tick(60)
+        two_files.scan("new", "newer")
+
+        assert _actions(conn, "newer") == ["protected_forever"]
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    def test_an_expired_keep_of_another_copy_does_not_stop_it(self, conn, freezer, two_files):
+        two_files.sync("old", "new")
+        _keep(conn, "old")
+        _keep(conn, "new", action="snoozed", days=1)
+        freezer.tick(timedelta(days=2))
+
+        two_files.sync("new")
+
+        assert "protected_forever" in _actions(conn, "new")
+
+    @pytest.mark.parametrize("loses", ["old", "new"])
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    def test_it_is_kept_though_plex_lost_a_match_meanwhile(
+        self, conn, freezer, two_files, loses, lists
+    ):
+        two_files.sync("old")
+        _keep(conn, "old")
+        matched = two_files.ids
+        if loses == "old":
+            freezer.tick(60)
+            two_files.ids = matched | {"old": {"tmdb_id": None}}
+            two_files.sync("old")
+            two_files.sync("old")
+        for keys in lists:
+            freezer.tick(60)
+            two_files.scan(*keys)
+            assert _actions(conn, "new") == []
+        if loses == "new":
+            freezer.tick(60)
+            two_files.sync("new", "old")
+            two_files.ids = matched | {"new": {"tmdb_id": None}}
+            two_files.scan("new", "old")
+            assert _actions(conn, "new") == []
+
+        freezer.tick(60)
+        two_files.scan("new")
+
+        assert _actions(conn, "new") == ["protected_forever"]
+
+    def test_it_is_kept_though_plex_lost_the_match_a_database_from_before_held(
+        self, conn, freezer, two_files
+    ):
+        two_files.sync("old")
+        _keep(conn, "old")
+        with conn:
+            conn.execute("UPDATE media_items SET last_tmdb_id = NULL")
+        matched = two_files.ids
+        two_files.ids = matched | {"old": {"tmdb_id": None}}
+        freezer.tick(60)
+        two_files.sync("old")
+
+        freezer.tick(60)
+        two_files.sync("new")
+
+        assert _actions(conn, "new") == ["protected_forever"]
+
+    @pytest.mark.parametrize("lost", [7, None])
+    def test_the_match_plex_corrected_to_counts_and_not_the_one_before(
+        self, conn, freezer, two_files, lost
+    ):
+        two_files.ids["old"] = {"tmdb_id": 8}
+        two_files.sync("old")
+        for tmdb_id in (7, lost):
+            two_files.ids["old"] = {"tmdb_id": tmdb_id}
+            two_files.sync("old")
+        _keep(conn, "old")
+        two_files.ids["newer"] = {"tmdb_id": 8}
+
+        freezer.tick(60)
+        two_files.scan("new", "newer")
+
+        assert _actions(conn, "new") == ["protected_forever"]
+        assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    def test_a_film_plex_has_not_matched_again_is_not_given_its_last_match(
+        self, conn, freezer, two_files
+    ):
+        two_files.sync("old")
+        two_files.ids["old"] = {"tmdb_id": None}
+
+        two_files.sync("old")
+
+        row = conn.execute("SELECT tmdb_id FROM media_items WHERE id = 'old'").fetchone()
+        assert row["tmdb_id"] is None
+
     def test_it_is_kept_once_plex_matches_it(self, conn, freezer, two_files):
         matched, two_files.ids["new"] = two_files.ids["new"], {}
         two_files.sync("old")
@@ -711,6 +851,39 @@ class TestOtherCopyOfAKeptFilm:
 
         assert two_files.file("new").exists()
         assert _actions(conn, "new") == []
+
+    def test_that_is_due_is_not_deleted_before_a_database_from_before_is_synced(
+        self, conn, two_files
+    ):
+        two_files.sync("old", "new")
+        with conn:
+            conn.execute("UPDATE media_items SET last_tmdb_id = NULL")
+        _schedule(conn, "new")
+        _keep(conn, "old")
+
+        two_files.delete()
+
+        assert two_files.file("new").exists()
+        assert _actions(conn, "new") == []
+
+    def test_that_took_its_keep_uses_it_up_though_another_was_refused_it(
+        self, conn, freezer, two_files, monkeypatch
+    ):
+        two_files.ids["newest"] = {"tmdb_id": 7}
+        two_files.names["newest"] = "film 8K.mkv"
+        two_files.sync("old", "new", "newer")
+        for key in ("old", "new"):
+            _keep(conn, key)
+        freezer.tick(60)
+        _remove_keep(conn, "new", monkeypatch)
+        two_files.sync("new", "newer")
+        assert _actions(conn, "newer") == ["protected_forever"]
+        freezer.tick(60)
+        _remove_keep(conn, "newer", monkeypatch)
+
+        two_files.sync("new", "newer", "newest")
+
+        assert _actions(conn, "newest") == []
 
     def test_that_lost_its_own_keep_to_a_person_is_scheduled(
         self, conn, freezer, two_files, monkeypatch
@@ -846,14 +1019,41 @@ def test_a_deletion_of_a_key_of_the_kept_files_being_carried_out_is_left_to_the_
     assert refused.fetchall() == []
 
 
-def test_a_dry_run_cancels_no_deletion_of_a_key_of_the_kept_files(conn, library):
+@pytest.mark.parametrize("run", ["sync", "scan"])
+def test_a_dry_run_cancels_no_deletion_of_a_key_of_the_kept_files(conn, library, run):
+    _dry_run(conn)
     library.sync("old", "new")
     _schedule(conn, "new")
     _keep(conn, "old")
 
-    library.scan("old", "new", dry_run=True)
+    if run == "sync":
+        library.sync("old", "new")
+    else:
+        library.scan("old", "new", dry_run=True)
 
     assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
+def test_a_used_deletion_of_a_key_of_the_kept_files_is_left(conn, library):
+    library.sync("old", "new")
+    _schedule(conn, "new", token_used=True)
+    _keep(conn, "old")
+
+    library.sync("old", "new")
+
+    assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
+def test_a_cancelled_deletion_of_a_key_of_the_kept_files_is_in_the_history(conn, library):
+    library.sync("old", "new")
+    _schedule(conn, "new")
+    _keep(conn, "old")
+
+    library.sync("old", "new")
+    library.sync("old", "new")
+
+    refused = conn.execute("SELECT media_item_id FROM audit_log WHERE action = 'delete_refused'")
+    assert [r["media_item_id"] for r in refused] == ["new"]
 
 
 def test_what_a_cancelled_deletion_already_removed_is_booked(conn, freezer, library):
@@ -870,3 +1070,25 @@ def test_what_a_cancelled_deletion_already_removed_is_booked(conn, freezer, libr
 
     booked = conn.execute("SELECT space_reclaimed_bytes FROM audit_log WHERE action = 'deleted'")
     assert [r[0] for r in booked] == [4]
+
+
+@pytest.mark.parametrize("library", ["season"], indirect=True)
+@pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+def test_another_season_of_the_show_of_a_kept_one_is_not_kept(conn, freezer, library, lists):
+    library.ids = {
+        "old": {"tmdb_id": 7, "season_number": 1},
+        "new": {"tmdb_id": 7, "season_number": 2},
+    }
+    library.places = {"new": "Another"}
+    library.sync("old")
+    _keep(conn, "old")
+    for keys in lists:
+        freezer.tick(60)
+        library.scan(*keys)
+        assert _actions(conn, "new") == (["scheduled_deletion"] if "new" in keys else [])
+
+    freezer.tick(60)
+    library.scan("new")
+    library.scan("new")
+
+    assert _actions(conn, "new") == ["scheduled_deletion"]

@@ -114,6 +114,7 @@ _ADDED_COLUMNS = (
     ("user_picks", "adult_checked", "INTEGER"),
     ("pruned_keeps", "tmdb_id", "INTEGER"),
     ("pruned_keeps", "plex_library_id", "INTEGER"),
+    ("media_items", "last_tmdb_id", "INTEGER"),
 )
 
 

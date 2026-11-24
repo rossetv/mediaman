@@ -234,6 +234,7 @@ class TestWholeShowKeep:
     ):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")
+        freezer.tick(60)
         _scan(conn, seasons=[_season("show", 2, prefix="new-")])
         assert _scheduled(conn) == {"new-show-s2"}
 
