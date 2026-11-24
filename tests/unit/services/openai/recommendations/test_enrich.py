@@ -322,7 +322,7 @@ class TestWhichPicksAreKept:
             ("Birdman", {"title": "Birdman or (The Unexpected Virtue of Ignorance)"}),
             ("Star Wars", {"title": "Star Wars: Episode IV - A New Hope"}),
             ("Borat", {"title": "Borat (Cultural Learnings)"}),
-            ("Dr Strange", {"title": "Dr. Strange, or How He Learned"}),
+            ("Dr Strange", {"title": "Dr. Strange, or Learning"}),
             ("Borat", {"title": "Borat or Cultural Learnings of America"}),
             ("Andor", {"name": "Andor \u2013 A Story"}),
         ],
@@ -384,7 +384,7 @@ class TestWhichPicksAreKept:
     def test_a_subtitled_title_is_taken_when_neither_search_has_the_exact_one(self, enrich):
         found = {"id": 1, "name": "Monster: The Dahmer Story", "first_air_date": "2022-09-01"}
         other = {"id": 2, "name": "Monsters", "first_air_date": "2022-01-01"}
-        tmdb = _Tmdb({("Monster", 2022): [other, found], ("Monster", None): [found, other]})
+        tmdb = _Tmdb({("Monster", 2022): [other, found], ("Monster", None): [{**found}, other]})
         assert enrich(tmdb, [{**_rec("Monster", "tv"), "year": 2022}]) == [("Monster", 1)]
 
     def test_more_than_one_subtitled_title_of_the_year_is_refused(self, enrich):
@@ -414,6 +414,12 @@ class TestWhichPicksAreKept:
         assert enrich(_Tmdb({("Heat", None): fifth}), [_rec("Heat")]) == [("Heat", 9)]
         sixth = [*others, {"id": 9, "title": "Heat"}]
         assert enrich(_Tmdb({("Heat", None): sixth}), [_rec("Heat")]) == []
+
+    def test_an_apostrophe_is_no_space_so_the_year_need_not_fit(self, enrich):
+        found = {"id": 4, "title": "Ocean's Eleven", "release_date": "2001-12-07"}
+        assert enrich(_Tmdb({("Oceans Eleven", None): found}), [_rec("Oceans Eleven")]) == [
+            ("Oceans Eleven", 4)
+        ]
 
     def test_a_title_of_signs_alone_is_not_taken_for_another(self, enrich):
         assert enrich(_Tmdb({("???", None): {"id": 4, "title": "!!!"}}), [_rec("???")]) == []
