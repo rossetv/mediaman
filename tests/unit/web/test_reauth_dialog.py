@@ -77,3 +77,8 @@ def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() ->
 
 def test_the_dialog_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
     assert _run("bar") == {"held": "15px", "after": None}
+
+
+def test_a_closed_dialog_leaves_the_keyboard_on_no_field_of_its_own() -> None:
+    # Safari scrolls the page to its end when a field is removed with the keyboard in it
+    assert _run("letGo") == {"had": True, "kept": False}

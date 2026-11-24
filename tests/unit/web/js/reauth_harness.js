@@ -28,6 +28,8 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   emit(t, extra) { (this.listeners[t] || []).forEach((f) => f({ target: this, ...extra })); }
   focus() { doc.activeElement = this; }
+  blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
+  contains(n) { return n === this || this.all().includes(n); }
   select() {}
   remove() {}
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
@@ -75,6 +77,15 @@ const scenarios = {
     const held = root.style['--page-bar'];
     doc.body.children[doc.body.children.length - 1].children[0].querySelector('.btn--ghost').emit('click');
     return { held, after: root.style['--page-bar'] || null };
+  },
+  // opened with the keyboard on nothing, as after a click in Safari: where it is once the dialog has closed
+  async letGo() {
+    doc.activeElement = doc.body;
+    const input = open({ ok: true }).sheet.querySelector('.inp');
+    timers.forEach((t) => t.fn());
+    const had = doc.activeElement === input;
+    closers[closers.length - 1]();
+    return { had, kept: doc.activeElement === input };
   },
   // what the dialog of run() says, with the caller's words and without
   async words() {
