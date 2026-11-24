@@ -25,7 +25,7 @@ from mediaman.services.arr.state import (
 )
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
-from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.media_meta.tmdb import TmdbClient, vote_of, year_of
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
@@ -153,8 +153,7 @@ def _build_detail_payload(
     added only when present, so the client can tell "not rated" from "rated zero".
     """
     title = data.get("title") or data.get("name") or ""
-    date = data.get("release_date") or data.get("first_air_date") or ""
-    year = int(date[:4]) if date[:4].isdigit() else None
+    year = year_of(data.get("release_date") or data.get("first_air_date"))
 
     runtime, director, cast = _extract_credits(data, media_type)
     trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
@@ -175,7 +174,7 @@ def _build_detail_payload(
         "director": director,
         "cast": cast,
         "trailer_key": trailer_key,
-        "rating_tmdb": round(data["vote_average"], 1) if data.get("vote_average") else None,
+        "rating_tmdb": vote_of(data.get("vote_average")) or None,
         "download_state": state,
     }
     if "imdb" in ratings:
@@ -197,9 +196,7 @@ def _build_seasons_block(
             "season_number": season["season_number"],
             "name": season.get("name") or f"Season {season['season_number']}",
             "episode_count": season.get("episode_count", 0),
-            "year": int(season["air_date"][:4])
-            if season.get("air_date") and season["air_date"][:4].isdigit()
-            else None,
+            "year": year_of(season.get("air_date")),
             "in_library": season["season_number"] in seasons_in_lib,
         }
         for season in data.get("seasons", [])
@@ -243,8 +240,9 @@ def api_detail(
     # access is guarded by ``.get()`` and isinstance/type checks before use.
     data = _cast(dict[str, Any], raw_data)
 
-    date = data.get("release_date") or data.get("first_air_date") or ""
-    year = int(date[:4]) if date[:4].isdigit() else None
+    if data.get("adult"):
+        return respond_err("not_found", status=404)
+    year = year_of(data.get("release_date") or data.get("first_air_date"))
     title = data.get("title") or data.get("name") or ""
     ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
 

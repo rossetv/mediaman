@@ -787,6 +787,33 @@ def _tmdb_tv_payload():
 
 
 class TestDetailEndpoint:
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_an_adult_title_is_not_found(self, _ratings, authed_client, fake_http, fake_response):
+        fake_http.default(fake_response(json_data=_tmdb_movie_payload() | {"adult": True}))
+
+        resp = authed_client.get("/api/search/detail/movie/438631")
+
+        assert (resp.status_code, resp.json()["error"]) == (404, "not_found")
+
+    @pytest.mark.parametrize("date", ["²⁰¹⁹-01-01", 2019, ["2019"], "20-1-1"])
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_an_odd_date_is_no_year(
+        self, _ratings, authed_client, fake_http, fake_response, kind, date
+    ):
+        payload = _tmdb_tv_payload() if kind == "tv" else _tmdb_movie_payload()
+        payload |= {"release_date": date, "first_air_date": date, "vote_average": float("nan")}
+        for season in payload.get("seasons", []):
+            season["air_date"] = date
+        fake_http.default(fake_response(json_data=payload))
+
+        data = authed_client.get(f"/api/search/detail/{kind}/1").json()
+
+        assert (data["year"], data["rating_tmdb"]) == (None, None)
+        assert [s["year"] for s in data.get("seasons", [])] == (
+            [None, None] if kind == "tv" else []
+        )
+
     @patch("mediaman.web.routes.search.detail.fetch_ratings")
     def test_movie_detail_shape(self, mock_ratings, authed_client, fake_http, fake_response):
         fake_http.default(fake_response(json_data=_tmdb_movie_payload()))
