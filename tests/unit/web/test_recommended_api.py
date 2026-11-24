@@ -387,11 +387,33 @@ class TestDownloadRecommendationAsksTheArrFirst:
         assert resp.status_code == 502
         radarr.remonitor_movie.assert_not_called()
 
-    def test_a_failed_remonitor_400_is_not_read_as_already_there(self, conn):
+    @pytest.mark.parametrize("status", [400, 409, 422])
+    def test_a_failed_remonitor_ends_as_a_failure_and_records_nothing(self, conn, status):
         radarr = MagicMock()
         radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
-        radarr.remonitor_movie.side_effect = SafeHTTPError(400, "bad", "radarr/m")
+        radarr.remonitor_movie.side_effect = SafeHTTPError(status, "refused", "radarr/m")
 
         resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to download queue"
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+        assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == 0
+
+    @pytest.mark.parametrize("status", [409, 422])
+    def test_a_refused_read_of_the_arr_is_not_read_as_already_there(self, conn, status):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = SafeHTTPError(status, "refused", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+
+    def test_a_refused_read_of_sonarr_is_not_read_as_already_there(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.side_effect = SafeHTTPError(409, "refused", "sonarr/s")
+
+        resp = self._post(conn, "tv", 136315, sonarr)
 
         assert resp.status_code == 502

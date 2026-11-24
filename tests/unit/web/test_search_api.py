@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
@@ -802,6 +803,23 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is True
         radarr.remonitor_movie.assert_called_once_with(77)
         radarr.add_movie.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_radarr_from_db")
+    def test_a_failed_remonitor_is_a_502_not_already_in_radarr(
+        self, mock_build_radarr, authed_client
+    ):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 77, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(409, "refused", "radarr/m")
+        mock_build_radarr.return_value = radarr
+
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "movie", "tmdb_id": 438631, "title": "Dune"},
+        )
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to Radarr"
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_all_seasons_flow(self, mock_build_sonarr, authed_client):

@@ -28,12 +28,14 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
+from mediaman.services.arr._transport import ArrError
 from mediaman.services.arr._types import (
     ArrSeason,
     ArrSeasonStatistics,
     RadarrMovie,
     SonarrSeries,
 )
+from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -390,6 +392,14 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
 MovieAddOutcome = Literal["added", "remonitored", "already_tracked", "bad_entry"]
 
 
+class ExistingMovieError(ArrError):
+    """Radarr refused to be read or re-monitored for a movie it holds.
+
+    Kept apart from a failed add: Radarr's 409, 422 and 400 on an add mean
+    "already there", but on these calls they mean nothing of the kind.
+    """
+
+
 def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -> MovieAddOutcome:
     """Get a movie wanted in Radarr: add it, or re-monitor the entry it already holds.
 
@@ -399,11 +409,15 @@ def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -
     again means. An entry with no usable id is ``"bad_entry"``.
 
     Raises:
-        SafeHTTPError: On a non-2xx response from Radarr.
+        SafeHTTPError: On a non-2xx response to the add only.
+        ExistingMovieError: On a non-2xx response reading or re-monitoring the entry.
         requests.RequestException: On transport failures.
         ArrError: On configuration failures.
     """
-    existing = radarr_client.get_movie_by_tmdb(tmdb_id)
+    try:
+        existing = radarr_client.get_movie_by_tmdb(tmdb_id)
+    except SafeHTTPError as exc:
+        raise ExistingMovieError(f"Radarr lookup failed: HTTP {exc.status_code}") from exc
     if existing is None:
         radarr_client.add_movie(tmdb_id, title)
         return "added"
@@ -417,7 +431,10 @@ def add_or_remonitor_movie(radarr_client: ArrClient, tmdb_id: int, title: str) -
             tmdb_id,
         )
         return "bad_entry"
-    radarr_client.remonitor_movie(movie_id)
+    try:
+        radarr_client.remonitor_movie(movie_id)
+    except SafeHTTPError as exc:
+        raise ExistingMovieError(f"Radarr re-monitor failed: HTTP {exc.status_code}") from exc
     return "remonitored"
 
 

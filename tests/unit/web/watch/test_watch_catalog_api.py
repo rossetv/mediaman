@@ -709,3 +709,31 @@ class TestDownloadForgetsHeldArrState:
         assert admin.post(f"/api/recommended/{rec_id}/download").json()["ok"] is True
 
         assert admin.get(ref).json()["download"]["state"] == "queued"
+
+    def test_a_search_409_shows_what_the_arr_holds_at_once(self, admin, tmdb, arr):
+        search_download._download_dedup.clear()
+        assert admin.get("/api/watch/title/tmdb-movie-12").json()["download"]["state"] is None
+        arr.movies = [{"tmdbId": 12, "hasFile": False, "monitored": True}]
+        arr.get_movie_by_tmdb = lambda _id: {"id": 1, "monitored": True}
+
+        resp = admin.post(
+            "/api/search/download",
+            json={"media_type": "movie", "tmdb_id": 12, "title": "Glass Onion"},
+        )
+        assert resp.status_code == 409
+
+        assert admin.get("/api/watch/title/tmdb-movie-12").json()["download"]["state"] == "queued"
+
+    def test_a_search_409_for_a_show_shows_what_sonarr_holds_at_once(self, admin, tmdb, arr):
+        search_download._download_dedup.clear()
+        assert admin.get("/api/watch/title/tmdb-tv-77").json()["download"]["state"] is None
+        arr.series = [{"tmdbId": 77, "tvdbId": 7700, "seasons": []}]
+        arr.lookup_series_by_tmdb = lambda _id: {"tvdbId": 7700}
+
+        resp = admin.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 77, "title": "Far Shore"},
+        )
+        assert resp.status_code == 409
+
+        assert admin.get("/api/watch/title/tmdb-tv-77").json()["download"]["state"] == "queued"

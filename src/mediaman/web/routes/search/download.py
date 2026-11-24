@@ -318,6 +318,7 @@ def api_download(
         raise
     if resp.status_code >= 400:
         _release_download(admin, body.tmdb_id, body.media_type, _dedup_token(body))
-    else:
+    # A 409 says the Arr holds the title, which the held view may not yet show.
+    if resp.status_code < 400 or resp.status_code == 409:
         watch_catalog.invalidate()
     return resp

@@ -187,9 +187,12 @@ def _add_rec_to_radarr(
     try:
         outcome = add_or_remonitor_movie(client, tmdb_id, safe_title)
     except SafeHTTPError as exc:
-        # Radarr answers 400, not 409, for a movie it holds: an add that raced
-        # the check above ends as already there, any other 400 stays a failure.
-        if exc.status_code == 400 and _radarr_holds(client, tmdb_id):
+        # Only a failed add can mean "already there": Radarr answers 409, 422 or,
+        # for a movie it holds, 400, so an add that raced the check above ends
+        # as already there and any other 400 stays a failure.
+        if exc.status_code in (409, 422) or (
+            exc.status_code == 400 and _radarr_holds(client, tmdb_id)
+        ):
             return _already_there(row)
         raise
     if outcome == "already_tracked":
@@ -267,8 +270,10 @@ def _add_rec_to_sonarr(
     try:
         client.add_series(tvdb_id, safe_title)
     except SafeHTTPError as exc:
-        # Same as Radarr: a 400 for a series Sonarr already tracks.
-        if exc.status_code == 400 and _sonarr_tracks(client, tvdb_id):
+        # Same as Radarr, for a series Sonarr already tracks.
+        if exc.status_code in (409, 422) or (
+            exc.status_code == 400 and _sonarr_tracks(client, tvdb_id)
+        ):
             return _already_there(row)
         raise
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
@@ -335,8 +340,6 @@ def api_download_recommendation(
         )
 
     except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return _already_there(row)
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row.title,
