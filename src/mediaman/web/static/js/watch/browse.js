@@ -657,6 +657,7 @@
     }
     if (!button) line.appendChild(refreshButton('own'));
     setRefresh('own', state, rec.payload.my_refresh.next_available_at);
+    if (!ownBusy && rec.payload.my_refresh.running) followOwn(false);
   }
 
   function ownError(message) {
@@ -700,7 +701,7 @@
       fetchRec(null).then(function (payload) {
         var fresh = ownOf(payload) !== ownRefs;
         ownBusy = false;
-        ownFailed = !fresh && (st.status === 'failed' || (mine && st.status !== 'done'));
+        ownFailed = !fresh && !payload.my_refresh.running && (st.status === 'failed' || (mine && st.status !== 'done'));
         if (fresh) {
           updateRec(payload);
           core.toast('Your new picks are in.', { variant: 'success' });
@@ -734,7 +735,6 @@
       if (payload.refresh.running) poll();
     }
     drawOwn();
-    if (payload.my_refresh.running && !ownBusy) followOwn(false);
     return section;
   }
 

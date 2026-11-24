@@ -128,6 +128,7 @@ function load(opts = {}) {
     UIFeedback: { toast: (message, o) => toasts.push({ message, opts: o }) },
     MM: { api: { get: call('GET'), post: call('POST'), messageOf: (e, f) => (e && e.data && e.data.message) || f } },
     addEventListener() {},
+    removeEventListener() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -756,6 +757,33 @@ const scenarios = {
       none: await at('idle', OWN_ITEMS, MINE.ready),
       failed: await at('failed', OWN_ITEMS, MINE.ready),
     };
+  },
+
+  // Another tab's refresh, or a scan, is found running by a later answer: followed to its end. Then the
+  // same when the one followed ends with another already running.
+  async ownRunningElsewhere() {
+    let mine = MINE.ready;
+    let items = OWN_ITEMS;
+    let status = 'running';
+    const statuses = (p) => p.calls.filter((c) => c === 'GET /api/watch/picks/refresh').length;
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ mine, items })),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve(recommended({ mine, batch: '2026-11-14', items: [pick('pick-30')] })),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status }),
+    } });
+    await settle();
+    mine = MINE.running;
+    click(p.doc, p.doc.querySelector('[data-picks-menu]'));
+    click(p.doc, p.doc.querySelector('[data-batch="2026-11-14"]'));
+    await settle();
+    const busy = lineOf(p);
+    status = 'failed';
+    await tick(p);
+    const still = { ...lineOf(p), toasts: p.toasts.length };
+    mine = MINE.wait;
+    items = [pick('pick-40')];
+    await tick(p);
+    return { busy, still, polls: statuses(p), after: lineOf(p), toasts: p.toasts.map((t) => t.message) };
   },
 
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".

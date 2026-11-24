@@ -221,6 +221,18 @@ def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() ->
     assert len(out["failed"]["toasts"]) == 1
 
 
+def test_own_picks_found_being_made_by_a_later_answer_are_followed_to_their_end() -> None:
+    out = _run("ownRunningElsewhere")
+    assert out["busy"]["button"] == "Refreshing…"
+    # The one followed is over, another is running: no word of a failure, and that one is followed.
+    assert (out["still"]["button"], out["still"]["toasts"]) == ("Refreshing…", 0)
+    assert out["polls"] == 2
+    assert (out["after"]["button"], out["toasts"]) == (
+        "Refresh in 6 days",
+        ["Your new picks are in."],
+    )
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
