@@ -136,7 +136,7 @@
 .keep-dur-btn:hover { color: var(--t1); }
 .keep-dur-btn.active { background: var(--s3); color: var(--t1); font-weight: 500; }
 
-.keep-season-list { max-height: 320px; min-height: 0; flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; padding: 4px; margin-inline: -4px; }
+.keep-season-list { max-height: 320px; min-height: 0; flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
 .keep-season-item {
   display: flex;
   align-items: center;
@@ -148,10 +148,14 @@
 }
 .keep-season-item label,
 .keep-season-name { flex-shrink: 0; white-space: nowrap; }
-.keep-season-note { margin: 6px 0 4px; font-size: 13px; color: var(--t2); }
+/* Room for the button's focus ring, which the list would clip. */
+.keep-season-note,
+.keep-season-list > .btn { margin-inline: 4px; }
+.keep-season-note { margin-block: 6px 4px; font-size: 13px; color: var(--t2); }
 .keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item--skel { flex: none; height: 40px; }
 /* A season to delete: its button, 32px or by touch 44px, and the room around it. */
+#season-delete-list > .keep-season-item { min-height: 52px; }
 #season-delete-list > .keep-season-item--skel { height: 52px; }
 .keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
@@ -176,10 +180,14 @@
 @media (max-width: 389.98px) {
   .keep-duration-bar { gap: 2px; flex-wrap: nowrap; }
   .keep-dur-btn { flex: 1 1 auto; padding-inline: 0; white-space: nowrap; }
+  /* So do Cancel and Update, under Remove all keeps. */
+  .keep-dialog-actions { flex-wrap: wrap; }
+  #keep-dialog-remove.is-visible { flex: 1 0 100%; }
+  .keep-season-keep { flex-wrap: wrap; gap: 4px 6px; }
 }
 @media (max-width: 639.98px) {
   /* A long details line wraps inside its row instead of pushing Delete out. */
-  .keep-season-details { white-space: normal; min-width: 0; }
+  .keep-season-details { white-space: normal; min-width: 0; padding-block: 4px; }
   /* A season to delete has its details below its name, in a row with room for two lines of them. */
   #season-delete-list > .keep-season-item { min-height: 68px; padding-block: 6px; }
   #season-delete-list > .keep-season-item:not(.keep-season-item--skel) {
@@ -190,7 +198,7 @@
     align-content: center;
   }
   #season-delete-list .keep-season-name { white-space: normal; }
-  #season-delete-list .keep-season-details { grid-area: 2 / 1; margin-left: 0; }
+  #season-delete-list .keep-season-details { grid-area: 2 / 1; margin-left: 0; padding-block: 0; }
   #season-delete-list > .keep-season-item > :last-child { grid-area: 1 / 2 / 3; }
 }
 @media (max-width: 359.98px) {

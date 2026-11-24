@@ -123,3 +123,27 @@ def test_the_durations_stay_on_one_line_on_the_narrowest_phones():
 def test_the_filter_pills_reach_44px_by_touch_on_a_tablet():
     block = _block("(pointer: coarse) and (min-width: 700px)")
     assert re.search(r"\.fpill::after \{[^}]*inset: calc\(\(100% - 44px\) / 2\)", block)
+
+
+def test_a_kept_show_s_dialog_fits_a_narrow_phone_with_remove_all_on_its_own_line():
+    block = _block("(max-width: 389.98px)", MODAL_CSS)
+    assert ".keep-dialog-actions { flex-wrap: wrap; }" in block
+    assert "#keep-dialog-remove.is-visible { flex: 1 0 100%; }" in block
+    assert re.search(r"\.keep-season-keep \{ flex-wrap: wrap;", block)
+
+
+def test_the_season_list_does_not_reach_past_the_dialog_s_own_padding():
+    (rule,) = re.findall(r"\n\.keep-season-list \{([^}]*)\}", MODAL_CSS)
+    assert "margin" not in rule
+    assert re.search(
+        r"\.keep-season-note,\s*\.keep-season-list > \.btn \{ margin-inline: 4px; \}", MODAL_CSS
+    )
+
+
+def test_a_kept_season_in_the_delete_list_is_as_tall_as_one_with_a_button():
+    assert "\n#season-delete-list > .keep-season-item { min-height: 52px; }" in MODAL_CSS
+
+
+def test_details_of_several_lines_do_not_touch_their_row_s_edge_on_a_phone():
+    block = _block("(max-width: 639.98px)", MODAL_CSS)
+    assert re.search(r"\n  \.keep-season-details \{[^}]*padding-block: 4px;", block)
