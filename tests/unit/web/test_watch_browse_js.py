@@ -4,9 +4,11 @@ against a fake DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+STATIC = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "static"
 HARNESS = Path(__file__).parent / "js" / "watch_browse_harness.js"
 
 
@@ -111,9 +113,18 @@ def test_refresh_during_the_cooldown_shows_the_time_left_and_no_error() -> None:
     assert out["note"] == "New picks can be fetched again in 14 h."
 
 
-def test_a_refused_refresh_shows_the_reason_inline_and_can_be_tried_again() -> None:
+def test_a_cooling_refresh_says_how_long_when_pressed_and_keeps_its_width() -> None:
+    out = _run("refreshCooldown")
+    assert out["pressed"] == ["New picks can be fetched again in 14\u00a0h."]
+    assert out["widest"] == "Refresh in 59\u00a0min"
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    assert re.search(r"\.row-tool--refresh::before \{ content: attr\(data-widest\)", css)
+
+
+def test_a_refused_refresh_says_why_without_moving_the_row_and_can_be_tried_again() -> None:
     out = _run("refreshFailed")
-    assert out["error"] == "Plex not configured"
+    assert out["toasts"] == [["Plex not configured", "error"]]
+    assert out["moved"] == 0
     assert (out["label"], out["disabled"]) == ("Refresh picks", None)
 
 

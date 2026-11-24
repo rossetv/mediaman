@@ -330,24 +330,31 @@ const scenarios = {
     click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
     await settle();
     const button = p.doc.querySelector('[data-picks-refresh]');
+    const errors = p.toasts.length;
+    click(p.doc, button);
     return {
       label: text(button),
       disabled: button.getAttribute('aria-disabled'),
-      error: !!p.doc.querySelector('.watch-row__error'),
+      error: errors > 0,
+      pressed: p.toasts.map((t) => t.message),
+      widest: button.getAttribute('data-widest'),
       note: text(p.doc.querySelector('.rec-menu__note')),
     };
   },
 
-  // Refresh that the server refuses for another reason: an inline error, and Refresh is back.
+  // Refresh that the server refuses for another reason: a toast, so the row below stays where it
+  // is, and Refresh is back.
   async refreshFailed() {
     const p = load({ admin: true, routes: {
       'POST /api/recommended/refresh': () => Promise.reject(apiError(200, { message: 'Plex not configured' })),
     } });
     await settle();
+    const things = rec(p.doc).children.length;
     click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
     await settle();
     const button = p.doc.querySelector('[data-picks-refresh]');
-    return { error: text(p.doc.querySelector('.watch-row__error')), label: text(button), disabled: button.getAttribute('aria-disabled') };
+    return { toasts: p.toasts.map((t) => [t.message, t.opts.variant]), moved: rec(p.doc).children.length - things,
+      label: text(button), disabled: button.getAttribute('aria-disabled') };
   },
 
   // A session that ran out mid-refresh goes to the login page.

@@ -260,6 +260,8 @@
     return Math.max(1, Math.ceil(ms / 60000)) + '\u00a0min';
   }
 
+  function againText(left) { return 'New picks can be fetched again in ' + left + '.'; }
+
   function batchName(batch, first) {
     return first ? 'Latest · ' + batch.date_label : batch.date_label;
   }
@@ -309,16 +311,17 @@
     });
     var refresh = payload.refresh;
     if (refresh && !refresh.available && refresh.next_available_at && waitText(refresh.next_available_at)) {
-      picksMenuNode.appendChild(el('p', 'rec-menu__note',
-        'New picks can be fetched again in ' + waitText(refresh.next_available_at) + '.'));
+      picksMenuNode.appendChild(el('p', 'rec-menu__note', againText(waitText(refresh.next_available_at))));
     }
   }
 
-  /* Refresh: ready, busy (spinner) or cooling down ("Refresh in 14 h"). */
+  /* Refresh: ready, busy (spinner) or cooling down ("Refresh in 14 h"). It is as
+     wide as its widest label in every state, so the tools beside it stay put. */
   function refreshButton() {
     var button = el('button', 'row-tool row-tool--refresh');
     button.type = 'button';
     button.setAttribute('data-picks-refresh', '');
+    button.setAttribute('data-widest', 'Refresh in 59\u00a0min');
     return button;
   }
 
@@ -326,47 +329,27 @@
     var button = rec && rec.tools.querySelector('[data-picks-refresh]');
     if (!button) return;
     clearTimeout(cooldownTimer);
+    var left = state === 'cooldown' ? waitText(nextAt) : '';
+    if (state === 'cooldown' && !left) state = 'ready';
+    var face = { ready: ['i-rotate-right', 'Refresh picks'], busy: ['i-rotate-right', 'Refreshing…'],
+      cooldown: ['i-clock-regular', 'Refresh in ' + left] }[state];
     button.textContent = '';
     button.classList.toggle('is-busy', state === 'busy');
-    if (state === 'ready') {
-      button.removeAttribute('aria-disabled');
-      button.setAttribute('aria-label', 'Refresh picks');
-      button.appendChild(icon('i-rotate-right'));
-      button.appendChild(el('span', 'row-tool__long', 'Refresh picks'));
-      return;
-    }
-    button.setAttribute('aria-disabled', 'true');
-    if (state === 'busy') {
-      button.setAttribute('aria-label', 'Refreshing picks');
-      button.appendChild(icon('i-rotate-right'));
-      button.appendChild(el('span', 'row-tool__long', 'Refreshing…'));
-      return;
-    }
-    var left = waitText(nextAt);
-    if (!left) { setRefresh('ready'); return; }
-    button.setAttribute('aria-label', 'Refresh picks, available in ' + left);
-    button.appendChild(icon('i-clock-regular'));
-    button.appendChild(el('span', 'row-tool__long', 'Refresh in '));
-    button.appendChild(document.createTextNode(left));
+    if (state === 'ready') button.removeAttribute('aria-disabled');
+    else button.setAttribute('aria-disabled', 'true');
+    button.setAttribute('aria-label', { ready: 'Refresh picks', busy: 'Refreshing picks',
+      cooldown: 'Refresh picks, available in ' + left }[state]);
+    var shown = el('span', 'row-tool__face');
+    shown.appendChild(icon(face[0]));
+    shown.appendChild(el('span', 'row-tool__long', face[1]));
+    button.appendChild(shown);
     // The clock counts down by itself; once it runs out Refresh is back.
-    cooldownTimer = setTimeout(function () { setRefresh('cooldown', nextAt); }, 60000);
+    if (state === 'cooldown') cooldownTimer = setTimeout(function () { setRefresh('cooldown', nextAt); }, 60000);
   }
 
   function refreshState(refresh) {
     if (refresh.running) return 'busy';
     return !refresh.available && refresh.next_available_at ? 'cooldown' : 'ready';
-  }
-
-  /* An inline line under the row's heading; null clears it. */
-  function setRecError(message) {
-    if (!rec) return;
-    var old = rec.section.querySelector('.watch-row__error');
-    if (old) old.remove();
-    if (!message) return;
-    var line = el('p', 'watch-row__error', message);
-    line.setAttribute('role', 'alert');
-    var head = rec.section.querySelector('.watch-row__head');
-    head.parentNode.insertBefore(line, head.nextSibling);
   }
 
   function recBody(payload) {
@@ -474,17 +457,20 @@
     });
   }
 
-
   function refreshFailed(message) {
     polling = false;
     setRefresh('ready');
-    setRecError(message);
+    core.toast(message, { variant: 'error' });
   }
 
   /* Ask for new picks; the server says no while the last refresh cools down. */
   function refresh(button) {
-    if (polling || button.getAttribute('aria-disabled') === 'true') return;
-    setRecError(null);
+    if (polling || button.getAttribute('aria-disabled') === 'true') {
+      // On a phone the button is its icon alone, so it says how long when pressed.
+      var left = rec.payload.refresh && waitText(rec.payload.refresh.next_available_at);
+      if (!polling && left) core.toast(againText(left));
+      return;
+    }
     setRefresh('busy');
     MM.api.post(REFRESH_URL).then(function (data) {
       if (data && (data.status === 'started' || data.status === 'already_running')) { poll(); return; }
