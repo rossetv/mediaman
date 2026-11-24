@@ -295,9 +295,14 @@ class _SonarrMixin:
 
         Seasons listed in *monitored_seasons* are added with
         ``monitored=True``; every other season (including season 0) is
-        added with ``monitored=False``.  The full-series auto-search is
-        suppressed; instead a ``SeasonSearch`` command is issued for
-        each season number in *search_seasons*.
+        added with ``monitored=False``.  ``monitor: skip`` keeps exactly those
+        seasons (``none`` would unmonitor them all after the first scan) and
+        Sonarr itself searches the monitored missing episodes once it has
+        scanned the series, so no search command is posted here: one sent
+        straight after the add finds no episodes yet.  *search_seasons* is
+        accepted for the callers' sake; what Sonarr searches follows
+        *monitored_seasons* alone, and a monitored season whose files are on
+        disk has nothing missing to search.
         """
         self._require_series("add_series_with_seasons")  # type: ignore[attr-defined]
         if tvdb_id <= 0:
@@ -305,14 +310,7 @@ class _SonarrMixin:
         body = self._prepare_series_with_seasons_body(
             tvdb_id, title, monitored_seasons, quality_profile_id
         )
-        new_series = cast(SonarrSeries, self._post("/api/v3/series", body))  # type: ignore[attr-defined]
-        series_id = new_series.get("id")
-        for season_number in search_seasons:
-            self._post(  # type: ignore[attr-defined]
-                "/api/v3/command",
-                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-            )
-        return new_series
+        return cast(SonarrSeries, self._post("/api/v3/series", body))  # type: ignore[attr-defined]
 
     def _prepare_series_with_seasons_body(
         self,
@@ -351,8 +349,8 @@ class _SonarrMixin:
             "seasonFolder": True,
             "seasons": seasons_payload,
             "addOptions": {
-                "searchForMissingEpisodes": False,
-                "monitor": "none",
+                "searchForMissingEpisodes": True,
+                "monitor": "skip",
             },
         }
 

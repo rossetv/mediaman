@@ -442,7 +442,6 @@ class TestAddSeriesWithSeasons:
         fake_http.queue("GET", fake_response(json_data=[{"id": 3}]))
         fake_http.queue("GET", fake_response(json_data=lookup_result))
         fake_http.queue("POST", fake_response(status=201, json_data={"id": 42}))
-        fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.add_series_with_seasons(
             tvdb_id=999,
@@ -453,45 +452,14 @@ class TestAddSeriesWithSeasons:
 
         posts = _calls(fake_http, "POST")
         add_body = posts[0][2]["json"]
-        assert add_body["addOptions"]["searchForMissingEpisodes"] is False
         by_num = {s["seasonNumber"]: s["monitored"] for s in add_body["seasons"]}
         assert by_num == {0: False, 1: True, 2: True, 3: False, 4: False, 5: False}
         assert add_body["qualityProfileId"] == 3
-
-        search_calls = [c for c in posts if "/api/v3/command" in c[1]]
-        assert len(search_calls) == 1
-        assert search_calls[0][2]["json"] == {
-            "name": "SeasonSearch",
-            "seriesId": 42,
-            "seasonNumber": 2,
-        }
-
-    def test_no_search_when_search_seasons_empty(self, client, fake_http, fake_response):
-        fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
-        fake_http.queue("GET", fake_response(json_data=[{"id": 9}]))
-        fake_http.queue(
-            "GET",
-            fake_response(
-                json_data=[
-                    {
-                        "tvdbId": 10,
-                        "title": "X",
-                        "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
-                    }
-                ]
-            ),
-        )
-        fake_http.queue("POST", fake_response(status=201, json_data={"id": 7}))
-
-        client.add_series_with_seasons(
-            tvdb_id=10,
-            title="X",
-            monitored_seasons=[1, 2],
-            search_seasons=[],
-        )
-
-        command_calls = [c for c in _calls(fake_http, "POST") if "/api/v3/command" in c[1]]
-        assert command_calls == []
+        # "skip" keeps the seasons sent ("none" unmonitors every one after the first scan),
+        # and Sonarr searches the monitored missing episodes itself after it has scanned.
+        assert add_body["addOptions"] == {"monitor": "skip", "searchForMissingEpisodes": True}
+        # A command straight after the add finds no episodes yet, so none is sent.
+        assert len(posts) == 1
 
     def test_rejects_non_positive_tvdb_id(self, client, fake_http):
         with pytest.raises(ValueError, match="tvdb_id must be positive"):
