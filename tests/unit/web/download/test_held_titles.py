@@ -93,6 +93,86 @@ class TestConfirmPage:
         assert 'id="btn-download"' in resp.text
         assert "Already tracked" not in resp.text
 
+    @pytest.mark.parametrize("season_files", [0, 4])
+    def test_a_show_still_downloading_is_on_its_way_not_offered_again(
+        self, client, secret_key, season_files
+    ):
+        aired = {"episodeFileCount": season_files, "episodeCount": 8, "previousAiring": "2026"}
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [{"seasonNumber": 1, "monitored": True, "statistics": aired}],
+        }
+        cache = {"sonarr_series": {500: series}, "sonarr_queue_tmdb_ids": {500}}
+        with patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache):
+            resp = client.get(f"/download/{_token(secret_key, 'tv')}")
+
+        assert '"download_state": "queued"' in resp.text
+        assert 'id="btn-download"' not in resp.text
+
+    def test_a_movie_in_the_queue_is_on_its_way_not_offered_again(self, client, secret_key):
+        cache = {
+            "radarr_movies": {500: {"tmdbId": 500, "monitored": True}},
+            "radarr_queue_tmdb_ids": {500},
+        }
+        with patch(f"{_CONFIRM}._get_radarr_cache_cached", return_value=cache):
+            resp = client.get(f"/download/{_token(secret_key, 'movie')}")
+
+        assert '"download_state": "queued"' in resp.text
+
+    @pytest.mark.parametrize(("monitored", "state"), [(True, "queued"), (False, "tracked")])
+    def test_a_show_part_there_is_on_its_way_only_when_sonarr_monitors_it(
+        self, client, secret_key, monitored, state
+    ):
+        aired = {"episodeFileCount": 4, "episodeCount": 8, "previousAiring": "2026"}
+        series = {
+            "tmdbId": 500,
+            "monitored": monitored,
+            "seasons": [{"seasonNumber": 1, "monitored": True, "statistics": aired}],
+        }
+
+        resp = self._page(client, secret_key, "tv", series=series)
+
+        assert f'"download_state": "{state}"' in resp.text
+
+
+class TestReopeningAUsedLink:
+    """The page keeps the Arr list for half a minute; a request must not be hidden by it."""
+
+    def _radarr(self):
+        movies = []
+        radarr = MagicMock()
+        radarr.get_movies.side_effect = lambda: list(movies)
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.get_queue.return_value = []
+        radarr.add_movie.side_effect = lambda *a: movies.append(
+            {"tmdbId": 500, "title": "Dune", "monitored": True}
+        )
+        return radarr
+
+    def test_a_used_link_reads_queued_at_once(self, client, secret_key):
+        radarr, token = self._radarr(), _token(secret_key, "movie")
+        with (
+            patch(f"{_CONFIRM}.build_radarr_from_db", return_value=radarr),
+            patch(f"{_SUBMIT}.build_radarr_from_db", return_value=radarr),
+        ):
+            assert 'id="btn-download"' in client.get(f"/download/{token}").text
+            assert client.post(f"/download/{token}").status_code == 200
+            reopened = client.get(f"/download/{token}").text
+
+        assert 'id="btn-download"' not in reopened
+        assert '"download_state": "queued"' in reopened
+
+    def test_a_list_fetched_before_the_request_is_not_kept_after_it(self, client, secret_key):
+        radarr, token = self._radarr(), _token(secret_key, "movie")
+        radarr.get_queue.side_effect = lambda: confirm_module.drop_arr_cache() or []
+        with patch(f"{_CONFIRM}.build_radarr_from_db", return_value=radarr):
+            client.get(f"/download/{token}")
+            radarr.add_movie()
+            reopened = client.get(f"/download/{token}").text
+
+        assert '"download_state": "queued"' in reopened
+
 
 class TestSubmitRefusedForAHeldTitle:
     def _post(self, client, secret_key, media_type, arr, builder):

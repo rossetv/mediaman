@@ -39,6 +39,7 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.responses import respond_failure
 
 from ._tokens import _mark_token_used, _unmark_token_used
+from .confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
 
@@ -430,3 +431,6 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         _unmark_token_used(token)
         logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return respond_failure("Download request failed — check service connectivity", status=502)
+    finally:
+        # A failed request may have added the title too.
+        drop_arr_cache()

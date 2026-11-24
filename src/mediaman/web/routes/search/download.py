@@ -26,6 +26,7 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.responses import respond_failure
+from mediaman.web.routes.download.confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
 
@@ -331,4 +332,6 @@ def api_download(
     # A 409 says the Arr holds the title, which the held view may not yet show.
     if resp.status_code < 400 or resp.status_code == 409:
         watch_catalog.invalidate()
+    # A failed request may have added the title too.
+    drop_arr_cache()
     return resp

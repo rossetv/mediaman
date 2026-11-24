@@ -40,6 +40,7 @@ from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
 from mediaman.web.responses import respond_failure
+from mediaman.web.routes.download.confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
 
@@ -343,5 +344,7 @@ def api_download_recommendation(
         logger.exception("Failed to add recommendation '%s'", row.title)
         return respond_failure("Failed to add to download queue", status=502)
     finally:
-        # Watch holds Radarr and Sonarr state briefly; drop it so the title shows queued.
+        # Watch and the emailed page hold Radarr and Sonarr state briefly; drop it so the
+        # title shows queued.
         watch_catalog.invalidate()
+        drop_arr_cache()

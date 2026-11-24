@@ -19,6 +19,9 @@ from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ACTION_DOWNLOADING,
+    ACTION_PARTIAL,
+    ACTION_QUEUED,
     ArrCaches,
     RadarrCaches,
     SonarrCaches,
@@ -75,6 +78,19 @@ _ARR_CACHE_LOCK = threading.Lock()
 # without a cast or type suppression.
 _RADARR_CACHE: dict[str, tuple[float, RadarrCaches]] = {}
 _SONARR_CACHE: dict[str, tuple[float, SonarrCaches]] = {}
+# Counts drops, so a list fetched before a drop is not stored after it.
+_arr_cache_drops = 0
+
+
+def drop_arr_cache() -> None:
+    """Forget the Radarr and Sonarr lists: whatever asks an Arr for a title calls this, so the
+    emailed page does not offer again what is already on its way.
+    """
+    global _arr_cache_drops
+    with _ARR_CACHE_LOCK:
+        _arr_cache_drops += 1
+        _RADARR_CACHE.clear()
+        _SONARR_CACHE.clear()
 
 
 def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
@@ -87,13 +103,14 @@ def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Radar
         hit = _RADARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
             return hit[1]
+        drops = _arr_cache_drops
     radarr_client = build_radarr_from_db(conn, secret_key)
     cache = build_radarr_cache(radarr_client)
     with _ARR_CACHE_LOCK:
         # Double-check: another thread may have populated the cache while
         # we were fetching.  Only write if the slot is still stale.
         hit = _RADARR_CACHE.get(fp)
-        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+        if drops == _arr_cache_drops and (not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS):
             if len(_RADARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
                 _RADARR_CACHE.clear()
             _RADARR_CACHE[fp] = (now, cache)
@@ -107,13 +124,14 @@ def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Sonar
         hit = _SONARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
             return hit[1]
+        drops = _arr_cache_drops
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     cache = build_sonarr_cache(sonarr_client)
     with _ARR_CACHE_LOCK:
         # Double-check: another thread may have populated the cache while
         # we were fetching.  Only write if the slot is still stale.
         hit = _SONARR_CACHE.get(fp)
-        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+        if drops == _arr_cache_drops and (not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS):
             if len(_SONARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
                 _SONARR_CACHE.clear()
             _SONARR_CACHE[fp] = (now, cache)
@@ -121,9 +139,7 @@ def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Sonar
 
 
 def _reset_arr_cache_for_tests() -> None:
-    with _ARR_CACHE_LOCK:
-        _RADARR_CACHE.clear()
-        _SONARR_CACHE.clear()
+    drop_arr_cache()
 
 
 def validate_youtube_id(s: str | None) -> str | None:
@@ -290,8 +306,15 @@ def _resolve_download_state(
             caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
             caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
         state = compute_download_state(mt, tmdb_id, caches)
+        series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
+        if state == ACTION_PARTIAL and tmdb_id not in caches["sonarr_queue_tmdb_ids"]:
+            # Part of the show is there; the rest comes only if Sonarr monitors the series.
+            state = ACTION_QUEUED if series and series.get("monitored", True) else None
+        # The page shows one "on its way" view, whose progress polling fills in.
+        if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
+            state = ACTION_QUEUED
         # A show Sonarr holds but will not fetch has no state: say it is tracked, not queued.
-        if state is None and mt != "movie" and tmdb_id in caches["sonarr_series"]:
+        if state is None and series is not None:
             state = "tracked"
         if state is not None:
             item["download_state"] = state

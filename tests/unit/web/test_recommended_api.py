@@ -18,6 +18,7 @@ from mediaman.db import set_connection
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
+from mediaman.web.routes.download import confirm
 from mediaman.web.routes.recommended.api import (
     reset_download_action_limiter,
     reset_share_token_limiter,
@@ -454,3 +455,12 @@ class TestDownloadRecommendationAsksTheArrFirst:
         resp = self._post(conn, "movie", 27205, radarr)
 
         assert resp.status_code == 502
+
+    def test_the_emailed_page_forgets_its_arr_list_when_a_pick_is_added(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        confirm._RADARR_CACHE["key"] = (0.0, {"radarr_movies": {}})
+
+        self._post(conn, "movie", 27205, radarr)
+
+        assert confirm._RADARR_CACHE == {}

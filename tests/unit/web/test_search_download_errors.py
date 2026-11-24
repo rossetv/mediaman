@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from mediaman.services.arr import ArrError
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import set_user_email
+from mediaman.web.routes.download import confirm
 from mediaman.web.routes.search import download as dl
 from tests.unit.web.test_search_download_rate_limit import (  # noqa: F401
     _setup_limiters,
@@ -170,3 +171,13 @@ def test_a_failed_re_monitor_of_a_filed_movie_is_still_a_failure(authed_client, 
 
     assert resp.status_code == 502
     assert _mailed(app) == []
+
+
+def test_the_emailed_page_forgets_its_arr_list_when_search_adds_a_title(authed_client):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = None
+    confirm._RADARR_CACHE["key"] = (0.0, {"radarr_movies": {}})
+    with patch(f"{_MODULE}.build_radarr_from_db", return_value=radarr):
+        authed_client.post("/api/search/download", json=_valid_body(tmdb_id=15))
+
+    assert confirm._RADARR_CACHE == {}
