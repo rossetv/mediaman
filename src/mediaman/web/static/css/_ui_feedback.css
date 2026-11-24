@@ -158,6 +158,7 @@ html:not(.has-space, .has-ttl) body:has(
   line-height: 1.2;
   margin-bottom: 8px;
   color: var(--t1);
+  overflow-wrap: anywhere;
 }
 
 .ui-confirm-body {

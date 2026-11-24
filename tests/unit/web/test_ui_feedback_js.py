@@ -39,6 +39,12 @@ def test_a_confirm_is_not_answered_by_the_rest_of_a_double_click_on_what_asked()
     assert out["byKey"] == [True, False]
 
 
+def test_a_long_unbroken_name_wraps_in_a_confirm_s_title() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_ui_feedback.css").read_text()
+    title = css.split(".ui-confirm-title {")[1].split("}")[0]
+    assert "overflow-wrap: anywhere" in title
+
+
 def test_a_confirm_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
     assert _run("bar") == {"held": "15px", "after": None}
 
