@@ -214,7 +214,7 @@ def test_closing_to_a_row_that_has_gone_still_lands() -> None:
 
 
 def test_nothing_loads_while_it_moves_nor_once_it_is_closed() -> None:
-    assert _run("loadsOnlyWhenStill") == {"moving": 0, "landed": 1, "closed": 1, "late": 0}
+    assert _run("loadsOnlyWhenStill") == {"moving": 0, "landed": 1, "closed": 1, "heard": 0}
 
 
 def test_a_stopped_grid_listens_to_nothing_more() -> None:

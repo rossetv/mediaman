@@ -1025,7 +1025,6 @@
       now.list.hold(false);
     } else {
       empty();
-      place = null;
     }
   }
 
@@ -1159,7 +1158,6 @@
       scrollPage(place.y);
       empty();
       focusRows(opts, key);
-      place = null;
       return;
     }
     pin(browse, 0); // laid out, and out of the way of the grid, while they are put back
@@ -1197,9 +1195,7 @@
      were is kept for a grid opened again (opts.again). */
   function leave() {
     if (!now) return;
-    var rows = place;
     if (move) { move.to = 'rows'; settle(); } else empty();
-    place = rows;
     browse.hidden = true;
     scrollPage(0);
     lastY = window.scrollY;

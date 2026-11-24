@@ -442,6 +442,7 @@ const scenarios = {
   async loadsOnlyWhenStill() {
     const p = load({ motion: true });
     const asked = [];
+    const heard = p.heard('scroll');
     p.grid.open(p.opts({ next: 'a', fetchPage: (n) => { asked.push(n); return new Promise(() => {}); } }));
     p.fire('scroll');
     const moving = asked.length;
@@ -450,14 +451,7 @@ const scenarios = {
     p.grid.close();
     p.finish();
     p.fire('scroll');
-    const closed = asked.length;
-    p.grid.open(p.opts({ next: 'b', fetchPage: (n) => { asked.push(n); return Promise.resolve({ cards: [], next: 'c' + asked.length }); } }));
-    p.grid.close();
-    p.finish();
-    const count = asked.length;
-    p.fire('scroll');
-    await settle();
-    return { moving, landed, closed, late: asked.length - count };
+    return { moving, landed, closed: asked.length, heard: p.heard('scroll') - heard };
   },
 
   // A grid that is stopped listens to nothing more.

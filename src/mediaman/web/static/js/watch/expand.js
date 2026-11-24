@@ -191,7 +191,7 @@
   /* A title as A to Z reads it, as the server does. */
   function azOf(card) {
     var name = card.querySelector('.watch-card__title').textContent.trim();
-    return name.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/^(?:the|an?)\s+(?=\S)/, '');
+    return name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/^(?:the|an?)\s+(?=\S)/, '');
   }
 
   function byTitle(cards) {
