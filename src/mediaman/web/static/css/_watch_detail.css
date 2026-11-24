@@ -267,7 +267,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__actions .watch-btn--grey,
 .ttl__actions .btn--primary { padding-inline: 24px; font-size: 16px; }
 .ttl__actions .btn--primary { font-weight: 600; }
-.ttl__actions .btn > .ico { font-size: 13px; }
+.ttl__actions .btn > .ico,
+.ttl__actions .watch-mark-btn__faces .ico { font-size: 13px; }
 .ttl__actions .skel--pill { flex: none; }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .ttl__download .btn-spinner { margin-right: 0; }

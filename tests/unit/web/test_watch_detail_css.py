@@ -85,6 +85,11 @@ def test_the_seasons_of_a_show_never_wrap_onto_a_second_line() -> None:
     assert "flex: none" in _of(".ttl .watch-pill")
 
 
+def test_the_watched_button_s_icon_is_the_size_of_the_others() -> None:
+    icons = ".ttl__actions .btn > .ico"
+    assert _of(".ttl__actions .watch-mark-btn__faces .ico") == _of(icons) != ""
+
+
 def test_a_button_s_label_never_wraps_on_a_phone() -> None:
     # Each is as wide as its label at least, and a row takes as many as fit it.
     assert "flex: 1 1 120px" in _of(".ttl__actions > .btn", PHONE)
