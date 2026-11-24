@@ -196,3 +196,12 @@ def test_volume_and_mute_carry_to_the_next_video(markup):
 def test_a_saved_volume_that_makes_no_sense_is_ignored(markup, stored):
     start = run(markup, "volume", saved={"mediaman.watch.volume": stored})["start"]
     assert (start["volume"], start["muted"]) == (1, False)
+
+
+def test_the_seek_bar_answers_the_keys_of_a_slider(markup):
+    assert run(markup, "seek_keys") == {
+        "ArrowUp": 10,
+        "ArrowDown": -10,
+        "PageUp": 60,
+        "PageDown": -60,
+    }

@@ -32,6 +32,7 @@
   var IDLE_MS = 3000;
   var SAVE_EVERY_MS = 10000;
   var SKIP_S = 10;
+  var PAGE_S = 60;
   var COUNTDOWN_S = 10;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
@@ -654,8 +655,15 @@
   els.seek.addEventListener('pointerup', function (e) { endDrag(e, true); });
   els.seek.addEventListener('pointercancel', function (e) { endDrag(e, false); });
   els.seek.addEventListener('keydown', function (e) {
-    if (e.key === 'Home') { seekTo(0); e.preventDefault(); }
-    else if (e.key === 'End') { seekTo(duration()); e.preventDefault(); }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Home') seekTo(0);
+    else if (e.key === 'End') seekTo(duration());
+    else if (e.key === 'ArrowUp') skip(SKIP_S);
+    else if (e.key === 'ArrowDown') skip(-SKIP_S);
+    else if (e.key === 'PageUp') skip(PAGE_S);
+    else if (e.key === 'PageDown') skip(-PAGE_S);
+    else return;
+    e.preventDefault();
   });
 
   /* ---- buttons -------------------------------------------------------- */
