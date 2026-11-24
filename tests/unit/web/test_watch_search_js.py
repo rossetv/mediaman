@@ -554,6 +554,18 @@ def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None
     assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
 
 
+def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() -> None:
+    # Waiting, then shown: failed, not counted yet, none, some, none, none.
+    assert _run("placeHeldForPeople") == [
+        [True, False],
+        [True, False],
+        [True, False],
+        [False, True],
+        [True, False],
+        [False, False],
+    ]
+
+
 def test_the_place_of_late_categories_is_held_and_the_highlight_stays_where_it_was() -> None:
     out = _run("redrawnUnderTheHighlight")
     heads = ["Browse by category", "People in your library", "Or try"]

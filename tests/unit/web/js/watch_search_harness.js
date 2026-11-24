@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, every = () => 0 } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, every = () => 0, stored = {} } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -56,6 +56,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     scrollY: 0,
     scrollTo: (o) => { ctx.scrollY = o.top; },
     sessionStorage: { getItem: () => null, setItem() {} },
+    localStorage: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = v; }, removeItem: (k) => { delete stored[k]; } },
     location: {
       get pathname() { return here().pathname; },
       get search() { return here().search; },
@@ -1199,6 +1200,26 @@ const scenarios = {
     q.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.reject(new Error('502')));
     await settle();
     return { before, after, entered, failed: q.sheet.children.map((n) => n.className) };
+  },
+
+  // What the sheet holds a place for, from one visit to the next of one browser, then what it shows.
+  async placeHeldForPeople() {
+    const stored = {};
+    const visit = async (reply) => {
+      const p = load(ADMIN, '', null, null, { stored });
+      p.press();
+      p.input.focus();
+      const titles = () => p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent).includes('People in your library');
+      const waiting = titles();
+      if (reply) await p.answer('/api/watch/explore', { tmdb_configured: true, genres: GENRES, decades: DECADES, ...reply });
+      else { p.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.reject(new Error('502'))); await settle(); }
+      return [waiting, titles()];
+    };
+    const none = { people: [], library: { ready: true } };
+    const some = { people: [{ person_id: 1, name: 'Mara', count: 3 }], library: { ready: true } };
+    const out = [];
+    for (const reply of [null, { people: [], library: { ready: false } }, none, some, none, none]) out.push(await visit(reply));
+    return out;
   },
 
   // The categories themselves could not be had: what was typed may name one, so it is not said to match nothing.

@@ -26,6 +26,7 @@
   // The categories the sheet opens on; the rest stand below what else it offers.
   var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
   var PEOPLE = 6;
+  var NO_PEOPLE = 'mm.watch.no-people'; // stored while the library has none, so no place is held for them
   // TMDB answers nothing for less; do not ask.
   var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
@@ -692,6 +693,18 @@
       sheet.appendChild(part);
     }
 
+    function peopleComing() {
+      try { return !window.localStorage.getItem(NO_PEOPLE); } catch (e) { return true; }
+    }
+
+    function rememberPeople(all) {
+      if (!all.people.length && !(all.library && all.library.ready)) return; // not counted yet
+      try {
+        if (all.people.length) window.localStorage.removeItem(NO_PEOPLE);
+        else window.localStorage.setItem(NO_PEOPLE, '1');
+      } catch (e) { /* storage blocked */ }
+    }
+
     /* Draw the sheet from the categories and people of *all*; *waiting*: they are
        on their way, and their place is held. */
     function drawSheet(all, waiting) {
@@ -703,12 +716,14 @@
       var first = FIRST.map(function (id) { return all.genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
       var more = all.genres.filter(function (g) { return first.indexOf(g) === -1; });
       var folk = all.people.slice(0, PEOPLE);
+      var held = waiting && peopleComing();
+      if (!waiting) rememberPeople(all);
       sheet.textContent = '';
       drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
-      drawPart('People in your library', 'watch-people', waiting ? times(PEOPLE, personOutline) : folk.map(personTile));
+      drawPart('People in your library', 'watch-people', held ? times(PEOPLE, personOutline) : folk.map(personTile));
       drawPart('Or try', 'watch-tries', TRIES.map(function (text, i) {
         var b = option(tryButton(text), 'try-' + i);
-        return again ? b : staged(b, (waiting || folk.length ? 190 : 130) + i * 22);
+        return again ? b : staged(b, (held || folk.length ? 190 : 130) + i * 22);
       }));
       drawPart('More categories', 'watch-tiles', more.map(genreTile));
       if (at) pick(byId(at));
