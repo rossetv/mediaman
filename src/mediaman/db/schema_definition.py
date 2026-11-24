@@ -54,10 +54,19 @@ CREATE TABLE IF NOT EXISTS watch_progress (
     watched INTEGER NOT NULL DEFAULT 0,
     credited_at TEXT,
     updated_at TEXT NOT NULL,
+    seen_at TEXT,
     PRIMARY KEY (username, rating_key)
 );
 CREATE INDEX IF NOT EXISTS idx_watch_progress_media_item ON watch_progress(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_user_updated ON watch_progress(username, updated_at);
+
+-- Titles a person hid from Continue watching; they return when played again.
+CREATE TABLE IF NOT EXISTS watch_dismissed (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    title_key TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (username, title_key)
+);
 
 -- === Scanner (media items, scheduled actions, kept shows, audit log) ===
 CREATE TABLE IF NOT EXISTS media_items (
@@ -79,7 +88,8 @@ CREATE TABLE IF NOT EXISTS media_items (
     last_scanned_at TEXT,
     tmdb_id INTEGER,
     tvdb_id INTEGER,
-    tracked_files TEXT
+    tracked_files TEXT,
+    episode_count INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (
@@ -190,7 +200,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
     metascore TEXT,
     batch_id TEXT,
     downloaded_at TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    backdrop_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ratings_cache (

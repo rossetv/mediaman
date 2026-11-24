@@ -138,3 +138,58 @@ def test_an_old_database_records_when_a_search_was_last_seen_and_keeps_its_start
     row = conn.execute("SELECT since, last_seen FROM arr_searching_since").fetchone()
     assert tuple(row) == ("2020", None)
     conn.close()
+
+
+_OLD_WATCH_TABLES = """
+CREATE TABLE watch_progress (
+    username TEXT NOT NULL,
+    rating_key TEXT NOT NULL,
+    media_item_id TEXT,
+    show_rating_key TEXT,
+    position_s REAL NOT NULL DEFAULT 0,
+    duration_s REAL NOT NULL DEFAULT 0,
+    watched INTEGER NOT NULL DEFAULT 0,
+    credited_at TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (username, rating_key)
+);
+INSERT INTO watch_progress (username, rating_key, position_s, updated_at)
+VALUES ('amy', '7', 12.5, '2020');
+CREATE TABLE suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+INSERT INTO suggestions (title, media_type, created_at) VALUES ('T', 'movie', '2020');
+"""
+
+
+def test_an_old_database_gains_the_mark_columns_and_keeps_its_rows(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_WATCH_TABLES)
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    progress = conn.execute("SELECT position_s, seen_at FROM watch_progress").fetchone()
+    assert tuple(progress) == (12.5, None)
+    assert conn.execute("SELECT backdrop_url FROM suggestions").fetchone()[0] is None
+    assert "episode_count" in _columns(conn)
+    conn.close()
+
+
+def test_a_dismissal_goes_with_its_user(tmp_path):
+    conn = init_db(str(tmp_path / "new.db"))
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at) VALUES ('amy','h','2020')"
+    )
+    conn.execute("INSERT INTO watch_dismissed VALUES ('amy', 'show:1', '2020')")
+    conn.commit()
+
+    conn.execute("DELETE FROM admin_users WHERE username='amy'")
+
+    assert conn.execute("SELECT count(*) FROM watch_dismissed").fetchone()[0] == 0
+    conn.close()
