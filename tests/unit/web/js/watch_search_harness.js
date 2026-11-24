@@ -681,6 +681,41 @@ const scenarios = {
     return out;
   },
 
+  // What is typed begins a word however either is spelled; what stands out is the title's own letters.
+  async foldedSuggestions() {
+    const p = await ready(ADMIN);
+    const typed = async (title, q) => {
+      await p.search(q);
+      await p.answer('/api/watch/search?', { items: [{ ...LIB, title }] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      const marks = p.doc.querySelectorAll('.watch-suggestion--title em').map((n) => n.textContent);
+      return marks.length ? marks[0] : null;
+    };
+    const out = [];
+    for (const [title, q] of [['Amélie', 'ame'], ['Amelie', 'Amé'], ['The Handmaid’s Tale', 'handmaids'], ['The Amazing Spider-Man', 'spiderman'],
+      ['Spiderman Returns', 'spider-man'], ['WALL·E', 'wall-e'], ['Law & Order', 'law and'], ['Law and Order', 'law & o'], ['A & B', 'b'],
+      ['S.W.A.T.', 'swat'], ['Se7en!', 'se7en!'], ['…And Then', '…'], ['Anthill', 'hill'], ['O’Hara', 'hara'], ['Salt', '!']]) out.push(await typed(title, q));
+    return out;
+  },
+
+  // TMDB found what the library holds, which its own search may not have: it stands once, among what is held, with its Keep.
+  async heldByTmdb() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    const held = { ...TM, in_library: true, library_ref: 'movie-1', title: 'Orchard Keepers' };
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true,
+      items: [held, { ...held, ref: 'tmdb-movie-10', library_ref: 'movie-2', title: 'L’Orchard', href: '/watch/movie/2', leaving_days: 3, keep_id: '2' }, { ...TM, ref: 'tmdb-movie-11' }] });
+    const out = { heads: p.heads(), titles: p.titles('.watch-card'), counts: p.doc.querySelectorAll('.results-group__count').map((n) => n.textContent),
+      keeps: p.doc.querySelectorAll('[data-watch-keep]').map((n) => n.getAttribute('data-watch-keep')), status: p.status.textContent };
+    const q = await ready(ADMIN);
+    await q.search('amelie');
+    await q.answer('/api/watch/search?', { items: [], total: 0 });
+    await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...held, title: 'Amélie', href: '/watch/movie/1' }] });
+    out.alone = [q.heads(), q.line(), q.doc.querySelector('.watch-card__link').href];
+    return out;
+  },
+
   // The column beside the grid goes only once nothing is known to come into it, so the grid is not moved and moved back.
   async column() {
     const p = await ready(ADMIN);

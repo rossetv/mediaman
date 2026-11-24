@@ -236,6 +236,36 @@ def test_categories_are_suggested_on_the_keystroke_and_people_once_they_are_know
     assert out["begun"] == "Action | Category · Popular"
 
 
+def test_what_is_typed_begins_a_word_whatever_its_accents_and_punctuation() -> None:
+    assert _run("foldedSuggestions") == [
+        "Amé",
+        "Ame",
+        "Handmaid’s",
+        "Spider-Man",
+        "Spiderman",
+        "WALL·E",
+        "Law &",
+        "Law and O",
+        "B",
+        "S.W.A.T",
+        "Se7en",
+        "…",
+        None,
+        None,
+        None,
+    ]
+
+
+def test_a_held_title_that_only_tmdb_found_stands_once_in_the_library_group() -> None:
+    out = _run("heldByTmdb")
+    assert out["heads"] == ["In your library", "Available to download"]
+    assert out["titles"] == ["Orchard Keepers", "L’Orchard", "Orchard Road"]
+    assert out["counts"] == ["2 titles", "1 title"]
+    assert out["keeps"] == ["7", "2"]
+    assert out["status"].startswith("2 in your library, 1 available to download")
+    assert out["alone"] == [["In your library"], None, "/watch/movie/1"]
+
+
 def test_the_column_beside_the_grid_goes_only_once_it_is_known_to_stay_empty() -> None:
     assert _run("column") == {
         "first": False,

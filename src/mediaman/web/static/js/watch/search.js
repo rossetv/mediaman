@@ -480,23 +480,55 @@
     return node;
   }
 
+  /* The letters and digits of *text*, without case or accents; "&" is "and". */
+  function folded(text) {
+    return String(text || '').toLowerCase().replace(/&/g, 'and').normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
+  }
+
+  /* Where *typed* begins a word of *text*, as [from, to], or null; spaces, accents and
+     punctuation are the same with or without. */
+  function place(text, typed) {
+    var want = folded(typed);
+    // Nothing but punctuation is taken as it is.
+    if (!want) return typed && text.indexOf(typed) === 0 ? [0, typed.length] : null;
+    var plain = '';
+    var from = []; // of each letter of plain, its place in text
+    var to = [];
+    var first = []; // whether it begins a word
+    var inWord = false;
+    text.replace(/[\s\S]/gu, function (char, at) {
+      var letters = char === '&' ? 'and' : folded(char);
+      for (var i = 0; i < letters.length; i++) {
+        first.push(!i && (!inWord || char === '&'));
+        from.push(at);
+        to.push(at + char.length);
+      }
+      plain += letters;
+      // An accent of its own and an apostrophe are inside their word.
+      inWord = char !== '&' && (letters !== '' || (inWord && /[\p{M}'’‘`]/u.test(char)));
+      return char;
+    });
+    for (var at = plain.indexOf(want); at > -1; at = plain.indexOf(want, at + 1)) {
+      if (first[at]) return [from[at], to[at + want.length - 1]];
+    }
+    return null;
+  }
+
   /* *text*, what was typed standing out in it where it begins a word. */
   function marked(text, typed) {
     var b = el('b');
-    var at = typed ? text.toLowerCase().indexOf(typed) : -1;
-    if (at === -1 || (at > 0 && !/[\s-]/.test(text.charAt(at - 1)))) {
+    var at = typed ? place(text, typed) : null;
+    if (!at) {
       b.textContent = text;
       return b;
     }
-    b.appendChild(document.createTextNode(text.slice(0, at)));
-    b.appendChild(el('em', '', text.slice(at, at + typed.length)));
-    b.appendChild(document.createTextNode(text.slice(at + typed.length)));
+    b.appendChild(document.createTextNode(text.slice(0, at[0])));
+    b.appendChild(el('em', '', text.slice(at[0], at[1])));
+    b.appendChild(document.createTextNode(text.slice(at[1])));
     return b;
   }
 
-  function begins(text, typed) {
-    return (' ' + String(text || '').toLowerCase().replace(/-/g, ' ')).indexOf(' ' + typed.replace(/-/g, ' ')) > -1;
-  }
+  function begins(text, typed) { return place(String(text || ''), typed) !== null; }
 
   /* A key of an input method. Safari sends the one that ends it after the end. */
   function composing(e) { return e.isComposing || e.keyCode === 229; }
@@ -1156,22 +1188,24 @@
       status.textContent = text;
     }
 
-    /* The two lists as they are shown. Titles of a category that was named in
-       full join the one they belong to, after the matches. */
+    /* The two lists as they are shown. What TMDB knows joins the one it belongs
+       to; titles of a category that was named in full come after the matches. */
     function gather(c) {
       var lib = (c.lib.items || []).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
-      var out = (c.tmdb.items || []).map(function (item) { return { item: item, key: item.ref, build: buildTmdbCard }; });
+      var out = [];
       var total = c.lib.total || 0;
-      var seen = new Set(lib.concat(out).map(function (x) { return x.key; }));
-      ((c.cat && c.cat.items) || []).forEach(function (item) {
-        var key = item.library_ref || item.ref;
-        if (seen.has(key) || seen.has(item.ref)) return;
-        seen.add(key);
-        if (item.in_library) {
-          lib.push({ item: item, key: key, build: buildHeldCard });
-          // One that matches by name too is among those found and not shown.
-          if (String(item.title || '').toLowerCase().indexOf(c.q.toLowerCase()) === -1) total++;
-        } else out.push({ item: item, key: key, build: buildTmdbCard });
+      var seen = new Set(lib.map(function (x) { return x.key; }));
+      [c.tmdb.items, c.cat && c.cat.items].forEach(function (items) {
+        (items || []).forEach(function (item) {
+          var key = item.library_ref || item.ref;
+          if (seen.has(key) || seen.has(item.ref)) return;
+          seen.add(key).add(item.ref);
+          if (item.in_library) {
+            lib.push({ item: item, key: key, build: buildHeldCard });
+            // One that matches by name too is among those found and not shown.
+            if (folded(item.title).indexOf(folded(c.q)) === -1) total++;
+          } else out.push({ item: item, key: key, build: buildTmdbCard });
+        });
       });
       return { lib: lib, out: out, total: Math.max(total, lib.length) };
     }
