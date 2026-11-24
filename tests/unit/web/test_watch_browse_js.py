@@ -294,6 +294,12 @@ def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> Non
     assert "margin-left: 0" in wide[1]
 
 
+def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    phone = "".join(re.findall(r"@media \(max-width: 599\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
+    assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
