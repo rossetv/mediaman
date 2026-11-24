@@ -395,7 +395,7 @@ function boot(html, reduced, saved, serverPlays) {
     },
     localStorage: storeOf(storage),
     sessionStorage: storeOf(session),
-    Date: { now: () => clock.now },
+    Date: Object.assign(function (ms) { return new Date(ms); }, { now: () => clock.now }),
     AbortController: AbortController,
     DOMParser: DOMParser,
     history: { urls: [], replaceState(state, title, url) { this.urls.push(url); } },
@@ -1709,6 +1709,7 @@ const scenarios = {
     press(trigger);
     press(p.q('[data-keep-days="7"]'));
     await settle();
+    const said = [p.q('[data-keep]').textContent.trim(), p.toasts[0].text];
     if (p.win.serverPlays === 'next') {
       p.replies.push(answer('1080p-8000'));
       p.pages['/watch/play/504'] = p.pages['/plain'];
@@ -1721,6 +1722,7 @@ const scenarios = {
     p.toasts.filter((t) => t.action)[0].action.onClick();
     await settle();
     return {
+      said: said,
       focus: doc.activeElement === trigger ? 'keep' : doc.activeElement === p.q('[data-play]') ? 'play' : 'nothing',
       undone: p.calls.filter((c) => /\/unkeep$/.test(c.url)).map((c) => c.body.media_item_id),
     };

@@ -686,6 +686,20 @@ class TestLibraryRowOrder:
 
         assert {c["title"]: c["subtitle"] for c in rows["Movies"]}["Zephyr"] == "Movie · 2026"
 
+    def test_the_year_plex_gave_stands_over_the_folders_in_every_row(self, get, conn):
+        _add_movie(conn, "103", "Zephyr", NOW, file_path="/films/Zephyr (2026)/Zephyr.mkv")
+        _add_movie(conn, "104", "Bare", NOW, file_path="/films/Bare.mkv")
+        conn.execute("UPDATE media_items SET year = 1983 WHERE id = '103'")
+        conn.commit()
+        _schedule(conn, "103", 3)
+
+        rows = _rows(get("/watch").json())
+
+        for row in ("Movies", "Recently added", "Leaving soon"):
+            captions = {c["title"]: c["subtitle"] for c in rows[row]}
+            assert captions["Zephyr"] == "Movie · 1983"
+            assert captions.get("Bare", "Movie") == "Movie"
+
 
 class TestMarks:
     def test_a_seen_film_keeps_its_mark_through_a_replay(self, get, conn):

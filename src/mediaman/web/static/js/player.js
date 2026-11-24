@@ -48,6 +48,7 @@
   var PAGE_S = 60;
   var AUTOPLAY_KEY = 'mediaman.watch.autoplay';
   var COUNTDOWN_S = 10;
+  var DAY_MS = 24 * 60 * 60 * 1000;
   /* "Are you still watching?": after this many episodes that began by
      themselves, or this long without a sign of anybody. */
   var SITTING_KEY = 'mediaman.watch.sitting';
@@ -1604,7 +1605,9 @@
             keep.appendChild(done);
             if (hadFocus) { done.tabIndex = -1; done.focus(); }
             if (window.UIFeedback) {
-              window.UIFeedback.toast('Kept for ' + days + ' days', {
+              var until = new Date(Date.now() + days * DAY_MS)
+                .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+              window.UIFeedback.toast('Kept until ' + until, {
                 variant: 'success',
                 action: { label: 'Undo', onClick: function () { undoKeep(done, original, days); } }
               });

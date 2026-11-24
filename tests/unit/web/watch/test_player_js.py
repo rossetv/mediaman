@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -815,7 +816,14 @@ def test_the_next_episode_s_own_keep_works(markup, season):
 def test_undoing_a_keep_puts_the_focus_where_it_can_be(markup, season, where, focus):
     pages = {**season, "/plain": season["/watch/play/504"]}
     out = run(markup, "keep_undone", plays=where, pages=pages)
-    assert out == {"focus": focus, "undone": ["88"]}
+    assert (out["focus"], out["undone"]) == (focus, ["88"])
+
+
+def test_a_keep_says_for_how_long_on_its_pill_and_until_when_in_the_toast(markup, season):
+    pages = {**season, "/plain": season["/watch/play/504"]}
+    pill, toast = run(markup, "keep_undone", plays="here", pages=pages)["said"]
+    assert pill == "Kept for 7 days"
+    assert re.fullmatch(r"Kept until [78] Jan 1970", toast)
 
 
 @pytest.mark.parametrize("answer", ["redirect", "other"])
