@@ -1111,6 +1111,16 @@ const scenarios = {
     }
     return out;
   },
+
+  // A person who could not be had is asked for anew by the next try.
+  async personAgain() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    p.calls[0].reject(new Error('502'));
+    await settle();
+    const again = p.grids[0].opts.fetchPage(1).catch(() => ({ cards: [] }));
+    await p.answer('person/9001', { tmdb_configured: true, person: MARA, items: [TM], total: 1, in_library: 0, next_page: null });
+    return [p.calls.length, (await again).cards.length > 0, p.doc.querySelector('.explore-title').textContent];
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

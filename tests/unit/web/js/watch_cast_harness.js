@@ -30,7 +30,7 @@ function reply(over) {
   };
 }
 
-function load(cast = CAST) {
+function load(cast = CAST, motion = false) {
   const doc = makeDocument();
   const clock = { now: Date.UTC(2026, 10, 24, 12) };
   let timers = [];
@@ -50,7 +50,7 @@ function load(cast = CAST) {
     clearTimeout: (n) => { timers = timers.filter((t) => t.id !== n); },
     requestAnimationFrame: (fn) => fn(),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
-    matchMedia: () => ({ matches: true }), // reduced motion: nothing flies in here
+    matchMedia: () => ({ matches: !motion }), // reduced motion: nothing flies
     addEventListener: () => {},
     innerHeight: 900,
     MMWatch: {
@@ -244,6 +244,52 @@ const scenarios = {
     p.over(p.item(0));
     await p.wait(300);
     return { gone, again: p.card().bio, asked: p.asked };
+  },
+
+  // Scrolled under a pointer that does not move, then moved along the strip once that has settled.
+  async scrolled() {
+    const p = load();
+    p.fire('scroll', {});
+    p.over(p.item(0));
+    await p.wait(150);
+    const soon = p.card();
+    await p.wait(400);
+    const still = p.card();
+    p.over(p.item(0));
+    await p.wait(300);
+    return { soon, still, then: !!p.card() };
+  },
+
+  // A photo on its way to the page is called home: the trip out ending says nothing of the trip home.
+  async turnedRound() {
+    const p = load(CAST, true);
+    const trips = [];
+    p.item(0).querySelector('.ttl-cast__avatar').offsetLeft = p.item(0).querySelector('.ttl-cast__avatar').offsetTop = 0;
+    Node.prototype.getAnimations = function () {
+      if (!this.classList.contains('cast-fly')) return [];
+      return [{ finished: new Promise((resolve) => trips.push(resolve)) }];
+    };
+    try {
+      p.ctx.MMWatch.explore.openPerson = () => {
+        p.doc.getElementById('watch-results').appendChild(build(p.doc, ['div', { class: 'results-page' },
+          ['h1', { class: 'explore-title' }, 'Mara Ellison'], ['span', { class: 'explore-photo' }]]));
+      };
+      click(p.doc, p.item(0));
+      const flying = () => p.doc.querySelectorAll('.cast-fly').length;
+      const out = [flying()];
+      p.doc.querySelector('.results-page').classList.add('is-leaving');
+      p.cast.land('cast-0');
+      out.push(trips.length);
+      trips[0]();
+      await settle();
+      out.push(flying(), p.item(0).classList.contains('is-out'));
+      trips[1]();
+      await settle();
+      out.push(flying(), p.item(0).classList.contains('is-out'));
+      return out;
+    } finally {
+      delete Node.prototype.getAnimations;
+    }
   },
 };
 

@@ -122,3 +122,11 @@ def test_a_strip_drawn_again_takes_its_card_away_and_keeps_what_came_meanwhile()
     assert out["gone"] is None
     assert out["again"] == "Trained in <b>Leeds</b>."
     assert out["asked"] == ["9001"]
+
+
+def test_people_who_come_under_a_still_pointer_by_a_scroll_open_no_card() -> None:
+    assert _run("scrolled") == {"soon": None, "still": None, "then": True}
+
+
+def test_a_photo_called_home_midway_flies_on_until_it_is_home() -> None:
+    assert _run("turnedRound") == [1, 2, 1, True, 0, False]

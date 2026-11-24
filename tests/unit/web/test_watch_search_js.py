@@ -474,3 +474,7 @@ def test_what_loads_on_a_category_or_person_is_said_after_what_the_page_is() -> 
 def test_a_search_emptied_over_a_grid_returns_to_that_grid() -> None:
     back = ["/watch?all=movies&sort=az", 0, 2, "", True, 120, False]
     assert _run("emptiedOverGrid") == [back, back, back]
+
+
+def test_a_person_who_could_not_be_had_is_asked_for_again() -> None:
+    assert _run("personAgain") == [2, True, "Mara Ellison"]
