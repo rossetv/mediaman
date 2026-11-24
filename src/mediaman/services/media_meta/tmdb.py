@@ -205,19 +205,20 @@ class TmdbClient:
         year: int | None = None,
         media_type: str = "movie",
     ) -> list[TmdbSearchResult]:
-        """Return the first page of /search/{movie|tv}, best match first.
+        """Return the first page of /search/{movie|tv} without adult titles, best match first.
 
         A failed request raises (SafeHTTPError, requests.RequestException or ValueError),
         so a caller can tell a no-match from an outage.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
-        params: dict[str, object] = {"query": title}
+        # requests would send a bool as "False".
+        params: dict[str, object] = {"query": title, "include_adult": "false"}
         if year:
             params["year" if endpoint == "movie" else "first_air_date_year"] = year
         results: list[TmdbSearchResult] = (
             self._get(f"/search/{endpoint}", params).get("results") or []
         )
-        return results
+        return [r for r in results if not r.get("adult")]
 
     def search_multi(self, title: str) -> TmdbSearchResult | None:
         """Return the first /search/multi result, for callers that only know the title.

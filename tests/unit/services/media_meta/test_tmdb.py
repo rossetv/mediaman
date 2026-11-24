@@ -178,6 +178,14 @@ class TestSearch:
         with pytest.raises(SafeHTTPError):
             client.search_results_or_raise("Dune", year=2021)
 
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_a_title_search_gives_no_adult_title(self, fake_http, fake_response, media_type):
+        found = [{"id": 1, "title": "Dune", "adult": True}, {"id": 2, "title": "Dune"}]
+        fake_http.queue("GET", fake_response(json_data={"results": found}))
+        results = TmdbClient("token").search_results_or_raise("Dune", media_type=media_type)
+        assert [r["id"] for r in results] == [2]
+        assert fake_http.calls[0][2]["params"]["include_adult"] == "false"
+
     def test_returns_none_on_empty_results(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"results": []}))
         client = TmdbClient("token")
