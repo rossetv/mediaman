@@ -204,6 +204,8 @@
     offerSkip(null);
     troubleAtPlayed = 0;
     clearTrouble();
+    clearTimeout(seekSaveTimer);
+    hideUpnext();
   }
 
   /* Every way of getting over a failing stream may be tried again. */
