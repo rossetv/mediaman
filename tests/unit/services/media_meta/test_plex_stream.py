@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import socket
 import threading
 import time
 from urllib.parse import urlsplit
@@ -21,6 +22,7 @@ from mediaman.services.media_meta.plex_stream import (
     MAX_READS_TOTAL,
     MAX_STREAMS_PER_USER,
     MAX_STREAMS_TOTAL,
+    SegmentRead,
     StreamGone,
     StreamManager,
     StreamReplaced,
@@ -176,7 +178,8 @@ def _start(manager: StreamManager, user: str = "alice", **kwargs) -> str:
 
 
 def _segment(manager: StreamManager, stream_id: str, user: str, name: str) -> tuple[bytes, str]:
-    read = manager.claim_read(stream_id, user)
+    read = SegmentRead(stream_id, user)
+    manager.claim_read(read)
     try:
         return manager.segment(read, name)
     finally:
@@ -990,7 +993,9 @@ def _fill(manager: StreamManager, stream_id: str, user: str) -> list:
     reads = []
     with contextlib.suppress(TooManyReads):
         while len(reads) < 100:
-            reads.append(manager.claim_read(stream_id, user))
+            read = SegmentRead(stream_id, user)
+            manager.claim_read(read)
+            reads.append(read)
     return reads
 
 
@@ -1042,14 +1047,14 @@ def _body_of(plex, chunks):
 @pytest.mark.parametrize("why", ["stopped", "unwanted"])
 def test_a_read_ends_midway_once_its_stream_is_stopped_or_nobody_wants_it(manager, plex, why):
     stream_id = _start(manager)
-    read = manager.claim_read(stream_id, "alice")
+    read = SegmentRead(stream_id, "alice")
 
     def chunks():
         yield b"one"
         if why == "stopped":
             manager.stop(stream_id, "alice")
         else:
-            read.unwanted.set()
+            read.cancel()
         yield b"two"
         pytest.fail("read on")
 
@@ -1061,8 +1066,8 @@ def test_a_read_ends_midway_once_its_stream_is_stopped_or_nobody_wants_it(manage
 
 def test_an_unwanted_read_never_asks_plex(manager, plex):
     stream_id = _start(manager)
-    read = manager.claim_read(stream_id, "alice")
-    read.unwanted.set()
+    read = SegmentRead(stream_id, "alice")
+    read.cancel()
     asked = len(plex.calls)
 
     with pytest.raises(StreamGone):
@@ -1072,7 +1077,7 @@ def test_an_unwanted_read_never_asks_plex(manager, plex):
 
 def test_a_segment_that_trickles_in_is_given_up(manager, plex, clock):
     stream_id = _start(manager)
-    read = manager.claim_read(stream_id, "alice")
+    read = SegmentRead(stream_id, "alice")
 
     def chunks():
         for _ in range(10):
@@ -1129,3 +1134,77 @@ def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
         with pytest.raises(StreamGone) as caught:
             manager.get(stream_id, "alice")
         assert not isinstance(caught.value, StreamReplaced)
+
+
+class SlowPlex:
+    """A real server that answers each segment with *sent*, then nothing until it is closed."""
+
+    def __init__(self, sent: bytes) -> None:
+        self._sent = sent
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        self.url = f"http://plex.test:{self._listener.getsockname()[1]}"
+        self.asked = threading.Semaphore(0)
+        self.hung_up = threading.Semaphore(0)
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        with contextlib.suppress(OSError):
+            while True:
+                conn = self._listener.accept()[0]
+                threading.Thread(target=self._answer, args=(conn,), daemon=True).start()
+
+    def _answer(self, conn: socket.socket) -> None:
+        with conn:
+            conn.settimeout(10)
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(65536)
+            closes = b"\r\nConnection: close\r\n" in request
+            conn.sendall(self._sent.replace(b"keep-alive", b"close" if closes else b"keep-alive"))
+            self.asked.release()
+            with contextlib.suppress(OSError):
+                if conn.recv(1) == b"":
+                    self.hung_up.release()
+
+    def close(self) -> None:
+        self._listener.close()
+
+
+_HEAD = b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\nConnection: keep-alive\r\n\r\n"
+
+
+@pytest.mark.parametrize("sent", [b"", _HEAD + b"some"], ids=["headers", "body"])
+def test_cancelling_a_read_hangs_up_on_plex_whatever_it_waits_for(plex, monkeypatch, caplog, sent):
+    server = SlowPlex(sent)
+    monkeypatch.setattr(
+        plex_stream,
+        "resolve_safe_outbound_url",
+        lambda url, **kwargs: (True, "plex.test", ("127.0.0.1",)),
+    )
+    manager = StreamManager(lambda: (server.url, TOKEN), session=plex)
+    stream_id = _start(manager)
+    manager._session = StreamManager(lambda: None)._session
+    read = SegmentRead(stream_id, "alice")
+    outcome = []
+
+    def fetch():
+        try:
+            manager.segment(read, "00001.ts")
+        except StreamGone as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=fetch, daemon=True)
+    thread.start()
+    try:
+        assert server.asked.acquire(timeout=5)
+        if sent:
+            time.sleep(0.05)
+        read.cancel()
+        thread.join(2)
+        assert server.hung_up.acquire(timeout=2)
+    finally:
+        server.close()
+
+    assert len(outcome) == 1
+    assert outcome[0].__context__ is None
+    assert "could not reach Plex" not in caplog.text

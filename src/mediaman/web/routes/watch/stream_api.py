@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
-import threading
 from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
@@ -252,21 +251,20 @@ def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -
     return Response(text, media_type="application/vnd.apple.mpegurl")
 
 
-async def _note_disconnect(request: Request, gone: threading.Event) -> None:
+async def _cancel_on_disconnect(request: Request, read: SegmentRead) -> None:
     while (await request.receive())["type"] != "http.disconnect":
         pass
-    gone.set()
+    read.cancel()
 
 
-async def _claim_read(
-    manager: StreamManager, stream_id: str, username: str, gone: threading.Event
-) -> SegmentRead:
-    """A slot for one segment read, waiting a little for one to come free.
+async def _claim_read(manager: StreamManager, read: SegmentRead) -> None:
+    """Take a slot for *read*, waiting a little for one to come free.
 
     Waits on the event loop, so a request that waits holds none of the threads the pages use.
     """
+    stream_id = read.stream_id
     try:
-        return manager.claim_read(stream_id, username, gone)
+        return manager.claim_read(read)
     except TooManyReads:
         if _waiting[stream_id] >= _MAX_WAITING_PER_STREAM:
             raise
@@ -276,9 +274,9 @@ async def _claim_read(
         while True:
             await asyncio.sleep(_SLOT_POLL_SECONDS)
             try:
-                return manager.claim_read(stream_id, username, gone)
+                return manager.claim_read(read)
             except TooManyReads:
-                if gone.is_set() or asyncio.get_running_loop().time() >= end:
+                if read.unwanted or asyncio.get_running_loop().time() >= end:
                     raise
     finally:
         _waiting[stream_id] -= 1
@@ -291,10 +289,10 @@ async def stream_segment(
     request: Request, stream_id: str, name: str, username: str = Depends(get_current_user)
 ) -> Response:
     manager = get_stream_manager()
-    gone = threading.Event()
-    watch = asyncio.create_task(_note_disconnect(request, gone))
+    read = SegmentRead(stream_id, username)
+    watch = asyncio.create_task(_cancel_on_disconnect(request, read))
     try:
-        read = await _claim_read(manager, stream_id, username, gone)
+        await _claim_read(manager, read)
         try:
             body, content_type = await run_in_threadpool(manager.segment, read, name)
         finally:

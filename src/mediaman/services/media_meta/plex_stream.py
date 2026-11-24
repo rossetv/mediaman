@@ -19,6 +19,7 @@ import logging
 import posixpath
 import re
 import secrets
+import socket
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -30,6 +31,8 @@ from xml.etree.ElementTree import ParseError
 import defusedxml.ElementTree as ET
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3 import HTTPConnectionPool, HTTPResponse, HTTPSConnectionPool
+from urllib3.connection import HTTPConnection, HTTPSConnection
 
 from mediaman import __version__
 from mediaman.services.infra import resolve_safe_outbound_url
@@ -162,14 +165,74 @@ class StreamInfo:
     saved_position_s: float | None = None
 
 
-@dataclass(frozen=True, eq=False)
 class SegmentRead:
-    """One slot for reading a segment, from ``claim_read`` until ``release_read``."""
+    """One segment to read: ``claim_read`` gives it a slot, ``release_read`` takes it back."""
 
-    stream_id: str
-    user: str
-    #: Set once nobody waits for the segment any more.
-    unwanted: threading.Event
+    def __init__(self, stream_id: str, user: str) -> None:
+        self.stream_id = stream_id
+        self.user = user
+        self.unwanted = False
+        self._lock = threading.Lock()
+        self._socket: socket.socket | None = None
+
+    def cancel(self) -> None:
+        """Say that nobody waits for the segment any more; wakes a thread that waits for Plex."""
+        with self._lock:
+            self.unwanted = True
+            self._hang_up()
+
+    def hold(self, sock: socket.socket | None) -> None:
+        """Let ``cancel`` hang up *sock*, or nothing any more when None."""
+        with self._lock:
+            self._socket = sock
+            if self.unwanted:
+                self._hang_up()
+
+    def _hang_up(self) -> None:
+        if self._socket is not None:
+            with contextlib.suppress(OSError):
+                # The plain socket's: TLS's own also drops state the reading thread is using.
+                socket.socket.shutdown(self._socket, socket.SHUT_RDWR)
+
+
+_reading = threading.local()
+
+
+class _ReadConnection(HTTPConnection):
+    """Lets the read this thread is doing, if any, be cancelled while it waits for Plex."""
+
+    def getresponse(self) -> HTTPResponse:  # type: ignore[override]
+        read: SegmentRead | None = getattr(_reading, "read", None)
+        if read is None:
+            return super().getresponse()
+        read.hold(self.sock)
+        kept_alive = True
+        try:
+            response = super().getresponse()
+            kept_alive = self.sock is not None
+            return response
+        finally:
+            # A connection that is kept alive may be someone else's next.
+            if kept_alive:
+                read.hold(None)
+
+
+class _ReadTLSConnection(_ReadConnection, HTTPSConnection):
+    pass
+
+
+class _ReadPool(HTTPConnectionPool):
+    ConnectionCls = _ReadConnection
+
+
+class _ReadTLSPool(HTTPSConnectionPool):
+    ConnectionCls = _ReadTLSConnection
+
+
+class _Adapter(HTTPAdapter):
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = {"http": _ReadPool, "https": _ReadTLSPool}
 
 
 @dataclass
@@ -241,7 +304,7 @@ class StreamManager:
         self._allowed_hosts = allowed_hosts
         if session is None:
             session = requests.Session()
-            adapter = HTTPAdapter(pool_maxsize=_POOL_MAXSIZE)
+            adapter = _Adapter(pool_maxsize=_POOL_MAXSIZE)
             session.mount("http://", adapter)
             session.mount("https://", adapter)
         self._session = session
@@ -429,25 +492,21 @@ class StreamManager:
             raise PlexUnavailable("Plex sent a playlist that is not text") from None
         return _rewrite_playlist(text, stream_id)
 
-    def claim_read(
-        self, stream_id: str, user: str, unwanted: threading.Event | None = None
-    ) -> SegmentRead:
-        """Take a slot for reading one segment; give it back with ``release_read``.
+    def claim_read(self, read: SegmentRead) -> None:
+        """Take a slot for *read*; give it back with ``release_read``.
 
         Never waits: raises ``TooManyReads`` when the stream, the user or mediaman as a whole is
-        at the limit. Setting *unwanted* ends the read early.
+        at the limit.
         """
-        self._touch(stream_id, user)
+        self._touch(read.stream_id, read.user)
         with self._lock:
             if (
                 len(self._reads) >= MAX_READS_TOTAL
-                or sum(r.user == user for r in self._reads) >= MAX_READS_PER_USER
-                or sum(r.stream_id == stream_id for r in self._reads) >= MAX_READS_PER_STREAM
+                or sum(r.user == read.user for r in self._reads) >= MAX_READS_PER_USER
+                or sum(r.stream_id == read.stream_id for r in self._reads) >= MAX_READS_PER_STREAM
             ):
                 raise TooManyReads("too many segments are being read")
-            read = SegmentRead(stream_id, user, unwanted or threading.Event())
             self._reads.add(read)
-            return read
 
     def release_read(self, read: SegmentRead) -> None:
         with self._lock:
@@ -457,7 +516,7 @@ class StreamManager:
         """Fetch one segment whole and return ``(body, content_type)``.
 
         Raises ``ValueError`` for a name that is not a plain segment file name, and
-        ``StreamGone`` as soon as the stream ends or the read is unwanted.
+        ``StreamGone`` once the stream ends or the read is cancelled.
         """
         if not _SEGMENT_NAME_RE.fullmatch(name):
             raise ValueError("not a segment name")
@@ -467,19 +526,26 @@ class StreamManager:
 
         def still_wanted() -> None:
             self.peek(read.stream_id, read.user)
-            if read.unwanted.is_set():
+            if read.unwanted:
                 raise StreamGone("the segment is no longer wanted")
 
         still_wanted()
-        body = self._get(
-            base,
-            token,
-            path,
-            op="segment",
-            max_bytes=_SEGMENT_MAX_BYTES,
-            deadline=self._clock() + SEGMENT_DEADLINE_SECONDS,
-            check=still_wanted,
-        )
+        _reading.read = read
+        try:
+            body = self._get(
+                base,
+                token,
+                path,
+                op="segment",
+                # A connection of its own, which cancelling can hang up whatever it waits for.
+                extra_headers={"Connection": "close"},
+                max_bytes=_SEGMENT_MAX_BYTES,
+                deadline=self._clock() + SEGMENT_DEADLINE_SECONDS,
+                check=still_wanted,
+            )
+        finally:
+            _reading.read = None
+            read.hold(None)
         return body, _CONTENT_TYPES[name.rsplit(".", 1)[1]]
 
     def get(self, stream_id: str, user: str) -> StreamInfo:
@@ -783,7 +849,7 @@ class StreamManager:
 
         With a *deadline* (on the manager's clock) the call is refused once it has passed, and
         its timeouts never run beyond it, nor the reading of the body. *check* runs before each
-        chunk of the body and may raise to end the call.
+        chunk of the body and after a failure to reach Plex, and may raise to end the call.
         """
         if deadline is not None:
             remaining = deadline - self._clock()
@@ -813,7 +879,7 @@ class StreamManager:
 
         ensure_hook_installed()
         pinned = pin(hostname, pinned_ips) if hostname and pinned_ips else contextlib.nullcontext()
-        # Errors are raised "from None": a requests exception names the URL, which holds the
+        # No error raised here carries a requests exception: that names the URL, which holds the
         # Plex address and session id.
         try:
             with pinned:
@@ -835,11 +901,14 @@ class StreamManager:
                 finally:
                     response.close()
         except requests.RequestException as exc:
-            logger.warning("plex_stream: %s could not reach Plex (%s)", op, type(exc).__name__)
-            raise PlexUnavailable("Plex could not be reached") from None
+            failure = type(exc).__name__
         except (_SizeCapExceeded, _ContentTypeMismatch):
             logger.warning("plex_stream: %s got an oversized or encoded body", op)
             raise PlexUnavailable("Plex sent an unusable response") from None
+        # Outside the handler, so that what is raised here does not hold the requests error.
+        check()
+        logger.warning("plex_stream: %s could not reach Plex (%s)", op, failure)
+        raise PlexUnavailable("Plex could not be reached")
 
 
 def _session_params(
