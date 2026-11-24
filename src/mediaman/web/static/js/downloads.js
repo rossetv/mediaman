@@ -42,6 +42,13 @@
     if (box && box.firstElementChild && !dom.isCollapsing(box)) dom.collapse(box, function () { clear(box); });
   }
 
+  var lastHero = null;
+
+  function heroHeld(dom, box, unreachable) {
+    var card = box && !dom.isCollapsing(box) && box.querySelector('.dl-hero');
+    return !!card && dom.held(card.getAttribute('data-dl-id'), unreachable);
+  }
+
   function update(data) {
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
@@ -49,7 +56,7 @@
     var emptyContainer = document.getElementById('dl-empty-container');
     var recentContainer = document.getElementById('dl-recent-container');
     var header = root.querySelector('.ph');
-    var held = false;  // an active section stays as it was during an outage
+    var held = false;  // something stays shown because its service does not answer
 
     /* Subtitle — the server computes the line (data.subtitle, the single
        source of truth for the count copy); the page just syncs the <p>,
@@ -87,14 +94,24 @@
         if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
         renderHero().updateHero(heroContainer, data.hero);
       }
-    } else if (dom.holdsUnreachable(heroContainer, data.unreachable)) {
+    } else if (heroHeld(dom, heroContainer, data.unreachable)) {
       held = true;
     } else {
+      lastHero = null;
       closeSection(dom, heroContainer);
     }
 
-    /* Queue */
-    if (data.queue && data.queue.length > 0) {
+    /* Queue — the item that is now the hero is no row any more. */
+    var present = {};
+    if (data.hero) present[data.hero.id] = false;
+    var queue = data.queue || [];
+    /* A hero whose service went down gives way to another item and becomes a row. */
+    if (data.hero && lastHero && lastHero.id !== data.hero.id &&
+        dom.held(lastHero.id, data.unreachable)) {
+      queue = queue.concat(lastHero);
+    }
+    if (data.hero) lastHero = data.hero;
+    if (queue.length > 0) {
       if (!queueContainer) {
         queueContainer = document.createElement('div');
         queueContainer.id = 'dl-queue-container';
@@ -115,10 +132,9 @@
         list.id = 'dl-queue-list';
         queueContainer.appendChild(list);
       }
-      var activeIds = {};
-      for (var i = 0; i < data.queue.length; i++) {
-        var item = data.queue[i];
-        activeIds[item.id] = true;
+      for (var i = 0; i < queue.length; i++) {
+        var item = queue[i];
+        present[item.id] = true;
         var row = dom.findByDlId(list, item.id);
         if (row) {
           if (dom.isCollapsing(row)) dom.reveal(row);
@@ -128,15 +144,10 @@
           if (!opening) dom.reveal(row);
         }
       }
-      var rows = list.querySelectorAll('.dl-compact');
-      for (var j = 0; j < rows.length; j++) {
-        var id = rows[j].getAttribute('data-dl-id');
-        if (id && !activeIds[id] && !dom.isCollapsing(rows[j])) {
-          dom.collapseAway(rows[j]);
-        }
-      }
+      dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data.unreachable);
       if (opening) dom.reveal(queueContainer);
-    } else if (dom.holdsUnreachable(queueContainer, data.unreachable)) {
+    } else if (queueContainer && !dom.isCollapsing(queueContainer) &&
+        dom.dropAbsent(queueContainer.querySelectorAll('.dl-compact'), present, data.unreachable)) {
       held = true;
     } else {
       closeSection(dom, queueContainer);
@@ -146,7 +157,7 @@
        position (above "Coming soon"); fill it when nothing is downloading,
        with the outage card if a service did not answer, clear it otherwise. */
     if (emptyContainer) {
-      var nothingActive = !data.hero && (!data.queue || data.queue.length === 0) && !held;
+      var nothingActive = !data.hero && queue.length === 0 && !held;
       var shown = emptyContainer.firstElementChild;
       if (nothingActive) {
         var wanted = dom.buildEmptyState(data.outage);

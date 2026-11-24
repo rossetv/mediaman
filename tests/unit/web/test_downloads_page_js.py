@@ -73,13 +73,41 @@ def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
 
 def test_an_outage_keeps_live_sections_and_never_reads_as_all_caught_up() -> None:
     out = _run("outage")
-    assert out["held"] == {"hero": 1, "queue": 2, "upcoming": 1, "cards": []}
+    assert out["held"] == {"hero": 1, "queue": 1, "upcoming": 1, "cards": []}
     assert out["back"] == {"hero": 0, "queue": 0, "upcoming": 0}
     # a download of a service that does answer is really over
     assert out["finishedElsewhere"] == 0
     assert [len(c) for c in out["cards"]] == [1, 1, 1]
     assert out["cards"][0] == out["cards"][2] == ["All caught up"]
     assert out["cards"][1] != ["All caught up"]
+
+
+def test_an_outage_holds_only_the_rows_of_the_service_that_is_down() -> None:
+    out = _run("outageRows")
+    # the rest of the list goes on as usual
+    assert out["some"] == {
+        "hero": ["sonarr:h1"],
+        "queue": ["radarr:q1", "sonarr:q2"],
+        "upcoming": ["radarr:u1", "sonarr:u2"],
+    }
+    # a row that became the hero is not shown twice
+    assert out["promoted"] == {
+        "hero": ["sonarr:q2"],
+        "queue": ["radarr:q1"],
+        "upcoming": ["radarr:u1"],
+    }
+    # nothing of a service that answers is kept
+    assert out["nothingElse"] == {"hero": [], "queue": ["radarr:q1"], "upcoming": ["radarr:u1"]}
+    assert out["over"] == {"hero": [], "queue": [], "upcoming": []}
+
+
+def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> None:
+    out = _run("outageRows")
+    assert out["displaced"] == {"hero": ["sonarr:q2"], "queue": ["radarr:h1"], "upcoming": []}
+    assert out["stays"] == out["displaced"]
+    assert out["back"] == {"hero": ["radarr:h1"], "queue": ["sonarr:q2"], "upcoming": []}
+    # one that was over before the outage does not come back
+    assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
 
 
 def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:

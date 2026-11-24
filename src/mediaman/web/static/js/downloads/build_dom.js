@@ -17,7 +17,8 @@
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
- *   MM.downloads.buildDom.holdsUnreachable(box, unreachable)  a service that does not answer owns a row in box
+ *   MM.downloads.buildDom.held(id, unreachable)    the item's service does not answer
+ *   MM.downloads.buildDom.dropAbsent(rows, present, unreachable)  close departed rows, say how many are held
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
@@ -496,17 +497,31 @@
   }
 
   /* A service that cannot be reached leaves its items out of the payload, which
-     says nothing about them: a section they are in is not over. */
-  function holdsUnreachable(box, unreachable) {
-    if (!box || !unreachable || !unreachable.length) return false;
-    var rows = box.querySelectorAll('[data-dl-id]');
+     says nothing about them: they are not over. */
+  function held(id, unreachable) {
+    if (!id || !unreachable) return false;
+    var service = id.indexOf('radarr:') === 0 ? 'Radarr'
+      : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
+    return unreachable.indexOf(service) !== -1;
+  }
+
+  /* Close the rows whose item is gone. `present` maps the ids the payload has
+     to true, or to false for one shown elsewhere on the page. Returns how many
+     rows stay because their service did not answer; with none left to show,
+     the rows are not closed one by one, since the section closes with them. */
+  function dropAbsent(rows, present, unreachable) {
+    var kept = 0;
+    var gone = [];
+    var shown = 0;
     for (var i = 0; i < rows.length; i++) {
-      var id = rows[i].getAttribute('data-dl-id') || '';
-      var service = id.indexOf('radarr:') === 0 ? 'Radarr'
-        : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
-      if (unreachable.indexOf(service) !== -1) return true;
+      var id = rows[i].getAttribute('data-dl-id');
+      if (!id || isCollapsing(rows[i])) continue;
+      if (present[id]) shown += 1;
+      else if (!(id in present) && held(id, unreachable)) kept += 1;
+      else gone.push(rows[i]);
     }
-    return false;
+    if (shown || kept) gone.forEach(collapseAway);
+    return kept;
   }
 
   /* Build upcoming row element. */
@@ -578,6 +593,12 @@
     return row;
   }
 
+  function isCollapsing(el) { return !!(el._dlFold && !el._dlFold.open); }
+
+  function collapseAway(el) {
+    fold(el, false, function () { if (el.parentNode) el.parentNode.removeChild(el); });
+  }
+
   MM.downloads.buildDom = {
     q:                    function (sel, ctx)        { return MM.dom.q(sel, ctx); },
     setText:              function (el, txt)         { return MM.dom.setText(el, txt); },
@@ -589,15 +610,14 @@
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
-    holdsUnreachable:     holdsUnreachable,
+    held:                 held,
+    dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
     syncAbandon:          syncAbandon,
     reveal:               function (el)              { fold(el, true); },
     collapse:             function (el, done)        { fold(el, false, done); },
-    collapseAway:         function (el) {
-      fold(el, false, function () { if (el.parentNode) el.parentNode.removeChild(el); });
-    },
-    isCollapsing:         function (el)              { return !!(el._dlFold && !el._dlFold.open); },
+    collapseAway:         collapseAway,
+    isCollapsing:         isCollapsing,
   };
 })();

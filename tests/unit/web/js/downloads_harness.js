@@ -438,6 +438,42 @@ scenarios.outage = async function () {
   return { held, back, finishedElsewhere: other.byId('dl-hero-container').querySelectorAll('.dl-hero').length, cards };
 };
 
+// what stays during an outage is decided row by row, by the service of each
+scenarios.outageRows = async function () {
+  const ids = (p, box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
+  const look = (p) => ({ hero: ids(p, 'dl-hero-container', '.dl-hero'), queue: ids(p, 'dl-queue-container', '.dl-compact'), upcoming: ids(p, 'dl-upcoming-container', '.dl-upcoming-row') });
+  const start = () => {
+    const p = pageRig(true);
+    p.upd({
+      hero: item('sonarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2'), item('sonarr:q3')],
+      upcoming: [item('radarr:u1'), item('sonarr:u2'), item('sonarr:u3')],
+    });
+    return p;
+  };
+  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const some = start();
+  some.upd({ ...down, hero: item('sonarr:h1'), queue: [item('sonarr:q2')], upcoming: [item('sonarr:u2')] });
+  const promoted = start();
+  promoted.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const heldHero = pageRig(true);
+  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
+  heldHero.upd({ ...down, hero: null, queue: [] });
+  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const displaced = look(heldHero);
+  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
+  const stays = look(heldHero);
+  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
+  const back = look(heldHero);
+  heldHero.upd({ hero: null, queue: [] });
+  heldHero.upd({ ...down, hero: item('sonarr:q9'), queue: [] });
+  const ended = look(heldHero);
+  const all = start();
+  all.upd({ ...down, hero: null, queue: [] });
+  const nothingElse = look(all);
+  all.upd({ hero: null, queue: [] });
+  return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
+};
+
 // an episode list opens, and on close stays shown until it has folded away
 scenarios.episodes = async function () {
   const p = pageRig();
