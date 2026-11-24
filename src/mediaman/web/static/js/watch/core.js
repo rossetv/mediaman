@@ -32,6 +32,10 @@
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
+  function coarsePointer() {
+    return window.matchMedia('(pointer: coarse)').matches;
+  }
+
   function token(name, fallback) {
     var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return value || fallback;
@@ -89,6 +93,14 @@
     }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
+  /* A node put in another place starts its CSS animations again, so a view
+     that has eased in must not carry .fade-in when a swap moves it: it would
+     blink back to nothing. */
+  function settle(node) {
+    node.classList.remove('fade-in');
+    toArray(node.querySelectorAll('.fade-in')).forEach(function (n) { n.classList.remove('fade-in'); });
+  }
+
   /* The cross-fades still running, by the stack that holds them: the node
      fading in, the fade-outs, and who waits for the end. */
   var _fades = new WeakMap();
@@ -107,7 +119,10 @@
       n.removeAttribute('inert');
     });
     fade.anims.forEach(function (a) { a.cancel(); });
-    if (keep) keep.style.gridArea = stack.style.gridArea;
+    if (keep) {
+      keep.style.gridArea = stack.style.gridArea;
+      settle(keep);
+    }
     if (stack.parentNode) {
       if (keep) stack.replaceWith(keep);
       else stack.remove();
@@ -138,6 +153,7 @@
       return Promise.resolve();
     }
     if (!fade) {
+      settle(oldNode);
       stack = el('div');
       stack.style.display = 'grid';
       stack.style.gridArea = oldNode.style.gridArea;
@@ -195,6 +211,7 @@
     safePath: safePath,
     toast: toast,
     reduceMotion: reduceMotion,
+    coarsePointer: coarsePointer,
     token: token,
     tokenMs: tokenMs,
     fadeIn: fadeIn,

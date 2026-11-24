@@ -12,7 +12,7 @@ const LIB = { ref: 'movie-1', title: 'Orchard Keepers', href: '/watch/movie/1', 
 const TM = { ref: 'tmdb-movie-9', kind: 'movie', title: 'Orchard Road', year: 2020, href: null, download_state: 'queued' };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. */
-function load(data) {
+function load(data, opened = '') {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -49,8 +49,10 @@ function load(data) {
     ['div', { id: 'watch-browse' }],
     ['section', { id: 'watch-results' }, ['p', { id: 'watch-results-msg' }], ['div', { id: 'watch-grid' }]],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
-  doc.getElementById('watch-results').hidden = true;
-  doc.getElementById('watch-search').value = '';
+  // The server opens on the results when the address has a search; otherwise the rows are on view.
+  doc.getElementById('watch-results').hidden = !opened;
+  doc.getElementById('watch-browse').hidden = !!opened;
+  doc.getElementById('watch-search').value = opened;
   ['../core/dom.js', 'core.js', 'keep.js', 'search.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   ctx.MMWatch.search.init();
   const input = doc.getElementById('watch-search');
@@ -432,6 +434,97 @@ const scenarios = {
     };
   },
 
+  // Enter searches at once, and on a phone puts the keyboard away.
+  async enter() {
+    const out = {};
+    for (const [name, coarse] of [['phone', true], ['desk', false]]) {
+      const p = load(ADMIN);
+      p.ctx.matchMedia = (q) => ({ matches: q.includes('coarse') ? coarse : false });
+      p.input.focus();
+      p.type('orchard');
+      let prevented = false;
+      p.input.listeners.keydown.forEach((fn) => fn({ key: 'Enter', preventDefault() { prevented = true; } }));
+      await settle();
+      out[name] = { urls: p.calls.map((c) => c.url), prevented, focus: p.doc.activeElement === p.input };
+    }
+    return out;
+  },
+
+  // A search in the address opens on the results: the rows never show, and a skeleton holds the place.
+  async openedOnResults() {
+    const p = load(ADMIN, 'orchard');
+    const out = {
+      urls: p.calls.map((c) => c.url),
+      before: { results: p.results.hidden, browse: p.browse.hidden, skeleton: p.doc.querySelectorAll('.watch-card--skel').length > 0 },
+      clear: p.$('watch-search-clear').hidden,
+    };
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    out.after = { results: p.results.hidden, browse: p.browse.hidden, titles: p.doc.querySelectorAll('.watch-card__title').map((t) => t.textContent) };
+    // Clearing goes back to the rows.
+    click(p.doc, p.$('watch-search-clear'));
+    await settle();
+    out.cleared = { results: p.results.hidden, browse: p.browse.hidden };
+    // Nothing found removes the skeleton too.
+    const none = load(ADMIN, 'zzqx');
+    await none.answer('/api/watch/search?', { items: [] });
+    await none.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out.none = { skeleton: none.doc.querySelectorAll('.watch-card--skel').length, line: none.doc.querySelector('.watch-results__line').textContent };
+    return out;
+  },
+
+  // A download's badge says what the percentage is for a reader of the page, and a part-owned show counts as in the library.
+  async stateBadges() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', {
+      tmdb_configured: true,
+      items: [
+        { ...TM, ref: 'tmdb-movie-1', title: 'One', download_state: 'downloading', download_pct: 95 },
+        { ...TM, ref: 'tmdb-movie-2', title: 'Two', download_state: 'downloading' },
+        { ...TM, ref: 'tmdb-movie-3', title: 'Three', download_state: 'partial' },
+      ],
+    });
+    const badges = p.doc.querySelectorAll('.watch-badge--state');
+    return {
+      classes: badges.map((b) => b.className),
+      texts: badges.map((b) => b.textContent),
+      said: badges.map((b) => b.querySelectorAll('.sr-only').map((n) => n.textContent)),
+    };
+  },
+
+  // A new search eases over the old results without the old ones starting their fade-in again; a group
+  // that arrives later fades in over its skeleton instead of popping in.
+  async swaps() {
+    const p = load(ADMIN);
+    await p.search('tallow');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const finish = withMotion(p);
+    try {
+      const oldView = p.doc.querySelector('.results-groups');
+      const easing = oldView.querySelectorAll('.fade-in').length;
+      await p.search('harrow');
+      await p.answer('/api/watch/search?', { items: [LIB] });
+      const out = { easing, oldStill: oldView.querySelectorAll('.fade-in').length };
+      // TMDB answers later: its skeleton and its group share one cell while they cross.
+      const slot = p.doc.querySelectorAll('.results-groups')[p.doc.querySelectorAll('.results-groups').length - 1].children[1];
+      out.slotBefore = slot.querySelectorAll('.watch-card--skel').length > 0;
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+      const stack = slot.children[0];
+      out.crossing = {
+        grid: stack.style.display, parts: stack.children.length,
+        skeletonInert: stack.children[0].hasAttribute('inert'), cards: stack.children[1].querySelectorAll('.watch-card').length,
+      };
+      finish();
+      await settle();
+      out.settled = { children: slot.children.length, skeleton: slot.querySelectorAll('.watch-card--skel').length, cards: slot.querySelectorAll('.watch-card').length, fadeIn: slot.querySelectorAll('.fade-in').length };
+      return out;
+    } finally {
+      delete require('./fake_dom').Node.prototype.animate;
+    }
+  },
+
   // In the list view the field only announces what was typed; no search runs.
   async listView() {
     const p = load({ ...ADMIN, view: 'list' });
@@ -450,6 +543,14 @@ const scenarios = {
     return out;
   },
 };
+
+// Motion on: every fade runs until finish() ends it.
+function withMotion(p) {
+  const live = [];
+  p.ctx.matchMedia = () => ({ matches: false });
+  require('./fake_dom').Node.prototype.animate = function () { const a = { cancel() {} }; live.push(a); return a; };
+  return () => live.splice(0).forEach((a) => a.onfinish && a.onfinish());
+}
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }

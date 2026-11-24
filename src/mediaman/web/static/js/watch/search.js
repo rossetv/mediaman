@@ -21,11 +21,10 @@
   var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
-  // Keep is an admin control; the search answers a viewer with the same fields.
-  var canKeep = false;
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
-    in_library: ['i-check', 'In library']
+    in_library: ['i-check', 'In library'],
+    partial: ['i-check', 'In library']
   };
 
   function dur(minutes) {
@@ -88,7 +87,8 @@
     link.appendChild(el('span', 'watch-card__sub', sub));
     card.appendChild(link);
 
-    if (item.keep_id && canKeep) {
+    // Only a title that is leaving comes with a keep id, and the server checks it again.
+    if (item.keep_id) {
       var btn = el('button', 'watch-keep');
       btn.type = 'button';
       btn.setAttribute('data-watch-keep', item.keep_id);
@@ -137,19 +137,26 @@
     var state = item.download_state;
     var icon;
     var text;
+    var said = '';
     var kind = state;
     if (state === 'downloading') {
       icon = 'i-arrow-down';
-      text = typeof item.download_pct === 'number' ? item.download_pct + '%' : 'Downloading';
+      if (typeof item.download_pct === 'number') {
+        said = 'Downloading ';
+        text = item.download_pct + '%';
+      } else {
+        text = 'Downloading';
+      }
     } else if (STATE_BADGES[state]) {
       icon = STATE_BADGES[state][0];
       text = STATE_BADGES[state][1];
-      if (state === 'in_library') kind = 'in';
+      if (state !== 'queued') kind = 'in';
     } else {
       return null;
     }
     var badge = el('span', 'watch-badge watch-badge--state watch-badge--' + kind);
     badge.appendChild(MM.dom.icon(icon));
+    if (said) badge.appendChild(el('span', 'sr-only', said));
     badge.appendChild(document.createTextNode(text));
     return badge;
   }
@@ -244,7 +251,6 @@
     if (!input || !clear || !browse || !results || !msg || !status) return;
     var box = input.closest('.watch-search');
     var data = readPageData();
-    canKeep = data.is_admin === true;
     // The browse grid of the page shell is not used: each group brings its own.
     var spare = byId('watch-grid');
     if (spare) spare.hidden = true;
@@ -256,6 +262,8 @@
     var shown = null;
     // The view change in progress: { to, anim }.
     var fade = null;
+    // What each group slot holds now.
+    var filled = new WeakMap();
 
     function setPending(on) {
       box.classList.toggle('is-pending', on);
@@ -445,7 +453,16 @@
       if (settled) readOut(c);
     }
 
+    /* What a slot holds changes by a cross-fade, so a group that arrives
+       does not pop in over its skeleton. */
     function fillSlot(slot, node) {
+      var old = filled.get(slot);
+      filled.set(slot, node);
+      if (old && old.parentNode && node) {
+        core.swap(old, node);
+        return;
+      }
+      core.endSwap(old);
       slot.textContent = '';
       if (node) {
         slot.appendChild(node);
@@ -566,7 +583,13 @@
       timer = setTimeout(change, SEARCH_DELAY_MS);
     });
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && input.value) { e.preventDefault(); clearSearch(); }
+      if (e.key === 'Escape' && input.value) { e.preventDefault(); clearSearch(); return; }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      clearTimeout(timer);
+      change();
+      // The keyboard on a phone covers the results.
+      if (core.coarsePointer()) input.blur();
     });
     clear.addEventListener('click', clearSearch);
 
@@ -588,7 +611,14 @@
     // A value the browser put back (going back to the page) gets its results.
     if (input.value) {
       clear.hidden = false;
-      if (!listView) run();
+      if (!listView) {
+        // The page opened on the results (a search in the address): hold their place until they arrive.
+        if (!results.hidden) {
+          shown = loadingGroup('In your library');
+          results.appendChild(shown);
+        }
+        run();
+      }
     }
   }
 

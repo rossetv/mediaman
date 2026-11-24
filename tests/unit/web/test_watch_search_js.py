@@ -65,7 +65,7 @@ def test_nothing_found_shows_only_when_both_groups_are_empty() -> None:
 def test_without_tmdb_the_hint_links_for_admins_and_never_says_tmdb_to_viewers() -> None:
     out = _run("notConfigured")
     assert out["admin"]["keep"] == 1
-    assert out["viewer"]["keep"] == 0
+    assert out["viewer"]["keep"] == 1
     assert out["admin"]["calls"] == 1
     assert out["admin"]["href"] == "/settings#setg-integrations"
     assert "Connect TMDB" in out["admin"]["text"]
@@ -165,3 +165,41 @@ def test_a_new_search_while_the_last_results_fade_out_ends_in_one_clean_view() -
     assert out["chained"]["titles"] == ["Harrow"]
     assert out["chained"]["heads"] == ["In your library"]
     assert (out["chained"]["skeleton"], out["chained"]["stacks"]) == (0, 0)
+
+
+def test_enter_searches_at_once_and_on_a_phone_puts_the_keyboard_away() -> None:
+    out = _run("enter")
+    for where in ("phone", "desk"):
+        assert out[where]["urls"] == [
+            "/api/watch/search?q=orchard",
+            "/api/watch/search/tmdb?q=orchard",
+        ]
+        assert out[where]["prevented"] is True
+    assert (out["phone"]["focus"], out["desk"]["focus"]) == (False, True)
+
+
+def test_a_search_in_the_address_opens_on_its_results_with_the_rows_never_shown() -> None:
+    out = _run("openedOnResults")
+    assert out["urls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
+    assert out["before"] == {"results": False, "browse": True, "skeleton": True}
+    assert out["clear"] is False
+    assert out["after"] == {"results": False, "browse": True, "titles": ["Orchard Keepers"]}
+    assert out["cleared"] == {"results": True, "browse": False}
+    assert out["none"] == {"skeleton": 0, "line": "No matches for “zzqx”"}
+
+
+def test_a_download_badge_names_its_percentage_and_a_part_owned_title_is_in_the_library() -> None:
+    out = _run("stateBadges")
+    assert out["texts"] == ["Downloading 95%", "Downloading", "In library"]
+    assert out["said"] == [["Downloading "], [], []]
+    assert out["classes"][2].endswith("watch-badge--in")
+
+
+def test_a_later_group_crosses_over_its_skeleton_and_old_results_do_not_fade_in_again() -> None:
+    out = _run("swaps")
+    # Moving a node restarts its CSS animation, so the old view must be rid of .fade-in first.
+    assert out["easing"] > 0
+    assert out["oldStill"] == 0
+    assert out["slotBefore"] is True
+    assert out["crossing"] == {"grid": "grid", "parts": 2, "skeletonInert": True, "cards": 1}
+    assert out["settled"] == {"children": 1, "skeleton": 0, "cards": 1, "fadeIn": 0}
