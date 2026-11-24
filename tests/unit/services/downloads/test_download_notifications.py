@@ -1293,6 +1293,30 @@ class TestClaimIsRestampedBeforeTheSend:
         )
 
 
+class TestUnsentNoticeIsAskedPerSeason:
+    def _ask(self, conn, **kw):
+        from mediaman.services.downloads.notifications import has_unsent_notification
+
+        return has_unsent_notification(
+            conn, email="user@example.com", service="sonarr", tmdb_id=5, tvdb_id=9, **kw
+        )
+
+    def test_a_season_notice_does_not_cover_the_whole_show(self, conn):
+        insert_download_notification(
+            conn, media_type="tv", service="sonarr", tmdb_id=5, tvdb_id=9, season_number=2
+        )
+
+        assert self._ask(conn) is False
+        assert self._ask(conn, season_number=2) is True
+        assert self._ask(conn, season_number=3) is False
+
+    def test_a_whole_show_notice_is_found_for_the_whole_show_only(self, conn):
+        insert_download_notification(conn, media_type="tv", service="sonarr", tmdb_id=5, tvdb_id=9)
+
+        assert self._ask(conn) is True
+        assert self._ask(conn, season_number=2) is False
+
+
 class TestAvailableEmailNamesTheSeason:
     def _payload(self, season_number):
         from mediaman.services.downloads._notification_claims import ClaimedNotificationRow

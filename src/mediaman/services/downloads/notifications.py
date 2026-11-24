@@ -104,15 +104,17 @@ def has_unsent_notification(
     service: str,
     tmdb_id: int,
     tvdb_id: int | None = None,
+    season_number: int | None = None,
 ) -> bool:
     """Whether a notification for the title is still to be sent to *email*. A Sonarr row
-    may carry only its TVDB id.
+    may carry only its TVDB id. Without *season_number* only a whole-show row counts, so a
+    pending notice for one season does not read as covering the show.
     """
     row = conn.execute(
         "SELECT 1 FROM download_notifications "
         "WHERE email = ? COLLATE NOCASE AND service = ? AND notified != 1 "
-        "AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
-        (email, service, tmdb_id, tvdb_id),
+        "AND season_number IS ? AND (tmdb_id = ? OR tvdb_id = ?) LIMIT 1",
+        (email, service, season_number, tmdb_id, tvdb_id),
     ).fetchone()
     return row is not None
 
