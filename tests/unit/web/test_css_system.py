@@ -211,7 +211,8 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
 
 
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    assert _phone_sets(".dl-arr-link", "min-height", "44px")
+    # A 15px line of text, reached 15px above and below.
+    assert _phone_sets(".dl-arr-link::after", "inset", "-15px -6px")
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 

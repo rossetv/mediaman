@@ -47,7 +47,7 @@
 
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>
-        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span><span data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>
+        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span><span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>
       </div>
 
       <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state == 'searching' %}hidden{% endif %}>
