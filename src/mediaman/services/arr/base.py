@@ -47,6 +47,7 @@ from mediaman.services.arr._transport import (
     ArrError,
     ArrKindMismatch,
     ArrUpstreamError,
+    SeasonsNotListed,
     _TransportMixin,
 )
 from mediaman.services.arr._types import ArrQueueItem
@@ -62,6 +63,7 @@ __all__ = [
     "ArrError",
     "ArrKindMismatch",
     "ArrUpstreamError",
+    "SeasonsNotListed",
 ]
 
 

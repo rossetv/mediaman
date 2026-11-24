@@ -12,7 +12,7 @@ import logging
 from collections.abc import Sequence
 from typing import cast
 
-from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
+from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError, SeasonsNotListed
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
 from mediaman.services.infra import SafeHTTPError
 
@@ -328,6 +328,11 @@ class _SonarrMixin:
         if not lookup:
             raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]
+
+        # A season the lookup omits would be dropped from the add without a word.
+        listed = {s["seasonNumber"] for s in meta.get("seasons", [])}
+        if missing := set(monitored_seasons) - listed:
+            raise SeasonsNotListed(list(missing))
 
         monitored_set = set(monitored_seasons)
         seasons_payload = [

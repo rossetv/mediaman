@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.services.arr.base import SeasonsNotListed
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_subscriber
 
@@ -862,6 +863,23 @@ class TestDownloadEndpoint:
         # Season 1 is monitored but not asked to be searched, and Sonarr searches what it
         # monitors, so only the searched seasons are sent.
         sonarr.add_series_with_seasons.assert_called_once_with(999, "BB", [2, 3])
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_a_picked_season_sonarr_does_not_list_is_refused_by_name(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed([2])
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": [2]},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing yet"
+        assert resp.json()["ok"] is False
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_monitored_seasons_alone_are_the_seasons_added(

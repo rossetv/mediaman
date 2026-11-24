@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient, ArrConfigError, ArrUpstreamError
+from mediaman.services.arr.base import (
+    ArrClient,
+    ArrConfigError,
+    ArrUpstreamError,
+    SeasonsNotListed,
+)
 from mediaman.services.arr.spec import SONARR_SPEC
 
 
@@ -461,6 +466,28 @@ class TestAddSeriesWithSeasons:
         assert add_body["monitorNewItems"] == "none"
         # A command straight after the add finds no episodes yet, so none is sent.
         assert len(posts) == 1
+
+    @pytest.mark.parametrize(
+        ("listed", "picked", "message"),
+        [
+            ([1], [1, 2], "Season 2 isn't in Sonarr's listing yet"),
+            ([], [1, 2], "Seasons 1 and 2 aren't in Sonarr's listing yet"),
+            ([1], [2, 3, 4], "Seasons 2, 3 and 4 aren't in Sonarr's listing yet"),
+        ],
+    )
+    def test_a_picked_season_the_lookup_omits_adds_nothing(
+        self, client, fake_http, fake_response, listed, picked, message
+    ):
+        lookup = [{"tvdbId": 10, "title": "X", "seasons": [{"seasonNumber": n} for n in listed]}]
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue("GET", fake_response(json_data=[{"id": 9}]))
+        fake_http.queue("GET", fake_response(json_data=lookup))
+
+        with pytest.raises(SeasonsNotListed) as raised:
+            client.add_series_with_seasons(tvdb_id=10, title="X", monitored_seasons=picked)
+
+        assert str(raised.value) == message
+        assert _calls(fake_http, "POST") == []
 
     def test_rejects_non_positive_tvdb_id(self, client, fake_http):
         with pytest.raises(ValueError, match="tvdb_id must be positive"):

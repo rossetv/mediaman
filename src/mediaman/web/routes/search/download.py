@@ -15,7 +15,7 @@ from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import ArrClient, SeasonsNotListed
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import add_or_remonitor_movie, is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
@@ -265,6 +265,9 @@ def _submit_tv(
             # holds was refused above, so no season of it is held to keep monitored.
             seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
             sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
+    except SeasonsNotListed as exc:
+        # The person's own pick, not a fault: nothing was added, and not "already there".
+        return respond_failure(str(exc), status=422)
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return respond_failure("Failed to add to Sonarr", status=502)
