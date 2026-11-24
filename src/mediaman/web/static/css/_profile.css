@@ -6,4 +6,11 @@
 .profile-sessions li:last-child { border-bottom: 0; }
 .profile-session-when { color: var(--t1); font-weight: 500; }
 .profile-session-used { font-size: 12px; color: var(--t3); margin-top: 3px; }
+/* The card is frame enough for the one form in it. */
+.setg-pg.profile-pg .inline-form { margin: 0; padding: 0; background: none; border: 0; border-radius: 0; }
+/* Beside the button, where two lines fit without moving what is below. */
+.setg-pg.profile-pg .inline-form-actions .inline-form-msg { flex: 1 1 8em; min-height: 0; }
+.setg-pg.profile-pg .inline-form-actions .inline-form-msg:has(ul) { flex-basis: 100%; }
+.profile-why { flex: 1 1 8em; font-size: 13px; line-height: 1.4; color: var(--t3); }
+.profile-why:not([hidden]) + .inline-form-msg:empty { display: none; }
 .setg-pg .usr-self-head .avatar { width: 44px; height: 44px; font-size: 15px; }

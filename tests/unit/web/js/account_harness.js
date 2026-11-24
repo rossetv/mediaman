@@ -30,7 +30,7 @@ function page(api) {
     ['form', { id: 'account-email-form' },
       ['input', { id: 'account-email' }], ['button', { id: 'account-submit-email' }], ['span', { id: 'account-email-result' }]],
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
-    ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-result' }]]));
+    ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]));
   const $ = (id) => doc.getElementById(id);
   $('account-password-form').reset = () => {};
   const MM = { api: { messageOf: (e, d) => e.message || d, ...api }, reauth: { run: (f) => f() } };
@@ -60,12 +60,17 @@ const scenarios = {
       post: () => { posts += 1; list = [session(9)]; return Promise.resolve({ ok: true }); },
     });
     await settle();
-    const first = { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, text: p.rows()[0] };
+    const first = { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, text: p.rows()[0], why: !p.$('account-revoke-why').hidden };
     p.press('account-revoke-others');
     p.press('account-revoke-others');
     const whileSending = p.focused();
     await settle();
-    return { first, posts, whileSending, after: { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, focused: p.focused(), say: p.say('account-revoke-result') } };
+    return { first, posts, whileSending, after: { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, focused: p.focused(), say: p.say('account-revoke-result'), why: !p.$('account-revoke-why').hidden } };
+  },
+  async onlySession() {
+    const p = page({ get: () => Promise.resolve({ sessions: [session(9)] }) });
+    await settle();
+    return { disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden };
   },
   async sessionsFail() {
     const p = page({ get: () => Promise.reject(new Error('x')), post: () => Promise.reject(new Error('No luck')) });

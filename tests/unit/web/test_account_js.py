@@ -26,6 +26,13 @@ def test_live_sign_ins_are_listed_and_the_others_can_be_signed_out() -> None:
     assert out["after"]["say"][0].endswith(" ok")
 
 
+def test_why_the_others_cannot_be_signed_out_is_said_while_there_are_none() -> None:
+    assert _run("onlySession") == {"disabled": True, "why": True}
+    out = _run("sessions")
+    # not while there are others, nor beside the word that they were just signed out
+    assert (out["first"]["why"], out["after"]["why"]) == (False, False)
+
+
 def test_sign_ins_that_cannot_be_listed_can_still_be_ended_and_a_failure_is_said() -> None:
     out = _run("sessionsFail")
     assert len(out["first"]["rows"]) == 1 and "Could not load" in out["first"]["rows"][0]

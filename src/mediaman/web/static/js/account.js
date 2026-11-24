@@ -141,6 +141,7 @@
     var list = document.getElementById('account-sessions');
     var revoke = document.getElementById('account-revoke-others');
     var result = document.getElementById('account-revoke-result');
+    var why = document.getElementById('account-revoke-why');
     if (!list || !revoke || !result) return function () {};
 
     function line(cls, text) {
@@ -164,11 +165,13 @@
         var alone = live.length < 2;
         if (alone && document.activeElement === revoke) list.focus();
         revoke.disabled = alone;
+        why.hidden = !alone || Boolean(result.textContent);
       }).catch(function () {
         list.textContent = '';
         list.appendChild(document.createElement('li')).textContent = 'Could not load your sign-ins. Reload the page to try again.';
         // They can still be ended without being listed.
         revoke.disabled = false;
+        why.hidden = true;
       }).then(function () { list.removeAttribute('aria-busy'); });
     }
 

@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="setg-pg">
+<div class="setg-pg profile-pg">
   <div class="container">
     <div class="ph">
       <h1>Profile</h1>
@@ -39,7 +39,7 @@
           <span class="fld-sub">Leave empty to turn alerts off.</span>
         </label>
         <div class="inline-form-actions">
-          <button class="btn btn--primary btn--sm" type="submit" id="account-submit-email">Save email</button>
+          <button class="btn btn--primary" type="submit" id="account-submit-email">Save email</button>
           <span class="inline-form-msg" id="account-email-result" role="status"></span>
         </div>
       </form>
@@ -65,7 +65,7 @@
           </div>
         </div>
         <div class="inline-form-actions">
-          <button class="btn btn--primary btn--sm" type="submit" id="account-submit-password">Update password</button>
+          <button class="btn btn--primary" type="submit" id="account-submit-password">Update password</button>
           <span class="inline-form-msg" id="account-password-result" role="status"></span>
         </div>
       </form>
@@ -74,7 +74,8 @@
     {% call c.setg_card(title="Where you're signed in", pad=True) %}
       <ul class="profile-sessions" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true"><li>Loading…</li></ul>
       <div class="inline-form-actions">
-        <button class="btn btn--secondary btn--sm" type="button" id="account-revoke-others" disabled>Sign out other devices</button>
+        <button class="btn btn--secondary" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
+        <span class="profile-why" id="account-revoke-why" hidden>This is your only sign-in.</span>
         <span class="inline-form-msg" id="account-revoke-result" role="status"></span>
       </div>
     {% endcall %}
