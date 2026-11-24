@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -612,10 +613,41 @@ class TestTmdbTitle:
         self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
         monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {})
 
-        viewer.get("/api/watch/title/tmdb-movie-12")
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
 
         row = conn.execute("SELECT imdb_rating, rt_rating, metascore FROM ratings_cache").fetchone()
         assert (row["imdb_rating"], row["rt_rating"], row["metascore"]) == ("7.1", "92%", "81")
+        assert body["ratings"]["imdb"] == "7.1"
+        assert body["ratings"]["rt"] == "92%"
+        assert body["ratings"]["metascore"] == "81"
+
+    def test_an_omdb_answer_with_some_ratings_adds_to_the_ratings_held(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {"imdb": "8.0"})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["ratings"]["imdb"] == "8.0"
+        assert body["ratings"]["rt"] == "92%"
+
+    def test_a_refused_allowance_shows_the_ratings_held_and_does_not_ask_omdb(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        viewer.get("/api/watch/title/tmdb-movie-12")  # TMDB is now cached
+        conn.execute("DELETE FROM ratings_cache")
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", MagicMock(check=lambda *_a, **_k: False))
+        asked = []
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert asked == []
+        assert body["ratings"]["imdb"] == "7.1"
 
     def test_an_omdb_that_gives_no_answer_is_not_remembered_as_no_ratings(
         self, viewer, tmdb, arr, conn, monkeypatch
