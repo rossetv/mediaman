@@ -11,6 +11,7 @@ from mediaman.services.arr.base import (
     SeasonsNotListed,
 )
 from mediaman.services.arr.spec import SONARR_SPEC
+from mediaman.services.infra import SafeHTTPError
 
 
 @pytest.fixture
@@ -188,6 +189,44 @@ class TestArrClientSonarr:
         put_call = _calls(fake_http, "PUT")[0]
         assert put_call[2]["json"]["seasons"][0]["monitored"] is True
         assert len(_calls(fake_http, "POST")) == 1
+
+    @pytest.mark.parametrize("season_monitored", [False, True])
+    def test_remonitor_season_monitors_an_unmonitored_series_too(
+        self, client, fake_http, fake_response, season_monitored
+    ):
+        seasons = [
+            {"seasonNumber": 1, "monitored": False},
+            {"seasonNumber": 2, "monitored": season_monitored},
+        ]
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "monitored": False, "seasons": seasons})
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+
+        client.remonitor_season(series_id=1, season_number=2)
+
+        (put,) = _calls(fake_http, "PUT")
+        assert put[2]["json"]["monitored"] is True
+        assert [s["monitored"] for s in put[2]["json"]["seasons"]] == [False, True]
+        assert len(_calls(fake_http, "POST")) == 1
+
+    @pytest.mark.parametrize(("was_monitored", "puts"), [(False, [True, False]), (True, [True])])
+    def test_a_series_is_put_back_only_if_monitoring_it_led_to_no_search(
+        self, client, fake_http, fake_response, was_monitored, puts
+    ):
+        seasons = [{"seasonNumber": 2, "monitored": False}]
+        first = {"id": 1, "monitored": was_monitored, "seasons": seasons}
+        fake_http.queue("GET", fake_response(json_data=first))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=500, text="no"))
+        fake_http.queue("GET", fake_response(json_data={"id": 1, "monitored": True}))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+
+        with pytest.raises(SafeHTTPError):
+            client.remonitor_season(series_id=1, season_number=2)
+
+        assert [p[2]["json"]["monitored"] for p in _calls(fake_http, "PUT")] == puts
 
     def test_remonitor_season_retries_on_failed_put(self, client, fake_http, fake_response):
 

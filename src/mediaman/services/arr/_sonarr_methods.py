@@ -12,7 +12,14 @@ import logging
 from collections.abc import Sequence
 from typing import cast
 
-from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError, SeasonsNotListed
+import requests
+
+from mediaman.services.arr._transport import (
+    ArrConfigError,
+    ArrError,
+    ArrUpstreamError,
+    SeasonsNotListed,
+)
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
 from mediaman.services.infra import SafeHTTPError
 
@@ -160,7 +167,10 @@ class _SonarrMixin:
         )
 
     def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
-        """Set ``monitored=True`` for *season_number* and trigger a search.
+        """Set ``monitored=True`` for *season_number* and its series, and trigger a search.
+
+        Sonarr fetches nothing for an unmonitored series, whatever its seasons say. A series
+        monitored here is put back when the search cannot be started.
 
         Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
@@ -171,6 +181,7 @@ class _SonarrMixin:
         by a SeasonSearch for a season Sonarr never re-monitored.
         """
         self._require_series("remonitor_season")  # type: ignore[attr-defined]
+        series_was_unmonitored = False
 
         def fetch_entity() -> SonarrSeries:
             series = self.get_series_by_id(series_id)
@@ -187,9 +198,13 @@ class _SonarrMixin:
             if target is None:
                 raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
             # "already done" for remonitor means it's already monitored.
-            return bool(target.get("monitored", False))
+            return bool(target.get("monitored", False)) and entity.get("monitored") is not False
 
         def apply_remonitor(entity: SonarrSeries) -> None:
+            nonlocal series_was_unmonitored
+            if entity.get("monitored") is False:
+                series_was_unmonitored = True
+                entity["monitored"] = True
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is not None:
@@ -204,10 +219,34 @@ class _SonarrMixin:
             log_id=f"series_id={series_id} season={season_number}",
             max_retries=max_retries,
         )
-        self._post(  # type: ignore[attr-defined]
-            "/api/v3/command",
-            {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-        )
+        try:
+            self._post(  # type: ignore[attr-defined]
+                "/api/v3/command",
+                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
+            )
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            if series_was_unmonitored:
+                self._put_series_back_unmonitored(series_id)
+            raise
+
+    def _put_series_back_unmonitored(self, series_id: int) -> None:
+        """Best effort: a failure here is logged, so the error being raised is not hidden."""
+
+        def apply_unmonitor(entity: SonarrSeries) -> None:
+            entity["monitored"] = False
+
+        try:
+            self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                fetch_entity=lambda: self.get_series_by_id(series_id),
+                put_url=f"/api/v3/series/{series_id}",
+                is_already_unmonitored=lambda series: not series.get("monitored"),
+                apply_unmonitor=apply_unmonitor,
+                log_prefix="sonarr.remonitor_season",
+                log_id=f"series_id={series_id}",
+                max_retries=1,
+            )
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            logger.exception("Could not put sonarr series_id=%s back to unmonitored", series_id)
 
     def search_series(self, series_id: int) -> None:
         self._require_series("search_series")  # type: ignore[attr-defined]
