@@ -261,7 +261,8 @@ function tabTo(el) { key('Tab'); el.focus(); }
 
 /* ---- the page ------------------------------------------------------------ */
 
-function boot(html, reduced, saved, serverPlays) {
+/* *came*: how the page was opened: { referrer, length (of the history), state }. */
+function boot(html, reduced, saved, serverPlays, came) {
   doc = new Node();
   doc.documentElement = make('html');
   doc.appendChild(doc.documentElement);
@@ -270,6 +271,7 @@ function boot(html, reduced, saved, serverPlays) {
   parse(html, doc.body);
   doc.activeElement = doc.body;
   doc.visibilityState = 'visible';
+  doc.referrer = (came && came.referrer) || '';
   doc.elementFromPoint = () => doc.under || null;
   doc.getElementById = (id) => doc.querySelector('#' + id);
   doc.createElement = (tag) => make(tag.toLowerCase());
@@ -416,9 +418,13 @@ function boot(html, reduced, saved, serverPlays) {
     Date: Object.assign(function (ms) { return new Date(ms); }, { now: () => clock.now }),
     AbortController: AbortController,
     DOMParser: DOMParser,
-    history: { urls: [], replaceState(state, title, url) { this.urls.push(url); } },
+    history: {
+      urls: [], backs: 0, length: came ? came.length : 1, state: (came && came.state) || null,
+      replaceState(state, title, url) { this.state = state; if (url !== '/watch/play/1') this.urls.push(url); },
+      back() { this.backs++; },
+    },
     MediaMetadata: function MediaMetadata(init) { Object.assign(this, init); },
-    location: { href: '/watch/play/1' },
+    location: { href: '/watch/play/1', origin: 'http://mm' },
     navigator: { mediaSession: {}, sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
     matchMedia: (q) => ({ matches: !!reduced && /prefers-reduced-motion:\s*reduce/.test(q) }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
@@ -428,9 +434,9 @@ function boot(html, reduced, saved, serverPlays) {
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
     Blob: function Blob(parts) { this.parts = parts; },
     fetch: (url, opts) => (/\/preview\//.test(url) ? fetchFrame(url) : fetchPage(url, opts)),
-    URL: {
-      createObjectURL(blob) { frames.made++; return 'blob:' + blob.url; },
-      revokeObjectURL() { frames.freed++; },
+    URL: class extends URL {
+      static createObjectURL(blob) { frames.made++; return 'blob:' + blob.url; }
+      static revokeObjectURL() { frames.freed++; }
     },
     innerWidth: 1000,
     console: console,
@@ -2613,6 +2619,42 @@ const scenarios = {
     fire(p.video, 'dblclick', { bubbles: true });
     out.askedAfterTouch = asked;
     return out;
+  },
+
+  /* The Back arrow, by how the page was opened. */
+  async back() {
+    const html = fs.readFileSync(process.argv[2], 'utf8');
+    const press = (came, more) => {
+      const p = boot(html, false, null, undefined, came);
+      const a = p.root.querySelector('.player-back');
+      let kept = false;
+      fire(a, 'click', Object.assign({ bubbles: true, button: 0, preventDefault() { kept = true; } }, more));
+      const out = { through: p.win.history.backs, link: !kept };
+      p.tick(5000);
+      return Object.assign(out, { late: p.win.location.href });
+    };
+    const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/watch?genre=action', length: 3 }).win.history.state;
+    return {
+      fromWatch: press({ referrer: 'http://mm/watch?genre=action', length: 3 }),
+      reload: press({ length: 3, state: reloaded }),
+      newTab: press({ referrer: 'http://mm/watch', length: 1 }),
+      deep: press({ length: 2 }),
+      otherSite: press({ referrer: 'http://evil/watch', length: 3 }),
+      otherPage: press({ referrer: 'http://mm/watch/play/9', length: 3 }),
+      newTabPress: press({ referrer: 'http://mm/watch', length: 3 }, { metaKey: true }),
+    };
+  },
+
+  /* A next episode played in place: the one at /watch/play/502, whose Back leads where the page says. */
+  async backAfterNext() {
+    const p = boot(fs.readFileSync(process.argv[2], 'utf8'), false, null, undefined, { referrer: 'http://mm/watch/show/77', length: 3 });
+    Object.entries(JSON.parse(process.env.PLAYER_PAGES)).forEach(([href, f]) => { p.pages[href] = { html: fs.readFileSync(f, 'utf8') }; });
+    await settle();
+    click(p.root.querySelector('[data-next-btn]'));
+    await settle();
+    const a = p.root.querySelector('.player-back');
+    fire(a, 'click', { bubbles: true, button: 0 });
+    return { at: p.win.history.urls, through: p.win.history.backs, href: a.getAttribute('href'), state: p.win.history.state };
   },
 };
 

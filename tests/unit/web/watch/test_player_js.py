@@ -1150,3 +1150,31 @@ def test_a_place_already_saved_is_not_saved_again(markup, season):
     assert (out["afterPause"], out["afterMore"]) == (0, 1)
     assert (out["stop"].endswith("/stop"), out["body"]) == (True, None)
     assert (out["after"], out["same"]) == (1, True)
+
+
+def test_back_steps_through_the_history_only_where_the_app_led_here(markup) -> None:
+    out = run(markup, "back")
+    through = {"through": 1, "link": False, "late": "/watch/show/77"}
+    link = {"through": 0, "link": True, "late": "/watch/play/1"}
+    assert out == {
+        "fromWatch": through,
+        "reload": through,
+        "newTab": link,
+        "deep": link,
+        "otherSite": link,
+        "otherPage": link,
+        "newTabPress": link,
+    }
+
+
+@pytest.mark.parametrize(
+    ("back_href", "through"), [("/watch/show/77", 1), ("/watch/show/77?season=3", 0)]
+)
+def test_back_after_the_next_episode_steps_through_unless_it_leads_to_another_season(
+    tmp_path_factory, markup, back_href, through
+) -> None:
+    second = _markup(tmp_path_factory, {**EPISODE, "back_href": back_href})
+    out = run(markup, "backAfterNext", pages={"/watch/play/502": second})
+    assert out["at"] == ["/watch/play/502"]
+    assert out["state"] == {"mmFrom": "/watch/show/77"}
+    assert (out["through"], out["href"]) == (through, back_href)

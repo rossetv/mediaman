@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast, get_args
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -92,9 +92,23 @@ _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
 _ORIGIN_RE = re.compile(
-    r"/watch(#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
+    r"/watch(\?(?P<query>[^#]+))?"
+    r"(?P<hash>#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
     r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
+# What a Watch page's own address may carry, and how each value looks.
+_ORIGIN_PARAMS = {
+    "all": r"[a-z_]{1,40}",
+    "view": r"list",
+    "genre": r"[a-z0-9-]{1,40}",
+    "person": r"[0-9]{1,18}",
+    "type": r"[a-z_]{1,20}",
+    "sort": r"[a-z_]{1,20}",
+    "where": r"[a-z]{1,20}",
+    "decade": r"(19|20)[0-9]0s",
+    "page": r"[0-9]{1,9}",
+    "per_page": r"[0-9]{1,9}",
+}
 # A search typed into the page's field is never this long; a longer ?q= is cut.
 _QUERY_MAX = 200
 
@@ -123,7 +137,27 @@ def poster_url(key: str) -> str:
 
 def safe_origin(value: str | None) -> str | None:
     """*value* when it is one of the Watch pages a person can come from, else None."""
-    return value if value and _ORIGIN_RE.fullmatch(value) else None
+    match = _ORIGIN_RE.fullmatch(value) if value else None
+    if match is None or match["query"] is None:
+        return value if match else None
+    try:
+        pairs = parse_qsl(
+            match["query"],
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=len(_ORIGIN_PARAMS) + 1,
+        )
+    except ValueError:
+        return None
+    if len({key for key, _ in pairs}) < len(pairs):
+        return None
+    for key, given in pairs:
+        if key == "q":
+            if len(given) > _QUERY_MAX or not given.isprintable():
+                return None
+        elif not re.fullmatch(_ORIGIN_PARAMS.get(key, r"(?!)"), given):
+            return None
+    return f"/watch?{urlencode(pairs)}{match['hash'] or ''}"
 
 
 def _banner_art(key: str) -> dict[str, str]:
@@ -1113,7 +1147,7 @@ def play_page(
         ctx = {
             "username": username,
             "is_admin": _is_admin(conn, username),
-            "back_href": "/watch",
+            "back_href": safe_origin(origin) or "/watch",
             "watch_error": None if isinstance(exc, PlexItemNotFound) else plex_error_code(exc),
         }
         return _render(request, "watch_unavailable.html", ctx)

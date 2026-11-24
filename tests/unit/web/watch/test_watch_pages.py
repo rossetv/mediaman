@@ -581,6 +581,26 @@ class TestWatchRows:
             "/watch#title=tmdb-show-1",
             "/watch#title=rec-1&x=1",
             "/watch#x=movie-1",
+            "/watch?genre=action&x=1",
+            "/watch?genre=action&genre=drama",
+            "/watch?genre=../admin",
+            "/watch?person=abc",
+            "/watch?person=%D9%A1",
+            "/watch?all=//evil.example",
+            "/watch?view=grid",
+            "/watch?decade=1990",
+            "/watch?q=a%0d%0ab",
+            "/watch?q=" + "a" * 201,
+            "/watch?",
+            "/watch?genre",
+            "/watch?genre=action#x=1",
+            "/watch?genre=action#title=movie-1/x",
+            "/watch?genre=action\n",
+            "/watch/?genre=action",
+            "/watch/show/5?genre=action",
+            "//watch?genre=action",
+            "https://evil.example/watch?genre=action",
+            "/watch@evil.example/?genre=action",
         ],
     )
     def test_back_origin_outside_the_allow_list_is_ignored(self, origin):
@@ -594,12 +614,33 @@ class TestWatchRows:
             "/watch#title=tmdb-tv-7",
             "/watch#title=rec-3",
             "/watch#title=pick-3",
+            "/watch?genre=action&type=movie&sort=top_rated&where=library&decade=1990s",
+            "/watch?person=9001#title=movie-100",
+            "/watch?q=the+long+coast%26%23#title=show-500",
+            "/watch?all=popular_movies&sort=az",
+            "/watch?view=list&q=a&type=tv&sort=added_desc&page=2&per_page=50",
         ],
     )
     def test_back_may_return_to_a_title_open_on_the_watch_page(self, get, origin):
         ctx = get(f"/watch/play/511?from={quote(origin, safe='')}").json()
 
         assert ctx["back_href"] == origin
+
+    def test_a_player_that_cannot_open_still_leads_back_where_the_person_was(
+        self, get, plex, monkeypatch
+    ):
+        def fail(_key):
+            raise PlexUnavailable("down")
+
+        monkeypatch.setattr(plex, "get_item", fail)
+        origin = quote("/watch?genre=action", safe="")
+        assert get(f"/watch/play/100?from={origin}").json()["back_href"] == "/watch?genre=action"
+        assert get("/watch/play/100?from=//evil.example").json()["back_href"] == "/watch"
+
+    def test_text_in_a_search_to_go_back_to_stays_text(self):
+        assert pages.safe_origin("/watch?q=<b>//evil.example") == (
+            "/watch?q=%3Cb%3E%2F%2Fevil.example"
+        )
 
     def test_back_returns_to_where_the_person_came_from(self, get):
         origin = "/watch/show/500?season=2"

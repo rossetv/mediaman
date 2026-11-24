@@ -10,6 +10,8 @@
  *     open(value, how), close(how)   // how: 'start', 'pop', 'push' or 'replace'
  *   });
  *
+ * A link to the player takes the whole address along, so it can lead back here.
+ *
  * push and replace move the address for a layer and do not call it back; every
  * other layer is brought into line. open and close may return true: the layer
  * places the page's scroll itself. watch.js calls start() last.
@@ -332,6 +334,24 @@
       Object.keys(kept).forEach(function (id) { if (typeof kept[id] === 'number') places[id] = kept[id]; });
     } catch (e) { /* nothing kept */ }
   }
+
+  /* ── To the player ── */
+
+  function onPlayLink(e) {
+    var link = e.target.closest && e.target.closest('a');
+    var to = link && link.getAttribute('href');
+    if (!to || to.indexOf('/watch/play/') !== 0) return;
+    var href = to.split('?');
+    var query = new URLSearchParams(href[1]);
+    var hash = window.location.hash;
+    query.set('from', window.location.pathname + window.location.search + (/^#title=/.test(hash) ? hash : ''));
+    link.setAttribute('href', href[0] + '?' + query);
+  }
+
+  // Before the browser follows it, in this tab or in another.
+  ['click', 'auxclick', 'contextmenu'].forEach(function (type) {
+    document.addEventListener(type, onPlayLink, true);
+  });
 
   /* ── Start ── */
 

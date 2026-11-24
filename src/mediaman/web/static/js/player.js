@@ -56,6 +56,7 @@
   var ASK_AFTER_MS = 2 * 60 * 60 * 1000;
   /* How long the next episode waits for its page, and for the old stream to stop. */
   var PAGE_WAIT_MS = 15000;
+  var BACK_WAIT_MS = 1500;   // a step back through the history this late is not coming
   var STOP_WAIT_MS = 5000;
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
@@ -118,6 +119,7 @@
   var nextUnknown;           // Plex could not say whether an episode follows
   var leaving;
   var backHref;
+  var cameFrom;              // the page the history's last entry holds, when it opened the player
   var showHref;
   var startS;
 
@@ -1827,7 +1829,8 @@
   /* What the video's end leads to. */
   function atEnd() {
     if (nextUnknown) findNext();
-    else if (!next) window.location.href = showHref || backHref;
+    else if (!next && showHref) window.location.href = showHref;
+    else if (!next) goBack();
     else if (autoplay) goOrAsk(showUpnext);
     else showUpnext();
   }
@@ -1962,7 +1965,7 @@
     root.querySelectorAll('[data-back]').forEach(function (a) { a.setAttribute('href', backHref); });
     els.seek.setAttribute('aria-valuemax', String(Math.round(item.duration_s || 0)));
     document.title = page.title;
-    window.history.replaceState(null, '', href);
+    window.history.replaceState(window.history.state, '', href);
     showMedia();
     buildQualityMenu();
     drawMarks();
@@ -2148,6 +2151,43 @@
     });
   }
 
+  /* ---- back ------------------------------------------------------------ */
+
+  var backTimer;
+
+  /* Whether a page that plays things led here, in this tab. */
+  function ledHere() {
+    if (window.history.length < 2 || !document.referrer) return false;
+    var from = new URL(document.referrer);
+    return from.origin === window.location.origin && /^\/watch(\/(show|movie)\/[0-9]+)?$/.test(from.pathname);
+  }
+
+  /* Kept with the entry, so a reload knows it too. */
+  function noteOrigin() {
+    var state = window.history.state || {};
+    if (state.mmFrom === undefined && ledHere()) {
+      state = Object.assign({}, state, { mmFrom: backHref });
+      window.history.replaceState(state, '', window.location.href);
+    }
+    cameFrom = state.mmFrom;
+  }
+
+  /* Through the history the page comes back as it was left; a next episode may
+     lead elsewhere than it did. A step the browser never makes is a link. */
+  function goBack() {
+    if (cameFrom !== backHref) { window.location.href = backHref; return; }
+    window.history.back();
+    clearTimeout(backTimer);
+    backTimer = setTimeout(function () { window.location.href = backHref; }, BACK_WAIT_MS);
+  }
+
+  root.addEventListener('click', function (e) {
+    var link = e.target.closest('[data-back]');
+    if (!link || cameFrom !== backHref || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    goBack();
+  });
+
   /* ---- leaving the page ----------------------------------------------- */
 
   document.addEventListener('visibilitychange', function () {
@@ -2155,6 +2195,7 @@
   });
 
   window.addEventListener('pagehide', function () {
+    clearTimeout(backTimer);
     var resumeAt = position();
     beaconStop();
     pendingStart = resumeAt;
@@ -2175,6 +2216,7 @@
   /* ---- start ---------------------------------------------------------- */
 
   startSitting();
+  noteOrigin();
   setupKeep();
   setupNext();
   showMedia();

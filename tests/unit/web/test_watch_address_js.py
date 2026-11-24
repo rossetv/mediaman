@@ -189,3 +189,12 @@ def test_the_focus_comes_back_from_under_a_link_the_browser_followed() -> None:
 
 def test_a_second_back_while_the_first_is_on_its_way_steps_no_further() -> None:
     assert _run("twoBacksInARow") == {"at": "/watch", "calls": ["go -1"]}
+
+
+def test_a_link_to_the_player_carries_the_whole_address_it_was_followed_at() -> None:
+    assert _run("playLinks") == [
+        ["/watch/play/7", "1", "/watch?genre=action&decade=1990s#title=movie-7"],
+        ["/watch/play/7", "1", "/watch?q=a%26b"],
+        ["/watch/play/7", None, "/watch?all=movies"],
+        ["/watch/movie/7", None, None],
+    ]

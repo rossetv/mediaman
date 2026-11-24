@@ -95,6 +95,23 @@ const trailer = (p) => p.address.push('trailer', p.address.url({}));
 const grid = (p, id) => p.address.push('grid', p.address.url({ all: id, sort: null }));
 
 const scenarios = {
+  async playLinks() {
+    const follow = (url, href, type) => {
+      const p = open(makeTab(url));
+      const a = p.doc.body.appendChild(build(p.doc, ['a', { href }]));
+      p.doc.listeners[type].forEach((fn) => fn({ target: a }));
+      const to = new URL(a.getAttribute('href'), 'http://mm');
+      return [to.pathname, to.searchParams.get('resume'), to.searchParams.get('from')];
+    };
+    const old = '/watch/play/7?resume=1&from=%2Fwatch%23title%3Dmovie-7';
+    return [
+      follow('/watch?genre=action&decade=1990s#title=movie-7', old, 'click'),
+      follow('/watch?q=a%26b', old, 'auxclick'),
+      follow('/watch?all=movies#storage', '/watch/play/7', 'contextmenu'),
+      follow('/watch?all=movies', '/watch/movie/7', 'click'),
+    ];
+  },
+
   // Whatever opens closes a card's preview; a title's details grow out of it.
   async closesThePreview() {
     const p = open(makeTab('/watch'));
