@@ -436,9 +436,10 @@ const scenarios = {
   async deleteCancelled() {
     const p = load({ list: true });
     p.answerConfirm(false);
-    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    const del = p.row('id:m1').querySelector('[data-action="confirm-delete"]');
+    click(p.doc, del);
     await settle();
-    return { calls: p.calls, busy: p.row('id:m1').classList.contains('is-busy') };
+    return { calls: p.calls, busy: p.row('id:m1').classList.contains('is-busy'), focus: p.doc.activeElement === del };
   },
 
   // Delete one season from a show's season dialog: only that show's row is read again.

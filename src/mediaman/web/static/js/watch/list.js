@@ -742,6 +742,7 @@
     var deleteBtn = e.target.closest('[data-action="confirm-delete"]');
     if (deleteBtn) {
       e.preventDefault();
+      deleteBtn.focus({ preventScroll: true }); // as Safari does not on a click, for when the confirm closes
       var title;
       try { title = JSON.parse(deleteBtn.getAttribute('data-title')); } catch (_) { title = ''; }
       admin.confirmDelete(deleteBtn.getAttribute('data-id'), title, {

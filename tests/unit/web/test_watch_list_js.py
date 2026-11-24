@@ -96,7 +96,8 @@ def test_a_refused_delete_puts_the_row_and_its_button_back() -> None:
 
 
 def test_cancelling_the_confirm_deletes_nothing() -> None:
-    assert _run("deleteCancelled") == {"calls": [], "busy": False}
+    # Focused by the script: a click does not focus a button in every browser.
+    assert _run("deleteCancelled") == {"calls": [], "busy": False, "focus": True}
 
 
 def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_row() -> None:
