@@ -1,4 +1,4 @@
-"""The keep label counts whole days left by elapsed time, whatever hour it is read at."""
+"""The keep label counts days left by elapsed time, to the nearest day, whatever hour it is read at."""
 
 from __future__ import annotations
 
@@ -30,3 +30,24 @@ def test_keep_ending_in_eleven_days_and_two_hours_reads_eleven_days(monkeypatch,
 def test_keep_ending_in_one_day_and_an_hour_reads_one_more_day(monkeypatch):
     now = datetime(2026, 3, 10, 23, 0, tzinfo=UTC)
     assert _label(monkeypatch, now, timedelta(days=1, hours=1)) == "Kept for 1 more day"
+
+
+@pytest.mark.parametrize("hour", [1, 12, 23])
+def test_a_seven_day_keep_just_made_reads_seven_days(monkeypatch, hour):
+    now = datetime(2026, 3, 10, hour, 0, tzinfo=UTC)
+    assert _label(monkeypatch, now, timedelta(days=7) - timedelta(seconds=2)) == (
+        "Kept for 7 more days"
+    )
+
+
+def test_a_keep_with_six_and_a_half_days_left_reads_seven_and_with_less_reads_six(monkeypatch):
+    now = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
+    assert _label(monkeypatch, now, timedelta(days=6, hours=12)) == "Kept for 7 more days"
+    assert _label(monkeypatch, now, timedelta(days=6, hours=11)) == "Kept for 6 more days"
+
+
+def test_a_keep_a_moment_short_of_two_days_reads_two_days(monkeypatch):
+    now = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
+    assert _label(monkeypatch, now, timedelta(days=2) - timedelta(seconds=1)) == (
+        "Kept for 2 more days"
+    )
