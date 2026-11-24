@@ -229,7 +229,8 @@ def map_episode_state(ep: _ArrLike) -> str:
 
     if status in ("failed", "downloadclientunavailable"):
         return "searching"
-    if progress == 100 or (sizeleft == 0 and size > 0):
+    # A completed entry may report no size at all.
+    if status == "completed" or progress == 100 or (sizeleft == 0 and size > 0):
         return "ready"
     if status == "downloading":
         return "downloading"

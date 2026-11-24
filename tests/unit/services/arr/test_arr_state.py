@@ -774,6 +774,16 @@ def test_a_movie_whose_only_download_brings_nothing_is_not_downloading():
     assert caches["radarr_queue_progress"] == {4: 40}
 
 
+def test_a_finished_download_that_reports_no_size_is_downloading():
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 1, "monitored": True}]
+    radarr.get_queue.return_value = [
+        {"movie": {"tmdbId": 1}, "size": 0, "sizeleft": 0, "status": "completed"}
+    ]
+    caches = {**build_radarr_cache(radarr), **build_sonarr_cache(None)}
+    assert compute_download_state("movie", 1, caches) == "downloading"
+
+
 def test_sonarr_cache_queue_progress_sums_episodes_per_series():
     sonarr = MagicMock()
     sonarr.get_series.return_value = [{"tmdbId": 9}]
