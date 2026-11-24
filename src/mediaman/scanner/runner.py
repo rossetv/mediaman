@@ -32,8 +32,6 @@ from mediaman.services.arr.build import (
 from mediaman.services.infra import SafeHTTPError, SSRFRefused, get_int_setting
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.media_meta.plex import PlexClient
 
@@ -386,19 +384,6 @@ def run_scan_from_db(
     return cast(ScanSummary, engine.run_scan())
 
 
-def _build_or_none(
-    build: Callable[[sqlite3.Connection, str], ArrClient | None],
-    conn: sqlite3.Connection,
-    secret_key: str,
-) -> ArrClient | None:
-    try:
-        return build(conn, secret_key)
-    # rationale: one service's unreadable setting must not stop the other's, nor the sync.
-    except Exception:
-        logger.exception("Building a Radarr/Sonarr client failed — sync unaffected")
-        return None
-
-
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
     """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
     if repository.read_setting(conn, "dry_run") == "true":
@@ -407,11 +392,19 @@ def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
         return
     from mediaman.scanner.deletions import rescan_deleted, unmonitor_deleted
 
-    radarr = _build_or_none(_build_radarr, conn, secret_key)
-    sonarr = _build_or_none(_build_sonarr, conn, secret_key)
+    clients: dict[str, ArrClient | None] = {}
+    unusable: set[str] = set()
+    for service, build in (("Radarr", _build_radarr), ("Sonarr", _build_sonarr)):
+        try:
+            clients[service] = build(conn, secret_key)
+        # rationale: one service's unreadable setting must not stop the other's, nor the sync.
+        except Exception:
+            logger.exception("Building the %s client failed — sync unaffected", service)
+            unusable.add(service)
+    radarr, sonarr = clients.get("Radarr"), clients.get("Sonarr")
     try:
-        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
-        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
+        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, unusable=unusable)
+        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr, unusable=unusable)
     # rationale: an unreadable setting or a payload of the wrong shape must not stop the sync.
     except Exception:
         logger.exception("Unmonitoring deleted titles failed — sync unaffected")

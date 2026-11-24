@@ -23,6 +23,9 @@ class _Died(BaseException):
     pass
 
 
+_NO_ANSWER = requests.ConnectionError("refused")
+
+
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
@@ -355,6 +358,8 @@ def test_an_unreadable_radarr_key_does_not_stop_the_library_sync(conn, root, mon
     runner.run_library_sync(conn, "secret")
 
     assert plex.called
+    assert _skips(conn) == ["m1"]
+    assert conn.execute("SELECT 1 FROM pending_unmonitors").fetchone()
 
 
 def test_an_unreadable_radarr_key_keeps_its_titles_marked_and_sonarrs_told(conn, root, monkeypatch):
@@ -365,7 +370,9 @@ def test_an_unreadable_radarr_key_keeps_its_titles_marked_and_sonarrs_told(conn,
         "tvdb_id = 9, tmdb_id = NULL WHERE id = 'm2'"
     )
     conn.commit()
-    DeletionExecutor(conn=conn).execute()
+    dying = MagicMock()
+    dying.get_movie_by_id.side_effect = dying.get_series_by_id.side_effect = _NO_ANSWER
+    DeletionExecutor(conn=conn, radarr_client=dying, sonarr_client=dying).execute()
     sonarr, radarr = MagicMock(), _radarr(root)
     sonarr.get_series_by_id.return_value = {
         "id": 7,
@@ -388,6 +395,75 @@ def test_an_unreadable_radarr_key_keeps_its_titles_marked_and_sonarrs_told(conn,
     _sync(conn, monkeypatch, radarr)
 
     assert _unmonitored(radarr) == [1]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _NO_ANSWER,
+        requests.ReadTimeout("slow"),
+        SafeHTTPError(0, "transport error", "u"),
+        SafeHTTPError(401, "wrong key", "u"),
+        SafeHTTPError(503, "", "u"),
+    ],
+)
+def test_a_radarr_that_gives_no_answer_is_audited_once_and_told_once_it_does(conn, root, failure):
+    _due(conn, root, 1)
+    down = _radarr(root)
+    down.get_movie_by_id.side_effect = failure
+    for _ in range(2):
+        DeletionExecutor(conn=conn, radarr_client=down).execute()
+    assert _skips(conn) == ["m1"]
+    radarr = _radarr(root)
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert _unmonitored(radarr) == [1]
+    assert _skips(conn) == ["m1"]
+
+
+def test_a_radarr_that_gives_no_answer_is_waited_for_once_a_pass(conn, root):
+    for number in (1, 2, 3):
+        _due(conn, root, number)
+    down = _radarr(root)
+    down.get_movie_by_id.side_effect = _NO_ANSWER
+
+    DeletionExecutor(conn=conn, radarr_client=down).execute()
+
+    assert len(down.mock_calls) == 1
+    assert _skips(conn) == ["m1", "m2", "m3"]
+
+
+def test_a_radarr_that_refuses_the_unmonitor_is_not_asked_again(conn, root):
+    _due(conn, root, 1)
+    refusing = _radarr(root)
+    refusing.unmonitor_movie.side_effect = SafeHTTPError(400, "", "u")
+    DeletionExecutor(conn=conn, radarr_client=refusing).execute()
+    radarr = _radarr(root)
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    assert radarr.mock_calls == []
+    assert _skips(conn) == ["m1"]
+
+
+def test_marks_left_for_a_radarr_no_longer_set_up_go_unaudited(conn, root, monkeypatch):
+    for number in (1, 2):
+        _due(conn, root, number)
+    radarr = _radarr(root)
+    answer = radarr.get_movie_by_id.side_effect
+    radarr.get_movie_by_id.side_effect = lambda i: answer(i) if i == 1 else _raise(_Died())
+    with pytest.raises(_Died):
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+    _sync(conn, monkeypatch, None)
+
+    assert not conn.execute("SELECT 1 FROM pending_unmonitors").fetchone()
+    assert _skips(conn) == []
+
+
+def _raise(error):
+    raise error
 
 
 def test_an_older_database_without_the_table_gets_it(conn, db_path, root):
