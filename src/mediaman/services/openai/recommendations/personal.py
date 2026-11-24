@@ -158,7 +158,6 @@ def _make(
         username=username,
         uses_plex=uses_plex,
         linked_at=link.linked_at if link else None,
-        prune=True,
     )
 
 

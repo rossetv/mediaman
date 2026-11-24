@@ -22,7 +22,6 @@ REFRESHES_PER_DAY = 10
 TRIES_PER_DAY = 3
 # A run left unfinished this long ago died with its process.
 _RUN_STALE = timedelta(minutes=30)
-_KEEP_DAYS = 90
 
 _COLS = (
     "id, title, year, media_type, 'personal' AS category, tmdb_id, description, reason, "
@@ -81,19 +80,6 @@ def clear_downloaded(conn: sqlite3.Connection, username: str, ids: Sequence[obje
             "UPDATE user_picks SET downloaded_at = NULL WHERE id = ? AND username = ?",
             [(pick_id, username) for pick_id in ids],
         )
-
-
-def prune(conn: sqlite3.Connection, username: str, now: datetime) -> None:
-    """Delete *username*'s batches and runs older than 90 days; the caller commits."""
-    cutoff = now - timedelta(days=_KEEP_DAYS)
-    conn.execute(
-        "DELETE FROM user_picks WHERE username = ? AND batch_id < ?",
-        (username, cutoff.strftime("%Y-%m-%d")),
-    )
-    conn.execute(
-        "DELETE FROM user_pick_runs WHERE username = ? AND started_at < ?",
-        (username, cutoff.isoformat()),
-    )
 
 
 # --- Runs ---------------------------------------------------------------------

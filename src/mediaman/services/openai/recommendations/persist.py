@@ -8,11 +8,9 @@ import re
 import sqlite3
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
 
 from mediaman.core.time import now_utc
 from mediaman.services.downloads.download_format._parsing import normalise_for_match
-from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
@@ -22,9 +20,6 @@ from mediaman.services.openai.recommendations.prompts import (
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
 from mediaman.services.plex_link.repository import get_link
 from mediaman.services.watch_catalog import SeenTitles
-
-if TYPE_CHECKING:
-    from mediaman.services.media_meta.plex import PlexClient
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +144,6 @@ def store_batch(
     username: str | None = None,
     uses_plex: bool = False,
     linked_at: str | None = None,
-    prune: bool = False,
 ) -> int:
     """Replace today's batch, *username*'s own or the shared one, with *items* in one
     transaction; returns how many were stored. A pick of today already downloaded keeps its
@@ -193,11 +187,6 @@ def store_batch(
             f"DELETE FROM {table} WHERE id = ?",  # nosec B608
             [(r["id"],) for r in gone if r["id"] not in kept_ids],
         )
-        if prune and username is None:
-            cutoff_90d_str = (now - timedelta(days=90)).strftime("%Y-%m-%d")
-            conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d_str,))
-        elif prune and username is not None:
-            user_picks.prune(conn, username, now)
 
         for s, downloaded_at in zip(items, marks, strict=True):
             values: dict[str, object] = {c: s.get(c) for c in _STORED.split(", ")}
@@ -226,17 +215,25 @@ def store_batch(
     return inserted
 
 
+def prune_old_picks(conn: sqlite3.Connection) -> None:
+    """Delete everyone's picks and runs, and the shared picks, older than 90 days."""
+    cutoff = now_utc() - timedelta(days=90)
+    with conn:
+        for table in ("suggestions", "user_picks"):
+            # rationale: the table names are the two above; the value is bound
+            conn.execute(  # nosec B608
+                f"DELETE FROM {table} WHERE batch_id < ?", (cutoff.strftime("%Y-%m-%d"),)
+            )
+        conn.execute("DELETE FROM user_pick_runs WHERE started_at < ?", (cutoff.isoformat(),))
+
+
 def refresh_recommendations(
     conn: sqlite3.Connection,
-    plex_client: PlexClient | None,
-    manual: bool = False,
     *,
     secret_key: str,
 ) -> int:
     """Generate the new and popular recommendations everyone sees; returns the count
-    generated. No viewing data goes into them, and *plex_client* is not read.
-
-    Every run replaces today's batch; scheduled runs also prune rows older than 90 days.
+    generated. No viewing data goes into them. Every run replaces today's batch.
     """
     now = now_utc()
     earlier = recent_rows(conn, now)
@@ -256,6 +253,6 @@ def refresh_recommendations(
     if not trending:
         return 0
 
-    inserted = store_batch(conn, trending, now, prune=not manual)
+    inserted = store_batch(conn, trending, now)
     logger.info("Generated %d shared recommendations; inserted=%d", len(trending), inserted)
     return inserted

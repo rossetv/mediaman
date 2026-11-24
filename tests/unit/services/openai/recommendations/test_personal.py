@@ -181,7 +181,7 @@ class TestMaking:
 
         _make(conn, "amy")
         _make(conn, "bob")
-        refresh_recommendations(conn, None, secret_key=_KEY)
+        refresh_recommendations(conn, secret_key=_KEY)
 
         amys, bobs, shared = openai.prompts
         assert "Alpha" in amys and "Rho" in bobs
@@ -346,14 +346,6 @@ class TestMaking:
         assert _make(conn, "amy") == 1
         assert conn.execute("SELECT uses_plex FROM user_picks").fetchone()[0] == 0
 
-    def test_batches_over_90_days_old_go_with_the_next(self, conn, openai):
-        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
-        insert_user_pick(conn, "amy", title="Ancient", batch_id="2026-02-01")
-        insert_user_pick(conn, "bob", title="Bobs Ancient", batch_id="2026-02-01")
-        openai.items = [_pick("New")]
-        _make(conn, "amy")
-        assert (_titles(conn, "amy"), _titles(conn, "bob")) == (["New"], ["Bobs Ancient"])
-
 
 class TestEligible:
     def _done(self, conn, username, when):
@@ -507,7 +499,7 @@ class TestSharedPicks:
         insert_suggestion(conn, title="Household", category="personal", batch_id="2026-05-01")
         openai.items = [_pick("Held"), _pick("Lately"), _pick("Household"), _pick("New")]
 
-        refresh_recommendations(conn, None, secret_key=_KEY)
+        refresh_recommendations(conn, secret_key=_KEY)
 
         rows = conn.execute("SELECT title FROM suggestions WHERE batch_id = '2026-05-20'")
         assert [r["title"] for r in rows] == ["Household", "New"]
@@ -515,12 +507,12 @@ class TestSharedPicks:
     def test_the_prompt_lists_the_newest_earlier_titles_first(self, conn, openai):
         insert_suggestion(conn, title="Older", batch_id="2026-05-01")
         insert_suggestion(conn, title="Newer", batch_id="2026-05-10")
-        refresh_recommendations(conn, None, secret_key=_KEY)
+        refresh_recommendations(conn, secret_key=_KEY)
         assert '["Newer", "Older"]' in openai.prompts[0]
 
     def test_a_pick_downloaded_today_may_be_picked_again(self, conn, openai):
         insert_suggestion(conn, title="Had", batch_id="2026-05-20", downloaded_at=_ago(hours=1))
         openai.items = [_pick("Had")]
-        assert refresh_recommendations(conn, None, secret_key=_KEY) == 1
+        assert refresh_recommendations(conn, secret_key=_KEY) == 1
         rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
         assert [tuple(r) for r in rows] == [("Had", _ago(hours=1))]

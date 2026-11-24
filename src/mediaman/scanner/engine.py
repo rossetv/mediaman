@@ -67,6 +67,9 @@ from mediaman.services.infra import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
+    prune_old_picks as _prune_old_picks,
+)
+from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
 )
 from mediaman.services.openai.recommendations.personal import (
@@ -461,16 +464,14 @@ class ScanEngine:
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
             return
+        try:
+            _prune_old_picks(self._conn)
+        except sqlite3.Error:
+            logger.exception("Old picks were not removed — scan results unaffected")
         if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
-                _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-            except (
-                PlexApiException,
-                requests.RequestException,
-                SafeHTTPError,
-                sqlite3.Error,
-            ):
-                # best-effort post-scan followup — must not abort scan summary
+                _refresh_recommendations(self._conn, secret_key=self._secret_key)
+            except Exception:  # rationale: what a model answers must never cost a scan
                 logger.exception("Recommendation generation failed — scan results unaffected")
             try:
                 _read_plays(self._conn, self._secret_key)
@@ -478,7 +479,7 @@ class ScanEngine:
                 logger.exception("Reading Plex plays failed — scan results unaffected")
             try:
                 _refresh_people(self._conn, self._plex, secret_key=self._secret_key)
-            except sqlite3.Error:
+            except Exception:  # rationale: what a model answers must never cost a scan
                 logger.exception("Own picks failed — scan results unaffected")
         try:
             _send_newsletter(

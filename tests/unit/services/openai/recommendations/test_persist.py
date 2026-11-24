@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -16,12 +16,6 @@ from tests.helpers.factories import insert_suggestion
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
-
-
-def _plex_client(ratings=None):
-    c = MagicMock()
-    c.get_user_ratings.return_value = ratings or []
-    return c
 
 
 def _fake_trending():
@@ -51,7 +45,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            result = refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            result = refresh_recommendations(conn, secret_key="x" * 64)
         assert result == 0
 
     def test_returns_count_of_inserted_rows(self, conn):
@@ -77,7 +71,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            result = refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            result = refresh_recommendations(conn, secret_key="x" * 64)
         assert result == 1
 
     def test_rows_inserted_into_suggestions_table(self, conn):
@@ -103,7 +97,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            refresh_recommendations(conn, secret_key="x" * 64)
         rows = conn.execute("SELECT title FROM suggestions").fetchall()
         assert any(r["title"] == "Dune" for r in rows)
 
@@ -117,7 +111,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            refresh_recommendations(conn, secret_key="x" * 64)
         row = conn.execute("SELECT backdrop_url FROM suggestions").fetchone()
         assert row["backdrop_url"] == "https://image.tmdb.org/t/p/w1280/wide.jpg"
 
@@ -158,9 +152,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            refresh_recommendations(
-                conn, plex_client=_plex_client(), secret_key="x" * 64, manual=True
-            )
+            refresh_recommendations(conn, secret_key="x" * 64)
         rows = conn.execute("SELECT title FROM suggestions WHERE batch_id = ?", (today,)).fetchall()
         titles = {r["title"] for r in rows}
         assert "Old Rec" not in titles
@@ -378,7 +370,7 @@ class TestRefreshRecommendations:
             ),
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
         ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            refresh_recommendations(conn, secret_key="x" * 64)
 
     def test_second_scheduled_refresh_same_day_does_not_double_batch(self, conn, freezer):
         freezer.move_to("2026-05-01 12:00:00")
@@ -390,7 +382,7 @@ class TestRefreshRecommendations:
                 ),
                 patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
             ):
-                refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+                refresh_recommendations(conn, secret_key="x" * 64)
         count = conn.execute(
             "SELECT COUNT(*) FROM suggestions WHERE batch_id = '2026-05-01'"
         ).fetchone()[0]
@@ -470,7 +462,7 @@ class TestRefreshRecommendations:
             patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
             pytest.raises(KeyError),
         ):
-            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+            refresh_recommendations(conn, secret_key="x" * 64)
 
         rows = conn.execute("SELECT title FROM suggestions").fetchall()
         titles = {r["title"] for r in rows}
