@@ -193,6 +193,11 @@
         return row;
       }
 
+      // Safari focuses no button that is clicked, and a dialog returns the focus to what had it.
+      function holdFocus(btn, within) {
+        if (!(within || btn).contains(document.activeElement)) btn.focus({ preventScroll: true });
+      }
+
       function isAdmin(user) { return user.role !== 'viewer'; }
 
       function paintSub(user, sub) {
@@ -270,6 +275,7 @@
           e.preventDefault();
           if (isBusy()) return;
           var email = input.value.trim();
+          holdFocus(save, form);
           save.setAttribute('aria-disabled', 'true');
           say('Saving…');
           MM.reauth.run(function () {
@@ -303,6 +309,7 @@
 
       function changeRoleFlow(user, role, btn, changed) {
         var label = btn.textContent;
+        holdFocus(btn);
         btn.disabled = true;
         btn.textContent = 'Saving…';
         btn.setAttribute('aria-label', 'Saving…: ' + user.username);
@@ -337,6 +344,7 @@
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
       function deleteUserFlow(user, row, btn) {
+        holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
           body: 'Irreversible. All active sessions for this user will be terminated.',
@@ -461,6 +469,7 @@
           failOn(createResult, 'Password must be at least 12 characters.', pwInput);
           return;
         }
+        holdFocus(btnSubmitAddUser, addUserForm);
         btnSubmitAddUser.disabled = true;
         createResult.className = 'inline-form-msg';
         createResult.textContent = 'Creating…';

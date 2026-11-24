@@ -173,6 +173,14 @@ def test_an_admin_changes_someones_email_in_their_row() -> None:
     }
 
 
+def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
+    assert _run("userEmailSavedWithoutFocus") == {
+        "email": True,
+        "role": True,
+        "delete": True,
+    }
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"

@@ -610,6 +610,48 @@ const scenarios = {
     return out;
   },
 
+  // A click on Save focuses no button there, and the password dialog gives focus back to what had it.
+  async userEmailSavedWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-user' });
+    const dialog = h.add('input', { id: 'dialog' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }),
+      patch: () => Promise.resolve({ email: 'new@x.example' }),
+    };
+    h.ctx.MM.reauth = { run: (f) => {
+      const opener = h.doc.activeElement;
+      dialog.focus();
+      return f().then((r) => { opener.focus(); return r; });
+    } };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(userList, 'usr-row')[0];
+    const btn = row.querySelector('[data-user-action="email"]');
+    btn.fire('click');
+    main.focus();
+    row.querySelector('form').fire('submit');
+    await h.flush();
+    const out = { email: h.doc.activeElement === btn };
+    const role = row.querySelector('[data-user-action="role"]');
+    h.ctx.MM.api.patch = () => Promise.resolve({});
+    main.focus();
+    role.fire('click');
+    await h.flush(); h.drain();
+    out.role = h.doc.activeElement === role;
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.api.delete = () => Promise.resolve({});
+    main.focus();
+    row.querySelector('[data-user-action="delete"]').fire('click');
+    await h.flush(); h.drain();
+    out.delete = h.doc.activeElement === add;
+    return out;
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();
