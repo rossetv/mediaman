@@ -119,6 +119,25 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
 
 
+def _take_over_plays(conn: sqlite3.Connection) -> None:
+    """Fill played_titles from the plays of a database made before it."""
+    rows = conn.execute(
+        "SELECT wp.username, CASE WHEN wp.show_rating_key IS NULL THEN 'movie' ELSE 'tv' END,"
+        " CASE WHEN wp.show_rating_key IS NULL THEN mi.title"
+        " ELSE COALESCE(mi.show_title, mi.title) END,"
+        " MAX(mi.tmdb_id), MAX(wp.credited_at)"
+        " FROM watch_progress wp JOIN media_items mi ON mi.id = wp.media_item_id"
+        " JOIN admin_users u ON u.username = wp.username"
+        " WHERE wp.credited_at IS NOT NULL GROUP BY 1, 2, 3"
+    ).fetchall()
+    if rows:
+        conn.executemany(
+            "INSERT INTO played_titles (username, media_type, title, tmdb_id, played_at)"
+            " VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            rows,
+        )
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     """Initialise the database, creating tables if needed.
 
@@ -139,6 +158,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        _take_over_plays(conn)
         conn.commit()
     except Exception:
         conn.close()

@@ -252,3 +252,45 @@ def test_one_plex_account_belongs_to_one_person(tmp_path):
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(link, ("bob", 7, 8))
     conn.close()
+
+
+def test_plays_made_before_they_were_kept_apart_are_taken_over(tmp_path):
+    path = str(tmp_path / "old.db")
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at) VALUES ('amy','h','2020')"
+    )
+    for item, kind, title, show in (
+        ("m", "movie", "Film", None),
+        ("s", "tv_season", "Show S1", "Show"),
+        ("u", "movie", "Unplayed", None),
+    ):
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, show_title, plex_library_id,"
+            " plex_rating_key, added_at, file_path, file_size_bytes, tmdb_id)"
+            " VALUES (?, ?, ?, ?, 1, ?, '2020', '/m', 1, 5)",
+            (item, title, kind, show, item),
+        )
+    conn.executemany(
+        "INSERT INTO watch_progress (username, rating_key, media_item_id, show_rating_key,"
+        " credited_at, updated_at) VALUES ('amy', ?, ?, ?, ?, '2024')",
+        [
+            ("m", "m", None, "2023"),
+            ("e1", "s", "k", "2021"),
+            ("e2", "s", "k", "2022"),
+            ("u", "u", None, None),
+        ],
+    )
+    conn.execute("DROP TABLE played_titles")
+    conn.commit()
+    conn.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    rows = conn.execute("SELECT * FROM played_titles ORDER BY title").fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("amy", "movie", "Film", 5, "2023"),
+        ("amy", "tv", "Show", 5, "2022"),
+    ]
+    conn.close()

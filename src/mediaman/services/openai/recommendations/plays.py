@@ -34,8 +34,36 @@ SELECT p.media_type = 'movie', CASE WHEN p.media_type = 'movie' THEN p.title ELS
        p.viewed_at, 1
 FROM plex_plays p
 WHERE p.username = :username AND p.media_type IN ('movie', 'episode')
+UNION ALL
+SELECT media_type = 'movie', title, tmdb_id, played_at, 0
+FROM played_titles WHERE username = :username
 ORDER BY 4 DESC
 """
+
+
+_RECORD_SQL = """
+INSERT INTO played_titles (username, media_type, title, tmdb_id, played_at)
+SELECT :username, CASE WHEN :show IS NULL THEN 'movie' ELSE 'tv' END,
+       CASE WHEN :show IS NULL THEN title ELSE COALESCE(show_title, title) END, tmdb_id, :at
+FROM media_items WHERE id = :item OR show_rating_key = :show
+ORDER BY id IS :item DESC LIMIT 1
+ON CONFLICT (username, media_type, title) DO UPDATE SET
+    played_at = MAX(played_at, excluded.played_at), tmdb_id = COALESCE(excluded.tmdb_id, tmdb_id)
+"""
+
+
+def record_play(
+    conn: sqlite3.Connection,
+    username: str,
+    media_item_id: str | None,
+    show_rating_key: str | None,
+    played_at: str,
+) -> None:
+    """Keep the title of *username*'s play, which a deletion of the title would lose."""
+    conn.execute(
+        _RECORD_SQL,
+        {"username": username, "item": media_item_id, "show": show_rating_key, "at": played_at},
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,12 +83,16 @@ def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
     what ``plex_plays`` holds for them.
     """
     found: dict[tuple[str, str], PlayedTitle] = {}
+    keys: dict[tuple[str, int], tuple[str, str]] = {}
     for row in conn.execute(_PLAYS_SQL, {"username": username}):
         title = (row["title"] or "").strip()
         kind: Literal["movie", "tv"] = "movie" if row["is_movie"] else "tv"
-        key = (kind, normalise_title(title))
+        key: tuple[str, str] = (kind, normalise_title(title))
         if not key[1]:
             continue
+        if row["tmdb_id"]:
+            # A title renamed since it was played is one title.
+            key = keys.setdefault((kind, row["tmdb_id"]), key)
         held = found.get(key)
         found[key] = PlayedTitle(
             kind=kind,

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from mediaman.core.format import ensure_tz
+from mediaman.services.openai.recommendations.plays import record_play
 
 # Fraction of the duration past which an item counts as watched.
 WATCHED_FRACTION = 0.9
@@ -178,6 +179,8 @@ def save_progress(
                 now_iso if watched else None,
             ),
         )
+        if credited_at:
+            record_play(conn, username, media_item_id, show_rating_key, credited_at)
     return watched
 
 

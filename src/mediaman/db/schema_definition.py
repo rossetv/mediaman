@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS watch_progress (
 CREATE INDEX IF NOT EXISTS idx_watch_progress_media_item ON watch_progress(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_user_updated ON watch_progress(username, updated_at);
 
+-- The titles a person played here, which outlive the titles' own rows: their picks are
+-- made from them.
+CREATE TABLE IF NOT EXISTS played_titles (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    tmdb_id INTEGER,
+    played_at TEXT NOT NULL,
+    PRIMARY KEY (username, media_type, title)
+);
+
 -- Titles a person hid from Continue watching; they return when played again.
 CREATE TABLE IF NOT EXISTS watch_dismissed (
     username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,

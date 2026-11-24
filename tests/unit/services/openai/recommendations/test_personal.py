@@ -9,10 +9,12 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.scanner.repository.media_items import delete_media_items
 from mediaman.services.openai.recommendations import personal, prompts, user_picks
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.plays import person_plays
 from mediaman.services.openai.recommendations.user_picks import RefreshState
+from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import (
     insert_media_item,
     insert_settings,
@@ -170,6 +172,52 @@ class TestPlays:
             ("tv", "Plex Show", True),
         ]
         assert person_plays(conn, "bob") == []
+
+    def _watch(self, conn, username, item, *, show=None, played_s=600.0, key=None):
+        save_progress(
+            conn,
+            username=username,
+            rating_key=key or item,
+            media_item_id=item,
+            show_rating_key=show,
+            position_s=600,
+            duration_s=3600,
+            played_s=played_s,
+            now=NOW,
+        )
+
+    def test_a_credited_play_outlives_its_title_and_goes_with_the_person(self, conn):
+        insert_media_item(conn, id="f", title="Film", plex_rating_key="f")
+        conn.execute("UPDATE media_items SET tmdb_id = 7")
+        insert_media_item(conn, id="g", title="Glanced at", plex_rating_key="g")
+        season = {"media_type": "tv_season", "show_rating_key": "s", "plex_rating_key": "s1"}
+        insert_media_item(conn, id="s1", title="Show S1", show_title="Show", **season)
+        self._watch(conn, "amy", "f")
+        self._watch(conn, "amy", "g", played_s=20.0)
+        self._watch(conn, "amy", "s1", show="s", key="e1")
+        self._watch(conn, "amy", "not-scanned-yet", show="s", key="e2")
+        before = person_plays(conn, "amy")
+
+        delete_media_items(conn, ["f", "g", "s1"])
+        conn.execute("DELETE FROM watch_progress")
+        conn.commit()
+
+        assert {(p.kind, p.title, p.tmdb_id) for p in before} == {
+            ("movie", "Film", 7),
+            ("tv", "Show", None),
+        }
+        assert set(person_plays(conn, "amy")) == set(before)
+        assert person_plays(conn, "bob") == []
+        conn.execute("DELETE FROM admin_users WHERE username = 'amy'")
+        _person(conn, "amy")
+        assert person_plays(conn, "amy") == []
+
+    def test_a_title_renamed_since_it_was_played_counts_once(self, conn):
+        insert_media_item(conn, id="f", title="Old Name", plex_rating_key="f")
+        conn.execute("UPDATE media_items SET tmdb_id = 7")
+        self._watch(conn, "amy", "f")
+        conn.execute("UPDATE media_items SET title = 'New Name'")
+        assert len(person_plays(conn, "amy")) == 1
 
 
 class TestMaking:
