@@ -307,7 +307,7 @@
   font-size: 15px;
   padding: 0 18px;
   animation: player-pop var(--dur) var(--ease-out);
-  transition: opacity var(--dur-slow) var(--ease-out), visibility var(--dur-slow), transform var(--dur-fast) var(--ease-out);
+  transition: opacity var(--dur-slow) var(--ease-out), visibility var(--dur-slow) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 /* Out of the way of a frame preview too, which it would show through. */
 .player.is-idle .player-skip.is-quiet,
