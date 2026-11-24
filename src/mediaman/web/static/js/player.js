@@ -8,7 +8,7 @@
  *
  * Requests:
  *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist,
- *                                     quality, qualities, previews}
+ *                                     quality, qualities, previews, markers, chapters}
  *   GET  <playlist> and its segments  (made by hls.js)
  *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
@@ -63,6 +63,9 @@
   var FRAME_BACKOFF_MAX_MS = 30000;
   /* How close the preview may come to the edge of the window. */
   var BUBBLE_EDGE = 12;
+  /* Chapter gaps on the bar stay at least this many pixels apart. */
+  var GAP_APART_PX = 8;
+  var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
@@ -102,6 +105,12 @@
     thumb: q('[data-thumb]'),
     seekHover: q('[data-seek-hover]'),
     bubble: q('[data-bubble]'),
+    marks: q('[data-marks]'),
+    chapters: q('[data-chapters]'),
+    chapterBtn: q('[data-chapter-btn]'),
+    chapterName: q('[data-chapter-name]'),
+    chapterMenu: q('[data-chapter-menu]'),
+    bubbleTitle: q('[data-bubble-title]'),
     bubbleTime: q('[data-bubble-time]'),
     frame: q('[data-frame]'),
     frameImg: q('[data-frame-img]'),
@@ -155,6 +164,9 @@
   var previews;              // {interval_s, count} of this stream's frames, or null
   var frames;                // object URLs of the frames kept, by number
   var frameOrder;            // their numbers, the one shown last at the end
+  var markers;               // the intro and the credits, as {kind, start_s, end_s, final}
+  var chapters;              // {title, start_s}, in order
+  var chapterShown;          // the one the chapters button names
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -181,6 +193,9 @@
     upAfter = UP_AFTER_S;
     previews = null;
     dropFrames();
+    markers = [];
+    chapters = [];
+    buildChapters();
     troubleAtPlayed = 0;
     clearTrouble();
   }
@@ -260,18 +275,24 @@
     var hadFocus = els.qualityMenu.contains(document.activeElement);
     els.qualityMenu.textContent = '';
     rows.forEach(function (row) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'player-menu-item player-menu-item--split';
-      btn.setAttribute('role', 'menuitemradio');
+      var btn = menuRow(row.label, row.detail);
       btn.setAttribute('data-quality', row.id);
-      addSpan(btn, 'player-menu-main', row.label);
-      addSpan(btn, 'player-menu-side', row.detail);
-      btn.appendChild(MM.dom.icon('i-check', 'player-menu-tick'));
       els.qualityMenu.appendChild(btn);
     });
     showQuality();
     if (hadFocus) focusMenu(els.qualityMenu);
+  }
+
+  /* A choice of a menu: what it is, the detail of it, and its tick. */
+  function menuRow(main, side) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'player-menu-item player-menu-item--split';
+    btn.setAttribute('role', 'menuitemradio');
+    addSpan(btn, 'player-menu-main', main);
+    addSpan(btn, 'player-menu-side', side);
+    btn.appendChild(MM.dom.icon('i-check', 'player-menu-tick'));
+    return btn;
   }
 
   function addSpan(parent, className, text) {
@@ -497,6 +518,7 @@
           streamChoice = choice();
           takeQualities(data);
           previews = data.previews && data.previews.interval_s > 0 ? data.previews : null;
+          takeMarks(data);
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
@@ -856,7 +878,8 @@
     els.elapsed.textContent = fmt(pos);
     els.remaining.textContent = '-' + fmt(d - pos);
     els.seek.setAttribute('aria-valuenow', String(Math.round(pos)));
-    els.seek.setAttribute('aria-valuetext', fmt(pos) + ' of ' + fmt(d));
+    var chapter = showChapter(pos);
+    els.seek.setAttribute('aria-valuetext', fmt(pos) + ' of ' + fmt(d) + (chapter ? ', ' + chapter.title : ''));
 
     var end = 0;
     var b = video.buffered;
@@ -871,6 +894,87 @@
     var frac = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
     return Math.max(0, Math.min(1, frac)) * duration();
   }
+
+  /* ---- chapters, intro and credits ------------------------------------ */
+
+  /* They belong to the video: a later stream of it that comes without them takes none away. */
+  function takeMarks(data) {
+    if (!markers.length) markers = data.markers || [];
+    if (!chapters.length && data.chapters && data.chapters.length > 1) {
+      chapters = data.chapters;
+      buildChapters();
+    }
+    drawMarks();
+    render();
+  }
+
+  function addMark(className, fromS, toS) {
+    var d = duration();
+    var mark = document.createElement('span');
+    mark.className = className;
+    mark.style.left = (fromS / d) * 100 + '%';
+    if (toS) mark.style.width = ((toS - fromS) / d) * 100 + '%';
+    els.marks.appendChild(mark);
+  }
+
+  function drawMarks() {
+    els.marks.textContent = '';
+    var d = duration();
+    if (!(d > 0)) return;
+    markers.forEach(function (m) { addMark('player-band', m.start_s, m.end_s); });
+    var width = els.seek.getBoundingClientRect().width;
+    var last = 0;
+    chapters.forEach(function (c) {
+      var x = (c.start_s / d) * width;
+      if (x - last < GAP_APART_PX || width - x < GAP_APART_PX) return;
+      last = x;
+      addMark('player-gap', c.start_s);
+    });
+  }
+  window.addEventListener('resize', drawMarks);
+  video.addEventListener('durationchange', drawMarks);
+
+  /* The last of a sorted list that has started by `t`. */
+  function startedBy(list, t) {
+    return list.filter(function (x) { return x.start_s <= t; }).pop();
+  }
+
+  function markerAt(t) {
+    var m = startedBy(markers, t);
+    return m && t < m.end_s ? m : null;
+  }
+
+  function buildChapters() {
+    chapterShown = null;
+    els.chapters.hidden = !chapters.length;
+    els.chapterMenu.textContent = '';
+    chapters.forEach(function (c, i) {
+      var btn = menuRow(c.title, fmt(c.start_s));
+      btn.setAttribute('data-chapter', String(i));
+      els.chapterMenu.appendChild(btn);
+    });
+  }
+
+  /* Name the chapter at `t` on its button and tick it in its menu. */
+  function showChapter(t) {
+    var c = startedBy(chapters, t) || chapters[0];
+    if (!c || c === chapterShown) return c;
+    chapterShown = c;
+    els.chapterName.textContent = c.title;
+    setName(els.chapterBtn, 'Chapters: ' + c.title);
+    var at = String(chapters.indexOf(c));
+    els.chapterMenu.querySelectorAll('[data-chapter]').forEach(function (btn) {
+      btn.setAttribute('aria-checked', btn.getAttribute('data-chapter') === at ? 'true' : 'false');
+    });
+    return c;
+  }
+
+  els.chapterMenu.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-chapter]');
+    if (!btn) return;
+    closeMenus(true);
+    seekTo(chapters[+btn.getAttribute('data-chapter')].start_s);
+  });
 
   /* ---- frame preview -------------------------------------------------- */
 
@@ -891,7 +995,11 @@
     if (els.bubble.hidden) els.frameImg.hidden = true;
     els.bubble.hidden = false;
     els.seekHover.hidden = dragging;
-    els.bubbleTime.textContent = fmt(t);
+    var chapter = startedBy(chapters, t);
+    var marker = markerAt(t);
+    els.bubbleTitle.textContent = chapter ? chapter.title : '';
+    els.bubbleTitle.hidden = !chapter;
+    els.bubbleTime.textContent = fmt(t) + (marker ? ' · ' + MARKER_NAMES[marker.kind] : '');
     wantFrame(t);
     placeBubble(t / d);
   }

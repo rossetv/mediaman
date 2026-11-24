@@ -387,3 +387,41 @@ def test_frames_are_asked_for_less_and_less_while_they_are_refused(markup, statu
 def test_a_title_without_previews_asks_for_none_and_shows_the_time(markup):
     out = run(markup, "frame_none")
     assert (out["shown"], out["time"], out["frame"], out["asked"]) == (True, "5:00", None, [])
+
+
+def test_the_bar_marks_chapters_intro_and_credits(markup):
+    out = run(markup, "chapters")
+    # Chapters 4 px after another, or at either end of the bar, get no gap.
+    assert out["gaps"] == ["10%", "50%"]
+    assert out["bands"] == [["2%", "3%"], ["80%", "1.6666666666666667%"], ["90%", "10%"]]
+    assert out["bubble"] == ["Cold open", "1:30 · Intro"]
+
+
+def test_the_chapters_menu_names_the_current_chapter_and_goes_to_the_one_chosen(markup):
+    out = run(markup, "chapters")
+    assert out["hidden"] is False
+    assert [" ".join(r.split()) for r in out["rows"]][:3] == [
+        "Cold open 0:00",
+        "Arrival 5:00",
+        "<b>Chase</b> 5:12",
+    ]
+    assert out["start"] == {
+        "ticked": ["0"],
+        "name": "Chapters: Cold open",
+        "spoken": "0:30 of 50:00, Cold open",
+    }
+    assert (out["focus"], out["at"], out["menuOpen"]) == ("0", 1500, "false")
+    assert out["after"] == {
+        "ticked": ["3"],
+        "name": "Chapters: Home",
+        "spoken": "25:00 of 50:00, Home",
+    }
+    assert out["stillSpoken"] == out["after"]["spoken"]
+
+
+def test_a_new_quality_that_comes_without_chapters_keeps_those_known(markup):
+    assert run(markup, "chapters")["kept"] == [5, 3]
+
+
+def test_a_single_chapter_is_not_shown(markup):
+    assert run(markup, "chapters_one") == {"hidden": True, "gaps": 0, "title": True}

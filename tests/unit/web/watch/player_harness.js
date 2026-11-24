@@ -432,6 +432,14 @@ function menuState(p) {
   };
 }
 
+const CHAPTERS = [['Cold open', 0], ['Arrival', 300], ['<b>Chase</b>', 312], ['Home', 1500], ['End', 2990]].map((c) => ({ title: c[0], start_s: c[1], end_s: c[1] + 10 }));
+const MARKERS = [
+  { kind: 'intro', start_s: 60, end_s: 150, final: false },
+  { kind: 'credits', start_s: 2400, end_s: 2450, final: false },
+  { kind: 'credits', start_s: 2700, end_s: 3000, final: true },
+];
+const pick = (p, cls, prop) => p.q('[data-marks]').querySelectorAll('.' + cls).map((m) => m.style[prop]);
+
 /* The pointer over the seek bar, 1000 px wide: one pixel is three seconds of the episode. */
 function point(p, type, x, pointerType) {
   fire(p.q('[data-seek]'), type, { bubbles: true, button: 0, pointerId: 1, pointerType: pointerType || 'mouse', clientX: x });
@@ -707,6 +715,46 @@ const scenarios = {
     point(p, 'pointermove', 100);
     p.tick(150);
     return Object.assign(await bubbleState(p), { asked: p.frames.asked });
+  },
+
+  /* Chapters and markers come with the stream, and a later one has none. */
+  async chapters(p) {
+    p.replies[0] = answer('1080p-8000', { chapters: CHAPTERS, markers: MARKERS });
+    await streamPlays(p, 30);
+    const menu = p.q('[data-chapter-menu]');
+    const items = () => menu.querySelectorAll('[data-chapter]');
+    const look = () => ({
+      ticked: items().filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.getAttribute('data-chapter')),
+      name: p.q('[data-chapter-btn]').getAttribute('aria-label'),
+      spoken: p.q('[data-seek]').getAttribute('aria-valuetext'),
+    });
+    const out = { hidden: p.q('[data-chapters]').hidden, rows: items().map((b) => b.textContent.trim()) };
+    out.gaps = pick(p, 'player-gap', 'left');
+    out.bands = pick(p, 'player-band', 'left').map((l, i) => [l, pick(p, 'player-band', 'width')[i]]);
+    fire(p.video, 'timeupdate');
+    out.start = look();
+    press(p.q('[data-chapter-btn]'));
+    out.focus = doc.activeElement.getAttribute('data-chapter');
+    press(items()[3]);
+    out.at = p.video.currentTime;
+    out.menuOpen = p.q('[data-chapter-btn]').getAttribute('aria-expanded');
+    out.after = look();
+    point(p, 'pointermove', 30);
+    out.bubble = [p.q('[data-bubble-title]').textContent, p.q('[data-bubble-time]').textContent];
+    out.stillSpoken = look().spoken;
+    p.replies.push(answer('720p-4000', { chapters: [], markers: [] }));
+    click(p.q('[data-quality="720p-4000"]'));
+    await streamPlays(p, 1500);
+    out.kept = [items().length, pick(p, 'player-band', 'left').length];
+    return out;
+  },
+
+  /* A single chapter is no choice. */
+  async chapters_one(p) {
+    p.replies[0] = answer('1080p-8000', { chapters: CHAPTERS.slice(0, 1), markers: [] });
+    await streamPlays(p, 30);
+    point(p, 'pointermove', 30);
+    return { hidden: p.q('[data-chapters]').hidden, gaps: pick(p, 'player-gap', 'left').length, title: p.q('[data-bubble-title]').hidden };
   },
 
   /* The buffer runs dry with no frame held. */
