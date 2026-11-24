@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit
 
@@ -14,9 +15,14 @@ from mediaman.core.time import now_utc
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.scanner.arr_dates import ArrDateCache
+from mediaman.scanner.fetch import PlexItemFetch
+from mediaman.scanner.phases.upsert import upsert_item
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter.subscribers import _mint_deleted_tokens
 from mediaman.services.mail.newsletter.summary import _load_deleted_items
+from mediaman.services.media_meta._plex_types import _season_to_item
+from mediaman.web.repository.library_api import snapshot_media_for_delete
 from mediaman.web.routes.download import (
     reset_download_caches,
     reset_download_limiters,
@@ -43,6 +49,10 @@ def client(db_path, secret_key):
 
 
 def _delete_season(conn, number):
+    _record_deletion(conn, number, _TMDB, _TVDB)
+
+
+def _record_deletion(conn, number, tmdb_id, tvdb_id):
     audit_id = insert_audit_log(
         conn,
         media_item_id=f"gone{number}",
@@ -54,12 +64,35 @@ def _delete_season(conn, number):
         conn,
         audit_id,
         media_type="tv_season",
-        tmdb_id=_TMDB,
-        tvdb_id=_TVDB,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
         season_number=number,
         title="Fargo",
     )
     conn.commit()
+
+
+def _scan_and_delete_season(conn, guids):
+    """Season 2 as Plex lists it, through the scan's upsert, then deleted with the ids it stored."""
+    show = SimpleNamespace(
+        ratingKey=10,
+        title="Fargo",
+        updatedAt=None,
+        thumb="/thumb",
+        guid="plex://show/5d9c",
+        guids=[SimpleNamespace(id=g) for g in guids],
+        genres=[],
+        studio=None,
+        librarySectionTitle="TV Shows",
+    )
+    season = SimpleNamespace(ratingKey=12, index=2, addedAt=None, episodes=list)
+    fetched = PlexItemFetch(_season_to_item(show, season), "1", "tv_season", [])
+    with conn:
+        upsert_item(conn, fetched, ArrDateCache(), "tv_season")
+    gone = snapshot_media_for_delete(conn, "12")
+    with conn:
+        conn.execute("DELETE FROM media_items WHERE id = '12'")
+    _record_deletion(conn, gone.season_number, gone.tmdb_id, gone.tvdb_id)
 
 
 def _cards(conn, secret_key):
@@ -180,6 +213,49 @@ class TestSubmit:
 
         assert _post(client, f"/download/{token}", sonarr).status_code == 200
         sonarr.add_series.assert_called_once_with(_TVDB, "Fargo")
+
+
+class TestScannedSeason:
+    """A season carries no TMDB id of its own; the link needs its show's."""
+
+    def _tmdb(self, **find):
+        return patch(
+            "mediaman.services.media_meta.tmdb.TmdbClient.from_db",
+            return_value=MagicMock(find_by_tvdb=MagicMock(**find)),
+        )
+
+    def test_the_link_of_a_scanned_season_fetches_that_season(self, client, secret_key):
+        conn = client.app.state.db
+        _scan_and_delete_season(conn, [f"tmdb://{_TMDB}", f"tvdb://{_TVDB}"])
+        sonarr = _sonarr(_series(UNMONITORED))
+
+        assert _post(client, _cards(conn, secret_key)[2], sonarr).status_code == 200
+        sonarr.remonitor_season.assert_called_once_with(3, 2)
+
+    def test_a_season_recorded_without_one_gets_it_from_its_tvdb_id(self, client, secret_key):
+        conn = client.app.state.db
+        _scan_and_delete_season(conn, [f"tvdb://{_TVDB}"])
+        sonarr = _sonarr(_series(UNMONITORED))
+
+        with self._tmdb(return_value=_TMDB) as from_db:
+            link = _cards(conn, secret_key)[2]
+            _cards(conn, secret_key)
+
+        from_db.return_value.find_by_tvdb.assert_called_once_with(_TVDB)
+        assert _post(client, link, sonarr).status_code == 200
+        sonarr.remonitor_season.assert_called_once_with(3, 2)
+
+    @pytest.mark.parametrize(
+        "find", [{"return_value": None}, {"side_effect": SafeHTTPError(0, "timeout", "tmdb/find")}]
+    )
+    def test_a_season_tmdb_cannot_name_has_no_link_and_the_newsletter_still_goes(
+        self, client, secret_key, find
+    ):
+        conn = client.app.state.db
+        _scan_and_delete_season(conn, [f"tvdb://{_TVDB}"])
+
+        with self._tmdb(**find):
+            assert _cards(conn, secret_key) == {2: ""}
 
 
 class TestPage:

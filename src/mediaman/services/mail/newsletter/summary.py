@@ -7,6 +7,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from requests.exceptions import RequestException
+
 from mediaman.core.deleted_media import (
     DeletedMedia,
     fetch_deleted_media,
@@ -16,6 +18,7 @@ from mediaman.core.deleted_media import (
 from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import sign_poster_url
+from mediaman.services.infra import SafeHTTPError
 
 from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
@@ -92,6 +95,47 @@ def _format_deleted_card(
     }
 
 
+def _fill_show_tmdb_ids(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    cards: list[DeletedNewsletterItem],
+    stored_by_audit: dict[int, DeletedMedia],
+) -> None:
+    """Give each card of a show recorded with only its TVDB id the TMDB id TMDB has for it.
+
+    The id is stored with the deletion too: a season's link is matched against it.
+    """
+    from mediaman.services.media_meta.tmdb import TmdbClient
+
+    lacking: list[tuple[DeletedNewsletterItem, int]] = []
+    for card in cards:
+        stored = stored_by_audit.get(card["audit_id"])
+        if stored and stored.tvdb_id and not stored.tmdb_id and card["media_type"] != "movie":
+            lacking.append((card, stored.tvdb_id))
+    client = TmdbClient.from_db(conn, secret_key) if lacking else None
+    if client is None:
+        return
+    found: dict[int, int | None] = {}
+    try:
+        for _, tvdb_id in lacking:
+            if tvdb_id not in found:
+                found[tvdb_id] = client.find_by_tvdb(tvdb_id)
+    except (SafeHTTPError, RequestException, ValueError):
+        logger.warning("newsletter.show_ids_unavailable", exc_info=True)
+    named = [(card, tmdb_id) for card, tvdb_id in lacking if (tmdb_id := found.get(tvdb_id))]
+    try:
+        with conn:
+            conn.executemany(
+                "UPDATE deleted_media SET tmdb_id = ? WHERE audit_id = ?",
+                [(tmdb_id, card["audit_id"]) for card, tmdb_id in named],
+            )
+    except sqlite3.Error:
+        logger.warning("newsletter.show_ids_not_stored", exc_info=True)
+        return
+    for card, tmdb_id in named:
+        card["tmdb_id"] = tmdb_id
+
+
 def _load_deleted_items(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -140,6 +184,7 @@ def _load_deleted_items(
 
         cards.append(_format_deleted_card(row, stored, title, now, base_url, secret_key))
 
+    _fill_show_tmdb_ids(conn, secret_key, cards, stored_by_audit)
     return cards
 
 
