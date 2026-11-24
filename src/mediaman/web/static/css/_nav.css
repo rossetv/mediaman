@@ -300,7 +300,8 @@
 @media (prefers-reduced-motion: reduce) {
   .profile-menu,
   .profile-menu[open],
-  .profile-panel,
+  /* An item whose own visibility eased would not take the focus yet. */
+  .profile-menu *,
   .profile-btn > .ico { transition: none; }
   .profile-menu,
   .profile-panel { transform: none; }

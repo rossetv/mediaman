@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
 HARNESS = Path(__file__).parent / "js" / "nav_harness.js"
+NAV_CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_nav.css"
 
 
 def _run(scenario: str) -> dict:
@@ -89,3 +91,13 @@ def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_ava
         "scrolls": True,
         "focused": "desktop",
     }
+
+
+def test_with_reduced_motion_nothing_in_the_menu_is_still_hidden_when_it_takes_the_focus() -> None:
+    reduce = NAV_CSS.read_text().split("(prefers-reduced-motion: reduce) {")[1].split("\n}")[0]
+    still = [
+        head
+        for head, body in re.findall(r"([^{}]+)\{([^}]*)\}", reduce)
+        if "transition: none" in body
+    ]
+    assert any(".profile-menu *" in head for head in still)
