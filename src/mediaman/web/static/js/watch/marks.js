@@ -15,6 +15,7 @@
 
   var WATCHED_URL = '/api/watch/watched/';
   var DISMISSED_URL = '/api/watch/dismissed/';
+  var TITLE_URL = '/api/watch/title/';
   var SEARCH_URL = '/api/watch/search?q=';
   var LEFT_RE = / · [^·]* left$/;
 
@@ -279,11 +280,13 @@
   }
 
   var changes = 0; // every change and Undo that is in: a page asked for before the latest is out of date
+  var latest = {}; // each title's latest change
   var owed = {}; // the titles changed since the rows last followed, with their latest change
 
   /* The Watch page's cards and banner of the title *ref*, after a change of it, and of any
      other whose page was dropped. */
   function followRows(ref, done) {
+    latest[ref] = done;
     if (bannerOf(ref) || continueCards(document, ref).length || done.part || done.redraw) owed[ref] = done;
     if (!Object.keys(owed).length) return;
     var asked = changes;
@@ -328,27 +331,30 @@
     withAttr(document, 'data-mark-toggle', card.getAttribute('data-mark')).forEach(function (b) { setToggle(b, watched); });
   }
 
+  function tryGet(url) { return MM.api.get(url).catch(function () { return null; }); }
+
   /* A season or an episode changes what its show's and seasons' cards say. The
-     Watch page has the first cards of each row; the show's search result has
-     what one further on says, and without it that card says no more how much is left. */
+     Watch page has the first cards of each row. For one further on, the show's
+     details say whether it is watched and its search result how much is left:
+     without that result the card says no more how much is. */
   function followShow(ref, doc, done) {
     var past = cardsOf(function (card) { return refOf(card) === ref; }).filter(function (card) {
       var fresh = withAttr(doc, 'data-mark', card.getAttribute('data-mark')).filter(function (n) { return !isContinue(n); })[0];
       if (fresh) bringUp(card, hasBadge(fresh), fresh.querySelector('.watch-card__sub').textContent, done);
       return !fresh;
     });
-    var asked = changes;
-    function rest(found) {
-      if (asked !== changes) return;
-      past.forEach(function (card) {
-        if (found && /^show\//.test(card.getAttribute('data-mark'))) bringUp(card, !!found.watched, found.subtitle || '', done);
-        else bringUp(card, hasBadge(card), '', done);
-      });
-    }
     if (!past.length) return;
-    MM.api.get(SEARCH_URL + encodeURIComponent(titleOf(past[0]))).then(function (data) {
-      rest((data.items || []).filter(function (item) { return item.ref === ref; })[0]);
-    }).catch(function () { rest(null); });
+    Promise.all([tryGet(TITLE_URL + ref), tryGet(SEARCH_URL + encodeURIComponent(titleOf(past[0])))]).then(function (got) {
+      if (latest[ref] !== done) return;
+      var found = ((got[1] && got[1].items) || []).filter(function (item) { return item.ref === ref; })[0];
+      past.forEach(function (card) {
+        var mark = card.getAttribute('data-mark');
+        var own = /^show\//.test(mark);
+        var title = got[0] || {};
+        var now = own ? title : (title.seasons || []).filter(function (n) { return mark === 'season/' + n.key; })[0] || {};
+        bringUp(card, 'watched' in now ? now.watched : hasBadge(card), (own && found && found.subtitle) || '', done);
+      });
+    });
   }
 
   function replacePart(old, fresh, selector) {

@@ -97,12 +97,17 @@ def test_marking_a_season_updates_how_much_of_its_show_is_left() -> None:
     assert out["undone"][0][2] == "TV · 2 seasons · 9 left"
 
 
-def test_a_show_card_past_the_page_s_cards_says_how_much_is_left_by_its_search_result() -> None:
+def test_a_show_card_past_the_page_s_cards_is_brought_up_to_date_by_its_details_and_search() -> (
+    None
+):
     out = _run("markSeasonPastThePage")
     assert out["found"]["marked"][0] == ["show/2", False, "TV · 2 seasons · 4 left", False]
     assert out["found"]["marked"][1][2] == "TV · 2016"
     assert out["found"]["undone"][0][2] == "TV · 2 seasons · 9 left"
     assert out["finished"]["marked"][0][1:3] == [True, "TV · 2 seasons"]
+    # Whether it is watched does not hang on the search finding it.
+    assert out["unlisted"]["marked"][0][1:3] == [True, "TV · 2 seasons"]
+    assert out["noLonger"]["marked"][0][1:3] == [False, "TV · 2 seasons"]
     # Not known any more: nothing is said rather than something wrong.
     assert out["failed"]["marked"][0][1:3] == [False, "TV · 2 seasons"]
 
@@ -269,3 +274,7 @@ def test_an_undo_gives_the_focus_to_what_came_back_when_it_took_the_focused_butt
         "redrawn": "episode/22",
         "elsewhere": "watch-search",
     }
+
+
+def test_a_late_answer_about_a_show_never_brings_back_an_undone_mark() -> None:
+    assert _run("lateShow") is False

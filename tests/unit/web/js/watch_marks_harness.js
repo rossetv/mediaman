@@ -227,10 +227,10 @@ const scenarios = {
 
   // A season marked whose show's card stands past the cards the server's page has.
   async markSeasonPastThePage() {
-    const go = async (search) => {
-      const p = load(watchPage([row('lib', [card('show/2', 'Brightwater & Co', 'TV · 2 seasons · 9 left')]), row('disc', [card('show/2', 'Brightwater & Co', 'TV · 2016')]),
+    const go = async (search, title, over) => {
+      const p = load(watchPage([row('lib', [card('show/2', 'Brightwater & Co', 'TV · 2 seasons · 9 left', over)]), row('disc', [card('show/2', 'Brightwater & Co', 'TV · 2016')]),
         row('leave', [card('season/21', 'Brightwater & Co', 'Season 1', { ref: 'show-2' })])]),
-        { next: watchPage([row('lib', [card('show/9', 'Other', 'TV')])]), api: { 'GET /api/watch/search?q=Brightwater%20%26%20Co': search } });
+        { next: watchPage([row('lib', [card('show/9', 'Other', 'TV')])]), api: { 'GET /api/watch/search?q=Brightwater%20%26%20Co': search, 'GET /api/watch/title/show-2': title } });
       await p.pick(p.cards('leave')[0], 'mark');
       const marked = p.look();
       await p.undo();
@@ -238,9 +238,11 @@ const scenarios = {
     };
     const item = (ref, subtitle, watched) => ({ ref, title: 'Brightwater & Co', subtitle, watched });
     return {
-      found: await go({ items: [item('show-7', 'TV · 1 season · 2 left', false), item('show-2', 'TV · 2 seasons · 4 left', false)] }),
-      finished: await go({ items: [item('show-2', 'TV · 2 seasons', true)] }),
-      failed: await go(500),
+      found: await go({ items: [item('show-7', 'TV · 1 season · 2 left', false), item('show-2', 'TV · 2 seasons · 4 left', false)] }, { watched: false, seasons: [{ key: '21', watched: true }] }),
+      finished: await go({ items: [item('show-2', 'TV · 2 seasons', true)] }, { watched: true }),
+      unlisted: await go({ items: [item('show-7', 'TV', true)] }, { watched: true }),
+      noLonger: await go(500, { watched: false, seasons: [] }, { watched: true }),
+      failed: await go(500, 500),
     };
   },
 
@@ -415,6 +417,19 @@ const scenarios = {
     last.send(watchPage([]));
     await settle();
     return { replaced, undone, another, left: [open(), p.focus()] };
+  },
+
+  // What a season's mark asked of its show lands after the mark is undone.
+  async lateShow() {
+    const first = later();
+    let n = 0;
+    const p = load(watchPage([row('lib', [card('show/2', 'Brightwater', 'TV')]), row('leave', [card('season/21', 'Brightwater', 'Season 1', { ref: 'show-2' })])]),
+      { next: watchPage([]), api: { 'GET /api/watch/title/show-2': () => (n++ ? { watched: false } : first.answer) } });
+    await p.pick(p.cards('leave')[0], 'mark');
+    await p.undo();
+    first.send({ watched: true });
+    await settle();
+    return p.look()[0][1];
   },
 
   // Two episodes marked one after the other, then undone with the oldest first. The card was
