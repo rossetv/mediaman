@@ -12,6 +12,7 @@ import json
 import sqlite3
 from collections.abc import Collection, Iterable, Mapping
 from datetime import timedelta
+from typing import Any
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso, now_utc
@@ -57,6 +58,70 @@ def _keys_by_place(stored: str | None) -> dict[Place, str]:
             shared.add(place)
         by_place[place] = key
     return {p: k for p, k in by_place.items() if p[0] and p[1] is not None and p not in shared}
+
+
+# --- Titles -------------------------------------------------------------------
+
+_TITLE = (
+    "id, file_path, season_number, show_title, show_rating_key, tmdb_id, tvdb_id, "
+    "tracked_files, episode_keys"
+)
+
+
+def _title(conn: sqlite3.Connection, media_id: str) -> sqlite3.Row | None:
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    row: sqlite3.Row | None = conn.execute(  # nosec B608
+        f"SELECT {_TITLE} FROM media_items WHERE id = ?", (media_id,)
+    ).fetchone()
+    return row
+
+
+def _entries(stored: str | None) -> list[object]:
+    """Return the entries of a stored JSON list, none when it is missing or unreadable."""
+    try:
+        entries = json.loads(stored or "[]")
+    except ValueError:
+        return []
+    return entries if isinstance(entries, list) else []
+
+
+def _files(title: sqlite3.Row | Mapping[str, Any]) -> set[str]:
+    """Return the paths of the files a title is known to have."""
+    entries = _entries(title["tracked_files"]) + _entries(title["episode_keys"])
+    paths = {str(e["path"]) for e in entries if isinstance(e, dict) and e.get("path")}
+    # A film's path is that of its file, a season's that of its folder.
+    if title["season_number"] is None:
+        paths.add(title["file_path"])
+    return paths
+
+
+def _is_another_title(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, Any]) -> bool:
+    """Return True if *new*, at the path and season of *old*, is surely another title.
+
+    A folder may hold the seasons of two shows. With a file in common they are
+    one, whatever their ids say, as a match corrected in Plex changes those;
+    where the files of one are not known, nothing is sure.
+    """
+    old_files, new_files = _files(old), _files(new)
+    if not old_files or not new_files or old_files & new_files:
+        return False
+    for column in ("tmdb_id", "tvdb_id"):
+        if old[column] is not None and new[column] is not None:
+            return bool(old[column] != new[column])
+    return bool(old["show_title"] != new["show_title"])
+
+
+def _others_at(
+    conn: sqlite3.Connection, title: sqlite3.Row, removed: Collection[str]
+) -> list[sqlite3.Row]:
+    """Return the library's titles at the path and season of *title* that are not in *removed*."""
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_TITLE} FROM media_items "
+        "WHERE file_path = ? AND file_path != '' AND season_number IS ?",
+        (title["file_path"], title["season_number"]),
+    )
+    return [row for row in rows if row["id"] not in removed]
 
 
 # --- Keeps of one film or season ----------------------------------------------
@@ -202,10 +267,6 @@ def _set_carried_up_to(conn: sqlite3.Connection) -> None:
 
 # --- Whole-show keeps ---------------------------------------------------------
 
-_KEPT_SEASON = (
-    "mi.id AS season_id, mi.file_path, mi.season_number, mi.tmdb_id, mi.tvdb_id, "
-    "mi.show_title AS season_show_title"
-)
 _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 
 
@@ -252,16 +313,13 @@ def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) 
     delete_show_scheduled_deletions(conn, show_key)
 
 
-def _is_another_show(old: sqlite3.Row, new: sqlite3.Row | Mapping[str, object]) -> bool:
-    """Return True if the season *new* is not of the show of *old*, at its path and season.
-
-    A folder may hold the seasons of two shows. Their ids tell them apart, or
-    their titles where the ids do not; *old* has no title when none is sure.
-    """
-    for column in ("tmdb_id", "tvdb_id"):
-        if old[column] is not None and new[column] is not None:
-            return bool(old[column] != new[column])
-    return old["season_show_title"] is not None and old["season_show_title"] != new["show_title"]
+def _listed_title(season: Mapping[str, object]) -> dict[str, Any]:
+    """Return *season* as Plex lists it in the columns _is_another_title reads."""
+    return {
+        **{key: season.get(key) for key in _TITLE.split(", ")},
+        "tracked_files": json.dumps(season.get("tracked_files")),
+        "episode_keys": episode_keys_json(season),
+    }
 
 
 def carry_show_keeps(
@@ -278,14 +336,12 @@ def carry_show_keeps(
     now = now_iso()
     # rationale: the interpolated condition is a fixed string; every value is bound
     kept = conn.execute(  # nosec B608
-        f"SELECT ks.*, {_KEPT_SEASON} "
+        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP} "
         "UNION ALL "
-        "SELECT ks.*, ps.media_item_id, ps.file_path, ps.season_number, "
-        "  pw.tmdb_id, pw.tvdb_id, NULL "
+        "SELECT ks.*, ps.media_item_id, ps.file_path, ps.season_number "
         "FROM kept_shows ks JOIN pruned_show_seasons ps USING (show_rating_key) "
-        "LEFT JOIN pruned_watches pw USING (media_item_id) "
         f"WHERE {_LIVE_KEEP}",
         (now, now),
     ).fetchall()
@@ -304,8 +360,11 @@ def carry_show_keeps(
         old = by_id.get(season_id, [])
         if not conn.execute("SELECT 1 FROM media_items WHERE id = ?", (season_id,)).fetchone():
             there = by_place.get((season.get("file_path"), season.get("season_number")), [])
-            ids = {key: season.get(key) for key in ("tmdb_id", "tvdb_id", "show_title")}
-            old = old + [keep for keep in there if not _is_another_show(keep, ids)]
+            for keep in there:
+                # Of a season no longer in the library, nothing but its place is known.
+                title = _title(conn, keep["season_id"])
+                if title is None or not _is_another_title(title, _listed_title(season)):
+                    old = [*old, keep]
         for keep in old:
             if keep["show_rating_key"] != show_key:
                 _give_show_keep(conn, keep, show_key)
@@ -325,7 +384,7 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
         (now,),
     )
     seasons = conn.execute(  # nosec B608
-        f"SELECT ks.*, {_KEPT_SEASON} "
+        "SELECT ks.*, mi.id AS season_id, mi.file_path, mi.season_number "
         "FROM kept_shows ks JOIN media_items mi ON mi.show_rating_key = ks.show_rating_key "
         f"WHERE {_LIVE_KEEP}",
         (now,),
@@ -333,10 +392,12 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
     for season in seasons:
         if season["season_id"] not in media_ids or not season["file_path"]:
             continue
+        title = _title(conn, season["season_id"])
+        assert title is not None  # still in the library: the query above joined it
         shows = {
             other["show_rating_key"]
-            for other in _others_at(conn, season, media_ids)
-            if not _is_another_show(season, other)
+            for other in _others_at(conn, title, media_ids)
+            if not _is_another_title(title, other)
         }
         for show_key in shows - {None, "", season["show_rating_key"]}:
             _give_show_keep(conn, season, show_key)
@@ -369,18 +430,6 @@ def forget_pruned_show_season(
         "    AND a.action = 'removed_show_keep')))",
         (file_path, season_number, media_id),
     )
-
-
-def _others_at(
-    conn: sqlite3.Connection, title: sqlite3.Row, removed: Collection[str]
-) -> list[sqlite3.Row]:
-    """Return the library's titles at the path and season of *title* that are not in *removed*."""
-    rows = conn.execute(
-        "SELECT id, show_rating_key, show_title, tmdb_id, tvdb_id, episode_keys FROM media_items "
-        "WHERE file_path = ? AND file_path != '' AND season_number IS ?",
-        (title["file_path"], title["season_number"]),
-    )
-    return [row for row in rows if row["id"] not in removed]
 
 
 # --- Watch progress -----------------------------------------------------------

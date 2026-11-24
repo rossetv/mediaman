@@ -30,8 +30,11 @@ def _film(key, path=None):
     }
 
 
-def _season(show, number, *, prefix="", folder=None, episodes=(1, 2)):
-    """Season *number* of *show*, with keys starting *prefix* and its files where *show* has them."""
+def _season(show, number, *, prefix="", folder=None, files="", episodes=(1, 2)):
+    """Season *number* of *show*, with keys starting *prefix* and its files where *show* has them.
+
+    *files* starts the name of each.
+    """
     folder = f"/tv/{folder or show}/Season {number}"
     return {
         "plex_rating_key": f"{prefix}{show}-s{number}",
@@ -47,7 +50,7 @@ def _season(show, number, *, prefix="", folder=None, episodes=(1, 2)):
             {
                 "key": f"{prefix}{show}-s{number}e{e}",
                 "number": e,
-                "path": f"{folder}/E{e}.mkv",
+                "path": f"{folder}/{files}E{e}.mkv",
             }
             for e in episodes
         ],
@@ -305,7 +308,10 @@ class TestWholeShowKeep:
     def test_another_show_in_its_folder_is_not_kept_as_it_goes(
         self, conn, freezer, run, kept, other
     ):
-        kept, other = _season("show", 1) | kept, _season("other", 1, folder="show") | other
+        kept, other = (
+            _season("show", 1) | kept,
+            _season("other", 1, folder="show", files="o") | other,
+        )
         _sync(conn, seasons=[kept])
         _keep(conn, "show")
         _scan(conn, seasons=[kept, other])
@@ -322,12 +328,12 @@ class TestWholeShowKeep:
         _sync(conn, seasons=[_season("show", 1) | kept])
         _keep(conn, "show")
 
-        _scan(conn, seasons=[_season("other", 1, folder="show") | other])
+        _scan(conn, seasons=[_season("other", 1, folder="show", files="o") | other])
 
         assert "other" not in _kept(conn)
         assert _scheduled(conn) == {"other-s1"}
 
-    def test_another_show_new_in_its_folder_after_it_went_is_not_kept(self, conn, freezer):
+    def test_a_show_where_it_was_is_kept_once_nothing_tells_them_apart(self, conn, freezer):
         _sync(conn, seasons=[_season("show", 1) | {"tmdb_id": 1}])
         _set_watched(conn, "show-s1", _NOW)
         _keep(conn, "show")
@@ -337,13 +343,16 @@ class TestWholeShowKeep:
 
         _scan(conn, seasons=[_season("other", 1, folder="show") | {"tmdb_id": 2}])
 
-        assert "other" not in _kept(conn)
+        assert _kept(conn)["other"] == FOREVER
 
     @_SHARED_FOLDER
     def test_a_show_in_its_folder_does_not_lose_it_the_keep_under_its_new_key(
         self, conn, freezer, kept, other
     ):
-        kept, other = _season("show", 1) | kept, _season("other", 1, folder="show") | other
+        kept, other = (
+            _season("show", 1) | kept,
+            _season("other", 1, folder="show", files="o") | other,
+        )
         _sync(conn, seasons=[kept, other])
         _keep(conn, "show")
         for _ in range(2):
@@ -356,17 +365,37 @@ class TestWholeShowKeep:
         assert _kept(conn)["new-show"] == FOREVER
         assert _scheduled(conn) == {"other-s1"}
 
-    @pytest.mark.parametrize("ids", [{}, {"tmdb_id": 1, "tvdb_id": 2}])
-    def test_a_renamed_show_is_kept_under_its_new_key(self, conn, freezer, ids):
-        """Its ids are the same, or it has been gone for a while and nothing says it is another."""
-        _sync(conn, seasons=[_season("show", 1) | ids])
+    @_RUNS
+    @pytest.mark.parametrize("beside", [True, False])
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            pytest.param({}, {}, id="no_ids"),
+            pytest.param({"tmdb_id": 1}, {"tmdb_id": 2}, id="match_corrected"),
+            pytest.param({"episodes": []}, {}, id="old_files_unknown"),
+            pytest.param({}, {"episodes": []}, id="new_files_unknown"),
+            pytest.param(
+                {"tmdb_id": 1},
+                {"tmdb_id": 1, "episodes": _season("show", 1, files="new")["episodes"]},
+                id="files_replaced",
+            ),
+            pytest.param(
+                {"episodes": [], "tracked_files": [{"path": "/tv/E1.mkv", "size": 1}]},
+                {"episodes": [], "tracked_files": [{"path": "/tv/E1.mkv", "size": 1}]},
+                id="tracked_files_only",
+            ),
+        ],
+    )
+    def test_a_renamed_show_is_kept_under_its_new_key(self, conn, freezer, run, beside, old, new):
+        old = _season("show", 1) | old
+        new = _season("show", 1, prefix="new-") | {"show_title": "Show (2020)"} | new
+        _sync(conn, seasons=[old])
         _keep(conn, "show")
-        for _ in range(0 if ids else 2):
-            freezer.tick(60)
-            _sync(conn)
+        if beside:
+            _sync(conn, seasons=[old, new])
 
-        renamed = _season("show", 1, prefix="new-") | ids | {"show_title": "Show (2020)"}
-        _scan(conn, seasons=[renamed])
+        freezer.tick(60)
+        run(conn, seasons=[new])
 
         assert _kept(conn)["new-show"] == FOREVER
         assert _scheduled(conn) == set()

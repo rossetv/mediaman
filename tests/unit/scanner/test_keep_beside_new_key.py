@@ -12,7 +12,7 @@ from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
 from mediaman.web.repository.library_api import apply_keep_in_tx
 from mediaman.web.routes import kept as kept_routes
-from tests.helpers.factories import insert_scheduled_action
+from tests.helpers.factories import insert_kept_show, insert_scheduled_action
 
 _NOW = datetime(2026, 11, 24, 12, tzinfo=UTC)
 
@@ -193,6 +193,30 @@ class TestKeptFilesStay:
 
         assert library.file("new").exists()
         assert _actions(conn, "new") == ["protected_forever"]
+
+
+@pytest.mark.parametrize("library", ["season"], indirect=True)
+@pytest.mark.parametrize("beside", [True, False])
+def test_a_kept_shows_files_stay_when_it_is_renamed_under_its_new_key(
+    conn, freezer, library, beside
+):
+    library.ids = {"new": {"show_title": "Title (2020)"}}
+    library.sync("old")
+    insert_kept_show(
+        conn,
+        show_rating_key="show-old",
+        show_title="Title",
+        action="protected_forever",
+        created_at=_NOW.isoformat(),
+    )
+    if beside:
+        library.scan("old", "new")
+
+    for days in (0, 1, 40, 1):
+        freezer.tick(timedelta(days=days))
+        library.scan("new")
+
+    assert library.file("new").exists()
 
 
 class TestKeyBesideAKeptOne:
