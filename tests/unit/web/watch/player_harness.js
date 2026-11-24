@@ -288,6 +288,7 @@ function boot(html, reduced, saved, serverPlays) {
   const api = {
     post(url, body) {
       calls.push({ url: url, body: body });
+      if (held.stopFails && /\/stop$/.test(url)) return Promise.reject({ status: 0 });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       return Promise.resolve().then(() => {
@@ -1663,6 +1664,57 @@ const scenarios = {
     press(p.q('[data-next-btn]'));
     await settle();
     return { message: !p.q('[data-message]').hidden, retry: !p.q('[data-retry]').hidden, back: doc.activeElement.hasAttribute('data-back') };
+  },
+
+  /* The connection is gone as the next episode is asked for, and back for the try again. */
+  async next_unsaved(p) {
+    const out = {};
+    const stops = () => p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => [c.url, c.body && c.body.position_s]);
+    const went = p.pages['/watch/play/502'];
+    await streamPlays(p, 100);
+    playOn(p, 20);
+    p.held.stopFails = true;
+    p.pages['/watch/play/502'] = 'offline';
+    click(p.q('[data-next-btn]'));
+    await settle();
+    out.failed = stops();
+    if (p.win.serverPlays === 'leaves') {
+      p.leave();
+      return { failed: out.failed, left: p.beacons.map((b) => [b.url, b.body && b.body.position_s]) };
+    }
+    p.held.stopFails = false;
+    p.pages['/watch/play/502'] = went;
+    const from = p.calls.length;
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await settle();
+    out.retried = p.calls.slice(from).map((c) => c.url);
+    out.body = stops().pop();
+    await streamPlays(p, 0);
+    const had = stops().length;
+    p.leave();
+    out.left = p.beacons.map((b) => b.url);
+    out.again = stops().length - had;
+    return out;
+  },
+
+  /* The stop of a stream that failed is never taken; the video is tried again and plays on. */
+  async fail_unsaved(p) {
+    await streamPlays(p, 100);
+    playOn(p, 20);
+    p.held.stopFails = true;
+    p.held.answer = () => answer('1080p-8000');
+    while (p.q('[data-message]').hidden) {
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+      await settle();
+    }
+    press(p.q('[data-retry]'));
+    await settle();
+    await streamPlays(p, 120);
+    playOn(p, 300);
+    const from = p.beacons.length;
+    p.leave();
+    return p.beacons.slice(from).map((b) => b.body && b.body.position_s);
   },
 
   /* The old stream counts against the limit until the server has stopped it. */

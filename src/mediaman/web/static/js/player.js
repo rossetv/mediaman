@@ -581,9 +581,8 @@
 
   function stopUrl(id) { return '/api/watch/stream/' + encodeURIComponent(id) + '/stop'; }
 
-  /* With `body`, the place it holds is saved first. */
-  function stopOnServer(id, body) {
-    return MM.api.post(stopUrl(id), body).catch(function () {});
+  function stopOnServer(id) {
+    MM.api.post(stopUrl(id)).catch(function () { /* the server drops it when nothing asks for it */ });
   }
 
   function destroyHls() {
@@ -736,19 +735,26 @@
     fail();
   }
 
-  /* Let go of the stream, its place saved, or `at`. Settles when the server
-     is done with it, or has had long enough. */
+  /* Streams let go of that the server has not said it stopped, with the place to save. */
+  var unstopped = [];
+
+  function sendStop(old) {
+    return MM.api.post(stopUrl(old.id), old.body).then(function () {
+      unstopped = unstopped.filter(function (s) { return s !== old; });
+    }).catch(function () { /* sent again later */ });
+  }
+
+  /* Let go of the stream, its place saved, or `at`, and of any the server has
+     missed. Settles when it is done with them, or has had long enough. */
   function release(at) {
-    var old = streamId;
-    var body = unsaved(at);
+    if (streamId) unstopped.push({ id: streamId, key: item.rating_key, body: unsaved(at) });
     pendingStart = position();
     streamId = null;
     generation++;
     starting = false;
     destroyHls();
-    if (!old) return Promise.resolve();
     return Promise.race([
-      stopOnServer(old, body),
+      Promise.all(unstopped.map(sendStop)),
       new Promise(function (resolve) { setTimeout(resolve, STOP_WAIT_MS); }),
     ]);
   }
@@ -797,6 +803,8 @@
   /* On leave one beacon both saves the last position and stops the stream,
      so the stop cannot arrive first and leave the save with a 410. */
   function beaconStop() {
+    unstopped.forEach(function (old) { beacon(stopUrl(old.id), old.body); });
+    unstopped = [];
     if (!streamId) return;
     beacon(stopUrl(streamId), unsaved());
   }
@@ -832,6 +840,7 @@
 
   /* Try again after an error. */
   function retry() {
+    unstopped.forEach(sendStop);
     clearTrouble();
     wantPlaying = true;
     restartStream(true);
@@ -921,6 +930,8 @@
       good = streamChoice;
       streamPlayed = true;
       if (playing === 'original') originalPlayed = true;
+      /* Its place from here on is this stream's to save. */
+      unstopped.forEach(function (old) { if (old.key === item.rating_key) old.body = null; });
     }
     if (swapNotice) {
       if (window.UIFeedback) window.UIFeedback.error(swapNotice);

@@ -43,7 +43,9 @@ class DictCache:
     def __init__(self) -> None:
         self.store: dict[str, object] = {}
 
-    def get_or_fetch(self, key, fresh_s, stale_s, fetch, *, allow_fetch=None, brief=False, hold_s=None):
+    def get_or_fetch(
+        self, key, fresh_s, stale_s, fetch, *, allow_fetch=None, brief=False, hold_s=None
+    ):
         if key in self.store:
             return self.store[key]
         if allow_fetch is not None and not allow_fetch():
@@ -53,6 +55,8 @@ class DictCache:
 
 
 class FakeTmdb:
+    token = "t"
+
     def __init__(self) -> None:
         self.lists = {
             "trending": [
