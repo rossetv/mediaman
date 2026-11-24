@@ -95,9 +95,7 @@ def refresh_people(
             run = user_picks.start_run(conn, username, "scan", now_utc())
             if isinstance(run, int):
                 made += make_picks(conn, username, plex_client, run, secret_key=secret_key) > 0
-        except (
-            Exception
-        ):  # rationale: one person's bad run must not cost the others theirs, nor the scan
+        except Exception:  # rationale: one bad run must not cost the others theirs
             logger.exception("Making a person's picks failed")
     return made
 

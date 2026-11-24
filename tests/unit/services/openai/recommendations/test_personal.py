@@ -521,6 +521,6 @@ class TestSharedPicks:
     def test_a_pick_downloaded_today_may_be_picked_again(self, conn, openai):
         insert_suggestion(conn, title="Had", batch_id="2026-05-20", downloaded_at=_ago(hours=1))
         openai.items = [_pick("Had")]
-        refresh_recommendations(conn, None, secret_key=_KEY)
+        assert refresh_recommendations(conn, None, secret_key=_KEY) == 1
         rows = conn.execute("SELECT title, downloaded_at FROM suggestions").fetchall()
         assert [tuple(r) for r in rows] == [("Had", _ago(hours=1))]
