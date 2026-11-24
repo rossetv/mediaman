@@ -112,13 +112,15 @@ class TestKeepingOneSeason:
         assert _changed(_keep(first, "s1", "7 days", **_form(read["seasons"]["s1"])))
         assert _keeps(conn) == {"s1": "forever"}
 
-    def test_a_keep_lengthened_meanwhile_is_not_shortened(self, admins, conn):
+    @pytest.mark.parametrize("said", [["kept_at"], []])
+    def test_a_keep_lengthened_meanwhile_is_not_shortened(self, admins, conn, said):
         first, second = admins
         _keep(second, "s1", "30 days")
-        read = _dialog(first)
+        read = _dialog(first)["seasons"]["s1"]
         _keep(second, "s1", "90 days")
+        read = {k: read[k] for k in ("action", "execute_at", *said)}
 
-        assert _changed(_keep(first, "s1", "7 days", **_form(read["seasons"]["s1"])))
+        assert _changed(_keep(first, "s1", "7 days", **_form(read)))
         assert _keeps(conn) == {"s1": "90 days"}
 
     def test_an_unchanged_keep_is_changed_as_asked(self, admins, conn):
@@ -257,15 +259,22 @@ class TestEndingTheShowKeep:
         _keep(first, "s2", "7 days")
         conn.commit()
 
-        assert self._end(first, _dialog(first), []).status_code == 200
-        assert _keeps(conn) == {"s1": "90 days", "s2": "30 days", "s3": "30 days"}
-        assert sorted(
+        assert self._end(first, _dialog(first), ["s3"]).status_code == 200
+        assert _keeps(conn) == {"s1": "90 days", "s2": "30 days"}
+        assert [
             tuple(r)
             for r in conn.execute(
-                "SELECT media_item_id, action FROM audit_log "
-                "WHERE detail LIKE '%show keep%' AND media_item_id != 'rk1'"
+                "SELECT media_item_id, action FROM audit_log WHERE detail LIKE '%as the show keep%'"
             )
-        ) == [("s2", "snoozed"), ("s3", "snoozed")]
+        ] == [("s2", "snoozed")]
+
+    def test_a_show_keep_whose_end_cannot_be_read_is_held_forever(self, admins, conn):
+        first, _ = admins
+        insert_kept_show(conn, show_rating_key="rk1", action="snoozed", execute_at="unknown")
+        conn.commit()
+
+        assert self._end(first, _dialog(first), ["s3"]).status_code == 200
+        assert _keeps(conn) == {"s1": "forever", "s2": "forever"}
 
     def test_a_show_keep_lengthened_meanwhile_stays(self, admins, conn):
         first, second = admins
