@@ -238,13 +238,16 @@ def progress_of(
     where = {
         "movie": "rating_key = ?",
         "episode": "rating_key = ?",
-        "season": "media_item_id = ?",
+        # a row saved without its season, or under another one's, is found by its episode
+        "season": "(media_item_id = ? OR rating_key IN (SELECT json_extract(e.value, '$.key')"
+        " FROM media_items mi, json_each(mi.episode_keys) e WHERE mi.id = ?))",
         "show": "show_rating_key = ? AND COALESCE(media_item_id, '') NOT IN"
         " (SELECT id FROM media_items WHERE season_number = 0)",
     }[kind]
     # rationale: *where* is one of the fixed fragments above; every value is bound
     rows = conn.execute(  # nosec B608
-        f"SELECT {_COLUMNS} FROM watch_progress WHERE username = ? AND {where}", (username, key)
+        f"SELECT {_COLUMNS} FROM watch_progress WHERE username = ? AND {where}",
+        (username, *[key] * where.count("?")),
     ).fetchall()
     return [_row_to_progress(row) for row in rows]
 

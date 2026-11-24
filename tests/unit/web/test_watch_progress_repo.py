@@ -20,6 +20,7 @@ from mediaman.web.repository.watch_progress import (
     undismiss,
     unmark_watched,
 )
+from tests.helpers.factories import insert_media_item
 
 NOON = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 
@@ -163,6 +164,21 @@ class TestMarks:
         unmark_watched(users, "aoife", "show", "sh")
 
         assert _seen(users, "e1", "e2", "sp1") == ["sp1"]
+
+    def test_unmarking_a_season_finds_its_episodes_saved_without_it(self, users):
+        insert_media_item(users, id="s1", plex_rating_key="s1", title="S", show_rating_key="sh")
+        listed = '[{"key": "e1"}, {"key": "e2"}, {"key": "e3"}]'
+        users.execute("UPDATE media_items SET episode_keys = ? WHERE id = 's1'", (listed,))
+        users.commit()
+        _mark(users, "e1", "e2", "e3", "e9", show="sh")
+        users.execute("UPDATE watch_progress SET media_item_id = NULL WHERE rating_key = 'e2'")
+        users.execute("UPDATE watch_progress SET media_item_id = 's9' WHERE rating_key = 'e3'")
+        users.execute("UPDATE watch_progress SET media_item_id = 's9' WHERE rating_key = 'e9'")
+        users.commit()
+
+        unmark_watched(users, "aoife", "season", "s1")
+
+        assert _seen(users, "e1", "e2", "e3", "e9") == ["e9"]
 
     def test_undoing_a_mark_restores_only_the_rows_it_changed(self, users):
         _save(users, rating_key="e1", media_item_id="s1", show="sh", position=5900.0)
