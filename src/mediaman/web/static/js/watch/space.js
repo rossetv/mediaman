@@ -239,6 +239,9 @@
     renderDeleted();
   }
 
+  /* Whether a scan would delete what is due. */
+  function deletes() { return !stats.deletions_off && !stats.dry_run; }
+
   function leaving() { return stats ? stats.scheduled.leaving : 0; }
 
   /* The one disk whose threshold can be marked on the bar, as every library on it starts there. */
@@ -627,6 +630,12 @@
       out.push(add(info, MM.dom.icon('i-circle-info'),
         el('p', '', 'Deletions are off: set MEDIAMAN_DELETE_ROOTS to the folders mediaman may delete from.')));
     }
+    if (stats.dry_run) {
+      var dry = el('div', 'space-notice space-notice--info');
+      dry.setAttribute('role', 'status');
+      out.push(add(dry, MM.dom.icon('i-circle-info'),
+        el('p', '', 'Dry run is on: scans delete nothing until it is turned off.')));
+    }
     return out;
   }
 
@@ -977,7 +986,7 @@
     l.append(box);
     if (s.readable && s.disks.length > 1) disks(l);
     if (leaving() && s.readable) {
-      var more = button('space-after', plural(leaving(), 'scheduled title') + ' will free ' + trim(stats.scheduled.leaving_size),
+      var more = button('space-after', plural(leaving(), 'scheduled title') + (deletes() ? ' will' : ' would') + ' free ' + trim(stats.scheduled.leaving_size),
         function () { chooseTab('scheduled', true); });
       more.prepend(MM.dom.icon('i-clock-regular'));
       more.append(MM.dom.icon('i-chevron-right'));
@@ -1120,7 +1129,8 @@
       add(s, el('b', '', 'Nothing to list here'),
         el('span', '', 'Space the disk uses that no title accounts for: unfinished downloads, extra versions, extras, and anything else stored on it.'));
     } else if (leaving()) {
-      add(s, el('b', '', size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) + ' once the scheduled titles go'),
+      add(s, el('b', '', size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) +
+          (deletes() ? ' once the scheduled titles go' : ' if the scheduled titles went')),
         el('span', '', plural(leaving(), 'title') + ', ' + trim(stats.scheduled.leaving_size) + '. Keep any you want to stay.'),
         button('btn btn--secondary', 'See what is scheduled', function () { chooseTab('scheduled', true); }));
     } else {
@@ -1215,7 +1225,7 @@
     }
     var list = pane.querySelector('.space-list');
     if (!list || !scheduled.length) {
-      var key = JSON.stringify([scheduled.length, stats.unavailable_roots, stats.deletions_off, stats.plex_configured]);
+      var key = JSON.stringify([scheduled.length, stats.unavailable_roots, stats.deletions_off, stats.dry_run, stats.plex_configured]);
       if (!scheduled.length && key === scheduledHead) return;
       scheduledHead = key;
       redraw(pane, drawScheduled, function () { return pane.querySelector('.space-empty'); });
