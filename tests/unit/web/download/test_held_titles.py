@@ -161,6 +161,7 @@ class TestSubmitRefusedForAHeldTitle:
 
         assert resp.status_code == 502
         assert not _consumed(token)
+        radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
 
     def test_a_400_for_a_series_sonarr_tracks_is_already_exists_and_the_token_stays_used(
         self, client, secret_key

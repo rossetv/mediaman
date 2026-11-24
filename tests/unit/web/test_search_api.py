@@ -821,6 +821,7 @@ class TestDownloadEndpoint:
 
         assert resp.status_code == 502
         assert resp.json()["error"] == "Failed to add to Radarr"
+        radarr.unmonitor_movie.assert_called_once_with(77, max_retries=1)
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_all_seasons_flow(self, mock_build_sonarr, authed_client):

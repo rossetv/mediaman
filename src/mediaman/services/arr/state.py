@@ -503,9 +503,22 @@ def add_or_remonitor_movie(
         return "bad_entry"
     try:
         radarr_client.remonitor_movie(movie_id)
-    except SafeHTTPError as exc:
-        raise ExistingMovieError(f"Radarr re-monitor failed: HTTP {exc.status_code}") from exc
+    except (SafeHTTPError, requests.RequestException, ArrError) as exc:
+        # The monitor may have landed before the search failed. Left monitored the
+        # movie would read as already tracked, and the same press could never search it.
+        _put_back_unmonitored(radarr_client, movie_id)
+        if isinstance(exc, SafeHTTPError):
+            raise ExistingMovieError(f"Radarr re-monitor failed: HTTP {exc.status_code}") from exc
+        raise
     return "remonitored"
+
+
+def _put_back_unmonitored(radarr_client: ArrClient, movie_id: int) -> None:
+    """Best effort: a failure here is logged, so the error being raised is not hidden."""
+    try:
+        radarr_client.unmonitor_movie(movie_id, max_retries=1)
+    except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+        logger.exception("Could not put radarr movie_id=%s back to unmonitored", movie_id)
 
 
 class LazyArrClients:

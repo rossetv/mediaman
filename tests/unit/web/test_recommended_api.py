@@ -398,6 +398,7 @@ class TestDownloadRecommendationAsksTheArrFirst:
         assert resp.status_code == 502
         assert resp.json()["error"] == "Failed to add to download queue"
         assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+        radarr.unmonitor_movie.assert_called_once_with(4, max_retries=1)
         assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == 0
 
     @pytest.mark.parametrize("status", [409, 422])

@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from mediaman.services.arr.state import compute_download_state
+from unittest.mock import MagicMock
+
+import pytest
+
+from mediaman.services.arr.state import (
+    ExistingMovieError,
+    add_or_remonitor_movie,
+    compute_download_state,
+)
+from mediaman.services.infra import SafeHTTPError
 
 
 def _movie_caches(in_library=False, in_queue=False, tmdb_id=100, monitored=True):
@@ -169,7 +178,6 @@ def test_tv_season_without_statistics_key_is_skipped():
 
 
 # Tests for cache builders
-from unittest.mock import MagicMock  # noqa: E402 — grouped after test classes intentionally
 
 from mediaman.services.arr.state import build_radarr_cache, build_sonarr_cache  # noqa: E402
 
@@ -896,3 +904,35 @@ class TestSonarrQueuedOnlyWhenItWillFetch:
         }
 
         assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+
+class TestAddOrRemonitorMovieWhenTheSearchFails:
+    def _radarr(self):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(400, "search refused", "radarr/command")
+        return radarr
+
+    def test_the_movie_is_put_back_to_unmonitored_and_the_error_still_raised(self):
+        radarr = self._radarr()
+
+        with pytest.raises(ExistingMovieError):
+            add_or_remonitor_movie(radarr, 603, "The Matrix")
+
+        radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
+
+    def test_a_failing_put_back_is_logged_and_does_not_hide_the_error(self, caplog):
+        radarr = self._radarr()
+        radarr.unmonitor_movie.side_effect = SafeHTTPError(500, "down", "radarr/movie")
+
+        with pytest.raises(ExistingMovieError):
+            add_or_remonitor_movie(radarr, 603, "The Matrix")
+
+        assert "back to unmonitored" in caplog.text
+
+    def test_a_movie_that_re_monitored_cleanly_is_left_monitored(self):
+        radarr = self._radarr()
+        radarr.remonitor_movie.side_effect = None
+
+        assert add_or_remonitor_movie(radarr, 603, "The Matrix") == "remonitored"
+        radarr.unmonitor_movie.assert_not_called()
