@@ -53,6 +53,13 @@ def is_key_refused(api_key: str) -> bool:
     return refused is not None and refused[0] == api_key and _clock() < refused[1]
 
 
+def clear_refusal(api_key: str) -> None:
+    """Forget a refusal of *api_key*, once OMDb has answered it well."""
+    global _refused
+    if _refused is not None and _refused[0] == api_key:
+        _refused = None
+
+
 def _refuse(api_key: str) -> None:
     global _refused
     _refused = (api_key, _clock() + _REFUSED_PAUSE_SECONDS)

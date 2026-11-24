@@ -729,6 +729,18 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         with patch("mediaman.services.infra.http.client._dispatch", return_value=mock_resp):
             return client.post("/api/settings/test/omdb")
 
+    def test_a_good_omdb_test_clears_the_refusal_of_that_key(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        from mediaman.services.media_meta import omdb
+
+        monkeypatch.setattr(omdb, "_refused", ("omdbkey1234", omdb._clock() + 3600))
+
+        resp = self._omdb_answer(app_factory, authed_client, conn, {"Response": "True"})
+
+        assert resp.json()["ok"] is True
+        assert not omdb.is_key_refused("omdbkey1234")
+
     def test_omdb_error_sentence_is_sent_as_message_too(self, app_factory, authed_client, conn):
         resp = self._omdb_answer(
             app_factory,
