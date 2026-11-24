@@ -48,6 +48,10 @@ def test_closing_twice_goes_back_once_and_a_double_click_does_not_reach_what_is_
     assert out["later"]["open"] is True
 
 
+def test_a_title_opened_again_with_forward_returns_focus_to_its_card() -> None:
+    assert _run("forwardThenEscape") == {"closed": True, "focus": "show-300"}
+
+
 def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_history() -> None:
     out = _run("directLink")
     assert out["opened"]["hidden"] is False
@@ -174,6 +178,10 @@ def test_a_failed_load_says_so_with_try_again_and_close() -> None:
     out = _run("loadFails")
     assert out["failed"] == {"line": "Couldn't load details", "buttons": ["Try again", "Close"]}
     assert out["retried"]["text"] == "Download"
+
+
+def test_a_title_that_is_gone_offers_no_try_again() -> None:
+    assert _run("loadNotFound") == ["Close"]
 
 
 def test_download_turns_into_queued_then_downloading_then_in_library_in_place() -> None:
@@ -498,6 +506,16 @@ def test_loading_a_title_again_keeps_the_season_the_person_picked_until_it_is_go
     assert (out["loading"]["kept"], out["loading"]["deleted"]) == (first, ["Two One"])
 
 
+def test_undo_in_a_toast_puts_focus_on_keep() -> None:
+    assert _run("undoInToast") == {"pressed": "admin-keep", "reloaded": "admin-keep"}
+
+
+def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
+    out = _run("shorterSeason")
+    assert out["1"] == {"scroll": 530, "room": "30px"}
+    assert out["2"] == {"scroll": 530, "room": ""}
+
+
 def test_a_viewer_never_asks_for_admin_facts() -> None:
     out = _run("viewerNoAdmin")
     assert not any("/admin/" in g for g in out["gets"])
@@ -577,6 +595,12 @@ def test_share_says_copied_with_one_timer_then_goes_back() -> None:
     assert out["copied"] == "Copied"
     assert (out["timersSet"], out["timersAfterSecond"]) == (1, 1)
     assert out["after"] == "Share"
+
+
+def test_what_a_share_came_to_is_announced() -> None:
+    out = _run("shareSaid")
+    assert out["copied"] == {"before": "", "said": "Link copied.", "again": ""}
+    assert "Settings" in out["refused"]["said"]
 
 
 def test_share_holds_one_width_through_sharing_and_copied() -> None:

@@ -294,6 +294,20 @@ const scenarios = {
     return out;
   },
 
+  // A title closed, opened again with Forward, then closed with Escape.
+  async forwardThenEscape() {
+    const p = load({ routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'show-300');
+    p.key('Escape');
+    p.tick();
+    p.doc.activeElement = p.doc.body;
+    p.ctx.history.go(1);
+    await settle();
+    p.key('Escape');
+    return { closed: p.ttl().classList.contains('is-leaving'), focus: p.doc.activeElement.getAttribute('data-title-ref') };
+  },
+
   // Close pressed twice before the browser's popstate comes, then what the second press of a
   // double click on it hits: a card's link, at once and after the sheet has gone.
   async doubleClose() {
@@ -542,6 +556,13 @@ const scenarios = {
     click(p.doc, p.ttl().querySelectorAll('.ttl__failed button')[0]);
     await settle();
     return { failed, retried: primary(p) };
+  },
+
+  async loadNotFound() {
+    const p = load({});
+    p.run();
+    await openCard(p, 'show-300');
+    return p.ttl().querySelectorAll('.ttl__failed button').map((b) => b.textContent.trim());
   },
 
   async downloadMovie() {
@@ -1128,6 +1149,48 @@ const scenarios = {
     return { loaded: await run(false), loading: await run(true) };
   },
 
+  // Undo pressed in a toast, which goes with the focus it had.
+  async undoInToast() {
+    const p = load({ admin: true, adminApi: { keep: () => {} }, routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
+    p.run();
+    p.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    const toast = build(p.doc, ['div', { class: 'ui-toast' }, ['button', { class: 'ui-toast__action' }, 'Undo']]);
+    p.doc.body.appendChild(toast);
+    toast.children[0].focus();
+    click(p.doc, toast.children[0]);
+    const pressed = p.doc.activeElement.getAttribute('data-ttl-act');
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'unkeep', id: '120', showRk: '' } }));
+    await settle();
+    return { pressed, reloaded: p.doc.activeElement.getAttribute('data-ttl-act') };
+  },
+
+  // A season with fewer episodes, picked when the overlay is scrolled so far that the shorter
+  // page moves its pills; then one long enough.
+  async shorterSeason() {
+    const eps = (n) => ({ ok: true, episodes: Array.from({ length: n }, (_, i) => ({ number: i + 1, title: 'E' + i, state: 'none', href: '/watch/play/' + i })) });
+    const p = load({ routes: {
+      '/api/watch/title/show-300': LIB_SHOW,
+      '/api/watch/title/show-300/season/1': eps(2), '/api/watch/title/show-300/season/2': eps(9),
+    } });
+    p.run();
+    await openCard(p, 'show-300');
+    p.ttl().scrollTop = 500;
+    const body = p.q('[data-ttl-part="body"]');
+    let short = true;
+    const out = {};
+    for (const n of [1, 2]) {
+      const pill = p.q('.watch-pill[data-season="' + n + '"]');
+      const list = p.q('.watch-episodes');
+      pill.getBoundingClientRect = () => ({ top: n === 1 && !p.q('.ttl__seasonsec').contains(list) && short ? 130 : 100 });
+      click(p.doc, pill);
+      await settle();
+      out[n] = { scroll: p.ttl().scrollTop, room: body.style.marginBottom || '' };
+      short = false;
+    }
+    return out;
+  },
+
   async viewerNoAdmin() {
     const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
     p.run();
@@ -1306,6 +1369,27 @@ const scenarios = {
   },
 
   // Share, Sharing… and Copied: what each state shows, and what holds the button's width.
+  // What the overlay's status line says of a share, in turn.
+  async shareSaid() {
+    const run = async (opts) => {
+      const p = load(Object.assign({ admin: true, routes: { '/api/watch/title/rec-5': REC_DL } }, opts));
+      p.run();
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      const line = p.q('[role="status"].sr-only');
+      const before = line.textContent;
+      click(p.doc, p.q('[data-ttl-act="share"]'));
+      await settle();
+      await settle();
+      const said = line.textContent;
+      click(p.doc, p.q('[data-ttl-act="share"]'));
+      return { before, said, again: line.textContent };
+    };
+    const url = '/api/recommended/5/share-token';
+    return { copied: await run({ posted: { [url]: { ok: true, share_url: 'https://example.test/download/tok' } } }),
+      refused: await run({ posted: { [url]: new APIError(503, 'x') } }) };
+  },
+
   async shareWidth() {
     let release = null;
     const p = load({ admin: true, routes: { '/api/watch/title/rec-5': REC_DL },

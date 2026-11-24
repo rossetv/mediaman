@@ -49,6 +49,7 @@
   var taglineEl = part('tagline');
   var metaEl = part('meta');
   var body = part('body');
+  var statusEl = part('status');
 
   var isAdmin = false;
   try {
@@ -261,6 +262,13 @@
     return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
+  /* Where focus goes from a title the address opened, which no card did. */
+  function cardOf(ref) {
+    return toArray(document.querySelectorAll('[data-title-ref]')).filter(function (n) {
+      return n.getAttribute('data-title-ref') === ref && n.getClientRects().length;
+    })[0];
+  }
+
   /* Close at the person's request: Back undoes the entries the open and its
      trailer added, one at a time (popstate asks again); a title opened from a
      link loses its #title= without a new entry. */
@@ -303,7 +311,8 @@
       body.textContent = '';
       lockPage(false);
     });
-    var to = origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin : cur && cur.fallback;
+    var to = origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
+      : cur && (cur.fallback || (!origin && cardOf(cur.ref)));
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }
@@ -481,8 +490,10 @@
     metaEl.textContent = '';
     metaEl.appendChild(skel('skel--line ttl__meta-skel'));
     player.textContent = '';
+    statusEl.textContent = '';
 
     body.textContent = '';
+    body.style.marginBottom = '';
     var lead = el('div', 'ttl__lead');
     var main = el('div', 'ttl__main');
     var actions = el('div', 'ttl__actions');
@@ -537,9 +548,9 @@
       titleEl.focus({ preventScroll: true });
       load(cur);
     });
+    if (!err || err.status !== 404) row.appendChild(retry);
     var shut = button('btn btn--lg btn--ghost', 'Close');
     shut.addEventListener('click', requestClose);
-    row.appendChild(retry);
     row.appendChild(shut);
     box.appendChild(row);
     body.appendChild(box);
@@ -1448,6 +1459,7 @@
   function setShare(c, st) {
     c.shareState = st;
     if (c !== cur || !isOpen) return;
+    if (st) statusEl.textContent = st === 'copied' ? 'Link copied.' : '';
     var b = root.querySelector('[data-ttl-act="share"]');
     var fresh = shareButton();
     if (b && fresh) {
@@ -1487,6 +1499,7 @@
         : "Couldn't make a share link. Try again.";
       setShare(c, null);
       redrawActions(c.ref);
+      if (c === cur && isOpen) statusEl.textContent = c.shareMsg;
     });
   }
 
@@ -1595,6 +1608,18 @@
     });
   }
 
+  /* Make a *change* that can shorten the page without *node* moving: where the
+     overlay could not stay scrolled as far as it is, room is left at its end. */
+  function holdStill(node, change) {
+    var from = node.getBoundingClientRect().top;
+    change();
+    body.style.marginBottom = '';
+    var moved = node.getBoundingClientRect().top - from;
+    if (moved <= 0) return;
+    body.style.marginBottom = moved + 'px';
+    root.scrollTop += moved;
+  }
+
   /* A season pill swaps the list in place; focus stays on the pill. When the
      season will not load, the one on show stays and offers a retry. The section
      may be drawn again meanwhile, so it is looked up when the reply comes. */
@@ -1615,7 +1640,10 @@
       c.season = s.number;
       c.picked = data.episodes || [];
       var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
-      body.querySelector('.ttl__seasonsec .watch-episodes').replaceWith(fresh);
+      var sec = body.querySelector('.ttl__seasonsec');
+      holdStill(sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec, function () {
+        sec.querySelector('.watch-episodes').replaceWith(fresh);
+      });
       core.fadeIn(fresh);
     }).catch(function () {
       if (c !== cur || c.seasonLoading !== token) return;
@@ -1927,6 +1955,14 @@
     e.preventDefault();
     e.stopPropagation();
   }, true);
+
+  /* A toast goes with the press of its button, and would take the focus too. */
+  document.addEventListener('click', function (e) {
+    if (!isOpen || !e.target.closest || !e.target.closest('.ui-toast__action')) return;
+    var to = root.querySelector('[data-ttl-act="admin-keep"]') || root.querySelector('[data-ttl-act="keep"]') ||
+      root.querySelector('[data-ttl-part="actions"] > *') || titleEl;
+    to.focus({ preventScroll: true });
+  });
 
   function cardTitle(node) {
     var named = node.getAttribute('data-title') || node.getAttribute('aria-label') || '';

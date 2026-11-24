@@ -67,3 +67,8 @@ def test_the_space_of_a_tagline_a_title_lacks_goes_under_its_meta_line() -> None
     body = _of(".ttl__tagline:empty")
     assert "order: 1" in body
     assert "min-height" in _of(".ttl__tagline")
+
+
+def test_the_admin_s_keep_and_delete_share_the_panel_s_width_equally() -> None:
+    body = _of(".ttl-facts__foot")
+    assert "display: grid" in body and "grid-auto-columns: minmax(0, 1fr)" in body
