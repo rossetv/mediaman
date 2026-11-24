@@ -239,7 +239,8 @@
   var starting = false;
   var startsOpen = 0;        // starts not answered yet, dropped ones included
   var ownRival = false;      // one of them may have replaced the stream now playing
-  var busyTimer = null;      // runs while the server has no room for this page's requests
+  var busySince = null;      // when the server first refused a request for want of room, while it does
+  var stalled = false;       // the buffer ran dry and playback has not gone on since
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
@@ -558,6 +559,7 @@
   function stopRolling() {
     rolling = false;
     clearTimeout(stallTimer);
+    stalled = false;
   }
 
   /* The buffer ran dry while the video was playing on its own: a seek or a
@@ -567,8 +569,8 @@
     stopRolling();
     /* What was loaded before is all played. */
     if (lost) countLost();
-    if (busyTimer !== null) countBusy();
-    if (lost || busyTimer !== null) return;
+    stalled = true;
+    if (lost || busySince !== null) return;
     if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
   }
 
@@ -705,6 +707,7 @@
   function waitOut(again, gaveUp) {
     if (!lost) {
       lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
+      endBusy();
       clearTimeout(stallTimer);
       countLost();
       showLost();
@@ -743,7 +746,6 @@
   function giveUp() {
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
-    endBusy();
     lost.over = true;
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
@@ -798,17 +800,21 @@
     else if (!lost.trying) tryUnattended();
   });
 
-  function countBusy() {
-    clearTimeout(busyTimer);
-    busyTimer = setTimeout(function () {
-      if (rolling) countBusy();
-      else fail(START_ERRORS.rate_limited.text);
-    }, LOST_FOR_MS);
+  /* The last request was not refused; from now on a wait is the connection's. */
+  function endBusy() {
+    if (busySince !== null && stalled && quality === 'auto') stallTimer = setTimeout(stepDown, STALL_MS);
+    busySince = null;
   }
 
-  function endBusy() {
-    clearTimeout(busyTimer);
-    busyTimer = null;
+  /* Whether it has been so for too long, with nothing left to play. */
+  function busyTooLong() {
+    var b = video.buffered;
+    for (var i = 0; i < b.length; i++) {
+      /* Less is a stall too. */
+      if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) busySince = null;
+    }
+    if (busySince === null) busySince = Date.now();
+    return Date.now() - busySince >= LOST_FOR_MS;
   }
 
   /* Whether a proxy, not mediaman, answered: one in front of it says so with these. */
@@ -933,6 +939,12 @@
       startPosition: pos,
       maxBufferLength: 30,
       preferManagedMediaSource: true,
+      xhrSetup: function (xhr, url) {
+        if (!/\/seg\//.test(url)) return;
+        xhr.addEventListener('readystatechange', function () {
+          if (h === hls && xhr.readyState === 2 && xhr.status === 200) endBusy();
+        });
+      },
     });
     hls = h;
     h.on(Hls.Events.ERROR, function (event, data) { if (h === hls) onHlsError(data); });
@@ -1071,7 +1083,8 @@
        calls the error fatal; for one the network lost, after waits of its own. */
     if (status === 429) {
       reached();
-      if (busyTimer === null) countBusy();
+      clearTimeout(stallTimer);
+      if (busyTooLong()) { fail(START_ERRORS.rate_limited.text); return; }
       h.stopLoad();
       setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
@@ -1353,6 +1366,7 @@
   video.addEventListener('playing', function () {
     hasPlayed = true;
     clearTimeout(stallTimer);
+    stalled = false;
     if (streamId) {
       good = streamChoice;
       streamPlayed = true;
@@ -1398,6 +1412,8 @@
     if (lastTime !== null && Math.abs(video.currentTime - lastTime) > 2) noteActivity();
     lastTime = null;
     stopRolling();
+    /* What is wanted now may not be what was refused. */
+    busySince = null;
     /* A message over a video that can be played is about its end. */
     if (streamId && !starting) {
       if (lost && lost.over) {

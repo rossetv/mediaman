@@ -1412,6 +1412,32 @@ def test_a_server_too_busy_for_good_is_said_once_there_is_nothing_left_to_play(m
     assert (out["again"]["message"], out["again"]["starts"]) == (None, 2)
 
 
+@pytest.mark.parametrize("chosen", ["auto", "1080p-8000"])
+def test_a_segment_taken_after_a_refusal_is_slow_by_the_connection_however_long(markup, chosen):
+    out = run(markup, "busy_once", plays="slow", saved={"mediaman.watch.quality": chosen})
+    # Automatic steps down as for any stall, ten seconds after the server took the request.
+    steps = chosen == "auto"
+    assert (out["early"], out["stepped"], out["message"]) == (1, 2 if steps else 1, None)
+    assert out["destroyed"] is steps
+
+
+def test_a_refusal_after_one_that_was_taken_is_no_stall_of_the_connection_s(markup):
+    assert run(markup, "busy_once", plays="again") == {"starts": 1}
+
+
+def test_a_connection_lost_after_a_refusal_is_said_as_lost_and_comes_back(markup):
+    assert run(markup, "busy_once", plays="lost") == {"message": LOST, "tried": 1}
+
+
+def test_a_refusal_before_a_seek_counts_for_nothing_after_it(markup):
+    out = run(markup, "busy_once", plays="back")
+    assert (out["message"], out["stops"]) == (None, 0)
+
+
+def test_a_paused_video_with_more_loaded_never_ends_for_a_busy_server(markup):
+    assert run(markup, "busy_paused") == {"message": None, "destroyed": False}
+
+
 def test_a_wait_for_a_busy_server_says_nothing_of_the_quality(markup):
     assert run(markup, "busy_stalls") == {"busy": 1, "slow": 2}
 

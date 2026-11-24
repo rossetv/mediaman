@@ -550,6 +550,16 @@ async function failFor(p, ms, fail) {
   }
 }
 
+/* The video has loaded from its start to *end*. */
+function loadedTo(p, end) { p.video.buffered = { length: 1, start: () => 0, end: () => end }; }
+
+/* A segment's request is answered, its body still to come. */
+function accept(h) {
+  const xhr = { readyState: 2, status: 200, listeners: [], addEventListener(type, fn) { this.listeners.push(fn); } };
+  h.config.xhrSetup(xhr, 'http://mm/api/watch/stream/s1/seg/9.ts');
+  xhr.listeners.forEach((fn) => fn());
+}
+
 /* Every time *loads* grew, the try fails. */
 function failingLoads(h, error) {
   let seen = h.loads.length;
@@ -1599,6 +1609,77 @@ const scenarios = {
     return out;
   },
 
+  /* One refusal, and then something else goes on for long: by `serverPlays` the segment comes, but
+     slowly; the connection is lost; or the person moves back to what has loaded, paused. */
+  async busy_once(p) {
+    const way = p.win.serverPlays;
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const refuse = () => h.emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+    const out = {};
+    if (way === 'back') {
+      p.video.pause();
+      refuse();
+      loadedTo(p, 105);
+      key('ArrowLeft');
+      p.tick(300);
+      fire(p.video, 'seeking');
+      for (let i = 0; i < 100; i++) { p.tick(2000); await settle(); }
+      loadedTo(p, 0);
+      p.video.currentTime = 2000;
+      refuse();
+      await settle();
+      return { message: messageState(p), loads: h.loads.length, stops: p.beacons.length };
+    }
+    refuse();
+    fire(p.video, 'waiting');
+    p.tick(2000);
+    if (way === 'lost') {
+      p.hlsList[0].emit('hlsError', loadError('fragLoadError', 0));
+      const fail = failingLoads(h, () => loadError('fragLoadError', 0));
+      await failFor(p, 65000, fail);
+      out.message = messageState(p);
+      const loads = h.loads.length;
+      p.online();
+      return Object.assign(out, { tried: h.loads.length - loads });
+    }
+    accept(h);
+    if (way === 'again') {
+      p.tick(5000);
+      refuse();
+      p.tick(8000);
+      await settle();
+      return { starts: p.starts().length };
+    }
+    p.held.answer = (body) => answer(body.quality);
+    p.tick(9000);
+    await settle();
+    out.early = p.starts().length;
+    p.tick(2000);
+    await settle();
+    out.stepped = p.starts().length;
+    p.tick(120000);
+    out.message = messageState(p);
+    out.destroyed = h.destroyed;
+    return out;
+  },
+
+  /* Refused for long, paused with enough loaded ahead. */
+  async busy_paused(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    loadedTo(p, 140);
+    p.video.pause();
+    for (let i = 0; i < 60; i++) {
+      p.hlsList[0].emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+      p.tick(2000);
+      await settle();
+    }
+    return { message: messageState(p), destroyed: p.hlsList[0].destroyed };
+  },
+
   /* A server that is too busy for everything, for good. */
   async busy_for_good(p) {
     const details = p.win.serverPlays;
@@ -1609,8 +1690,10 @@ const scenarios = {
     const out = {};
     refuse();
     /* Enough was loaded for more than a minute. */
+    loadedTo(p, 400);
     for (let i = 0; plays && i < 40; i++) { playOn(p, 2); p.tick(2000); await settle(); refuse(); }
     out.playing = messageState(p);
+    loadedTo(p, p.video.currentTime);
     if (plays) fire(p.video, 'waiting');
     for (let i = 0; i < 28; i++) { p.tick(2000); await settle(); refuse(); }
     out.early = messageState(p);
