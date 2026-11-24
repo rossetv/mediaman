@@ -174,6 +174,7 @@
     box.appendChild(stats);
     box.appendChild(el('span', 'skel skel--line wl-skel__summary'));
     box.appendChild(el('span', 'skel skel--pill wl-skel__bar'));
+    box.appendChild(el('span', 'skel skel--pill wl-skel__bar wl-skel__bar--sort'));
     var rows = el('div', 'wl-skel__rows');
     for (var j = 0; j < 8; j++) {
       var row = el('div', 'wl-skel__row');
@@ -751,7 +752,9 @@
       e.preventDefault();
       var showTitle;
       try { showTitle = JSON.parse(showDeleteBtn.getAttribute('data-title')); } catch (_) { showTitle = ''; }
-      admin.pickSeasonDelete(showDeleteBtn.getAttribute('data-show-rk') || '', showTitle);
+      var showRow = showDeleteBtn.closest('tr').querySelector('.keep-wrapper');
+      admin.pickSeasonDelete(showDeleteBtn.getAttribute('data-show-rk') || '', showTitle,
+        Number(showRow.getAttribute('data-seasons')) || 0);
       return;
     }
     var clear = e.target.closest('[data-list-clear]');
