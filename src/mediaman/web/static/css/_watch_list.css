@@ -151,6 +151,7 @@
 /* ── Phone, and narrow windows too tight for seven columns: each row is a card ── */
 @media (max-width: 699.98px) {
   .keep-season-item--kept { padding-bottom: 8px; }
+  .keep-season-keep { flex: 0 0 100%; justify-content: flex-end; }
   .keep-season-keep .btn { min-height: 44px; }
 
   .wl,
