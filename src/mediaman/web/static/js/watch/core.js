@@ -124,8 +124,11 @@
       settle(keep);
     }
     if (stack.parentNode) {
+      // Moving a node takes the focus off what is in it.
+      var active = document.activeElement;
       if (keep) stack.replaceWith(keep);
       else stack.remove();
+      if (keep && keep.contains(active)) active.focus({ preventScroll: true });
     }
     fade.waiting.forEach(function (resolve) { resolve(); });
   }

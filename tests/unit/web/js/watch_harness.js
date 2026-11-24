@@ -220,6 +220,28 @@ const scenarios = {
     return { stacked, cell, faded, after: host.children.map((c) => c.id), oldGone: !host.contains(oldNode) };
   },
 
+  // Focus put in the new view while it fades in is still there once the fade has ended and it
+  // has moved to where the old one was (a browser drops the focus of a node that moves).
+  async swapFocus() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this, cancel() {} }; anims.push(a); return a; };
+    const remove = Node.prototype.remove;
+    Node.prototype.remove = function () {
+      if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
+      remove.call(this);
+    };
+    page.run();
+    const host = build(page.doc, ['div', { id: 'host' }, ['p', { id: 'old' }, 'old']]);
+    page.doc.body.appendChild(host);
+    const fresh = build(page.doc, ['p', { id: 'new' }, ['a', { id: 'go' }, 'Go']]);
+    const done = page.ctx.MMWatch.core.swap(page.doc.getElementById('old'), fresh);
+    page.doc.getElementById('go').focus();
+    anims.find((a) => a.node !== fresh).onfinish();
+    await done;
+    return page.doc.activeElement.id;
+  },
+
   // A drop or a newer swap while a fade runs wins: the older fade's end never puts back a dropped
   // view, nor loses the newer one (whichever fade ends first).
   async swapInterrupted() {
