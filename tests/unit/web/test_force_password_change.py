@@ -152,6 +152,24 @@ def test_an_empty_field_is_not_sent_and_the_cursor_goes_to_the_first_one() -> No
         assert "every field" in out["error"]
 
 
+def test_an_empty_field_is_said_beside_it_and_brought_into_view_with_the_word() -> None:
+    # the box at the top can be far from the last field on a phone
+    good = "a-New-long-passw0rd!"
+    last, second, first = _submit(good, ""), _submit("", good), _submit(good, good, "")
+    assert (last["says"], last["saysNew"]) == ("Please fill in this field.", "")
+    assert (second["says"], second["saysNew"]) == ("", "Please fill in this field.")
+    # the box is right above the first one
+    assert (first["says"], first["saysNew"]) == ("", "")
+    assert last["shown"] == ["confirm_password: login-field", "confirm_password: pw-match"]
+    assert second["shown"] == ["new_password: login-field", "new_password: pw-strength-label"]
+    assert first["shown"] == ["old_password: login-field", "old_password: error-msg"]
+
+
+def test_the_word_on_passwords_that_differ_is_brought_into_view_with_its_field() -> None:
+    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd?")
+    assert out["shown"] == ["confirm_password: login-field", "confirm_password: pw-match"]
+
+
 def test_new_passwords_that_match_are_sent_once() -> None:
     out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd!")
     assert (out["sent"], out["busy"], out["focused"]) == (True, True, "new_password")

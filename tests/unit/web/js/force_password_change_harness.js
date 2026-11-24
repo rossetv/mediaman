@@ -5,14 +5,18 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { makeDocument, build } = require('./fake_dom.js');
+const { makeDocument, build, Node } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
 const doc = makeDocument();
 const form = doc.body.appendChild(build(doc, ['form', { id: 'fpc-form', 'data-submit-guard': '' },
-  ['input', { id: 'old_password' }], ['input', { id: 'new_password' }], ['input', { id: 'confirm_password' }],
-  ['span', { id: 'pw-meter-fill' }], ['span', { id: 'pw-strength-label' }], ['div', { id: 'pw-match' }]]));
+  ['div', { class: 'login-field' }, ['input', { id: 'old_password' }]],
+  ['div', { class: 'login-field' }, ['input', { id: 'new_password' }], ['span', { id: 'pw-meter-fill' }], ['span', { id: 'pw-strength-label' }]],
+  ['div', { class: 'login-field' }, ['input', { id: 'confirm_password' }], ['div', { id: 'pw-match' }]]]));
+// What was scrolled into view once the cursor was where the fix is.
+const shown = [];
+Node.prototype.scrollIntoView = function (how) { shown.push([doc.activeElement.id, this.id || this.className, how.block]); };
 const $ = (id) => doc.getElementById(id);
 ['old_password', 'new_password', 'confirm_password'].forEach((id) => { $(id).value = ''; $(id).select = () => {}; });
 
@@ -41,5 +45,7 @@ process.stdout.write(JSON.stringify({
   busy: form.hasAttribute('data-busy'),
   focused: doc.activeElement.id,
   says: $('pw-match').textContent.trim(),
+  saysNew: $('pw-strength-label').textContent.trim(),
+  shown: shown.filter(([, , block]) => block === 'nearest').map(([at, what]) => at + ': ' + what),
   error: doc.querySelectorAll('.error-msg').filter((box) => !box.hidden).map((box) => box.textContent).join(' | '),
 }));

@@ -155,6 +155,14 @@
     box.hidden = !text;
   }
 
+  // A field just in view takes the focus without a scroll, its label and the line
+  // that says what is wrong still out of view.
+  function goTo(field, line) {
+    field.focus();
+    field.closest('.login-field').scrollIntoView({ block: 'nearest' });
+    line.scrollIntoView({ block: 'nearest' });
+  }
+
   if (form) {
     form.addEventListener('submit', function (e) {
       var empty = [oldPw, newPw, confirmPw].filter(function (el) { return el && !el.value; })[0];
@@ -163,13 +171,19 @@
       e.stopPropagation();
       if (empty) {
         sayError('Please fill in every field.');
-        empty.focus();
+        // Only the first field has the error box beside it.
+        var line = empty === newPw ? label : empty === confirmPw ? matchEl : null;
+        if (line) {
+          line.textContent = 'Please fill in this field.';
+          line.classList.add('fpc-caption-weak');
+        }
+        goTo(empty, line || MM.dom.q('.error-msg'));
         return;
       }
       sayError('');
       matchEl.textContent = 'Passwords don’t match';
       matchEl.className = 'fpc-caption fpc-caption-weak';
-      confirmPw.focus();
+      goTo(confirmPw, matchEl);
       confirmPw.select();
     });
   }
