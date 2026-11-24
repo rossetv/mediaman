@@ -5,6 +5,7 @@ refused."""
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -20,6 +21,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexError,
     PlexItem,
     PlexItemNotFound,
+    PlexMedia,
     PlexSeason,
     PlexShow,
     PlexUnavailable,
@@ -916,6 +918,19 @@ class TestPlayerPage:
         monkeypatch.setattr(plex, "next_episode", fail)
         ctx = get("/watch/play/512").json()
         assert (ctx["next_state"], ctx["next"]) == ("unknown", None)
+
+    def test_it_offers_the_qualities_plex_says_the_title_has(self, get, plex):
+        media = PlexMedia(width=1280, height=720, bitrate_kbps=3500)
+        plex.items["100"] = replace(plex.items["100"], media=media)
+
+        offered = get("/watch/play/100").json()["qualities"]
+
+        assert [q["id"] for q in offered] == ["auto", "720p-3000", "720p-2000", "480p-1500"]
+
+    def test_a_title_without_media_details_has_the_three_basic_qualities(self, get):
+        offered = get("/watch/play/100").json()["qualities"]
+
+        assert [q["id"] for q in offered] == ["best", "medium", "low"]
 
     def test_resume_starts_at_the_saved_position(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")

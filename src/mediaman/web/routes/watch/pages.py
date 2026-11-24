@@ -27,6 +27,7 @@ from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
+from mediaman.services.media_meta.plex_quality import quality_rows
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -1098,6 +1099,7 @@ def play_page(
                 "subtitle": subtitle,
                 "duration_s": item.duration_s,
             },
+            "qualities": quality_rows(item),
             "start_s": start_s,
             "back_href": back_href,
             "next": next_episode,
