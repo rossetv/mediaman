@@ -514,6 +514,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__fill,
   .ttl__hero::after,
   .ttl__head::before { display: none; }
+  .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }

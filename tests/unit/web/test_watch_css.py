@@ -100,11 +100,13 @@ def test_forced_colours_show_what_is_on_and_how_far_a_download_is(
     assert "background: Highlight" in _of(selector, FORCED, sheet)
 
 
-def test_forced_colours_give_keep_an_edge_and_the_banner_no_room_for_a_hidden_picture() -> None:
+def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None:
     assert "border: 1px solid" in _of(".keep-trigger", FORCED, SHEET.with_name("_buttons.css"))
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
     banner = _of(".watch-banner:has(> .watch-banner__bg--art:not([data-broken]))", FORCED)
     assert "min-height: 0" in banner
+    detail = SHEET.with_name("_watch_detail.css")
+    assert "min-height: 190px" in _of(".ttl:not(.is-trailer) .ttl__hero", FORCED, detail)
 
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
