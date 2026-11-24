@@ -10,7 +10,7 @@ from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.reauth import revoke_all_reauth_for, revoke_reauth
 from mediaman.web.auth.session_store import (
     create_session,
@@ -40,8 +40,8 @@ _SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
 
 @router.get("/api/users/sessions")
 @rate_limit(_SESSIONS_LIST_LIMITER, key="actor")
-def api_list_sessions(request: Request, admin: str = Depends(get_current_admin)) -> Response:
-    """List active sessions for the current admin.
+def api_list_sessions(request: Request, admin: str = Depends(get_current_user)) -> Response:
+    """List active sessions for the signed-in user.
 
     Returns timestamp metadata only, never raw tokens, IPs or fingerprints: a cookie thief
     could use a fingerprint to detect the legitimate user logging in or to forge a match on
@@ -57,10 +57,10 @@ def api_list_sessions(request: Request, admin: str = Depends(get_current_admin))
 @router.post("/api/users/sessions/revoke-others")
 def api_revoke_other_sessions(
     request: Request,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
-    """Revoke every session for the current admin except the current one. Reauth tickets bound
+    """Revoke every session for the signed-in user except the current one. Reauth tickets bound
     to the destroyed sessions are dropped too so they cannot be reused.
     """
     conn = get_db()

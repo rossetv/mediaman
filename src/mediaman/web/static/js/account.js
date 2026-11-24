@@ -1,9 +1,9 @@
 /**
- * Account page — change-password form.
+ * Profile page — change-password and email forms, and the list of sign-ins.
  *
  * Requires: core/api.js (MM.api), core/reauth.js (MM.reauth).
- * Posts to /api/users/change-password with the same checks, reauth retry
- * and error rendering as the Settings › Users form.
+ * The password form has the same checks, reauth retry and error rendering as
+ * the Settings › Users form.
  */
 (function () {
   'use strict';
@@ -85,9 +85,113 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
+  function initEmail() {
+    var form = document.getElementById('account-email-form');
+    var input = document.getElementById('account-email');
+    var submit = document.getElementById('account-submit-email');
+    var result = document.getElementById('account-email-result');
+    if (!form || !input || !submit || !result) return;
+
+    function say(text, tone) {
+      result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
+      result.textContent = text;
+    }
+
+    form.addEventListener('input', function () {
+      if (!submit.disabled) say('');
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (submit.disabled) return;
+      var email = input.value.trim();
+      submit.disabled = true;
+      say('Saving…');
+      MM.reauth.run(function () {
+        return MM.api.patch('/api/users/me/email', { email: email });
+      }).then(function () {
+        submit.disabled = false;
+        say(email ? 'Email saved.' : 'Email removed. Alerts are off.', 'ok');
+      }).catch(function (err) {
+        submit.disabled = false;
+        if (err && err.error === 'reauth_cancelled') { say(''); return; }
+        say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
+        input.focus();
+      });
+    });
+  }
+
+  function when(iso) {
+    return new Date(iso).toLocaleString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function initSessions() {
+    var list = document.getElementById('account-sessions');
+    var revoke = document.getElementById('account-revoke-others');
+    var result = document.getElementById('account-revoke-result');
+    if (!list || !revoke || !result) return;
+
+    function line(cls, text) {
+      var el = document.createElement('div');
+      el.className = cls;
+      el.textContent = text;
+      return el;
+    }
+
+    function load() {
+      return MM.api.get('/api/users/sessions').then(function (data) {
+        // A sign-in that ran out stays listed until it is next used.
+        var live = data.sessions.filter(function (s) { return new Date(s.expires_at) > Date.now(); });
+        list.textContent = '';
+        live.forEach(function (s) {
+          var li = document.createElement('li');
+          li.appendChild(line('profile-session-when', 'Signed in ' + when(s.created_at)));
+          li.appendChild(line('profile-session-used', 'Last active ' + when(s.last_used_at || s.created_at)));
+          list.appendChild(li);
+        });
+        revoke.disabled = live.length < 2;
+      }).catch(function () {
+        list.textContent = '';
+        list.appendChild(document.createElement('li')).textContent = 'Could not load your sign-ins. Reload the page to try again.';
+        // They can still be ended without being listed.
+        revoke.disabled = false;
+      }).then(function () { list.removeAttribute('aria-busy'); });
+    }
+
+    function say(text, tone) {
+      result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
+      result.textContent = text;
+    }
+
+    revoke.addEventListener('click', function () {
+      revoke.disabled = true;
+      say('Signing out…');
+      MM.reauth.run(function () {
+        return MM.api.post('/api/users/sessions/revoke-others');
+      }).then(function () {
+        say('Signed out everywhere else.', 'ok');
+        return load();
+      }).catch(function (err) {
+        revoke.disabled = false;
+        if (err && err.error === 'reauth_cancelled') { say(''); return; }
+        say(MM.api.messageOf(err, 'Could not sign the others out. Try again.'), 'err');
+      });
+    });
+
+    load();
+  }
+
+  function start() {
     init();
+    initEmail();
+    initSessions();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
   }
 })();

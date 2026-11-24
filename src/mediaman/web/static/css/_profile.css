@@ -1,0 +1,9 @@
+/* Profile page. */
+.profile-plex:has(.setg-card) { margin-top: 24px; }
+.profile-sessions { list-style: none; font-size: 14px; color: var(--t2); }
+.profile-sessions li { padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.profile-sessions li:first-child { padding-top: 0; }
+.profile-sessions li:last-child { border-bottom: 0; }
+.profile-session-when { color: var(--t1); font-weight: 500; }
+.profile-session-used { font-size: 12px; color: var(--t3); margin-top: 3px; }
+.setg-pg .usr-self-head .avatar { width: 44px; height: 44px; font-size: 15px; }

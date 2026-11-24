@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% import "_components.html" as c %}
+{% from "_avatar.html" import avatar %}
 
-{% block title %}Account · Mediaman{% endblock %}
+{% block title %}Profile · Mediaman{% endblock %}
 
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
@@ -16,17 +17,31 @@
 <div class="setg-pg">
   <div class="container">
     <div class="ph">
-      <h1>Account</h1>
+      <h1>Profile</h1>
     </div>
 
     {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
       <div class="usr-self-head">
-        <div class="av">{{ (username or "?")[:1] | upper }}</div>
+        {{ avatar(username) }}
         <div class="usr-meta">
           <div class="usr-name">{{ username }}</div>
           <div class="usr-sub">{{ "Admin" if role == "admin" else "Viewer" }} · signed in</div>
         </div>
       </div>
+    {% endcall %}
+
+    {% call c.setg_card(title="Email", sub="Where download-ready alerts go.", pad=True) %}
+      <form class="inline-form" id="account-email-form" novalidate>
+        <label class="fld">
+          <span class="fld-lbl">Notification email</span>
+          <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}">
+          <span class="fld-sub">Leave empty to turn alerts off.</span>
+        </label>
+        <div class="inline-form-actions">
+          <button class="btn btn--primary btn--sm" type="submit" id="account-submit-email">Save email</button>
+          <span class="inline-form-msg" id="account-email-result" role="status"></span>
+        </div>
+      </form>
     {% endcall %}
 
     {% call c.setg_card(title="Change password", pad=True) %}
@@ -52,7 +67,17 @@
       </form>
     {% endcall %}
 
-    {% include "_profile_plex.html" %}
+    {% call c.setg_card(title="Where you're signed in", pad=True) %}
+      <ul class="profile-sessions" id="account-sessions" aria-busy="true"><li>Loading…</li></ul>
+      <div class="inline-form-actions">
+        <button class="btn btn--secondary btn--sm" type="button" id="account-revoke-others" disabled>Sign out other devices</button>
+        <span class="inline-form-msg" id="account-revoke-result" role="status"></span>
+      </div>
+    {% endcall %}
+
+    <section class="profile-plex" id="plex" aria-label="Plex account" tabindex="-1">
+      {% include "_profile_plex.html" %}
+    </section>
   </div>
 </div>
 {% endblock %}

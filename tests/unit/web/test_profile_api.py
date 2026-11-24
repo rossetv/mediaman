@@ -1,0 +1,68 @@
+"""A viewer manages their own email and sign-ins, and can touch nobody else's."""
+
+from __future__ import annotations
+
+import pytest
+
+from mediaman.db import set_connection
+from mediaman.main import create_app
+from mediaman.web.auth.password_hash import get_user_email, set_user_email
+from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
+from mediaman.web.routes.users import _SESSIONS_LIST_LIMITER, _USER_MGMT_LIMITER
+from tests.helpers.factories import insert_admin_user
+
+_ORIGIN = {"origin": "http://testserver"}
+
+
+@pytest.fixture
+def client(conn, viewer_client):
+    _USER_MGMT_LIMITER.reset()
+    _SESSIONS_LIST_LIMITER.reset()
+    set_connection(conn)
+    insert_admin_user(conn, username="boss")
+    set_user_email(conn, "boss", "boss@example.com")
+    client = viewer_client(create_app(), conn)
+    client.headers.update(_ORIGIN)
+    return client
+
+
+def test_a_viewer_sets_their_own_email_after_confirming_their_password(client, conn):
+    grant_recent_reauth(conn, client.cookies["session_token"], "viewer")
+
+    resp = client.patch("/api/users/me/email", json={"email": "vic@example.com"})
+
+    assert resp.status_code == 200
+    assert get_user_email(conn, "viewer") == "vic@example.com"
+    assert get_user_email(conn, "boss") == "boss@example.com"
+
+
+def test_a_viewer_s_email_stays_until_they_confirm_their_password(client, conn):
+    resp = client.patch("/api/users/me/email", json={"email": "vic@example.com"})
+
+    assert (resp.status_code, resp.json()["reauth_required"]) == (403, True)
+    assert get_user_email(conn, "viewer") is None
+
+
+def test_a_viewer_lists_only_their_own_sign_ins(client, conn):
+    create_session(conn, "boss")
+    create_session(conn, "viewer")
+
+    resp = client.get("/api/users/sessions")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["sessions"]) == 2
+
+
+def test_a_viewer_signs_out_their_other_devices_and_nobody_else_s(client, conn):
+    theirs = create_session(conn, "boss")
+    other = create_session(conn, "viewer")
+    mine = client.cookies["session_token"]
+
+    resp = client.post("/api/users/sessions/revoke-others")
+
+    assert resp.status_code == 200
+    assert validate_session(conn, other) is None
+    assert validate_session(conn, mine) is None
+    assert len(list_sessions_for(conn, "viewer")) == 1
+    assert validate_session(conn, theirs) == "boss"

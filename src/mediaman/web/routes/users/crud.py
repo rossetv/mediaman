@@ -13,7 +13,7 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import (
     LastAdminError,
     UserExistsError,
@@ -248,10 +248,10 @@ def api_set_user_role(
 def api_set_my_email(
     body: UpdateEmailBody,
     request: Request,
-    admin: str = Depends(get_current_admin),
+    admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Set or clear the current admin's notification email. Requires a recent reauth ticket, so
+    """Set or clear the signed-in user's notification email. Requires a recent reauth ticket, so
     a stolen session cookie alone cannot redirect download alerts to an attacker's inbox.
     """
     conn = get_db()
