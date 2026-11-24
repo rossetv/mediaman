@@ -407,7 +407,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-seasons { --pad: 32px; margin: 0 calc(-1 * var(--pad)) 8px; }
 .ttl .watch-seasons { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
 .ttl .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
-.ttl-seasons > .watch-row__arrow { top: 6px; }
+/* In the sheet's own edge, so that they never stand on a season. */
+.ttl-seasons > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
+.ttl-seasons > .watch-row__arrow--prev { left: 2px; }
+.ttl-seasons > .watch-row__arrow--next { right: 2px; }
 .ttl__seasonsec .ttl__sec-title { margin-bottom: 12px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
 
