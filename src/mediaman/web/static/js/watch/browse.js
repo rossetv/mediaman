@@ -675,7 +675,6 @@
   /* Have the person's own picks made again: once a week, and only when the server says so. */
   function refreshOwn(button) {
     if (ownBusy || button.getAttribute('aria-disabled') === 'true') {
-      // On a phone the button is its icon alone, so it says how long when pressed.
       var left = !ownBusy && waitText(rec.payload.my_refresh.next_available_at);
       if (left) core.toast('Your picks can be refreshed again in ' + left + '.');
       return;
