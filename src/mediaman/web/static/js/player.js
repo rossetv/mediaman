@@ -239,7 +239,7 @@
   var starting = false;
   var startsOpen = 0;        // starts not answered yet, dropped ones included
   var ownRival = false;      // one of them may have replaced the stream now playing
-  var busy = false;          // the server had no room for the last request
+  var busyTimer = null;      // runs while the server has no room for this page's requests
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
@@ -565,8 +565,10 @@
   function noteStall() {
     if (!rolling || swapping) return;
     stopRolling();
-    if (lost) countLost(); // What was loaded before is all played.
-    if (lost || busy) return;
+    /* What was loaded before is all played. */
+    if (lost) countLost();
+    if (busyTimer !== null) countBusy();
+    if (lost || busyTimer !== null) return;
     if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
   }
 
@@ -744,6 +746,7 @@
   function giveUp() {
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
+    endBusy();
     lost.over = true;
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
@@ -798,6 +801,19 @@
     else if (!lost.trying) tryUnattended();
   });
 
+  function countBusy() {
+    clearTimeout(busyTimer);
+    busyTimer = setTimeout(function () {
+      if (rolling) countBusy();
+      else fail(START_ERRORS.rate_limited.text);
+    }, LOST_FOR_MS);
+  }
+
+  function endBusy() {
+    clearTimeout(busyTimer);
+    busyTimer = null;
+  }
+
   /* Whether a proxy, not mediaman, answered: one in front of it says so with these. */
   function fromProxy(status) {
     return (status >= 502 && status <= 504) || status >= 520;
@@ -823,6 +839,7 @@
   function startStream(pos) {
     var gen = ++generation;
     endLost();
+    endBusy();
     dropAim();
     starting = true;
     pendingStart = pos;
@@ -914,7 +931,6 @@
   function attach(playlist, pos) {
     destroyHls();
     playlistUrl = playlist;
-    busy = false;
     var h = new Hls({
       enableWorker: false,
       startPosition: pos,
@@ -935,7 +951,7 @@
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
       if (askedAlone) ownRival = false;
-      busy = false;
+      endBusy();
       reached();
     });
     h.loadSource(playlist);
@@ -1055,8 +1071,8 @@
       return;
     }
     if (status === 429) {
-      busy = true;
       reached();
+      if (busyTimer === null) countBusy();
       if (data.fatal) setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
     }
@@ -1115,6 +1131,7 @@
     generation++;
     starting = false;
     endLost();
+    endBusy();
     dropAim();
     stopRolling();
     destroyHls();
@@ -1124,9 +1141,9 @@
     ]);
   }
 
-  function fail() {
+  function fail(text) {
     release();
-    showMessage(MSG_FAILED, retry);
+    showMessage(text || MSG_FAILED, retry);
   }
 
   /* ---- progress ------------------------------------------------------- */
@@ -2570,6 +2587,7 @@
     streamId = null;
     generation++;
     endLost();
+    endBusy();
     dropAim();
     if (switching) showSubtitle(item.subtitle);
     switching = false;

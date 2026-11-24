@@ -1396,6 +1396,15 @@ def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is
     assert out["after"] == {"streams": 0, "message": None, "stopped": True}
 
 
+@pytest.mark.parametrize("details", ["fragLoadError", "manifestLoadError"])
+def test_a_server_too_busy_for_good_is_said_once_there_is_nothing_left_to_play(markup, details):
+    out = run(markup, "busy_for_good", plays=details)
+    assert (out["playing"], out["early"]) == (None, None)
+    busy = {"text": "Too many tries. Wait a moment and try again.", "button": "Try again"}
+    assert (out["message"], out["after"]) == (busy, [0, 1])
+    assert (out["again"]["message"], out["again"]["starts"]) == (None, 2)
+
+
 def test_a_wait_for_a_busy_server_says_nothing_of_the_quality(markup):
     assert run(markup, "busy_stalls") == {"busy": 1, "slow": 2}
 

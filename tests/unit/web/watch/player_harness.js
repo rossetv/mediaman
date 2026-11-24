@@ -1205,7 +1205,7 @@ const scenarios = {
     await settle();
     const last = p.hlsList[p.hlsList.length - 1];
     const loading = { loads: h.loads.slice(), streams: p.hlsList.length, src: last.src, startPosition: last.config.startPosition };
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 10; i++) {
       p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError(details, 429, null, {}));
       p.tick(5000);
       await settle();
@@ -1590,6 +1590,34 @@ const scenarios = {
     first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     await settle();
     out.after = { streams: p.hlsList.length - streams, message: messageState(p), stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') };
+    return out;
+  },
+
+  /* A server that is too busy for everything, for good. */
+  async busy_for_good(p) {
+    const details = p.win.serverPlays;
+    const plays = details === 'fragLoadError';
+    if (plays) await streamPlays(p, 100);
+    else await settle();
+    const refuse = () => p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError(details, 429, null, { 'retry-after': '2' }));
+    const out = {};
+    refuse();
+    /* Enough was loaded for more than a minute. */
+    for (let i = 0; plays && i < 40; i++) { playOn(p, 2); p.tick(2000); await settle(); refuse(); }
+    out.playing = messageState(p);
+    if (plays) fire(p.video, 'waiting');
+    for (let i = 0; i < 28; i++) { p.tick(2000); await settle(); refuse(); }
+    out.early = messageState(p);
+    for (let i = 0; i < 4; i++) { p.tick(2000); await settle(); if (!messageState(p)) refuse(); }
+    out.message = messageState(p);
+    const streams = p.hlsList.length;
+    p.tick(60000);
+    await settle();
+    out.after = [p.hlsList.length - streams, p.starts().length];
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await settle();
+    out.again = { message: messageState(p), starts: p.starts().length, at: p.hlsList[p.hlsList.length - 1].config.startPosition };
     return out;
   },
 
