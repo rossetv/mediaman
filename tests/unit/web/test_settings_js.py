@@ -249,6 +249,14 @@ def test_a_form_shut_by_a_click_hands_the_focus_to_what_opened_it() -> None:
     }
 
 
+def test_library_count_never_says_more_are_selected_than_plex_has() -> None:
+    assert _run("libraryCount") == {
+        "unreachable": "3 selected",
+        "none": "3 selected",
+        "oneGone": "2 of 3 selected",
+    }
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"

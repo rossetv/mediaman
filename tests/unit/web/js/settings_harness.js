@@ -894,6 +894,23 @@ const scenarios = {
     return { emailCancel: shut(email, cancel), emailAgain: shut(email, email), addCancel: shut(add, addCancel), addAgain: shut(add, add) };
   },
 
+  // How many libraries are said to be selected, by what Plex answers.
+  async libraryCount() {
+    const count = async (answer) => {
+      const h = build();
+      h.load('settings/disk_thresholds.js');
+      h.add('div', { id: 'plex-library-pills' });
+      h.add('div', { id: 'disk-threshold-rows' });
+      const el = h.add('span', { id: 'lib-pill-count' });
+      h.ctx.MM.api = { get: answer };
+      h.ctx.MM.settings.diskThresholds.init({ selectedLibs: ['1', '2', '9'] });
+      await h.flush();
+      return el.textContent;
+    };
+    const libs = (...ids) => () => Promise.resolve({ libraries: ids.map((id) => ({ id, title: 'L' + id })) });
+    return { unreachable: await count(() => Promise.reject({})), none: await count(libs()), oneGone: await count(libs(1, 2, 3)) };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

@@ -68,7 +68,9 @@
   function updateLibPillCount() {
     var el = document.getElementById('lib-pill-count');
     if (!el) return;
-    el.textContent = SELECTED_LIBS.length + ' of ' + PLEX_LIBRARIES.length + ' selected';
+    if (!PLEX_LIBRARIES.length) { el.textContent = SELECTED_LIBS.length + ' selected'; return; }
+    var on = PLEX_LIBRARIES.filter(function (l) { return SELECTED_LIBS.indexOf(String(l.id)) !== -1; });
+    el.textContent = on.length + ' of ' + PLEX_LIBRARIES.length + ' selected';
   }
 
   function renderDiskRows() {
