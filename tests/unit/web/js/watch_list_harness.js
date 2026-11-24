@@ -745,7 +745,7 @@ const scenarios = {
     click(again.doc, keepOption(again, 'id:m1', '30 days'));
     await settle();
     again.replies['postForm /api/media/m1/keep'] = () => deferred().promise;
-    click(again.doc, keepOption(again, 'id:m1', '90 days'));
+    click(again.doc, keepOption(again, 'id:m1', 'forever'));
     out.filmKeptAgain = again.toasts[0].dismissed;
     return out;
   },
