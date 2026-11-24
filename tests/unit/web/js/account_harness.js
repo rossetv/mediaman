@@ -91,6 +91,34 @@ const scenarios = {
     await settle();
     return { posts, whileSending, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
   },
+  async strength() {
+    const doc = makeDocument();
+    doc.body.appendChild(build(doc, ['form', { id: 'form' },
+      ['input', { id: 'pw', 'data-strength': 'pw-strength' }],
+      ['span', { id: 'pw-strength-meter' }], ['span', { id: 'pw-strength-label' }],
+      ['input', { id: 'again', 'data-match': 'pw' }], ['span', { id: 'again-match' }]]));
+    const $ = (id) => doc.getElementById(id);
+    const timers = [];
+    ['pw', 'again'].forEach((id) => { $(id).value = ''; $(id).form = $('form'); });
+    vm.runInContext(fs.readFileSync(path.join(JS, 'password-strength.js'), 'utf8'),
+      vm.createContext({ document: doc, setTimeout: (fn) => timers.push(fn) }));
+    const type = (id, value) => {
+      $(id).value = value;
+      $(id).listeners.input.forEach((fn) => fn());
+      return { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className, says: $('again-match').textContent };
+    };
+    const out = {
+      weak: type('pw', 'abc'), ok: type('pw', 'abcdefghijK1'), strong: type('pw', 'abcdefghijK1-xyz'),
+      differs: type('again', 'abc'), matches: type('again', 'abcdefghijK1-xyz'),
+      changed: type('pw', 'abcdefghijK1-xyzz'), emptied: type('again', ''),
+    };
+    type('again', 'x');
+    $('form').listeners.reset.forEach((fn) => fn());
+    ['pw', 'again'].forEach((id) => { $(id).value = ''; });
+    timers.forEach((fn) => fn());
+    out.reset = { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className };
+    return out;
+  },
   async email() {
     const sent = [];
     let answer = () => Promise.resolve({ ok: true });

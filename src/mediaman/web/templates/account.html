@@ -9,6 +9,7 @@
 {% block head %}
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
+<script src="/static/js/password-strength.js?v={{ static_v }}" defer></script>
 <script src="/static/js/account.js?v={{ static_v }}" defer></script>
 <script src="/static/js/profile-plex.js?v={{ static_v }}" defer></script>
 {% endblock %}
@@ -51,14 +52,17 @@
             <span class="fld-lbl">Current password</span>
             <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required data-show-password>
           </label>
-          <label class="fld">
-            <span class="fld-lbl">New password</span>
-            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-show-password>
-          </label>
-          <label class="fld">
-            <span class="fld-lbl">Confirm new password</span>
-            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-show-password>
-          </label>
+          <div class="fld">
+            <label class="fld-lbl" for="account-new-password">New password</label>
+            <input class="inp" type="password" id="account-new-password" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
+            <div class="fpc-meter" aria-hidden="true"><span class="fpc-meter-fill" id="account-new-strength-meter"></span></div>
+            <span class="fpc-caption" id="account-new-strength-label" aria-live="polite">&nbsp;</span>
+          </div>
+          <div class="fld">
+            <label class="fld-lbl" for="account-confirm-password">Confirm new password</label>
+            <input class="inp" type="password" id="account-confirm-password" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
+            <span class="fpc-caption" id="account-confirm-password-match" aria-live="polite">&nbsp;</span>
+          </div>
         </div>
         <div class="inline-form-actions">
           <button class="btn btn--primary btn--sm" type="submit" id="account-submit-password">Update password</button>

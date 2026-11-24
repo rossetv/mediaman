@@ -23,11 +23,20 @@ class _Page(HTMLParser):
         self._form: str | None = None
         self.ids: set[str] = set()
         self.inputs: dict[str, str | None] = {}
+        self.hints: dict[str, set[str]] = {}
+        self.scripts: set[str] = set()
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if a.get("id"):
             self.ids.add(a["id"])
+        if a.get("data-strength"):
+            key = a["data-strength"]
+            self.hints[a["id"]] = {f"{key}-meter", f"{key}-label"}
+        if a.get("data-match"):
+            self.hints[a["id"]] = {a["data-match"], f"{a['id']}-match"}
+        if tag == "script" and a.get("src"):
+            self.scripts.add(a["src"].split("?")[0])
         if tag == "form":
             self._form = a.get("id")
             self.forms[self._form] = []
@@ -71,6 +80,25 @@ def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
         page.inputs
     )
     assert "account-revoke-others" in page.ids
+
+
+@pytest.mark.parametrize(
+    ("router", "path", "fields"),
+    [
+        (account_router, "/account", {"account-new-password", "account-confirm-password"}),
+        (settings_router, "/settings", {"new-user-password"}),
+    ],
+)
+def test_new_password_fields_have_the_parts_their_hints_are_drawn_in(
+    app_factory, authed_client, conn, router, path, fields
+):
+    app = app_factory(router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    page = _parse(authed_client(app, conn).get(path).text)
+
+    assert set(page.hints) == fields
+    assert all(parts <= page.ids for parts in page.hints.values())
+    assert "/static/js/password-strength.js" in page.scripts
 
 
 def test_settings_keeps_the_team_and_no_second_account_form(settings_html):

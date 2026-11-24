@@ -67,3 +67,22 @@ def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     assert out["removed"][0].endswith(" ok") and "off" in out["removed"][1]
     assert out["refused"] == ["inline-form-msg err", "Not an email address"]
     assert out["cancelled"] == ["inline-form-msg", ""]
+
+
+def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> None:
+    out = _run("strength")
+    plain, weak, ok, strong = (
+        "fpc-caption",
+        "fpc-caption fpc-caption-weak",
+        "fpc-caption fpc-caption-ok",
+        "fpc-caption fpc-caption-strong",
+    )
+    assert [out[k]["tone"] for k in ("weak", "ok", "strong")] == [weak, ok, strong]
+    assert out["strong"]["meter"] == "100%"
+    assert out["strong"]["match"] == plain
+    assert out["differs"]["match"] == weak
+    assert out["matches"]["match"] == strong and out["matches"]["says"] == "Passwords match"
+    # changing the first field is noticed too
+    assert out["changed"]["match"] == weak
+    assert out["emptied"]["match"] == plain
+    assert out["reset"] == {"meter": "0%", "tone": plain, "match": plain}

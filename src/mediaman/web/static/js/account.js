@@ -2,8 +2,7 @@
  * Profile page — change-password and email forms, and the list of sign-ins.
  *
  * Requires: core/api.js (MM.api), core/reauth.js (MM.reauth).
- * The password form has the same checks, reauth retry and error rendering as
- * the Settings › Users form.
+ * The strength meter and match hint of the password form are password-strength.js.
  */
 (function () {
   'use strict';

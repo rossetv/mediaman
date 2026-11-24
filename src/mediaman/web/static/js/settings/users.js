@@ -7,7 +7,6 @@
  *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
- *   - Password strength meter on the add user form (data-strength attribute)
  *
  * Cross-module dependencies:
  *   MM.api     (core/api.js)
@@ -317,10 +316,6 @@
         }
         rows.close(addUserForm, function () {
           addUserForm.reset();
-          ['new-username', 'new-user-password'].forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.dispatchEvent(new Event('input'));
-          });
           selectRole('viewer');
           clearMsg(createResult);
           if (closed) closed();
@@ -395,56 +390,6 @@
           field.focus();
         });
       });
-
-      function uniqueCount(s) { return new Set(s).size; }
-      function classCount(s) {
-        var n = 0;
-        if (/[a-z]/.test(s)) n++;
-        if (/[A-Z]/.test(s)) n++;
-        if (/\d/.test(s)) n++;
-        if (/[^A-Za-z0-9\s]/.test(s)) n++;
-        return n;
-      }
-      function score(pw) {
-        if (!pw) return { pct: 0, tone: '', label: '' };
-        var len = pw.length, uniq = uniqueCount(pw), cls = classCount(pw);
-        var passphrase = len >= 20 && uniq >= 12;
-        var s = 0;
-        if (len >= 12) s++;
-        if (passphrase || cls >= 3) s++;
-        if (uniq >= 6) s++;
-        if (len >= 16) s++;
-        if (len >= 20 || cls >= 4) s++;
-        // The server also refuses common passwords, so the best this can say is "so far".
-        var tone = 'weak', label = 'Too simple so far';
-        if (s >= 5)      { tone = 'strong'; label = 'Looks good so far'; }
-        else if (s >= 3) { tone = 'ok';     label = 'Getting there'; }
-        return { pct: Math.min(100, (s / 5) * 100), tone: tone, label: label };
-      }
-      function wireStrength(inputId) {
-        var input = document.getElementById(inputId);
-        if (!input) return;
-        var key = input.getAttribute('data-strength');
-        if (!key) return;
-        var meter = document.getElementById(key + '-meter');
-        var label = document.getElementById(key + '-label');
-        function render() {
-          var r = score(input.value);
-          if (!input.value) {
-            meter.style.width = '0%';
-            meter.className = 'fpc-meter-fill';
-            label.textContent = ' ';
-            label.className = 'fpc-caption';
-            return;
-          }
-          meter.style.width = r.pct + '%';
-          meter.className = 'fpc-meter-fill ' + r.tone;
-          label.textContent = r.label;
-          label.className = 'fpc-caption fpc-caption-' + r.tone;
-        }
-        input.addEventListener('input', render);
-      }
-      wireStrength('new-user-password');
 
       showUsers();
     },
