@@ -431,9 +431,6 @@
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
 .dl-abandon-list .tog[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 
-/* The page does not scroll behind the dialog, and keeps its width. */
-html:has(#abandon-modal[aria-hidden="false"]) { overflow: hidden; scrollbar-gutter: stable; }
-
 /* The confirm sits in the middle of the screen like the app's other
    confirms; a long season list still scrolls from the top. */
 #abandon-modal { padding-top: 20px; }

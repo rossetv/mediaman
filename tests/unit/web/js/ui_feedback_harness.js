@@ -6,7 +6,9 @@ const path = require('path');
 const vm = require('vm');
 const { makeDocument, build } = require('./fake_dom.js');
 
-const FILE = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/ui-feedback.js');
+const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+/* ui-feedback.js and the helper its confirm needs, in a page's context. */
+const load = (ctx) => ['core/dom.js', 'ui-feedback.js'].forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
 
 /* *dialog*: one on the page, as { attrs, box: false for none, visibility }. */
 function press({ dialog, own, other, confirm, key = {}, field } = {}) {
@@ -27,7 +29,7 @@ function press({ dialog, own, other, confirm, key = {}, field } = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  load(ctx);
   if (confirm) ctx.UIFeedback.confirm({ title: 'Sure?' });
   let undone = 0;
   const toast = ctx.UIFeedback.toast('Kept', { dialog: from, action: { label: 'Undo', onClick: () => { undone += 1; } } });
@@ -47,7 +49,7 @@ async function stacked(close) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  load(ctx);
   const answers = [null, null];
   [0, 1].forEach((i) => ctx.UIFeedback.confirm({ title: 'Sure?' }).then((yes) => { answers[i] = yes; }));
   const overlays = doc.querySelectorAll('.ui-confirm-overlay');
@@ -94,7 +96,7 @@ function underPointer(show, pointer) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  load(ctx);
   const toast = show(ctx.UIFeedback);
   let over = true;
   toast.matches = (sel) => sel === ':hover' && over;
@@ -137,7 +139,7 @@ function page(phone) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
+  load(ctx);
   return { doc, ui: ctx.UIFeedback, win: ctx };
 }
 

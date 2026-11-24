@@ -118,12 +118,6 @@
   padding: 20px;
 }
 .keep-dialog-overlay.active { display: flex; }
-/* The page does not scroll behind it and keeps the width its scrollbar leaves. A title's page
-   and the storage panel hold the html already. */
-html:not(.has-space, .has-ttl) body:has(> .keep-dialog-overlay.active:not(.is-closing)) {
-  overflow: hidden;
-  padding-right: var(--page-bar, 0);
-}
 .keep-dialog {
   background: var(--s2);
   border: 1px solid var(--hair-strong);

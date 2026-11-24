@@ -40,6 +40,10 @@
  *     True while focus is inside el or nowhere in particular. Used after a
  *     slow request so a user who has moved on keeps their place.
  *
+ *   MM.dom.holdPage()
+ *     For a dialog that stops the page scrolling: keeps the width the page's
+ *     scrollbar leaves. Returns the function that lets go.
+ *
  * No external dependencies. Safe to load in any order relative to other
  * core modules — no cross-module calls.
  */
@@ -49,6 +53,9 @@
   global.MM = global.MM || {};
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  var holders = 0;     // dialogs holding the page
+  var barHeld = false; // whether the page had a scrollbar to keep the width of
 
   global.MM.dom = {
 
@@ -76,6 +83,29 @@
     focusStillIn: function (el) {
       var active = document.activeElement;
       return !active || active === document.body || el.contains(active);
+    },
+
+    /**
+     * The page stops scrolling behind an open dialog (the rule in
+     * _ui_feedback.css), which takes its scrollbar away: --page-bar keeps
+     * that width so nothing moves sideways. It is measured by the first
+     * holder, before the bar goes, and stays until the last has let go.
+     */
+    holdPage: function () {
+      var root = document.documentElement;
+      if (!holders) {
+        var bar = global.innerWidth - root.clientWidth;
+        barHeld = bar > 0;
+        if (barHeld) root.style.setProperty('--page-bar', bar + 'px');
+      }
+      holders += 1;
+      var holding = true;
+      return function () {
+        if (!holding) return;
+        holding = false;
+        holders -= 1;
+        if (!holders && barHeld) root.style.removeProperty('--page-bar');
+      };
     },
 
     /** querySelectorAll — always returns a plain Array. */

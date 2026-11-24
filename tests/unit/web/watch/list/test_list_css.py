@@ -78,13 +78,6 @@ def test_the_skeleton_has_the_sort_s_own_bar_on_a_phone():
     assert re.search(r"\.wl-skel__bar--sort \{ display: block;", _block("(max-width: 699.98px)"))
 
 
-def test_the_page_does_not_scroll_behind_a_keep_or_season_dialog():
-    rule = re.search(
-        r"body:has\(> \.keep-dialog-overlay\.active:not\(\.is-closing\)\) \{([^}]*)\}", MODAL_CSS
-    )
-    assert rule and "overflow: hidden;" in rule[1] and "var(--page-bar" in rule[1]
-
-
 def test_the_season_deletes_are_apart_on_a_phone():
     phone = MODAL_CSS.split("@media (max-width: 699.98px) {", 1)[1]
     assert ".keep-season-list { gap: 8px; }" in phone.split("@media", 1)[0]

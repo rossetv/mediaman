@@ -190,7 +190,7 @@ function abandonRig() {
   modal.appendChild(confirm);
   const byId = { 'abandon-modal': modal, 'abandon-modal-title': title, 'abandon-modal-copy': copy, 'abandon-season-list': list };
   h.doc.getElementById = (id) => byId[id] || null;
-  h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel) };
+  h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
   const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0 };
   h.ctx.MM.modal = {
@@ -691,6 +691,7 @@ scenarios.reauth = async function () {
   h.doc.createElement = (t) => { const e = orig(t); e.remove = () => { if (e.parentNode) e.parentNode.removeChild(e); }; e.focus = () => {}; return e; };
   h.doc.querySelectorAll = () => [];
   h.load('core/modal.js');
+  h.load('core/dom.js');
   h.load('core/reauth.js');
   let cancelled = 0;
   h.ctx.MM.reauth.openModal({ onSubmit: () => Promise.resolve({ ok: true }), onCancel: () => { cancelled++; } });
@@ -723,6 +724,7 @@ function reauthRig() {
     messageOf: () => 'failed',
   };
   h.load('core/modal.js');
+  h.load('core/dom.js');
   h.load('core/reauth.js');
   const calls = { n: 0 };
   const guarded = () => {

@@ -52,7 +52,7 @@ const ctx = {
 };
 ctx.window = ctx;
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(path.join(JS, 'core/reauth.js'), 'utf8'), ctx);
+['core/dom.js', 'core/reauth.js'].forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
 
 const flush = () => new Promise((r) => setImmediate(r));
 

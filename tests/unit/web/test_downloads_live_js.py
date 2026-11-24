@@ -242,9 +242,13 @@ def _rule(selector: str) -> str:
     return "".join(body for head, body in heads if selector in [s.strip() for s in head.split(",")])
 
 
-def test_the_page_is_held_behind_the_abandon_dialog_and_keeps_its_width() -> None:
-    held = _rule('html:has(#abandon-modal[aria-hidden="false"])')
-    assert "overflow: hidden" in held and "scrollbar-gutter: stable" in held
+def test_the_abandon_dialog_keeps_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
+    stuck = {"state": "searching", "abandon_visible": True}
+    out = _run("held", queue=[_item("q1", **stuck)])
+    assert out == {"open": "15px", "again": "15px", "closed": None}
+    # the dialog is named in the one rule that stops the page scrolling
+    shared = (WEB / "static/css/_ui_feedback.css").read_text(encoding="utf-8")
+    assert '#abandon-modal[aria-hidden="false"]' in shared.split("var(--page-bar")[0]
 
 
 def test_the_hero_cannot_be_scrolled_inside_itself() -> None:

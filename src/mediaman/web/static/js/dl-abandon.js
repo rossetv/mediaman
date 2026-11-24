@@ -25,15 +25,17 @@
 
   var inflight = {};   // dlId -> true while its abandon request runs
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
+  var letGo = null;    // gives the page back once the dialog has closed
 
   /* setupDetail owns the display/aria-hidden lifecycle and registers with
      ModalA11y, which supplies the focus trap, ESC and focus return to the
      opener. */
   var _abandonModal = MM.modal.setupDetail(modal, {
-    manageBodyOverflow: false, /* _dl.css holds the page */
+    manageBodyOverflow: false, /* _ui_feedback.css holds the page */
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;
+      if (letGo) { letGo(); letGo = null; }
       /* The focus goes back to the button that opened this; a poll may have taken it away. */
       setTimeout(function () {
         var active = document.activeElement;
@@ -80,6 +82,7 @@
     }
     showConfirmState();
 
+    if (!letGo) letGo = MM.dom.holdPage();
     _abandonModal.open();
   }
 

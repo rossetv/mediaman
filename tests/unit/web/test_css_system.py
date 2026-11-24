@@ -242,18 +242,6 @@ def test_danger_text_keeps_aa_contrast_on_every_red_tint_over_the_dark_surfaces(
             assert (hi + 0.05) / (lo + 0.05) >= 4.5, f"--danger-text on {tint} over --{surface}"
 
 
-def test_the_page_does_not_scroll_behind_a_confirm_or_the_password_dialog() -> None:
-    css = _text(CSS_DIR / "_ui_feedback.css")
-    held = re.search(r"body:has\((.+)\)\s*\{([^}]*)\}", css.split("--toast-bottom")[0])
-    assert held and "overflow: hidden" in held.group(2)
-    # let go as the dialog starts to leave, and the scrollbar's width stays with the page
-    assert "> .ui-confirm-overlay:not(.is-leaving)" in held.group(1)
-    assert '> .reauth-backdrop:not([aria-hidden="true"])' in held.group(1)
-    assert "padding-right: var(--page-bar" in held.group(2)
-    # a title's page and the storage panel hold the html: a held body there takes the nav bar away
-    assert "html:not(.has-space, .has-ttl) body:has(" in css
-
-
 def test_a_leaving_confirm_dialog_keeps_catching_clicks() -> None:
     # pointer-events: none here let a second click land on whatever sits behind the dialog
     css = _text(CSS_DIR / "_ui_feedback.css")

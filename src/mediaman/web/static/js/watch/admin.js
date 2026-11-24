@@ -363,8 +363,8 @@
     confirm.addEventListener('click', confirmKeepDialog);
     _keepDialogModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false, // _modal.css holds the page
-      onClose: dropPageBar,
+      manageBodyOverflow: false, // _ui_feedback.css holds the page
+      onClose: function () { letGo(_keepDialogModal); },
       closeSelectors: ['[data-action="close-keep-dialog"]']
     });
   }
@@ -381,23 +381,23 @@
     document.body.appendChild(d.root);
     _seasonDeleteModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false, // _modal.css holds the page
-      onClose: dropPageBar,
+      manageBodyOverflow: false, // _ui_feedback.css holds the page
+      onClose: function () { letGo(_seasonDeleteModal); },
       closeSelectors: ['[data-action="close-season-delete"]']
     });
   }
 
   function byId(id) { return document.getElementById(id); }
 
-  /* A dialog holds the page, at the width its scrollbar leaves. */
+  /* A dialog holds the page while it is open, and gives it back as it closes. */
   function openHolding(modal) {
-    var root = document.documentElement;
-    var bar = window.innerWidth - root.clientWidth;
-    if (bar > 0) root.style.setProperty('--page-bar', bar + 'px');
+    if (!modal.held) modal.held = MM.dom.holdPage();
     modal.open();
   }
 
-  function dropPageBar() { document.documentElement.style.removeProperty('--page-bar'); }
+  function letGo(modal) {
+    if (modal.held) { modal.held(); modal.held = null; }
+  }
 
   /* A dialog's own line for a screen reader, outside its list, which is busy while it loads. */
   function saySeasons(list, text) {

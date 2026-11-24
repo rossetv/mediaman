@@ -22,6 +22,7 @@
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
+ *   MM.dom          (core/dom.js — holdPage)
  *   MM.modal        (core/modal.js — Escape, backdrop click and the fade out)
  *
  * Load after core/api.js, before any consumer (settings/savebar.js,
@@ -102,9 +103,7 @@
     sheet.appendChild(actions);
 
     backdrop.appendChild(sheet);
-    var root = document.documentElement;
-    var bar = window.innerWidth - root.clientWidth;
-    if (bar > 0) root.style.setProperty('--page-bar', bar + 'px');
+    var letGo = MM.dom.holdPage();
     document.body.appendChild(backdrop);
     setTimeout(function () { input.focus(); }, 0);
 
@@ -116,7 +115,7 @@
       useModalA11y: false,
       onClose: function () {
         input.value = '';
-        if (bar > 0) root.style.removeProperty('--page-bar');
+        letGo();
         if (opener && opener !== document.body && opener.focus) opener.focus();
         /* Safari scrolls the page to its end when the field that has the keyboard is removed. */
         if (document.activeElement === input) input.blur();

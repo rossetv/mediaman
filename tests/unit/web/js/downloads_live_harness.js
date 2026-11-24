@@ -213,6 +213,25 @@ const scenarios = {
     return out;
   },
 
+  // the width held for the page's scrollbar (15px here): with the abandon dialog open, opened
+  // again for another press without a close between, and closed
+  async held() {
+    const p = page(spec, { post: () => new Promise(() => {}) });
+    const root = p.doc.documentElement;
+    const style = {};
+    root.style = { setProperty(k, v) { style[k] = v; }, removeProperty(k) { delete style[k]; } };
+    root.clientWidth = 1265;
+    p.ctx.innerWidth = 1280;
+    const trigger = p.q('[data-abandon-trigger]');
+    click(p.doc, trigger);
+    const open = style['--page-bar'];
+    root.clientWidth = 1280;
+    click(p.doc, trigger);
+    const again = style['--page-bar'];
+    click(p.doc, p.q('[data-abandon-cancel]'));
+    return { open, again, closed: style['--page-bar'] || null };
+  },
+
   // a person abandons a row, the last row, the hero's search and something coming soon, from
   // the keyboard; `on` is where each leaves them
   async abandoned() {
