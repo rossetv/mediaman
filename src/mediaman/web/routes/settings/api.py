@@ -46,6 +46,9 @@ from mediaman.services.infra import (
 from mediaman.services.infra.settings_reader import get_setting
 from mediaman.services.infra.storage.disk_reads import settings_disk_reads
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
+    SETTINGS_AUTO_TEST_LIMITER as _SETTINGS_AUTO_TEST_LIMITER,
+)
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -347,12 +350,12 @@ def api_update_settings(
 
 
 def _resolve_tester_dispatch(
-    service: str, admin: str
+    service: str, admin: str, *, auto: bool
 ) -> tuple[Callable[[dict[str, object]], JSONResponse] | None, JSONResponse | None]:
     """Look up service's tester and gate cache and rate-limit replies. Returns (tester, None)
     to proceed with a fresh run, or (None, response) for unknown-service, cache-hit and
     rate-limit replies. Cache hits bypass the limiter so a settings page reload does not eat
-    the per-minute budget.
+    the per-minute budget, and a check the page makes by itself (*auto*) has a budget of its own.
     """
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
@@ -369,7 +372,8 @@ def _resolve_tester_dispatch(
     if cached is not None:
         payload, status_code = cached
         return None, JSONResponse(payload, status_code=status_code)
-    if not _SETTINGS_TEST_LIMITER.check(admin):
+    limiter = _SETTINGS_AUTO_TEST_LIMITER if auto else _SETTINGS_TEST_LIMITER
+    if not limiter.check(admin):
         logger.warning("rate_limit.throttled scope=actor actor=%s", _sanitise_log_field(admin))
         return None, respond_err(
             "too_many_requests",
@@ -406,8 +410,8 @@ def _run_tester_with_timeout(
     the caller can cache the body and keep the original HTTP envelope.
     """
     # No ``with`` block: its exit waits for the hung thread. A thread that outlives the cap
-    # ends when the tester's own HTTP timeout fires; the per-admin rate limit on the route
-    # (10/min, 60/day) bounds how many can be started meanwhile.
+    # ends when the tester's own HTTP timeout fires; the per-admin rate limits on the route
+    # bound how many can be started meanwhile.
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(tester, settings)
@@ -442,7 +446,10 @@ def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse
 
 @router.post("/api/settings/test/{service}")
 def api_test_service(
-    service: str, request: Request, admin: str = Depends(get_current_admin)
+    service: str,
+    request: Request,
+    auto: bool = False,
+    admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Test connectivity for a named service using the stored settings.
 
@@ -450,13 +457,13 @@ def api_test_service(
     return 400. Layered on top:
 
     * A per-admin rate limit (10/min, 60/day) stops a logged-in attacker chaining tests to
-      flood Plex or Mailgun. It guards real invocations only; cache-served replies bypass
-      it.
+      flood Plex or Mailgun. The page's own checks send ``auto`` and have their own
+      (40/min, 400/day). Both guard real invocations only; cache-served replies bypass them.
     * Decryption is limited to the keys the tester needs (see _SERVICE_TESTER_KEYS),
       avoiding a plaintext exposure window for every secret.
     * Each tester runs under a hard _TESTER_TIMEOUT_SECONDS cap.
     """
-    tester, short_circuit = _resolve_tester_dispatch(service, admin)
+    tester, short_circuit = _resolve_tester_dispatch(service, admin, auto=auto)
     if short_circuit is not None:
         return short_circuit
     if tester is None:  # _resolve_tester_dispatch guarantees one or the other

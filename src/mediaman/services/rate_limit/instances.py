@@ -35,6 +35,11 @@ SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, 
 # during configuration but tight enough to kill abuse.
 SETTINGS_TEST_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60, max_per_day=60)
 
+# The settings page's own checks, which run by themselves on every load, so that
+# reloading the page leaves the Test buttons their budget. 40 per minute are five
+# loads with all eight services, 400 a day fifty.
+SETTINGS_AUTO_TEST_LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60, max_per_day=400)
+
 # Subscriber add/remove limiter for the admin /api/subscribers endpoints.
 # Looser than the newsletter-send limiter (which spawns mail) but still
 # bounded so a compromised admin token cannot script thousands of
@@ -58,6 +63,7 @@ __all__ = [
     "NEWSLETTER_LIMITER",
     "POSTER_PUBLIC_LIMITER",
     "SCAN_TRIGGER_LIMITER",
+    "SETTINGS_AUTO_TEST_LIMITER",
     "SETTINGS_TEST_LIMITER",
     "SETTINGS_WRITE_LIMITER",
     "SUBSCRIBER_WRITE_LIMITER",
