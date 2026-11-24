@@ -474,6 +474,31 @@ scenarios.outageRows = async function () {
   return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
 };
 
+// what is kept through an outage is marked as such and counts nothing down
+scenarios.outageDim = async function () {
+  const p = pageRig(true);
+  const eta = (c) => { const e = c.querySelector('[data-v="eta"]'); return e ? e.textContent : ''; };
+  const look = () => [
+    ['dl-hero-container', '.dl-hero'], ['dl-queue-container', '.dl-compact'], ['dl-upcoming-container', '.dl-upcoming-row'],
+  ].flatMap(([box, cls]) => p.byId(box).querySelectorAll(cls)).map((c) => {
+    const hint = c.querySelector('[data-v="search-hint"]');
+    return [c.getAttribute('data-dl-id'), c.classList.contains('is-held'), eta(c), !!hint && !hint.hidden];
+  });
+  const live = {
+    hero: item('radarr:h1', { progress: 79, eta: '~1 min' }),
+    queue: [item('sonarr:q2', { eta: '~2 min' }), item('radarr:q3', { state: 'searching', search_hint: 'next attempt in 3m' })],
+    upcoming: [item('radarr:u1')],
+  };
+  p.upd(live);
+  const up = look();
+  p.upd({ hero: null, queue: [], unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: "Can't reach" });
+  const down = look();
+  p.upd(live);
+  const back = look();
+  p.upd({ ...live, hero: live.queue[0], queue: [], upcoming: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" });
+  return { up, down, back, demoted: look() };
+};
+
 // a service that answers in part: what the payload lists is drawn from it, once
 scenarios.outagePart = async function () {
   const p = pageRig(true);

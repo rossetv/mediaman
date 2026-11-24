@@ -215,6 +215,7 @@
     var d = dom();
     var card = container.querySelector('.dl-hero');
     if (!card) return;
+    d.unmarkHeld(card);
 
     /* Update poster backdrop */
     var bg = d.q('.dl-hero-bg', card);

@@ -110,6 +110,23 @@ def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> Non
     assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
 
 
+def test_what_an_outage_keeps_is_dimmed_and_counts_nothing_down() -> None:
+    out = _run("outageDim")
+    # id, dimmed, ETA, search countdown shown
+    live = [
+        ["radarr:h1", False, "~1 min", False],
+        ["sonarr:q2", False, "~2 min", False],
+        ["radarr:q3", False, "", True],
+        ["radarr:u1", False, "", False],
+    ]
+    assert out["up"] == live
+    assert out["down"] == [[row[0], True, "", False] for row in live]
+    assert out["back"] == live
+    # a hero whose service went down is dimmed as a row, the one that took over is not
+    assert out["demoted"][0] == ["sonarr:q2", False, "~2 min", False]
+    assert ["radarr:h1", True, "", False] in out["demoted"]
+
+
 def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
     out = _run("outagePart")
     assert out["rows"] == ["radarr:h1", "radarr:u1"]

@@ -18,7 +18,9 @@
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
  *   MM.downloads.buildDom.held(id, title, data)    the item's service does not answer and nothing stands in for it
- *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, say how many are held
+ *   MM.downloads.buildDom.markHeld(card)            dim a hero or row of a service that does not answer
+ *   MM.downloads.buildDom.unmarkHeld(card)
+ *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, dim the held, say how many
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
@@ -519,6 +521,18 @@
     });
   }
 
+  /* What was last known stays; what would count down is taken off. */
+  function markHeld(card) {
+    card.classList.add('is-held');
+    var hint = card.querySelector('[data-v="search-hint"]');
+    if (hint) hint.hidden = true;
+    if (card.classList.contains('dl-hero')) { updateEtaStat(card, ''); return; }
+    var eta = card.querySelector('[data-v="eta"]');
+    if (eta) eta.textContent = '';
+  }
+
+  function unmarkHeld(card) { card.classList.remove('is-held'); }
+
   function titleOf(row) {
     var title = row.querySelector('.dl-compact-title');
     return title ? title.textContent : '';
@@ -536,8 +550,10 @@
       var id = rows[i].getAttribute('data-dl-id');
       if (!id || isCollapsing(rows[i])) continue;
       if (present[id]) shown += 1;
-      else if (!(id in present) && held(id, titleOf(rows[i]), data)) kept += 1;
-      else gone.push(rows[i]);
+      else if (!(id in present) && held(id, titleOf(rows[i]), data)) {
+        kept += 1;
+        markHeld(rows[i]);
+      } else gone.push(rows[i]);
     }
     if (shown || kept) gone.forEach(collapseAway);
     return kept;
@@ -630,6 +646,8 @@
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
     held:                 held,
+    markHeld:             markHeld,
+    unmarkHeld:           unmarkHeld,
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,

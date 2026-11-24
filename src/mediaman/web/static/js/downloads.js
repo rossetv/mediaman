@@ -96,6 +96,7 @@
       }
     } else if (heroHeld(dom, heroContainer, data)) {
       held = true;
+      dom.markHeld(heroContainer.querySelector('.dl-hero'));
     } else {
       lastHero = null;
       closeSection(dom, heroContainer);
@@ -106,10 +107,9 @@
     if (data.hero) present[data.hero.id] = false;
     var queue = data.queue || [];
     /* A hero whose service went down gives way to another item and becomes a row. */
-    if (data.hero && lastHero && lastHero.id !== data.hero.id &&
-        dom.held(lastHero.id, lastHero.title, data)) {
-      queue = queue.concat(lastHero);
-    }
+    var demoted = data.hero && lastHero && lastHero.id !== data.hero.id &&
+        dom.held(lastHero.id, lastHero.title, data) ? lastHero : null;
+    if (demoted) queue = queue.concat(demoted);
     if (data.hero) lastHero = data.hero;
     if (queue.length > 0) {
       if (!queueContainer) {
@@ -143,6 +143,7 @@
           row = list.appendChild(dom.buildCompactRow(item));
           if (!opening) dom.reveal(row);
         }
+        if (item === demoted) dom.markHeld(row);
       }
       dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data);
       if (opening) dom.reveal(queueContainer);
