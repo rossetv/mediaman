@@ -96,7 +96,7 @@ function fullscreen() {
   const player = doc.body.appendChild(build(doc, ['div', { id: 'player' }]));
   const video = player.appendChild(build(doc, ['video', {}]));
   const home = () => { const p = doc.getElementById('ui-toast-host').parentNode; return p === doc.body ? 'body' : p.id; };
-  const change = (name, el) => { doc[name] = el; (doc.listeners[name.replace('Element', 'change')] || []).forEach((fn) => fn({})); };
+  const change = (name, el) => { doc[name] = el; (doc.listeners[name.replace('Element', 'change').toLowerCase()] || []).forEach((fn) => fn({})); };
   const out = {};
   change('fullscreenElement', player);
   ui.toast('Kept', { action: { label: 'Undo', onClick() {} } });
