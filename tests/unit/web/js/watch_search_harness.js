@@ -955,7 +955,7 @@ const scenarios = {
     await r.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
     r.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.reject(new Error('502')));
     await settle();
-    out.without = r.line();
+    out.without = [r.line(), r.doc.querySelector('.watch-search').classList.contains('is-pending'), r.doc.querySelectorAll('.results-fail').length];
     return out;
   },
 
@@ -1128,6 +1128,49 @@ const scenarios = {
     other.focus();
     await p.back();
     return { url: p.url(), other: p.doc.activeElement === other };
+  },
+
+  // The categories themselves could not be had: what was typed may name one, so it is not said to match nothing.
+  async categoriesFailed() {
+    const answerBoth = async (p, people) => {
+      await p.answer('/api/watch/search?', { items: [] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], people });
+    };
+    const fail = async (p) => {
+      p.calls.filter((c) => c.url === '/api/watch/explore' && !c.done).forEach((c) => { c.done = true; c.reject(new Error('502')); });
+      await settle();
+    };
+    const text = (p) => { const n = p.doc.querySelector('.results-fail span'); return n && n.textContent; };
+    const p = load(ADMIN, '', null, null);
+    await fail(p);
+    await p.search('action');
+    await answerBoth(p);
+    await fail(p);
+    const out = { text: text(p), line: p.line(), status: p.status.textContent };
+    const retry = p.doc.querySelector('.results-fail button');
+    if (!retry) return out;
+    click(p.doc, retry);
+    await settle();
+    await answerBoth(p);
+    await p.answer('/api/watch/explore', { tmdb_configured: true, genres: GENRES, decades: DECADES });
+    out.asked = p.calls[p.calls.length - 1].url;
+    await p.answer('explore?genre=action', { items: [TM] });
+    out.titles = p.titles('.watch-card');
+    // Somebody it does name stays on the page.
+    const who = load(ADMIN, '', null, null);
+    await fail(who);
+    await who.search('mara');
+    await answerBoth(who, [MARA]);
+    await fail(who);
+    out.person = [text(who), who.suggested().length];
+    // One letter names no category.
+    const one = load(ADMIN, '', null, null);
+    await fail(one);
+    await one.search('z');
+    await answerBoth(one);
+    await fail(one);
+    out.one = [text(one), one.line()];
+    return out;
   },
 
   // A person who could not be had is asked for anew by the next try.

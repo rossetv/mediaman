@@ -26,6 +26,7 @@
   var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
+  var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
   var LABEL = 'Search films and shows';
   var LIST_LABEL = 'Search your library';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
@@ -1017,16 +1018,16 @@
       status.textContent = 'No matches for “' + c.q + '”';
     }
 
-    /* The whole search failed: one line, one way on that runs both searches again. */
-    function showFailed() {
+    /* The whole search failed: one line, one way on that runs all of it again. */
+    function showFailed(text) {
       leave();
       hold('failed', 'Search results');
-      live.node.appendChild(failure(SEARCH_FAILED, function () {
+      live.node.appendChild(failure(text, function () {
         input.focus();
         run();
       }));
       rise(live.node);
-      status.textContent = SEARCH_FAILED;
+      status.textContent = text;
     }
 
     /* The two lists as they are shown. Titles of a category that was named in
@@ -1105,9 +1106,10 @@
       setPending(!settled);
 
       if (settled && !all.lib.length && !all.out.length) {
-        if (lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) { showFailed(); return; }
-        if (lib.state === 'ok' && tmdbQuiet && cat === 'failed') { showFailed(); return; }
+        if (lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) { showFailed(SEARCH_FAILED); return; }
+        if (lib.state === 'ok' && tmdbQuiet && cat === 'failed') { showFailed(SEARCH_FAILED); return; }
         if (lib.state === 'ok' && tmdbQuiet && !suggestionsFor(c.q, c).length) {
+          if (cat === 'unknown') { showFailed(CATEGORIES_FAILED); return; }
           showNothing(c, tmdb.state === 'unconfigured');
           last = c;
           return;
@@ -1209,6 +1211,7 @@
           if (current !== c) return;
           c.cat = null;
           if (explore.known()) askCategory(c, before);
+          else if (c.q.length >= TMDB_MIN_CHARS) c.cat = { state: 'unknown' };
           paint(c);
         });
         return;

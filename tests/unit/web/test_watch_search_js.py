@@ -404,7 +404,7 @@ def test_categories_that_come_late_are_suggested_for_what_was_typed_meanwhile() 
 
 
 def test_a_search_ends_without_the_categories_when_they_cannot_be_had() -> None:
-    assert _run("lateCategories")["without"] == "No matches for “action”"
+    assert _run("lateCategories")["without"] == [None, False, 1]
 
 
 def test_a_category_that_is_not_there_says_so_with_a_way_back_and_nothing_to_try_again() -> None:
@@ -528,3 +528,15 @@ def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
 
 def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None:
     assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
+
+
+def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
+    None
+):
+    out = _run("categoriesFailed")
+    assert out["text"] == out["status"] == "Couldn’t load the categories just now."
+    assert out["line"] is None
+    assert out["asked"] == "/api/watch/explore?genre=action"
+    assert out["titles"] == ["Orchard Road"]
+    assert out["person"] == [None, 1]
+    assert out["one"] == [None, "No matches for “z”"]
