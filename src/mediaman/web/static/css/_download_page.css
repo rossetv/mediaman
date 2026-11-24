@@ -183,7 +183,7 @@
 }
 .btn-download-hero:hover { background: var(--accent-hi); }
 .btn-download-hero:active { transform: scale(.97); }
-.btn-download-hero:disabled { opacity: .55; cursor: not-allowed; }
+.btn-download-hero[aria-disabled="true"] { opacity: .55; cursor: progress; transform: none; }
 
 .dl-result {
   display: flex;
@@ -203,7 +203,12 @@
   font-weight: 600;
   letter-spacing: -.02em;
 }
+.dl-content .dl-result { margin-top: 0; }
+.dl-action:has(+ .dl-result:not([hidden])) { padding-bottom: 0; }
+.dl-result--error { background: var(--rgba-danger-bg); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
 .dl-result-title--success { color: var(--success); }
+.dl-result-title--error { color: var(--danger-text); }
+.dl-result-detail a { color: var(--accent); }
 .dl-result-detail { color: var(--t2); font-size: 14px; }
 
 .dl-hint {

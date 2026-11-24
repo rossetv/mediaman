@@ -144,6 +144,7 @@
         {{ 'Re-Download' if item.action == 'redownload' else 'Download' }}{% if item.season_number is defined and item.season_number is not none %} {{ 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number }}{% endif %}
       </button>
     </div>
+    <div id="download-result" class="dl-result" role="alert" tabindex="-1" hidden></div>
   {% endif %}
 
   {# Footer #}
@@ -153,7 +154,7 @@
 
 </div>
 
-{# Hero card wrapper + result sit outside dl-content so hiding dl-content doesn't hide them #}
+{# Outside dl-content, so hiding that does not hide the card. #}
 {% if item.download_state != "in_library" %}
 <div id="dl-hero-wrapper" {% if item.download_state != 'queued' %}hidden{% endif %}>
   {% if item.download_state == "queued" and hero_item %}
@@ -162,7 +163,7 @@
     {% with item=hero_item %}
     {% include "_dl_hero_card.html" %}
     {% endwith %}
-    <div class="dl-hint">
+    <div class="dl-hint" id="dl-hint" role="status">
       You may close this page &mdash; the download will continue in the background.
       {% if item.notify_by_email %}<br>
       You'll be notified by email when this {{ 'movie' if item.media_type == 'movie' else 'show' }} is available to watch.
@@ -173,7 +174,6 @@
     </div>
   {% endif %}
 </div>
-<div id="download-result" class="dl-result" hidden></div>
 {% endif %}
 
 {% elif state == "limited" %}
