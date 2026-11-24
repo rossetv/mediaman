@@ -361,9 +361,13 @@ class TestFillBackdrop:
 
         assert item["backdrop_url"] == WIDE
 
-    @pytest.mark.parametrize("tmdb_answer", [{"overview": "From TMDB."}, None])
-    def test_a_title_not_stored_is_asked_for_once_in_ten_minutes_found_or_not(
-        self, conn, monkeypatch, tmdb_answer
+    @pytest.mark.parametrize(
+        ("tmdb_answer", "held_s"),
+        [({"overview": "From TMDB."}, 600), ({"id": 42}, 600), (None, 60)],
+        ids=["found", "empty", "failed"],
+    )
+    def test_a_title_not_stored_is_asked_for_once_in_ten_minutes_or_one_after_a_failure(
+        self, conn, monkeypatch, tmdb_answer, held_s
     ):
         clock = [1000.0]
         monkeypatch.setattr(item_enrichment, "_clock", lambda: clock[0])
@@ -373,7 +377,7 @@ class TestFillBackdrop:
             patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
             patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}) as ratings,
         ):
-            for later, tmdb_id in ((0, 42), (599, 42), (599, 43), (601, 42)):
+            for later, tmdb_id in ((0, 42), (held_s - 1, 42), (held_s - 1, 43), (held_s, 42)):
                 clock[0] = 1000.0 + later
                 item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": tmdb_id}
                 enrich_redownload_item(item, conn, SECRET)
@@ -381,7 +385,27 @@ class TestFillBackdrop:
 
         assert [c.args[1] for c in tmdb.details.call_args_list] == [42, 43, 42]
         assert ratings.call_count == 3
-        assert shown[0] == shown[1] == ((tmdb_answer or {}).get("overview"))
+        assert shown[0] == shown[1] == (tmdb_answer and tmdb_answer.get("overview", ""))
+
+    @pytest.mark.parametrize(
+        ("answers", "held_s"),
+        [([{"id": 7}], 600), ([None], 60), (ValueError("bad token"), 60)],
+        ids=["none", "failed", "refused"],
+    )
+    def test_a_missing_backdrop_is_asked_for_again_sooner_after_a_failure(
+        self, conn, monkeypatch, answers, held_s
+    ):
+        clock = [1000.0]
+        monkeypatch.setattr(item_enrichment, "_clock", lambda: clock[0])
+        tmdb = MagicMock()
+        tmdb.details.side_effect = answers * 2 if isinstance(answers, list) else answers
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            asked = []
+            for later in (0, held_s - 1, held_s):
+                clock[0] = 1000.0 + later
+                fill_backdrop({"media_type": "tv", "tmdb_id": 7}, conn, SECRET)
+                asked.append(tmdb.details.call_count)
+        assert asked == [1, 1, 2]
 
     def test_held_facts_are_of_one_type_and_carry_no_reason(self, conn):
         with patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb") as fetch:

@@ -25,12 +25,14 @@ _BACKDROP_RE = re.compile(
     r"https://image\.tmdb\.org/t/p/(?:w\d{3,4}|original)/[A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp)"
 )
 _BACKDROP_TTL_S = 600.0
+# What TMDB did not answer is asked again sooner than what it did.
+_FAILURE_TTL_S = 60.0
 _BACKDROP_CACHE_MAX = 256
 _BACKDROP_TMDB_TIMEOUT_S = 3.0
-# (media type, TMDB id) -> (when it was asked, backdrop or None): a title TMDB has no backdrop
+# (media type, TMDB id) -> (when to ask again, backdrop or None): a title TMDB has no backdrop
 # for, or does not answer for, is not asked again on every view of its page.
 _backdrop_cache: dict[tuple[str, int], tuple[float, str | None]] = {}
-# (media type, TMDB id, title) -> (when it was asked, what TMDB and OMDb gave, misses too).
+# (media type, TMDB id, title) -> (when to ask again, what TMDB and OMDb gave, misses too).
 _facts_cache: dict[tuple[object, object, object], tuple[float, dict[str, object]]] = {}
 _FACTS = (
     "tmdb_id",
@@ -111,19 +113,21 @@ def fill_backdrop(item: dict[str, object], conn: sqlite3.Connection, secret_key:
     key = (media_type, tmdb_id)
     now = _clock()
     hit = _backdrop_cache.get(key)
-    if hit and now - hit[0] < _BACKDROP_TTL_S:
+    if hit and now < hit[0]:
         item["backdrop_url"] = hit[1]
         return
     from mediaman.services.media_meta.tmdb import TmdbClient
 
-    backdrop: str | None = None
+    details: object = None
     with contextlib.suppress(requests.RequestException, SafeHTTPError, ValueError):
         client = TmdbClient.from_db(conn, secret_key, timeout=_BACKDROP_TMDB_TIMEOUT_S)
         if client is not None:
-            backdrop = tmdb_backdrop(client.details(media_type, tmdb_id))
+            details = client.details(media_type, tmdb_id)
+    backdrop = tmdb_backdrop(details)
     if len(_backdrop_cache) >= _BACKDROP_CACHE_MAX:
         _backdrop_cache.clear()
-    _backdrop_cache[key] = (now, backdrop)
+    held_s = _FAILURE_TTL_S if details is None else _BACKDROP_TTL_S
+    _backdrop_cache[key] = (now + held_s, backdrop)
     item["backdrop_url"] = backdrop
 
 
@@ -145,9 +149,9 @@ def apply_tmdb_detail(item: dict[str, object], detail: TmdbDetail) -> None:
 
 def enrich_item_with_tmdb(
     item: dict[str, object], conn: sqlite3.Connection, secret_key: str
-) -> None:
+) -> bool:
     """Fetch TMDB search, details and OMDb ratings into *item* in place; the item is left
-    unchanged on any client-level failure.
+    unchanged on any client-level failure. False when TMDB gave nothing for the title.
     """
     from mediaman.services.media_meta.omdb import fetch_ratings
     from mediaman.services.media_meta.tmdb import TmdbClient
@@ -157,6 +161,7 @@ def enrich_item_with_tmdb(
     client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
     title = cast(str, item["title"])
     media_type = cast(str, item.get("media_type", "movie"))
+    found = False
 
     if client is not None:
         # Search → populate tmdb_id / year / description / rating / poster
@@ -178,6 +183,7 @@ def enrich_item_with_tmdb(
         # Details → tagline/runtime/genres/cast/director/trailer + fill gaps
         if tmdb_id:
             data = client.details(media_type, tmdb_id)
+            found = data is not None
             if data:
                 apply_tmdb_detail(item, TmdbClient.shape_detail(data, media_type=media_type))
                 backdrop = tmdb_backdrop(data)
@@ -205,6 +211,7 @@ def enrich_item_with_tmdb(
         item["imdb_rating"] = ratings["imdb"]
     if "metascore" in ratings:
         item["metascore"] = ratings["metascore"]
+    return found
 
 
 def enrich_redownload_item(
@@ -257,10 +264,11 @@ def enrich_redownload_item(
     key = (media_type, tmdb_id, item.get("title"))
     now = _clock()
     hit = _facts_cache.get(key)
-    if hit and now - hit[0] < _BACKDROP_TTL_S:
+    if hit and now < hit[0]:
         item.update(hit[1])
         return
-    enrich_item_with_tmdb(item, conn, secret_key)
+    found = enrich_item_with_tmdb(item, conn, secret_key)
     if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
         _facts_cache.clear()
-    _facts_cache[key] = (now, {k: item[k] for k in _FACTS if k in item})
+    held_s = _BACKDROP_TTL_S if found else _FAILURE_TTL_S
+    _facts_cache[key] = (now + held_s, {k: item[k] for k in _FACTS if k in item})
