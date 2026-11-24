@@ -103,6 +103,8 @@
 /* A pick's caption. */
 .watch-card__cap { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
 .watch-card__cap > .watch-card__sub { flex: 1; min-width: 0; }
+/* With More beside it the caption has no room for the icon on the narrowest phones; the row's chip says it. */
+@media (max-width: 359.98px) { .watch-card__ai > .ico { display: none; } .watch-card__cap { gap: 0; } }
 .watch-card__ai { flex: none; font-size: 11px; color: color-mix(in srgb, var(--purple) 55%, var(--t1)); }
 
 /* The menu of earlier picks: the Keep menu, with a tick on the batch shown.

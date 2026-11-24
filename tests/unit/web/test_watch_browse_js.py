@@ -162,7 +162,7 @@ def test_a_person_s_own_picks_open_by_their_own_refs_marked_as_ai_picks() -> Non
     assert out["picks"] == ["pick-1", "pick-2", "rec-7", "pick-31"]
     assert out["marked"] == ["AI pick,"] * 4
     assert out["chip"] == "AI picks"
-    assert out["line"]["text"] == "Made from what you’ve played, then new and popular."
+    assert out["line"]["text"] == "From your plays, then new and popular."
     # The mark is no part of what a card of the same title is found by.
     assert out["updated"] == "Queued"
 
@@ -217,7 +217,7 @@ def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() ->
     assert out["made"]["busy"].startswith("Making yours")
     assert out["made"]["toasts"] == ["Your new picks are in."]
     assert out["none"]["toasts"] == []
-    assert out["none"]["after"].startswith("Made from what you’ve played")
+    assert out["none"]["after"].startswith("From your plays")
     assert len(out["failed"]["toasts"]) == 1
 
 

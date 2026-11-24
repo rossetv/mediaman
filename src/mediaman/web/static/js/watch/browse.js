@@ -485,15 +485,15 @@
   function ownText(payload, state) {
     var mine = payload.my_refresh;
     if (state === 'busy') return 'Making yours. It can take a minute or two.';
-    if (ownFailed) return 'Couldn’t make new ones for you. Nothing has changed.';
+    if (ownFailed) return 'Couldn’t make new ones. Try again.';
     if (mine.reason === 'daily_limit') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return 'New ones need an OpenAI key, set in Settings.';
     var items = payload.items || [];
     if (ownOf(payload)) {
-      return items.every(function (i) { return i.own; }) ? 'Made from what you’ve played.' : 'Made from what you’ve played, then new and popular.';
+      return items.every(function (i) { return i.own; }) ? 'From your plays.' : 'From your plays, then new and popular.';
     }
-    if (state === 'ready' && !ownRefs) return (items.length ? 'New and popular. ' : '') + 'Refresh to get your own.';
+    if (state === 'ready' && !ownRefs) return (items.length ? 'New and popular. ' : '') + 'Refresh for your own.';
     return items.length ? 'New and popular.' : '';
   }
 
