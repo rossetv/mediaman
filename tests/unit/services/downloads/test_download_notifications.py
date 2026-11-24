@@ -1211,3 +1211,34 @@ class TestOneUnsentNoticePerRequest:
         self._record(conn, tmdb_id=None)
         self._record(conn, tmdb_id=None, title="Heat")
         assert self._count(conn) == 2
+
+
+class TestClaimFreesStrandedRowsWhileRunning:
+    """A claim held at a crash is freed by a later tick, without a restart."""
+
+    def _stamp(self, conn, *, age_seconds):
+        from datetime import datetime, timedelta
+
+        claimed_at = (datetime.now(UTC) - timedelta(seconds=age_seconds)).isoformat()
+        return insert_download_notification(
+            conn, email="u@x", title="T", tmdb_id=1, notified=2, claimed_at=claimed_at
+        )
+
+    def test_a_claim_older_than_the_grace_is_claimed_again_by_the_next_tick(self, conn):
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            _claim_pending_notifications,
+        )
+
+        row_id = self._stamp(conn, age_seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+
+        assert [r.id for r in _claim_pending_notifications(conn)] == [row_id]
+
+    def test_a_claim_inside_the_grace_is_left_to_the_send_in_flight(self, conn):
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        self._stamp(conn, age_seconds=60)
+
+        assert _claim_pending_notifications(conn) == []

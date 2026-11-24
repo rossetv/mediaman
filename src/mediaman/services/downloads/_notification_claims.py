@@ -1,7 +1,8 @@
 """Claim/release mechanics for download notification rows.
 
 Provides atomic claim, per-row and bulk release, and a startup reconcile
-sweep that resets rows left stuck at ``notified=2`` by a crashed worker.
+sweep that resets rows left stuck at ``notified=2`` by a crashed worker; the claim runs
+that sweep first, so a stranded row is freed on the next tick.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 #: How long an in-flight claim is allowed before reconcile treats the row as
 #: stranded by a crashed worker.  Generous enough to outlast the slowest
 #: legitimate notify pipeline (Mailgun retries, slow SMTP), short enough that
-#: a stranded row is recovered on the next service restart rather than waiting
+#: a stranded row is recovered on the next tick after it rather than waiting
 #: for the operator to notice.
 STRANDED_CLAIM_GRACE_SECONDS = 3600
 
@@ -57,6 +58,9 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
     Without RETURNING support (SQLite before 3.35) it falls back to SELECT-then-UPDATE
     inside an IMMEDIATE transaction so the write lock blocks any concurrent claim.
     """
+    # A claim a crash left behind is freed here, every tick, not only at startup; the
+    # one-hour grace keeps a send still in flight from being claimed a second time.
+    reconcile_stranded_notifications(conn)
     claim_iso = now_iso()
     try:
         rows = conn.execute(
