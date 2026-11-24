@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import requests
 
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.completion._types import CompletedItem
@@ -210,6 +213,47 @@ def _batch_insert_completions(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _Unchecked:
+    """A completion whose check got no answer, to be checked again."""
+
+    item: CompletedItem
+    first_tried: datetime
+    last_tried: datetime
+
+
+# The page asks every two seconds, and a service that does not answer is slow to say so.
+_CHECK_AGAIN_AFTER = timedelta(minutes=1)
+_GIVE_UP_AFTER = timedelta(hours=1)
+_MAX_UNCHECKED = 50
+# By database file and dl_id.
+_unchecked: dict[tuple[str, str], _Unchecked] = {}
+_unchecked_lock = threading.Lock()
+
+
+def _database_file(conn: sqlite3.Connection) -> str:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return str(row[2]) if row else ""
+
+
+def _take_due(database: str, now: datetime) -> list[_Unchecked]:
+    """Take out the completions to check again now."""
+    with _unchecked_lock:
+        due = [
+            key
+            for key, kept in _unchecked.items()
+            if key[0] == database and now - kept.last_tried >= _CHECK_AGAIN_AFTER
+        ]
+        return [_unchecked.pop(key) for key in due]
+
+
+def _keep_unchecked(database: str, kept: list[_Unchecked], now: datetime) -> None:
+    with _unchecked_lock:
+        for entry in kept:
+            if now - entry.first_tried < _GIVE_UP_AFTER and len(_unchecked) < _MAX_UNCHECKED:
+                _unchecked[(database, entry.item["dl_id"])] = entry
+
+
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[CompletedItem],
@@ -220,7 +264,8 @@ def record_verified_completions(
     An item is considered verified when Radarr/Sonarr confirms the title
     has a file / episode file. NZBGet-only items (those without the
     ``radarr:`` / ``sonarr:`` prefix) are treated as verified by default
-    because there's no Arr source to cross-check against.
+    because there's no Arr source to cross-check against. One whose check got no answer is
+    checked again by later calls, for an hour.
 
     Performance: the Radarr/Sonarr library is fetched once per call and
     indexed by ``{tmdbId: movie}`` / ``{tmdbId: series}`` so lookups are
@@ -233,14 +278,29 @@ def record_verified_completions(
     """
     idx = _ArrLibraryIndex(conn, secret_key)
     to_insert: list[tuple[str, str, str, str]] = []
+    now = now_utc()
+    database = _database_file(conn)
+    again = _take_due(database, now)
+    kept: list[_Unchecked] = []
+    silent: set[str] = set()
 
-    for c in completed:
+    for entry in [*(_Unchecked(c, now, now) for c in completed), *again]:
+        c = entry.item
+        service = c["dl_id"].partition(":")[0]
+        entry = replace(entry, last_tried=now)
+        if entry.first_tried < now and service in silent:
+            kept.append(entry)
+            continue
         try:
             verified = _check_item_verified(c, idx)
         except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
-                "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
+                "Failed to verify completion for %s — checking again later",
+                c["dl_id"],
+                exc_info=True,
             )
+            silent.add(service)
+            kept.append(entry)
             continue
 
         if not verified:
@@ -249,6 +309,7 @@ def record_verified_completions(
 
         to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
 
+    _keep_unchecked(database, kept, now)
     # Single batch insert + single commit — per-row commits fsync once each,
     # which dominates the loop cost on a large completion set.
     _batch_insert_completions(conn, to_insert)
