@@ -105,12 +105,18 @@ def _value_end(text: str, pos: int, value_re: re.Pattern[str]) -> int:
     """
     if text[pos : pos + 1] in ("[", "(", "{"):
         depth = 0
+        past_quoted = pos
         while token := _NESTED_RE.match(text, pos):
             pos = token.end()
+            if token[0][0] in "\"'\\":
+                past_quoted = pos
             depth += bool(token["open"]) - bool(token["close"])
             if depth == 0:
-                break
-        return pos
+                return pos
+        # Never closed: what is hidden runs to the end of the line the last quoted item ends on,
+        # so the lines after a stray bracket still read.
+        line_end = text.find("\n", past_quoted)
+        return len(text) if line_end < 0 else line_end
     value = value_re.match(text, pos)
     if value is None:
         return pos
