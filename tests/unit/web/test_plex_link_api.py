@@ -859,7 +859,9 @@ def test_unlinking_is_the_persons_own_and_needs_no_password(client_for, conn):
 
 def test_an_admin_sees_who_is_linked_and_can_unlink_but_not_which_account(client_for, conn):
     client_for("amy")
-    repository.save_link(conn, "amy", PlexIdentity(3141592653, 3141592653, "secretname"), SERVER_ID, ip="")
+    repository.save_link(
+        conn, "amy", PlexIdentity(3141592653, 3141592653, "secretname"), SERVER_ID, ip=""
+    )
     boss = client_for("boss", role="admin")
     repository.save_link(conn, "boss", PlexIdentity(7, 7, "own"), SERVER_ID, ip="")
     resp = boss.get("/api/users/plex-links")
