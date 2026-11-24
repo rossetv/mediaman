@@ -879,9 +879,6 @@
     }
   }
 
-  /* Until a stream has found its place its moves are its own: emptied, the video stands at 0. */
-  function placing() { return pendingStart !== null || swapping || starting; }
-
   function skip(delta) { seekTo(position() + delta); }
 
   /* While a stream loads to play, the button shows it working, not a Pause
@@ -949,7 +946,7 @@
   });
   video.addEventListener('seeking', function () {
     /* A jump from where it played; hls.js only nudges. */
-    if (!placing() && lastTime !== null && Math.abs(video.currentTime - lastTime) > 2) noteActivity();
+    if (lastTime !== null && Math.abs(video.currentTime - lastTime) > 2) noteActivity();
     lastTime = null;
     stopRolling();
     /* A message over a video that can be played is about its end. */
@@ -979,7 +976,8 @@
         rolling = true;
       }
     }
-    lastTime = placing() ? null : now;
+    /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
+    lastTime = pendingStart !== null ? null : now;
     if (playedS - troubleAtPlayed >= CALM_PLAYED_S) clearTrouble();
     maybeStepUp();
     render();
