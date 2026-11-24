@@ -86,6 +86,20 @@ def test_each_item_shows_the_days_left_of_its_own_deadline(conn, manual):
     assert "14 days left" not in "".join(cards.values())
 
 
+@pytest.mark.parametrize("manual", [False, True], ids=["scan_send", "manual_send"])
+def test_an_item_of_a_library_not_selected_is_not_listed_as_leaving(conn, manual):
+    _queue(conn, "Leaving", days_into_grace=1)
+    _queue(conn, "Staying", days_into_grace=1)
+    conn.execute("UPDATE media_items SET plex_library_id = 2 WHERE id = 'Staying'")
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+        "VALUES ('plex_libraries', '[\"1\"]', '2026')"
+    )
+    conn.commit()
+
+    assert list(_cards(conn, manual=manual)) == ["Leaving"]
+
+
 def test_the_last_day_reads_singular(conn):
     _queue(conn, "Last Day", days_into_grace=6)
 

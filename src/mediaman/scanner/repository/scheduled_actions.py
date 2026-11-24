@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import DeletedMedia, record_deleted_media, redownload_tokens
+from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
@@ -160,23 +161,11 @@ def is_fully_removed(row: DeletionRow) -> bool:
     return bool(row.removed_paths) and row.removed_paths.issuperset(remaining)
 
 
-# True while the Plex library of ``mi`` is ticked in Settings. Nothing is ticked
-# when the setting cannot be read; none saved yet puts no limit on deletions.
-_LIBRARY_SELECTED = (
-    "(NOT EXISTS (SELECT 1 FROM settings WHERE key = 'plex_libraries') "
-    "OR CAST(mi.plex_library_id AS TEXT) IN ("
-    "  SELECT CAST(lib.value AS TEXT) FROM settings s, json_each("
-    "    CASE WHEN json_valid(s.value) THEN "
-    "      CASE json_type(s.value) WHEN 'array' THEN s.value ELSE '[]' END "
-    "    ELSE '[]' END) lib "
-    "  WHERE s.key = 'plex_libraries'))"
-)
-
 _DELETION_COLUMNS = (
     "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
     "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
     "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files, "
-    f"{_LIBRARY_SELECTED} AS library_selected"
+    f"{LIBRARY_SELECTED} AS library_selected"
 )
 
 
@@ -453,7 +442,7 @@ def is_claimed_deletion(conn: sqlite3.Connection, action_id: int) -> bool:
     row = conn.execute(  # nosec B608
         "SELECT 1 FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
         "WHERE sa.id = ? AND sa.action = 'scheduled_deletion' AND sa.token_used = 0 "
-        f"  AND sa.delete_status = 'deleting' AND {_LIBRARY_SELECTED}",
+        f"  AND sa.delete_status = 'deleting' AND {LIBRARY_SELECTED}",
         (action_id,),
     ).fetchone()
     return row is not None
@@ -515,7 +504,7 @@ def fetch_media_held_outside_pass(
         "  AND NOT EXISTS ("
         "    SELECT 1 FROM scheduled_actions sa "
         "    WHERE sa.media_item_id = mi.id AND sa.action = 'scheduled_deletion' "
-        f"      AND sa.token_used = 0 AND sa.execute_at <= ? AND {_LIBRARY_SELECTED}"
+        f"      AND sa.token_used = 0 AND sa.execute_at <= ? AND {LIBRARY_SELECTED}"
         "  )",
         (media_item_id, *params, now_iso),
     ).fetchall()
@@ -541,7 +530,7 @@ def claim_due_deletions_under(
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
-        f"AND {_LIBRARY_SELECTED} ORDER BY sa.id",
+        f"AND {LIBRARY_SELECTED} ORDER BY sa.id",
         (media_item_id, *params),
     ).fetchall()
     candidates = [_row_to_deletion_row(row) for row in rows]
