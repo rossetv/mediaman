@@ -915,6 +915,18 @@ class TestTmdbTitle:
         viewer.cookies.set("session_token", create_session(conn, "other"))
         assert viewer.get(f"/api/watch/title/pick-{pick}/ratings").status_code == 200
 
+    @pytest.mark.parametrize("ref", ["movie-100", "show-500"])
+    def test_the_ratings_of_a_title_plex_places_outside_the_scanned_libraries_are_not_found(
+        self, viewer, library, tmdb, arr, plex, ref
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        assert viewer.get(f"/api/watch/title/{ref}/ratings").status_code == 200
+        plex.items["100"] = replace(plex.items["100"], library_section_id="9")
+        plex.shows["500"] = replace(plex.shows["500"], library_section_id="9")
+
+        assert viewer.get(f"/api/watch/title/{ref}/ratings").status_code == 404
+
     def test_the_ratings_of_a_title_tmdb_must_answer_are_refused_past_their_limit(
         self, viewer, tmdb, arr, monkeypatch
     ):

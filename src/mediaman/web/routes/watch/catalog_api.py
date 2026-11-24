@@ -917,6 +917,21 @@ def api_watch_title_ratings(
     return respond_ok({"ratings": _rating_fields(ratings, fields["tmdb_rating"])})
 
 
+def _is_outside(
+    request: Request, conn: sqlite3.Connection, listed: lib.LibraryMovie | lib.LibraryShow
+) -> bool:
+    """Whether Plex, when it answers, places a listed title outside the scanned libraries."""
+    libraries = lib.scanned_library_ids(conn)
+    try:
+        plex = open_plex(request, conn)
+        if isinstance(listed, lib.LibraryMovie):
+            item = plex.get_item(listed.key)
+            return item.type != "movie" or not is_in_libraries(item, libraries)
+        return not is_in_libraries(plex.get_show(listed.key), libraries)
+    except PlexError:
+        return False
+
+
 def _rated(
     request: Request, conn: sqlite3.Connection, username: str, client: TmdbClient, ref: str
 ) -> tuple[str, int, lib.LibraryMovie | lib.LibraryShow | None] | None:
@@ -925,7 +940,7 @@ def _rated(
     kind, _, rest = ref.partition("-")
     if kind in ("movie", "show"):
         listed = _library_title(conn, lib.scanned_library_ids(conn), ref)
-        if listed is None:
+        if listed is None or _is_outside(request, conn, listed):
             return None
         if isinstance(listed, lib.LibraryMovie):
             return ("movie", listed.tmdb_id, listed) if listed.tmdb_id else None
