@@ -358,6 +358,17 @@ def test_every_button_is_a_thumb_tall(env: Environment) -> None:
         assert 2 * pad + line >= 44, style
 
 
+def test_the_unsubscribe_link_is_a_thumb_tall(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["unsubscribe_url"] = "https://mm.example/unsubscribe/abc"
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    style = re.search(r'<a href="https://mm.example/unsubscribe/abc" style="([^"]*)"', html)[1]
+    pad = int(re.search(r"padding:(\d+)px", style).group(1))
+    line = int(re.search(r"line-height:(\d+)px", style).group(1))
+    assert 2 * pad + line >= 44, style
+
+
 def test_a_long_unbroken_title_may_break_instead_of_widening_the_message(
     env: Environment,
 ) -> None:
