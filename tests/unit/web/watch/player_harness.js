@@ -2650,6 +2650,14 @@ const scenarios = {
     };
   },
 
+  /* The film ends on a page that came by a link. */
+  async endOfDeepLink() {
+    const p = boot(fs.readFileSync(process.argv[2], 'utf8'), false, null, undefined, { length: 3 });
+    await settle();
+    fire(p.video, 'ended');
+    return { through: p.win.history.backs, at: p.win.location.href };
+  },
+
   /* A next episode played in place: the one at /watch/play/502, whose Back leads where the page says. */
   async backAfterNext() {
     const p = boot(fs.readFileSync(process.argv[2], 'utf8'), false, null, undefined, { referrer: 'http://mm/watch/show/77', length: 3 });

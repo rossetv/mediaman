@@ -1181,3 +1181,9 @@ def test_back_after_the_next_episode_steps_through_unless_it_leads_to_another_se
     assert out["at"] == ["/watch/play/502"]
     assert out["state"] == {"mmFrom": "/watch/show/77"}
     assert (out["through"], out["href"]) == (through, back_href)
+
+
+def test_a_film_that_ends_on_a_page_that_came_by_a_link_stays_in_the_app(tmp_path_factory) -> None:
+    film = {**EPISODE, "next": None, "show_href": None, "back_href": "/watch/movie/7"}
+    out = run(_markup(tmp_path_factory, film), "endOfDeepLink")
+    assert out == {"through": 0, "at": "/watch/movie/7"}
