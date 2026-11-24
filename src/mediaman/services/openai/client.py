@@ -99,22 +99,28 @@ def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
     return get_bool_setting(conn, "openai_web_search_enabled", default=False)
 
 
-def is_web_search_title_safe(title: str) -> bool:
-    """Return True if *title* is safe to persist after a web-search response.
-
-    Rejects the entire batch (caller must check the return value) if:
-    - The title contains a character that is neither printable ASCII nor a letter, mark,
-      number or punctuation of another script (so no control or invisible character).
-    - The title contains markdown link syntax ``[text](url)``.
-    - The title contains a URL scheme pattern (``http://``, ``https://``) or a domain.
+def _title_hostile(title: str) -> bool:
+    """Whether *title* holds a character that is neither printable ASCII nor a letter, mark,
+    number or punctuation of another script, markdown link syntax ``[text](url)``, or a URL
+    scheme (``http://``, ``https://``): what a manipulated web search leaves.
     """
     if not title or not all(
         " " <= c <= "~" or (ord(c) > 0x7F and unicodedata.category(c)[0] in "LMNP") for c in title
     ):
-        return False
-    if _MARKDOWN_LINK_RE.search(title):
-        return False
-    return not (re.search(r"https?://", title, re.IGNORECASE) or DOMAIN_RE.search(title))
+        return True
+    return bool(_MARKDOWN_LINK_RE.search(title) or re.search(r"https?://", title, re.IGNORECASE))
+
+
+def holds_domain(title: str) -> bool:
+    """Whether *title* holds an address ("evil.xyz"), as "Mr.Robot" does by its shape."""
+    return DOMAIN_RE.search(title) is not None
+
+
+def is_web_search_title_safe(title: str) -> bool:
+    """Return True if *title* is safe to persist after a web-search response: nothing
+    ``_title_hostile`` finds in it, and no domain.
+    """
+    return not _title_hostile(title) and not holds_domain(title)
 
 
 def _build_request(
@@ -236,8 +242,8 @@ def call_openai(
     indirect-prompt-injection surface. *use_web_search* defaults to False so callers
     must opt in alongside the operator setting.
 
-    When web search is active every returned title must pass is_web_search_title_safe;
-    if any looks adversarial the whole batch is rejected and [] is returned.
+    When web search is active a title that looks adversarial rejects the whole batch and []
+    is returned; a title that holds a domain is left out alone.
     """
     try:
         api_key = get_openai_key(conn, secret_key)
@@ -258,22 +264,21 @@ def call_openai(
             return []
 
         if web_search_active:
-            # Conservative security choice: reject the entire batch on any
-            # unsafe title rather than filtering per-item. A single adversarial
-            # title indicates the web-search path may have been manipulated, so
-            # the entire result set is untrusted. The per-item filtering path
-            # (used for non-web-search results via _validate_llm_string) is
-            # deliberately more lenient because it operates on model-only
-            # output without the indirect-prompt-injection surface.
+            # Conservative security choice: reject the entire batch on any hostile
+            # title rather than filtering per-item. A single adversarial title
+            # indicates the web-search path may have been manipulated, so the entire
+            # result set is untrusted. A title that only has the shape of a domain
+            # ("Mr.Robot") is the one that is dropped.
             for item in items:
                 title = str(item.get("title", ""))
-                if not is_web_search_title_safe(title):
+                if _title_hostile(title):
                     logger.error(
                         "openai.web_search.batch_rejected title=%r — "
                         "title failed safety check; entire batch discarded",
                         title,
                     )
                     return []
+            items = [i for i in items if not holds_domain(str(i.get("title", "")))]
 
         return items
 

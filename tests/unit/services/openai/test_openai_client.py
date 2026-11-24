@@ -238,6 +238,29 @@ class TestCallOpenAi:
             result = call_openai("some prompt", conn, use_web_search=True)
         assert result == []
 
+    def test_a_title_shaped_like_a_domain_is_left_out_and_the_batch_kept(
+        self, conn, fake_http, fake_response
+    ):
+        payload = [
+            {"title": "Mr.Robot", "media_type": "tv", "reason": "x"},
+            {"title": "Dune", "media_type": "movie", "reason": "y"},
+        ]
+        openai_resp = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(payload)}],
+                }
+            ]
+        }
+        fake_http.queue("POST", fake_response(json_data=openai_resp))
+        with (
+            patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"),
+            patch("mediaman.services.openai.client.is_web_search_enabled", return_value=True),
+        ):
+            result = call_openai("some prompt", conn, use_web_search=True)
+        assert [i["title"] for i in result] == ["Dune"]
+
     def test_strips_markdown_code_fence_from_response(self, conn, fake_http, fake_response):
         """Model sometimes wraps JSON in ```json fences despite instructions."""
         payload = [{"title": "Dune", "media_type": "movie", "reason": "Epic"}]

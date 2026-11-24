@@ -89,6 +89,14 @@ class TestParseRecommendations:
         assert len(result) == 1
         assert result[0]["title"] == "Dune"
 
+    def test_a_title_holding_a_domain_skips_that_item_only(self):
+        items = [
+            {"title": "Mr.Robot", "media_type": "tv", "reason": "x"},
+            {"title": "Dune", "media_type": "movie", "reason": "y"},
+        ]
+        result = parse_recommendations(items, "personal")
+        assert [r["title"] for r in result] == ["Dune"]
+
     def test_unknown_media_type_defaults_to_tv(self):
         items = [{"title": "The Wire", "media_type": "series", "reason": "x"}]
         result = parse_recommendations(items, "personal")

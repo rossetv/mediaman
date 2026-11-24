@@ -16,7 +16,12 @@ from datetime import timedelta
 from urllib.parse import quote as urlquote
 
 from mediaman.core.time import now_utc
-from mediaman.services.openai.client import DOMAIN_RE, call_openai, is_web_search_enabled
+from mediaman.services.openai.client import (
+    DOMAIN_RE,
+    call_openai,
+    holds_domain,
+    is_web_search_enabled,
+)
 from mediaman.services.openai.recommendations._types import RecommendationItem
 
 # Picks asked for; more than are kept, to leave room for those dropped as already known.
@@ -279,6 +284,9 @@ def parse_recommendations(
         raw_title = str(item.get("title") or "")
         title = _validate_llm_string(raw_title, _LLM_TITLE_MAX_LEN, "title")
         if not title:
+            continue
+        if holds_domain(title):
+            logger.warning("recommendations.llm_output_domain field=title — rejecting item")
             continue
 
         raw_reason = str(item.get("reason") or "")
