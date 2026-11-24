@@ -1904,6 +1904,27 @@ const scenarios = {
     return { note: p.ttl().querySelectorAll('.ttl__note').map((n) => n.textContent), label: p.text('[data-ttl-act="share"]') };
   },
 
+  // Share pressed again after one that was refused, then one whose link was shown to copy.
+  async shareAgain() {
+    const run = async (first, opts) => {
+      let refused = first;
+      const p = load(Object.assign({ admin: true, routes: { '/api/watch/title/rec-5': REC_DL },
+        posted: { '/api/recommended/5/share-token': () => (refused ? Promise.reject(refused) : Promise.resolve({ ok: true, share_url: 'https://example.test/download/tok' })) } }, opts));
+      p.run();
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      const press = async () => { p.q('[data-ttl-act="share"]').focus(); click(p.doc, p.q('[data-ttl-act="share"]')); await settle(); await settle(); };
+      await press();
+      const stale = p.ttl().querySelectorAll('.ttl__note, .ttl-share').length;
+      refused = null;
+      p.ctx.navigator.clipboard = { writeText: () => Promise.resolve() };
+      await press();
+      return { stale, label: p.text('[data-ttl-act="share"]'), left: p.ttl().querySelectorAll('.ttl__note, .ttl-share').length,
+        focus: p.doc.activeElement === p.q('[data-ttl-act="share"]') };
+    };
+    return { refused: await run(new APIError(503, 'x')), shown: await run(null, { clipboardFails: true }) };
+  },
+
   async focusTrap() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();

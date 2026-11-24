@@ -1700,9 +1700,11 @@
     var c = cur;
     if (!c || c.shareState === 'busy') return;
     clearTimeout(shareTimer);
+    var stale = c.shareMsg || c.shareUrl;
     c.shareMsg = null;
     c.shareUrl = null;
     setShare(c, 'busy');
+    if (stale) redrawActions(c.ref);
     MM.api.post('/api/recommended/' + encodeURIComponent(c.recId) + '/share-token').then(function (data) {
       var url = data && data.share_url;
       if (!url) throw new Error('no link');

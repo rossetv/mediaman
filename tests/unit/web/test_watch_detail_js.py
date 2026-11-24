@@ -754,6 +754,12 @@ def test_share_refused_by_the_server_says_why_in_plain_words() -> None:
     assert out["label"] == "Share"
 
 
+def test_sharing_again_takes_away_what_the_last_share_said() -> None:
+    out = _run("shareAgain")
+    for case in ("refused", "shown"):
+        assert out[case] == {"stale": 1, "label": "Copied", "left": 0, "focus": True}
+
+
 def test_tab_stays_inside_the_overlay() -> None:
     out = _run("focusTrap")
     assert (out["wrappedToFirst"], out["wrappedToLast"]) == (True, True)
