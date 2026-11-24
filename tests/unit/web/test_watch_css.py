@@ -29,3 +29,24 @@ def test_forced_colours_paint_a_watched_toggle_s_ring_and_not_all_it_takes_to_pr
     assert "background: Highlight" in _of('.watch-mark[aria-pressed="true"]::before', FORCED)
     assert "background" not in _of('.watch-mark[aria-pressed="true"]', FORCED)
     assert "background: Highlight" in _of('.watch-mark-btn[aria-pressed="true"]', FORCED)
+
+
+def _background(selector: str) -> str:
+    return _of(selector).split("background:")[1].split(";")[0].strip()
+
+
+def test_a_leaving_badge_is_dark_and_turns_red_only_when_it_leaves_now() -> None:
+    dark = re.fullmatch(
+        r"color-mix\(in srgb, var\(--scrim\) (\d+)%, transparent\)",
+        _background(".watch-badge--leaving"),
+    )
+    # White on black this dense over a white poster is 4.5:1 from 55%.
+    assert dark and int(dark.group(1)) >= 55
+    red = _background(".watch-badge--leaving-now")
+    assert "var(--danger)" in red and "transparent" not in red
+    css = SHEET.read_text(encoding="utf-8")
+    assert css.index(".watch-badge--leaving-now {") > css.index(".watch-badge--leaving {")
+
+
+def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
+    assert "outline: 1px solid CanvasText" in _of(".watch-badge--leaving", FORCED)

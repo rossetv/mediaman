@@ -506,8 +506,9 @@
   text-overflow: ellipsis;
 }
 .watch-badge__short { display: none; }
-/* Opaque and darkened so white text holds 4.5:1 over any poster. */
-.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); font-weight: 600; }
+/* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red. */
+.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--scrim) 72%, transparent); font-weight: 600; }
+.watch-badge--leaving-now { background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
 /* Already watched: an eye, never the tick that says In library. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched {
   right: 8px;
@@ -957,6 +958,7 @@
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
   .ai-label { border: 1px solid CanvasText; }
+  .watch-badge--leaving { background: Canvas; outline: 1px solid CanvasText; }
   .watch-badge--watched { background: Canvas; border-color: CanvasText; }
   .watch-mark[aria-pressed="true"],
   .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }
