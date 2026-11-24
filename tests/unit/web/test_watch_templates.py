@@ -1008,6 +1008,11 @@ def test_the_hint_under_an_empty_search_is_centred() -> None:
     assert "margin: 12px auto 0" in body and "justify-content: center" in body
 
 
+def test_results_that_fade_out_keep_their_columns() -> None:
+    # They leave from outside .watch-results.
+    assert "repeat(3," in _declarations_of("_watch_search.css", ".results-page .watch-grid")
+
+
 class _Tree(HTMLParser):
     """Every element's tag and attributes, each with the tags it stands in."""
 

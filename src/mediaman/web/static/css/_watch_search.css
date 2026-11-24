@@ -388,7 +388,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .is-people .watch-suggestion--person b { font-size: 19px; }
   .watch-badge--state { right: 6px; }
   /* Three across on a phone. */
-  .watch-results .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+  .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
 
 /* ── Still ── */
