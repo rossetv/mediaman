@@ -225,11 +225,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
-.ttl__genre { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
-.ttl__genre::after { content: ""; position: absolute; inset: -12px -3px; }
-.ttl__genre:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.ttl__genre:active { opacity: .6; }
-@media (hover: hover) { .ttl__genre:hover { color: var(--t1); text-decoration-color: currentColor; } }
+:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
+:is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
+:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.ttl__genre, .ttl__director):active { opacity: .6; }
+@media (hover: hover) { :is(.ttl__genre, .ttl__director):hover { color: var(--t1); text-decoration-color: currentColor; } }
 .ttl.is-trailer .ttl__genre { visibility: hidden; }
 .ttl__meta > .ttl__meta-skel { width: min(300px, 70%); height: 14px; }
 .ttl__meta > .ttl__meta-skel::before { content: none; }

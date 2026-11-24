@@ -1910,6 +1910,28 @@ const scenarios = {
     out.film = look(film);
     return out;
   },
+
+  // The director leads to the page of their titles, and Back finds the focus on them; one TMDB gives no id for is words.
+  async directorLink() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { director: 'Ada Rimmington', director_id: 9008 }) } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const link = p.q('.ttl__credit a');
+    const out = { text: p.text('.ttl__credit'), href: link && link.getAttribute('href') };
+    const e = { target: link, button: 0, ctrlKey: true, preventDefault() { this.defaultPrevented = true; } };
+    link.listeners.click.forEach((fn) => fn(e));
+    out.modified = !!e.defaultPrevented;
+    click(p.doc, link);
+    out.explored = p.explored.slice();
+    p.tick();
+    p.ctx.history.back();
+    out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+    const q = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { director: 'Ada Rimmington', director_id: null }) } });
+    q.run();
+    await openCard(q, 'tmdb-movie-77');
+    out.plain = [q.text('.ttl__credit'), !!q.q('.ttl__credit a')];
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => {

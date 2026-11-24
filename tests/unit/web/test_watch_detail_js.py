@@ -889,3 +889,14 @@ def test_the_season_picked_in_the_list_is_the_one_kept() -> None:
 def test_a_films_keep_names_no_season() -> None:
     out = _run("leavingSeasons")
     assert _keeps(out["film"]) == ["120", "Keep Glass Harbour", "Leaving in 3 days."]
+
+
+def test_the_director_leads_to_their_titles_and_back() -> None:
+    assert _run("directorLink") == {
+        "text": "DirectorAda Rimmington",
+        "href": "/watch?person=9008",
+        "modified": False,
+        "explored": [{"person": 9008}],
+        "focus": "director",
+        "plain": ["DirectorAda Rimmington", False],
+    }

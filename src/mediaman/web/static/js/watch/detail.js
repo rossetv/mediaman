@@ -709,14 +709,27 @@
   }
 
   function genreLink(name, id) {
-    var a = el('a', 'ttl__genre', name);
-    a.setAttribute('href', '/watch?genre=' + encodeURIComponent(id));
-    a.setAttribute('data-ttl-act', 'genre-' + id);
+    return exploreLink('ttl__genre', name, 'genre=' + encodeURIComponent(id), 'genre-' + id, function (explore) {
+      explore.openGenre(id, null, null);
+    });
+  }
+
+  function directorLink(d) {
+    return exploreLink('ttl__director', d.director, 'person=' + encodeURIComponent(d.director_id), 'director', function (explore) {
+      explore.openPerson({ person_id: d.director_id, name: d.director, job: 'Director', profile_url: null }, null);
+    });
+  }
+
+  /* A link to a page of Explore, which a plain press opens in place. */
+  function exploreLink(cls, text, query, act, open) {
+    var a = el('a', cls, text);
+    a.setAttribute('href', '/watch?' + query);
+    a.setAttribute('data-ttl-act', act);
     a.addEventListener('click', function (e) {
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !window.MMWatch.explore) return;
       e.preventDefault();
       a.focus({ preventScroll: true }); // Safari leaves a pressed link without it
-      window.MMWatch.explore.openGenre(id, null, null);
+      open(window.MMWatch.explore);
     });
     return a;
   }
@@ -861,7 +874,7 @@
     if (d.director && d.kind === 'movie') {
       var credit = el('p', 'ttl__credit');
       credit.appendChild(el('span', 'ttl__credit-label', 'Director'));
-      credit.appendChild(document.createTextNode(d.director));
+      credit.appendChild(d.director_id ? directorLink(d) : document.createTextNode(d.director));
       main.appendChild(credit);
     }
     body.appendChild(lead);
