@@ -140,6 +140,8 @@ class StreamInfo:
     elapsed_s: float = 0.0
     #: The viewing's played time as last saved.
     saved_played_s: float = 0.0
+    #: The viewing's place as last saved, or None before its first save.
+    saved_position_s: float | None = None
 
 
 @dataclass
@@ -149,6 +151,7 @@ class _Viewing:
     began: float
     touched: float
     saved_played_s: float = 0.0
+    saved_position_s: float | None = None
 
 
 @dataclass
@@ -363,13 +366,15 @@ class StreamManager:
             info=dict(stream.info),
             elapsed_s=until - stream.viewing_started,
             saved_played_s=viewing.saved_played_s if viewing else 0.0,
+            saved_position_s=viewing.saved_position_s if viewing else None,
         )
 
-    def note_played(self, user: str, rating_key: str, played_s: float) -> None:
-        """Remember the played time just saved for *user*'s viewing of the item."""
+    def note_saved(self, user: str, rating_key: str, position_s: float, played_s: float) -> None:
+        """Remember the place and played time just saved for *user*'s viewing of the item."""
         with self._lock:
             viewing = self._viewings.get((user, rating_key))
             if viewing is not None:
+                viewing.saved_position_s = position_s
                 viewing.saved_played_s = played_s
 
     def peek(self, stream_id: str, user: str) -> StreamInfo:

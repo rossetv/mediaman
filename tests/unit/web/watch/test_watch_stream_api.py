@@ -26,6 +26,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexUnavailable,
     PlexWatch,
 )
+from mediaman.web.repository.watch_progress import unmark_watched
 from mediaman.web.routes.watch import stream_api
 
 PLEX_HOST = "plex-lan.example.test"
@@ -402,9 +403,9 @@ def test_stop_with_a_final_position_saves_it_then_stops(alice, conn, clock):
 _EARLIER = "2020-01-01T00:00:00+00:00"
 
 
-def _saved_earlier(client, conn, clock, stream_id: str) -> None:
+def _saved_earlier(client, conn, clock, stream_id: str, position_s: float = 900.5) -> None:
     clock.now += 100
-    place = {"stream_id": stream_id, "position_s": 900.5, "played_s": 100}
+    place = {"stream_id": stream_id, "position_s": position_s, "played_s": 100}
     assert client.post("/api/watch/progress", json=place).status_code == 200
     conn.execute("UPDATE watch_progress SET updated_at = ?", (_EARLIER,))
     conn.commit()
@@ -434,6 +435,20 @@ def test_leaving_a_paused_player_keeps_a_mark_made_meanwhile(alice, conn, clock)
     alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 900.5, "played_s": 100})
 
     assert _progress_rows(conn)[0]["watched"] == 1
+
+
+@pytest.mark.parametrize("ended", ["live", "reaped"])
+def test_leaving_a_paused_player_keeps_a_not_watched_mark_made_meanwhile(alice, conn, clock, ended):
+    stream_id = _stream(alice, "201")
+    _saved_earlier(alice, conn, clock, stream_id, 1450.5)
+    unmark_watched(conn, "alice", "episode", "201")
+    if ended == "reaped":
+        _reap_after_idle(clock)
+
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 1450.5, "played_s": 100})
+
+    [row] = _progress_rows(conn)
+    assert (row["watched"], row["position_s"], row["seen_at"]) == (0, 0, None)
 
 
 @pytest.mark.parametrize(

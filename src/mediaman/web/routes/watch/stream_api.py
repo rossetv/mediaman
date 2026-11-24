@@ -284,14 +284,15 @@ def _save(stream: StreamInfo, username: str, position_s: float, played_s: float)
     info = stream.info
     conn = get_db()
     row = get_progress(conn, username, [stream.rating_key]).get(stream.rating_key)
-    if (
-        row is not None
-        and played_s <= stream.saved_played_s
-        and abs(position_s - row.position_s) < _SAME_PLACE_SECONDS
-    ):
-        # A paused player left open: saving again would bring a dismissed title back, or undo a
-        # mark made meanwhile.
-        return row.watched
+    if row is not None and played_s <= stream.saved_played_s:
+        # What this viewing saved where it has: a mark may have moved the row's own place.
+        place = stream.saved_position_s
+        if place is None:
+            place = row.position_s
+        if abs(position_s - place) < _SAME_PLACE_SECONDS:
+            # A paused player left open: saving again would bring a dismissed title back, or
+            # undo a mark made meanwhile.
+            return row.watched
     watched = save_progress(
         conn,
         username=username,
@@ -304,7 +305,7 @@ def _save(stream: StreamInfo, username: str, position_s: float, played_s: float)
         played_s=min(played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
         now=now_utc(),
     )
-    get_stream_manager().note_played(username, stream.rating_key, played_s)
+    get_stream_manager().note_saved(username, stream.rating_key, position_s, played_s)
     return watched
 
 
