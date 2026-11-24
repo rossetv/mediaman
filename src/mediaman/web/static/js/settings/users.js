@@ -268,8 +268,16 @@
 
         opener.setAttribute('aria-expanded', 'false');
         opener.setAttribute('aria-controls', form.id);
-        opener.addEventListener('click', function () { if (!isBusy()) toggle(!rows.isOpen(form)); });
-        cancel.addEventListener('click', function () { if (!isBusy()) toggle(false); });
+        opener.addEventListener('click', function () {
+          if (isBusy()) return;
+          holdFocus(opener);
+          toggle(!rows.isOpen(form));
+        });
+        cancel.addEventListener('click', function () {
+          if (isBusy()) return;
+          holdFocus(cancel, form);
+          toggle(false);
+        });
         form.addEventListener('input', function () { if (!isBusy()) say(''); });
         form.addEventListener('submit', function (e) {
           e.preventDefault();
@@ -449,6 +457,7 @@
       // A form that is sending cannot be closed or reset from its own buttons.
       if (btnAddUser)       btnAddUser.addEventListener('click', function () {
         if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        holdFocus(btnAddUser);
         toggleAddUser();
       });
       if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {

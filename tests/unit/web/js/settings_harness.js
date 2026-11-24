@@ -772,6 +772,32 @@ const scenarios = {
     return words;
   },
 
+  // A click that focuses no button, as in Safari, shuts a form of the Team list.
+  async shutWithoutFocus() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const main = h.add('main', { id: 'main' });
+    const add = h.add('button', { id: 'btn-add-user' });
+    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, addForm);
+    const addCancel = h.add('button', { id: 'btn-cancel-add-user' }, addForm);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }) };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(userList, 'usr-row')[0];
+    const email = row.querySelector('[data-user-action="email"]');
+    const cancel = row.querySelector('form').querySelector('[type="button"]');
+    const shut = (opener, by) => {
+      opener.fire('click');
+      main.focus();
+      by.fire('click');
+      h.drain();
+      return h.doc.activeElement === opener;
+    };
+    return { emailCancel: shut(email, cancel), emailAgain: shut(email, email), addCancel: shut(add, addCancel), addAgain: shut(add, add) };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

@@ -219,6 +219,15 @@ def test_the_password_dialog_for_a_delete_names_the_delete() -> None:
     assert "delete" in words["confirmLabel"] and "save" not in json.dumps(words)
 
 
+def test_a_form_shut_by_a_click_hands_the_focus_to_what_opened_it() -> None:
+    assert _run("shutWithoutFocus") == {
+        "emailCancel": True,
+        "emailAgain": True,
+        "addCancel": True,
+        "addAgain": True,
+    }
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"
