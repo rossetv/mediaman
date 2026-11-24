@@ -766,3 +766,27 @@ def test_a_refresh_begun_briefly_fails_as_brief():
 
     # Past its stale limit it must be fetched now, with no hold in the way.
     assert store.get_or_fetch("k", 0, 0, Fetcher("new")) == "new"
+
+
+def test_after_a_passing_read_error_an_expired_entry_is_fetched_not_served(monkeypatch):
+    store = disk_cache.meta()
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    read, reads = store._read, []
+
+    def first_read_fails(path):
+        reads.append(path)
+        return None if len(reads) == 1 else read(path)
+
+    monkeypatch.setattr(store, "_read", first_read_fails)
+
+    assert store.get_or_fetch("k", 0, 0, Fetcher("new")) == "new"
+
+
+def test_a_peek_at_an_expired_entry_answers_none_and_fetches_anew():
+    store = disk_cache.meta()
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    fetch = Fetcher("new")
+
+    assert store.peek("k", 0, 0, fetch) is None
+    assert store.peek("k", DAY, DAY, fetch) == "new"
+    assert fetch.calls == 1
