@@ -30,10 +30,11 @@ HARNESS = Path(__file__).parent / "js" / "force_password_change_harness.js"
 WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
 
 
-def _submit(typed: str, again: str) -> dict:
-    """What the page's own script does with a submit of these two new passwords."""
+def _submit(typed: str, again: str, old: str = "the-old-one") -> dict:
+    """What the page's own script does with a submit of these passwords, the cursor being
+    in the new password."""
     result = subprocess.run(
-        ["node", str(HARNESS), typed, again], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), old, typed, again], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -139,15 +140,22 @@ def test_new_passwords_that_differ_are_not_sent_and_the_cursor_goes_to_the_secon
     assert out["busy"] is False
 
 
-def test_an_empty_second_password_is_not_sent_either() -> None:
-    out = _submit("a-New-long-passw0rd!", "")
-    assert (out["sent"], out["focused"], out["busy"]) == (False, "confirm_password", False)
-    assert "match" in out["says"]
+def test_an_empty_field_is_not_sent_and_the_cursor_goes_to_the_first_one() -> None:
+    # sending it would bring the page back with what was typed in the others gone
+    for old, typed, again, first in (
+        ("", "a-New-long-passw0rd!", "a-New-long-passw0rd!", "old_password"),
+        ("", "", "", "old_password"),
+        ("the-old-one", "a-New-long-passw0rd!", "", "confirm_password"),
+    ):
+        out = _submit(typed, again, old)
+        assert (out["sent"], out["focused"], out["busy"]) == (False, first, False)
+        assert "every field" in out["error"]
 
 
 def test_new_passwords_that_match_are_sent_once() -> None:
     out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd!")
-    assert (out["sent"], out["busy"], out["focused"]) == (True, True, "old_password")
+    assert (out["sent"], out["busy"], out["focused"]) == (True, True, "new_password")
+    assert out["error"] == ""
 
 
 def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:

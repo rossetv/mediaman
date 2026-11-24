@@ -1,6 +1,6 @@
 // Runs the real force-password-change.js, with the submit guard the page also loads, against the
 // fake DOM and prints what a submit of the typed passwords did, as JSON.
-// Usage: node force_password_change_harness.js <new password> <confirmation>
+// Usage: node force_password_change_harness.js <current password> <new password> <confirmation>
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -25,11 +25,11 @@ const ctx = vm.createContext({
   vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx);
 });
 
-const [, , typed, again] = process.argv;
-$('old_password').value = 'the-old-one';
+const [, , old, typed, again] = process.argv;
+$('old_password').value = old;
 $('new_password').value = typed;
 $('confirm_password').value = again;
-$('old_password').focus();
+$('new_password').focus();
 
 // A submit as the browser raises it: on the form, then on up to the document.
 const e = { target: form, sent: true, stopped: false, preventDefault() { this.sent = false; }, stopPropagation() { this.stopped = true; } };
@@ -41,4 +41,5 @@ process.stdout.write(JSON.stringify({
   busy: form.hasAttribute('data-busy'),
   focused: doc.activeElement.id,
   says: $('pw-match').textContent.trim(),
+  error: doc.querySelectorAll('.error-msg').filter((box) => !box.hidden).map((box) => box.textContent).join(' | '),
 }));
