@@ -146,6 +146,7 @@ const ANSWERS = {
   expired: refusal(410, { message: 'Token expired or invalid' }),
   used: refusal(409, { message: 'This download link has already been used' }),
   queued: refusal(409, { poll_token: 'p3', download_state: 'queued' }),
+  queuedMailed: refusal(409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }),
   inLibrary: refusal(409, { poll_token: 'p3', download_state: 'in_library' }),
   tracked: refusal(409, { poll_token: 'p3', download_state: 'tracked' }),
 };
@@ -154,7 +155,7 @@ const SCENARIOS = {
   async answers() {
     const out = {};
     for (const name of Object.keys(ANSWERS)) {
-      const p = page({ download_state: '', poll_token: '' });
+      const p = page({ download_state: '', poll_token: '', notify_by_email: true });
       p.load('download.js');
       p.answer = ANSWERS[name];
       await press(p);

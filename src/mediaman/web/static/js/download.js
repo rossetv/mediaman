@@ -42,14 +42,14 @@
     MM.api.post('/download/' + _token).then(function(data) {
       _service = data.service;
       _tmdbId = data.tmdb_id;
-      showOnItsWay(data.poll_token, false);
+      showOnItsWay(data.poll_token, false, _notifyByEmail);
     }, function(err) {
       showRefusal(err);
     });
   }
 
   /* Trade the title's page for the progress card. */
-  function showOnItsWay(pollToken, already) {
+  function showOnItsWay(pollToken, already, notify) {
     if (pollToken) {
       _pollToken = pollToken;
       /* A fresh token means polling can authenticate again. */
@@ -77,7 +77,7 @@
       size_total: '',
       episodes: null,
       episode_summary: ''
-    }, already);
+    }, already, notify);
     wrapper.hidden = false;
     if (keepsFocus) heading.focus();
 
@@ -94,7 +94,7 @@
 
   /* The card, with what _dl_hero_card.html and download.html put around it. Returns the
      page's heading. */
-  function buildHeroCard(wrapper, item, already) {
+  function buildHeroCard(wrapper, item, already, notify) {
     var hero = MM.downloads.buildDom.buildHero(item);
 
     /* The h1 of the page went with the cinema, and the card's title is no h1. */
@@ -111,7 +111,7 @@
     hint.textContent = (already ? 'This was already on its way. ' : '')
       + 'You may close this page — the download will continue in the background. ';
     /* A link minted without an email gets no notification, so promise none. */
-    if (_notifyByEmail) {
+    if (notify) {
       hint.appendChild(document.createElement('br'));
       hint.appendChild(document.createTextNode(
         'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
@@ -281,7 +281,7 @@
     var status = err.status || 0;
     if (status === 409 && said.poll_token) {
       if (said.download_state === 'queued') {
-        showOnItsWay(said.poll_token, true);
+        showOnItsWay(said.poll_token, true, said.notify_by_email === true);
       } else if (said.download_state === 'in_library') {
         endWith(true, 'Already in your library', 'This title is available to watch in Plex.');
       } else if (said.download_state === 'tracked') {

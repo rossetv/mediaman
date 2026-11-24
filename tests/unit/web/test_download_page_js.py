@@ -38,6 +38,13 @@ def test_a_title_already_on_its_way_gets_the_progress_card_and_not_a_failure(ans
     assert seen["result"] is None
 
 
+def test_a_title_already_on_its_way_promises_the_email_the_answer_says_is_to_come(
+    answers: dict,
+) -> None:
+    assert "notified by email" in answers["queuedMailed"]["hint"]
+    assert "notified by email" not in answers["queued"]["hint"]
+
+
 @pytest.mark.parametrize(
     ("answer", "said"),
     [("inLibrary", "Already in your library"), ("tracked", "Already tracked by Sonarr")],
