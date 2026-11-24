@@ -83,8 +83,6 @@ class ScanSummary(TypedDict, total=False):
     * ``removed`` — orphaned DB rows whose Plex key no longer exists.
     * ``deleted`` — items deleted from disk this run.
     * ``reclaimed_bytes`` — bytes freed by deletions.
-    * ``left_out`` — ids of the ticked libraries not scanned because their disk
-      threshold cannot be read; set by run_scan_from_db, only when there are any.
     * ``skipped_reason`` — set alone when the scan did not run at all.
 
     Do NOT add new keys here without also updating ScanEngine.run_scan
@@ -99,7 +97,6 @@ class ScanSummary(TypedDict, total=False):
     removed: int
     deleted: int
     reclaimed_bytes: int
-    left_out: list[str]
     skipped_reason: str
 
 
@@ -403,7 +400,6 @@ def run_scan_from_db(
         return {"skipped_reason": SCAN_SKIPPED_PLEX_UNREACHABLE}
     plex, lib_ids, lib_types, lib_titles = result
 
-    left_out: list[str] = []
     if not skip_disk_check:
         lib_ids, left_out = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
         _audit_left_out(conn, left_out, lib_titles)
@@ -432,10 +428,7 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    summary = cast(ScanSummary, engine.run_scan())
-    if left_out:
-        summary["left_out"] = left_out
-    return summary
+    return cast(ScanSummary, engine.run_scan())
 
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:

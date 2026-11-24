@@ -257,7 +257,7 @@ class TestDiskThresholdFiltering:
 
         assert _filter_libraries_by_disk(conn, ["1"], {}) == (["1"], [])
 
-    def test_a_library_left_out_is_returned_and_told_once_in_the_history(self, conn):
+    def test_a_library_left_out_is_told_once_in_the_history(self, conn):
         _seed_plex_settings(conn, ["1", "2"])
         _set_setting(conn, "disk_thresholds", {"1": {"path": "/movies", "threshold": "x"}})
         plex = _make_plex_mock(
@@ -273,10 +273,8 @@ class TestDiskThresholdFiltering:
             from mediaman.scanner.runner import run_scan_from_db
 
             for _ in range(2):
-                engine.run_scan.return_value = {"scanned": 0}
-                summary = run_scan_from_db(conn, "test-secret")
+                run_scan_from_db(conn, "test-secret")
 
-        assert summary == {"scanned": 0, "left_out": ["1"]}
         assert made.call_args.kwargs["library_ids"] == ["2"]
         [told] = conn.execute(
             "SELECT detail FROM audit_log WHERE action = 'library_left_out'"
