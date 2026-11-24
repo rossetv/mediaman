@@ -877,6 +877,13 @@ const scenarios = {
     p.toasts[0].action.onClick();
     await settle();
     out.undone = read('m2');
+    p.replies['post /api/watch/keep'] = () => Promise.resolve({ ok: true, keep: MADE });
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
+    out.scheduled = read('m1');
+    click(p.doc, keepOption(p, 'id:m1', 'forever'));
+    await settle();
+    out.next = p.calls[p.calls.length - 1];
     return out;
   },
 

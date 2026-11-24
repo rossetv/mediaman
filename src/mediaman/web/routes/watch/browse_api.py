@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -33,8 +33,10 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import apply_keep_snooze, revert_keep_snooze
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.kept import fetch_keeps
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.pages import (
     is_valid_key,
@@ -126,7 +128,10 @@ def api_watch_keep(
     body: _KeepBody,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """Keep a scheduled movie or season for 7, 30 or 90 days, as the newsletter keep does."""
+    """Keep a scheduled movie or season for 7, 30 or 90 days, as the newsletter keep does.
+
+    An admin, who may change it, is told the keep; a viewer only that it was made.
+    """
     if not _KEEP_LIMITER.check(username):
         return respond_err(
             "too_many_requests", status=429, message="Too many keep operations — slow down"
@@ -149,6 +154,7 @@ def api_watch_keep(
         return respond_err("not_found", status=404)
 
     duration = _KEEP_LABELS[days]
+    reply: dict[str, object] = {}
     with conn:
         before = conn.execute(
             "SELECT execute_at, snoozed_at, snooze_duration FROM scheduled_actions WHERE id = ?",
@@ -183,6 +189,9 @@ def api_watch_keep(
                 f"Kept for {duration} by {username}",
                 actor=username,
             )
+            if get_user_role(conn, username) == "admin":
+                keep = fetch_keeps(conn, [media_item_id], now.isoformat()).get(media_item_id)
+                reply["keep"] = asdict(keep) if keep else None
     if not applied:
         return respond_err("already_processed", status=409)
     logger.info(
@@ -191,7 +200,7 @@ def api_watch_keep(
         duration,
         _sanitise_log_field(username),
     )
-    return respond_ok()
+    return respond_ok(reply)
 
 
 def _remember_undo(username: str, media_item_id: str, undo: _Undo, now: datetime) -> None:

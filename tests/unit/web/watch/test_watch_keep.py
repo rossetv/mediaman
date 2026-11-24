@@ -73,6 +73,27 @@ def test_keep_snoozes_the_deletion_and_names_the_person(client, conn, days):
     }
 
 
+def test_an_admin_is_told_the_keep_it_made_and_a_viewer_is_not(client, conn):
+    _schedule(conn)
+    assert (
+        "keep"
+        not in client.post("/api/watch/keep", json={"media_item_id": "100", "days": 7}).json()
+    )
+    client.post("/api/watch/unkeep", json={"media_item_id": "100"})
+    insert_admin_user(conn, username="root", role="admin")
+    client.cookies.set("session_token", create_session(conn, "root"))
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.json()["keep"] == {
+        "action": "snoozed",
+        "execute_at": (NOW + timedelta(days=30)).isoformat(),
+        "kept_at": NOW.isoformat(),
+    }
+    row = conn.execute("SELECT action, execute_at, snoozed_at FROM scheduled_actions").fetchone()
+    assert list(row) == list(resp.json()["keep"].values())
+
+
 @pytest.mark.parametrize("days", ["forever", 0, 14, "30", True, None, 30.0])
 def test_other_durations_are_refused(client, conn, days):
     action_id = _schedule(conn)

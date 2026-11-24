@@ -646,7 +646,15 @@ def test_a_list_read_before_a_change_is_read_again_though_it_lands_out_of_sight(
 
 
 def test_a_row_that_could_not_be_read_again_holds_the_keep_that_was_saved() -> None:
-    assert _run("unreadRowHoldsItsKeep") == {"kept": MADE, "removed": None, "undone": None}
+    out = _run("unreadRowHoldsItsKeep")
+    assert (out["kept"], out["removed"], out["undone"], out["scheduled"]) == (
+        MADE,
+        None,
+        None,
+        MADE,
+    )
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert out["next"] == ["postForm", "/api/media/m1/keep", {"duration": "forever", **read}]
 
 
 def test_an_undo_that_came_too_late_reads_its_title_again() -> None:
