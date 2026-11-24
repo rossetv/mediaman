@@ -28,7 +28,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
-from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
+from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _QUERY_LIMITER, _poster_url
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +216,10 @@ def api_detail(
     """
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
+    if not _QUERY_LIMITER.check(admin):
+        return respond_err(
+            "too_many_requests", status=429, message="Too many search requests — slow down"
+        )
 
     conn = get_db()
     secret_key = request.app.state.config.secret_key
