@@ -30,8 +30,8 @@ _WHERE = ("anywhere", "library")
 _PLACE = r"(?:[1-9][0-9]?|[1-4][0-9]{2}|500):[0-9]{1,10}"
 _AFTER_RE = re.compile(f"{_PLACE},{_PLACE}", re.ASCII)
 
-# Apart from the query limit, so looking around does not use up the day's searches. A list
-# of films and TV together asks TMDB twice.
+# Apart from the query limit, so looking around does not use up the day's searches. A page
+# of films and TV together asks TMDB twice, or a few times more to keep them in one order.
 _EXPLORE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1000)
 # Any person's id can be asked for, and a person's record is the largest thing cached: a day's
 # must leave room for the rest of the cache.
