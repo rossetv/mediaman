@@ -702,6 +702,8 @@
   function pctOf(k) {
     var s = stats.storage;
     if (!s.readable || !s.total_bytes) return null;
+    // Types that add up to more than is used are drawn to fit it: their shares are not real.
+    if (k !== 'free' && s.movies_bytes + s.tv_bytes + s.anime_bytes > s.used_bytes) return null;
     return k === 'free' ? Math.round(s.free_bytes / s.total_bytes * 1000) / 10 : s[k + '_pct'];
   }
 
