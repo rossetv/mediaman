@@ -61,7 +61,7 @@
     {% block content %}{% endblock %}
   </main>
   {# Not on the player, nor on the pages of nobody signed in: those have no nav and fill the screen. #}
-  {% if nav %}{% include "_foot.html" %}{% endif %}
+  {% block foot %}{% if nav %}{% include "_foot.html" %}{% endif %}{% endblock %}
   {% block overlays %}{% endblock %}
 </body>
 </html>
