@@ -3,6 +3,7 @@ title's detail and a season's episodes, for viewers and admins alike."""
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import replace
 from datetime import timedelta
@@ -155,6 +156,8 @@ def _fresh_memo(monkeypatch):
     monkeypatch.setattr(_library, "sync", True)
     monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
     monkeypatch.setattr(catalog_api, "_title_paused", {})
+    monkeypatch.setattr(catalog_api, "_unanswered_streak", 0)
+    monkeypatch.setattr(catalog_api, "_outage_until", 0.0)
     yield
     catalog.invalidate()
 
@@ -685,6 +688,43 @@ class TestTmdbTitle:
 
         assert body["ratings"]["imdb"] == "6.5"
         assert _enrichment._paused_until == 0.0
+
+    def test_three_titles_in_a_row_without_an_answer_pause_omdb_for_all(self, monkeypatch):
+        asked = []
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1))
+        for tmdb_id in range(3):
+            catalog_api._pause_title((tmdb_id, "movie"))
+
+        assert catalog_api._title_is_paused((99, "movie"))
+
+    def test_an_answer_resets_the_run_of_titles_without_one(self):
+        for tmdb_id in range(2):
+            catalog_api._pause_title((tmdb_id, "movie"))
+        catalog_api._note_answer()
+        catalog_api._pause_title((5, "movie"))
+
+        assert not catalog_api._title_is_paused((99, "movie"))
+
+    def test_the_title_pause_map_holds_up_under_threads_when_full(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        for i in range(catalog_api._TITLE_PAUSE_MAX):
+            catalog_api._title_paused[(i, "movie")] = time.monotonic() + 900
+
+        def work(n):
+            for i in range(300):
+                catalog_api._pause_title((n * 1000 + i, "tv"))
+                catalog_api._title_is_paused((i, "movie"))
+
+        switch = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            with ThreadPoolExecutor(8) as pool:
+                list(pool.map(work, range(8)))
+        finally:
+            sys.setswitchinterval(switch)
+
+        assert len(catalog_api._title_paused) <= catalog_api._TITLE_PAUSE_MAX
 
     def test_a_title_is_not_asked_of_omdb_while_search_has_paused_it(
         self, viewer, tmdb, arr, conn, monkeypatch

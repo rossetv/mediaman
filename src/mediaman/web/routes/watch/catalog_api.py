@@ -15,6 +15,7 @@ import contextlib
 import logging
 import re
 import sqlite3
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -77,6 +78,14 @@ _NO_RATINGS_TTL = timedelta(days=1)
 _TITLE_PAUSE_SECONDS = 900.0
 _TITLE_PAUSE_MAX = 512
 _title_paused: dict[tuple[int, str], float] = {}
+# Opens run in threads: the map, the streak and the pause below are touched under this lock.
+_pause_lock = threading.Lock()
+# OMDb down answers no title, and each first open would wait out its timeout: after this many
+# different titles in a row with no answer, none is asked for a minute; any answer resets it.
+_OUTAGE_STREAK = 3
+_OUTAGE_PAUSE_SECONDS = 60.0
+_unanswered_streak = 0
+_outage_until = 0.0
 
 
 class _OutsideLibraries(Exception):
@@ -153,15 +162,33 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
 
 
+def _title_is_paused(pause_key: tuple[int, str]) -> bool:
+    with _pause_lock:
+        now = time.monotonic()
+        return now < _outage_until or now < _title_paused.get(pause_key, 0.0)
+
+
+def _note_answer() -> None:
+    global _unanswered_streak
+    with _pause_lock:
+        _unanswered_streak = 0
+
+
 def _pause_title(pause_key: tuple[int, str]) -> None:
-    now = time.monotonic()
-    if len(_title_paused) >= _TITLE_PAUSE_MAX:
-        for k in [k for k, until in _title_paused.items() if until <= now]:
-            del _title_paused[k]
-        while len(_title_paused) >= _TITLE_PAUSE_MAX:
-            del _title_paused[next(iter(_title_paused))]
-    _title_paused.pop(pause_key, None)
-    _title_paused[pause_key] = now + _TITLE_PAUSE_SECONDS
+    global _unanswered_streak, _outage_until
+    with _pause_lock:
+        now = time.monotonic()
+        if len(_title_paused) >= _TITLE_PAUSE_MAX:
+            for k in [k for k, until in _title_paused.items() if until <= now]:
+                del _title_paused[k]
+            while len(_title_paused) >= _TITLE_PAUSE_MAX:
+                del _title_paused[next(iter(_title_paused))]
+        _title_paused.pop(pause_key, None)
+        _title_paused[pause_key] = now + _TITLE_PAUSE_SECONDS
+        _unanswered_streak += 1
+        if _unanswered_streak >= _OUTAGE_STREAK:
+            _unanswered_streak = 0
+            _outage_until = now + _OUTAGE_PAUSE_SECONDS
 
 
 def _ratings(
@@ -193,7 +220,7 @@ def _ratings(
     if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
         return stale
     pause_key = (tmdb_id, media_type)
-    if time.monotonic() < _title_paused.get(pause_key, 0.0):
+    if _title_is_paused(pause_key):
         return stale
     if not allow_fetch():
         return stale
@@ -201,6 +228,7 @@ def _ratings(
     if data is None:
         _pause_title(pause_key)
         return stale
+    _note_answer()
     try:
         upsert_ratings_cache(
             conn,
