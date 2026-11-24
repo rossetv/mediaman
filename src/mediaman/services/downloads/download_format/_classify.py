@@ -113,11 +113,12 @@ def classify_series_upcoming(
 ) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
 
-    *episodes* are those Sonarr is set to fetch, None when they could not be read. A
-    series with none aired is upcoming, dated or not; an ended one that lists no episode
-    at all has aired and only lacks its metadata. Returns (is_upcoming, release_label), label "" when not upcoming. Episodes with a
-    missing or unparseable airDateUtc go into an unknown-airdate bucket and are counted
-    at DEBUG rather than silently dropped.
+    *episodes* are those Sonarr is set to fetch, None when Sonarr lists none of the series
+    or they could not be read. A series with none aired is upcoming, dated or not; an ended
+    one that lists no episode at all has aired and only lacks its metadata. Returns
+    (is_upcoming, release_label), label "" when not upcoming. Episodes with a missing or
+    unparseable airDateUtc go into an unknown-airdate bucket and are counted at DEBUG
+    rather than silently dropped.
     """
     if not series.get("monitored"):
         return False, ""

@@ -279,7 +279,6 @@ def _build_still_searching_cards(
 
         series_id = series.get("id", 0)
         episodes_raw: list[ArrEpisode] = []
-        episodes_read = True
         try:
             episodes_raw = client.get_episodes(series_id)
         except (requests.RequestException, SafeHTTPError, ArrError):
@@ -292,11 +291,11 @@ def _build_still_searching_cards(
                 series_id,
                 exc_info=True,
             )
-            episodes_read = False
+            episodes_raw = []
 
         wanted = _wanted_episodes(series, episodes_raw)
         is_upcoming, release_label = classify_series_upcoming(
-            series, wanted if episodes_read else None
+            series, wanted if episodes_raw else None
         )
         # Auto-abandon leaves specials alone, so an old one must not age the season it may abandon.
         released_at = compute_series_released_at([e for e in wanted if e.get("seasonNumber") != 0])

@@ -355,6 +355,14 @@ class TestFetchSonarrQueueSearching:
         (card,) = fetch_sonarr_queue(client)
         assert card["is_upcoming"] is False
 
+    def test_continuing_show_sonarr_lists_no_episode_of_is_still_searching(self):
+        """Just added, Sonarr has yet to refresh it: it may have aired for years."""
+        series = _searching_series(
+            status="continuing", seasons=[{"seasonNumber": 1, "monitored": True}]
+        )
+        (card,) = fetch_sonarr_queue(_client(series=[series], episodes=[]))
+        assert card["is_upcoming"] is False
+
     def test_show_with_a_monitored_aired_season_is_searching(self):
         card = self._card(
             {1, 2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
