@@ -715,7 +715,8 @@ class TestRefreshExceptionHandling:
             ),
             patch(
                 "mediaman.web.routes.recommended.refresh.heartbeat_refresh_run",
-            ),caplog.at_level(logging.ERROR, logger="mediaman.web.routes.recommended.refresh")
+            ),
+            caplog.at_level(logging.ERROR, logger="mediaman.web.routes.recommended.refresh"),
         ):
             _rec_refresh._run_refresh("unused", "testsecret", 99, done)
 
