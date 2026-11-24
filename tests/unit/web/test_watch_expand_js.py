@@ -92,6 +92,16 @@ def test_picks_stand_under_the_date_of_their_batch_labelled_as_ai_picks() -> Non
     assert out["pill"] == "26 Oct"
 
 
+def test_a_first_batch_without_a_date_stands_under_latest_picks_alone() -> None:
+    out = _run("picksOfTwoDays")
+    assert out["lines"] == [
+        "[AI picksLatest picks]",
+        "[AI picksPicks of 9 Nov]",
+        "[AI picksPicks of 26 Oct]",
+    ]
+    assert out["sort"] == "Latest"
+
+
 def test_a_row_that_is_all_on_the_screen_offers_no_grid() -> None:
     assert _run("whole") == {
         "plain": {"href": None, "label": None, "cue": False},

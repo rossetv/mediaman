@@ -188,6 +188,7 @@ class TestCallOpenAi:
             "A\u00a0title",
             "A\ue000",
             "[click me](http://evil.com)",
+            "[Foo](evil)",
             "Dune https://evil.com",
             "Dune http://evil.com",
         ],
@@ -243,6 +244,8 @@ class TestCallOpenAi:
         [
             "The Dark Knight (2008)",
             "S.W.A.T.",
+            "Vol.2",
+            "君の名は。",
             "Mr. Robot",
             "Monsters, Inc.",
             "Amélie",

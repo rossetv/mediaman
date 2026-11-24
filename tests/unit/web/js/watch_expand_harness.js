@@ -255,6 +255,15 @@ const scenarios = {
     return { things: open.things, sort: open.sort, labels, pill: p.grid().sort, count: open.count };
   },
 
+  // The first batch holds picks of two days, so it has no date.
+  async picksOfTwoDays() {
+    BATCHES[0].date_label = '';
+    const p = await load();
+    await p.open('recommended');
+    await p.settle();
+    return { lines: p.grid().things.filter((t) => /AI picks/.test(t)), sort: p.grid().sort };
+  },
+
   // A row that shows whole has a plain heading and opens by its address alone.
   async whole() {
     const p = await load();
