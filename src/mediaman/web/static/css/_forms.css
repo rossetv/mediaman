@@ -149,3 +149,10 @@ select.inp,
 @media (max-width: 699.98px) {
   .tog::before { content: ""; position: absolute; inset: -9px -4px; }
 }
+/* Drawn with backgrounds alone, which forced colours take away. */
+@media (forced-colors: active) {
+  .tog { border: 1px solid CanvasText; }
+  .tog::after { top: 1px; left: 1px; forced-color-adjust: none; background: CanvasText; }
+  .tog.on { border-color: Highlight; }
+  .tog.on::after { background: Highlight; }
+}

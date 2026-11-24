@@ -105,3 +105,21 @@ def test_no_field_rule_wipes_the_select_chevron() -> None:
             if any(re.search(r"(\.inp|\.form-select)(:focus)?$", f) for f in fields):
                 shorthand = re.search(r"(?<![\w-])background\s*:", body)
                 assert not shorthand or "background-image" in body, (sheet, fields)
+
+
+def test_a_switch_shows_in_forced_colours_and_no_page_redraws_its_thumb() -> None:
+    forms = re.sub(r"/\*.*?\*/", "", (CSS / "_forms.css").read_text(), flags=re.S)
+    blocks = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", forms)
+    rules = {
+        head.strip(): body
+        for block in blocks
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+    }
+    assert "border: 1px solid CanvasText" in rules[".tog"]
+    assert "background: CanvasText" in rules[".tog::after"]
+    assert "Highlight" in rules[".tog.on"] and "Highlight" in rules[".tog.on::after"]
+    # A later, more specific thumb would paint over the one above.
+    for sheet in CSS.glob("*.css"):
+        if sheet.name != "_forms.css":
+            css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+            assert not re.search(r"\.tog(\.on)?::after", css), sheet.name
