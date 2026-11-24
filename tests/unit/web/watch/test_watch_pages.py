@@ -764,7 +764,24 @@ class TestLibraryRowOrder:
         assert (rows["Movies"]["kind"], rows["Movies"]["page_size"]) == ("movies", 1)
         assert rows["Movies"]["next"] is not None
         assert (rows["TV"]["kind"], rows["TV"]["next"]) == ("tv", None)
-        assert rows["Recently added"]["kind"] is None
+        assert (rows["Recently added"]["kind"], rows["Recently added"]["next"]) == ("recent", None)
+
+    def test_recently_added_mixes_films_and_shows_newest_first_and_pages(
+        self, get, conn, monkeypatch
+    ):
+        monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 2)
+        _add_movie(conn, "103", "Zephyr", NOW - timedelta(days=3))
+        added = (NOW - timedelta(days=1)).isoformat()
+        conn.execute("UPDATE media_items SET added_at = ? WHERE id = '502'", (added,))
+        conn.commit()
+
+        ctx = get("/watch").json()
+
+        row = next(r for r in ctx["rows"] if r["title"] == "Recently added")
+        assert _titles(row["items"]) == ["The Long Coast", "Glasshouse", "Zephyr"]
+        assert row["next"] is not None
+        assert row["library"] is False
+        assert ctx["banner"]["ref"] == "show-500"
 
     def test_a_film_of_a_known_year_says_it(self, get, conn):
         _add_movie(conn, "103", "Zephyr", NOW, file_path="/films/Zephyr (2026)/Zephyr.mkv")

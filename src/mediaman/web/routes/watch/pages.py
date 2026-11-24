@@ -689,17 +689,31 @@ def _row(row_id: str, title: str, items: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def _library_row(
+def _kind_of(title: lib.LibraryMovie | lib.LibraryShow) -> str:
+    return "movie" if isinstance(title, lib.LibraryMovie) else "show"
+
+
+def recently_added(
+    titles: Sequence[lib.LibraryMovie | lib.LibraryShow], now: datetime
+) -> list[lib.LibraryMovie | lib.LibraryShow]:
+    """The Recently added row: those of *titles* added of late, newest first."""
+    cutoff = now - timedelta(days=RECENT_DAYS)
+    return lib.newest_first([t for t in titles if _added(t.added_at) >= cutoff])
+
+
+def _paged_row(
     title: str,
     kind: str,
     entries: Sequence[lib.LibraryMovie | lib.LibraryShow],
     items: list[dict[str, Any]],
+    *,
+    library: bool = True,
 ) -> dict[str, Any]:
-    """A row of the library, newest first, and where its first page ends."""
+    """A row of titles of the library, newest first, and where its first page ends."""
     more = len(entries) > ROW_PAGE_SIZE
     return {
         **_row(kind, title, items),
-        "library": True,
+        "library": library,
         "kind": kind,
         "page_size": ROW_PAGE_SIZE,
         "next": lib.cursor_text(lib.row_cursor(entries[ROW_PAGE_SIZE - 1])) if more else None,
@@ -715,9 +729,9 @@ def _row_grid(
     sort: str | None,
 ) -> dict[str, Any]:
     """The row *row* opened as a grid, in the order *sort* asks for if it has that one: its first
-    cards, and for a library row (with *entries*) where they end."""
+    cards, and for a row that pages (with *entries*) where they end."""
     items: list[dict[str, Any]] = row["items"]
-    own = get_args(lib.RowOrder) if entries is not None else ("az",)
+    own = get_args(lib.RowOrder) if row["library"] else ("az",)
     order = cast(lib.RowOrder, sort if sort in own and row["id"] != "leaving" else "added")
     end = None
     if entries is not None:
@@ -772,32 +786,30 @@ def watch_page(
     seen_films = seen_movies(conn, username)
     leaving_row = [_leaving_card(p, now, films, seen_films, seen_shows) for p in pending]
 
-    # (added, card, where the banner's Play goes, kind, key): a movie plays, a show opens its
-    # page.
-    newest = sorted(
-        [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"), "movie", m.key)
-            for m, c in zip(movies, movie_row, strict=True)
-        ]
-        + [
-            (_added(s.added_at), c, c["href"], "show", s.key)
-            for s, c in zip(shows, show_row, strict=True)
-        ],
-        key=lambda entry: entry[0],
-        reverse=True,
-    )
-    cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, *_ in newest if added >= cutoff]
+    card_of = {
+        **{("movie", m.key): c for m, c in zip(movies, movie_row, strict=True)},
+        **{("show", s.key): c for s, c in zip(shows, show_row, strict=True)},
+    }
+    titles: list[lib.LibraryMovie | lib.LibraryShow] = [*movies, *shows]
+    newest = lib.newest_first(titles)
+    recent = recently_added(newest, now)
+    recent_row = [card_of[_kind_of(t), t.key] for t in recent]
     if banner is None and newest:
-        added, latest, play, kind, key = newest[0]
+        first = newest[0]
+        kind, key = _kind_of(first), first.key
+        latest = card_of[kind, key]
         banner = {
             # Only as true as the Recently added row: an older newest title gets a neutral label.
-            "kicker": "Recently added" if added >= cutoff else "From your library",
+            "kicker": "Recently added" if recent else "From your library",
             "title": latest["title"],
             "ref": f"{kind}-{key}",
             "line": latest["subtitle"],
             "progress_pct": None,
-            "primary": {"label": "Play", "href": play},
+            # A movie plays, a show opens its page.
+            "primary": {
+                "label": "Play",
+                "href": play_href(key, origin="/watch") if kind == "movie" else latest["href"],
+            },
             "episodes_href": None,
             **_banner_art(key),
         }
@@ -807,6 +819,7 @@ def watch_page(
     anime = [(s, c) for s, c in zip(shows, show_row, strict=True) if s.anime]
     # Discover goes between the rows above the "Your library" divider and those under it.
     entries: dict[str, Sequence[lib.LibraryMovie | lib.LibraryShow]] = {
+        "recent": recent,
         "movies": movies,
         "tv": [s for s, _ in tv],
         "anime": [s for s, _ in anime],
@@ -814,10 +827,10 @@ def watch_page(
     rows = [
         _row("continue", "Continue watching", continue_row),
         _row("leaving", "Leaving soon", leaving_row),
-        _row("recent", "Recently added", recent_row),
-        _library_row("Movies", "movies", movies, movie_row),
-        _library_row("TV", "tv", entries["tv"], [c for _, c in tv]),
-        _library_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
+        _paged_row("Recently added", "recent", recent, recent_row, library=False),
+        _paged_row("Movies", "movies", movies, movie_row),
+        _paged_row("TV", "tv", entries["tv"], [c for _, c in tv]),
+        _paged_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
     picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
     later = ([_RECOMMENDED_ROW] if picks_on else []) + (
