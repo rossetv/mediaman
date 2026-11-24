@@ -725,7 +725,7 @@ def test_a_page_that_cannot_take_over_is_opened_with_the_old_stream_stopped(mark
     assert out == {"href": "/watch/play/502", "starts": 1, "stops": 1, "beacons": 0}
 
 
-@pytest.mark.parametrize("answer", ["offline", "hangs", "refused", "gone", "unopened"])
+@pytest.mark.parametrize("answer", ["offline", "hangs", "refused", "unopened"])
 def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
     markup, season, answer
 ):
@@ -737,6 +737,11 @@ def test_a_next_episode_that_cannot_be_reached_is_said_and_can_be_tried_again(
     assert out["href"] == ("/watch/play/502" if answer == "unopened" else "/watch/play/1")
     assert out["trying"] is None
     assert out["went"] == {"starts": 1, "urls": ["/watch/play/502"], "key": "502", "message": None}
+
+
+def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
+    out = run(markup, "next_never_opens")
+    assert out["start"] == {"rating_key": "501", "quality": "low"}
 
 
 def test_the_new_stream_waits_for_the_old_to_stop_but_not_for_ever(markup, season):

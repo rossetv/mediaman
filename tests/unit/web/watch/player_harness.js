@@ -1485,7 +1485,7 @@ const scenarios = {
     const message = () => (p.q('[data-message]').hidden ? null : { retry: !p.q('[data-retry]').hidden, focus: doc.activeElement === p.q('[data-retry]') });
     const out = {};
     await streamPlays(p, 0);
-    p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, gone: { status: 404, html: '' }, unopened: { html: '<p>Not here</p>' } }[p.win.serverPlays];
+    p.pages['/watch/play/502'] = { offline: 'offline', hangs: 'hangs', refused: { status: 502, html: '<p>Bad gateway</p>' }, unopened: { html: '<p>Not here</p>' } }[p.win.serverPlays];
     p.video.webkitPresentationMode = 'fullscreen';
     p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
     endsNow(p);
@@ -1508,6 +1508,19 @@ const scenarios = {
     await streamPlays(p, 0);
     out.went = { starts: p.starts().length - starts, urls: p.win.history.urls, key: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body.rating_key, message: message() };
     return out;
+  },
+
+  /* The page opened in place of the next episode's never comes; then another quality of this one. */
+  async next_never_opens(p) {
+    await streamPlays(p, 100);
+    p.pages['/watch/play/502'] = { html: '<p>Not here</p>' };
+    press(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(15000);
+    press(p.q('[data-quality-btn]'));
+    press(p.q('[data-quality="low"]'));
+    await settle();
+    return { start: p.calls.filter((c) => /\/stream$/.test(c.url)).pop().body };
   },
 
   /* The old stream counts against the limit until the server has stopped it. */

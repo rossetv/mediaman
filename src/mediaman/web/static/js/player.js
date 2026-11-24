@@ -1730,6 +1730,7 @@
   /* Become the page of another video. */
   function takePage(page, href) {
     var el = page.getElementById('player');
+    if (!el) throw new Error('not a player page');
     var want = wantPlaying;
     var stepped = quality === 'auto' && override;
     closeMenus(true);
