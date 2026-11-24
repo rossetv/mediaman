@@ -318,6 +318,17 @@ const scenarios = {
       unknown: await at('/watch?all=films'), inherited: await at('/watch?all=constructor'), order: await at('/watch?all=continue&sort=newest') };
   },
 
+  // A row changes while the page is inert under a panel; one card is itself on its way out.
+  async underAPanel() {
+    const p = await load();
+    const row = p.row('continue');
+    p.doc.getElementById('watch-page').setAttribute('inert', '');
+    row.querySelector('.watch-card').setAttribute('inert', '');
+    p.ctx.MMWatch.expand.row(row);
+    const link = row.querySelector('.row-open');
+    return { href: link.getAttribute('href'), label: link.getAttribute('aria-label'), cue: !link.querySelector('.row-open__cue').hidden, offer: row.querySelector('.row-offer__text').textContent };
+  },
+
   // A card kept or dismissed in the grid leaves it, and the row, and comes back to both.
   async taken() {
     const p = await load();

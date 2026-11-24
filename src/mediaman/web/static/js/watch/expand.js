@@ -56,14 +56,20 @@
     })[0] || null;
   }
 
+  /* On its way out of *section*. A page put out of reach under a panel keeps its cards. */
+  function leaves(node, section) {
+    var inert = node.closest('[inert]');
+    return !!inert && section.contains(inert);
+  }
+
   /* A row being swapped for another has both for a moment; the one leaving is inert. */
   function scrollerOf(section) {
-    return toArray(section.querySelectorAll('.watch-row__scroll')).filter(function (n) { return !n.closest('[inert]'); })[0] || null;
+    return toArray(section.querySelectorAll('.watch-row__scroll')).filter(function (n) { return !leaves(n, section); })[0] || null;
   }
 
   function cardsIn(section) {
     return section ? toArray(section.querySelectorAll('.watch-row__scroll .watch-card')).filter(function (card) {
-      return !card.classList.contains('is-kept') && !card.closest('[inert]');
+      return !card.classList.contains('is-kept') && !leaves(card, section);
     }) : [];
   }
 

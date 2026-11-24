@@ -143,3 +143,12 @@ def test_a_card_kept_or_dismissed_in_the_grid_leaves_it_and_its_row_and_comes_ba
     assert out["empty"]["things"] == []
     assert out["empty"]["tail"].startswith("Nothing is leaving soon")
     assert (out["empty"]["focus"], out["empty"]["body"]) == ("watch-all-title", True)
+
+
+def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_count():
+    assert _run("underAPanel") == {
+        "href": "/watch?all=continue",
+        "label": "Continue watching, see all 5",
+        "cue": True,
+        "offer": "See all 5 in a grid",
+    }
