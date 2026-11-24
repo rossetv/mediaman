@@ -29,7 +29,6 @@ class El {
   emit(t, extra) { (this.listeners[t] || []).forEach((f) => f({ target: this, ...extra })); }
   focus() { doc.activeElement = this; }
   blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
-  contains(n) { return n === this || this.all().includes(n); }
   select() {}
   remove() {}
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }

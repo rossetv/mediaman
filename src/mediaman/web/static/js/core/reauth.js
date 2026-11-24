@@ -117,7 +117,7 @@
         if (bar > 0) root.style.removeProperty('--page-bar');
         if (opener && opener !== document.body && opener.focus) opener.focus();
         /* Safari scrolls the page to its end when the field that has the keyboard is removed. */
-        if (backdrop.contains(document.activeElement)) document.activeElement.blur();
+        if (document.activeElement === input) input.blur();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
         setTimeout(function () { backdrop.remove(); }, 400);
