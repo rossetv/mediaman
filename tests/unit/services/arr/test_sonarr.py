@@ -458,6 +458,8 @@ class TestAddSeriesWithSeasons:
         # "skip" keeps the seasons sent ("none" unmonitors every one after the first scan),
         # and Sonarr searches the monitored missing episodes itself after it has scanned.
         assert add_body["addOptions"] == {"monitor": "skip", "searchForMissingEpisodes": True}
+        # A season announced later is not one of the seasons picked, so it is not monitored.
+        assert add_body["monitorNewItems"] == "none"
         # A command straight after the add finds no episodes yet, so none is sent.
         assert len(posts) == 1
 

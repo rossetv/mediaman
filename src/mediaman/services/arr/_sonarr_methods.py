@@ -346,6 +346,8 @@ class _SonarrMixin:
             "qualityProfileId": profile_id,
             "rootFolderPath": root_path,
             "monitored": True,
+            # Sonarr's default monitors every season announced later; only the ones picked are wanted.
+            "monitorNewItems": "none",
             "seasonFolder": True,
             "seasons": seasons_payload,
             "addOptions": {
