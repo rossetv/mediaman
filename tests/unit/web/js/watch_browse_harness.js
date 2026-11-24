@@ -54,6 +54,11 @@ function apiError(status, data) {
 
 /* The Watch page around the Discover slot, as the server sends it. */
 function page(doc, opts) {
+  const libraryRow = opts.library ? [['section', { class: 'watch-row' },
+    ['div', { class: 'watch-row__viewport', 'data-row-kind': 'tv', 'data-row-next': opts.library.next },
+      ['div', { class: 'watch-row__scroll', 'aria-label': 'TV' }, ...opts.library.keys.map((k) => ['article', { class: 'watch-card', 'data-mark': 'show/' + k },
+        ['a', { class: 'watch-card__link', href: '/watch/show/' + k, 'data-title-ref': 'show-' + k },
+          ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, 'Show ' + k]], ['span', { class: 'watch-card__sub' }, 'TV']]])]]]] : [];
   const skelRow = ['div', { class: 'watch-row watch-row--skel' },
     ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ['div', { class: 'watch-card--skel' }]]]];
   const leaving = (id, title) => ['article', { class: 'watch-card', 'data-keep-id': id },
@@ -67,7 +72,8 @@ function page(doc, opts) {
           ['div', { class: 'watch-row__scroll' }, leaving('1100', 'Leaving Film'), leaving('1101', 'Northbound')]]],
       ['div', { class: 'watch-discover-slot', id: 'watch-discover-slot', 'aria-busy': 'true' },
         ['div', { class: 'watch-discover-skel', 'aria-hidden': 'true' },
-          ['p', { class: 'watch-group-label' }, 'Discover'], skelRow, skelRow, skelRow]]],
+          ['p', { class: 'watch-group-label' }, 'Discover'], skelRow, skelRow, skelRow]],
+      ...libraryRow],
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']]]));
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' },
@@ -692,6 +698,26 @@ const scenarios = {
     const press = (dir) => { viewport.querySelector('.watch-row__arrow--' + dir).listeners.click.forEach((fn) => fn()); return scroller.scrollLeft; };
     const key = (k) => { scroller.listeners.keydown.forEach((fn) => fn({ key: k, target: scroller, preventDefault() {} })); return scroller.scrollLeft; };
     return { arrows: [press('next'), press('next'), press('next'), press('prev'), press('prev')], keys: [key('ArrowRight'), key('ArrowRight'), key('ArrowLeft')] };
+  },
+
+  // A library row goes on from where the page's own cards end.
+  async libraryRow() {
+    layout();
+    const item = (key, over) => ({ kind: 'show', title: 'Show ' + key, subtitle: 'TV · 2 seasons', poster_url: '/api/poster/' + key, href: '/watch/show/' + key,
+      watched: false, mark_kind: 'show', mark_key: String(key), leaving_days: null, keep_id: null, ...over });
+    const url = (after) => 'GET /api/watch/library/tv/row?after=' + after;
+    const p = load({ library: { next: 'a=1', keys: [1, 2] }, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      [url('a%3D1')]: () => Promise.resolve({ items: [item(2), item(3, { watched: true, keep_id: 'k', leaving_days: 2 })], next: 'b2' }),
+      [url('b2')]: () => Promise.resolve({ items: [item(4)], next: null }),
+    } });
+    await settle();
+    const scroller = p.doc.querySelector('[data-row-kind] .watch-row__scroll');
+    await scroll(scroller, 0);
+    await scroll(scroller, 0);
+    const third = scroller.querySelectorAll('.watch-card')[2];
+    return { refs: refsOf(scroller), calls: p.calls.filter((c) => /library/.test(c)), more: scroller.parentNode.hasAttribute('data-row-more'),
+      third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('[data-watch-more]'), !!third.querySelector('[data-watch-keep]')] };
   },
 
   // Discover cards carry a mark and More only for a title the library holds, whatever the server sends.

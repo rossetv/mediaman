@@ -16,9 +16,9 @@
 {% macro row_section(row) -%}
 <section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
   <h2 class="watch-row__title">{{ row.title }}</h2>
-  <div class="watch-row__viewport">
+  <div class="watch-row__viewport"{% if row.next %} data-row-kind="{{ row.kind }}" data-row-next="{{ row.next }}"{% endif %}>
     <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
-      {% for item in row['items'] %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
+      {% for item in (row['items'][:row.page_size] if row.next else row['items']) %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
     </div>
   </div>
 </section>

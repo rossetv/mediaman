@@ -270,6 +270,18 @@ def test_a_season_line_goes_by_where_each_pill_stands_however_wide() -> None:
     assert out["keys"] == [100, 400, 100]
 
 
+def test_a_library_row_loads_on_from_the_page_s_cards_to_its_end() -> None:
+    out = _run("libraryRow")
+    assert out["refs"] == ["show-1", "show-2", "show-3", "show-4"]
+    assert out["calls"] == [
+        "GET /api/watch/library/tv/row?after=a%3D1",
+        "GET /api/watch/library/tv/row?after=b2",
+    ]
+    assert out["more"] is False
+    # As the page draws it: its mark and More, and no Keep outside Leaving soon.
+    assert out["third"] == ["show/3", True, True, False]
+
+
 def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -> None:
     assert _run("discoverMarks") == [
         ["movie/11", True, 1, False],

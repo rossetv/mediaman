@@ -1015,3 +1015,21 @@ def test_no_button_stands_in_a_link() -> None:
         tree = _Tree(html)
         assert any(tag == "button" for tag, _a, _in in tree.found)
         assert not [a for tag, a, around in tree.found if tag == "button" and "a" in around]
+
+
+def test_a_long_library_row_draws_its_first_page_and_where_to_go_on() -> None:
+    row = {
+        "title": "Movies",
+        "items": [_marked(title=f"Film {n}") for n in range(5)],
+        "library": True,
+        "kind": "movies",
+        "page_size": 3,
+        "next": "c1",
+    }
+    tree = _Tree(_watch(rows=[row]))
+    assert len(tree.having("data-mark")) == 3
+    [viewport] = tree.having("data-row-next")
+    assert (viewport["data-row-kind"], viewport["data-row-next"]) == ("movies", "c1")
+
+    whole = _Tree(_watch(rows=[{**row, "next": None}]))
+    assert len(whole.having("data-mark")) == 5 and not whole.having("data-row-next")

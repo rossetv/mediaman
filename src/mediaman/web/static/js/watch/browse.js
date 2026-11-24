@@ -1,7 +1,8 @@
 /* Watch page: the Discover rows (Recommended for you, Trending this week,
  * Popular movies, Popular TV) that load after the page in place of their
  * skeleton, the badges on their posters, the menu of earlier picks and, for
- * admins, Refresh. Needs watch/core.js, watch/keep.js and watch/rows-load.js.
+ * admins, Refresh; and the rest of the library rows as they are scrolled.
+ * Needs watch/core.js, watch/keep.js, watch/search.js and watch/rows-load.js.
  */
 (function () {
   'use strict';
@@ -16,6 +17,7 @@
 
   var DISCOVER_URL = '/api/watch/discover';
   var RECOMMENDED_URL = '/api/watch/recommended';
+  var LIBRARY_URL = '/api/watch/library/';
   var REFRESH_URL = '/api/recommended/refresh';
   var STATUS_URL = '/api/recommended/refresh/status';
   var SETTINGS_HREF = '/settings#setg-general';
@@ -255,6 +257,27 @@
         if (!focusNext || old.contains(button)) focusNext = match.querySelector('.watch-row__scroll');
       });
       if (focusNext && focused) core.focusSoftly(focusNext);
+    });
+  }
+
+  /* ── Your library ── */
+
+  /* The rest of a library row, past the cards the page came with. */
+  function libraryPages(kind) {
+    return function (after) {
+      return MM.api.get(LIBRARY_URL + kind + '/row?after=' + encodeURIComponent(after)).then(function (data) {
+        return { cards: (data.items || []).map(watch.search.card), next: data.next };
+      });
+    };
+  }
+
+  function startLibrary() {
+    toArray(document.querySelectorAll('.watch-row__viewport[data-row-next]')).forEach(function (viewport) {
+      watch.rowsLoad.start(viewport, {
+        title: viewport.querySelector('.watch-row__scroll').getAttribute('aria-label'),
+        next: viewport.getAttribute('data-row-next'),
+        fetchPage: libraryPages(viewport.getAttribute('data-row-kind'))
+      });
     });
   }
 
@@ -671,4 +694,5 @@
   var landing = takeLanding();
   var slot = byId('watch-discover-slot');
   if (slot) start(slot, pageData());
+  startLibrary();
 })();
