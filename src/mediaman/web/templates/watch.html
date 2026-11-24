@@ -76,7 +76,7 @@
       {% endif %}
       <div class="watch-banner__body">
         {% if banner.kicker %}<span class="watch-banner__kicker">{{ banner.kicker }}</span>{% endif %}
-        <h1 class="watch-banner__title">{{ banner.title }}</h1>
+        <h1 class="watch-banner__title{% if banner.title|length > 40 %} watch-banner__title--long{% endif %}">{{ banner.title }}</h1>
         {% if banner.line %}
         <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>
         <p class="watch-banner__line watch-banner__line--short">{{ banner.line_short or banner.line }}</p>

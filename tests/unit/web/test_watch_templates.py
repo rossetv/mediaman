@@ -653,3 +653,25 @@ def test_the_banner_poster_keeps_clear_of_the_banner_edges() -> None:
     assert "max-height: calc(100% - 72px)" in _declarations_of(
         "_watch.css", ".watch-banner__poster"
     )
+
+
+def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
+    banner = {
+        "title": "It",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+    }
+    long = "An Improbable Chronicle of the Winter Orchard and the Ferryman"
+
+    assert "watch-banner__title--long" not in _watch(banner=banner)
+    assert "watch-banner__title--long" in _watch(banner={**banner, "title": long})
+    assert "font-size: 36px" in _declarations_of("_watch.css", ".watch-banner__title--long")
+    assert "line-clamp: var(--title-lines)" in _declarations_of(
+        "_watch.css", ".watch-banner__title"
+    )
+    phone = _declarations_in(
+        _in_media("_watch.css", "(max-width: 599.98px)"), ".watch-banner__title"
+    )
+    assert "--title-lines: 4" in phone

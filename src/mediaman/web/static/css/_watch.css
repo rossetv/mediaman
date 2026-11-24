@@ -280,7 +280,23 @@
   }
 }
 .watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); }
-.watch-banner__title { font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; }
+/* A title clamps to --title-lines; the padding keeps the last line's descenders unclipped. */
+.watch-banner__title {
+  --title-lines: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--title-lines);
+  line-clamp: var(--title-lines);
+  overflow: hidden;
+  padding-bottom: .12em;
+  margin-bottom: -.12em;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+.watch-banner__title--long { font-size: 36px; line-height: 1.1; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
 .watch-banner__line--short { display: none; }
 @media (max-width: 599.98px) {
@@ -703,7 +719,9 @@
   }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
-  .watch-banner__title { font-size: 30px; }
+  .watch-banner__title { --title-lines: 4; font-size: 30px; }
+  .watch-banner__title--long { font-size: 24px; }
+  .watch-bar--banner { width: 100%; }
   .watch-banner__line { font-size: 13px; }
   .watch-actions { flex-direction: column; }
   .watch-actions .btn { width: 100%; }
@@ -735,7 +753,8 @@
 @media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
   .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
   .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
-  .watch-banner__title { font-size: 28px; }
+  .watch-banner__title { --title-lines: 3; font-size: 28px; }
+  .watch-banner__title--long { font-size: 24px; }
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; transform: translateY(-50%); }
 }
