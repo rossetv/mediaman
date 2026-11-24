@@ -546,6 +546,26 @@ class TestLibraryTitle:
         assert not ADMIN_KEYS & body.keys()
         assert body["keep_allowed"] is False
 
+    def test_a_show_says_which_of_its_seasons_leave_and_when(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        for item, days in (("501", 9), ("502", 3)):
+            insert_scheduled_action(
+                library,
+                media_item_id=item,
+                action="scheduled_deletion",
+                token=f"token-{item}",
+                execute_at=(now_utc() + timedelta(days=days)).isoformat(),
+            )
+
+        body = viewer.get("/api/watch/title/show-500").json()
+
+        assert [(s["season"], s["keep_id"]) for s in body["leaving_seasons"]] == [
+            (2, "502"),
+            (1, "501"),
+        ]
+        assert body["leaving"]["season"] == 2
+
     def test_a_viewer_may_keep_a_title_that_is_leaving(self, viewer, library, tmdb, arr, plex):
         insert_scheduled_action(library, media_item_id="100")
 
