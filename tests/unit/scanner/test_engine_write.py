@@ -14,6 +14,7 @@ from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.library_index import library_movies
 
 
 @pytest.fixture
@@ -378,6 +379,31 @@ class TestArrIdsAndTrackedFiles:
         assert (row["radarr_id"], row["sonarr_id"]) == (7, 3)
         assert row["tmdb_id"] == 603
         assert json.loads(row["tracked_files"]) == self._movie()["tracked_files"]
+
+    def test_a_library_sync_shows_a_new_title_in_the_held_library_index_at_once(
+        self, conn, mock_plex
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        ).sync_library()
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_scan_shows_a_new_title_in_the_held_library_index_at_once(self, conn, mock_plex):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        self._scan(conn, mock_plex, "movie")
+
+        assert library_movies(conn) == {603: "movie-100"}
 
     def test_season_folder_mismatch_gets_no_sonarr_id(self, conn, mock_plex):
         insert_media_item(conn, id="s2", plex_rating_key="s2", media_type="tv_season", sonarr_id=3)

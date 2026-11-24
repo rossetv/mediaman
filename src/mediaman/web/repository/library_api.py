@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.scanner.repository import is_protected, is_show_kept_pure
+from mediaman.services import watch_catalog
 from mediaman.services.downloads.notifications import record_download_notification
 
 
@@ -351,6 +352,7 @@ def finalise_delete_in_tx(
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
+    watch_catalog.clear_library_index()
 
 
 def record_redownload(

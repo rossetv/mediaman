@@ -435,6 +435,59 @@ class TestLibraryIndex:
         assert self._index(library, finder).shows_by_tmdb == {77: "show-500"}
         assert finder.asked == [5500]
 
+    def test_clearing_it_builds_the_next_one_afresh_within_its_window(self, library, clock):
+        self._index(library, None)
+        self.movies.append(SimpleNamespace(key="100", title="Brand New", tmdb_id=12))
+
+        catalog.clear_library_index()
+
+        assert self._index(library, None).movies_by_tmdb == {12: "movie-100"}
+
+    def test_clearing_it_while_one_is_being_built_leaves_that_one_out_of_date(self, library, clock):
+        def clear_during_the_read(conn, libraries):
+            catalog.clear_library_index()
+            return []
+
+        catalog.library_index(library, None, ["1"], clear_during_the_read, self._shows)
+        self.movies.append(SimpleNamespace(key="100", title="Brand New", tmdb_id=12))
+
+        assert self._index(library, None).movies_by_tmdb == {12: "movie-100"}
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [(88, {88: "show-500"}), (None, {}), (_down(), {77: "show-500"})],
+        ids=["replaced by the new match", "replaced by no match", "kept when the ask fails"],
+    )
+    def test_a_match_past_its_time_is_used_until_the_new_answer_replaces_it(
+        self, library, clock, answer, expected
+    ):
+        self._index(library, Finder(77))
+        assert self._index(library, None).shows_by_tmdb == {77: "show-500"}
+        clock.now += _library.MATCH_TTL_S + 1
+
+        assert self._index(library, Finder(answer)).shows_by_tmdb == {77: "show-500"}
+        assert self._index(library, None).shows_by_tmdb == expected
+
+    def test_a_batch_of_asks_makes_the_next_caller_build_once_not_once_per_match(
+        self, library, clock
+    ):
+        self.shows = [
+            SimpleNamespace(key=str(n), title=f"Show {n}", tvdb_id=5000 + n) for n in range(3)
+        ]
+
+        class Busy(Finder):
+            """A request arrives while each ask is out."""
+
+            def find_by_tvdb(inner, tvdb_id):
+                self._index(library, None)
+                return super().find_by_tvdb(tvdb_id)
+
+        self._index(library, Busy(71, 72, 73))
+        assert self.reads == 1
+
+        assert len(self._index(library, None).shows_by_tmdb) == 3
+        assert self.reads == 2
+
     def test_a_show_with_a_tmdb_id_of_its_own_is_not_asked_about(self, library, clock):
         insert_media_item(
             library, id="501", media_type="tv_season", show_rating_key="500", title="Season 1"

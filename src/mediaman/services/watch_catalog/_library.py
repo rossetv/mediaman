@@ -3,11 +3,14 @@ shows known only by their TVDB id, both held in memory.
 
 Building the index reads every library title, too slow to repeat on each discover row,
 search, title open and recommended row, so it is held for ``INDEX_TTL_S`` seconds: a
-show scanned since then shows within that time. A show without a TMDB id of its own
+show scanned since then shows within that time unless a scan ending or a title being
+deleted calls ``clear_library_index()``, which drops it at once. A show without a TMDB id of its own
 matches by the one TMDB gives its TVDB id. TMDB's answer is held, a match for
 ``MATCH_TTL_S`` and no match for ``NO_MATCH_TTL_S``; a failed ask is held as unknown for
-``RETRY_S``. Building never waits on TMDB: an id not known yet is asked in the
-background, one at a time, and a match learnt makes the next caller build afresh.
+``RETRY_S``. Building never waits on TMDB: an id not known yet, or held past its time, is
+asked in the background, one at a time. A match held past its time keeps being used
+until the new answer replaces it. The next caller builds afresh once a batch of asks
+has learnt something, not after each answer.
 """
 
 from __future__ import annotations
@@ -47,7 +50,8 @@ _build_lock = threading.Lock()
 _tvdb: dict[int, tuple[float, int | None]] = {}
 # TVDB ids waiting for, or in, a background ask.
 _asking: set[int] = set()
-# Bumped when a match is learnt, so an index built before it is built again.
+# Bumped when the index is cleared or a batch of asks changed a match, so an index built
+# before it is built again.
 _generation = [0]
 # (database file, libraries) -> (held until, generation, index); one entry at most.
 _held: dict[tuple[str, tuple[str, ...]], tuple[float, int, LibraryIndex]] = {}
@@ -112,14 +116,26 @@ def library_index(
     return index
 
 
+def clear_library_index() -> None:
+    """Drop the held index, so the next caller builds it afresh. For a library scan that
+    has finished and a library title that was deleted."""
+    with _lock:
+        _held.clear()
+        _generation[0] += 1
+
+
 def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
-    """The TMDB id of the show with this TVDB id: the one held, else TMDB's answer now;
-    None when TMDB has none or failed."""
+    """The TMDB id of the show with this TVDB id: the one held, else TMDB's answer now
+    (the match held past its time when TMDB fails); None when TMDB has none or failed."""
     with _lock:
         held = _tvdb.get(tvdb_id)
     if held is not None and held[0] > _clock():
         return held[1]
-    return _ask(client, tvdb_id)
+    found, changed = _ask(client, tvdb_id)
+    if changed:
+        with _lock:
+            _generation[0] += 1
+    return found
 
 
 def _current(key: tuple[str, tuple[str, ...]]) -> LibraryIndex | None:
@@ -131,7 +147,8 @@ def _current(key: tuple[str, tuple[str, ...]]) -> LibraryIndex | None:
 
 
 def _known(tvdb_ids: Iterable[int]) -> tuple[dict[int, int], set[int]]:
-    """(TMDB id by TVDB id held, TVDB ids with nothing held)."""
+    """(TMDB id by TVDB id held, TVDB ids to ask: none held, or held past its time).
+    A match held past its time is in both."""
     now = _clock()
     known: dict[int, int] = {}
     unknown: set[int] = set()
@@ -140,24 +157,28 @@ def _known(tvdb_ids: Iterable[int]) -> tuple[dict[int, int], set[int]]:
             held = _tvdb.get(tvdb_id)
             if held is None or held[0] <= now:
                 unknown.add(tvdb_id)
-            elif held[1] is not None:
+            if held is not None and held[1] is not None:
                 known[tvdb_id] = held[1]
     return known, unknown
 
 
-def _ask(client: TmdbClient, tvdb_id: int) -> int | None:
-    """Ask TMDB for the TMDB id of *tvdb_id* and hold the answer."""
+def _ask(client: TmdbClient, tvdb_id: int) -> tuple[int | None, bool]:
+    """Ask TMDB for the TMDB id of *tvdb_id* and hold the answer: (the TMDB id held now,
+    whether it is not the one held before). A failed ask keeps the match held before."""
     try:
-        found = client.find_by_tvdb(tvdb_id)
+        answer = client.find_by_tvdb(tvdb_id)
+        failed = False
     except (SafeHTTPError, requests.RequestException, ValueError):
-        found, ttl = None, RETRY_S
-    else:
-        ttl = MATCH_TTL_S if found is not None else NO_MATCH_TTL_S
+        answer, failed = None, True
     with _lock:
+        before = _tvdb.get(tvdb_id, (0.0, None))[1]
+        if failed:
+            found, ttl = before, RETRY_S
+        else:
+            found = answer
+            ttl = MATCH_TTL_S if found is not None else NO_MATCH_TTL_S
         _tvdb[tvdb_id] = (_clock() + ttl, found)
-        if found is not None:
-            _generation[0] += 1
-    return found
+    return found, found != before
 
 
 def _ask_later(client: TmdbClient, tvdb_ids: set[int]) -> None:
@@ -168,14 +189,17 @@ def _ask_later(client: TmdbClient, tvdb_ids: set[int]) -> None:
         return
 
     def run() -> None:
+        changed = False
         try:
             for tvdb_id in todo:
-                _ask(client, tvdb_id)
+                changed |= _ask(client, tvdb_id)[1]
         except Exception:
             logger.warning("watch: asking TMDB for TVDB ids failed", exc_info=True)
         finally:
             with _lock:
                 _asking.difference_update(todo)
+                if changed:
+                    _generation[0] += 1
 
     if sync:
         run()

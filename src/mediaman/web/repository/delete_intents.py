@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
+from mediaman.services import watch_catalog
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.infra.storage.deletion import unavailable_folder
 from mediaman.web.repository.library_api import _parse_tracked_files
@@ -244,6 +245,7 @@ def _reconcile_one_intent(
                 )
                 conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_item_id,))
                 conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
+            watch_catalog.clear_library_index()
             _complete_delete_intent(conn, intent_id)
             logger.info(
                 "delete_intent.reconciled intent_id=%s media_id=%s reason=verified_gone",

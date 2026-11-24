@@ -15,7 +15,7 @@ from ._discover import (
     search,
     tmdb_card,
 )
-from ._library import library_index, tmdb_id_for_tvdb
+from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
 
@@ -26,6 +26,7 @@ __all__ = [
     "LibraryIndex",
     "TmdbUnavailable",
     "arr_view",
+    "clear_library_index",
     "details",
     "discover_card",
     "discover_shelves",
