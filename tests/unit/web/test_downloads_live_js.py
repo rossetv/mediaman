@@ -258,9 +258,12 @@ def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
 def test_a_rows_episodes_button_is_nearer_its_own_row_than_the_next() -> None:
     gap = int(re.findall(r"gap: (\d+)px", _rule(".dl-compact-list"))[0])
     own = int(re.findall(r"margin-top: (\d+)px", _rule(".dl-compact-episodes-toggle"))[-1])
-    with_button = ".dl-compact:has(> .dl-compact-episodes-toggle):not(:last-child)"
-    below = int(re.findall(r"margin-bottom: (\d+)px", _rule(with_button))[0])
+    # The next row's own space, so that it folds away with that row; `:where` lets it.
+    after = ":where(.dl-compact:has(> .dl-compact-episodes-toggle):not(.is-folded)) + .dl-compact"
+    below = int(re.findall(r"margin-top: (\d+)px", _rule(after))[0])
     assert own == 8 and below + gap == 16
+    assert "margin-top: 0" in _rule(".dl-fold.is-folded")
+    assert "margin-bottom" not in _rule(after)
 
 
 def test_the_state_of_a_download_is_not_in_the_accent_itself_on_its_own_tint() -> None:
@@ -299,7 +302,7 @@ def test_a_link_on_a_line_of_its_own_has_no_dot_before_it() -> None:
 
 
 def test_queue_rows_sit_one_gap_apart() -> None:
-    assert "margin" not in _rule(".dl-compact")
+    assert not re.search(r"margin[\w-]*:", _rule(".dl-compact"))
     assert "gap: 8px" in _rule(".dl-compact-list")
 
 

@@ -246,8 +246,10 @@
 /* The "nothing downloading" empty state uses the shared .empty primitive
    (the c.empty() macro) — no bespoke rule here. */
 
-/* A row with an episodes button is further from the next than from its button. */
-.dl-compact:has(> .dl-compact-episodes-toggle):not(:last-child) { margin-bottom: 8px; }
+/* A row with an episodes button is further from the next than from its button. The space
+   is the next row's and folds away with either of the two: `:where` lets .is-folded win. */
+:where(.dl-compact:has(> .dl-compact-episodes-toggle):not(.is-folded)) + .dl-compact { margin-top: 8px; }
+.dl-compact { transition: margin var(--dur-slow) var(--ease-out); }
 
 /* Episodes drawer */
 .dl-hero-episodes-toggle,
