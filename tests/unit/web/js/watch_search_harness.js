@@ -942,6 +942,15 @@ const scenarios = {
     return p.doc.querySelector('.explore-facts').textContent;
   },
 
+  // A name of one long word takes its room from the posters beside it.
+  async longName() {
+    const p = load(ADMIN, '', null, { tmdb_configured: true, genres: [{ ...GENRES[0], id: 'documentary', name: 'Documentary' }, { ...GENRES[0], id: 'science-fiction', name: 'Science Fiction' }], decades: [], people: [] });
+    await settle();
+    p.press();
+    await settle();
+    return p.sheet.querySelectorAll('.watch-tile').map((n) => [n.textContent, n.classList.contains('is-long')]).sort();
+  },
+
   // Less: cut short only once what stands below has closed over the text, unless More is pressed first.
   async storyCloses() {
     const p = await ready(ADMIN, '', '/watch?person=9001');

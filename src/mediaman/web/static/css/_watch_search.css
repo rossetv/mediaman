@@ -202,7 +202,7 @@
 .watch-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .watch-tile { position: relative; container-type: inline-size; display: flex; align-items: center; height: 60px; padding: 0 12px; overflow: hidden; border-radius: var(--r-lg); background: var(--s3); color: var(--t1); font-size: 14px; text-align: left; transition: transform var(--dur-fast) var(--ease-out); }
 .watch-tile > b { position: relative; z-index: 2; font-weight: 600; line-height: 1.2; }
-.watch-tile:has(> .watch-mini) > b { padding-right: 36px; }
+.watch-tile:has(> .watch-mini) > b { padding-right: 52px; }
 .watch-tile::before { content: ""; position: absolute; inset: 0; background: var(--s5); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 /* Keeps the name clear of the posters at rest. */
 .watch-tile::after { content: ""; position: absolute; z-index: 1; inset: 0 50px 0 0; background: linear-gradient(90deg, var(--s3) 60%, transparent); transition: opacity var(--dur-fast) var(--ease-out); }
@@ -215,16 +215,25 @@
 .watch-tile:is(:hover, .is-picked)::after { opacity: 0; }
 .watch-tile:is(:hover, .is-picked) > .watch-mini { opacity: 1; transform: translate(3px, -7px) rotate(13deg); }
 .watch-tile:is(:hover, .is-picked) > .watch-mini + .watch-mini { transform: translate(-3px, -8px) rotate(-11deg); }
-/* A narrow tile's posters leave the longest name room: smaller, then one alone. */
-@container (max-width: 150px) {
-  .watch-tile > b { font-size: 13px; }
+/* Posters make way where a name needs the room: smaller, then one alone. A name
+   with a long word needs it first. The widths are inside the tile's padding. */
+@container (max-width: 123px) {
   .watch-tile > .watch-mini { top: 18px; right: 2px; width: 28px; height: 42px; }
   .watch-tile > .watch-mini + .watch-mini { top: 23px; right: 9px; }
 }
-@container (max-width: 118px) {
-  .watch-tile > b { margin-left: -3px; font-size: 12.5px; }
+@container (max-width: 142px) {
+  .watch-tile.is-long > b { letter-spacing: -.02em; }
+  .watch-tile.is-long > .watch-mini { top: 18px; right: 2px; width: 28px; height: 42px; }
+  .watch-tile.is-long > .watch-mini + .watch-mini { top: 23px; right: 9px; }
+}
+@container (max-width: 124px) {
+  .watch-tile.is-long > .watch-mini { right: -8px; width: 26px; height: 39px; }
+  .watch-tile.is-long > .watch-mini + .watch-mini { display: none; }
+}
+@container (max-width: 107px) {
   .watch-tile > .watch-mini { right: -8px; width: 26px; height: 39px; }
   .watch-tile > .watch-mini + .watch-mini { display: none; }
+  .watch-tile.is-long > b { margin-left: -3px; font-size: 12.5px; }
 }
 .watch-tile:active,
 .watch-try:active { transform: scale(.97); }

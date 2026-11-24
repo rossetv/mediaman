@@ -663,6 +663,7 @@
     function genreTile(genre, i) {
       var b = option(el('button', 'watch-tile'), 'genre-' + genre.id);
       b.type = 'button';
+      b.classList.toggle('is-long', /\S{10}/.test(genre.name));
       var name = el('b', '', genre.name);
       b.appendChild(name);
       (genre.poster_urls || []).slice(0, 2).forEach(function (url) { b.appendChild(small(url)); });
