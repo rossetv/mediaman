@@ -61,6 +61,7 @@ from mediaman.scanner.deletions import (
 from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher, PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.scanner.repository.scheduled_actions import fetch_gone_library_ids
 from mediaman.services import watch_catalog
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
@@ -118,7 +119,9 @@ class ScanEngine:
         plex_client: Object providing ``get_movie_items``, ``get_show_seasons``,
             ``get_watch_history``, and ``get_season_watch_history``.
         library_ids: Ordered list of Plex section IDs to scan.
-        library_types: Mapping of library_id -> ``"movie"`` or ``"show"``.
+        library_types: Mapping of library_id -> its type, for every library Plex
+            lists, scanned or not. A library it lacks is gone from Plex, unless
+            it is empty.
         library_titles: Mapping of library_id -> lowercase library title
             (e.g. ``"anime"``).
         secret_key: HMAC secret used to sign keep tokens.
@@ -313,6 +316,7 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
+        summary["removed"] += self._remove_items_of_gone_libraries()
         repository.restore_progress(self._conn)
         # A sync's engine is always a dry run, so the person's own setting decides.
         self._settle_keeps(dry_run=repository.read_setting(self._conn, "dry_run") == "true")
@@ -475,6 +479,7 @@ class ScanEngine:
                 )
                 continue
             summary["removed"] += self._remove_orphaned_items(seen, lib_set)
+        summary["removed"] += self._remove_items_of_gone_libraries()
         repository.restore_progress(self._conn)
         self._conn.commit()
 
@@ -588,6 +593,24 @@ class ScanEngine:
         if candidate is not None and not isinstance(candidate, datetime):
             candidate = None
         return _ensure_tz(candidate)
+
+    def _remove_items_of_gone_libraries(self) -> int:
+        """Remove the items of each library Plex no longer lists.
+
+        No scan of a listed library would, and until then they hold back the
+        deletion of what is at their paths. An empty list of libraries says
+        nothing, and one Plex failed to give ends the run before it starts. A
+        library that is only unticked in Settings keeps its items.
+        """
+        if not self._library_types:
+            return 0
+        removed = 0
+        for lib_id in fetch_gone_library_ids(self._conn, self._library_types):
+            listed = self._listed_keys.intersection(
+                repository.fetch_ids_in_libraries(self._conn, [lib_id])
+            )
+            removed += self._remove_orphaned_items(listed, {lib_id})
+        return removed
 
     def _remove_orphaned_items(
         self,

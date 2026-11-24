@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import defusedxml.ElementTree as ET
 import pytest
 import requests as http_requests
+from plexapi.library import Library
 
 from mediaman.services.infra import SafeHTTPError, SSRFRefused
 from mediaman.services.media_meta import plex as plex_module
@@ -46,6 +48,29 @@ class TestPlexClient:
         assert libs[0]["id"] == "1"
         assert libs[0]["type"] == "movie"
         assert libs[0]["title"] == "Movies"
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_the_list_of_libraries_is_read_from_plex_each_time(self, mock_cls, mock_server):
+        def listing(*ids):
+            return ET.fromstring(
+                "<MediaContainer>"
+                + "".join(f'<Directory key="{i}" type="movie" title="L{i}"/>' for i in ids)
+                + "</MediaContainer>"
+            )
+
+        mock_cls.return_value = mock_server
+        mock_server.library = Library(mock_server, ET.fromstring("<MediaContainer/>"))
+        client = PlexClient("http://plex:32400", "test-token")
+        seen = []
+        for ids in ((1,), (2,)):
+            mock_server.query.return_value = listing(*ids)
+            seen.append([lib["id"] for lib in client.get_libraries()])
+        assert seen == [["1"], ["2"]]
+
+        mock_server.query.side_effect = http_requests.ConnectionError("down")
+        assert client.is_reachable() is False
+        with pytest.raises(http_requests.ConnectionError):
+            client.get_libraries()
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_movie_items(self, mock_cls, mock_server):

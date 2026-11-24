@@ -628,3 +628,100 @@ class TestScanWithOneBadLibrary:
 
         assert inner.exists()
         assert self._scheduled(conn) == {"10", "20"}
+
+
+class TestGoneLibrary:
+    """Plex library 1 was removed and made again as 2, the only one ticked."""
+
+    @pytest.fixture(autouse=True)
+    def _library(self, conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["2"]', '2026')"""
+        )
+        self.film = tmp_path / "Film" / "film.mkv"
+        TestScanWithOneBadLibrary._due(conn, "20", self.film, 2)
+        insert_media_item(
+            conn, id="10", plex_rating_key="10", plex_library_id=1, file_path=str(self.film)
+        )
+        conn.commit()
+
+    def _engine(self, conn, mock_plex, listed, **kwargs):
+        mock_plex.get_movie_items.return_value = [TestScanWithOneBadLibrary._item("20", self.film)]
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["2"],
+            library_types=dict.fromkeys(listed, "movie"),
+            secret_key="test-key",
+            **kwargs,
+        )
+
+    @staticmethod
+    def _ids(conn):
+        return {r[0] for r in conn.execute("SELECT id FROM media_items")}
+
+    def test_its_items_go_and_no_longer_hold_a_deletion_back(self, conn, mock_plex):
+        summary = self._engine(conn, mock_plex, ["2"]).run_scan()
+
+        assert (summary["removed"], summary["deleted"]) == (1, 1)
+        assert not self.film.exists()
+
+    def test_its_items_go_with_a_sync_too(self, conn, mock_plex):
+        assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 1
+
+        assert self._ids(conn) == {"20"}
+
+    def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex):
+        insert_scheduled_action(
+            conn,
+            media_item_id="10",
+            action="protected_forever",
+            token="tok-10",
+            execute_at=None,
+            token_used=True,
+        )
+        conn.commit()
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+
+        assert self._ids(conn) == {"20"}
+        assert self.film.exists()
+
+    def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(self, conn, mock_plex):
+        self._engine(conn, mock_plex, ["1", "2"]).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
+
+    def test_an_empty_list_of_libraries_prunes_nothing(self, conn, mock_plex):
+        engine = self._engine(conn, mock_plex, [])
+
+        engine.run_scan()
+        engine.sync_library()
+
+        assert "10" in self._ids(conn)
+        assert self.film.exists()
+
+    def test_a_dry_run_prunes_nothing(self, conn, mock_plex):
+        self._engine(conn, mock_plex, ["2"], dry_run=True).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+
+    def test_a_large_one_goes_only_when_a_second_run_finds_it_gone_too(self, conn, mock_plex):
+        for n in range(11, 20):
+            insert_media_item(conn, id=f"{n}", plex_rating_key=f"{n}", plex_library_id=1)
+        conn.commit()
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert len(self._ids(conn)) == 11
+        assert self.film.exists()
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert "10" not in self._ids(conn)
+        assert not self.film.exists()

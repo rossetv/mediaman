@@ -73,6 +73,7 @@ __all__ = [
     "fetch_already_scheduled_media_ids",
     "fetch_deletion",
     "fetch_due_deletions_under",
+    "fetch_gone_library_ids",
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_old_marks",
@@ -564,6 +565,17 @@ def fetch_due_deletions_under(
     ).fetchall()
     candidates = [_row_to_deletion_row(row) for row in rows]
     return [row for row in candidates if _at_or_under(row.file_path, path)]
+
+
+def fetch_gone_library_ids(conn: sqlite3.Connection, listed: Collection[str]) -> list[int]:
+    """Return the id of each Plex library with items stored that is not in *listed*.
+
+    Those items are what fetch_media_held_outside_pass would hold a path back for.
+    """
+    rows = conn.execute("SELECT DISTINCT plex_library_id AS id FROM media_items").fetchall()
+    return [
+        row["id"] for row in rows if isinstance(row["id"], int) and str(row["id"]) not in listed
+    ]
 
 
 def claim_due_deletions_under(
