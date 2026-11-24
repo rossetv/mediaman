@@ -287,6 +287,7 @@ WIDE = "https://image.tmdb.org/t/p/w1280/wide.jpg"
 @pytest.fixture(autouse=True)
 def _forget_backdrops():
     item_enrichment._backdrop_cache.clear()
+    item_enrichment._facts_cache.clear()
 
 
 def _tmdb_with(details):
@@ -359,6 +360,38 @@ class TestFillBackdrop:
         enrich_redownload_item(item, conn, SECRET)
 
         assert item["backdrop_url"] == WIDE
+
+    @pytest.mark.parametrize("tmdb_answer", [{"overview": "From TMDB."}, None])
+    def test_a_title_not_stored_is_asked_for_once_in_ten_minutes_found_or_not(
+        self, conn, monkeypatch, tmdb_answer
+    ):
+        clock = [1000.0]
+        monkeypatch.setattr(item_enrichment, "_clock", lambda: clock[0])
+        tmdb = MagicMock(**{"details.return_value": tmdb_answer, "search.return_value": None})
+        shown = []
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}) as ratings,
+        ):
+            for later, tmdb_id in ((0, 42), (599, 42), (599, 43), (601, 42)):
+                clock[0] = 1000.0 + later
+                item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": tmdb_id}
+                enrich_redownload_item(item, conn, SECRET)
+                shown.append(item.get("description"))
+
+        assert [c.args[1] for c in tmdb.details.call_args_list] == [42, 43, 42]
+        assert ratings.call_count == 3
+        assert shown[0] == shown[1] == ((tmdb_answer or {}).get("overview"))
+
+    def test_held_facts_are_of_one_type_and_carry_no_reason(self, conn):
+        with patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb") as fetch:
+            first: dict = {"title": "D", "media_type": "movie", "tmdb_id": 4, "reason": "Mine."}
+            enrich_redownload_item(first, conn, SECRET)
+            again: dict = {"title": "D", "media_type": "movie", "tmdb_id": 4}
+            enrich_redownload_item(again, conn, SECRET)
+            enrich_redownload_item({"title": "D", "media_type": "tv", "tmdb_id": 4}, conn, SECRET)
+        assert "reason" not in again
+        assert [c.args[0]["media_type"] for c in fetch.call_args_list] == ["movie", "tv"]
 
     @pytest.mark.parametrize(("category", "shown"), [("trending", "A heist."), ("personal", None)])
     def test_a_reason_made_from_everyones_viewing_is_not_shown_on_a_redownload(

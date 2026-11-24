@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.services.downloads.notifications import record_download_notification
+from mediaman.services.media_meta import item_enrichment
 from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
@@ -881,6 +882,7 @@ class TestDownloadPageOfAnOwnPick:
 
     @pytest.fixture(autouse=True)
     def _clear_state(self):
+        item_enrichment._facts_cache.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_confirm._reset_arr_cache_for_tests()
 

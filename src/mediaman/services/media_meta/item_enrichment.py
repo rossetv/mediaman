@@ -30,6 +30,25 @@ _BACKDROP_TMDB_TIMEOUT_S = 3.0
 # (media type, TMDB id) -> (when it was asked, backdrop or None): a title TMDB has no backdrop
 # for, or does not answer for, is not asked again on every view of its page.
 _backdrop_cache: dict[tuple[str, int], tuple[float, str | None]] = {}
+# (media type, TMDB id, title) -> (when it was asked, what TMDB and OMDb gave, misses too).
+_facts_cache: dict[tuple[object, object, object], tuple[float, dict[str, object]]] = {}
+_FACTS = (
+    "tmdb_id",
+    "year",
+    "description",
+    "rating",
+    "poster_url",
+    "backdrop_url",
+    "tagline",
+    "runtime",
+    "genres",
+    "director",
+    "cast_json",
+    "trailer_key",
+    "rt_rating",
+    "imdb_rating",
+    "metascore",
+)
 _clock = time.monotonic
 
 # A stored summary cut by a limit of this many characters ends mid-sentence.
@@ -234,5 +253,14 @@ def enrich_redownload_item(
             item["tmdb_id"] = row["tmdb_id"]
         return
 
-    # 2. Fall back to TMDB + OMDB APIs
+    # 2. Fall back to TMDB + OMDB APIs, misses held too: the page that shows this is public.
+    key = (media_type, tmdb_id, item.get("title"))
+    now = _clock()
+    hit = _facts_cache.get(key)
+    if hit and now - hit[0] < _BACKDROP_TTL_S:
+        item.update(hit[1])
+        return
     enrich_item_with_tmdb(item, conn, secret_key)
+    if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
+        _facts_cache.clear()
+    _facts_cache[key] = (now, {k: item[k] for k in _FACTS if k in item})
