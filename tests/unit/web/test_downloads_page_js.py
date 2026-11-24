@@ -384,6 +384,19 @@ def test_the_season_picker_is_hidden_unless_a_show_has_several_stuck_seasons() -
     assert out == {"movie": True, "picker": False, "movieAgain": True}
 
 
+def test_a_lone_season_still_to_air_is_abandoned_only_when_picked() -> None:
+    out = _run("abandonOneSeason")
+    assert out["unaired"] == {
+        "listed": True,
+        "on": [False],
+        "label": "Abandon",
+        "disabled": "true",
+    }
+    assert out["sentUnticked"] == 0
+    assert out["aired"] == {"listed": False, "label": "Abandon", "disabled": "false"}
+    assert out["seasons"] == [[2], [3]]
+
+
 def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> None:
     out = _run("abandonSeasons")
     assert out["rows"] == [

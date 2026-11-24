@@ -210,7 +210,7 @@ function abandonRig() {
       dismiss() { opts.onClose(); },
     }),
   };
-  h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
+  h.ctx.MM.api.post = (url, body) => new Promise((resolve, reject) => { rig.posts.push({ url, body, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
   h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast(text, o) { rig.toasts.push([text, o.variant]); } };
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
@@ -329,6 +329,22 @@ scenarios.abandonSwitchesLocked = async function () {
 };
 
 // what the season picker starts with, and which seasons a confirm sends
+// the only season of a show is still to air: it is offered unticked; one with gaps is sent at once
+scenarios.abandonOneSeason = async function () {
+  const r = abandonRig();
+  r.openItem('s1', 'series', [{ number: 2, missing_episodes: 0, aired: false }]);
+  const unaired = { listed: !r.list.hidden, on: r.togs().map((t) => t.classList.contains('on')), ...status(r) };
+  r.confirmClick();
+  const sentUnticked = r.posts.length;
+  r.flip(0);
+  r.confirmClick();
+  r.dismiss();
+  r.openItem('s2', 'series', [{ number: 3, missing_episodes: 4, aired: true }]);
+  const aired = { listed: !r.list.hidden, ...status(r) };
+  r.confirmClick();
+  return { unaired, sentUnticked, aired, seasons: r.posts.map((p) => p.body.seasons) };
+};
+
 scenarios.abandonSeasons = async function () {
   const r = abandonRig();
   r.openItem('s1', 'series', [

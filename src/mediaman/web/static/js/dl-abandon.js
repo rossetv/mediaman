@@ -64,7 +64,7 @@
 
     listEl.replaceChildren();
 
-    if (upcoming || kind === 'movie' || stuck.length <= 1) {
+    if (!isPicker()) {
       copyEl.textContent = upcoming
         ? 'It hasn’t been released yet. Mediaman will unmonitor it in ' +
           'Radarr/Sonarr so it won’t be picked up when it lands. It stays ' +
@@ -147,8 +147,15 @@
 
   function isBusy() { return !!(current && inflight[current.dlId]); }
 
+  /* One season still to air is not what is being searched for in vain: it is asked about,
+     never sent as if it had been picked. */
+  function needsPicker(stuck) {
+    return stuck.length > 1 ||
+      (stuck.length === 1 && !stuck[0].missing_episodes && stuck[0].aired === false);
+  }
+
   function isPicker() {
-    return !current.upcoming && current.kind === 'series' && current.stuckSeasons.length > 1;
+    return !current.upcoming && current.kind === 'series' && needsPicker(current.stuckSeasons);
   }
 
   /* The button and the season switches follow the current selection and
@@ -183,11 +190,8 @@
 
     var seasons = [];
     if (current.kind === 'series' && !current.upcoming) {
-      if (current.stuckSeasons.length === 1) {
-        seasons = [current.stuckSeasons[0].number];
-      } else {
-        seasons = selectedSeasons();
-      }
+      seasons = isPicker() ? selectedSeasons()
+        : current.stuckSeasons.map(function (s) { return s.number; });
     }
 
     var dlId = current.dlId;
