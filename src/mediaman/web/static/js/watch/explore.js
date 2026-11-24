@@ -444,17 +444,19 @@
     node.appendChild(select);
     node.appendChild(window.MM.dom.icon('i-chevron-down'));
     function fill(decades) {
-      var now = select.value || value;
       select.textContent = '';
-      [''].concat(decades, now && decades.indexOf(now) === -1 ? [now] : []).forEach(function (d) {
+      [''].concat(decades, value && decades.indexOf(value) === -1 ? [value] : []).forEach(function (d) {
         var o = el('option', '', d || 'Any year');
         o.value = d;
         select.appendChild(o);
       });
-      select.value = now;
+      select.value = value;
     }
     fill(held.decades);
-    select.addEventListener('change', function () { choose(select.value); });
+    select.addEventListener('change', function () {
+      value = select.value;
+      choose(value);
+    });
     return { node: node, fill: fill, choose: function (to) { value = select.value = to; } };
   }
 

@@ -446,3 +446,7 @@ def test_keys_pressed_during_a_composition_are_left_to_it() -> None:
     untouched = [0, [False, False], "act", 0]
     page = "/watch?genre=action"
     assert _run("composing") == [untouched, page, untouched, page]
+
+
+def test_any_year_stays_chosen_when_the_years_arrive() -> None:
+    assert _run("anyYear") == ["", "/watch?genre=action", 4]

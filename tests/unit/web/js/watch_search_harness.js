@@ -1024,6 +1024,17 @@ const scenarios = {
     }
     return out;
   },
+
+  // Any year chosen before the categories arrive stays chosen once they do.
+  async anyYear() {
+    const p = load(ADMIN, '', '/watch?genre=action&decade=1990s', null);
+    const select = p.doc.querySelector('.explore-years__select');
+    select.value = '';
+    select.listeners.change.forEach((fn) => fn({}));
+    p.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.resolve({ genres: GENRES, decades: DECADES }));
+    await settle();
+    return [select.value, p.url(), select.children.length];
+  },
 };
 
 // Motion on: every move runs until finish() ends it.
