@@ -57,6 +57,36 @@ def count_anime_shows(conn: sqlite3.Connection) -> int:
     return int(row["n"])
 
 
+def count_titles(conn: sqlite3.Connection) -> dict[str, int]:
+    """Return how many movies, TV shows and anime shows the library holds."""
+    return {
+        "movies": count_movies(conn),
+        "tv": count_tv_shows(conn),
+        "anime": count_anime_shows(conn),
+    }
+
+
+def count_no_size(conn: sqlite3.Connection) -> dict[str, int]:
+    """Return how many movies, TV shows and anime shows have no size from Plex yet.
+
+    A show counts when none of its seasons has one.
+    """
+    tv_marks = ",".join("?" * len(TV_SEASON_TYPES))
+    anime_marks = ",".join("?" * len(ANIME_SEASON_TYPES))
+    # rationale: placeholders are purely "?" * len(...) — no user value enters the SQL text
+    show_sql = (
+        "(SELECT COUNT(*) FROM (SELECT 1 FROM media_items WHERE media_type IN ({})"
+        " GROUP BY COALESCE(show_rating_key, show_title) HAVING SUM(file_size_bytes) = 0))"
+    )
+    row = conn.execute(
+        "SELECT (SELECT COUNT(*) FROM media_items"
+        " WHERE media_type = 'movie' AND file_size_bytes = 0) AS movies,"
+        f" {show_sql.format(tv_marks)} AS tv, {show_sql.format(anime_marks)} AS anime",
+        (*TV_SEASON_TYPES, *ANIME_SEASON_TYPES),
+    ).fetchone()
+    return {"movies": int(row["movies"]), "tv": int(row["tv"]), "anime": int(row["anime"])}
+
+
 def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str) -> int:
     """Return the count of stale *display items* — stale movies plus stale shows.
 
@@ -155,9 +185,7 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     GROUP BY NULL collapses such rows into one group, so the count wraps a GROUP BY
     sub-select to make NULL count as 1.
     """
-    movies = count_movies(conn)
-    tv = count_tv_shows(conn)
-    anime = count_anime_shows(conn)
+    titles = count_titles(conn)
 
     min_age = get_day_setting(conn, "min_age_days", default=30)
     inactivity = get_day_setting(conn, "inactivity_days", default=30)
@@ -172,13 +200,11 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     )
 
     sizes = sum_size_bytes_by_type(conn)
-    total = movies + tv + anime
+    total = sum(titles.values())
     total_size = format_bytes(sum_total_size_bytes(conn))
 
     return {
-        "movies": movies,
-        "tv": tv,
-        "anime": anime,
+        **titles,
         "stale": stale,
         "stale_min_age": min_age,
         "total": total,
@@ -188,4 +214,5 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
         "anime_size": format_bytes(sizes["anime"]),
         "due_soon": due_soon,
         "due_soon_days": DUE_SOON_DAYS,
+        "no_size": count_no_size(conn),
     }

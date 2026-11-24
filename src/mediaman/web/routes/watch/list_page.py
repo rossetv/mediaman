@@ -7,7 +7,6 @@ in; ``/watch?view=list`` renders the same fragment inline through
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from collections.abc import Mapping
 from typing import Any, cast
@@ -52,8 +51,6 @@ SORT_OPTIONS = (
 # A deletion this close shows in the warning colour.
 SOON_DAYS = 14
 
-_KEY_RE = re.compile(r"[0-9]{1,18}")
-
 
 def _int(value: str | None, default: int, low: int, high: int) -> int:
     try:
@@ -61,15 +58,6 @@ def _int(value: str | None, default: int, low: int, high: int) -> int:
     except ValueError:
         return default
     return min(max(number, low), high)
-
-
-def _title_ref(item: Mapping[str, Any]) -> str | None:
-    """The detail overlay's id for a row, when the row has one."""
-    if item["is_tv"]:
-        key = str(item["show_rating_key"] or "")
-        return f"show-{key}" if item["has_rating_key"] and _KEY_RE.fullmatch(key) else None
-    key = str(item["id"])
-    return f"movie-{key}" if _KEY_RE.fullmatch(key) else None
 
 
 def _deletion_label(iso: str | None) -> str:
@@ -104,7 +92,6 @@ def list_context(
         )
     seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
     for item in items:
-        item["ref"] = _title_ref(item)
         item["watched"] = item["ref"] in seen
         item["deletion_label"] = _deletion_label(cast(str | None, item["deletion_at"]))
 
