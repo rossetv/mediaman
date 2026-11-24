@@ -114,8 +114,16 @@ def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
         assert "solid CanvasText" in rules[f".setg-pg {dot}"]
     for bar in (".ov-storage .bar span", ".lp-bar2 span"):
         assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
-    for chosen in (".setg-rail-item.on", ".lib-pill.on"):
-        assert "background: Highlight" in rules[f".setg-pg {chosen}"]
+    assert "background: Highlight" in rules[".setg-pg .setg-rail-item.on"]
+
+
+def test_a_selected_library_shows_in_forced_colours() -> None:
+    # after the pill's own colours, which would otherwise win
+    own = PANELS.index(".setg-pg .lib-pill.on")
+    forced = re.search(
+        r"@media \(forced-colors: active\) \{\s*\.setg-pg \.lib-pill\.on \{([^{}]*)\}", PANELS
+    )
+    assert forced and forced.start() > own and "background: Highlight" in forced.group(1)
 
 
 def test_a_card_heading_is_not_squeezed_by_its_button() -> None:

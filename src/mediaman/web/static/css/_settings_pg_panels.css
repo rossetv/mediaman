@@ -152,6 +152,11 @@
   background: rgba(41,151,255,.12); color: var(--accent);
   border-color: rgba(41,151,255,.4);
 }
+@media (forced-colors: active) {
+  .setg-pg .lib-pill.on {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+}
 
 .setg-pg .lp-card {
   border: 1px solid var(--hair);
