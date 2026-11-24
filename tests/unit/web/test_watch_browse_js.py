@@ -167,3 +167,7 @@ def test_landing_from_recommended_scrolls_its_row_into_view_and_cleans_the_addre
 
 def test_a_season_line_of_pills_pages_by_the_keys_and_the_arrow() -> None:
     assert _run("seasonLine") == {"hasNext": True, "afterKey": 100, "afterArrow": 500}
+
+
+def test_focus_moves_into_the_row_that_try_again_brought_back() -> None:
+    assert _run("focusAfterRetry") == {"discover": "popular_tv", "recommended": "recommended"}

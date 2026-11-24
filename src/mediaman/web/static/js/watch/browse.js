@@ -227,6 +227,8 @@
         core.toast('Still couldn’t load them. Try again in a moment.', { variant: 'error' });
         return;
       }
+      // Read before the swap: a row fading out is inert, so it loses the focus.
+      var focused = document.activeElement === button;
       var focusNext = null;
       failed.forEach(function (old) {
         var match = fresh.filter(function (s) {
@@ -235,9 +237,9 @@
         if (!match) { old.remove(); return; }
         core.swap(old, match);
         startRows(match);
-        if (!focusNext) focusNext = match.querySelector('.watch-row__scroll');
+        if (!focusNext || old.contains(button)) focusNext = match.querySelector('.watch-row__scroll');
       });
-      if (focusNext && document.activeElement === button) core.focusSoftly(focusNext);
+      if (focusNext && focused) core.focusSoftly(focusNext);
     });
   }
 
@@ -458,10 +460,12 @@
     fetchRec(null).then(function (payload) {
       var section = recSection(payload);
       if (!section) { old.remove(); return; }
+      // Read before the swap: a row fading out is inert, so it loses the focus.
+      var focused = document.activeElement === button;
       core.swap(old, section);
       startRows(section);
       var focus = section.querySelector('.watch-row__scroll, [data-picks-menu]');
-      if (focus && document.activeElement === button) core.focusSoftly(focus);
+      if (focus && focused) core.focusSoftly(focus);
     }, function (err) {
       if (loggedOut(err)) return;
       button.removeAttribute('aria-disabled');

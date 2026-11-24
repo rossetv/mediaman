@@ -142,6 +142,30 @@ function badgeOf(doc, ref) {
 }
 
 const scenarios = {
+  // Try again, pressed with the keyboard, works: the focus goes to the row it was pressed in. The
+  // row it replaces fades out inert, which takes the focus from the button in it.
+  async focusAfterRetry() {
+    const run = async (id, url, ok) => {
+      let fail = true;
+      const p = load({ routes: { ['GET ' + url]: () => (fail ? Promise.reject(apiError(502, {})) : Promise.resolve(ok)) } });
+      await settle();
+      p.ctx.MMWatch.core.swap = (old, node) => {
+        if (old.contains(p.doc.activeElement)) p.doc.activeElement.blur();
+        old.replaceWith(node);
+        return Promise.resolve();
+      };
+      const button = p.doc.querySelector('[data-discover-row="' + id + '"] [data-discover-retry]');
+      button.focus();
+      fail = false;
+      click(p.doc, button);
+      await settle();
+      const row = p.doc.activeElement.closest('[data-discover-row]');
+      return row && row.getAttribute('data-discover-row');
+    };
+    return { discover: await run('popular_tv', '/api/watch/discover', DISCOVER),
+      recommended: await run('recommended', '/api/watch/recommended', recommended()) };
+  },
+
   // Discover and Recommended arrive: the skeleton is replaced by real rows with badges.
   async loaded() {
     const p = load({ admin: true });
