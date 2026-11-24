@@ -712,10 +712,10 @@
   function waitOut(again, gaveUp) {
     if (!lost) {
       lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
-      clearTimeout(stallTimer);
       countLost();
       showLost();
     }
+    clearTimeout(stallTimer);
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);

@@ -1767,6 +1767,28 @@ const scenarios = {
     return out;
   },
 
+  /* In a drop after a refusal a try is taken, and its body is lost too. */
+  async taken_then_lost(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const lose = () => h.emit('hlsError', loadError('fragLoadError', 0));
+    h.emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    p.tick(2000);
+    lose();
+    p.tick(1000);
+    accept(h);
+    lose();
+    const fail = failingLoads(h, lose);
+    await failFor(p, 50000, fail);
+    const out = { starts: p.starts().length, early: messageState(p) };
+    await failFor(p, 10000, fail);
+    return Object.assign(out, { message: messageState(p) });
+  },
+
   /* Refused for long, paused with enough loaded ahead. */
   async busy_paused(p) {
     await streamPlays(p, 100);

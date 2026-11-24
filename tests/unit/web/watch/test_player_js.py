@@ -1476,6 +1476,11 @@ def test_a_refusal_with_much_loaded_counts_only_from_when_that_has_played(markup
     assert out["late"] == "Too many tries. Wait a moment and try again."
 
 
+def test_a_try_taken_and_lost_again_in_a_drop_steps_nowhere(markup):
+    out = run(markup, "taken_then_lost")
+    assert out == {"starts": 1, "early": None, "message": LOST}
+
+
 def test_a_refusal_before_a_seek_counts_for_nothing_after_it(markup):
     out = run(markup, "busy_once", plays="back")
     assert (out["message"], out["stops"]) == (None, 0)
