@@ -134,6 +134,8 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
     snoozed_at TEXT,
     snooze_duration TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

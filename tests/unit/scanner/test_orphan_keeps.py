@@ -201,3 +201,17 @@ class TestListShorterThanTheLibrary:
 
         assert repository.take_pruned_keeps(conn, "n1", "/tv/Show", 1) == []
         assert len(repository.take_pruned_keeps(conn, "n2", "/tv/Show", 2)) == 1
+
+    def test_looking_for_a_keep_to_give_back_does_not_read_every_keep_set_aside(self, conn):
+        queries = []
+        conn.set_trace_callback(queries.append)
+        repository.take_pruned_keeps(conn, "o0", "/media/o0.mkv", None)
+        conn.set_trace_callback(None)
+
+        plan = [r["detail"] for q in queries if q.startswith("SELECT") for r in _plan(conn, q)]
+        assert plan
+        assert not [step for step in plan if step.startswith("SCAN")]
+
+
+def _plan(conn, query):
+    return conn.execute(f"EXPLAIN QUERY PLAN {query}").fetchall()
