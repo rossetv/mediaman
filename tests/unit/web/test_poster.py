@@ -1493,7 +1493,7 @@ class TestPosterTmdbBackdrop:
             r, asked = ask("700", details=details)
             assert (r.status_code, r.content, asked) == (200, b"plex-art", [])
             assert r.headers["cache-control"] == "public, max-age=604800"
-        assert ask.timeouts == [3.0, 3.0]
+        assert ask.timeouts == [(3.0, False)] * 2
 
     @pytest.mark.parametrize("value", ["", "plex", "TMDB", "tmdb,plex"])
     def test_any_other_source_still_serves_plexs_backdrop(self, ask, plex_art, value):
