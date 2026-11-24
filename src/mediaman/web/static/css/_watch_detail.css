@@ -192,8 +192,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__note a { position: relative; color: var(--accent); font-weight: 500; }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }
 .ttl__note-ok { color: var(--success); }
-.ttl__error { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--danger-text); }
-.ttl__retry { min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
+.ttl__error { display: flex; align-items: baseline; gap: 10px; font-size: 14px; color: var(--danger-text); }
+.ttl__error > .fa-solid { flex: none; }
+.ttl__error > span { min-width: 0; overflow-wrap: anywhere; }
+.ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
 .ttl__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__sec-title { font-size: 19px; font-weight: 600; margin-bottom: 14px; }
 .ttl__sec-skel { width: 80px; height: 18px; margin-bottom: 16px; }
