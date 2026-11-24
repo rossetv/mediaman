@@ -423,10 +423,10 @@ const scenarios = {
     await p.keep('2', '30');
     const kept = { rows: p.rows(), focused: p.focused(), posts: p.posts(), toast: p.last(), meter: p.meter(), link: p.one('.space-row-link').textContent,
       card: p.all('.watch-card').map((c) => c.getAttribute('data-keep-id')) };
-    delete kept.toast.opts.action.label;
+    const fromPanel = kept.toast.opts.dialog === p.one('.space__panel');
     p.last().opts.action.onClick();
     await settle();
-    return { kept: { ...kept, toast: { message: kept.toast.message, undo: kept.toast.undo } }, undone: { rows: p.rows(), focused: p.focused(), post: p.posts()[1], meter: p.meter() } };
+    return { fromPanel, kept: { ...kept, toast: { message: kept.toast.message, undo: kept.toast.undo } }, undone: { rows: p.rows(), focused: p.focused(), post: p.posts()[1], meter: p.meter() } };
   },
   async keepLast() {
     const p = await page([row('1')]);
@@ -491,8 +491,9 @@ const scenarios = {
     await p.click(p.$('card-keep-1'));
     await p.click(p.one('#watch-keep-menu [data-days="7"]'));
     const meter = p.meter();
+    const fromPanel = !!p.last().opts.dialog;
     await p.open();
-    return { meter, rows: p.rows() };
+    return { fromPanel, meter, rows: p.rows() };
   },
   // The refresh after a keep is still out when the keep is undone.
   async undoRace() {

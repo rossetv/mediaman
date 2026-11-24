@@ -19,6 +19,11 @@ def test_undo_answers_ctrl_z_unless_a_dialog_on_screen_or_a_text_field_has_the_k
         # a dialog in something that is not shown
         "closedInside": True,
         "open": False,
+        # a toast from the dialog that is open
+        "itsOwn": True,
+        "anotherOverItsOwn": False,
+        "confirmOverItsOwn": False,
+        "textFieldInItsOwn": False,
         "ariaHidden": True,
         "invisible": True,
         "notModal": True,

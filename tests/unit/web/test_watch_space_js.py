@@ -205,6 +205,7 @@ class TestScheduled:
 
     def test_a_keep_takes_the_row_off_everywhere_moves_to_the_next_and_undo_puts_it_back(self):
         out = _run("keepAndUndo")
+        assert out["fromPanel"] is True  # so Ctrl+Z undoes it over the panel
         assert out["kept"] == {
             "rows": ["1", "3"],
             "focused": "Keep Film 3",
@@ -264,6 +265,7 @@ class TestScheduled:
         out = _run("keepFromTheRow")
         assert "2 leaving" in out["meter"]
         assert out["rows"] == ["2", "3"]
+        assert out["fromPanel"] is False
 
     def test_a_keep_counts_at_once_and_its_refresh_never_takes_away_a_row_undone_meanwhile(self):
         out = _run("undoRace")

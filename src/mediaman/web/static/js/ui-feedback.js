@@ -20,7 +20,9 @@
  *                          adds a button to the toast; clicking it runs onClick
  *                          and dismisses the toast. A toast with an action stays
  *                          8s unless `duration` says otherwise, and is not
- *                          dismissed while the button has keyboard focus.
+ *                          dismissed while the button has keyboard focus. With
+ *                          `dialog`, the aria-modal it came from, Ctrl+Z presses
+ *                          the button while that one is open too.
  *
  *   window.UIFeedback.error(message)  — shorthand for toast(msg, { variant: 'error' })
  */
@@ -86,14 +88,16 @@
     return host;
   }
 
+  var raisedFrom = new WeakMap(); // the dialog an action toast came from, by its button
   var undoListening = false;
   var undoHint = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '') ? 'Cmd+Z' : 'Ctrl+Z';
 
   // A confirm dialog or any open aria-modal dialog owns the keyboard.
-  function modalOpen() {
+  // Not *own*, the dialog a toast came from.
+  function modalOpen(own) {
     if (document.querySelector('.ui-confirm-overlay:not(.is-leaving)')) return true;
     return Array.prototype.some.call(document.querySelectorAll('[aria-modal="true"]'), function (m) {
-      if (m.getAttribute('aria-hidden') === 'true') return false;
+      if (m === own || m.getAttribute('aria-hidden') === 'true') return false;
       // No box: it, or something it stands in, is not shown.
       return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
@@ -105,13 +109,13 @@
     undoListening = true;
     document.addEventListener('keydown', function (e) {
       if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-      if (modalOpen()) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
       var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
-      if (!btns.length) return;
+      var last = btns[btns.length - 1];
+      if (!last || modalOpen(raisedFrom.get(last))) return;
       e.preventDefault();
-      btns[btns.length - 1].click();
+      last.click();
     });
   }
 
@@ -129,6 +133,7 @@
       var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
                                'aria-keyshortcuts': 'Control+Z Meta+Z',
                                'aria-label': action.label + ' (' + undoHint + ')' });
+      if (opts.dialog) raisedFrom.set(btn, opts.dialog);
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
         dismissToast(node);

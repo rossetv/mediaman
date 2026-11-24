@@ -567,6 +567,7 @@
     if (busy[id]) return;
     var name = titleOf(trigger);
     var undoable = canUndo(trigger, days);
+    var dialog = trigger.closest('.space__panel');
     started(id);
     send(id, days, undoable).then(function (data) {
       var moveFocus = focusLost(trigger);
@@ -577,6 +578,7 @@
       } else {
         toast('Kept ' + (name || 'this') + ' ' + span(days) + '.', {
           variant: 'success',
+          dialog: dialog,
           action: undoable ? { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } } : null
         });
       }
