@@ -4,10 +4,12 @@ TMDB marks adult is kept."""
 
 from __future__ import annotations
 
+import heapq
+import itertools
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import date
 from typing import Any
 
@@ -35,6 +37,8 @@ from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
 TYPES = ("all", "movie", "tv")
 SORTS = ("popular", "top_rated", "newest")
 _FIRST_DECADE = 1930
+# As many as a page of TMDB's.
+_MERGED_PAGE = 20
 
 # Below these an average is a handful of people's.
 _TOP_RATED_VOTES = {"movie": 300, "tv": 200}
@@ -142,16 +146,24 @@ def explore_page(
     allow_fetch: Callable[[], bool] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int | None]:
     """The TMDB items of one page of *genre*, how many titles the list has, and the page
-    after it or None at its end. "all" is a page of films and a page of TV together, asked
-    for apart, and *allow_fetch* (as in ``search``) is asked for each. Raises
+    after it or None at its end. "all" is films and TV together, asked for apart, and
+    *allow_fetch* (as in ``search``) is asked for each page of TMDB's. Raises
     TmdbUnavailable, TmdbBusy when TMDB answered 429."""
-    pages = []
-    for kind in genre.types if media_type == "all" else [media_type]:
-        genre_id = genre.tmdb_id(kind)
-        if genre_id is None:
-            continue
-        key, fetch = _page_entry(client, kind, genre_id, sort, decade, page)
-        pages.append(_cached(client, key, 6 * _HOUR, 7 * _DAY, fetch, allow_fetch))
+    kinds = {
+        kind: genre_id
+        for kind in (genre.types if media_type == "all" else [media_type])
+        if (genre_id := genre.tmdb_id(kind)) is not None
+    }
+
+    def read(kind: str, number: int) -> dict[str, Any]:
+        key, fetch = _page_entry(client, kind, kinds[kind], sort, decade, number)
+        page: dict[str, Any] = _cached(client, key, 6 * _HOUR, 7 * _DAY, fetch, allow_fetch)
+        return page
+
+    if len(kinds) > 1 and sort != "popular":
+        items, more = _merged(read, list(kinds), sort, page)
+        return items, sum(read(kind, 1)["total"] for kind in kinds), page + 1 if more else None
+    pages = [read(kind, page) for kind in kinds]
     more = any(page < min(p["pages"], MAX_PAGE) for p in pages)
     items = _mixed([p["items"] for p in pages], sort)
     return items, sum(p["total"] for p in pages), page + 1 if more else None
@@ -171,6 +183,40 @@ def _mixed(lists: Sequence[list[dict[str, Any]]], sort: str) -> list[dict[str, A
     if sort == "top_rated":
         return sorted(turns, key=lambda i: -(vote_of(i.get("vote_average")) or 0))
     return sorted(turns, key=_released, reverse=True)
+
+
+def _merged(
+    read: Callable[[str, int], dict[str, Any]], kinds: Sequence[str], sort: str, page: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """One page of all *kinds* in one order, and whether the list goes on. Where it begins
+    follows from every page before it, which the cache holds."""
+
+    def rank(item: Mapping[str, Any]) -> tuple[float, str]:
+        if sort == "top_rated":
+            return vote_of(item.get("vote_average")) or 0, ""
+        return 0, _released(item)
+
+    def walk(kind: str) -> Iterator[dict[str, Any]]:
+        for number in itertools.count(1):
+            got = read(kind, number)
+            yield from sorted(got["items"], key=rank, reverse=True)
+            if number >= min(got["pages"], MAX_PAGE):
+                return
+
+    seen = set()
+    end = page * _MERGED_PAGE
+    items: list[dict[str, Any]] = []
+    # A title TMDB moved between two reads is on two of its pages.
+    for item in heapq.merge(*map(walk, kinds), key=rank, reverse=True):
+        title = (item["media_type"], tmdb_id_of(item))
+        if title in seen:
+            continue
+        seen.add(title)
+        if len(seen) > end:
+            return items, page < MAX_PAGE
+        if len(seen) > end - _MERGED_PAGE:
+            items.append(item)
+    return items, False
 
 
 def _votes(value: object) -> int:

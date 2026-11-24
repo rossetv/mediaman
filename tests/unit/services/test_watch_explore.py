@@ -15,7 +15,8 @@ from mediaman.services.watch_catalog import _explore
 
 
 class Tmdb:
-    """A TmdbClient that answers from ``pages``, by path; an exception is raised."""
+    """A TmdbClient that answers from ``pages``, by path; an exception is raised, and a list
+    is one answer a page."""
 
     def __init__(self, monkeypatch) -> None:
         self.pages: dict[str, object] = {}
@@ -26,6 +27,8 @@ class Tmdb:
     def _get(self, path, params=None):
         self.asked.append((path, params or {}))
         answer = self.pages[path]
+        if isinstance(answer, list):
+            answer = answer[params["page"] - 1]
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -138,6 +141,44 @@ class TestExplorePage:
         }
 
         assert [i for _, i in _explore_ids(tmdb, sort=sort)] == expected
+
+    @pytest.mark.parametrize("sort", ["top_rated", "newest"])
+    def test_films_and_tv_stand_in_one_order_across_pages_each_title_once(self, tmdb, sort):
+        def row(number: int, place: int) -> dict:
+            day = f"{2026 - place // 12:04d}-{12 - place % 12:02d}-01"
+            return {
+                "id": number,
+                "vote_average": 9 - place / 50,
+                "release_date": day,
+                "first_air_date": day,
+            }
+
+        films = [row(n, 2 * n) for n in range(60)]
+        # TV is thinner on the ground, so a page of it reaches as far as several of films.
+        shows = [row(n, 5 * n) for n in range(40)]
+        films[20:20] = [films[19]]  # moved to the next page between two reads
+        tmdb.pages = {
+            f"/discover/{kind}": [
+                _list(*rows[at : at + 20], pages=-(-len(rows) // 20), total=len(rows))
+                for at in range(0, len(rows), 20)
+            ]
+            for kind, rows in (("movie", films), ("tv", shows))
+        }
+        genre = catalog.GENRES["action"]
+        got: list[dict] = []
+        page: int | None = 1
+        while page is not None:
+            items, _, page = catalog.explore_page(tmdb.client, genre, sort=sort, page=page)
+            got += items
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert len(titles) == len(set(titles)) == 100
+        field = "vote_average" if sort == "top_rated" else "release_date"
+        # To one decimal, as a card has it.
+        order = [round(i[field], 1) if sort == "top_rated" else i[field] for i in got]
+        assert order == sorted(order, reverse=True)
+        # Each of TMDB's pages once.
+        assert len(tmdb.asked) == 4 + 2
 
     def test_the_list_goes_on_while_either_kind_has_a_page_and_counts_both(self, tmdb):
         tmdb.pages = {
