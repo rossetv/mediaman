@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from unittest.mock import MagicMock
@@ -13,7 +14,7 @@ from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner import deletions, runner
 from mediaman.scanner.deletions import DeletionExecutor
-from mediaman.services.infra import ConfigDecryptError
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_settings
 
 
@@ -235,7 +236,7 @@ def test_a_row_that_fails_unexpectedly_is_audited_and_the_rest_go_on(conn, root,
 def test_a_database_error_while_unmonitoring_leaves_no_due_row_undeleted(conn, root, monkeypatch):
     files = [_due(conn, root, number) for number in (1, 2)]
     with monkeypatch.context() as m:
-        m.setattr(deletions, "finish_unmonitor", MagicMock(side_effect=sqlite3.OperationalError))
+        m.setattr(deletions, "await_rescan", MagicMock(side_effect=sqlite3.OperationalError))
         DeletionExecutor(conn=conn, radarr_client=_radarr(root)).execute()
 
     assert [f.exists() for f in files] == [False, False]
@@ -328,7 +329,7 @@ def test_a_title_left_monitored_is_not_rescanned(conn, root):
     assert _rescanned(radarr) == []
 
 
-def test_a_rescan_that_fails_leaves_the_deletion_booked_and_is_not_repeated(conn, root):
+def test_a_rescan_that_fails_leaves_the_deletion_booked_and_ends_radarrs_turn(conn, root):
     for number in (1, 2):
         _due(conn, root, number)
     radarr = _radarr(root)
@@ -339,3 +340,36 @@ def test_a_rescan_that_fails_leaves_the_deletion_booked_and_is_not_repeated(conn
     assert result["deleted"] == 2
     assert _rescanned(radarr) == [1]
     assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 'unmonitor_skipped'").fetchone()
+
+
+@pytest.mark.parametrize(
+    "failure", [_Died(), KeyError("id"), requests.ReadTimeout("slow"), SafeHTTPError(503, "", "u")]
+)
+def test_a_rescan_that_was_not_asked_for_is_asked_for_by_the_next_sync_once(
+    conn, root, monkeypatch, failure
+):
+    _due(conn, root, 1)
+    radarr = _radarr(root)
+    radarr.rescan_movie.side_effect = failure
+    with contextlib.suppress(_Died):
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+    conn.rollback()
+    radarr = _radarr(root)
+
+    for _ in range(2):
+        _sync(conn, monkeypatch, radarr)
+
+    assert _rescanned(radarr) == [1]
+    assert _unmonitored(radarr) == []
+
+
+def test_an_entry_radarr_refuses_to_rescan_does_not_hold_up_the_others(conn, root, monkeypatch):
+    for number in (1, 2):
+        _due(conn, root, number)
+    radarr = _radarr(root)
+    radarr.rescan_movie.side_effect = [SafeHTTPError(404, "", "u"), None]
+
+    DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+    _sync(conn, monkeypatch, radarr)
+
+    assert _rescanned(radarr) == [1, 2]

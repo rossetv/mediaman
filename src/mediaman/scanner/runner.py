@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 import requests
 
 from mediaman.scanner import repository
+from mediaman.scanner.repository.scheduled_actions import has_pending_unmonitors
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
@@ -386,14 +387,14 @@ def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
     """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
     if repository.read_setting(conn, "dry_run") == "true":
         return
-    if not repository.fetch_pending_unmonitors(conn):
+    if not has_pending_unmonitors(conn):
         return
-    from mediaman.scanner.deletions import rescan_unmonitored, unmonitor_deleted
+    from mediaman.scanner.deletions import rescan_deleted, unmonitor_deleted
 
     try:
         radarr, sonarr = _build_radarr(conn, secret_key), _build_sonarr(conn, secret_key)
-        done = unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
-        rescan_unmonitored(done, radarr_client=radarr, sonarr_client=sonarr)
+        unmonitor_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
+        rescan_deleted(conn, radarr_client=radarr, sonarr_client=sonarr)
     # rationale: an unreadable setting or a payload of the wrong shape must not stop the sync.
     except Exception:
         logger.exception("Unmonitoring deleted titles failed — sync unaffected")

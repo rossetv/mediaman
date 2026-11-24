@@ -52,6 +52,7 @@ __all__ = [
     "DELETION_ACTION",
     "ClearedDeletions",
     "DeletionRow",
+    "await_rescan",
     "book_deletion",
     "book_removed_files",
     "cancel_kept_deletion",
@@ -68,6 +69,7 @@ __all__ = [
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_pending_deletions",
+    "fetch_pending_rescans",
     "fetch_pending_unmonitors",
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
@@ -76,6 +78,7 @@ __all__ = [
     "finish_unmonitor",
     "forget_unremoved_files",
     "has_expired_snooze",
+    "has_pending_unmonitors",
     "is_already_scheduled",
     "is_claimed_deletion",
     "is_fully_removed",
@@ -652,17 +655,54 @@ def book_deletion(
     delete_scheduled_action(conn, row.id)
 
 
+# The Radarr/Sonarr entry a mark waits to have rescanned; NULL while it is still to be told.
+_RESCAN_ID = "CASE WHEN json_valid(removed_files) THEN json_extract(removed_files, '$.rescan') END"
+
+
 def fetch_pending_unmonitors(conn: sqlite3.Connection) -> list[DeletionRow]:
     """Return each booked deletion Radarr/Sonarr is still to be told of; its ``id`` is its audit's."""
-    rows = conn.execute(
+    # rationale: the interpolated condition is a fixed string
+    rows = conn.execute(  # nosec B608
         "SELECT p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
         "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
         "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
         "1 AS library_selected "
         "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
-        "JOIN deleted_media d ON d.audit_id = p.audit_id ORDER BY p.audit_id"
+        "JOIN deleted_media d ON d.audit_id = p.audit_id "
+        f"WHERE {_RESCAN_ID} IS NULL ORDER BY p.audit_id"
     ).fetchall()
     return [_row_to_deletion_row(row) for row in rows]
+
+
+def has_pending_unmonitors(conn: sqlite3.Connection) -> bool:
+    """Return True while a booked deletion waits to be unmonitored or rescanned."""
+    return conn.execute("SELECT 1 FROM pending_unmonitors LIMIT 1").fetchone() is not None
+
+
+def await_rescan(conn: sqlite3.Connection, audit_id: int, entry_id: int) -> bool:
+    """Leave the mark waiting for a rescan of *entry_id* only; return False if it already is, or is gone."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    cursor = conn.execute(  # nosec B608
+        "UPDATE pending_unmonitors SET removed_files = ? "
+        f"WHERE audit_id = ? AND {_RESCAN_ID} IS NULL",
+        (json.dumps({"rescan": entry_id}), audit_id),
+    )
+    return cursor.rowcount == 1
+
+
+def fetch_pending_rescans(conn: sqlite3.Connection, *, movies: bool) -> dict[int, list[int]]:
+    """Return each Radarr (*movies*) or Sonarr entry to rescan, with the marks that wait for it."""
+    # rationale: the interpolated expression is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT p.audit_id, {_RESCAN_ID} AS entry_id FROM pending_unmonitors p "
+        "JOIN deleted_media d ON d.audit_id = p.audit_id "
+        "WHERE entry_id IS NOT NULL AND (d.media_type = 'movie') = ? ORDER BY entry_id",
+        (movies,),
+    ).fetchall()
+    entries: dict[int, list[int]] = {}
+    for row in rows:
+        entries.setdefault(row["entry_id"], []).append(row["audit_id"])
+    return entries
 
 
 def finish_unmonitor(conn: sqlite3.Connection, audit_id: int) -> bool:
