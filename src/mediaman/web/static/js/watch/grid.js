@@ -34,7 +34,7 @@
   /* What a card is known by in a row and in the grid. */
   function keyOf(card) {
     var link = linkOf(card);
-    return link ? link.getAttribute('data-title-ref') || link.getAttribute('href') : null;
+    return watch.rowsLoad.keyOf(card) || (link ? link.getAttribute('href') : null);
   }
 
   function isCard(node) { return node.classList.contains('watch-card'); }

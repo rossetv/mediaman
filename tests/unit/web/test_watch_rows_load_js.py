@@ -26,6 +26,10 @@ def test_lines_load_to_the_end_with_no_title_twice() -> None:
     assert (out["during"], out["left"], out["next"], out["busy"]) == (5, 0, None, None)
 
 
+def test_each_season_of_a_show_is_a_card_of_its_own_and_comes_once() -> None:
+    assert _run("seasons") == ["season/71", "season/72", "show/8", "season/73"]
+
+
 def test_too_many_requests_waits_and_goes_on_without_an_error() -> None:
     out = _run("waitsAfterTooMany")
     assert out["waiting"] == {"placeholders": 5, "failed": 0, "ms": [5000]}

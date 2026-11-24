@@ -37,6 +37,14 @@
 
   /* ── The titles a row holds ── */
 
+  /* What a card is known by: its title's ref, but each season of a show (Leaving
+     soon) is a card of its own. Null: it has neither. */
+  function keyOf(card) {
+    var link = card.querySelector('[data-title-ref]');
+    var mark = card.getAttribute('data-mark');
+    return /^season\//.test(mark) ? mark : link ? link.getAttribute('data-title-ref') : null;
+  }
+
   /* What a ref is numbered by. Two refs of one source with different numbers
      are two titles, except picks, which are numbered anew in every batch. */
   function sourceOf(ref) {
@@ -48,21 +56,21 @@
     return node ? node.textContent.trim().toLowerCase() : '';
   }
 
-  /* A filter that lets each title through once: the same ref, or the same
+  /* A filter that lets each card through once: the same key, or the same
      title, kind and year where the refs cannot tell. */
   function onlyNew() {
-    var refs = new Set();
+    var keys = new Set();
     var names = new Map();
     return function isNew(card) {
       var link = card.querySelector('[data-title-ref]');
       if (!link) return true;
-      var ref = link.getAttribute('data-title-ref');
-      if (refs.has(ref)) return false;
-      var source = sourceOf(ref);
+      var key = keyOf(card);
+      if (keys.has(key)) return false;
+      var source = sourceOf(link.getAttribute('data-title-ref'));
       var name = textOf(card, '.watch-card__title') + '\n' + textOf(card, '.watch-card__sub');
       var sources = names.get(name) || [];
       if (source === 'rec' ? sources.length : sources.some(function (s) { return s !== source; })) return false;
-      refs.add(ref);
+      keys.add(key);
       names.set(name, sources.concat(source));
       return true;
     };
@@ -331,5 +339,5 @@
     if (row) row.forward();
   }
 
-  window.MMWatch.rowsLoad = { start: start, forward: forward };
+  window.MMWatch.rowsLoad = { start: start, forward: forward, keyOf: keyOf };
 })();

@@ -33,8 +33,9 @@ function load(first, pages) {
   ctx.window = ctx;
   vm.createContext(ctx);
   ['watch/core.js', 'watch/rows-load.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
-  const card = (n) => build(doc, ['article', { class: 'watch-card' },
-    ['a', { class: 'watch-card__link', 'data-title-ref': 'movie-' + n },
+  // A number is a film; 'show mark' a card of that show with that mark.
+  const card = (n) => build(doc, ['article', { class: 'watch-card', ...(/ /.test(n) ? { 'data-mark': n.split(' ')[1] } : {}) },
+    ['a', { class: 'watch-card__link', 'data-title-ref': / /.test(n) ? n.split(' ')[0] : 'movie-' + n },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/p/' + n }], ['span', { class: 'watch-card__title' }, 'Film ' + n]]]]);
   const host = doc.body.appendChild(build(doc, ['div', {}, ['div', { class: 'watch-grid', tabindex: '-1' }]]));
   const grid = host.children[0];
@@ -70,6 +71,14 @@ const scenarios = {
     const during = placeholders(p);
     await settle();
     return { refs: refs(p), asked: p.asked, during, left: placeholders(p), took: p.seen.took, next: p.row.next(), busy: p.grid.getAttribute('aria-busy') };
+  },
+
+  // Two seasons of a show are two cards; one season again, or a show whatever its mark, is a repeat.
+  async seasons() {
+    const p = load(['show-7 season/71', 'show-7 season/72', 'show-7 season/71', 'show-8 show/8'],
+      [{ cards: ['show-7 season/72', 'show-7 season/73', 'show-8 show/8', 'show-8 episode/81', 'show-8 '], next: null }]);
+    await settle();
+    return p.grid.querySelectorAll('.watch-card').map((c) => c.getAttribute('data-mark'));
   },
 
   async waitsAfterTooMany() {

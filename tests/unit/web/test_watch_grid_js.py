@@ -280,6 +280,13 @@ def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it(
     }
 
 
+def test_each_season_of_one_show_comes_back_as_itself() -> None:
+    assert _run("bringsSeasons") == {
+        "marks": ["season/1", "season/2", "movie/2"],
+        "count": "3 titles",
+    }
+
+
 def test_a_card_comes_back_to_a_grid_that_is_opening_and_not_to_one_that_closes() -> None:
     out = _run("bringsWhileMoving")
     assert out["opening"] == {**OPEN, "n": 12, "left": 0}

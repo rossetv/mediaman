@@ -627,6 +627,20 @@ const scenarios = {
     return out;
   },
 
+  // Two seasons of one show in the row: each is a card, and comes back as itself.
+  async bringsSeasons() {
+    const p = load({ cards: [1, 1, 2] });
+    p.rows[0].querySelectorAll('.watch-card').forEach((c, i) => c.setAttribute('data-mark', i < 2 ? 'season/' + (i + 1) : 'movie/2'));
+    const contents = () => { const cards = p.rows[0].querySelectorAll('.watch-card').map(p.grid.copy); return { cards, next: null, total: cards.length }; };
+    const first = p.rows[0].querySelector('.watch-card');
+    const next = first.nextElementSibling;
+    first.remove();
+    p.grid.open(p.opts({ contents, cards: contents().cards, total: 2 }));
+    next.before(first);
+    p.grid.bring(first);
+    return { marks: p.doc.querySelectorAll('.watch-all .watch-card').map((c) => c.getAttribute('data-mark')), count: p.doc.querySelector('.watch-all__count').textContent };
+  },
+
   // A grid on its way out is not filled again; one on its way in lands and is.
   async bringsWhileMoving() {
     const go = (closing) => {
