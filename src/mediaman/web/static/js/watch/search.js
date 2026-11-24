@@ -1582,8 +1582,7 @@
       clearTimeout(hiding);
       openSheet(false);
       browse.classList.remove('is-off');
-      if (live) live.node.remove();
-      live = null;
+      leave();
       sayRole();
       view = 'browse';
       results.hidden = true;

@@ -394,6 +394,10 @@ def test_people_lead_where_no_title_matches() -> None:
     assert (out["category"]["leads"], out["category"]["empty"]) == (False, 1)
 
 
+def test_results_fade_out_over_the_list_that_is_switched_to() -> None:
+    assert _run("listOverResults") == [True, True, 0]
+
+
 def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
     out = _run("person")
     assert out["kept"] == [2, ["known_for", "person"]]

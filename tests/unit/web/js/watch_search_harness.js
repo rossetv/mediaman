@@ -957,6 +957,25 @@ const scenarios = {
     return out;
   },
 
+  // Switched to the list, what was found fades out over it.
+  async listOverResults() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    const finish = withMotion(p);
+    try {
+      p.input.value = '';
+      p.fire('mm:watch-view', { detail: { view: 'list' } });
+      const left = p.doc.querySelector('.results-page.is-leaving');
+      const out = [!!left && left.parentNode === p.$('watch-page'), p.results.hidden];
+      finish();
+      await settle();
+      return out.concat(p.doc.querySelectorAll('.results-page').length);
+    } finally {
+      delete Node.prototype.animate;
+    }
+  },
+
   // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
   async personPages() {
     const p = await ready(ADMIN, '', '/watch?person=9001');
