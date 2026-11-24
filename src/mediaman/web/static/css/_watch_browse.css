@@ -76,7 +76,7 @@
 }
 @media (max-width: 699.98px) {
   .watch-row__tools:not(:empty) { min-height: 44px; }
-  .row-tool { height: 44px; }
+  .row-tool { height: 44px; min-width: 44px; }
   .row-tool::after { content: none; }
 }
 @media (max-width: 599.98px) {

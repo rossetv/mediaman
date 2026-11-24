@@ -505,3 +505,45 @@ def test_the_picks_batch_and_refresh_tools_are_44px_tall_below_700px() -> None:
         if head.endswith(".watch-row--skel-tools .watch-row__title-skel")
     ]
     assert skel and "44px" in skel[0]
+
+
+def test_the_icon_only_row_tool_is_44px_wide_below_700px() -> None:
+    # Below 600px the long label drops away and only the icon is left: padding alone is 35px.
+    rules = _phone_rules("_watch_browse.css")
+    assert any(
+        head == ".row-tool" and re.search(r"(?<![\w-])min-width:\s*44px", body)
+        for head, body in rules
+    )
+
+
+def _declarations_of(sheet: str, selector: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    return "".join(
+        body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if selector in [s.strip() for s in head.split(",")]
+    )
+
+
+@pytest.mark.parametrize("selector", [".ttl-rating--rt", ".ttl__error"])
+def test_the_title_overlay_sets_red_text_on_the_one_red_text_token(selector: str) -> None:
+    # A pink --danger-soft beside the coral leaving line made three reds on one panel.
+    body = _declarations_of("_watch_detail.css", selector)
+    assert re.search(r"(?<![\w-])color:\s*var\(--danger-text\)", body), body
+    assert "danger-soft" not in (CSS / "_watch_detail.css").read_text(encoding="utf-8")
+
+
+def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -> None:
+    sheet = "_watch_detail.css"
+    button = _declarations_of(sheet, ".ttl__share")
+    assert "display: inline-grid" in button and "place-items: center" in button
+    # The unseen longest label and the group share one grid cell, so the cell is as wide as the
+    # longest state and the group sits in the middle of it.
+    group = _declarations_of(sheet, ".ttl__share-group")
+    sizer = _declarations_of(sheet, ".ttl__share::after")
+    assert "grid-area: 1 / 1" in group and "grid-area: 1 / 1" in sizer
+    assert "visibility: hidden" in sizer and "content: attr(data-widest)" in sizer
+    # The sizer is as wide as the icon and the gap before the label, which the group also has.
+    assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
+    assert "gap: var(--share-gap)" in group
+    assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .fa-solid")

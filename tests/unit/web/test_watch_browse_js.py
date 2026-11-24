@@ -50,6 +50,12 @@ def test_a_title_change_updates_the_badge_on_its_cards() -> None:
     assert out == {"queued": "Queued", "downloading": "Downloading 42%", "inLibrary": "In library"}
 
 
+def test_a_title_change_reaches_the_pick_of_the_same_title_kind_and_year() -> None:
+    out = _run("titleChangedOnAnotherRef")
+    assert out["queued"] == ["Queued", "Queued", None, None]
+    assert out["downloading"] == ["Downloading 42%", "Downloading 42%", None, None]
+
+
 def test_a_failed_discover_row_says_which_and_try_again_loads_it_in_place() -> None:
     out = _run("discoverFailed")
     assert out["notes"][0].startswith("Couldn’t load Trending this week.")

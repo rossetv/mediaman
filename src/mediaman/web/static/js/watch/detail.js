@@ -96,10 +96,16 @@
 
   function apiUrl(ref) { return '/api/watch/title/' + encodeURIComponent(ref); }
 
+  /* Cards of the title under another ref (a pick, a result) are found by what
+     they print: its title, kind and year. */
   function fire(ref, state, pct) {
     if (typeof CustomEvent !== 'function') return;
+    var d = cur && cur.ref === ref && cur.data;
     document.dispatchEvent(new CustomEvent('mm:title-changed', {
-      detail: { ref: ref, download_state: state, download_pct: pct === undefined ? null : pct }
+      detail: {
+        ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
+        title: d ? d.title : null, kind: d ? d.kind : null, year: d ? d.year : null
+      }
     }));
   }
 
@@ -943,24 +949,49 @@
         schedulePoll(POLL_MS);
       }
     }).catch(function (err) {
+      // 409: the Arr already has it, so trying again can only fail again. For a
+      // movie the title asked for again says whether it is queued, coming in or
+      // in the library, and the panel stays busy until it answers. Sonarr tracking
+      // a show says nothing of what is downloaded: the show's own reply decides.
+      if (err && err.status === 409 && d.kind === 'movie') {
+        core.toast(MM.api.messageOf(err, title + ' is already in Radarr.'));
+        settleExisting(ref, k);
+        return;
+      }
       k.busy = false;
-      // 409: the Arr already has it, so trying again can only fail again. Sonarr
-      // tracking a show says nothing of what is downloaded: the title asked for
-      // again says whether it is in the library.
       if (err && err.status === 409) {
-        if (d.kind === 'movie') {
-          k.state = 'in_library';
-          k.pct = null;
-          fire(ref, 'in_library', null);
-        } else {
-          k.tracked = true;
-        }
-        core.toast(MM.api.messageOf(err, title + ' is already in your library.'));
+        k.tracked = true;
+        core.toast(MM.api.messageOf(err, title + ' is already in Sonarr.'));
         redrawActions(ref);
         if (cur && cur.ref === ref) refresh();
         return;
       }
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
+      redrawActions(ref);
+    });
+  }
+
+  /* A movie the Arr already has: what its reply says is the title's state, on
+     the panel and on every card of it. */
+  function settleExisting(ref, k) {
+    get(apiUrl(ref)).then(function (data) {
+      k.busy = false;
+      if (data.in_library || data.library_ref) {
+        k.state = 'in_library';
+        k.pct = null;
+        fire(ref, 'in_library', null);
+      } else {
+        takeDownload(ref, data.download);
+      }
+      redrawActions(ref);
+      if (!cur || cur.ref !== ref || !isOpen) return;
+      if (data.library_ref) refresh();
+      else {
+        cur.movedAt = Date.now();
+        schedulePoll(POLL_MS);
+      }
+    }).catch(function () {
+      k.busy = false;
       redrawActions(ref);
     });
   }
@@ -1139,12 +1170,15 @@
   function shareButton() {
     if (!isAdmin || !cur.recId) return null;
     var st = cur.shareState;
-    var b = button('btn btn--lg watch-btn--grey ttl__share', '', st === 'copied' ? 'fa-check' : 'fa-share-nodes');
+    var b = button('btn btn--lg watch-btn--grey ttl__share');
     b.setAttribute('data-ttl-act', 'share');
-    var label = el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share');
-    // The longest label, laid out unseen, holds the button's width in every state.
-    label.setAttribute('data-widest', 'Sharing…');
-    b.appendChild(label);
+    // The longest label, laid out unseen beside the icon, holds the button's width in
+    // every state; the icon and the label sit centred together inside it.
+    b.setAttribute('data-widest', 'Sharing…');
+    var group = el('span', 'ttl__share-group');
+    group.appendChild(icon(st === 'copied' ? 'fa-check' : 'fa-share-nodes'));
+    group.appendChild(el('span', 'ttl__share-label', st === 'busy' ? 'Sharing…' : st === 'copied' ? 'Copied' : 'Share'));
+    b.appendChild(group);
     if (st === 'busy') b.setAttribute('aria-disabled', 'true');
     b.addEventListener('click', share);
     return b;

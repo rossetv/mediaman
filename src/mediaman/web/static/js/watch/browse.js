@@ -107,12 +107,22 @@
     return article;
   }
 
+  /* A card of the title under another ref (a pick, a result): it prints the
+     same title, kind and year. */
+  function sameTitle(link, detail) {
+    if (!detail.title || !detail.kind) return false;
+    var title = link.querySelector('.watch-card__title');
+    var sub = link.querySelector('.watch-card__sub');
+    if (!title || !sub || title.textContent !== detail.title) return false;
+    return sub.textContent === (detail.kind === 'movie' ? 'Movie' : 'TV') + (detail.year ? ' · ' + detail.year : '');
+  }
+
   /* A title's state changed (the detail queued it, or a download moved on):
      every card of it on the page shows the new badge. */
   function updateBadges(detail) {
     if (!detail || typeof detail.ref !== 'string') return;
     toArray(document.querySelectorAll('[data-title-ref]')).forEach(function (link) {
-      if (link.getAttribute('data-title-ref') !== detail.ref) return;
+      if (link.getAttribute('data-title-ref') !== detail.ref && !sameTitle(link, detail)) return;
       var poster = link.querySelector('.watch-card__poster');
       if (!poster) return;
       var old = poster.querySelector('.watch-badge--state');

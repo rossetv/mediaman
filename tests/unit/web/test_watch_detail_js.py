@@ -134,10 +134,11 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert "about 6 min left" in out["downloading"]["line"]
     assert out["done"]["primary"]["text"] == "In library"
     assert "Added just now" in out["done"]["note"]
+    named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
     assert out["events"] == [
-        {"ref": "tmdb-movie-77", "download_state": "queued", "download_pct": None},
-        {"ref": "tmdb-movie-77", "download_state": "downloading", "download_pct": 42},
-        {"ref": "tmdb-movie-77", "download_state": "in_library", "download_pct": None},
+        {**named, "download_state": "queued", "download_pct": None},
+        {**named, "download_state": "downloading", "download_pct": 42},
+        {**named, "download_state": "in_library", "download_pct": None},
     ]
     assert any("queued" in t for t in out["toasts"])
 
@@ -147,6 +148,9 @@ def test_a_queued_download_the_arr_no_longer_holds_gives_the_download_button_bac
     assert (out["before"], out["after"]) == ("Queued", "Download")
     assert out["events"][-1] == {
         "ref": "tmdb-movie-77",
+        "title": "Meridian",
+        "kind": "movie",
+        "year": 2026,
         "download_state": None,
         "download_pct": None,
     }
@@ -223,20 +227,33 @@ def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again(
     assert out["events"] == []
 
 
-def test_a_download_the_arr_already_has_shows_the_title_in_the_library_without_try_again() -> None:
+def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_that_says() -> None:
     out = _run("downloadAlreadyThere")
-    assert out["at409"]["primary"]["text"] == "In library"
-    assert (out["at409"]["error"], out["at409"]["retry"]) == (False, False)
-    assert out["events"][0] == {
-        "ref": "tmdb-movie-77",
-        "download_state": "in_library",
-        "download_pct": None,
-    }
-    assert any("already in your library" in t for t in out["toasts"])
-    # The title is asked for again and opens as the library title it now is.
-    assert out["gets"][-1] == "/api/watch/title/movie-120"
-    assert out["refetched"]["primary"]["text"] == "Play"
-    assert out["refetched"]["retry"] is False
+    for name in ("queued", "downloading", "none", "inLibrary"):
+        run = out[name]
+        # Neither an error nor "In library" before the reply answers; nothing told the cards yet.
+        assert run["at409"]["primary"]["text"] == "Adding…", name
+        assert run["at409"]["primary"]["disabled"] is True, name
+        assert (run["at409"]["error"], run["at409"]["retry"]) == (False, False), name
+        assert run["eventsAt409"] == 0, name
+        assert (run["refetched"]["error"], run["refetched"]["retry"]) == (False, False), name
+        assert run["toasts"] == ["'Meridian' is already in Radarr"], name
+    event = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
+    queued = out["queued"]
+    assert queued["refetched"]["primary"]["text"] == "Queued"
+    assert queued["events"] == [{**event, "download_state": "queued", "download_pct": None}]
+    assert queued["polls"] == 1
+    downloading = out["downloading"]
+    assert downloading["refetched"]["primary"]["text"] == "Downloading 40%"
+    assert downloading["events"] == [{**event, "download_state": "downloading", "download_pct": 40}]
+    # Nothing the Arr holds for it: the Download button is back, and no card changes.
+    assert out["none"]["refetched"]["primary"]["text"] == "Download"
+    assert out["none"]["events"] == []
+    # In the library: it opens as the library title it now is.
+    library = out["inLibrary"]
+    assert library["events"] == [{**event, "download_state": "in_library", "download_pct": None}]
+    assert library["gets"][-1] == "/api/watch/title/movie-120"
+    assert library["refetched"]["primary"]["text"] == "Play"
 
 
 def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_it_is_in_the_library() -> None:
@@ -361,6 +378,16 @@ def test_share_holds_one_width_through_sharing_and_copied() -> None:
     # Every state lays out the longest label unseen, so the button never resizes.
     longest = max((s["text"] for s in states), key=len)
     assert {s["widest"] for s in states} == {longest}
+    # The icon and the label sit in one group, which is all the button holds: the group
+    # centres inside the held width, so the label is never spaced away from its icon.
+    assert all(
+        s["group"] == "ttl__share-group" and s["inButton"] and s["groups"] == 1 for s in states
+    )
+    assert [s["icon"].split()[-1] for s in states] == [
+        "fa-share-nodes",
+        "fa-share-nodes",
+        "fa-check",
+    ]
 
 
 def test_share_without_the_clipboard_shows_the_link_to_copy() -> None:

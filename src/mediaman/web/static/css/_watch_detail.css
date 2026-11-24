@@ -166,8 +166,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__actions .skel--pill { flex: none; }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .ttl__download .btn-spinner { margin-right: 0; }
-.ttl__share-label { display: inline-flex; flex-direction: column; }
-.ttl__share-label::after { content: attr(data-widest); height: 0; overflow: hidden; visibility: hidden; }
+.ttl__share { --share-icon: 16px; --share-gap: 7px; display: inline-grid; place-items: center; }
+.ttl__share-group { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: var(--share-gap); }
+.ttl__share-group > .fa-solid { width: var(--share-icon); font-size: 13px; text-align: center; }
+.ttl__share::after { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: calc(var(--share-icon) + var(--share-gap)); }
 .ttl__share[aria-disabled="true"] { cursor: progress; }
 .watch-btn--keep { background: var(--rgba-success-bg); color: var(--success); min-height: 44px; padding-inline: 20px; font-size: 16px; font-weight: 600; }
 .watch-btn--keep:hover { background: color-mix(in srgb, var(--success) 22%, transparent); }
@@ -190,7 +192,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__note a { position: relative; color: var(--accent); font-weight: 500; }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }
 .ttl__note-ok { color: var(--success); }
-.ttl__error { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--danger-soft); }
+.ttl__error { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; color: var(--danger-text); }
 .ttl__retry { min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
 .ttl__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__sec-title { font-size: 19px; font-weight: 600; margin-bottom: 14px; }
@@ -201,7 +203,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; }
 .ttl-rating__icon { font-size: 12px; }
 .ttl-rating--imdb { background: var(--rgba-warning-bg); color: var(--warning); }
-.ttl-rating--rt   { background: var(--rgba-danger-bg); color: var(--danger-soft); }
+.ttl-rating--rt   { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .ttl-rating--tmdb { background: var(--rgba-orange-bg); color: var(--orange); }
 .ttl-rating--meta { background: var(--rgba-success-bg); color: var(--success); }
 

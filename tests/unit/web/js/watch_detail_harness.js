@@ -599,25 +599,39 @@ const scenarios = {
     return { err, posts: p.posts.length, events: p.events };
   },
 
-  // The Arr says the title is already there: no Try again, the title shows as in the library.
+  // The Arr says the title is already there: no error, no Try again, busy until the title's own reply
+  // answers, and that reply decides the panel and the cards.
   async downloadAlreadyThere() {
-    let gets = 0;
-    const p = load({
-      routes: { '/api/watch/title/tmdb-movie-77': () => {
-        gets += 1;
-        return Promise.resolve(gets === 1 ? MOVIE_DL : Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' }));
-      }, '/api/watch/title/movie-120': LIB_MOVIE },
-      posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in your library") },
-    });
-    p.run();
-    await openCard(p, 'tmdb-movie-77');
-    click(p.doc, p.q('[data-ttl-act="primary"]'));
-    const shown = () => ({ primary: primary(p), error: !!p.q('.ttl__error'), retry: !!p.q('[data-ttl-act="retry"]') });
-    await Promise.resolve();
-    await Promise.resolve();
-    const at409 = shown();
-    await settle();
-    return { at409, refetched: shown(), gets: p.gets.slice(), events: p.events, toasts: p.toasts.map((t) => t.message) };
+    const run = async (again) => {
+      let gets = 0;
+      let answer;
+      const p = load({
+        routes: { '/api/watch/title/tmdb-movie-77': () => {
+          gets += 1;
+          if (gets === 1) return Promise.resolve(MOVIE_DL);
+          return gets === 2 ? new Promise((resolve) => { answer = () => resolve(again); }) : Promise.resolve(again);
+        }, '/api/watch/title/movie-120': LIB_MOVIE },
+        posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in Radarr") },
+      });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      const shown = () => ({ primary: primary(p), error: !!p.q('.ttl__error'), retry: !!p.q('[data-ttl-act="retry"]') });
+      await settle();
+      const at409 = shown();
+      const eventsAt409 = p.events.length;
+      answer();
+      await settle();
+      return { at409, eventsAt409, refetched: shown(), gets: p.gets.slice(), events: p.events, toasts: p.toasts.map((t) => t.message),
+        polls: p.timers.filter((t) => t.fn && t.ms === 5000).length };
+    };
+    const dl = (state, pct) => Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state, pct, answered: true }) });
+    return {
+      queued: await run(dl('queued', 0)),
+      downloading: await run(dl('downloading', 40)),
+      none: await run(dl(null, null)),
+      inLibrary: await run(Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' })),
+    };
   },
 
   // Sonarr already tracks the show: "Already in Sonarr", unless the title asked for again is in the library.
@@ -832,8 +846,10 @@ const scenarios = {
     p.ctx.MMWatch.detail.open('rec-5', {});
     await settle();
     const label = () => {
+      const b = p.q('[data-ttl-act="share"]');
       const n = p.q('[data-ttl-act="share"] .ttl__share-label');
-      return { text: n.textContent, widest: n.getAttribute('data-widest') };
+      return { text: n.textContent, widest: b.getAttribute('data-widest'), group: n.parentNode.className,
+        icon: n.parentNode.children[0].className, inButton: n.parentNode.parentNode === b, groups: b.children.length };
     };
     const states = [label()];
     click(p.doc, p.q('[data-ttl-act="share"]'));

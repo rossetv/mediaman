@@ -200,6 +200,19 @@ const scenarios = {
     return { queued, downloading, inLibrary: badgeOf(p.doc, 'tmdb-movie-5') };
   },
 
+  // A detail opened from a result reports its state: the pick of the same title, kind and year shows it too.
+  async titleChangedOnAnotherRef() {
+    const same = { title: 'Title tmdb-movie-5' };
+    const p = load({ items: [card('rec-9', same), card('rec-10', { ...same, year: 1999 }), card('rec-11', { ...same, kind: 'show' })] });
+    await settle();
+    const send = (detail) => (p.doc.listeners['mm:title-changed'] || []).forEach((fn) => fn({ detail }));
+    send({ ref: 'tmdb-movie-5', download_state: 'queued', download_pct: null, title: same.title, kind: 'movie', year: 2024 });
+    const at = () => ['tmdb-movie-5', 'rec-9', 'rec-10', 'rec-11'].map((ref) => badgeOf(p.doc, ref));
+    const queued = at();
+    send({ ref: 'tmdb-movie-5', download_state: 'downloading', download_pct: 42, title: same.title, kind: 'movie', year: 2024 });
+    return { queued, downloading: at() };
+  },
+
   // TMDB fails: each discover row says so with Try again, which loads them in place.
   async discoverFailed() {
     let fail = true;
