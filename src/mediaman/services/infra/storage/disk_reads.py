@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 _DEADLINE_SECONDS = 2.0
 _FAILURE_TTL_SECONDS = 3.0
-# As long as the panel keeps a reading.
+# As long as the panel keeps a reading, and for how long of it no new read is made.
 _LATE_TTL_SECONDS = 30.0
+_LATE_FRESH_SECONDS = 3.0
 
 
 class _Read[T]:
@@ -30,7 +31,8 @@ class DiskReads[T]:
 
     A path whose read failed is not read again for 3 s, and one whose read hangs is not
     read again, nor waited for, until it ends. What it then found answers for 30 s: a disk
-    that is always slow would never answer otherwise.
+    that is always slow would never answer otherwise. After 3 s of that a new read is made,
+    and what was found stays the answer until the new read ends.
     """
 
     def __init__(self, slots: int) -> None:
@@ -71,12 +73,15 @@ class DiskReads[T]:
                 if self._failed_until.get(path, 0.0) > now:
                     return None
                 late = self._late.get(path)
-                if late is not None and late[0] > now:
-                    return late[1]
+                kept = late[1] if late is not None and late[0] > now else None
+                if kept and late and late[0] - _LATE_TTL_SECONDS + _LATE_FRESH_SECONDS > now:
+                    return kept
                 if running := self._running.get(path):
-                    return running
+                    return kept or running
                 if len(self._running) < self._slots:
                     break
+                if kept:
+                    return kept
                 # A slot can only come free soon from a read that is not overdue.
                 newest = max(read.started for read in self._running.values())
                 left = min(deadline, newest + _DEADLINE_SECONDS) - now
@@ -94,7 +99,7 @@ class DiskReads[T]:
             except RuntimeError:
                 del self._running[path]
                 return None
-            return read
+            return kept or read
 
     def _run(self, path: str, reader: Callable[[str], T], read: _Read[T]) -> None:
         value: T | None = None
@@ -108,12 +113,14 @@ class DiskReads[T]:
             now = time.monotonic()
             if self._running.get(path) is read:
                 del self._running[path]
+                held = self._late.get(path)
                 if value is None:
+                    self._late.pop(path, None)
                     self._failed_until = {
                         p: until for p, until in self._failed_until.items() if until > now
                     }
                     self._failed_until[path] = now + _FAILURE_TTL_SECONDS
-                elif now - read.started < _DEADLINE_SECONDS:
+                elif now - read.started < _DEADLINE_SECONDS and not (held and held[0] > now):
                     read.value = value
                 else:
                     late: _Read[T] = _Read(now)

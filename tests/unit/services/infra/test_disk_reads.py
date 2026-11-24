@@ -146,13 +146,36 @@ def test_what_a_read_that_ends_too_late_found_is_given_to_the_next_and_kept_a_wh
         release.set()
         assert result.result(5) is None
 
-    for seconds in (0, 29):
+    for seconds in (0, 2.9):
         clock[0] += seconds
         assert reads.read("a", slow) == 1
     assert calls == ["a"]
 
-    clock[0] += 2
+    # Three seconds on, a new read is made, and what was found answers until it ends.
+    clock[0] += 0.2
+    newer = threading.Event()
+
+    def again(path):
+        calls.append(path)
+        newer.wait(5)
+        return 2
+
+    assert reads.read("a", again) == 1
+    assert reads.read("a", again) == 1
+    newer.set()
+    _wait_for(lambda: reads.read("a", again) == 2)
+    assert calls == ["a", "a"]
+
+    clock[0] += 31
     assert reads.read("a", lambda _: 5) == 5
+
+
+def _wait_for(check):
+    for _ in range(100):
+        if check():
+            return
+        time.sleep(0.02)
+    pytest.fail("never became true")
 
 
 def test_a_read_that_fails_too_late_is_not_taken_for_an_answer(release, clock):
@@ -178,3 +201,28 @@ def test_a_hung_read_does_not_hold_the_program_open(release, short):
     DiskReads(1).read("a", _hang(release, []))
 
     assert [t.daemon for t in threading.enumerate() if t.name == "disk-read"] == [True]
+
+
+def test_a_new_read_that_fails_ends_the_answer_the_late_one_gave(release, clock):
+    reads = DiskReads(2)
+    started = threading.Event()
+
+    def slow(_path):
+        started.set()
+        release.wait(30)
+        clock[0] += 5
+        return 1
+
+    with ThreadPoolExecutor(1) as pool:
+        result = pool.submit(reads.read, "a", slow)
+        started.wait(5)
+        release.set()
+        assert result.result(5) is None
+
+    clock[0] += 3.1
+
+    def fail(_path):
+        raise OSError("gone")
+
+    assert reads.read("a", fail) == 1
+    _wait_for(lambda: reads.read("a", lambda _: pytest.fail("read again")) is None)
