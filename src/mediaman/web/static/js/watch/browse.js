@@ -502,16 +502,20 @@
     return cards;
   }
 
-  /* The batches older than the one the row starts at. */
-  function olderPicks(start) {
-    return function (batch) {
-      return MM.api.get(RECOMMENDED_URL + '?batch=' + encodeURIComponent(batch) + '&start=' + encodeURIComponent(start))
-        .then(function (payload) {
-          return { cards: pickCards(payload), next: payload.next_batch };
-        }, function (err) {
-          if (err && err.status === 404) return { cards: [], next: null }; // deleted meanwhile
-          throw err;
-        });
+  /* The batches older than the one the row of *payload* starts at. */
+  function olderPicks(payload) {
+    var ids = payload.batches.map(function (b) { return b.id; });
+    var start = payload.batch;
+    return function load(batch) {
+      return fetchRec(batch, start).then(function (older) {
+        return { cards: pickCards(older), next: older.next_batch };
+      }, function (err) {
+        if (!err || err.status !== 404) throw err;
+        // Deleted meanwhile, the batch or the one the row starts at: on without both.
+        start = null;
+        var after = ids.indexOf(batch) + 1;
+        return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+      });
     };
   }
 
@@ -522,7 +526,7 @@
     if (body) {
       tagged(toArray(body.querySelectorAll('.watch-card')), payload.batch);
       recLoader = watch.rowsLoad.start(body, {
-        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload.batch)
+        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload)
       });
       return body;
     }
@@ -550,7 +554,7 @@
       }, []);
     }
     function pages(payload) {
-      var older = olderPicks(payload.batch);
+      var older = olderPicks(payload);
       return function (batch) {
         return older(batch).then(function (page) { return { cards: lines(page.cards, payload), next: page.next }; });
       };
@@ -753,8 +757,9 @@
     return section;
   }
 
-  function fetchRec(batch) {
-    return MM.api.get(RECOMMENDED_URL + (batch ? '?batch=' + encodeURIComponent(batch) : ''));
+  function fetchRec(batch, start) {
+    return MM.api.get(RECOMMENDED_URL + (batch ? '?batch=' + encodeURIComponent(batch) : '') +
+      (start ? '&start=' + encodeURIComponent(start) : ''));
   }
 
   function loadRecommended() {

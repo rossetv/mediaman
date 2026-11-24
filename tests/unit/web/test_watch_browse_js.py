@@ -394,10 +394,15 @@ def test_posters_far_off_the_screen_are_unloaded_and_come_back() -> None:
 
 def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> None:
     out = _run("olderPicks")
-    # rec-10 is rec-7 again; the batch after it is gone, so the row ends.
-    assert out["first"] == {"refs": ["rec-7", "rec-8", "rec-9"], "more": False}
+    # rec-10 is rec-7 again and rec-13 rec-9; the batch between them is gone.
+    assert out["first"] == {"refs": ["rec-7", "rec-8", "rec-9", "rec-12"], "more": False}
     assert out["chosen"] == ["rec-9", "rec-11"]
     assert "14 Nov" in out["pill"]
+
+
+def test_a_row_whose_older_batches_are_gone_ends() -> None:
+    out = _run("goneBatches")
+    assert out == {"refs": ["rec-7", "rec-8"], "asked": 3, "more": False}
 
 
 def test_an_older_batch_on_its_way_when_the_row_starts_again_is_not_added() -> None:

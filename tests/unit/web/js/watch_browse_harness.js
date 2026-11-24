@@ -332,16 +332,18 @@ const scenarios = {
     return { atStart, atEnd, back: src(0), cards: scroller.querySelectorAll('.watch-card').length };
   },
 
-  // The picks go on to older batches from the one the row starts at, then from the one chosen.
+  // The picks go on to older batches from the one the row starts at, past one that is gone, then from the one chosen.
   async olderPicks() {
     layout();
     const older = (batch, start) => 'GET /api/watch/recommended?batch=' + batch + '&start=' + start;
-    const p = load({ batches: [...BATCHES, { id: '2026-11-07', label: 'Two weeks ago', date_label: '7 Nov' }], routes: {
+    const batches = [...BATCHES, { id: '2026-11-07', label: 'Two weeks ago', date_label: '7 Nov' }, { id: '2026-10-31', label: 'Three weeks ago', date_label: '31 Oct' }];
+    const p = load({ batches, routes: {
       'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
-      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended({ batches }), next_batch: '2026-11-14' }),
       'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
       [older('2026-11-14', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9'), card('rec-10', { title: 'Title rec-7' })] }), next_batch: '2026-11-07' }),
       [older('2026-11-07', '2026-11-21')]: () => Promise.reject(apiError(404, {})),
+      'GET /api/watch/recommended?batch=2026-10-31': () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
       [older('2026-11-07', '2026-11-14')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-11')] }), next_batch: null }),
     } });
     await settle();
@@ -352,6 +354,18 @@ const scenarios = {
     await settle();
     await scroll(scrollerOf(p, 'recommended'), 0);
     return { first, chosen: refsOf(scrollerOf(p, 'recommended')), pill: text(rec(p.doc).querySelector('[data-picks-menu]')) };
+  },
+
+  // Every batch the row goes on to is gone, and the last is one the menu does not know.
+  async goneBatches() {
+    layout();
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2020-01-01' }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return { refs: refsOf(scrollerOf(p, 'recommended')), asked: p.calls.length, more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
   },
 
   // New picks arrive while an older batch is on its way: the row starts again without it.
