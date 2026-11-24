@@ -1,4 +1,4 @@
-"""player.js in a fake DOM: quality switches and the next-episode card.
+"""player.js in a fake DOM: quality switches, the next-episode card, keys and controls.
 
 Each test renders the real player markup, runs player.js on it through
 ``player_harness.js`` under node, and checks what the person would see.
@@ -49,8 +49,11 @@ def markup(tmp_path_factory) -> Path:
     return path
 
 
-def run(markup: Path, scenario: str, *, reduced: bool = False) -> dict:
+def run(
+    markup: Path, scenario: str, *, reduced: bool = False, saved: dict[str, str] | None = None
+) -> dict:
     args = ["node", str(HARNESS), str(markup), scenario] + (["reduced"] if reduced else [])
+    args += [json.dumps(saved)] if saved else []
     done = subprocess.run(args, capture_output=True, text=True, timeout=30)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
@@ -118,3 +121,15 @@ def test_the_countdown_fill_lasts_the_countdown(markup):
 def test_cancel_under_reduced_motion_hides_the_card_at_once(markup):
     out = run(markup, "upnext_cancel", reduced=True)
     assert out["afterClick"]["hidden"] is True
+
+
+@pytest.mark.parametrize("way", ["click", "touch", "space", "escape", "button"])
+def test_a_stop_during_the_countdown_stays_at_the_end_and_never_replays(markup, way):
+    out = run(markup, "upnext_stops")
+    assert out[way] == {"counting": "Pause", "replayed": 0, "leaving": True, "after": "Play"}
+    assert out["href"] == "/watch/play/1"
+
+
+def test_after_the_countdown_only_play_itself_replays(markup):
+    out = run(markup, "upnext_stops")
+    assert (out["pictureReplays"], out["buttonReplays"]) == (0, 1)

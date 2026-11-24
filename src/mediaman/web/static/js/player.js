@@ -95,6 +95,7 @@
   var starting = false;
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
+  var countdownTimer = null; // runs while the next-episode card counts down
   var quality = readQuality();
 
   /* What belongs to the video being watched; resetVideo sets every one. */
@@ -426,6 +427,11 @@
 
   function togglePlay() {
     if (!els.message.hidden) return;
+    if (countdownTimer !== null) {
+      /* The video is over and the countdown is what runs: stop that. */
+      hideUpnext();
+      return;
+    }
     if (swapping) {
       /* No video to pause yet: the new stream starts the way this leaves it. */
       wantPlaying = !wantPlaying;
@@ -471,7 +477,7 @@
      that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
     var busy = wantPlaying && root.classList.contains('is-loading');
-    var paused = (video.paused || video.ended) && !busy;
+    var paused = (video.paused || video.ended) && !busy && countdownTimer === null;
     els.play.setAttribute('aria-label', paused ? 'Play' : 'Pause');
     if (busy) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
@@ -541,10 +547,10 @@
   });
 
   video.addEventListener('ended', function () {
-    showPlayState();
     saveProgress();
     if (next) startCountdown();
     else window.location.href = showHref || backHref;
+    showPlayState();
   });
 
   /* ---- seek bar ------------------------------------------------------- */
@@ -813,9 +819,13 @@
   /* Keyboard focus must never land on controls that cannot be seen. */
   root.addEventListener('focusin', showControls);
 
-  /* A click on the picture plays or pauses; a tap shows or hides the controls. */
+  /* A click on the picture plays or pauses; a tap shows or hides the controls.
+     At the end of the video neither starts it over: only Play and Space do. */
   video.addEventListener('click', function () {
-    if (lastPointer === 'mouse') {
+    if (video.ended) {
+      hideUpnext();
+      showControls();
+    } else if (lastPointer === 'mouse') {
       togglePlay();
       showControls();
     } else if (root.classList.contains('is-idle')) {
@@ -833,7 +843,11 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
-    if (e.key === 'Escape') { closeMenus(true); return; }
+    if (e.key === 'Escape') {
+      if (menuOpen()) closeMenus(true);
+      else hideUpnext();
+      return;
+    }
     if (menuOpen()) {
       if (e.key === 'Tab') { closeMenus(true); return; }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
@@ -862,13 +876,15 @@
 
   /* ---- next episode --------------------------------------------------- */
 
-  var countdownTimer = null;
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
   /* The card plays its exit and hides when that ends. */
   function hideUpnext() {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
+    if (countdownTimer !== null) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      showPlayState();
+    }
     var card = els.upnext;
     if (!card || card.hidden || card.classList.contains('is-leaving')) return;
     card.classList.remove('is-counting');
