@@ -205,7 +205,7 @@ def test_each_subscriber_gets_their_own_picks_and_the_shared_ones_and_no_one_els
     insert_suggestion(conn, title="HouseholdPick", category="personal", batch_id="b1")
     insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5, because_of='["AlsFilm"]')
     insert_user_pick(conn, "al", title="AlsOldPick", batch_id="2025-01-01")
-    insert_user_pick(conn, "bo", title="BosPick")
+    insert_user_pick(conn, "bo", title="BosPick", batch_id="2026-02-01")
     outbox = _Outbox()
 
     outbox.scan(conn)
