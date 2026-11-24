@@ -258,9 +258,7 @@ def test_a_failure_that_cannot_be_tried_again_does_not_say_to() -> None:
     assert out["limit"]["off"] is True
     assert out["few"]["text"] == "Play five titles and these become yours."
     assert out["noKey"]["text"] == "Couldn’t make new ones."
-    assert {t for at in out.values() for t in at["toasts"]} == {
-        "Couldn’t make new picks for you."
-    }
+    assert {t for at in out.values() for t in at["toasts"]} == {"Couldn’t make new picks for you."}
 
 
 def test_the_day_s_limit_is_no_longer_told_once_its_wait_is_over() -> None:
@@ -287,6 +285,13 @@ def test_on_a_phone_the_own_refresh_has_a_word_the_shared_one_has_not() -> None:
     assert {v["shared"] for v in out.values()} == {None}
     css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
     assert ".row-tool__face[data-narrow]::after { content: attr(data-narrow)" in css
+
+
+def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> None:
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    wide = re.search(r"@media \(min-width: 700px\) \{([^\n]*(?:\n  [^\n]*)*)", css)
+    assert wide and ".rec-line__text { order: 1; }" in wide[1]
+    assert "margin-left: 0" in wide[1]
 
 
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:

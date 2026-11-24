@@ -154,7 +154,11 @@
 .rec-line { display: flex; align-items: center; gap: 10px; min-height: var(--rec-line-h); padding: 0 var(--pad); margin-bottom: 12px; }
 .rec-line__text { min-width: 0; flex: 0 1 auto; font-size: 13px; line-height: 1.3; color: var(--t2); }
 .rec-line > .row-tool { flex: none; margin-left: auto; }
-@media (min-width: 700px) { .rec-line > .row-tool { margin-left: 4px; } }
+/* Before the text, which changes its length; at the row's end it would stand under the shared one. */
+@media (min-width: 700px) {
+  .rec-line > .row-tool { margin-left: 0; }
+  .rec-line__text { order: 1; }
+}
 /* Below 700px the tools are 44px tall: a gap keeps this Refresh off the one over it. */
 @media (max-width: 699.98px) {
   .watch-page { --rec-line-h: 52px; }
