@@ -5,7 +5,7 @@ Radarr and Sonarr download state."""
 from __future__ import annotations
 
 from ._arr import ArrView, arr_view, invalidate
-from ._dedupe import LibraryIndex, SeenTitles, library_ids, normalise_title
+from ._dedupe import LibraryIndex, SeenTitles, folder_year, library_ids, normalise_title
 from ._discover import (
     MAX_PAGE,
     MAX_QUERY_LEN,
@@ -75,6 +75,7 @@ __all__ = [
     "discover_shelves",
     "explore_page",
     "fill_title_meta",
+    "folder_year",
     "gate",
     "genre_posters",
     "invalidate",

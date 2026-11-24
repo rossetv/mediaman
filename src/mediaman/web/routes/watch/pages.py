@@ -220,18 +220,21 @@ def card(
     }
 
 
+def movie_subtitle(movie: lib.LibraryMovie) -> str:
+    return f"Movie · {movie.year}" if movie.year else "Movie"
+
+
 def movie_card(
     movie: lib.LibraryMovie,
     *,
     watched: bool = False,
     leaving: dict[str, Any] | None = None,
     progress_pct: int | None = None,
-    year: int | None = None,
 ) -> dict[str, Any]:
     return card(
         "movie",
         movie.title,
-        f"Movie · {year}" if year else "Movie",
+        movie_subtitle(movie),
         poster_url(movie.key),
         f"/watch/movie/{movie.key}",
         watched=watched,
@@ -281,7 +284,6 @@ def movie_cards(
     """Movie cards marked with this person's Watched state and any scheduled deletion."""
     progress = get_progress(conn, username, [m.key for m in movies])
     leaving = {p.media_item_id: leaving_info(p, now) for p in pending if p.season_number is None}
-    ids = catalog.library_ids(conn)
     return [
         movie_card(
             m,
@@ -290,7 +292,6 @@ def movie_cards(
             progress_pct=(
                 progress_fields(progress[m.key])[0] if resumable(progress.get(m.key)) else None
             ),
-            year=ids.get(f"movie-{m.key}", (None, None))[1],
         )
         for m in movies
     ]
@@ -588,6 +589,7 @@ def _mark_banner(banner: dict[str, Any], of: dict[str, Any]) -> None:
 def _leaving_card(
     pending: lib.PendingDeletion,
     now: datetime,
+    films: Mapping[str, lib.LibraryMovie],
     seen_movies: set[str],
     seen_shows: Mapping[str, lib.ShowSeen],
 ) -> dict[str, Any]:
@@ -597,7 +599,7 @@ def _leaving_card(
         return card(
             "movie",
             pending.title,
-            "Movie",
+            movie_subtitle(films[key]) if key in films else "Movie",
             poster_url(key),
             f"/watch/movie/{key}",
             watched=key in seen_movies,
@@ -703,12 +705,13 @@ def watch_page(
     seen_shows = lib.show_seen(conn, username, libraries)
     show_row = [show_card(s, seen_shows.get(s.key)) for s in shows]
 
+    films = {m.key: m for m in movies}
     continue_row, banner = _continue_watching(
-        conn, username, plex, {m.key: m for m in movies}, {s.key: s for s in shows}
+        conn, username, plex, films, {s.key: s for s in shows}
     )
     plex.check_reachable()
     seen_films = seen_movies(conn, username)
-    leaving_row = [_leaving_card(p, now, seen_films, seen_shows) for p in pending]
+    leaving_row = [_leaving_card(p, now, films, seen_films, seen_shows) for p in pending]
 
     # (added, card, where the banner's Play goes, kind, key): a movie plays, a show opens its
     # page.

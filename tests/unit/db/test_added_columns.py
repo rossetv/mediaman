@@ -50,7 +50,7 @@ def test_old_database_gains_columns_and_keeps_rows(tmp_path):
     init_db(path).close()
     conn = init_db(path)
 
-    assert {"tmdb_id", "tvdb_id", "tracked_files"} <= _columns(conn)
+    assert {"tmdb_id", "tvdb_id", "tracked_files", "year"} <= _columns(conn)
     row = conn.execute("SELECT * FROM media_items").fetchall()
     assert len(row) == 1
     assert (row[0]["title"], row[0]["file_size_bytes"]) == ("T", 5)
@@ -61,7 +61,7 @@ def test_old_database_gains_columns_and_keeps_rows(tmp_path):
 
 def test_fresh_database_has_columns(tmp_path):
     conn = init_db(str(tmp_path / "new.db"))
-    assert {"tmdb_id", "tvdb_id", "tracked_files"} <= _columns(conn)
+    assert {"tmdb_id", "tvdb_id", "tracked_files", "year"} <= _columns(conn)
     conn.close()
 
 

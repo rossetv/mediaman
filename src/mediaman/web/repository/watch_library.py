@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Literal
 
 from mediaman.services.infra import get_setting
+from mediaman.services.watch_catalog import folder_year
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
@@ -33,6 +34,7 @@ class LibraryMovie:
     title: str
     added_at: str
     tmdb_id: int | None = None
+    year: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,7 @@ class LibraryShow:
     season_count: int
     added_at: str
     tvdb_id: int | None = None
+    year: int | None = None
 
 
 # The order of a library row: newest added first, or A to Z.
@@ -160,11 +163,20 @@ def _movies(
         params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
-        f"SELECT id, title, added_at, tmdb_id FROM media_items WHERE {' AND '.join(where)}"
+        f"SELECT id, title, added_at, tmdb_id, year, file_path FROM media_items WHERE {' AND '.join(where)}"
         " ORDER BY title COLLATE NOCASE, id LIMIT ?",
         (*params, limit),
     ).fetchall()
-    return [LibraryMovie(r["id"], r["title"], r["added_at"], r["tmdb_id"]) for r in rows]
+    return [
+        LibraryMovie(
+            r["id"],
+            r["title"],
+            r["added_at"],
+            r["tmdb_id"],
+            r["year"] or folder_year(r["file_path"]),
+        )
+        for r in rows
+    ]
 
 
 def _shows(
@@ -191,7 +203,8 @@ def _shows(
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
         f" MAX(media_type IN ({anime_marks})) AS anime,"
         " COUNT(DISTINCT CASE WHEN season_number > 0 THEN season_number END) AS seasons,"
-        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id"
+        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id,"
+        " MAX(year) AS year, MIN(file_path) AS file_path"
         f" FROM media_items WHERE {' AND '.join(where)}"
         " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key LIMIT ?",
         (*ANIME_SEASON_TYPES, *params, limit),
@@ -204,6 +217,8 @@ def _shows(
             season_count=r["seasons"],
             added_at=r["added_at"],
             tvdb_id=r["tvdb_id"],
+            # a title not scanned since years were stored has only its folder's
+            year=r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
     ]

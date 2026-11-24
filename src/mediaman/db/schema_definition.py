@@ -115,7 +115,9 @@ CREATE TABLE IF NOT EXISTS media_items (
     tracked_files TEXT,
     episode_count INTEGER,
     -- JSON [{"key", "number", "path"}]: the season's episodes in Plex.
-    episode_keys TEXT
+    episode_keys TEXT,
+    -- The movie's, or the first year of a season's show.
+    year INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (

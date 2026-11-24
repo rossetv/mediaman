@@ -85,6 +85,31 @@ class TestMovieTmdbId:
         assert _movie_to_item(item)["tmdb_id"] is None
 
 
+class TestYear:
+    @pytest.mark.parametrize(
+        ("held", "expected"), [(1983, 1983), (None, None), (0, None), ("1983", None)]
+    )
+    def test_a_movie_and_a_season_carry_the_year_of_the_movie_and_of_the_show(self, held, expected):
+        movie, show = _movie("local://1"), _show("local://2")
+        movie.year = show.year = held
+        season = _season([])
+        season.year = 2024
+        assert _movie_to_item(movie)["year"] == expected
+        assert _season_to_item(show, season)["year"] == expected
+
+    def test_a_year_plex_does_not_hold_is_not_asked_for(self):
+        """plexapi reloads a partial item when an empty attribute is read."""
+
+        class Unmatched(SimpleNamespace):
+            def __getattribute__(self, name):
+                if name == "year":
+                    raise AssertionError("year read")
+                return super().__getattribute__(name)
+
+        item = Unmatched(**vars(_movie("local://1")), year=None)
+        assert _movie_to_item(item)["year"] is None
+
+
 class TestSeasonTvdbId:
     @pytest.mark.parametrize(
         ("guid", "guids", "expected"),

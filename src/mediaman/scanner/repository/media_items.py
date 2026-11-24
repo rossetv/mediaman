@@ -93,8 +93,8 @@ def upsert_media_item(
             plex_library_id, plex_rating_key, show_rating_key,
             added_at, file_path, file_size_bytes, poster_path, last_scanned_at,
             tmdb_id, tvdb_id, tracked_files, radarr_id, sonarr_id,
-            episode_count, episode_keys
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            episode_count, episode_keys, year
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             media_type = excluded.media_type,
@@ -112,6 +112,7 @@ def upsert_media_item(
             tracked_files = excluded.tracked_files,
             episode_count = excluded.episode_count,
             episode_keys = excluded.episode_keys,
+            year = excluded.year,
             radarr_id = CASE WHEN ? THEN excluded.radarr_id ELSE media_items.radarr_id END,
             sonarr_id = CASE WHEN ? THEN excluded.sonarr_id ELSE media_items.sonarr_id END
         """,
@@ -136,6 +137,7 @@ def upsert_media_item(
             sonarr_id,
             item.get("episode_count") or None,
             episode_keys_json(item),
+            item.get("year"),
             set_radarr_id,
             set_sonarr_id,
         ),

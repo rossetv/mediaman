@@ -188,6 +188,19 @@ class TestUpsertMediaItem:
         assert row["tmdb_id"] == 604
         assert json.loads(row["tracked_files"]) == [{"path": "/media/film.mkv", "size": 5}]
 
+    def test_the_year_is_stored_and_follows_plex(self, conn):
+        stored = []
+        for year in (2004, 2005, None):
+            repository.upsert_media_item(
+                conn,
+                item={**self._item_dict(), "year": year},
+                library_id="1",
+                media_type="movie",
+                arr_date=None,
+            )
+            stored.append(conn.execute("SELECT year FROM media_items").fetchone()["year"])
+        assert stored == [2004, 2005, None]
+
     def test_loaded_arr_without_a_match_clears_the_stored_id(self, conn):
         item = self._item_dict()
         for radarr_id in (7, None):
