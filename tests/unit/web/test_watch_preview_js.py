@@ -105,7 +105,7 @@ def test_a_hidden_tab_drops_the_preview_and_its_trailer_at_once() -> None:
 
 
 def test_a_title_the_library_holds_is_played_from_the_library() -> None:
-    assert _run("follows") == {"gets": ["tmdb-movie-9", "movie-1"], "play": "/watch/play/1"}
+    assert _run("follows") == {"gets": ["tmdb-movie-9"], "play": "/watch/play/1"}
 
 
 def test_addresses_and_keys_from_a_reply_are_never_taken_on_trust() -> None:

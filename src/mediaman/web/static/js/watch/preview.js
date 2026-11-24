@@ -114,16 +114,7 @@
     forget();
     var f = { ref: ref, ctrl: new AbortController(), promise: null };
     flight = f;
-    function get(r) {
-      return MM.api.get('/api/watch/title/' + encodeURIComponent(r), { signal: f.ctrl.signal });
-    }
-    f.promise = get(ref).then(function (data) {
-      // A title found in the library is played from there.
-      if (!data.library_ref || data.library_ref === ref || !LIBRARY_RE.test(data.library_ref)) return data;
-      return get(data.library_ref).then(function (own) {
-        return Object.assign({}, own, { reason: own.reason || data.reason });
-      });
-    }).then(function (data) {
+    f.promise = MM.api.get('/api/watch/preview/' + encodeURIComponent(ref), { signal: f.ctrl.signal }).then(function (data) {
       if (flight !== f) return drop();
       flight = null;
       kept[ref] = { data: data, at: Date.now() };

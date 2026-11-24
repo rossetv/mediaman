@@ -83,7 +83,7 @@ function load(opts = {}) {
   const store = { ...opts.store };
   const api = {
     get(url, o) {
-      const ref = url.replace('/api/watch/title/', '');
+      const ref = url.replace('/api/watch/preview/', '');
       gets.push(ref);
       const answer = answers[ref];
       return new Promise((resolve, reject) => {
@@ -337,7 +337,7 @@ const scenarios = {
     return { before, layers: h.doc.querySelectorAll('.pv').length, frame: !!h.frame() };
   },
   async follows() {
-    const h = load({ api: { 'tmdb-movie-9': { ...OUTSIDE, in_library: true, library_ref: 'movie-1', download: null } } });
+    const h = load({ api: { 'tmdb-movie-9': { ...FILM, ref: 'movie-1', library_ref: 'movie-1' } } });
     await h.rest('outside');
     return { gets: h.gets, play: h.pv().querySelector('.pv__first').getAttribute('href') };
   },
