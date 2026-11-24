@@ -1306,6 +1306,7 @@ def test_a_connection_back_after_hours_waits_for_a_press(markup, way):
     out = run(markup, "dropped_hours", plays=way)
     assert (out["tried"], out["message"]) == (0, LOST)
     assert out["byPress"] == {"tried": 1, "message": None, "paused": False}
+    assert out["triedOn"] == 2
 
 
 def test_what_comes_by_itself_after_hours_is_paused(markup):
@@ -1394,6 +1395,12 @@ def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is
     assert (out["early"], out["loading"]) == (None, False)
     assert out["message"] == {"text": "Can't play this right now.", "button": "Try again"}
     assert out["after"] == {"streams": 0, "message": None, "stopped": True}
+
+
+def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all(markup):
+    out = run(markup, "start_unanswered_in_drop")
+    assert out["message"] == LOST
+    assert out["after"] == {"streams": 0, "stopped": True}
 
 
 @pytest.mark.parametrize("details", ["fragLoadError", "manifestLoadError"])

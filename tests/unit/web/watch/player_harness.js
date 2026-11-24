@@ -1383,6 +1383,9 @@ const scenarios = {
     if (way === 'under way') return out;
     press(p.q('[data-retry]'));
     out.byPress = { tried: h.loads.length - loads, message: messageState(p), paused: p.video.paused };
+    fail();
+    p.tick(1000);
+    out.triedOn = h.loads.length - loads;
     return Object.assign(out, { plays: p.video.plays - plays });
   },
 
@@ -1621,6 +1624,26 @@ const scenarios = {
     press(p.q('[data-retry]'));
     await settle();
     out.again = { message: messageState(p), starts: p.starts().length, at: p.hlsList[p.hlsList.length - 1].config.startPosition };
+    return out;
+  },
+
+  /* In a drop one try is never answered; the next, by Try again, is, and then the first after all. */
+  async start_unanswered_in_drop(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const first = {};
+    p.replies.push(NET, { ok: new Promise((r) => { first.reply = r; }) });
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    for (let i = 0; i < 130; i++) { p.tick(500); await settle(); }
+    const out = { message: messageState(p) };
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await streamPlays(p, 105);
+    const streams = p.hlsList.length;
+    first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
+    await settle();
+    out.after = { streams: p.hlsList.length - streams, stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') };
     return out;
   },
 
