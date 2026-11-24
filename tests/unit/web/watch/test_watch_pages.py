@@ -626,6 +626,25 @@ class TestPlayerPage:
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
         assert get("/watch/play/100?resume=1").json()["start_s"] == 1200
+
+    def test_reloading_the_plain_address_keeps_the_saved_place(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["start_s"] == 1200
+
+    def test_a_deliberate_start_over_begins_at_zero(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+
+        assert get("/watch/play/100?resume=0").json()["start_s"] == 0
+
+    def test_a_title_just_begun_starts_at_zero(self, get, conn):
+        _play(conn, "aoife", "100", position=5, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["start_s"] == 0
+
+    def test_a_finished_title_starts_at_zero_without_resume(self, get, conn):
+        _play(conn, "aoife", "100", position=5900, duration=6000, item="100")
+
         assert get("/watch/play/100").json()["start_s"] == 0
 
     def test_resume_of_a_watched_item_starts_from_the_beginning(self, get, conn):

@@ -898,9 +898,14 @@ def play_page(
 
     back_href = origin or back_href
     progress = get_progress(conn, username, [rating_key]).get(rating_key)
+    # Only an explicit resume=0 starts over: a reload or Back reopens the bare address and
+    # must not restart the video and overwrite the place already saved.
     start_s = (
         progress.position_s
-        if resume == "1" and progress is not None and not progress.watched
+        if resume != "0"
+        and progress is not None
+        and not progress.watched
+        and (resume == "1" or resumable(progress))
         else 0
     )
     return _render(
