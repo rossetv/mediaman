@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 #: items) on a slow NAS.
 _ARR_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
+#: For a read that only helps: one try, and not for long.
+_QUICK_TIMEOUT_SECONDS: tuple[float, float] = (2.0, 5.0)
+
 #: Maximum response body size for arr GET requests (e.g. ``get_movies()`` /
 #: ``get_series()``). The default 8 MiB cap is too small for a large library —
 #: a Radarr library of ~30 000 entries at ~300 bytes/item alone exceeds 8 MiB.
@@ -84,6 +87,10 @@ def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any]) -> bool:
     )
 
 
+def _is_under_way(entry: Mapping[str, Any]) -> bool:
+    return entry.get("status") in ("queued", "started")
+
+
 class _TransportMixin:
     """Authenticated HTTP verbs + the shared ``_unmonitor_with_retry``.
 
@@ -109,14 +116,19 @@ class _TransportMixin:
         self.last_error: str | None = None
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
-    def _get(self, path: str) -> dict[Any, Any] | list[Any]:
-        """Perform an authenticated GET.  Sets ``last_error`` on failure.
+    def _get(self, path: str, *, quick: bool = False) -> dict[Any, Any] | list[Any]:
+        """Perform an authenticated GET, *quick* with one short try.  Sets ``last_error`` on failure.
 
         Raises ``ArrUpstreamError`` if the response body is null (empty
         or explicitly null JSON).
         """
         try:
-            resp = self._http.get(path, headers=self._headers)
+            resp = self._http.get(
+                path,
+                headers=self._headers,
+                retry=not quick,
+                timeout=_QUICK_TIMEOUT_SECONDS if quick else None,
+            )
             self.last_error = None
             result: dict[Any, Any] | list[Any] = resp.json()
             if result is None:
@@ -129,12 +141,12 @@ class _TransportMixin:
             raise
 
     # Any: entries of an arbitrary *arr list endpoint; callers cast() to the right _types TypedDict.
-    def _get_list(self, path: str) -> list[dict[str, Any]]:
+    def _get_list(self, path: str, *, quick: bool = False) -> list[dict[str, Any]]:
         """GET a list of objects, raising ``ArrUpstreamError`` for anything else.
 
         Read as "holds nothing", a wrong answer would add, delete or close what is there.
         """
-        return self._object_list(self._get(path), path)
+        return self._object_list(self._get(path, quick=quick), path)
 
     def _get_page(self, path: str) -> tuple[list[dict[str, Any]], int]:
         """GET one page of a paged endpoint as ``(records, totalRecords)``; raises like ``_get_list``."""
@@ -187,10 +199,11 @@ class _TransportMixin:
         Raises ``SearchUnanswered`` when the list does not tell either.
         """
         # The list keeps what was done before, so the ids tell which came of this post.
+        before: list[dict[str, Any]] | None
         try:
-            last_before = max((e.get("id") or 0 for e in self._listed_commands()), default=0)
+            before = self._get_list("/api/v3/command", quick=True)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-            last_before = None
+            before = None
         try:
             self._post("/api/v3/command", command)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrUpstreamError) as exc:
@@ -198,22 +211,27 @@ class _TransportMixin:
                 raise
             unanswered = SearchUnanswered(f"{command['name']} got no answer")
             try:
-                listed = self._listed_commands()
+                listed = self._get_list("/api/v3/command")
             except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as unread:
                 raise unanswered from unread
             same = [e for e in listed if _is_command(e, command)]
-            done = [e for e in same if e.get("status") == "completed"]
-            if any(e.get("status") in ("queued", "started") for e in same) or (
-                last_before is not None and any((e.get("id") or 0) > last_before for e in done)
-            ):
-                logger.info("%s got no answer but was started", command["name"])
-            elif done and last_before is None:
-                raise unanswered from exc
+            if any(_is_under_way(e) for e in same):
+                started = True
             else:
+                done = {e.get("id") or 0 for e in same if e.get("status") == "completed"}
+                if done and before is None:
+                    raise unanswered from exc
+                # A post equal to a command under way is answered with that one, its id unchanged.
+                joined = {
+                    e.get("id")
+                    for e in before or ()
+                    if _is_command(e, command) and _is_under_way(e)
+                }
+                last = max((e.get("id") or 0 for e in before or ()), default=0)
+                started = any(done_id > last or done_id in joined for done_id in done)
+            if not started:
                 raise
-
-    def _listed_commands(self) -> list[dict[str, Any]]:
-        return self._get_list("/api/v3/command")
+            logger.info("%s got no answer but was started", command["name"])
 
     def _delete(self, path: str) -> None:
         """Perform an authenticated DELETE.  Sets ``last_error`` on failure."""

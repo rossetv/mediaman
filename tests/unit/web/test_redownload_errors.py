@@ -117,7 +117,7 @@ class _OneTitleArr(ArrClient):
         self._error = error
         self._after, self._commands = commands, before
 
-    def _get(self, path):
+    def _get(self, path, *, quick=False):
         if path == "/api/v3/command":
             if isinstance(self._commands, Exception):
                 raise self._commands
@@ -222,6 +222,33 @@ def test_a_search_done_counts_as_this_one_only_if_it_was_not_listed_before(
     assert sonarr.entry["seasons"][1]["monitored"] is stays
 
 
+@pytest.mark.parametrize(
+    ("body_before", "started"), [("same", True), ("another", False)], ids=["joined", "another"]
+)
+def test_a_search_that_joined_one_under_way_and_is_done_is_a_success(
+    app_factory, authed_client, conn, body_before, started
+):
+    """The Arr answers a search equal to one under way with that one, under its old id."""
+    client = _client(app_factory, authed_client, conn)
+    error = requests.ReadTimeout("slow")
+
+    def arr(spec, entry, search, other):
+        done = {**search, "id": 9, "status": "completed"}
+        before = {**(search if body_before == "same" else other), "id": 9, "status": "started"}
+        return _OneTitleArr(spec, entry, error, [done], [before])
+
+    other_movie = {**_MOVIE_SEARCH, "body": {"movieIds": [8]}}
+    other_season = {**_SEASON_SEARCH, "body": {"seriesId": 3, "seasonNumber": 1}}
+    radarr = arr(RADARR_SPEC, _movie(False), _MOVIE_SEARCH, other_movie)
+    sonarr = arr(SONARR_SPEC, _series(False), _SEASON_SEARCH, other_season)
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (started, started)
+    assert radarr.entry["monitored"] is started
+    assert sonarr.entry["seasons"][1]["monitored"] is started
+
+
 @_SEARCH_ERRORS
 def test_a_search_nobody_can_tell_the_state_of_is_a_failure_that_unmonitors_nothing(
     app_factory, authed_client, conn, error
@@ -245,10 +272,10 @@ def test_a_season_that_was_never_monitored_keeps_its_lone_monitored_episode(
     class _RefusesWrites(_OneTitleArr):
         writes: list[str] = []
 
-        def _get(self, path):
+        def _get(self, path, **kwargs):
             if path.startswith("/api/v3/episode?"):
                 return [{"id": 21, "seasonNumber": 2, "monitored": True}]
-            return super()._get(path)
+            return super()._get(path, **kwargs)
 
         def _put(self, path, data):
             if path == "/api/v3/episode/monitor":
