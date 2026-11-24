@@ -802,6 +802,28 @@ const scenarios = {
     return { status: await at('status'), picks: await at('picks') };
   },
 
+  // It made none, and meanwhile a newer batch of only shared picks is there.
+  async ownFailedNewerBatch() {
+    let done = false;
+    const batches = [{ id: '2026-11-22', label: 'Latest picks', date_label: '22 Nov' }, ...BATCHES];
+    const at = async (shared) => {
+      done = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => Promise.resolve(done ? recommended({ mine: MINE.ready, batches, items: shared })
+          : recommended({ mine: MINE.ready, items: OWN_ITEMS.filter((i) => i.own === (shared[0].pick_ref === 'rec-50')) })),
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'failed' }),
+      } });
+      await settle();
+      click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+      await settle();
+      done = true;
+      await tick(p);
+      return { ...lineOf(p), refs: refsOf(scrollerOf(p, 'recommended')), toasts: p.toasts.map((t) => t.message) };
+    };
+    return { hadOwn: await at([pick('rec-50')]), hadNone: await at([pick('rec-51')]) };
+  },
+
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
   async loggedOutOnLoad() {
     const p = load({ routes: {

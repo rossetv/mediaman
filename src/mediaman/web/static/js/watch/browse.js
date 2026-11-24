@@ -603,8 +603,10 @@
     return (payload.items || []).filter(function (i) { return i.own; }).map(function (i) { return i.pick_ref; }).join(' ');
   }
 
+  function latestOf(payload) { return payload.batches.length ? payload.batches[0].id : null; }
+
   function noteOwn(payload) {
-    if (!payload.batches.length || payload.batch === payload.batches[0].id) ownRefs = ownOf(payload);
+    if (!payload.batches.length || payload.batch === latestOf(payload)) ownRefs = ownOf(payload);
   }
 
   /* Whether the person may have their picks made: ready, busy, cooldown, or none
@@ -700,17 +702,19 @@
     follow(OWN_URL, function (st) {
       if (st.status === 'running') return false;
       fetchRec(null).then(function (payload) {
-        var fresh = ownOf(payload) !== ownRefs;
+        var own = ownOf(payload);
+        var changed = own !== ownRefs || latestOf(payload) !== latestOf(rec.payload);
+        var fresh = !!own && own !== ownRefs;
         ownBusy = false;
         ownFailed = !fresh && !payload.my_refresh.running && (st.status === 'failed' || (mine && st.status !== 'done'));
-        if (fresh) {
+        if (changed) {
           updateRec(payload);
-          core.toast('Your new picks are in.', { variant: 'success' });
-          return;
+        } else {
+          rec.payload.my_refresh = payload.my_refresh;
+          drawOwn();
         }
-        rec.payload.my_refresh = payload.my_refresh;
-        drawOwn();
-        if (ownFailed) core.toast('Couldn’t make new picks for you. Try again.', { variant: 'error' });
+        if (fresh) core.toast('Your new picks are in.', { variant: 'success' });
+        else if (ownFailed) core.toast('Couldn’t make new picks for you. Try again.', { variant: 'error' });
       }).catch(function (err) {
         if (!loggedOut(err)) ownError('Your picks may have changed, but they didn’t load. Reload the page to see them.');
       });

@@ -244,6 +244,14 @@ def test_own_picks_nobody_can_tell_of_any_more_can_be_tried_again() -> None:
         )
 
 
+def test_a_newer_shared_batch_is_not_told_as_new_own_picks_but_still_shown() -> None:
+    out = _run("ownFailedNewerBatch")
+    for at, ref in ((out["hadOwn"], "rec-50"), (out["hadNone"], "rec-51")):
+        assert at["refs"] == [ref]
+        assert at["text"].startswith("Couldn’t make new ones")
+        assert at["toasts"] == ["Couldn’t make new picks for you. Try again."]
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
