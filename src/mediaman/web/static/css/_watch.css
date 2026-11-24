@@ -489,9 +489,31 @@
 .watch-badge--watched > .ico { flex: none; font-size: 13px; }
 .watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
 .watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
-/* Not drawn on a narrow card; still read out. */
-@media (max-width: 1279.98px) {
+/* A caption of two parts is one line. Where both do not fit, the lines are laid out from the foot up
+   and the one that shows is the tail; the lead is clipped and still read out. So it is inside a tail of two. */
+.watch-card__sub:has(> .watch-card__lead),
+.watch-card__tail:has(> .watch-card__end) {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-content: flex-end;
+  height: 1lh;
+  white-space: nowrap;
+}
+.watch-card__lead,
+.watch-card__tail { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.watch-card__lead:not(:last-child)::after { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
+/* Search results mix films and shows, so there the lead is the part that stays. */
+.results-grid .watch-card__sub:has(> .watch-card__lead) { flex-wrap: wrap; align-content: flex-start; }
+.results-grid .watch-card__lead:not(:last-child)::after { content: none; }
+.results-grid .watch-card__tail::before { content: "\a0·\a0"; content: "\a0·\a0" / ""; }
+.watch-card__mid { white-space: pre; }
+.watch-card__said,
+.results-grid .watch-card__mid { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
+@media (max-width: 599.98px) {
+  .watch-card__mid,
   .watch-card__wide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
+  .watch-card__unit::after { content: attr(data-unit); }
 }
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
@@ -556,6 +578,12 @@
 .watch-more:active::before { opacity: 1; transform: scale(.92); }
 .watch-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; color: var(--t1); }
 .watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
+/* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
+@media (max-width: 599.98px) {
+  .watch-card[data-mark] .watch-card__sub { padding-right: 18px; }
+  .watch-more { place-items: center end; padding-right: 8px; }
+  .watch-more::before { inset: 8px 0 8px 16px; }
+}
 .watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
 .watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
 

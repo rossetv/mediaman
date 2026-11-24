@@ -4,8 +4,8 @@ DOM."""
 from __future__ import annotations
 
 import json
-import re
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import jinja2
@@ -47,35 +47,107 @@ def test_a_film_marked_shows_it_on_all_its_cards_and_undo_puts_them_back() -> No
     assert out["toasts"][0] == "Marked Fieldwork as watched."
 
 
-NARROW = {
-    "Movie": "Movie",
-    "Movie · 2026": "Movie · 2026",
-    "Movie · 1 h 30 min left": "1 h 30 min left",
-    "Movie · 2026 · 31 min left": "31 min left",
-    "Anime · 1 season": "1 season",
-    "TV · 10 seasons · 3 left": "3 left",
-    "S2 · E4 · 12 min left": "S2 E4 · 12 min",
-    "S2 · E4": "S2 · E4",
-    "Season 2": "Season 2",
-    "": "",
+# What a caption reads, and how its words are laid out: (class, words), "said" is read out
+# and not drawn, "wide" and "mid" are drawn only past phones, and a unit drawn there in their place.
+CAPTIONS = {
+    "Movie": [["", "Movie"]],
+    "Movie · 2026": [["lead", "Movie"], ["said", " · "], ["tail", "2026"]],
+    "Movie · 1 h 30 min left": [
+        ["lead", "Movie"],
+        ["said", " · "],
+        ["tail", "1"],
+        ["wide", " h"],
+        ["unit", "h"],
+        ["tail", " 30"],
+        ["wide", " min"],
+        ["unit", "m"],
+        ["tail", " left"],
+    ],
+    "Movie · 2026 · 31 min left": [
+        ["lead", "Movie"],
+        ["said", " · "],
+        ["mid", "2026 · "],
+        ["end", "31"],
+        ["wide", " min"],
+        ["unit", "m"],
+        ["end", " left"],
+    ],
+    "Anime · 1 season": [["lead", "Anime"], ["said", " · "], ["tail", "1 season"]],
+    "TV · 10 seasons · 3 left": [
+        ["lead", "TV"],
+        ["said", " · "],
+        ["mid", "10 seasons · "],
+        ["end", "3 left"],
+    ],
+    "S2 · E4 · 12 min left": [
+        ["lead", "S2"],
+        ["said", " ·"],
+        ["lead", " E4"],
+        ["said", " · "],
+        ["tail", "12"],
+        ["wide", " min"],
+        ["unit", "m"],
+        ["tail", " left"],
+    ],
+    "E4 · 12 min left": [
+        ["lead", "E4"],
+        ["said", " · "],
+        ["tail", "12"],
+        ["wide", " min"],
+        ["unit", "m"],
+        ["tail", " left"],
+    ],
+    "S2 · E4": [["lead", "S2"], ["said", " ·"], ["lead", " E4"]],
+    "Season 2": [["", "Season 2"]],
+    "": [],
 }
 
 
-def test_a_narrow_card_s_caption_draws_what_fits_on_a_line_and_says_the_rest() -> None:
-    out = _run("captions", json.dumps(list(NARROW)))
-    assert dict(out) == NARROW
+def _said(pieces: list[list[str]]) -> str:
+    return "".join(words for kind, words in pieces if kind != "unit")
+
+
+class _Pieces(HTMLParser):
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.open: list[str] = []
+        self.pieces: list[list[str]] = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attr = dict(attrs)
+        self.open.append(attr["class"].removeprefix("watch-card__"))
+        if attr.get("data-unit"):
+            assert attr["aria-hidden"] == "true"
+            self.pieces.append(["unit", attr["data-unit"]])
+
+    def handle_endtag(self, tag):
+        self.open.pop()
+
+    def handle_data(self, data):
+        if self.open or data:
+            self.pieces.append([self.open[-1] if self.open else "", data])
+
+
+def test_a_caption_says_all_of_it_and_marks_what_a_narrow_card_leaves_out() -> None:
+    out = _run("captions", json.dumps(list(CAPTIONS)))
+    assert dict(out) == CAPTIONS
+    assert [_said(pieces) for _, pieces in out] == list(CAPTIONS)
 
 
 def test_a_card_a_script_builds_has_the_same_caption() -> None:
-    assert _run("builtCaption") == ["Movie · 31 min left", ["Movie · "]]
+    out = _run("builtCaption")
+    assert out["library"][0] == "Movie · 31 min left"
+    assert out["library"][1] == ["lead", "Movie"]
+    # A title in the library that a TMDB search finds has More beside its caption too.
+    assert out["found"] == ["TV · 2016", ["lead", "TV"], ["said", " · "], ["tail", "2016"]]
 
 
-@pytest.mark.parametrize("text", NARROW)
+@pytest.mark.parametrize("text", CAPTIONS)
 def test_the_page_draws_the_captions_the_script_draws(text: str) -> None:
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
     html = str(env.get_template("_watch_card.html").module.caption(text))
-    assert re.sub(r"<span[^>]*>|</span>", "", html) == text
-    assert re.sub(r"<span[^>]*>.*?</span>", "", html) == NARROW[text]
+    assert _Pieces(html).pieces == CAPTIONS[text]
 
 
 def test_a_mark_with_nothing_in_continue_watching_does_not_load_the_page_again() -> None:

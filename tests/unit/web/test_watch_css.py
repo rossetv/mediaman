@@ -111,3 +111,15 @@ def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
     assert "outline: 1px solid CanvasText" in _of(".watch-badge--leaving", FORCED)
+
+
+def test_a_caption_is_shortened_on_a_phone_alone() -> None:
+    assert "clip-path" not in _of(".watch-card__wide") + _of(".watch-card__wide", "1279.98px")
+    assert "clip-path" in _of(".watch-card__wide", "max-width: 599.98px")
+    assert "attr(data-unit)" in _of(".watch-card__unit::after", "max-width: 599.98px")
+
+
+def test_a_caption_with_no_room_for_both_parts_shows_the_tail_and_in_search_the_kind() -> None:
+    caption = ".watch-card__sub:has(> .watch-card__lead)"
+    assert "flex-wrap: wrap-reverse" in _of(caption) and "height: 1lh" in _of(caption)
+    assert "flex-wrap: wrap;" in _of(f".results-grid {caption}")

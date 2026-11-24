@@ -154,6 +154,15 @@ async function press(p, n) {
 }
 function pressed(p) { return p.doc.querySelectorAll('[data-mark-toggle]').map((b) => b.getAttribute('aria-pressed')); }
 
+// A caption's words, each with the class of the span it is in.
+function pieces(node, kind = '') {
+  return node.childNodes.flatMap((n) => {
+    if (n.nodeType === 3) return [[kind, n.textContent]];
+    const own = n.className.replace('watch-card__', '');
+    return own === 'unit' ? [[own, n.getAttribute('data-unit')]] : pieces(n, own);
+  });
+}
+
 const scenarios = {
   // What the one menu offers for each kind of card.
   async menus() {
@@ -162,24 +171,26 @@ const scenarios = {
     return p.cards().map((c) => { p.open(c); return p.menu(); });
   },
 
-  // What a caption draws on a narrow card, and all it says.
+  // The pieces of a caption.
   async captions() {
     const p = load(watchPage([row('lib', [FILM()])]));
     const sub = p.doc.querySelector('.watch-card__sub');
     return JSON.parse(process.argv[3]).map((text) => {
       p.ctx.MMWatch.core.caption(sub, text);
-      const said = sub.textContent;
-      sub.querySelectorAll('.watch-card__wide').forEach((n) => n.remove());
-      return [said, sub.textContent];
+      return [sub.textContent, pieces(sub)];
     });
   },
 
-  // The caption of a library card a script builds: what a narrow card draws, and all it says.
+  // The captions of the cards a script builds.
   async builtCaption() {
-    const p = load(watchPage([]));
+    const p = load(watchPage([row('lib', [card('show/2', 'Brightwater', 'TV · 2016')])]));
     vm.runInContext(fs.readFileSync(path.join(JS, 'watch/search.js'), 'utf8'), p.ctx);
     const sub = p.ctx.MMWatch.search.card({ title: 'Fieldwork', kind: 'movie', subtitle: 'Movie', minutes_left: 31, href: '/watch/movie/1' }).querySelector('.watch-card__sub');
-    return [sub.textContent, sub.querySelectorAll('.watch-card__wide').map((n) => n.textContent)];
+    const poster = p.doc.createElement('span');
+    const found = p.cards('lib')[0];
+    p.ctx.MMWatch.core.addMarks(found, poster, { title: 'Brightwater', mark_kind: 'show', mark_key: '2' });
+    const line = found.querySelector('.watch-card__sub');
+    return { library: [sub.textContent].concat(pieces(sub)), found: [line.textContent].concat(pieces(line)) };
   },
 
   // A film marked from its card, then Undo.

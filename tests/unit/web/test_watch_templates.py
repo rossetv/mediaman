@@ -259,7 +259,7 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
         ]
     )
     assert 'value="38"' in html
-    assert "31 min left" in html
+    assert "31 min left" in " ".join(_captions(html))
     assert ">Watched<" in html
 
 

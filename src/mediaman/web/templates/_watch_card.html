@@ -77,19 +77,30 @@
 <button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}">{{ icon("i-eye") }}<span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ label }}</span><span class="watch-mark-btn__on">Watched</span></span></button>
 {%- endmacro %}
 
-{# A card's caption. What a narrow card has no room for is still read out, not drawn:
-   watch/core.js builds the same. #}
+{# "1 h 5 min left", drawn "1h 5m left" on a phone. #}
+{% macro caption_time(words) -%}
+  {%- for word in words.split(" ") -%}
+    {%- if word in ("h", "min") and not loop.first -%}
+<span class="watch-card__wide"> {{ word }}</span><span class="watch-card__unit" data-unit="{{ word[0] }}" aria-hidden="true"></span>
+    {%- else -%}{{ " " if not loop.first }}{{ word }}{%- endif -%}
+  {%- endfor -%}
+{%- endmacro %}
+
+{# A card's caption: what leads it, then the rest. What a card has no room for is still read
+   out, not drawn: watch/core.js builds the same. #}
 {% macro caption(text) -%}
   {%- set parts = text.split(" · ") -%}
-  {%- set last = parts|last -%}
-  {%- macro wide(words) -%}<span class="watch-card__wide">{{ words }}</span>{%- endmacro -%}
-  {%- if parts[0] in ("Movie", "TV", "Anime") and parts|length > 1 and not last.isdigit() -%}
-    {{ wide(parts[:-1]|join(" · ") ~ " · ") }}{{ last }}
-  {%- elif parts|length == 3 and parts[1].startswith("E") and last.endswith(" left") -%}
-    {{ parts[0] }}{{ wide(" ·") }} {{ parts[1] }} · {{ last[:-5] }}{{ wide(" left") }}
-  {%- else -%}
-    {{ text }}
-  {%- endif -%}
+  {%- set number = parts[0][1:] -%}
+  {%- set many = parts|length > 1 -%}
+  {%- set kind = many and parts[0] in ("Movie", "TV", "Anime") -%}
+  {%- set episode = many and parts[0][:1] == "S" and number.isdigit() and parts[1][:1] == "E" and parts[1][1:].isdigit() -%}
+  {%- if kind or episode or (many and parts[0][:1] == "E" and number.isdigit()) -%}
+    {%- set rest = parts[2:] if episode else parts[1:] -%}
+<span class="watch-card__lead">{{ parts[0] }}{% if episode %}<span class="watch-card__said"> ·</span> {{ parts[1] }}{% endif %}{% if rest %}<span class="watch-card__said"> · </span>{% endif %}</span>
+    {%- if rest -%}
+<span class="watch-card__tail">{% if rest|length > 1 %}<span class="watch-card__mid">{{ rest[:-1]|join(" · ") }} · </span><span class="watch-card__end">{{ caption_time(rest[-1]) }}</span>{% else %}{{ caption_time(rest[-1]) }}{% endif %}</span>
+    {%- endif -%}
+  {%- else -%}{{ text }}{%- endif -%}
 {%- endmacro %}
 
 {# One poster card; *keep* adds the Keep button (the Leaving soon row only, so

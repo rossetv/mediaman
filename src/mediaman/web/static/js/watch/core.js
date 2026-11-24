@@ -227,20 +227,38 @@
 
   /* Put *text* in a card's caption, as _watch_card.html's caption macro does. */
   function caption(node, text) {
-    function words(s) { node.appendChild(document.createTextNode(s)); }
-    function wide(s) { node.appendChild(el('span', 'watch-card__wide', s)); }
+    function add(to, name, s) { return to.appendChild(el('span', 'watch-card__' + name, s)); }
+    function words(to, s) { to.appendChild(document.createTextNode(s)); }
+    /* "1 h 5 min left", drawn "1h 5m left" on a phone. */
+    function time(to, s) {
+      s.split(/( h| min)(?= |$)/).forEach(function (part) {
+        var unit = { ' h': 'h', ' min': 'm' }[part];
+        if (!unit) { if (part) words(to, part); return; }
+        add(to, 'wide', part);
+        var short = add(to, 'unit');
+        short.setAttribute('data-unit', unit);
+        short.setAttribute('aria-hidden', 'true');
+      });
+    }
     var parts = text.split(' · ');
-    var last = parts[parts.length - 1];
+    var kind = /^(Movie|TV|Anime)$/.test(parts[0]) && parts.length > 1;
+    var episode = /^S\d+$/.test(parts[0]) && /^E\d+$/.test(parts[1]);
     node.textContent = '';
-    if (/^(Movie|TV|Anime)$/.test(parts[0]) && parts.length > 1 && !/^\d+$/.test(last)) {
-      wide(parts.slice(0, -1).join(' · ') + ' · ');
-      words(last);
-    } else if (parts.length === 3 && /^E/.test(parts[1]) && / left$/.test(last)) {
-      words(parts[0]);
-      wide(' ·');
-      words(' ' + parts[1] + ' · ' + last.slice(0, -5));
-      wide(' left');
-    } else words(text);
+    if (!kind && !episode && !(/^E\d+$/.test(parts[0]) && parts.length > 1)) {
+      if (text) words(node, text);
+      return node;
+    }
+    var lead = add(node, 'lead', parts[0]);
+    var rest = parts.slice(1);
+    if (episode) {
+      add(lead, 'said', ' ·');
+      words(lead, ' ' + rest.shift());
+    }
+    if (!rest.length) return node;
+    add(lead, 'said', ' · ');
+    var tail = add(node, 'tail');
+    if (rest.length > 1) add(tail, 'mid', rest.slice(0, -1).join(' · ') + ' · ');
+    time(rest.length > 1 ? add(tail, 'end') : tail, rest[rest.length - 1]);
     return node;
   }
 
@@ -258,6 +276,8 @@
     var mark = markOf(item);
     if (!mark) return;
     card.setAttribute('data-mark', mark);
+    var sub = card.querySelector('.watch-card__sub');
+    if (sub) caption(sub, sub.textContent);
     if (item.watched) poster.appendChild(watchedBadge());
     var more = el('button', 'watch-more');
     more.type = 'button';
