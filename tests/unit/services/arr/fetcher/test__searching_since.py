@@ -22,6 +22,7 @@ from tests.helpers.factories import insert_settings
 
 _START = datetime(2026, 1, 10, 12, tzinfo=UTC)
 _DAY = timedelta(days=1)
+_LOOK = timedelta(hours=6)
 
 
 def _movie(**overrides):
@@ -70,8 +71,8 @@ class Stack:
                     raising=False,
                 )
         monkeypatch.setattr(
-            "mediaman.services.arr.fetcher._searching_since.now_iso",
-            lambda: self.now.isoformat(),
+            "mediaman.services.arr.fetcher._searching_since.now_utc",
+            lambda: self.now,
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.items.time.time",
@@ -79,7 +80,12 @@ class Stack:
         )
 
     def sweep(self, after: timedelta = timedelta()) -> None:
-        self.now += after
+        """Keep looking for *after*, then let auto-abandon decide."""
+        until = self.now + after
+        while until - self.now > _LOOK:
+            self.now += _LOOK
+            fetch_arr_queue(self.conn, "x" * 64)
+        self.now = until
         for card in fetch_arr_queue(self.conn, "x" * 64):
             maybe_auto_abandon(self.conn, "x" * 64, item=card, now=self.now.timestamp())
 
@@ -135,11 +141,11 @@ def test_failed_auto_abandon_is_tried_again_on_the_next_sweep(stack):
 
 def test_movie_that_stopped_searching_starts_over_when_it_searches_again(stack):
     stack.radarr.get_movies.return_value = [_movie()]
-    stack.sweep()
+    stack.sweep(10 * _DAY)
     stack.radarr.get_movies.return_value = [_movie(hasFile=True)]
-    stack.sweep(10 * _DAY)
+    stack.sweep(_LOOK)
     stack.radarr.get_movies.return_value = [_movie()]
-    stack.sweep(10 * _DAY)
+    stack.sweep(_LOOK)
     stack.sweep(10 * _DAY)
     stack.radarr.unmonitor_movie.assert_not_called()
 
@@ -149,10 +155,46 @@ def test_radarr_outage_does_not_restart_the_clock(stack, call):
     stack.radarr.get_movies.return_value = [_movie()]
     stack.sweep()
     getattr(stack.radarr, call).side_effect = requests.ConnectionError("down")
-    stack.sweep(_DAY)
+    stack.sweep(2 * _LOOK)
     getattr(stack.radarr, call).side_effect = None
     stack.sweep(14 * _DAY)
     stack.radarr.unmonitor_movie.assert_called_once_with(7)
+
+
+@pytest.mark.parametrize(
+    ("unseen_for", "abandoned"), [(timedelta(hours=23, minutes=59), True), (_DAY, False)]
+)
+def test_a_search_not_looked_at_for_a_day_starts_over(stack, unseen_for, abandoned):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep(10 * _DAY)
+    stack.now += unseen_for
+    stack.sweep()
+    stack.sweep(5 * _DAY)
+    assert stack.radarr.unmonitor_movie.called is abandoned
+    if not abandoned:
+        stack.sweep(9 * _DAY)
+        stack.radarr.unmonitor_movie.assert_called_once_with(7)
+
+
+def test_a_clock_kept_before_last_seen_was_recorded_goes_on_and_is_watched_from_then(stack):
+    stack.conn.execute(
+        "INSERT INTO arr_searching_since (key, since) VALUES ('radarr:7', ?)",
+        ((_START - 20 * _DAY).isoformat(),),
+    )
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.conn.execute("DELETE FROM settings WHERE key='auto_abandon_enabled'")
+    stack.sweep()
+    assert stack.abandon_offered()
+    stack.now += _DAY
+    assert not stack.abandon_offered()
+
+
+def test_a_look_a_moment_after_the_last_writes_nothing(stack):
+    stack.radarr.get_movies.return_value = [_movie()]
+    stack.sweep()
+    before = stack.conn.total_changes
+    stack.sweep(timedelta(seconds=2))
+    assert stack.conn.total_changes == before
 
 
 def test_show_re_monitored_years_after_it_was_added_is_not_abandoned(stack):
@@ -167,10 +209,10 @@ def test_show_re_monitored_years_after_it_was_added_is_not_abandoned(stack):
 
 def test_season_re_monitored_on_a_searching_show_restarts_its_clock(stack):
     stack.sonarr.get_series.return_value = [_show(1)]
-    stack.sweep()
+    stack.sweep(10 * _DAY)
     stack.sonarr.get_series.return_value = [_show(1, 2)]
     stack.sonarr.get_series_by_id.return_value = _show(1, 2)
-    stack.sweep(10 * _DAY)
+    stack.sweep()
     stack.sweep(5 * _DAY)
     stack.sonarr.unmonitor_season.assert_not_called()
 
