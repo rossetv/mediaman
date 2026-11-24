@@ -21,6 +21,7 @@ function open(tab, opts = {}) {
   const timers = [];
   const log = [];
   const observers = [];
+  const frames = [];
   const win = { scrollY: 0, tallest: opts.tallest === undefined ? 100000 : opts.tallest };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, event) => (listeners[type] || []).slice().forEach((fn) => fn(event || {}));
@@ -42,6 +43,9 @@ function open(tab, opts = {}) {
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
     scrollTo: (o) => scroll(o.top),
+    requestAnimationFrame: (fn) => frames.push(fn),
+    innerHeight: 900,
+    Date: { now: () => 0 },
     ResizeObserver: class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} disconnect() { this.off = true; } },
     sessionStorage: {
       getItem: (k) => { if (opts.noStorage) throw new Error('denied'); return k in tab.stored ? tab.stored[k] : null; },
@@ -64,7 +68,8 @@ function open(tab, opts = {}) {
       get hash() { return here().hash; },
     },
   };
-  Object.defineProperty(ctx, 'scrollY', { get: () => win.scrollY });
+  // Too short for its scroll, the page moves at once.
+  Object.defineProperty(ctx, 'scrollY', { get: () => (win.scrollY = Math.min(win.scrollY, win.tallest)) });
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(JS, 'watch/address.js'), 'utf8'), ctx);
@@ -88,7 +93,8 @@ function open(tab, opts = {}) {
     at: () => tab.entries[tab.index].url,
     step: async (by) => { go(by); await settle(); },
     settle,
-    late: () => timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }),
+    frame: (n) => { for (let i = 0; i < (n || 1); i++) frames.splice(0).forEach((fn) => fn()); },
+    late: (ms) => timers.filter((t) => t.on && !(t.ms > ms)).forEach((t) => { t.on = false; t.fn(); }),
   };
   if (!opts.unstarted) address.start();
   return api;
@@ -108,8 +114,15 @@ function rowOf(p, id, width) {
   Object.defineProperty(s, 'clientWidth', { get: () => (s.away ? 0 : 100) });
   Object.defineProperty(s, 'scrollLeft', { get: () => left });
   s.scrollTo = (o) => {
+    const was = left;
     left = Math.max(0, Math.min(s.width - 100, o.left));
+    if (left === was) return;
     (p.doc.listeners.scroll || []).forEach((fn) => fn({ target: s }));
+    (s.listeners.scroll || []).forEach((fn) => fn({ target: s }));
+  };
+  s.drag = (to) => {
+    p.doc.listeners.wheel.forEach((fn) => fn({ type: 'wheel', target: s, deltaX: 9, deltaY: 1 }));
+    s.scrollTo({ left: to });
   };
   return s;
 }
@@ -171,10 +184,13 @@ const scenarios = {
     const waits = () => p.timers.filter((t) => t.on).length;
     for (const tall of [2000, 4000]) {
       const old = p.timers.filter((t) => t.on)[0];
+      p.frame(4);
       p.win.tallest = tall;
       p.observers[0].fn();
-      if (old.on) { old.on = false; old.fn(); }
+      p.frame(4);
+      if (old.on && old.ms < 5000) { old.on = false; old.fn(); }
     }
+    p.frame(4);
     p.win.tallest = 9000;
     if (!p.observers[0].off) p.observers[0].fn();
     const y = p.win.scrollY;
@@ -195,23 +211,57 @@ const scenarios = {
       return { p, slot };
     };
     const { p, slot } = come();
-    p.late();
-    p.late();
+    p.frame(4);
+    p.late(1000);
+    p.late(1000);
     p.scroll(1460);
+    p.frame(4);
     const swapping = p.win.scrollY;
     slot.removeAttribute('aria-busy');
+    p.frame(4);
     p.scroll(1500);
+    p.frame(4);
     const settled = p.win.scrollY;
-    p.late();
+    p.frame(4);
+    p.late(1000);
     p.scroll(1600);
     const later = p.win.scrollY;
     const taken = ['wheel', 'touchstart', 'mousedown', 'keydown', 'click'].map((type) => {
       const q = come().p;
       q.fire(type);
       q.scroll(800);
+      q.frame(4);
       return q.win.scrollY;
     });
     return { swapping, settled, later, taken, anchor: p.ctx.document.documentElement.style.overflowAnchor };
+  },
+
+  // What scrolls frame after frame is the person, whatever they scroll with; a page that never settles is let go.
+  async aPageTheyScrollWithoutAnEvent() {
+    const come = () => {
+      const tab = makeTab('/watch');
+      let p = open(tab);
+      p.scroll(2400);
+      p.fire('pagehide');
+      p = open(tab, { unstarted: true });
+      p.doc.body.appendChild(build(p.doc, ['div', { id: 'watch-discover-slot', 'aria-busy': 'true' }]));
+      p.address.start();
+      p.frame(4);
+      return p;
+    };
+    const p = come();
+    [2300, 2100, 1800, 1500].forEach((y) => { p.scroll(y); p.frame(); });
+    p.frame(4);
+    const run = p.win.scrollY;
+    p.fire('pagehide');
+    const kept = open(p.tab).win.scrollY;
+    const q = come();
+    q.scroll(2300); q.frame(2); q.scroll(2350); q.frame(4);
+    const shaken = q.win.scrollY;
+    q.late(5000);
+    q.scroll(700);
+    q.frame(4);
+    return { run, kept, shaken, bounded: q.win.scrollY };
   },
 
   // A row off the screen is still waited for while there is more of it to load.
@@ -411,6 +461,7 @@ const scenarios = {
       await p.step(-1);
       const short = p.win.scrollY;
       if (then) then();
+      p.frame(4);
       p.win.tallest = 5000;
       p.observers.filter((o) => !o.off).forEach((o) => o.fn());
       const at = p.win.scrollY;

@@ -240,3 +240,12 @@ def test_closing_a_title_on_a_page_loaded_again_focuses_its_card_or_the_views_he
         "rows": [at, None],
         "shared": "heading",
     }
+
+
+def test_what_scrolls_frame_after_frame_is_the_persons_and_the_page_is_held_5_s_at_most() -> None:
+    assert _run("aPageTheyScrollWithoutAnEvent") == {
+        "run": 1500,
+        "kept": 1500,
+        "shaken": 2400,
+        "bounded": 700,
+    }

@@ -27,6 +27,9 @@
   var TITLES_KEY = 'mm:watch:titles';
   var HEADINGS = { grid: '.watch-all__title', explore: '.explore-title', search: '.results-group__title' }; // of the layers that are views
   var HOLD_MS = 1000; // how long a page, or a row, stays where it was put before it is left there
+  var MOST_MS = 5000; // how long the page is held at most
+  var STILL_FRAMES = 3; // frames of standing still that are rest; the first can be the one it moved in
+  var RUN_FRAMES = 3; // frames of moving the same way that are the person's
   var TAKES = ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'click', 'keydown']; // the person takes over
 
   var layers = []; // lowest first
@@ -262,7 +265,7 @@
     var placed = route('pop', null);
     arriving = null;
     if (placed || saved === undefined) stopPlacing();
-    else putBack(saved);
+    else putBackTo(saved);
     refocus();
     if (asked && asked.land) asked.land();
     letGo();
@@ -294,14 +297,56 @@
   /* The rows that load after the page are still on their way. */
   function filling() { return !!document.querySelector('#watch-discover-slot[aria-busy="true"]'); }
 
-  function putBack(y) {
+  /* Watches what stands at read(): once it has moved and come to rest, rest() is called; moving
+     the same way frame after frame, it is the person, whatever they scroll with, and theirs(). */
+  function follower(read, rest, theirs) {
+    var at = read();
+    var run = 0; // frames it moved the same way; back is negative
+    var still = 0; // frames it stood still
+    var busy = false;
+    function frame() {
+      var now = read();
+      var by = now - at;
+      at = now;
+      still = by ? 0 : still + 1;
+      if (still === STILL_FRAMES) {
+        run = 0;
+        busy = false;
+        rest();
+        return;
+      }
+      if (by) run = by > 0 ? Math.max(0, run) + 1 : Math.min(0, run) - 1;
+      if (Math.abs(run) >= RUN_FRAMES) {
+        busy = false;
+        theirs();
+        return;
+      }
+      window.requestAnimationFrame(frame);
+    }
+    return {
+      moved: function () {
+        if (busy) return;
+        busy = true;
+        still = 0;
+        frame();
+      },
+      put: function () { at = read(); },
+      busy: function () { return busy; }
+    };
+  }
+
+  /* Put the page back to where *target* says, and hold it there until what fills it has settled. */
+  function putBack(target) {
     var mine = placing;
+    var timer = null;
+    function there() { return Math.abs(window.scrollY - target()) < 2; }
     function go() {
       if (placing !== mine) return;
-      window.scrollTo({ left: 0, top: y, behavior: 'instant' });
       wait();
+      if (there()) return;
+      window.scrollTo({ left: 0, top: target(), behavior: 'instant' });
+      steps.put();
     }
-    function there() { return Math.abs(window.scrollY - y) < 2; }
     // Safari moves a page that is put back while what fills it takes the place of its skeletons.
     function wait() {
       clearTimeout(timer);
@@ -310,24 +355,35 @@
         else stopPlacing();
       }, there() ? HOLD_MS : GROW_MS);
     }
+    function theirs() {
+      if (placing !== mine) return;
+      stopPlacing();
+      onScroll();
+    }
+    function grown() { if (!steps.busy()) go(); }
+    var steps = follower(function () { return window.scrollY; }, go, theirs);
     TAKES.forEach(function (type) {
-      window.addEventListener(type, stopPlacing, { passive: true, capture: true });
-      mine.stop.push(function () { window.removeEventListener(type, stopPlacing, { capture: true }); });
+      window.addEventListener(type, theirs, { passive: true, capture: true });
+      mine.stop.push(function () { window.removeEventListener(type, theirs, { capture: true }); });
     });
-    var timer = null;
-    mine.stop.push(function () { clearTimeout(timer); });
-    var anchor = document.documentElement.style;
-    anchor.overflowAnchor = 'none';
-    mine.stop.push(function () { anchor.overflowAnchor = ''; });
-    window.addEventListener('scroll', go, { passive: true });
-    mine.stop.push(function () { window.removeEventListener('scroll', go); });
+    var end = setTimeout(stopPlacing, MOST_MS);
+    mine.stop.push(function () { clearTimeout(timer); clearTimeout(end); });
+    window.addEventListener('scroll', steps.moved, { passive: true });
+    mine.stop.push(function () { window.removeEventListener('scroll', steps.moved); });
     // A page still filling is too short for it yet.
     if ('ResizeObserver' in window) {
-      var grows = new ResizeObserver(go);
+      var grows = new ResizeObserver(grown);
       grows.observe(document.body);
       mine.stop.push(function () { grows.disconnect(); });
     }
     go();
+  }
+
+  function putBackTo(y) {
+    var anchor = document.documentElement.style;
+    anchor.overflowAnchor = 'none';
+    placing.stop.push(function () { anchor.overflowAnchor = ''; });
+    putBack(function () { return y; });
   }
 
   function onScroll() {
@@ -486,7 +542,7 @@
     var saved = places[current];
     startPlacing();
     if (route('start', null) || saved === undefined) stopPlacing();
-    else putBack(saved);
+    else putBackTo(saved);
     putRowsBack(document);
   }
 
