@@ -93,6 +93,7 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     p.fire('account-password-form', 'submit');
     const whileSending = p.focused();
+    p.fire('account-password-form', 'input');
     const working = p.say('account-password-result');
     await settle();
     return { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
