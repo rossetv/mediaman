@@ -235,10 +235,12 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
         )
         _attempts.add(session, attempt)
     except PlexNotConfigured:
+        _START_LIMITER.give_back(username)
         return _refuse("plex_not_set_up")
     except TooManyAttempts:
         return _refuse("too_many_requests")
     except (PlexError, PlexTvUnavailable):
+        _START_LIMITER.give_back(username)
         _audit_failure(conn, request, username, "plex_unavailable")
         return _refuse("plex_unavailable")
     security_event(conn, event="plex.link_started", actor=username, ip=get_client_ip(request))

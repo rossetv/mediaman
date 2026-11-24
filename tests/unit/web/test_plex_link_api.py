@@ -763,12 +763,27 @@ def test_plex_being_down_is_said_plainly(client_for, plex, down):
     assert (resp.status_code, resp.json()["error"]) == (503, "plex_unavailable")
 
 
+@pytest.mark.parametrize(
+    "down", [("POST", f"{TV}/pins"), ("GET", f"{SERVER}/identity")], ids=["plex.tv", "server"]
+)
+def test_plex_being_down_does_not_use_up_a_persons_starts(client_for, plex, down):
+    plex.answers[down] = (503, "{}")
+    amy = client_for("amy")
+    for _ in range(6):
+        assert amy.post("/api/account/plex").status_code == 503
+    plex.answers.clear()
+    for _ in range(5):
+        start(amy)
+    assert amy.post("/api/account/plex").status_code == 429
+
+
 def test_without_plex_set_up_linking_is_refused(client_for, plex, conn):
     conn.execute("DELETE FROM settings WHERE key = 'plex_token'")
     conn.commit()
     amy = client_for("amy")
     assert amy.get("/api/account/plex").json()["configured"] is False
-    assert amy.post("/api/account/plex").json()["error"] == "plex_not_set_up"
+    for _ in range(6):
+        assert amy.post("/api/account/plex").json()["error"] == "plex_not_set_up"
     assert plex.calls == []
 
 
