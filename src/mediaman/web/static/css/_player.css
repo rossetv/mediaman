@@ -135,9 +135,22 @@
   isolation: isolate;
   width: 100%;
   height: 5px;
+}
+.player-seek-track::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: var(--r-xxs);
   background: color-mix(in srgb, var(--t1) 20%, transparent);
 }
+/* The bar grows under the pointer; the thumb on it keeps its shape. */
+.player-seek-track::before,
+.player-seek-buffered,
+.player-seek-played,
+.player-band,
+.player-gap { transition: transform var(--dur-fast) var(--ease-out); }
+.player-seek:is(:hover, .is-dragging, :focus-visible) .player-seek-track::before,
+.player-seek:is(:hover, .is-dragging, :focus-visible) :is(.player-seek-buffered, .player-seek-played, .player-band, .player-gap) { transform: scaleY(1.6); }
 .player-seek-buffered,
 .player-seek-played {
   position: absolute;
@@ -146,7 +159,7 @@
   width: 0;
   border-radius: var(--r-xxs);
 }
-.player-seek-buffered { background: color-mix(in srgb, var(--t1) 35%, transparent); }
+.player-seek-buffered { background: color-mix(in srgb, var(--t1) 45%, transparent); }
 .player-seek-played { z-index: 1; background: var(--accent); }
 .player-seek-thumb {
   position: absolute;
@@ -160,8 +173,7 @@
   background: var(--t1);
   transition: transform var(--dur-fast) var(--ease-out);
 }
-.player-seek:hover .player-seek-thumb,
-.player-seek.is-dragging .player-seek-thumb { transform: scale(1.2); }
+.player-seek:is(:hover, .is-dragging) .player-seek-thumb { transform: scale(1.2); }
 /* Intro and credits as bands along the bar, under what has played; chapter starts as gaps in it. */
 .player-band,
 .player-gap {
