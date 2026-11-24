@@ -151,10 +151,8 @@
 .keep-season-note { margin: 6px 0 4px; font-size: 13px; color: var(--t2); }
 .keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item--skel { flex: none; height: 40px; }
-/* A season to delete is as tall as its button: 32px, or 44px by touch (below). */
-@media (min-width: 700px) {
-  #season-delete-list > .keep-season-item--skel { height: 52px; }
-}
+/* A season to delete: its button, 32px or by touch 44px, and the room around it. */
+#season-delete-list > .keep-season-item--skel { height: 52px; }
 .keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
@@ -169,8 +167,8 @@
   .keep-dialog .btn--sm { min-height: 44px; }
   /* The label is the tap target for its checkbox: the whole row height, out to the details. */
   .keep-season-item { padding-top: 0; padding-bottom: 0; }
-  .keep-season-item--skel,
-  #season-delete-list > .keep-season-item--skel { height: 44px; }
+  .keep-season-item--skel { height: 44px; }
+  #season-delete-list > .keep-season-item { padding-block: 4px; }
   .keep-season-list { gap: 8px; }
   .keep-season-item label { display: flex; align-items: center; flex: 1; min-height: 44px; }
 }
@@ -182,6 +180,24 @@
 @media (max-width: 639.98px) {
   /* A long details line wraps inside its row instead of pushing Delete out. */
   .keep-season-details { white-space: normal; min-width: 0; }
+  /* A season to delete has its details below its name, in a row with room for two lines of them. */
+  #season-delete-list > .keep-season-item { min-height: 68px; padding-block: 6px; }
+  #season-delete-list > .keep-season-item:not(.keep-season-item--skel) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 0;
+    align-content: center;
+  }
+  #season-delete-list .keep-season-name { white-space: normal; }
+  #season-delete-list .keep-season-details { grid-area: 2 / 1; margin-left: 0; }
+  #season-delete-list > .keep-season-item > :last-child { grid-area: 1 / 2 / 3; }
+}
+@media (max-width: 359.98px) {
+  .keep-dialog { padding-inline: 16px; }
+}
+@media (pointer: coarse) and (min-width: 700px) {
+  .keep-season-item--kept { padding-block: 4px; }
 }
 .u-flex-1 { flex: 1; }
 

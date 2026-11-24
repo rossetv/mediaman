@@ -82,12 +82,36 @@ def test_the_dialogs_controls_are_44px_by_touch_and_the_season_deletes_stand_apa
     block = _block("(pointer: coarse), (max-width: 699.98px)", MODAL_CSS)
     assert re.search(r"\.keep-dur-btn,[^}]*\.keep-dialog \.btn--sm \{ min-height: 44px; \}", block)
     assert ".keep-season-list { gap: 8px; }" in block
-    assert re.search(r"#season-delete-list > \.keep-season-item--skel \{ height: 44px; \}", block)
+    assert "#season-delete-list > .keep-season-item { padding-block: 4px; }" in block
 
 
-def test_a_season_to_delete_is_waited_for_at_its_button_s_height_from_700_up():
-    rule = "#season-delete-list > .keep-season-item--skel { height: 52px; }"
-    assert rule in _block("(min-width: 700px)", MODAL_CSS)
+def test_a_season_to_delete_is_waited_for_at_the_height_of_its_row():
+    waiting = r"#season-delete-list > \.keep-season-item--skel \{ height: (\d+)px; \}"
+    assert re.findall(waiting, MODAL_CSS) == ["52"]
+
+
+def test_a_season_to_delete_has_its_details_below_its_name_on_a_phone_and_room_for_two_lines():
+    block = _block("(max-width: 639.98px)", MODAL_CSS)
+    assert re.search(
+        r"#season-delete-list > \.keep-season-item \{ min-height: 68px; padding-block: 6px;", block
+    )
+    assert re.search(
+        r":not\(\.keep-season-item--skel\) \{\s*display: grid;\s*"
+        r"grid-template-columns: minmax\(0, 1fr\) auto;",
+        block,
+    )
+    assert re.search(
+        r"#season-delete-list \.keep-season-details \{ grid-area: 2 / 1; margin-left: 0;", block
+    )
+
+
+def test_the_dialogs_leave_the_narrowest_phones_room_for_the_details():
+    assert ".keep-dialog { padding-inline: 16px; }" in _block("(max-width: 359.98px)", MODAL_CSS)
+
+
+def test_a_kept_season_s_button_has_room_round_it_by_touch_on_a_tablet():
+    block = _block("(pointer: coarse) and (min-width: 700px)", MODAL_CSS)
+    assert ".keep-season-item--kept { padding-block: 4px; }" in block
 
 
 def test_the_durations_stay_on_one_line_on_the_narrowest_phones():
