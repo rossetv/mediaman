@@ -164,6 +164,25 @@ class TestExplore:
             2,
         ]
 
+    def test_films_and_tv_in_an_order_go_on_from_where_a_page_ended(self, viewer, tmdb):
+        tmdb["/discover/movie"] = _movies(*range(1, 26))
+        tmdb["/discover/tv"] = _movies(30)
+
+        def page(sort, **at):
+            params = {"genre": "action", "sort": sort, **at}
+            body = viewer.get(EXPLORE, params=params).json()
+            return body["items"], body["next_page"], body["next_after"]
+
+        first, next_page, after = page("newest", after="")
+        rest, *end = page("newest", after=after)
+
+        assert (len(first), next_page) == (20, None)
+        assert len({c["ref"] for c in first + rest}) == 26
+        assert end == [None, None]
+        # By page, and where there is no order to keep, as ever.
+        assert len(page("newest")[0]) == len(page("popular", after="")[0]) == 26
+        assert page("popular", after="")[2] is None
+
     @pytest.mark.parametrize(
         ("params", "status"),
         [
@@ -171,6 +190,11 @@ class TestExplore:
             ({"genre": "27"}, 404),
             ({"genre": "horror", "type": "person"}, 400),
             ({"genre": "horror", "sort": "revenue.desc"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1:2"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "501:2,1:0"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "0:2,1:0"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1:2,1:0,1:0"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "１:2,1:0"}, 400),
             ({"genre": "horror", "decade": "1990"}, 400),
             ({"genre": "horror", "decade": "1920s"}, 400),
             ({"genre": "horror", "page": 0}, 422),

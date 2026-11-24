@@ -4,12 +4,11 @@ TMDB marks adult is kept."""
 
 from __future__ import annotations
 
-import heapq
-import itertools
+import functools
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from typing import Any
 
@@ -37,8 +36,10 @@ from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
 TYPES = ("all", "movie", "tv")
 SORTS = ("popular", "top_rated", "newest")
 _FIRST_DECADE = 1930
-# As many as a page of TMDB's.
+# As many as a page of TMDB's, and of those the most that one is made from: two of each
+# kind where they come evenly, and some that hold next to nothing.
 _MERGED_PAGE = 20
+_MERGED_READS = 6
 
 # Below these an average is a handful of people's.
 _TOP_RATED_VOTES = {"movie": 300, "tv": 200}
@@ -143,12 +144,15 @@ def explore_page(
     sort: str = "popular",
     decade: str | None = None,
     page: int = 1,
+    after: str | None = None,
     allow_fetch: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int, int | None]:
+) -> tuple[list[dict[str, Any]], int, int | str | None]:
     """The TMDB items of one page of *genre*, how many titles the list has, and the page
     after it or None at its end. "all" is films and TV together, asked for apart, and
-    *allow_fetch* (as in ``search``) is asked for each page of TMDB's. Raises
-    TmdbUnavailable, TmdbBusy when TMDB answered 429."""
+    *allow_fetch* (as in ``search``) is asked for each page of TMDB's. With *after* ("" to
+    begin with) a list of both that has an order keeps it from page to page: what follows is
+    the *after* of the next page: the page of TMDB's and the last title of it shown, of each
+    kind ("3:871,2:55"). Raises TmdbUnavailable, TmdbBusy when TMDB answered 429."""
     kinds = {
         kind: genre_id
         for kind in (genre.types if media_type == "all" else [media_type])
@@ -160,9 +164,8 @@ def explore_page(
         page: dict[str, Any] = _cached(client, key, 6 * _HOUR, 7 * _DAY, fetch, allow_fetch)
         return page
 
-    if len(kinds) > 1 and sort != "popular":
-        items, more = _merged(read, list(kinds), sort, page)
-        return items, sum(read(kind, 1)["total"] for kind in kinds), page + 1 if more else None
+    if after is not None and len(kinds) > 1 and sort != "popular":
+        return _merged(read, list(kinds), sort, after)
     pages = [read(kind, page) for kind in kinds]
     more = any(page < min(p["pages"], MAX_PAGE) for p in pages)
     items = _mixed([p["items"] for p in pages], sort)
@@ -185,38 +188,94 @@ def _mixed(lists: Sequence[list[dict[str, Any]]], sort: str) -> list[dict[str, A
     return sorted(turns, key=_released, reverse=True)
 
 
+class _Walk:
+    """One kind's list from where a page ended: in TMDB's page *page*, past the title *last*
+    (0 at the start), also when TMDB has moved it onto that page since. Moved off it, it
+    leaves the page to begin anew: a title is better shown again than never."""
+
+    def __init__(
+        self,
+        read: Callable[[int], dict[str, Any]],
+        rank: Callable[[Mapping[str, Any]], tuple[float, str]],
+    ) -> None:
+        self._read = read
+        self._rank = rank
+        self.page = 1
+        self.last = 0
+        self.total = 0
+        self.ended = False
+        self._end = MAX_PAGE
+        self._held: list[dict[str, Any]] = []
+
+    def needs_page(self) -> bool:
+        return not self.ended and not self._held
+
+    def next_page(self) -> None:
+        got = self._read(self.page)
+        self.total = got["total"]
+        self._end = min(got["pages"], MAX_PAGE)
+        rows = [i for i in got["items"] if tmdb_id_of(i) is not None]
+        rows.sort(key=self._rank, reverse=True)
+        ids = [tmdb_id_of(i) for i in rows]
+        self._held = rows[ids.index(self.last) + 1 :] if self.last in ids else rows
+        self._move_on()
+
+    def head(self) -> dict[str, Any] | None:
+        return self._held[0] if self._held else None
+
+    def take(self) -> dict[str, Any]:
+        item = self._held.pop(0)
+        self.last = tmdb_id_of(item) or 0
+        self._move_on()
+        return item
+
+    def _move_on(self) -> None:
+        if self._held:
+            return
+        if self.page < self._end:
+            self.page += 1
+        else:
+            self.ended = True
+
+
 def _merged(
-    read: Callable[[str, int], dict[str, Any]], kinds: Sequence[str], sort: str, page: int
-) -> tuple[list[dict[str, Any]], bool]:
-    """One page of all *kinds* in one order, and whether the list goes on. Where it begins
-    follows from every page before it, which the cache holds."""
+    read: Callable[[str, int], dict[str, Any]], kinds: Sequence[str], sort: str, after: str
+) -> tuple[list[dict[str, Any]], int, str | None]:
+    """The page of *kinds* in one order that comes after *after*, how many titles there are,
+    and the next *after*. A page reads no more of TMDB's pages the further on it is, and one
+    that cannot be had now ends it early."""
 
     def rank(item: Mapping[str, Any]) -> tuple[float, str]:
         if sort == "top_rated":
             return vote_of(item.get("vote_average")) or 0, ""
         return 0, _released(item)
 
-    def walk(kind: str) -> Iterator[dict[str, Any]]:
-        for number in itertools.count(1):
-            got = read(kind, number)
-            yield from sorted(got["items"], key=rank, reverse=True)
-            if number >= min(got["pages"], MAX_PAGE):
-                return
-
-    seen = set()
-    end = page * _MERGED_PAGE
+    walks = [_Walk(functools.partial(read, kind), rank) for kind in kinds]
+    if after:
+        for walk, place in zip(walks, after.split(","), strict=True):
+            walk.page, walk.last = map(int, place.split(":"))
     items: list[dict[str, Any]] = []
-    # A title TMDB moved between two reads is on two of its pages.
-    for item in heapq.merge(*map(walk, kinds), key=rank, reverse=True):
-        title = (item["media_type"], tmdb_id_of(item))
-        if title in seen:
+    reads = 0
+    while len(items) < _MERGED_PAGE:
+        need = next((walk for walk in walks if walk.needs_page()), None)
+        if need is not None:
+            if reads == _MERGED_READS:
+                break
+            reads += 1
+            try:
+                need.next_page()
+            except (TmdbUnavailable, disk_cache.Refused):
+                if not items:
+                    raise
+                break
             continue
-        seen.add(title)
-        if len(seen) > end:
-            return items, page < MAX_PAGE
-        if len(seen) > end - _MERGED_PAGE:
-            items.append(item)
-    return items, False
+        heads = [(head, walk) for walk in walks if (head := walk.head()) is not None]
+        if not heads:
+            break
+        items.append(max(heads, key=lambda h: rank(h[0]))[1].take())
+    more = not all(walk.ended for walk in walks)
+    next_after = ",".join(f"{walk.page}:{walk.last}" for walk in walks)
+    return items, sum(walk.total for walk in walks), next_after if more else None
 
 
 def _votes(value: object) -> int:

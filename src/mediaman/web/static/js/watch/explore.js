@@ -158,13 +158,17 @@
     };
   }
 
+  /* *page*: its number, or where the one before it ended. */
   function url(id, f, page) {
     var q = new URLSearchParams({ genre: id });
     if (f.type && f.type !== 'all') q.set('type', f.type);
     if (f.sort && f.sort !== 'popular') q.set('sort', f.sort);
     if (f.where === 'library') q.set('where', f.where);
     if (f.decade) q.set('decade', f.decade);
-    if (page > 1) q.set('page', page);
+    // Films and TV in one order go on from where each stands, not by a page's number.
+    if (page === 1 && q.has('sort') && !q.has('type') && !q.has('where')) q.set('after', '');
+    else if (typeof page === 'string') q.set('after', page);
+    else if (page > 1) q.set('page', page);
     return EXPLORE_URL + '?' + q.toString();
   }
 
@@ -400,7 +404,7 @@
         if (arrived && of.decade && held.decades.indexOf(of.decade) === -1) dropDecade(of);
         return window.MM.api.get(url(want.id, of, page)).then(function (reply) {
           if (open === mine && page === 1 && url(want.id, of) === url(want.id, filter)) learn(reply);
-          return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && reply.next_page) || null };
+          return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && (reply.next_after || reply.next_page)) || null };
         }, function (err) {
           if (err && err.status === 400 && of.decade) {
             dropDecade(of);

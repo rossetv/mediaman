@@ -378,11 +378,24 @@ def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results
 def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_rows() -> None:
     out = _run("typeOnCategory")
     genre = "/watch?genre=action&sort=newest"
-    assert out["first"] == [genre, 1, ["/api/watch/explore?genre=action&sort=newest"], "results"]
+    assert out["first"] == [
+        genre,
+        1,
+        ["/api/watch/explore?genre=action&sort=newest&after="],
+        "results",
+    ]
     assert out["typed"] == ["/watch?q=o", 2, False, True]
     assert out["more"] == ["/watch?q=orchard", 2]
     assert out["back"] == [genre, "", True, False]
     assert out["cleared"] == ["/watch", "browse", True]
+
+
+def test_films_and_tv_in_one_order_are_asked_to_go_on_from_where_each_stands() -> None:
+    assert _run("orderedPages") == [
+        ["&sort=newest&after=", "&sort=newest&after=1%3A5%2C1%3A9"],
+        ["&type=movie&sort=newest", "&type=movie&sort=newest&page=2"],
+        ["", "&page=2"],
+    ]
 
 
 def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins() -> None:
