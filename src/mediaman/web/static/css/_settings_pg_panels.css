@@ -370,6 +370,9 @@
 }
 .setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
 .setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
+/* Brought into view, a status brings the rest of the button beside it, and a panel keeps off the edge. */
+.setg-pg .inline-form-msg { scroll-margin-bottom: 20px; }
+.setg-pg .setg-fold { scroll-margin-block: 12px; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
 .setg-pg .inline-form-msg.err { color: var(--danger-text); }

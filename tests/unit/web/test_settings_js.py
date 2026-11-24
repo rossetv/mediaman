@@ -414,6 +414,44 @@ def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_b
     assert out["gone"] == ["", 1]
 
 
+def test_a_form_comes_into_view_once_it_has_unfolded() -> None:
+    out = _run("revealed")
+    assert out["email"]["unfolding"] == []
+    assert out["email"]["open"] == [["user-email-2", "nearest", "smooth"]]
+    assert out["add"]["open"] == [["add-user-form", "nearest", "smooth"]]
+    # and again with the recipients, which come when they come
+    assert out["newsletter"]["opened"] == [["newsletter-send-panel", "nearest", "smooth"]] * 2
+    # with reduced motion there is nothing to wait for
+    assert out["calm"]["unfolding"] == [["user-email-2", "nearest", "auto"]]
+
+
+def test_a_forms_status_comes_into_view_when_it_changes() -> None:
+    out = _run("revealed")
+    # a refusal brings the field it puts the cursor in, then its reason
+    assert [what for what, *_ in out["email"]["refused"]] == [
+        "inline-form-msg",
+        "inp",
+        "inline-form-msg err",
+    ]
+    field = ["new-username", "nearest", "auto"]
+    created = ["create-user-result", "nearest", "auto"]
+    assert out["add"]["tooShort"] == [field, created]
+    assert out["add"]["refused"] == [created, field, created]
+    # Safari would scroll to the field later, and the reason out of view
+    assert out["add"]["focus"] == {"preventScroll": True}
+    sent = ["newsletter-send-status", "nearest", "auto"]
+    assert out["newsletter"]["sending"] == [sent]
+    assert out["newsletter"]["none"] == [sent]
+
+
+def test_a_late_answer_comes_into_view_only_for_a_reader_still_there() -> None:
+    out = _run("revealed")
+    # a button clicked in Safari takes no focus: what is around it has it
+    assert out["there"] == out["around"] == {"created": 1, "sent": 1, "listed": 1}
+    for away in ("elsewhere", "above", "underTheBottomBar"):
+        assert out[away] == {"created": 0, "sent": 0, "listed": 0}, away
+
+
 def test_a_save_shows_what_another_page_stored_and_keeps_what_is_being_typed() -> None:
     out = _run("mergedReply")
     assert out["quiet"] == {

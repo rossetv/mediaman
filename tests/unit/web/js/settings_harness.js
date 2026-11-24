@@ -110,7 +110,9 @@ class El {
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
   focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
-  scrollIntoView() {}
+  // What was scrolled into view, and how. A test that scrolls gives an element its place.
+  scrollIntoView(how) { this.doc.revealed.push([this.id || this.className, how.block, how.behavior || 'auto']); }
+  getBoundingClientRect() { return this.place || { top: 300, bottom: 318 }; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => matches(e, sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -128,6 +130,8 @@ function build() {
     querySelector: (s) => body.querySelector(s),
     querySelectorAll: (s) => body.querySelectorAll(s),
     listeners: docListeners,
+    revealed: [],
+    documentElement: { clientHeight: 844 },
     addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
   };
   const body = new El('body', doc);
@@ -137,6 +141,7 @@ function build() {
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
+    getComputedStyle: () => ({ scrollPaddingTop: '125px', scrollPaddingBottom: '72px' }),
     addEventListener: (t, fn) => { (docListeners['window:' + t] = docListeners['window:' + t] || []).push(fn); },
   };
   ctx.window = ctx;
@@ -1526,6 +1531,103 @@ const scenarios = {
     p.stored = () => Promise.resolve({});
     await p.discard();
     out.gone = [p.token.value, p.toasts.length];
+    return out;
+  },
+
+  // What each form brings into view: itself once it has unfolded, then its status.
+  async revealed() {
+    const out = {};
+    const start = async (calm) => {
+      const h = build();
+      if (calm) h.ctx.matchMedia = () => ({ matches: true });
+      const page = {};
+      const add = (tag, id, parent, more) => { page[id] = h.add(tag, Object.assign({ id }, more), parent); return page[id]; };
+      add('input', 'elsewhere'); add('div', 'user-list'); add('div', 'subscriber-list');
+      add('button', 'btn-add-user');
+      const form = add('form', 'add-user-form', null, { hidden: true });
+      add('input', 'new-username', form, { value: '' }); add('input', 'new-user-password', form, { value: 'a-long-password-1' });
+      add('button', 'btn-submit-add-user', form); add('span', 'create-user-result', form);
+      add('button', 'btn-send-newsletter');
+      const panel = add('div', 'newsletter-send-panel', null, { hidden: true });
+      add('div', 'newsletter-recipient-list', panel); add('button', 'btn-confirm-newsletter', panel); add('span', 'newsletter-send-status', panel);
+      const p = { h, page, answer: () => Promise.reject({ message: 'no' }), subscribers: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }] }) };
+      h.ctx.MM.api = {
+        get: (u) => (u === '/api/users' ? Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }) : p.subscribers()),
+        patch: () => p.answer(), post: () => p.answer(), messageOf: (e) => e.message,
+      };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      Object.assign(h.ctx.UIFeedback, { confirm: () => Promise.resolve(true), success: () => {}, error: () => {} });
+      ['core/dom.js', 'settings/rows.js', 'settings/users.js', 'settings/newsletter.js'].forEach((f) => h.load(f));
+      h.ctx.MM.settings.users.init(); h.ctx.MM.settings.newsletter.init();
+      await h.flush();
+      p.taken = () => h.doc.revealed.splice(0);
+      p.open = (btn) => { btn.focus(); btn.fire('click'); };
+      return p;
+    };
+    const step = async (p, act) => { act(); await p.h.flush(); return p.taken(); };
+
+    for (const calm of [false, true]) {
+      const p = await start(calm);
+      const row = p.page['user-list'].children[0];
+      const form = row.querySelector('form');
+      const key = calm ? 'calm' : 'email';
+      p.open(row.querySelector('[data-user-action="email"]'));
+      const unfolding = p.taken();
+      p.h.drain();
+      out[key] = { unfolding, open: p.taken(), refused: await step(p, () => form.fire('submit')) };
+    }
+
+    let p = await start();
+    const $ = p.page;
+    p.open($['btn-add-user']); p.h.drain();
+    out.add = { open: p.taken(), tooShort: await step(p, () => $['add-user-form'].fire('submit')) };
+    $['new-username'].value = 'casey';
+    out.add.refused = await step(p, () => $['add-user-form'].fire('submit'));
+    out.add.focus = $['new-username'].lastFocusOpts;
+
+    // an answer that comes late, for a reader there, one who went to another field and one who scrolled on
+    for (const [name, away] of [
+      ['there', () => {}], ['around', (q) => { q.h.doc.activeElement = q.h.body; }], ['elsewhere', (q) => q.page.elsewhere.focus()],
+      ['above', (q, id) => { q.page[id].place = { top: -300, bottom: -282 }; }],
+      ['underTheBottomBar', (q, id) => { q.page[id].place = { top: 780, bottom: 798 }; }],
+    ]) {
+      let give;
+      const late = () => new Promise((r) => { give = r; });
+      const q = await start();
+      q.open(q.page['btn-add-user']); q.h.drain();
+      q.page['new-username'].value = 'casey';
+      q.answer = late;
+      q.page['add-user-form'].fire('submit');
+      q.taken();
+      away(q, 'create-user-result');
+      give({});
+      await q.h.flush();
+      const created = q.taken().length;
+
+      const n = await start();
+      n.open(n.page['btn-send-newsletter']); await n.h.flush(); n.h.drain();
+      const opened = n.taken();
+      n.answer = late;
+      const sent = [await step(n, () => { n.page['btn-confirm-newsletter'].focus(); n.page['btn-confirm-newsletter'].fire('click'); })];
+      away(n, 'newsletter-send-status');
+      give({ sent_to: 1, failed: 2 });
+      await n.h.flush();
+      sent.push(n.taken());
+
+      // the list of recipients, which makes the panel taller
+      const m = await start();
+      m.subscribers = late;
+      m.open(m.page['btn-send-newsletter']); m.h.drain();
+      m.taken();
+      away(m, 'newsletter-send-panel');
+      give({ subscribers: [{ id: 1, email: 'a@x', active: true }] });
+      await m.h.flush();
+      out[name] = { created, sent: sent[1].length, listed: m.taken().length };
+      if (name !== 'there') continue;
+      out.newsletter = { opened, sending: sent[0] };
+      n.page['newsletter-recipient-list'].querySelector('input').checked = false;
+      out.newsletter.none = await step(n, () => n.page['btn-confirm-newsletter'].fire('click'));
+    }
     return out;
   },
 

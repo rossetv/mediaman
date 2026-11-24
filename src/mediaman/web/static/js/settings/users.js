@@ -257,7 +257,7 @@
           if (open) {
             input.value = user.email || '';
             say('');
-            rows.open(form);
+            rows.openInView(form);
             input.focus();
             return;
           }
@@ -285,6 +285,7 @@
           holdFocus(save, form);
           setBusy(save, true);
           say('Saving…');
+          rows.reveal(msg);
           MM.reauth.run(function () {
             return MM.api.patch('/api/users/' + user.id + '/email', { email: email });
           }).then(function (res) {
@@ -298,7 +299,7 @@
             setBusy(save, false);
             if (err && err.error === 'reauth_cancelled') { say(''); return; }
             say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-            input.focus();
+            rows.refuse(input, msg);
           });
         });
         return form;
@@ -417,7 +418,7 @@
       function failOn(target, text, field) {
         target.className = 'inline-form-msg err';
         target.textContent = text;
-        if (field) field.focus();
+        rows.refuse(field, target);
       }
 
       var addUserForm      = document.getElementById('add-user-form');
@@ -458,7 +459,7 @@
         var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
         paintAddToggle(wantOpen);
         if (wantOpen) {
-          rows.open(addUserForm);
+          rows.openInView(addUserForm);
           document.getElementById('new-username').focus();
           return;
         }
@@ -501,11 +502,14 @@
         btnSubmitAddUser.disabled = true;
         createResult.className = 'inline-form-msg';
         createResult.textContent = 'Creating…';
+        rows.reveal(createResult);
         MM.reauth.run(function () {
           return MM.api.post('/api/users', { username: username, password: password, role: selectedRole() });
         }).then(function () {
+          var there = rows.stillAt(createResult, addUserForm);
           createResult.className = 'inline-form-msg ok';
           createResult.textContent = 'User "' + username + '" created.';
+          if (there) rows.reveal(createResult);
           var listed = loadUsers().catch(function () { return null; });
           // Submit stays disabled until the form has closed, so a second Enter cannot create twice.
           // The new row comes in only then, so the list does not jump under it.
@@ -537,7 +541,7 @@
           createResult.className = 'inline-form-msg err';
           renderApiError(createResult, err);
           var field = err && err.issues && err.issues.length ? pwInput : nameInput;
-          field.focus();
+          rows.refuse(field, createResult);
         });
       });
 
