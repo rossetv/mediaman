@@ -72,9 +72,10 @@ def parse_nzb_queue(
         raw_file_mb = nzb.get("FileSizeMB", 0)
         raw_remain_mb = nzb.get("RemainingSizeMB", 0)
         file_mb = raw_file_mb if isinstance(raw_file_mb, int | float) else 0
-        remain_mb = raw_remain_mb if isinstance(raw_remain_mb, int | float) else 0
+        # Below 0 while a download fetches more than its nominal size.
+        remain_mb = max(0, raw_remain_mb) if isinstance(raw_remain_mb, int | float) else 0
         done_mb = file_mb - remain_mb
-        pct = round(done_mb / file_mb * 100) if file_mb > 0 else 0
+        pct = max(0, round(done_mb / file_mb * 100)) if file_mb > 0 else 0
         nzb_parsed.append(
             {
                 "raw_status": nzb.get("Status", ""),
