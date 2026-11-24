@@ -15,6 +15,7 @@ from datetime import timedelta
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso, now_utc
+from mediaman.scanner.repository.scheduled_actions import delete_show_scheduled_deletions
 
 # How long the progress of a title Plex stopped listing waits for it to come back.
 _PROGRESS_KEPT_FOR = timedelta(days=90)
@@ -61,6 +62,7 @@ _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) -> None:
     """Keep *show_key* for as long as *keep* says, unless it is already kept for longer.
 
+    Either way its scheduled deletions are cancelled, but for one being carried out.
     A keep the new key was removed from after the old one got it is not given again.
     """
     removed_since = conn.execute(
@@ -96,6 +98,8 @@ def _give_show_keep(conn: sqlite3.Connection, keep: sqlite3.Row, show_key: str) 
             "kept_show",
             f"Show '{keep['show_title']}' kept: Plex lists it under a new key",
         )
+    # The scan skips a season still scheduled, so one left here would go under the keep.
+    delete_show_scheduled_deletions(conn, show_key)
 
 
 def carry_show_keeps(

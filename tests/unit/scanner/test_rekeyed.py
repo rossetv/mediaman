@@ -178,6 +178,80 @@ class TestWholeShowKeep:
 
         assert _kept(conn)["new-show"] == FOREVER
 
+    @_RUNS
+    def test_seasons_scheduled_beside_the_old_key_are_not_once_it_goes(self, conn, freezer, run):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show")
+        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+
+        freezer.tick(60)
+        run(conn, seasons=_REKEYED)
+
+        assert _scheduled(conn) == set()
+
+    @_RUNS
+    def test_a_season_scheduled_before_the_known_one_is_listed_is_not_after(
+        self, conn, freezer, run
+    ):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show")
+        _scan(conn, seasons=[_season("show", 2, prefix="new-")])
+        assert _scheduled(conn) == {"new-show-s2"}
+
+        freezer.tick(60)
+        run(conn, seasons=_REKEYED)
+
+        assert _scheduled(conn) == set()
+
+    @_RUNS
+    def test_a_keep_the_new_key_already_has_does_not_leave_its_seasons_scheduled(
+        self, conn, freezer, run
+    ):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show", action="snoozed", execute_at=(_NOW + timedelta(days=9)).isoformat())
+        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+        _keep(conn, "new-show")
+        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+
+        freezer.tick(60)
+        run(conn, seasons=_REKEYED)
+
+        assert _scheduled(conn) == set()
+
+    def test_a_season_already_being_deleted_keeps_its_row_for_the_pass(self, conn, freezer):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show")
+        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+        with conn:
+            conn.execute(
+                "UPDATE scheduled_actions SET delete_status = 'deleting' "
+                "WHERE media_item_id = 'new-show-s2'"
+            )
+
+        freezer.tick(60)
+        _sync(conn, seasons=_REKEYED)
+
+        assert _scheduled(conn) == {"new-show-s2"}
+
+    def test_a_season_scheduled_after_the_keep_was_removed_from_the_new_key_stays_so(
+        self, conn, freezer
+    ):
+        _sync(conn, seasons=_SHOW)
+        _keep(conn, "show")
+        freezer.tick(60)
+        _sync(conn, seasons=_REKEYED)
+        freezer.tick(60)
+        _remove_keep(conn, "new-show")
+        freezer.tick(60)
+        _scan(conn, seasons=[*_SHOW, *_REKEYED])
+        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+
+        freezer.tick(60)
+        _scan(conn, seasons=_REKEYED)
+
+        assert _scheduled(conn) == {"new-show-s1", "new-show-s2"}
+
     def test_the_other_seasons_stay_when_the_known_one_has_no_history(self, conn):
         _sync(conn, seasons=_SHOW)
         _keep(conn, "show")

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.scanner.repository import delete_show_scheduled_deletions
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import resolve_keep_decision
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -26,7 +27,6 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository.kept import (
     delete_kept_show,
-    delete_show_scheduled_deletions,
     fetch_existing_actions_for_seasons,
     fetch_owned_season_ids,
     fetch_show_keep_row,

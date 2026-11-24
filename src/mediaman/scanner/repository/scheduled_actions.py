@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -59,6 +59,7 @@ __all__ = [
     "await_rescan",
     "book_deletion",
     "book_removed_files",
+    "book_removed_files_where",
     "cancel_kept_deletion",
     "claim_due_deletion",
     "claim_due_deletions_under",
@@ -68,6 +69,7 @@ __all__ = [
     "count_pending_deletions",
     "delete_actions_for_media_items",
     "delete_scheduled_action",
+    "delete_show_scheduled_deletions",
     "fetch_already_scheduled_media_ids",
     "fetch_deletion",
     "fetch_kept_show_keys",
@@ -875,6 +877,44 @@ def book_removed_files(
         )
         if taken.rowcount:
             _audit_removal(conn, row, "Deleted", row.removed_bytes or None)
+
+
+def book_removed_files_where(
+    conn: sqlite3.Connection, where: str, params: Sequence[object]
+) -> None:
+    """Book what the matching rows record as removed; *where* is a fixed condition."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT id FROM scheduled_actions WHERE {where} AND removed_files IS NOT NULL", params
+    ).fetchall()
+    if rows:
+        book_removed_files(conn, [row["id"] for row in rows])
+
+
+def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: str) -> bool:
+    """Delete the show's unused ``scheduled_deletion`` rows the deletion pass has not claimed.
+
+    Returns True when one of them is being removed by the deletion pass right
+    now. That row is left in place: the pass, or crash recovery, needs it to
+    book a removal that may already have taken the files. What a deleted row
+    records as removed is booked first.
+    """
+    where = (
+        "action = 'scheduled_deletion' AND token_used = 0 "
+        "AND media_item_id IN (SELECT id FROM media_items WHERE show_rating_key = ?)"
+    )
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    running = conn.execute(  # nosec B608
+        f"SELECT 1 FROM scheduled_actions WHERE {where} AND delete_status = 'deleting' LIMIT 1",
+        (show_rating_key,),
+    ).fetchone()
+    book_removed_files_where(conn, where, (show_rating_key,))
+    conn.execute(  # nosec B608
+        f"DELETE FROM scheduled_actions WHERE {where} "
+        "AND (delete_status IS NULL OR delete_status != 'deleting')",
+        (show_rating_key,),
+    )
+    return running is not None
 
 
 def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
