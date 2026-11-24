@@ -33,6 +33,7 @@ class _StubEngine:
         self._conn = conn
         self._fetcher = _StubFetcher(fetched)
         self._arr_cache = ArrDateCache()
+        self._listed_keys = set()
         self._dry_run = True
         self._grace_days = 14
         self._secret_key = "0123456789abcdef" * 4

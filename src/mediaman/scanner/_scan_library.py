@@ -163,6 +163,7 @@ def scan_items(
     # change no item's protection but for a keep given back, which they report.
     media_ids = [f.item["plex_rating_key"] for f in fetched]
     guards = _build_guard_sets(engine._conn, media_ids)
+    engine._listed_keys.update(media_ids, seen_keys or ())
     for f in fetched:
         summary["scanned"] += 1
         try:
@@ -228,7 +229,7 @@ def _evaluate_scan_item(
     if seen_keys is not None:
         seen_keys.add(media_id)
     f = with_mediaman_play(f, guards.credited)
-    if _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f)):
+    if _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f), engine._listed_keys):
         guards.protected.add(media_id)
 
     if media_id in guards.protected:

@@ -319,6 +319,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sessions_token_hash ON admin_session
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_username ON admin_sessions(username);
 CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id ON media_items(plex_library_id);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
+CREATE INDEX IF NOT EXISTS idx_media_items_file_path ON media_items(file_path);
 CREATE INDEX IF NOT EXISTS idx_media_items_show_rating_key ON media_items(show_rating_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscribers_email_nocase ON subscribers(email COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_used_download_tokens_expires ON used_download_tokens(expires_at);

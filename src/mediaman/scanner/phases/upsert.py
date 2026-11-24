@@ -20,6 +20,7 @@ import hashlib
 import logging
 import secrets
 import sqlite3
+from collections.abc import Collection
 from datetime import timedelta
 
 from mediaman.core.audit import log_audit
@@ -29,6 +30,7 @@ from mediaman.crypto.tokens import keep_token_expiry
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
+from mediaman.scanner.repository._protection import fetch_replaced_keep
 from mediaman.services.arr.match import index_match_movie, index_match_season
 
 logger = logging.getLogger(__name__)
@@ -42,11 +44,12 @@ def upsert_item(
     fetch: PlexItemFetch,
     arr_cache: ArrDateCache,
     media_type: str,
+    listed: Collection[str] = (),
 ) -> bool:
     """Upsert a single media item and advance its watch timestamp.
 
-    Gives back a keep the item had when Plex stopped listing it; returns True
-    when it did, as the item is then kept.
+    Gives back a keep the item had when Plex stopped listing it, or the keep of
+    the key it replaces; returns True when it did, as the item is then kept.
 
     Delegates to repository.upsert_media_item and
     repository.update_last_watched.  The Radarr/Sonarr id is matched from
@@ -58,6 +61,7 @@ def upsert_item(
         fetch: The network-layer record to persist.
         arr_cache: Radarr/Sonarr date cache and index, already loaded.
         media_type: Canonical media-type string (``"movie"`` or ``"season"``).
+        listed: The keys Plex lists in this run, as far as it has been read.
     """
     item = fetch.item
     file_path = item.get("file_path") or ""
@@ -85,7 +89,10 @@ def upsert_item(
                 plex_file_path=file_path,
             )
     media_id = item["plex_rating_key"]
-    keeps = repository.take_pruned_keeps(conn, media_id, file_path, item.get("season_number"))
+    season = item.get("season_number")
+    keeps = repository.take_pruned_keeps(conn, media_id, file_path, season) or fetch_replaced_keep(
+        conn, media_id, file_path, season, listed
+    )
     repository.upsert_media_item(
         conn,
         item=item,

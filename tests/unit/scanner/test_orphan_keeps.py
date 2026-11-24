@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import requests
 
 from mediaman.db import init_db, open_thread_connection
 from mediaman.scanner import repository
 from mediaman.scanner.engine import ScanEngine
+from mediaman.scanner.repository._protection import fetch_replaced_keep
 from mediaman.web.repository.library_api import apply_keep_in_tx
 from tests.helpers.factories import insert_media_item
 
@@ -29,7 +31,7 @@ class _Plex:
                 "plex_rating_key": key,
                 "title": key,
                 "added_at": _OLD,
-                "file_path": f"/media/{key.removeprefix('new-')}.mkv",
+                "file_path": f"/media/{key.removeprefix('new-').removeprefix('new-')}.mkv",
                 "file_size_bytes": 1,
                 "season_number": None,
             }
@@ -50,12 +52,12 @@ def conn(db_path, monkeypatch):
     return init_db(str(db_path))
 
 
-def _engine(conn, plex):
+def _engine(conn, plex, library_ids=("1",)):
     return ScanEngine(
         conn=conn,
         plex_client=plex,
-        library_ids=["1"],
-        library_types={"1": "movie"},
+        library_ids=list(library_ids),
+        library_types=dict.fromkeys(library_ids, "movie"),
         secret_key="0123456789abcdef" * 4,
     )
 
@@ -123,17 +125,18 @@ def _live_actions(conn):
     }
 
 
+@pytest.fixture
+def kept(conn):
+    _engine(conn, _Plex(_FILMS)).sync_library()
+    until = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+    for media_id in _FILMS[:-1]:
+        _keep(conn, media_id)
+    _keep(conn, _FILMS[-1], action="snoozed", execute_at=until)
+    return until
+
+
 class TestListShorterThanTheLibrary:
     """Plex lists nothing while its media is unmounted, then everything again."""
-
-    @pytest.fixture
-    def kept(self, conn):
-        _engine(conn, _Plex(_FILMS)).sync_library()
-        until = (datetime.now(UTC) + timedelta(days=30)).isoformat()
-        for media_id in _FILMS[:-1]:
-            _keep(conn, media_id)
-        _keep(conn, _FILMS[-1], action="snoozed", execute_at=until)
-        return until
 
     @pytest.mark.parametrize("key", ["{}", "new-{}"], ids=["same_key", "new_key"])
     @pytest.mark.parametrize("back", ["run_scan", "sync_library"])
@@ -222,6 +225,123 @@ class TestListShorterThanTheLibrary:
         plan = [r["detail"] for q in queries if q.startswith("SELECT") for r in _plan(conn, q)]
         assert plan
         assert not [step for step in plan if step.startswith("SCAN")]
+
+
+@pytest.mark.parametrize("run", ["sync_library", "run_scan"])
+class TestNewKeyInTheListTheOldOneLeaves:
+    """Plex gives a title a new key, and the old one is gone from the same list."""
+
+    @staticmethod
+    def _rekeyed(films):
+        return [f"new-{f}" for f in films]
+
+    def test_a_key_listed_only_in_an_earlier_run_of_the_engine_counts_as_gone(
+        self, conn, kept, run
+    ):
+        plex = _Plex(_FILMS)
+        engine = _engine(conn, plex)
+        getattr(engine, run)()
+        plex._films = ["new-o0", *_FILMS[1:]]
+
+        getattr(engine, run)()
+
+        assert _actions(conn, "new-o0") == ["protected_forever"]
+
+    @pytest.mark.parametrize("empty_lists", [0, 1])
+    def test_kept_films_stay_kept_under_their_new_keys(self, conn, kept, run, empty_lists):
+        for _ in range(empty_lists):
+            _engine(conn, _Plex([])).sync_library()
+
+        getattr(_engine(conn, _Plex(self._rekeyed(_FILMS))), run)()
+        _engine(conn, _Plex(self._rekeyed(_FILMS))).run_scan()
+
+        assert _live_actions(conn) == {
+            **{f"new-{f}": ("protected_forever", None) for f in _FILMS[:-1]},
+            f"new-{_FILMS[-1]}": ("snoozed", kept),
+        }
+
+    def test_both_keys_stay_kept_while_the_list_is_too_short_to_trust(self, conn, kept, run):
+        getattr(_engine(conn, _Plex(["new-o0"])), run)()
+
+        assert _actions(conn, "new-o0") == ["protected_forever"]
+        assert _actions(conn, "o0") == ["protected_forever"]
+
+        _engine(conn, _Plex(["new-o0"])).run_scan()
+        _engine(conn, _Plex(["new-o0"])).run_scan()
+
+        assert _live_actions(conn) == {"new-o0": ("protected_forever", None)}
+
+    def test_a_film_that_moved_to_a_library_scanned_earlier_stays_kept(self, conn, kept, run):
+        plex = _Plex([])
+        listed = {"2": _Plex(["new-o0"]), "1": _Plex(_FILMS[1:])}
+        plex.get_movie_items = lambda library: listed[library].get_movie_items(library)
+
+        getattr(_engine(conn, plex, ("2", "1")), run)()
+
+        assert _actions(conn, "new-o0") == ["protected_forever"]
+
+    def test_a_new_copy_listed_before_the_kept_one_does_not_take_its_keep(self, conn, kept, run):
+        getattr(_engine(conn, _Plex(["new-o0", *_FILMS])), run)()
+
+        assert _actions(conn, "o0") == ["protected_forever"]
+        assert "protected_forever" not in _actions(conn, "new-o0")
+
+    def test_a_new_copy_does_not_take_the_keep_of_one_whose_history_failed(self, conn, kept, run):
+        plex = _Plex([*_FILMS, "new-o0"])
+
+        def history(key):
+            if key == "o0":
+                raise requests.ConnectionError
+            return []
+
+        plex.get_watch_history = history
+        getattr(_engine(conn, plex), run)()
+
+        assert "protected_forever" not in _actions(conn, "new-o0")
+
+    def test_the_old_key_is_kept_again_if_it_comes_back(self, conn, kept, run):
+        getattr(_engine(conn, _Plex(["new-o0", *_FILMS[1:]])), run)()
+
+        _engine(conn, _Plex(["new-o0", *_FILMS])).run_scan()
+
+        assert _actions(conn, "o0") == ["protected_forever"]
+        assert _actions(conn, "new-o0") == ["protected_forever"]
+
+    def test_a_keep_removed_from_the_new_key_is_not_given_to_the_next_one(self, conn, kept, run):
+        getattr(_engine(conn, _Plex(["new-o0", *_FILMS[1:]])), run)()
+        with conn:
+            conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = 'new-o0'")
+
+        _engine(conn, _Plex(["new-new-o0", *_FILMS[1:]])).sync_library()
+
+        assert _actions(conn, "new-new-o0") == []
+
+
+def test_a_season_under_a_new_key_takes_only_its_own_keep_when_seasons_share_a_folder(conn):
+    for media_id, season in (("s1", 1), ("s2", 2)):
+        insert_media_item(
+            conn,
+            id=media_id,
+            plex_rating_key=media_id,
+            media_type="tv_season",
+            season_number=season,
+            file_path="/tv/Show",
+        )
+    _keep(conn, "s2")
+
+    assert fetch_replaced_keep(conn, "n1", "/tv/Show", 1, set()) == []
+    assert len(fetch_replaced_keep(conn, "n2", "/tv/Show", 2, set())) == 1
+
+
+def test_looking_for_the_key_a_new_one_replaces_does_not_read_the_library(conn):
+    queries = []
+    conn.set_trace_callback(queries.append)
+    fetch_replaced_keep(conn, "n", "/media/o0.mkv", None, set())
+    conn.set_trace_callback(None)
+
+    plan = [r["detail"] for q in queries for r in _plan(conn, q)]
+    assert plan
+    assert not [step for step in plan if step.startswith("SCAN")]
 
 
 def _plan(conn, query):

@@ -148,6 +148,8 @@ class ScanEngine:
         self._radarr = radarr_client
         # When the current run began, before it listed anything in Plex.
         self._started_at: str | None = None
+        # The keys Plex lists in the current run, as far as it has been read.
+        self._listed_keys: set[str] = set()
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -188,6 +190,7 @@ class ScanEngine:
            worth of writes at a time.
         """
         self._started_at = now_iso()
+        self._listed_keys = set()
         summary = {"synced": 0, "errors": 0, "removed": 0}
         try:
             per_lib_fetches = self._sync_phase_fetch(summary)
@@ -272,6 +275,10 @@ class ScanEngine:
                 for f in fetched.items
             ],
         )
+        for fetched in per_lib_fetches.values():
+            self._listed_keys.update(
+                fetched.skipped_keys, (f.item["plex_rating_key"] for f in fetched.items)
+            )
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they
@@ -304,7 +311,7 @@ class ScanEngine:
         """
         try:
             with item_savepoint(self._conn):
-                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
+                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type, self._listed_keys)
         except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
             # rationale: per-item isolation, same narrow set as the scan loop
             logger.exception(
@@ -329,6 +336,7 @@ class ScanEngine:
             - ``reclaimed_bytes``: total bytes freed by deletions this run.
         """
         self._started_at = now_iso()
+        self._listed_keys = set()
         summary = {
             "scanned": 0,
             "scheduled": 0,
