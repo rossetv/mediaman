@@ -614,6 +614,7 @@
 
   /* ── A person ── */
 
+  /* "Born 1960, died 2016, aged 55", or what of it is known. */
   function born(p) {
     var year = String(p.birthday || '').slice(0, 4);
     var end = String(p.deathday || '').slice(0, 4);
@@ -933,6 +934,7 @@
     drawing: drawing,
     sortName: sortName,
     person: person,
+    born: born,
     openGenre: openGenre,
     openPerson: openPerson
   };

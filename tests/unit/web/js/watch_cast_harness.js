@@ -54,17 +54,24 @@ function load(cast = CAST, motion = false) {
     addEventListener: () => {},
     innerHeight: 900,
     MMWatch: {
-      explore: {
-        person: (n) => { asked.push(n); return new Promise((resolve, reject) => { waiting[n] = { resolve, reject }; }); },
-        openPerson: (who, from) => people.push([who, from]),
-      },
-      detail: { open: (ref, o) => opened.push([ref, o]) },
+      address: { layer() {} },
     },
+  };
+  const stubs = {
+    explore: {
+      person: (n) => { asked.push(n); return new Promise((resolve, reject) => { waiting[n] = { resolve, reject }; }); },
+      openPerson: (who, from) => people.push([who, from]),
+    },
+    detail: { open: (ref, o) => opened.push([ref, o]) },
   };
   ctx.window = ctx;
   Object.defineProperty(Object.getPrototypeOf(root.style), 'setProperty', { value() {}, configurable: true });
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/cast.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
+  ['core/dom.js', 'watch/core.js', 'watch/explore.js'].forEach(run);
+  Object.assign(ctx.MMWatch.explore, stubs.explore);
+  ctx.MMWatch.detail = stubs.detail;
+  run('watch/cast.js');
   root.appendChild(ctx.MMWatch.cast.section(cast));
   const q = (sel) => root.querySelector(sel);
   const item = (i) => root.querySelectorAll('.ttl-cast__item')[i];
