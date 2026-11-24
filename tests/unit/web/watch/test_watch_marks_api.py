@@ -204,6 +204,14 @@ class TestRefusals:
         assert (resp.status_code, resp.json()["error"]) == (404, "not_found")
         assert _rows(conn) == []
 
+    @pytest.mark.parametrize("path", ["episode/511", "season/501", "show/500"])
+    def test_a_title_plex_has_moved_out_of_the_scanned_libraries_is_not_found(
+        self, client, conn, plex, path
+    ):
+        plex.add_show("500", "The Long Coast", {1: ("501", ["511", "512"])}, section="9")
+        assert client.post(f"/api/watch/watched/{path}").status_code == 404
+        assert _rows(conn) == []
+
     def test_progress_of_a_library_no_longer_scanned_cannot_be_unmarked(self, client, conn):
         _play(conn, "711", position=3000, item="701", show="700")
         for path in ("episode/711", "season/701", "show/700"):

@@ -81,3 +81,14 @@ def test_every_listed_episode_seen_is_watched(conn):
     _see(conn, "100", "200", "201")
 
     assert _seen(conn).watched is True
+
+
+def test_what_one_person_has_seen_is_not_seen_for_another(conn):
+    insert_admin_user(conn, username="cian", role="viewer")
+    _season(conn, ["100", "101"], 2)
+    _see(conn, "100", "101")
+
+    other = lib.show_seen(conn, "cian", ["1"])["500"]
+
+    assert (other.seasons[1].seen, other.watched, other.left) == (0, False, None)
+    assert "show-500" not in lib.seen_refs(conn, "cian", ["1"])
