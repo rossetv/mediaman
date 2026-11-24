@@ -88,3 +88,9 @@ def test_the_page_does_not_scroll_behind_a_keep_or_season_dialog():
 def test_the_season_deletes_are_apart_on_a_phone():
     phone = MODAL_CSS.split("@media (max-width: 699.98px) {", 1)[1]
     assert ".keep-season-list { gap: 8px; }" in phone.split("@media", 1)[0]
+
+
+def test_a_season_to_delete_is_waited_for_at_its_button_s_height_from_700_up():
+    wide = MODAL_CSS.split("@media (min-width: 700px) {", 1)[1]
+    rule = "#season-delete-list > .keep-season-item--skel { height: 52px; }"
+    assert rule in wide.split("@media", 1)[0]

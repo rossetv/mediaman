@@ -157,6 +157,10 @@ html:not(.has-space, .has-ttl) body:has(> .keep-dialog-overlay.active:not(.is-cl
 .keep-season-note { margin: 6px 0 4px; font-size: 13px; color: var(--t2); }
 .keep-season-list > .btn { align-self: flex-start; }
 .keep-season-item--skel { flex: none; height: 40px; }
+/* A season to delete is as tall as its button. */
+@media (min-width: 700px) {
+  #season-delete-list > .keep-season-item--skel { height: 52px; }
+}
 .keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
