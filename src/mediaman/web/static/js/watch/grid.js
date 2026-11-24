@@ -39,9 +39,6 @@
 
   function isCard(node) { return node.classList.contains('watch-card'); }
 
-  /* Not on its way out (kept, or dismissed). */
-  function stays(card) { return !card.classList.contains('is-kept'); }
-
   /* A card as it is near the screen: its poster loaded, whatever a loader has done. */
   function wake(card) {
     card.removeAttribute('data-far');
@@ -1097,7 +1094,7 @@
     var drawn = dom.body.querySelector('.watch-grid');
     if (!cards && !drawn) {
       var row = rowOf(opts);
-      cards = row ? toArray(row.querySelectorAll('.watch-row__scroll .watch-card')).filter(stays).map(copy) : [];
+      cards = row ? toArray(row.querySelectorAll('.watch-row__scroll .watch-card')).map(copy) : [];
     }
     // The server draws the first page of a shared link; anything later replaces it.
     if (cards) dom.body.replaceChildren();

@@ -406,6 +406,41 @@ Object.assign(scenarios, {
     const on = p.doc.activeElement;
     return [on.className, p.row('continue').contains(on), on.getAttribute('href')];
   },
+
+  // The page's own scrolls of the rows under a grid, or while one closes, are not the person's.
+  async offerUnderGrid() {
+    const p = await load();
+    await p.open('movies');
+    for (const left of [800, 1600, 2400, 3200]) await p.scroll('movies', left);
+    await p.step(-1);
+    await p.scroll('movies', 3300);
+    const under = p.offer('movies');
+    const q = await load();
+    q.ctx.MMWatch.grid.moving = () => true;
+    for (const left of [800, 1600, 2400, 3200]) await q.scroll('movies', left);
+    return [under, q.offer('movies')];
+  },
+
+  // Left for a search and come back to by Back: shown at once, closing to where the rows were. From then on it moves again.
+  async leftAndBack() {
+    const p = await load();
+    const address = p.ctx.MMWatch.address;
+    const { grid } = p.ctx.MMWatch;
+    const opened = [];
+    const open = grid.open;
+    grid.open = (o) => { opened.push([!!o.instant, !!o.again]); open(o); };
+    await p.open('movies');
+    address.push('search', address.url({ q: 'x', all: null, sort: null }));
+    await p.step(-1);
+    await p.step(-1);
+    await p.step(1);
+    address.push('search', address.url({ q: 'x', all: null, sort: null }));
+    address.replace('search', address.url({ q: null }));
+    await p.open('movies');
+    await p.step(-1);
+    await p.step(1);
+    return opened;
+  },
 });
 
 const name = process.argv[2];

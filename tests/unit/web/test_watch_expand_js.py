@@ -174,6 +174,14 @@ def test_closing_to_a_row_that_now_shows_whole_focuses_its_cards() -> None:
     assert _run("closedWhole") == ["watch-row__scroll", True, None]
 
 
+def test_the_page_s_own_scrolls_of_a_row_under_its_grid_bring_no_offer() -> None:
+    assert _run("offerUnderGrid") == [False, False]
+
+
+def test_only_a_grid_left_for_another_view_opens_again_where_it_was() -> None:
+    assert _run("leftAndBack") == [[False, False], [True, True]] + [[False, False]] * 3
+
+
 def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_count():
     assert _run("underAPanel") == {
         "href": "/watch?all=continue",
