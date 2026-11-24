@@ -263,6 +263,14 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
     assert ">Watched<" in html
 
 
+def test_each_face_of_the_watched_button_holds_its_own_icon() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    for face in ("off", "on"):
+        for inside in re.findall(rf'<span class="watch-mark-btn__{face}">(.*?)</span>', html):
+            assert inside.count("<use") == 1
+    assert html.count('class="watch-mark-btn__on"') == html.count('class="watch-mark-btn__off"') > 0
+
+
 def test_banner_shows_episodes_button_only_when_given() -> None:
     banner = {
         "kicker": "Continue watching",
