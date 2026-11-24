@@ -1511,12 +1511,13 @@ const scenarios = {
         p.doc.listeners.focusin.forEach((fn) => fn({ target: p.doc.activeElement }));
       }];
       click(p.doc, toast.children[0]);
-      const pressed = p.doc.activeElement.getAttribute('data-ttl-act');
+      const focused = () => { const n = p.doc.activeElement.closest('[data-ttl-act]'); return n && n.getAttribute('data-ttl-act'); };
+      const pressed = focused();
       if (movedOn) p.q('[data-ttl-act="trailer"]').focus();
       leaving = LIB_MOVIE.leaving;
       p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-kept', { detail: { id: '120' } }));
       await settle();
-      return [pressed, p.doc.activeElement.getAttribute('data-ttl-act')];
+      return [pressed, focused()];
     };
     return { waits: await run(false), movedOn: await run(true) };
   },
