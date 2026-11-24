@@ -525,6 +525,8 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-fig__n { font-size: 34px; }
   .space-item { gap: 12px; }
   .space-item__title { font-size: 14px; }
+  .space-item__text:has(> a) { position: relative; }
+  a.space-item__title::after { content: ""; position: absolute; inset: -6px 0; } /* 44px to tap */
   .space-item .watch-keep { min-height: 44px; }
   .space-item .watch-keep::before { inset: 4px 0; }
   .space-list-head .btn { min-height: 44px; }
