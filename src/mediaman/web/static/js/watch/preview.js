@@ -353,6 +353,7 @@
     clearTimeout(closeTimer);
     closeTimer = null;
     warmUntil = now() + WARM_FOR_MS;
+    if (holdsFocus(p)) focusCard(p);
     closeMenus(p);
     clearTimeout(p.trailerTimer);
     tell(p, 'mute');
@@ -857,6 +858,11 @@
 
   /* A menu opened from the preview is open: it stays, wherever the mouse is. */
   function pinned(p) { return !!p.n.querySelector('[aria-expanded="true"]'); }
+
+  function holdsFocus(p) {
+    var active = document.activeElement;
+    return !!active && (p.n.contains(active) || (pinned(p) && !!active.closest('.watch-keep-menu')));
+  }
 
   function closeMenus(p) {
     if (menu && menu.trigger() === p.more) menu.close(false);

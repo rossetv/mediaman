@@ -285,3 +285,11 @@ def test_a_preview_past_the_windows_edge_gives_the_page_no_sideways_scroll() -> 
 
 def test_the_trailers_frame_takes_no_press_so_the_focus_and_the_mouse_stay_the_pages() -> None:
     assert "pointer-events: none" in _rule(".pv__frame")
+
+
+def test_focus_left_in_a_preview_or_its_menu_goes_to_the_card_as_it_closes() -> None:
+    assert _run("focusBack") == {"escape": True, "scroll": True, "hidden": True, "menuOpen": True}
+
+
+def test_a_preview_that_closes_leaves_a_focus_that_was_elsewhere() -> None:
+    assert _run("focusElsewhere") == "watch-search"

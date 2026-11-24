@@ -588,6 +588,28 @@ const scenarios = {
     await h.rest('film');
     return [h.pv().parentNode.className, h.pv().parentNode.parentNode === h.doc.body];
   },
+  /* The focus left in the preview by a menu, with the ways out of it: Escape, a scroll and a tab that is hidden. */
+  async focusBack() {
+    const out = {};
+    for (const how of ['escape', 'scroll', 'hidden', 'menuOpen']) {
+      const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+      await h.rest('film');
+      h.pv().querySelector('.pv__keep').focus();
+      if (how === 'menuOpen') h.pv().querySelector('[data-preview-more]').click();
+      if (how === 'escape') h.key('Escape', h.doc.body);
+      if (how === 'scroll' || how === 'menuOpen') h.fire(h.doc, 'scroll', { target: h.doc });
+      if (how === 'hidden') { h.doc.hidden = true; h.fire(h.doc, 'visibilitychange', {}); }
+      out[how] = h.doc.activeElement === h.link('film');
+    }
+    return out;
+  },
+  async focusElsewhere() {
+    const h = load();
+    h.doc.querySelector('#watch-search').focus();
+    await h.rest('film');
+    h.key('Escape', h.doc.body);
+    return h.doc.activeElement.id;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
