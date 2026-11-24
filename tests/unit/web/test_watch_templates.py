@@ -713,3 +713,15 @@ def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_but
     assert "flex: none" in _declarations_in(
         sideways, ".watch-banner .watch-actions .watch-btn--play"
     )
+
+
+def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
+    forced = _in_media("_watch.css", "forced-colors: active")
+
+    assert "display: none" in _declarations_in(forced, ".watch-banner__bg")
+    bar = _declarations_in(forced, "progress.watch-bar")
+    assert "forced-color-adjust: none" in bar and "CanvasText" in bar
+    for part in ("::-webkit-progress-value", "::-moz-progress-bar"):
+        assert "Highlight" in _declarations_in(forced, f"progress.watch-bar{part}")
+    overlay = _in_media("_watch_detail.css", "forced-colors: active")
+    assert "display: none" in _declarations_in(overlay, ".ttl__art")

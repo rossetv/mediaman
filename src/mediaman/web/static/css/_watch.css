@@ -784,6 +784,16 @@
   .watch-banner .watch-actions .watch-btn--play { flex: none; padding-inline: 22px; }
   .watch-bar--banner { width: min(320px, 100%); }
 }
+
+/* The system's colours: no picture behind the text, and a bar whose value still shows. */
+@media (forced-colors: active) {
+  .watch-banner__bg { display: none; }
+  progress.watch-bar,
+  .watch-card__poster > .watch-bar,
+  .watch-ep__thumb > .watch-bar { forced-color-adjust: none; height: 6px; border: 1px solid CanvasText; background: Canvas; }
+  progress.watch-bar::-webkit-progress-bar { background: Canvas; }
+  progress.watch-bar::-webkit-progress-value { background: Highlight; }
+  progress.watch-bar::-moz-progress-bar { background: Highlight; }
 }
 
 /* Inline notice above the rows when Plex cannot be reached. */
