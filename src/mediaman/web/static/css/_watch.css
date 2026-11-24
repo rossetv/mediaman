@@ -687,6 +687,15 @@
 .watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 
 .watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+/* With scripts the seasons stand on one line that scrolls, its gutters holding the arrows so
+   that they never stand on a season. */
+.watch-seasons__line { --pad: clamp(20px, 4vw, 32px); min-width: 0; margin: 6px calc(-1 * var(--pad)) 0; }
+.watch-seasons.watch-row__scroll { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
+.watch-seasons > .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
+.watch-seasons__line > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
+.watch-seasons__line > .watch-row__arrow--prev { left: 2px; }
+.watch-seasons__line > .watch-row__arrow--next { right: 2px; }
+.watch-pill__mark { margin-left: 8px; font-size: 13px; opacity: .75; }
 .watch-pill {
   display: inline-flex;
   align-items: center;
