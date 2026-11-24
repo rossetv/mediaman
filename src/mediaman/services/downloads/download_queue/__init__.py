@@ -22,9 +22,11 @@ from typing import TYPE_CHECKING, cast
 
 import requests
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
+    carry_queued_since,
     detect_completed,
     fetch_and_sync_recent_downloads,
     record_verified_completions,
@@ -224,13 +226,15 @@ def _maybe_record_completions(
         previous_snapshot = _previous_queue
         previously_initialised = _previous_initialised
         carried = {k: v for k, v in previous_snapshot.items() if _service_of(k) in unreachable}
-        _previous_queue = {**carried, **current_map}
+        stored = {**carried, **current_map}
+        carry_queued_since(previous_snapshot, stored, now_utc())
+        _previous_queue = stored
         _previous_initialised = True
 
     if previously_initialised:
         completed = [
             c
-            for c in detect_completed(previous_snapshot, {**carried, **current_map})
+            for c in detect_completed(previous_snapshot, stored)
             if c["dl_id"] not in matched_nzb_names
         ]
         record_verified_completions(conn, completed, secret_key)

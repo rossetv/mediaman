@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -110,6 +111,8 @@ def test_abandon_during_an_outage_says_so_instead_of_not_found(services, client)
     assert "Radarr" in resp.json()["detail"]
 
 
+# Added after any poll of these tests.
+_NEW_FILE = {"id": 3, "dateAdded": "2999-01-01T00:00:00Z"}
 _POSTER = "https://artworks.thetvdb.com/banners/posters/dune.jpg"
 
 
@@ -150,11 +153,16 @@ def test_what_finishes_while_its_service_is_down_is_recorded_once_it_is_back(
 
     arr.get_queue.side_effect = None
     arr.get_queue.return_value = []
-    arr.get_movies.return_value = [{"id": 1, "title": "Dune", "hasFile": True}]
+    arr.get_movies.return_value = [
+        {"id": 1, "title": "Dune", "hasFile": True, "movieFile": _NEW_FILE}
+    ]
     arr.get_series.return_value = [
         {"id": 7, "title": "Dune", "statistics": {"episodeFileCount": 1}}
     ]
-    arr.get_episodes.return_value = [{"seasonNumber": 1, "episodeNumber": 1, "hasFile": True}]
+    arr.get_episodes.return_value = [
+        {"seasonNumber": 1, "episodeNumber": 1, "hasFile": True, "episodeFileId": 3}
+    ]
+    arr.get_episode_files.return_value = [_NEW_FILE]
     assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
 
 
@@ -170,7 +178,7 @@ def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finishe
 
     radarr.get_movies.side_effect = None
     radarr.get_movies.return_value = [
-        {"id": 1, "title": "Dune", "monitored": True, "hasFile": True}
+        {"id": 1, "title": "Dune", "monitored": True, "hasFile": True, "movieFile": _NEW_FILE}
     ]
     assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
 
@@ -199,6 +207,33 @@ def test_a_page_first_loaded_while_a_service_is_down_keeps_the_names_and_art_of_
     nzbget.get_queue.return_value = [_loading("Manual.2020")]
     data = _get(client)
     assert (data["hero"]["title"], data["queue"]) == ("Manual", [])
+
+
+@pytest.mark.parametrize(
+    ("added", "recorded"),
+    [("2026-05-01T11:59:00Z", []), ("2026-05-01T12:30:00Z", ["radarr:Dune"])],
+)
+def test_a_film_is_recorded_for_a_file_added_since_it_was_first_seen_queued(
+    services, client, monkeypatch, added, recorded
+):
+    noon = datetime(2026, 5, 1, 12, tzinfo=UTC)
+    clock = [noon]
+    monkeypatch.setattr("mediaman.services.downloads.download_queue.now_utc", lambda: clock[0])
+    radarr = services[0]
+    radarr.get_queue.return_value = [_queued("Dune", "Dune.2021.2160p")]
+    _get(client)
+    clock[0] = noon + timedelta(hours=1)
+    _get(client)
+    radarr.get_queue.side_effect = _DOWN
+    _get(client)
+
+    clock[0] = noon + timedelta(hours=2)
+    radarr.get_queue.side_effect = None
+    radarr.get_queue.return_value = []
+    radarr.get_movies.return_value = [
+        {"id": 1, "title": "Dune", "hasFile": True, "movieFile": {"dateAdded": added}}
+    ]
+    assert [r["id"] for r in _get(client)["recent"]] == recorded
 
 
 def _show(title: str, *files: int) -> dict[str, object]:
