@@ -47,11 +47,16 @@ def test_a_reader_on_a_person_is_told_the_words_of_their_card() -> None:
     assert "Part 0" in described and "Born 1979" in described and "Leeds" in described
 
 
-def test_one_answer_is_waited_for_at_a_time_and_only_who_is_on_show_is_asked_about_next() -> None:
+def test_an_open_card_is_asked_about_though_another_answer_is_on_its_way() -> None:
     out = _run("pass")
     assert out["second"] == "Tomas Adeyemi"
-    assert out["before"] == ["9001"]
-    assert out["asked"] == ["9001", "9003"]
+    assert out["early"] == ["9001", "9002"]
+
+
+def test_two_answers_are_waited_for_at_most_and_who_is_on_show_is_asked_about_next() -> None:
+    out = _run("pass")
+    assert out["before"] == ["9001", "9002"]
+    assert out["asked"] == ["9001", "9002", "9003"]
 
 
 def test_an_answer_about_someone_the_pointer_has_left_is_not_shown() -> None:
@@ -130,3 +135,11 @@ def test_people_who_come_under_a_still_pointer_by_a_scroll_open_no_card() -> Non
 
 def test_a_photo_called_home_midway_flies_on_until_it_is_home() -> None:
     assert _run("turnedRound") == [1, 2, 1, True, 0, False]
+
+
+def test_a_person_the_pointer_left_before_the_next_frame_opens_no_card() -> None:
+    assert _run("leftBeforeTheFrame") == {
+        "left": None,
+        "rested": "Tomas Adeyemi",
+        "asked": ["9002"],
+    }

@@ -1,7 +1,7 @@
 /* Watch: the people of a title, in its detail, on MMWatch.cast. Resting on one,
  * or coming to one by the keyboard, opens a card out of their photo; a press
  * opens their page (watch/explore.js), to which the photo flies, and from which
- * it flies home. What a card says is asked for once a person, one at a time.
+ * it flies home. What a card says is asked for once a person, two at a time.
  * Needs watch/core.js; used by watch/detail.js, which holds the overlay.
  */
 (function () {
@@ -116,7 +116,8 @@
 
   var known = {};  // by id: the reply
   var failed = {}; // by id: { until, gone }, a failure that is not asked again before
-  var asking = null;
+  var asking = new Set(); // whose answers are on their way
+  var ASKING_MOST = 2;
 
   function stateOf(p) {
     if (known[p.id]) return 'full';
@@ -133,12 +134,13 @@
     askTimer = null;
   }
 
-  /* Ask about whoever's card is open, unless an answer is still on its way: the
-     one whose card is open by then is asked about next. */
+  /* Ask about whoever's card is open, unless too many answers are on their way:
+     the one whose card is open by the next is asked about then. */
   function ask() {
     dontAsk();
-    if (asking || !live || stateOf(live) !== 'loading') return;
-    var id = asking = live.id;
+    if (!live || stateOf(live) !== 'loading' || asking.has(live.id) || asking.size >= ASKING_MOST) return;
+    var id = live.id;
+    asking.add(id);
     watch.explore.person(id).then(function (reply) {
       if (reply && reply.person) known[id] = reply;
       else failed[id] = { until: Infinity, gone: true };
@@ -146,7 +148,7 @@
       var gone = !!err && err.status === 404;
       failed[id] = { until: gone ? Infinity : now() + FAILED_MS, gone: gone };
     }).then(function () {
-      asking = null;
+      asking.delete(id);
       if (!live) return;
       if (live.id === id) draw(live);
       else ask();

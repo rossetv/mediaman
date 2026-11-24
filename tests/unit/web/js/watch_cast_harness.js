@@ -132,13 +132,14 @@ const scenarios = {
     p.over(p.item(1));
     await p.wait(400);
     const second = p.card().name;
+    const early = p.asked.slice();
     p.over(p.item(2));
     await p.wait(400);
     const before = p.asked.slice();
     await p.answer('9001', reply());
     const late = p.card();
     await p.answer('9003', reply({ biography: 'Someone else.' }));
-    return { second, before, late, asked: p.asked, then: p.card().bio };
+    return { second, early, before, late, asked: p.asked, then: p.card().bio };
   },
 
   // With a card open, a person only passed over is not asked about.
@@ -258,6 +259,23 @@ const scenarios = {
     p.over(p.item(0));
     await p.wait(300);
     return { soon, still, then: !!p.card() };
+  },
+
+  // The pointer has left a person by the time a busy page comes to open their card.
+  async leftBeforeTheFrame() {
+    const p = load();
+    const frames = [];
+    p.ctx.requestAnimationFrame = (fn) => frames.push(fn);
+    p.over(p.item(0));
+    await p.wait(300);
+    p.over(p.q('.ttl__sec-title'));
+    frames.splice(0).forEach((fn) => fn());
+    const left = p.card();
+    p.over(p.item(1));
+    await p.wait(300);
+    frames.splice(0).forEach((fn) => fn());
+    await p.wait(10);
+    return { left, rested: p.card().name, asked: p.asked };
   },
 
   // A photo on its way to the page is called home: the trip out ending says nothing of the trip home.
