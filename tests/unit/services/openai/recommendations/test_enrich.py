@@ -317,13 +317,14 @@ class TestWhichPicksAreKept:
         ("title", "found"),
         [
             ("Spiderman", {"title": "Spider-Man"}),
+            ("Spider-Man", {"title": "Spiderman"}),
+            ("Spider Man", {"title": "Spider-Man"}),
             ("Oceans Eleven", {"title": "Ocean's Eleven"}),
             ("Ocean's Eleven", {"title": "Ocean\u2019s Eleven"}),
             ("Birdman", {"title": "Birdman or (The Unexpected Virtue of Ignorance)"}),
             ("Star Wars", {"title": "Star Wars: Episode IV - A New Hope"}),
             ("Borat", {"title": "Borat (Cultural Learnings)"}),
             ("Dr Strange", {"title": "Dr. Strange, or Learning"}),
-            ("Borat", {"title": "Borat or Cultural Learnings of America"}),
             ("Andor", {"name": "Andor \u2013 A Story"}),
         ],
     )
@@ -342,6 +343,16 @@ class TestWhichPicksAreKept:
             ("Star Wars: Rogue One", 2016, {"title": "Star", "release_date": "2016-01-01"}),
             ("Or", 2004, {"title": "Life or Death", "release_date": "2004-01-01"}),
             ("Birdman", 2014, {"title": "Birdman or (The)", "release_date": ""}),
+            (
+                "Borat",
+                2006,
+                {"title": "Borat or Cultural Learnings of America", "release_date": "2006-11-01"},
+            ),
+            ("Therapist", 2015, {"title": "The Rapist", "release_date": "2015-01-01"}),
+            ("Nowhere", 2022, {"title": "Now Here", "release_date": "2022-01-01"}),
+            ("Recycle", 2006, {"title": "Re-Cycle", "release_date": "1990-01-01"}),
+            ("(2012)", 2009, {"title": "(500) Days", "release_date": "2009-07-17"}),
+            ("(2012)", 2009, {"title": ": Days", "release_date": "2009-07-17"}),
             ("Life", 2002, {"title": "Life or Death", "release_date": "2002-01-01"}),
             ("Dead", 2006, {"title": "Dead or Alive Again", "release_date": "2006-01-01"}),
             ("Barbie: The Sequel", 2023, {"title": "Barbie", "release_date": "2023-07-01"}),
@@ -397,23 +408,21 @@ class TestWhichPicksAreKept:
         ):
             assert enrich(_Tmdb(answers), [{**_rec(key), "year": 2021}]) == []
 
-    def test_of_exact_titles_the_one_of_the_year_then_of_the_same_spaces_is_taken(self, enrich):
+    def test_of_exact_titles_the_one_of_the_year_then_of_the_same_hyphens_is_taken(self, enrich):
         old = {"id": 1, "title": "Halloween", "release_date": "1978-10-25"}
         new = {"id": 2, "title": "Halloween", "release_date": "2018-10-18"}
         recs = [{**_rec("Halloween"), "year": 2018}]
         assert enrich(_Tmdb({("Halloween", 2018): [old, new]}), recs) == [("Halloween", 2)]
 
-        apart = {"id": 3, "title": "Now Here", "release_date": "2022-01-01"}
-        whole = {"id": 4, "title": "Nowhere", "release_date": "2022-01-01"}
-        recs = [{**_rec("Nowhere"), "year": 2022}]
-        assert enrich(_Tmdb({("Nowhere", 2022): [apart, whole]}), recs) == [("Nowhere", 4)]
+        hyphen = {"id": 3, "title": "Re-Cycle", "release_date": "2022-01-01"}
+        whole = {"id": 4, "title": "Recycle", "release_date": "2022-01-01"}
+        recs = [{**_rec("Recycle"), "year": 2022}]
+        assert enrich(_Tmdb({("Recycle", 2022): [hyphen, whole]}), recs) == [("Recycle", 4)]
 
-    def test_the_first_five_results_are_looked_through_and_no_more(self, enrich):
-        others = [{"id": n, "title": f"Other {n}"} for n in range(1, 6)]
-        fifth = [*others[:4], {"id": 9, "title": "Heat"}]
-        assert enrich(_Tmdb({("Heat", None): fifth}), [_rec("Heat")]) == [("Heat", 9)]
-        sixth = [*others, {"id": 9, "title": "Heat"}]
-        assert enrich(_Tmdb({("Heat", None): sixth}), [_rec("Heat")]) == []
+    def test_the_exact_title_is_found_however_far_down_the_results(self, enrich):
+        others = [{"id": n, "title": f"Other {n}"} for n in range(1, 20)]
+        results = [*others, {"id": 99, "title": "Heat"}]
+        assert enrich(_Tmdb({("Heat", None): results}), [_rec("Heat")]) == [("Heat", 99)]
 
     def test_an_apostrophe_is_no_space_so_the_year_need_not_fit(self, enrich):
         found = {"id": 4, "title": "Ocean's Eleven", "release_date": "2001-12-07"}

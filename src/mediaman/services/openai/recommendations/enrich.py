@@ -37,12 +37,10 @@ ENRICH_SECONDS = 60.0
 # After this many calls TMDB did not answer, it is not asked again for the batch.
 _TMDB_FAILURES_MAX = 2
 
-# Search results looked through for a pick's title.
-_RESULTS_READ = 5
-
 # Where a subtitle can begin. A hyphen needs its spaces ("Spider-Man"), and "or" a comma
-# before it or three words after it ("Life or Death").
-_SUBTITLE_RE = re.compile(r"\s*[:：–—(]|\s+-\s|\s*,\s*or\b|\s+or\b(?=(?:\W+\w+){3})", re.IGNORECASE)
+# before it or a bracket after it ("Life or Death").
+_SUBTITLE_RE = re.compile(r"\s*[:：–—(]|\s+-\s|\s*,\s*or\b|\s+or\b(?=\s*\()", re.IGNORECASE)
+_NO_HYPHENS = str.maketrans("", "", "-‐‑")
 _NO_APOSTROPHES = str.maketrans("", "", "'’ʼ`")
 _COMBINING_RE = re.compile(r"[\u0300-\u036f]")
 
@@ -112,7 +110,12 @@ def _spelling(title: str) -> str:
     punctuation, "&" for "and" and a year in brackets at its end."""
     text = re.sub(r"\s*\(\d{4}\)\s*$", "", title).translate(_NO_APOSTROPHES)
     text = unicodedata.normalize("NFKD", text.replace("&", " and "))
-    return normalise_title(_COMBINING_RE.sub("", text)) or text.strip()
+    return normalise_title(_COMBINING_RE.sub("", text)) or title.strip()
+
+
+def _joined(title: str) -> str:
+    """The spelling of *title* without its hyphens, so "Spider-Man" is "Spiderman"."""
+    return _spelling(title.translate(_NO_HYPHENS))
 
 
 def _names(found: TmdbSearchResult) -> list[str]:
@@ -129,16 +132,18 @@ def _exact_result(
     results: Sequence[TmdbSearchResult], title: str, year: int | None
 ) -> TmdbSearchResult | None:
     """The one of *results* that is *title*: of *year* rather than not, then spelled with the
-    same spaces rather than not. Spaces may differ ("Spiderman") only in a title of *year*."""
+    same hyphens rather than not. Hyphens may differ ("Spiderman") only in a title of *year*."""
     wanted = _spelling(title)
+    either = {wanted, _joined(title)}
     ranked: list[tuple[tuple[bool, bool], TmdbSearchResult]] = []
-    for found in results[:_RESULTS_READ]:
-        spellings = {_spelling(name) for name in _names(found)}
+    for found in results:
+        names = _names(found)
         of_year = _is_of_year(found, year)
-        apart = wanted not in spellings
-        together = {s.replace(" ", "") for s in spellings}
-        if not apart or (of_year and wanted.replace(" ", "") in together):
-            ranked.append(((not of_year, apart), found))
+        other = wanted not in {_spelling(name) for name in names}
+        if not other or (
+            of_year and any(either & {_spelling(name), _joined(name)} for name in names)
+        ):
+            ranked.append(((not of_year, other), found))
     return min(ranked, key=lambda r: r[0])[1] if ranked else None
 
 
