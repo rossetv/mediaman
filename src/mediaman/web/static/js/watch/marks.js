@@ -203,6 +203,20 @@
     if (trigger && card.contains(trigger)) moreMenu.close(false);
   }
 
+  /* Scroll *card*'s row to it when it was put back out of sight: a row that snaps stays on the
+     card it stood on. Its slot may still be opening, but what is in it has its own width. */
+  function showInRow(card) {
+    var scroller = card.closest('.watch-row__scroll');
+    if (!scroller || !card.getClientRects().length) return;
+    var pad = parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0;
+    var box = scroller.getBoundingClientRect();
+    var start = card.getBoundingClientRect().left;
+    var before = start - box.left - pad;
+    var past = start + card.children[0].offsetWidth - (box.right - pad);
+    var by = before < 0 ? before : Math.max(0, Math.min(before, past));
+    if (by) scroller.scrollBy({ left: by, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+  }
+
   /* An Undo puts the old nodes back only where they still belong: what another
      change has replaced or taken out since is drawn from the server's page. */
 
@@ -220,7 +234,9 @@
           return;
         }
         var now = continueRow(document);
-        if (!now || (now === row && !continueCards(row, ref).length)) taken.undo();
+        if (now && (now !== row || continueCards(row, ref).length)) return;
+        taken.undo();
+        showInRow(card);
       });
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
@@ -244,7 +260,7 @@
   }
 
   /* The server's card that the page lacks, in its place in the row, or with its row, and in that row's open grid. */
-  function enterContinue(now) {
+  function enterContinue(now, undone) {
     var row = continueRow(document);
     var fresh = document.importNode(row ? now : now.closest('.watch-row'), true);
     if (row) {
@@ -260,6 +276,7 @@
       if (window.MMWatch.expand) window.MMWatch.expand.row(fresh);
     }
     core.fadeIn(fresh);
+    if (undone && row) showInRow(fresh);
     var grid = window.MMWatch.grid;
     if (grid && grid.bring) grid.bring(row ? fresh : continueCards(fresh, now.getAttribute('data-dismiss-ref'))[0]);
   }
@@ -340,7 +357,7 @@
         replaceCard(card, document.importNode(now, true), done);
       }
     });
-    if (now && !here.length) enterContinue(now);
+    if (now && !here.length) enterContinue(now, done.undone);
     var banner = bannerNow();
     var fresh = doc.querySelector('.watch-banner');
     var own = isBannerOf(banner, ref) && (whole || now || !here.length);
@@ -501,7 +518,7 @@
     changes += 1;
     done.undos.splice(0).reverse().forEach(function (fn) { fn(); });
     if (focusLost(null)) refocus(controlOf(ref, done, !done.rows));
-    return { undos: [], part: part, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
+    return { undos: [], part: part, undone: true, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
 
   function undoChange(mark, watched, name, ref, done) {
