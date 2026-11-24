@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -27,7 +26,7 @@ from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra import (
     get_aggregate_disk_usage,
     get_disk_usage_for_paths,
-    get_string_setting,
+    get_setting,
 )
 from mediaman.services.infra import get_media_path as _get_media_path
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
@@ -217,13 +216,7 @@ def _configured_library_paths(conn: sqlite3.Connection) -> list[str]:
     reachable from a single base directory.  Returns ``[]`` when the setting
     is missing or malformed so the caller can fall back to the media root.
     """
-    raw_value = get_string_setting(conn, "disk_thresholds")
-    if not raw_value:
-        return []
-    try:
-        thresholds = json.loads(raw_value)
-    except (json.JSONDecodeError, TypeError):
-        return []
+    thresholds = get_setting(conn, "disk_thresholds")
     if not isinstance(thresholds, dict):
         return []
     paths: list[str] = []

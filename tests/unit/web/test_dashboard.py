@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.delete_root_state import write_delete_root_state
 from mediaman.core.deleted_media import record_deleted_media
+from mediaman.web.repository.settings import write_settings
 from mediaman.web.routes.dashboard import router as dashboard_router
 from tests.helpers.factories import insert_audit_log, insert_media_item, insert_scheduled_action
 
@@ -75,6 +77,24 @@ class TestApiDashboardStats:
         _insert_audit_deleted(conn, "m1", space_bytes=500_000_000)
         resp = client.get("/api/dashboard/stats")
         assert resp.json()["reclaimed_total_bytes"] == 500_000_000
+
+    def test_storage_spans_the_library_folders_saved_in_settings(
+        self, app_factory, authed_client, conn, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("MEDIAMAN_MEDIA_PATH", str(tmp_path / "missing"))
+        saved = {"1": {"path": str(tmp_path), "threshold": 90}}
+        write_settings(
+            conn,
+            body_dict={"disk_thresholds": saved},
+            allowed_keys=["disk_thresholds"],
+            secret_key="unused",
+            now="2026-01-01",
+        )
+        client = authed_client(app_factory(dashboard_router, conn=conn), conn)
+
+        storage = client.get("/api/dashboard/stats").json()["storage"]
+
+        assert storage["total_bytes"] == shutil.disk_usage(tmp_path).total
 
 
 class TestApiDashboardScheduled:
