@@ -20,7 +20,7 @@
   var TMDB_URL = '/api/watch/search/tmdb?q=';
   var SEARCH_DELAY_MS = 200;
   var LIST_DELAY_MS = 350;
-  var COMPOSING_MS = 700;
+  var COMPOSING_MS = 400;
   var EXAMPLE_MS = 3200;
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
