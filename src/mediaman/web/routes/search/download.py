@@ -254,16 +254,16 @@ def _submit_tv(
             f"'{body.title}' is already tracked by Sonarr — manage it there",
             status=409,
         )
-    if body.search_seasons is not None and not body.search_seasons:
+    # Sonarr searches every monitored season it is missing files for, so a season not
+    # asked to be searched is not monitored. A show Sonarr already holds was refused
+    # above, so no season of it is held to keep monitored.
+    seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
+    if seasons is not None and not seasons:
         return respond_failure("Pick at least one season", status=400)
     try:
-        if body.monitored_seasons is None:
+        if seasons is None:
             sonarr.add_series(tvdb_id, body.title)
         else:
-            # Sonarr searches every monitored season it is missing files for, so a
-            # season not asked to be searched is not monitored. A show Sonarr already
-            # holds was refused above, so no season of it is held to keep monitored.
-            seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
             sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
     except SeasonsNotListed as exc:
         # The person's own pick, not a fault: nothing was added, and not "already there".

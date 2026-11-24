@@ -882,6 +882,39 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is False
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_search_seasons_alone_add_only_those_seasons_not_the_whole_show(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "search_seasons": [1]},
+        )
+        assert resp.status_code == 200
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "BB", [1])
+        sonarr.add_series.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_empty_monitored_seasons_with_nothing_to_search_is_refused(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999}
+        sonarr.get_series.return_value = []
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": []},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "Pick at least one season"
+        sonarr.add_series.assert_not_called()
+        sonarr.add_series_with_seasons.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_monitored_seasons_alone_are_the_seasons_added(
         self, mock_build_sonarr, authed_client
     ):
