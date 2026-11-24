@@ -6,7 +6,8 @@
 .dl-hero {
   position: relative;
   border-radius: var(--r-lg);
-  overflow: hidden;
+  overflow: hidden; /* where clip is not known */
+  overflow: clip;   /* hidden would let the bled background be scrolled into view */
   min-height: 360px;
   padding: 32px;
   display: flex;
@@ -427,6 +428,9 @@
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
 .dl-abandon-list .tog[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+/* The page does not scroll behind the dialog, and keeps its width. */
+html:has(#abandon-modal[aria-hidden="false"]) { overflow: hidden; scrollbar-gutter: stable; }
 
 /* The confirm sits in the middle of the screen like the app's other
    confirms; a long season list still scrolls from the top. */

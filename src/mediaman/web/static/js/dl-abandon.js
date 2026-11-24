@@ -26,11 +26,11 @@
   var inflight = {};   // dlId -> true while its abandon request runs
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
-  /* This modal intentionally does NOT lock body scroll. setupDetail owns
-     the display/aria-hidden lifecycle and registers with ModalA11y, which
-     supplies the focus trap, ESC and focus return to the opener. */
+  /* setupDetail owns the display/aria-hidden lifecycle and registers with
+     ModalA11y, which supplies the focus trap, ESC and focus return to the
+     opener. */
   var _abandonModal = MM.modal.setupDetail(modal, {
-    manageBodyOverflow: false,
+    manageBodyOverflow: false, /* _dl.css holds the page */
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;

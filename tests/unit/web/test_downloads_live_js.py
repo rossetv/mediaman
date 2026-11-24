@@ -5,6 +5,7 @@ read by the real scripts under node.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -229,3 +230,20 @@ def test_after_an_abandon_the_page_says_so_and_the_focus_is_on_something() -> No
     assert [variant for _, variant in out["toasts"]] == ["success"] * 5
     for (text, _), title in zip(out["toasts"], ["Tq1", "Tq2", "Th", "Tu", "Tq3"], strict=True):
         assert title in text
+
+
+def _rule(selector: str) -> str:
+    """The declarations of *selector* outside any `@media`."""
+    css = re.sub(r"/\*.*?\*/", "", (WEB / "static/css/_dl.css").read_text(encoding="utf-8"))
+    css = re.sub(r"@media [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
+    heads = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+    return "".join(body for head, body in heads if selector in [s.strip() for s in head.split(",")])
+
+
+def test_the_page_is_held_behind_the_abandon_dialog_and_keeps_its_width() -> None:
+    held = _rule('html:has(#abandon-modal[aria-hidden="false"])')
+    assert "overflow: hidden" in held and "scrollbar-gutter: stable" in held
+
+
+def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
+    assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
