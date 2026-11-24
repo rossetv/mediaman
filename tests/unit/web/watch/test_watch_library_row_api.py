@@ -166,3 +166,18 @@ def test_other_rows_and_absurd_limits_are_refused(client):
     for limit in ("0", "61", "x"):
         assert client.get(f"/api/watch/library/tv/row?limit={limit}").status_code == 422
     assert client.get("/api/watch/library/tv/row?sort=size").status_code == 422
+
+
+def test_what_one_person_has_seen_of_a_show_says_nothing_to_another(client, conn):
+    mark_watched(conn, "aoife", [MarkTarget("511", "501", "500", 0)], NOW)
+    conn.execute("UPDATE media_items SET episode_count = 2 WHERE id = '501'")
+    conn.commit()
+
+    def tv():
+        rows = {r["title"]: r["items"] for r in client.get("/watch").json()["rows"]}
+        return [c["subtitle"] for c in rows["TV"]]
+
+    mine = tv()
+    client.cookies.set("session_token", create_session(conn, "cian"))
+
+    assert (mine, tv()) == (["TV · 1 season · 1 left"], ["TV · 1 season"])
