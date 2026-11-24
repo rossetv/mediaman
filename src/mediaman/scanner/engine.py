@@ -48,6 +48,7 @@ from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner._scan_library import (
+    begin_write,
     item_savepoint,
     scan_movie_library,
     scan_tv_library,
@@ -323,6 +324,7 @@ class ScanEngine:
 
     def _settle_keeps(self, *, dry_run: bool) -> None:
         """Let every key of a kept title have what its keep means, now that all are stored."""
+        begin_write(self._conn)
         repository.carry_film_keeps(self._conn)
         if not dry_run:
             repository.cancel_deletions_kept_under_another_key(self._conn)

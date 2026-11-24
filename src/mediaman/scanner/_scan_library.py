@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ScanDecision",
+    "begin_write",
     "evaluate_items",
     "item_savepoint",
     "scan_movie_library",
@@ -61,6 +62,15 @@ def with_mediaman_play(f: PlexItemFetch, credited: Mapping[str, datetime]) -> Pl
     return replace(f, watch_history=[*f.watch_history, {"viewed_at": credited_at}])
 
 
+def begin_write(conn: sqlite3.Connection) -> None:
+    """Take the write lock before the first read, unless a transaction is open.
+
+    A transaction that reads first fails at once when anyone writes before it does.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+
+
 @contextmanager
 def item_savepoint(conn: sqlite3.Connection) -> Iterator[None]:
     """Roll back only this item's writes when the body raises, so none is left half-written.
@@ -69,8 +79,7 @@ def item_savepoint(conn: sqlite3.Connection) -> Iterator[None]:
     full, I/O) ends the transaction and the savepoint with it; the job's own
     rollback still runs.
     """
-    if not conn.in_transaction:
-        conn.execute("BEGIN")
+    begin_write(conn)
     conn.execute("SAVEPOINT scan_item")
     try:
         yield

@@ -11,6 +11,7 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.scanner import _scan_library, engine, repository
 from mediaman.scanner.deletions import DeletionExecutor
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
@@ -704,3 +705,68 @@ class TestAScanKeepsTheRecordOfADeletionThatFailsMidway:
         for _ in range(2):
             self._scan(conn, items)
         assert self._deleted_audits(conn)
+
+
+class TestAWriteByAnotherConnection:
+    """Someone else writes after the run began to read and before it writes."""
+
+    @staticmethod
+    def _engine(conn, mock_plex):
+        mock_plex.get_movie_items.return_value = [
+            {
+                "plex_rating_key": "1",
+                "title": "Film",
+                "added_at": datetime(2020, 1, 1, tzinfo=UTC),
+                "file_path": "/media/film.mkv",
+                "file_size_bytes": 1,
+            }
+        ]
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="test-key",
+            dry_run=True,
+        )
+
+    @staticmethod
+    def _interrupt(monkeypatch, db_path, target, outcomes):
+        """Have another connection write inside *target*, once it has read the library."""
+        module, name = target
+        real = getattr(module, name)
+
+        def interrupted(conn, *args, **kwargs):
+            conn.execute("SELECT COUNT(*) FROM media_items").fetchone()
+            other = sqlite3.connect(db_path, timeout=0)
+            try:
+                other.execute("INSERT OR REPLACE INTO settings VALUES ('k', 'v', 0, '2026')")
+                other.commit()
+                outcomes.append("written")
+            except sqlite3.OperationalError as exc:
+                outcomes.append(str(exc))
+            finally:
+                other.close()
+            return real(conn, *args, **kwargs)
+
+        monkeypatch.setattr(module, name, interrupted)
+
+    @pytest.mark.parametrize("run", ["sync_library", "run_scan"])
+    def test_costs_no_item(self, conn, db_path, mock_plex, monkeypatch, run):
+        module = engine if run == "sync_library" else _scan_library
+        self._interrupt(monkeypatch, db_path, (module, "_phase_upsert_item"), outcomes := [])
+
+        summary = getattr(self._engine(conn, mock_plex), run)()
+
+        assert summary["errors"] == 0
+        assert [r[0] for r in conn.execute("SELECT id FROM media_items")] == ["1"]
+        assert len(outcomes) == 1
+
+    def test_cannot_change_the_keeps_while_they_are_settled(
+        self, conn, db_path, mock_plex, monkeypatch
+    ):
+        self._interrupt(monkeypatch, db_path, (repository, "carry_film_keeps"), outcomes := [])
+
+        self._engine(conn, mock_plex).run_scan()
+
+        assert outcomes[0] == "database is locked"
