@@ -459,7 +459,7 @@
       show(name, how !== 'pop');
       if (how === 'pop') {
         setTimeout(function () {
-          if (isOpen && !root.contains(document.activeElement)) tabButton(tab).focus({ preventScroll: true });
+          if (isOpen && !root.contains(document.activeElement)) panel.focus({ preventScroll: true });
         }, 0);
       }
     },
