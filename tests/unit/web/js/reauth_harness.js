@@ -97,6 +97,30 @@ const scenarios = {
     await wrong.submit('');
     return { before, failed, required: wrong.shown() };
   },
+  // Enter pressed again while the password is being checked, and as the dialog goes: how often each request went
+  async again() {
+    const asked = [];
+    ctx.MM.api.post = (url) => new Promise((resolve) => { asked.push(resolve); });
+    let runs = 0;
+    const ran = ctx.MM.reauth.run(() => {
+      runs += 1;
+      return runs === 1 ? Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } }) : Promise.resolve('done');
+    });
+    await flush();
+    const sheet = doc.body.children[doc.body.children.length - 1].children[0];
+    const input = sheet.querySelector('.inp');
+    input.value = 'pw';
+    const press = () => input.emit('keydown', { key: 'Enter' });
+    press();
+    press();
+    press();
+    asked.forEach((resolve) => resolve({}));
+    await ran;
+    await flush();
+    input.value = 'pw';
+    press();
+    return { passwords: asked.length, runs };
+  },
   // the next try fades the message out first and empties it only once it has gone
   async retry() {
     const d = open({ ok: false, error: 'Password is incorrect' });

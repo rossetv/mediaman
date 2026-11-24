@@ -140,16 +140,17 @@
     }
 
     function submit() {
+      if (confirmBtn.disabled) return;
       var pw = input.value;
       if (!pw) { say('Password required.'); return; }
       confirmBtn.disabled = true;
       say('');
       Promise.resolve(opts.onSubmit(pw)).then(function (res) {
-        confirmBtn.disabled = false;
         if (res && res.ok) {
           done = true;
           modal.close();
         } else {
+          confirmBtn.disabled = false;
           say((res && res.error) || 'Failed');
           input.focus();
           input.select();
