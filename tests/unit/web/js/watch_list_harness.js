@@ -1108,6 +1108,15 @@ const scenarios = {
     return { calls: p.calls, toasts: p.toasts.map((t) => t.message), deleted, fetches: p.fetches, keys: Object.keys(admin).sort() };
   },
 
+  // The title page's Keep and Remove keep name the keep it was given.
+  async detailKeepAsRead() {
+    const p = load({ list: false });
+    const film = { id: '42', is_tv: false, title: 'Dune', kept: true, keep: MADE };
+    await p.ctx.MMWatch.admin.keep(film, '7 days');
+    await p.ctx.MMWatch.admin.removeKeep(film);
+    return p.calls;
+  },
+
   // Browse to List: fetched, swapped in place, the address and the switch follow; Back returns.
   async switchView() {
     const p = load({ list: false });

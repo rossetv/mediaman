@@ -161,6 +161,14 @@ def test_the_detail_can_keep_and_delete_with_a_plain_wrapper_and_no_list_on_the_
     assert out["fetches"] == []
 
 
+def test_a_title_page_sends_back_the_keep_it_was_given() -> None:
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert _run("detailKeepAsRead") == [
+        ["postForm", "/api/media/42/keep", {"duration": "7 days", **read}],
+        ["post", "/api/media/42/unprotect", {"read": MADE}],
+    ]
+
+
 def test_the_switch_swaps_to_the_list_in_place_and_back_and_forward_follow() -> None:
     out = _run("switchView")
     assert out["prevented"] is True

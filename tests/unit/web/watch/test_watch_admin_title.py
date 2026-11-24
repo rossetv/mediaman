@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -108,6 +109,28 @@ def test_the_keep_control_is_given_the_keep_as_read_to_send_it_back(admin, libra
 
     keep = _facts(admin, "movie-100")["actions"]["keep_wrapper"]["keep"]
     assert keep == {"action": "snoozed", "execute_at": later, "kept_at": made}
+
+
+def test_a_keep_made_as_the_title_is_read_is_not_taken_for_the_one_shown(
+    admin, db_path, monkeypatch
+):
+    title_facts = catalog_api.lib.title_facts
+
+    def then_kept(*args, **kwargs):
+        found = title_facts(*args, **kwargs)
+        with sqlite3.connect(db_path) as other:
+            other.execute(
+                "INSERT INTO scheduled_actions (media_item_id, action, scheduled_at, token_used) "
+                "VALUES ('100', 'protected_forever', '2026-11-24T12:00:00+00:00', 0)"
+            )
+        return found
+
+    monkeypatch.setattr(catalog_api.lib, "title_facts", then_kept)
+
+    body = _facts(admin, "movie-100")
+
+    assert body["keep"]["state"] == "none"
+    assert body["actions"]["keep_wrapper"]["keep"] is None
 
 
 def test_a_show_sums_its_seasons_and_deletes_through_the_season_picker(admin):
