@@ -7,7 +7,7 @@
   align-items: center;
   padding: 12px 16px;
   border-radius: var(--r-md);
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .ditem:hover { background: var(--s1); }
 .ditem-body { min-width: 0; overflow-wrap: anywhere; }
@@ -66,13 +66,13 @@
   border-radius: var(--r-pill);
   font-size: 12px;
   font-weight: 600;
-  background: rgba(255,255,255,.08);
+  background: var(--rgba-overlay-md);
   color: var(--t2);
   margin-bottom: 18px;
 }
 .status-pill .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger); }
-.status-protected { background: rgba(48,209,88,.12); color: var(--success); }
+.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger-text); }
+.status-protected { background: var(--rgba-success-bg); color: var(--success); }
 .status-expired   { background: var(--rgba-overlay-sm); color: var(--t3); }
 .dot-danger  { background: var(--danger) !important; }
 .dot-success { background: var(--success) !important; }
@@ -118,7 +118,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   gap: 6px;
   margin-bottom: 12px;
 }
-.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger); }
+.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .meta-pill.size { background: var(--s3); color: var(--t2); }
 
 .info-box {
@@ -130,7 +130,7 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
 }
 .info-box .label { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; font-weight: 600; }
 .info-box .value { font-size: 16px; font-weight: 500; }
-.info-box .value.danger  { color: var(--danger); }
+.info-box .value.danger  { color: var(--danger-text); }
 .info-box .value.success { color: var(--success); }
 
 .snooze-section { margin-top: 18px; }
@@ -152,12 +152,12 @@ img:not([data-broken]) + .item-poster-empty { display: none; }
   color: var(--t1);
   font-size: 13px;
   font-weight: 500;
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .snooze-btn:hover { background: var(--s4); }
 form[data-busy] .snooze-btn { opacity: .6; cursor: progress; }
 .snooze-btn .duration { color: var(--accent); font-weight: 600; }
-.snooze-btn.snooze-forever { background: rgba(48,209,88,.15); color: var(--success); }
+.snooze-btn.snooze-forever { background: var(--rgba-success-bg); color: var(--success); }
 .snooze-btn.snooze-forever .duration { color: var(--success); }
 .snooze-btn .admin-only {
   font-size: 9px;
@@ -172,16 +172,16 @@ form[data-busy] .snooze-btn { opacity: .6; cursor: progress; }
 .keep-footer { margin-top: 28px; }
 .keep-footer a { color: var(--accent); font-size: 13px; }
 
-/* Phone: side gutter like the login card, and 40px tap areas. */
+/* Phone: side gutter like the login card. */
 @media (max-width: 639.98px) {
   .keep-container { width: calc(100% - 40px); margin: 40px auto; padding: 32px 20px; }
-  .snooze-btn { min-height: 40px; padding: 8px 18px; }
 }
 
-/* Touch screens in landscape are wider than the phone breakpoint but still need the tap area. */
-@media (max-width: 639.98px), (pointer: coarse) {
-  .keep-nav .brand { display: inline-block; line-height: 40px; }
-  .keep-footer a { display: inline-flex; align-items: center; min-height: 40px; }
+/* 44px tap areas, also on touch screens wider than the bottom-nav breakpoint. */
+@media (max-width: 699.98px), (pointer: coarse) {
+  .snooze-btn { min-height: 44px; padding: 8px 18px; }
+  .keep-nav .brand { display: inline-block; line-height: 44px; }
+  .keep-footer a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 .already-kept-msg { margin: 18px 0; }

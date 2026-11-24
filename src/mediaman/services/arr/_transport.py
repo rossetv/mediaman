@@ -60,6 +60,19 @@ class ArrUpstreamError(ArrError):
     """
 
 
+class SeasonsNotListed(ArrError):
+    """Seasons asked for that Sonarr's lookup does not list (yet), so none can be added."""
+
+    def __init__(self, seasons: list[int]) -> None:
+        self.seasons = sorted(seasons)
+        names = [str(n) for n in self.seasons]
+        if len(names) == 1:
+            text = f"Season {names[0]} isn't in Sonarr's listing."
+        else:
+            text = f"Seasons {', '.join(names[:-1])} and {names[-1]} aren't in Sonarr's listing."
+        super().__init__(text)
+
+
 class _TransportMixin:
     """Authenticated HTTP verbs + the shared ``_unmonitor_with_retry``.
 

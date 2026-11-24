@@ -9,7 +9,6 @@
   overflow-x: clip;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
-.watch-page [hidden] { display: none !important; }
 @media (max-width: 1279.98px) { .watch-page { --watch-card-w: 128px; } }
 @media (max-width: 599.98px)  { .watch-page { --watch-card-w: 112px; --watch-gap: 10px; } }
 
@@ -45,7 +44,7 @@
 .watch-bar::-moz-progress-bar { background: var(--accent); }
 .watch-bar--banner {
   width: min(320px, 100%);
-  border-radius: 2px;
+  border-radius: var(--r-xxs);
   background: color-mix(in srgb, var(--t1) 15%, transparent);
   color: var(--t1);
 }
@@ -105,6 +104,113 @@
 }
 .watch-search__clear:hover { color: var(--t1); }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+
+/* Top bar: the search field, and for admins the Browse / List switch at the
+   far right; below 600px the switch is two 44px icon buttons. */
+.watch-top { display: flex; align-items: center; gap: 12px; }
+.watch-top > .watch-search { flex: 1 1 0; min-width: 0; }
+.watch-viewtoggle {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  padding: 0 3px;
+  border-radius: var(--r-pill);
+  background: var(--s2);
+}
+.watch-viewtoggle__btn {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  color: var(--t2);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.watch-viewtoggle__btn::before {
+  content: "";
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--s4);
+  opacity: 0;
+  transform: scale(.9);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-viewtoggle__btn:hover,
+.watch-viewtoggle__btn[aria-current="page"] { color: var(--t1); }
+.watch-viewtoggle__btn[aria-current="page"]::before { opacity: 1; transform: none; }
+.watch-viewtoggle__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-viewtoggle__btn > .fa-solid { font-size: 13px; }
+@media (max-width: 599.98px) {
+  .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .watch-viewtoggle__btn { width: 44px; padding: 0; justify-content: center; }
+  .watch-viewtoggle__btn::before { inset: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .watch-viewtoggle__btn::before { transform: none; }
+}
+
+/* Dividers between groups of rows ("Discover", "Your library"). */
+.watch-group-label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px var(--pad) 0;
+  margin-bottom: -14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.watch-group-label::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
+
+/* The Discover rows sit in the row stack as if they were its own children. */
+.watch-discover-slot,
+.watch-discover-skel { display: contents; }
+
+/* Skeletons: placeholders the size of what replaces them, with a slow sweep
+   (a pulse with reduced motion). */
+.skel { position: relative; overflow: hidden; display: block; background: var(--s2); border-radius: var(--r-md); }
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 25%, color-mix(in srgb, var(--t1) 6%, transparent) 50%, transparent 75%);
+  transform: translateX(-100%);
+  animation: skel-sweep 1.6s ease-in-out infinite;
+}
+@keyframes skel-sweep { to { transform: translateX(100%); } }
+.skel--line { height: 12px; border-radius: var(--r-pill); }
+.skel--title { height: 20px; width: 170px; border-radius: var(--r-pill); }
+.skel--pill { height: 44px; border-radius: var(--r-pill); }
+.skel--circle { border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .skel::after { display: none; }
+  .skel { animation: loading-pulse 1.6s ease-in-out infinite; }
+}
+.watch-card--skel { display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.watch-row__scroll > .watch-card--skel { flex: 0 0 var(--watch-card-w); }
+.watch-card--skel .skel--poster { width: 100%; aspect-ratio: 2 / 3; }
+.watch-card--skel .skel--line { width: 62%; height: 10px; }
+.watch-row--skel .watch-row__scroll { overflow: hidden; }
+.watch-row--skel .watch-row__arrow { display: none; }
+.watch-row__title-skel { margin: 0 var(--pad) 12px; height: 19px; }
+@media (max-width: 599.98px) { .watch-row__title-skel { height: 17px; margin-bottom: 10px; } }
+
+/* Swapping a skeleton for its content: both share one grid cell, the content
+   eases in and the skeleton fades out over it, so nothing below moves. */
+.swap-layer { display: grid; }
+.swap-layer > * { grid-area: 1 / 1; min-width: 0; }
+.is-swapping-in { animation: fade-in var(--dur) var(--ease-out) backwards; }
+.swap-out { animation: swap-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+@keyframes swap-out { to { opacity: 0; } }
 
 /* Banner */
 .watch-banner {
@@ -348,7 +454,8 @@
 .watch-keep[disabled],
 .watch-keep[aria-disabled="true"] { opacity: .55; cursor: progress; }
 
-/* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it. */
+/* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it.
+   place() caps its height to the room on screen; a longer list scrolls. */
 .watch-keep-menu {
   position: fixed;
   z-index: var(--z-dropdown);
@@ -361,6 +468,8 @@
   border: 1px solid var(--hair-strong);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   opacity: 0;
   transform: translateY(-4px) scale(.98);
   transform-origin: top left;
@@ -370,6 +479,7 @@
 .watch-keep-menu.is-above { transform: translateY(4px) scale(.98); transform-origin: bottom left; }
 .watch-keep-menu.is-open { opacity: 1; transform: none; pointer-events: auto; }
 .watch-keep-menu__item {
+  flex: none;
   min-height: 44px;
   padding: 0 14px;
   text-align: left;
@@ -386,9 +496,8 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
-/* Nothing found, or the search failed: a small centred block, not a bare sentence. */
-.watch-results__msg--empty,
-.watch-results__msg--failed {
+/* Nothing found: a small centred block, not a bare sentence. */
+.watch-results__msg--empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -399,8 +508,6 @@
 .watch-results__icon { font-size: 28px; color: var(--t3); margin-bottom: 8px; }
 .watch-results__line { font-size: 16px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
 .watch-results__hint { font-size: 14px; color: var(--t3); }
-.watch-results__msg--failed .watch-results__icon { color: var(--danger); }
-.watch-results__again { margin-top: 10px; }
 .watch-results__msg--error {
   display: flex;
   width: fit-content;
@@ -463,7 +570,7 @@
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
 /* The line keeps the Keep button's height when it is kept or empty (a season
    that is not leaving), so Resume and the season tabs never move under a tap. */
-.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger); }
+.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger-text); }
 .watch-leaving--kept { color: var(--success); }
 /* Another season is leaving, not this one: said quietly, with no Keep. */
 .watch-leaving--other { color: var(--t2); }
@@ -527,7 +634,7 @@
 @media (max-width: 599.98px) {
   .watch-top { padding-top: 12px; }
   .watch-search { max-width: none; }
-  .watch-banner { height: 260px; margin-top: 12px; padding-bottom: 20px; }
+  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 64px var(--pad) 20px; }
   .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, transparent 60%); }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
@@ -535,6 +642,10 @@
   .watch-banner__line { font-size: 13px; }
   .watch-actions { flex-direction: column; }
   .watch-actions .btn { width: 100%; }
+  /* The banner's Play takes the full width; Episodes and Details share the row under it. */
+  .watch-banner .watch-actions { flex-direction: row; }
+  .watch-banner .watch-actions .btn { flex: 1 1 0; width: auto; padding-inline: 12px; }
+  .watch-banner .watch-actions .watch-btn--play { flex-basis: 100%; }
   .watch-rows { gap: 22px; padding-top: 18px; }
   .watch-row__title { font-size: 17px; margin-bottom: 10px; }
 

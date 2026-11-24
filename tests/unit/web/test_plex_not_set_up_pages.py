@@ -1,4 +1,4 @@
-"""Dashboard and library empty states when Plex is not set up."""
+"""Dashboard and Watch list empty states when Plex is not set up."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from fastapi.templating import Jinja2Templates
 from mediaman.core.delete_root_state import write_delete_root_state
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.routes.dashboard import router as dashboard_router
-from mediaman.web.routes.library import router as library_router
+from mediaman.web.routes.watch import list_page
+from mediaman.web.routes.watch import pages as watch_pages
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_settings
 
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
@@ -21,7 +22,8 @@ _CONNECT = "Connect Plex to get started"
 def page(app_factory, authed_client, conn):
     app = app_factory(
         dashboard_router,
-        library_router,
+        watch_pages.router,
+        list_page.router,
         conn=conn,
         state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
     )
@@ -119,17 +121,17 @@ class TestDashboard:
         assert _CONNECT not in html
 
 
-class TestLibrary:
+class TestWatchList:
     def test_unset_plex_empty_library_says_connect(self, page):
-        html = page("/library")
+        html = page("/watch?view=list")
         assert _CONNECT in html
         assert "Run a scan" not in html
 
     def test_set_up_plex_empty_library_unchanged(self, page, conn):
         _plex(conn)
-        html = page("/library")
+        html = page("/watch?view=list")
         assert "Run a scan to pull in media from Plex." in html
         assert _CONNECT not in html
 
     def test_filtered_empty_result_keeps_its_own_message(self, page):
-        assert "Try adjusting your search" in page("/library?q=zzz")
+        assert "Try another search, or show everything again." in page("/watch?view=list&q=zzz")

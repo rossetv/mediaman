@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.services.arr.base import SeasonsNotListed
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
@@ -47,6 +49,19 @@ def authed_client(app):
     client.cookies.set("session_token", token)
     client.headers.update({"Origin": "http://testserver"})
     return client
+
+
+@pytest.fixture
+def discover_disk_cache(tmp_path, monkeypatch):
+    """A disk cache in a fresh data dir, as a running app has; refreshes run inline."""
+    from mediaman.services.infra import disk_cache
+
+    monkeypatch.setattr(disk_cache, "_root", None)
+    monkeypatch.setattr(disk_cache, "_failed", {})
+    monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "sync", True)
+    disk_cache.init(tmp_path)
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -167,12 +182,8 @@ class TestSearchEndpoint:
 
 class TestDiscoverEndpoint:
     @pytest.fixture(autouse=True)
-    def _clear_discover_cache(self):
-        from mediaman.web.routes.search import _discover_cache
-
-        _discover_cache.clear()
-        yield
-        _discover_cache.clear()
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
 
     def test_returns_three_shelves(self, authed_client, fake_http, fake_response):
         trending_payload = {
@@ -328,24 +339,17 @@ class TestDiscoverEndpoint:
 
 
 class TestFetchDiscoverShelf:
-    """``_fetch_discover_shelf`` (called by the ``api_discover``
-    handler) owns the discover TTL-cache: hit/miss decision, the
-    ``media_type`` stamp on cache-miss results, and the bounded-cache
-    clear-on-overflow."""
+    """``_fetch_discover_shelf`` (called by the ``api_discover`` handler) keeps each shelf
+    page in the disk cache: hit/miss, the ``media_type`` stamp on a fetched page, stale
+    pages served then refreshed, failures left uncached and a restart keeping the cache."""
 
     @pytest.fixture(autouse=True)
-    def _clear_discover_cache(self):
-        from mediaman.web.routes.search._enrichment import _discover_cache
-
-        _discover_cache.clear()
-        yield
-        _discover_cache.clear()
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
 
     def test_cache_miss_fetches_and_caches(self):
-        from mediaman.web.routes.search._enrichment import (
-            _discover_cache,
-            _fetch_discover_shelf,
-        )
+        from mediaman.services.infra import disk_cache
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
         calls = []
 
@@ -356,8 +360,9 @@ class TestFetchDiscoverShelf:
         result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
         assert result == [{"id": 1, "title": "X"}]
         assert calls == [1]
-        # The page is now cached under the shelf+page key.
-        assert "trending?page=1" in _discover_cache
+        # The page is now cached under the shelf+page key Watch's discover rows also use.
+        never = MagicMock(side_effect=AssertionError("fetched"))
+        assert disk_cache.meta().get_or_fetch("tmdb:discover:trending:1", 60, 60, never) == result
 
     def test_cache_hit_within_ttl_skips_fetch(self):
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
@@ -370,9 +375,22 @@ class TestFetchDiscoverShelf:
 
         first = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
         second = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
-        # Second call served from cache — fetch_fn invoked exactly once.
+        # Second call served from cache - fetch_fn invoked exactly once.
         assert calls == [2]
-        assert first is second
+        assert first == second
+
+    def test_pages_of_one_shelf_are_cached_apart(self):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        calls = []
+
+        def fetch_fn(page):
+            calls.append(page)
+            return [{"id": page}]
+
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == [{"id": 1}]
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 2) == [{"id": 2}]
+        assert calls == [1, 2]
 
     def test_injects_media_type_on_miss(self):
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
@@ -391,27 +409,52 @@ class TestFetchDiscoverShelf:
         def fetch_fn(page):
             return [{"id": 1}]
 
-        # trending results already carry media_type — None means "leave alone".
+        # trending results already carry media_type - None means "leave alone".
         result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
         assert "media_type" not in result[0]
 
-    def test_overflow_clears_cache(self):
-        from mediaman.web.routes.search._enrichment import (
-            _DISCOVER_CACHE_MAX_ENTRIES,
-            _discover_cache,
-            _fetch_discover_shelf,
-        )
+    def test_stale_page_is_served_then_refreshed(self, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
-        # Pre-fill the cache to the cap with stale dummy entries.
-        for i in range(_DISCOVER_CACHE_MAX_ENTRIES):
-            _discover_cache[f"stale?page={i}"] = (0.0, [])
-        assert len(_discover_cache) == _DISCOVER_CACHE_MAX_ENTRIES
+        answers = iter([[{"id": 1}], [{"id": 2}]])
+        fetch_fn = MagicMock(side_effect=lambda page: next(answers))
+        _fetch_discover_shelf("trending", fetch_fn, None, 1)
 
-        # The next miss-write trips the overflow guard: the whole cache is
-        # cleared, then the fresh entry is written.
-        _fetch_discover_shelf("trending", lambda page: [{"id": 1}], None, 1)
-        assert "trending?page=1" in _discover_cache
-        assert len(_discover_cache) == 1
+        monkeypatch.setattr(_enrichment, "_DISCOVER_FRESH_S", 0)
+        served = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+        monkeypatch.setattr(_enrichment, "_DISCOVER_FRESH_S", 3600)
+        after = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+
+        assert served == [{"id": 1}]
+        assert after == [{"id": 2}]
+        assert fetch_fn.call_count == 2
+
+    def test_empty_answer_is_not_cached_and_backs_off(self, discover_disk_cache):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        fetch_fn = MagicMock(return_value=[])
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == []
+        assert _fetch_discover_shelf("trending", fetch_fn, None, 1) == []
+
+        # Nothing was written, and the second call did not ask TMDB again (60 s back-off).
+        assert fetch_fn.call_count == 1
+        assert not list((discover_disk_cache / "watch_cache" / "meta").iterdir())
+
+    def test_page_survives_a_restart(self, discover_disk_cache, monkeypatch):
+        from mediaman.services.infra import disk_cache
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        _fetch_discover_shelf("trending", lambda page: [{"id": 7}], None, 1)
+
+        # A new process: no root, no in-flight or failure memory, same data dir.
+        monkeypatch.setattr(disk_cache, "_root", None)
+        monkeypatch.setattr(disk_cache, "_failed", {})
+        monkeypatch.setattr(disk_cache, "_inflight", {})
+        disk_cache.init(discover_disk_cache)
+
+        never = MagicMock(side_effect=AssertionError("fetched"))
+        assert _fetch_discover_shelf("trending", never, None, 1) == [{"id": 7}]
 
 
 class TestEnrichRatingsHelpers:
@@ -728,7 +771,7 @@ class TestDownloadEndpoint:
         )
         assert resp.status_code == 409
         assert resp.json()["ok"] is False
-        assert "already" in resp.json()["error"].lower()
+        assert resp.json()["error"] == "'Dune' is already in Radarr"
         radarr.add_movie.assert_not_called()
         radarr.remonitor_movie.assert_not_called()
 
@@ -761,6 +804,24 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is True
         radarr.remonitor_movie.assert_called_once_with(77)
         radarr.add_movie.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_radarr_from_db")
+    def test_a_failed_remonitor_is_a_502_not_already_in_radarr(
+        self, mock_build_radarr, authed_client
+    ):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 77, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(409, "refused", "radarr/m")
+        mock_build_radarr.return_value = radarr
+
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "movie", "tmdb_id": 438631, "title": "Dune"},
+        )
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to Radarr"
+        radarr.unmonitor_movie.assert_called_once_with(77, max_retries=1)
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_all_seasons_flow(self, mock_build_sonarr, authed_client):
@@ -800,12 +861,101 @@ class TestDownloadEndpoint:
             },
         )
         assert resp.status_code == 200
-        sonarr.add_series_with_seasons.assert_called_once_with(
-            999,
-            "BB",
-            [1, 2, 3],
-            [2, 3],
+        # Season 1 is monitored but not asked to be searched, and Sonarr searches what it
+        # monitors, so only the searched seasons are sent.
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "BB", [2, 3])
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_a_picked_season_sonarr_does_not_list_is_refused_by_name(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed([2])
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": [2]},
         )
+        assert resp.status_code == 422
+        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing."
+        assert resp.json()["ok"] is False
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_search_seasons_alone_add_only_those_seasons_not_the_whole_show(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "search_seasons": [1]},
+        )
+        assert resp.status_code == 200
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "BB", [1])
+        sonarr.add_series.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_empty_monitored_seasons_with_nothing_to_search_is_refused(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999}
+        sonarr.get_series.return_value = []
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": []},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "Pick at least one season"
+        sonarr.add_series.assert_not_called()
+        sonarr.add_series_with_seasons.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("picked", "missing", "message"),
+        [
+            ([1, 2], [2], "Season 2 isn't in Sonarr's listing. Untick it to add the rest."),
+            (
+                [1, 2, 3],
+                [2, 3],
+                "Seasons 2 and 3 aren't in Sonarr's listing. Untick them to add the rest.",
+            ),
+        ],
+    )
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_when_other_picks_are_listed_the_refusal_says_to_untick_the_missing(
+        self, mock_build_sonarr, authed_client, picked, missing, message
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed(missing)
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": picked},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"] == message
+
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_monitored_seasons_alone_are_the_seasons_added(
+        self, mock_build_sonarr, authed_client
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": [1, 2]},
+        )
+        assert resp.status_code == 200
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "BB", [1, 2])
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_empty_search_seasons_rejected(self, mock_build_sonarr, authed_client):
@@ -842,7 +992,7 @@ class TestDownloadEndpoint:
             },
         )
         assert resp.json()["ok"] is False
-        assert "already tracked" in resp.json()["error"].lower()
+        assert resp.json()["error"] == "'BB' is already tracked by Sonarr — manage it there"
         sonarr.add_series.assert_not_called()
 
 
@@ -928,3 +1078,44 @@ class TestDownloadNotifiesRequestingAdmin:
         # The email must be the admin's real address, not the subscriber's.
         call_email = mock_record.call_args[1]["email"]
         assert call_email == "admin@example.com"
+
+
+class TestDiscoverSharedWithWatch:
+    """Watch's discover rows and the search shelves share disk-cache keys, and the cache
+    re-raises a stored failure to the next caller of the key."""
+
+    @pytest.fixture(autouse=True)
+    def _disk_cache(self, discover_disk_cache):
+        return discover_disk_cache
+
+    def test_a_watch_row_that_failed_leaves_the_search_shelf_empty(self):
+        from types import SimpleNamespace
+
+        from mediaman.services import watch_catalog
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        client = SimpleNamespace(
+            trending=lambda page: [],
+            popular_movies=lambda page: [{"id": 1}],
+            popular_tv=lambda page: [{"id": 2}],
+        )
+        watch_catalog.discover_shelves(client)
+
+        assert _fetch_discover_shelf("trending", lambda page: [{"id": 9}], None, 1) == []
+
+    def test_an_empty_search_shelf_leaves_the_watch_row_out_not_failed(self):
+        from types import SimpleNamespace
+
+        from mediaman.services import watch_catalog
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        assert _fetch_discover_shelf("trending", lambda page: [], None, 1) == []
+        client = SimpleNamespace(
+            trending=lambda page: [{"id": 9}],
+            popular_movies=lambda page: [{"id": 1}],
+            popular_tv=lambda page: [{"id": 2}],
+        )
+
+        rows = watch_catalog.discover_shelves(client)
+
+        assert [r[0] for r in rows] == ["popular_movies", "popular_tv"]

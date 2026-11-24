@@ -25,6 +25,7 @@ class LibraryMovie:
     key: str
     title: str
     added_at: str
+    tmdb_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ class LibraryShow:
     anime: bool
     season_count: int
     added_at: str
+    tvdb_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +46,23 @@ class PendingDeletion:
     title: str
     season_number: int | None  # None for a movie
     show_key: str | None
+
+
+# (action, execute_at) of a keep in force.
+Keep = tuple[str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class TitleFacts:
+    """What the library holds for one movie, or for every synced season of one show."""
+
+    title: str
+    item_ids: list[str]
+    size_bytes: int
+    added_at: str
+    last_watched_at: str | None
+    item_keeps: dict[str, Keep]  # the strongest keep in force on each kept item
+    show_keep: Keep | None  # a show keep in force
 
 
 # Matches the Dashboard's recently-deleted window (5 batches of 50).
@@ -88,11 +107,11 @@ def _movies(
         params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
-        f"SELECT id, title, added_at FROM media_items WHERE {' AND '.join(where)}"
+        f"SELECT id, title, added_at, tmdb_id FROM media_items WHERE {' AND '.join(where)}"
         " ORDER BY title COLLATE NOCASE, id LIMIT ?",
         (*params, limit),
     ).fetchall()
-    return [LibraryMovie(r["id"], r["title"], r["added_at"]) for r in rows]
+    return [LibraryMovie(r["id"], r["title"], r["added_at"], r["tmdb_id"]) for r in rows]
 
 
 def _shows(
@@ -119,7 +138,7 @@ def _shows(
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
         f" MAX(media_type IN ({anime_marks})) AS anime,"
         " COUNT(DISTINCT CASE WHEN season_number > 0 THEN season_number END) AS seasons,"
-        " MAX(added_at) AS added_at"
+        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id"
         f" FROM media_items WHERE {' AND '.join(where)}"
         " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key LIMIT ?",
         (*ANIME_SEASON_TYPES, *params, limit),
@@ -131,6 +150,7 @@ def _shows(
             anime=bool(r["anime"]),
             season_count=r["seasons"],
             added_at=r["added_at"],
+            tvdb_id=r["tvdb_id"],
         )
         for r in rows
     ]
@@ -234,6 +254,66 @@ def pending_deletion(
     return found[0] if found else None
 
 
+def _stronger(a: Keep, b: Keep) -> Keep:
+    if a[0] == "protected_forever" or b[0] == "protected_forever":
+        return a if a[0] == "protected_forever" else b
+    return a if (a[1] or "") >= (b[1] or "") else b
+
+
+def title_facts(
+    conn: sqlite3.Connection, libraries: list[str], kind: str, key: str, now: datetime
+) -> TitleFacts | None:
+    """Size, dates and keeps of a library movie (*kind* "movie") or show ("show"); None
+    when it is not in the scanned libraries."""
+    lib_sql, params = _in_libraries(libraries)
+    if kind == "movie":
+        where = "media_type = 'movie' AND id = ?"
+    else:
+        where = f"media_type IN ({','.join('?' * len(ALL_SEASON_TYPES))}) AND show_rating_key = ?"
+        params.extend(ALL_SEASON_TYPES)
+    params.append(key)
+    # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT id, COALESCE(show_title, title) AS title, added_at, file_size_bytes,"
+        f" last_watched_at FROM media_items WHERE {lib_sql} AND {where} ORDER BY id",
+        params,
+    ).fetchall()
+    if not rows:
+        return None
+    ids = [r["id"] for r in rows]
+    now_iso = now.isoformat()
+    marks = ",".join("?" * len(ids))
+    item_keeps: dict[str, Keep] = {}
+    # rationale: marks is purely "?" * len(ids); every value is bound
+    for sa in conn.execute(  # nosec B608
+        "SELECT media_item_id, action, execute_at FROM scheduled_actions"
+        f" WHERE media_item_id IN ({marks}) AND (action = 'protected_forever'"
+        " OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at >= ?))",
+        (*ids, now_iso),
+    ).fetchall():
+        keep: Keep = (sa["action"], sa["execute_at"])
+        prev = item_keeps.get(sa["media_item_id"])
+        item_keeps[sa["media_item_id"]] = keep if prev is None else _stronger(prev, keep)
+    show_keep: Keep | None = None
+    if kind == "show":
+        ks = conn.execute(
+            "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?"
+            " AND (action = 'protected_forever' OR (execute_at IS NOT NULL AND execute_at > ?))",
+            (key, now_iso),
+        ).fetchone()
+        show_keep = (ks["action"], ks["execute_at"]) if ks else None
+    watched = [r["last_watched_at"] for r in rows if r["last_watched_at"]]
+    return TitleFacts(
+        title=rows[0]["title"],
+        item_ids=ids,
+        size_bytes=sum(r["file_size_bytes"] or 0 for r in rows),
+        added_at=max(r["added_at"] for r in rows),
+        last_watched_at=max(watched) if watched else None,
+        item_keeps=item_keeps,
+        show_keep=show_keep,
+    )
+
+
 def is_poster_key_allowed(conn: sqlite3.Connection, libraries: list[str], key: str) -> bool:
     """Whether a poster may be served for *key*, to an admin or a viewer alike.
 
@@ -270,6 +350,7 @@ __all__ = [
     "LibraryMovie",
     "LibraryShow",
     "PendingDeletion",
+    "TitleFacts",
     "find_movie",
     "find_show",
     "is_poster_key_allowed",
@@ -280,4 +361,5 @@ __all__ = [
     "scanned_library_ids",
     "search_library",
     "season_item_id",
+    "title_facts",
 ]

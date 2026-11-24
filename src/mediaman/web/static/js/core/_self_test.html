@@ -13,10 +13,11 @@
 <head>
   <meta charset="UTF-8">
   <title>MM core self-test</title>
+  <link rel="stylesheet" href="../../css/_tokens.css">
   <style>
     body { font-family: monospace; padding: 1rem; background: #111; color: #eee; }
-    .pass { color: #30d158; }
-    .fail { color: #ff453a; }
+    .pass { color: var(--success); }
+    .fail { color: var(--danger-text); }
     h1 { font-size: 1rem; margin-bottom: 1rem; color: #aaa; }
   </style>
 </head>
@@ -28,7 +29,6 @@
 <script src="api.js"></script>
 <script src="dom.js"></script>
 <script src="modal.js"></script>
-<script src="tiles.js"></script>
 
 <script>
 (function () {
@@ -109,27 +109,6 @@
   assert('handles.open is a function',            typeof handles.open === 'function');
   assert('handles.close is a function',           typeof handles.close === 'function');
   document.body.removeChild(fakeModal);
-
-  assert('MM.tiles exists',              typeof window.MM.tiles === 'object');
-  assert('MM.tiles.render is a function', typeof window.MM.tiles.render === 'function');
-
-  /* tiles.render produces poster-card children */
-  var grid = document.createElement('div');
-  window.MM.tiles.render(grid, [
-    { tmdb_id: 1, title: 'Test Film', media_type: 'movie', year: 2024 },
-    { tmdb_id: 2, title: 'Test Show', media_type: 'tv',    year: 2023,
-      rating: '7.5', rt_rating: '85%', download_state: 'queued' },
-  ], {});
-  assert('tiles.render produces 2 cards',
-    grid.querySelectorAll('.poster-card').length === 2);
-  assert('tiles.render sets data-type',
-    grid.querySelector('.poster-card').dataset.type === 'movie');
-  assert('tiles.render sets poster-empty for missing poster',
-    grid.querySelector('.poster-card .poster-empty') !== null);
-  assert('tiles.render renders state badge',
-    grid.querySelectorAll('.poster-state').length === 1);
-  assert('tiles.render renders rating chips',
-    grid.querySelectorAll('.poster-chips').length === 1);
 
   var summary = document.createElement('div');
   summary.style.marginTop = '1rem';

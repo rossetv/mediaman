@@ -22,6 +22,7 @@ from starlette.responses import Response
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.plex_watch import (
     PlexItemNotFound,
     PlexNotConfigured,
@@ -48,6 +49,8 @@ router = APIRouter()
 
 SEARCH_LIMIT = 60
 _THUMB_CACHE = "private, max-age=86400"
+_THUMB_FRESH_S = 7 * 86400
+_THUMB_STALE_S = 30 * 86400
 
 # Watch offers only the timed keeps, under the same labels the newsletter keep uses.
 _KEEP_LABELS: dict[int, str] = {
@@ -57,8 +60,8 @@ _KEEP_LABELS: dict[int, str] = {
 # Per-person cap on keeps; cheap DB writes, so the same burst the Library keep allows.
 _KEEP_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=500)
 
-# Per-person cap on thumbnails, each of which costs two Plex calls; sized for a page that
-# shows a season of them at once.
+# Per-person cap on thumbnails fetched from Plex (a cached one is not counted), each of
+# which costs two Plex calls; sized for a page that shows a season of them at once.
 _THUMB_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
 
 # How long after a Keep its Undo still works. The keep overwrites the deletion date, so the
@@ -106,7 +109,10 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
     }
     items: list[dict[str, Any]] = [
-        by_key[f.key] if isinstance(f, lib.LibraryMovie) else show_card(f) for f in found
+        {**by_key[f.key], "ref": f"movie-{f.key}"}
+        if isinstance(f, lib.LibraryMovie)
+        else {**show_card(f), "ref": f"show-{f.key}"}
+        for f in found
     ]
     return JSONResponse({"items": items})
 
@@ -243,21 +249,41 @@ def api_watch_thumb(
 ) -> Response:
     if not is_valid_key(rating_key):
         return Response(status_code=404)
-    if not _THUMB_LIMITER.check(username):
-        return Response(status_code=429)
     conn = get_db()
+    libraries = {str(s) for s in lib.scanned_library_ids(conn)}
     try:
         plex = open_plex(request, conn)
+    except PlexNotConfigured:
+        return Response(status_code=404)
+
+    def fetch() -> disk_cache.Image:
         item = plex.get_item(rating_key)
-        if not is_in_libraries(item, lib.scanned_library_ids(conn)) or not item.thumb:
-            return Response(status_code=404)
+        if not is_in_libraries(item, libraries) or not item.thumb:
+            raise PlexItemNotFound("Thumbnail not in the scanned libraries")
         content, content_type = plex.fetch_image(item.thumb)
+        return content, {"mime": content_type, "section": str(item.library_section_id)}
+
+    try:
+        content, info = disk_cache.img().get_or_fetch(
+            f"img:plexthumb:{rating_key}",
+            _THUMB_FRESH_S,
+            _THUMB_STALE_S,
+            fetch,
+            allow_fetch=lambda: _THUMB_LIMITER.check(username),
+        )
+    except disk_cache.Refused:
+        return Response(status_code=429)
     except (PlexItemNotFound, PlexNotConfigured):
         return Response(status_code=404)
     except PlexUnavailable:
         return Response(status_code=503)
+    # A cached thumb stays hidden once its library is no longer scanned.
+    if info.get("section") not in libraries:
+        return Response(status_code=404)
     return Response(
-        content=content, media_type=content_type, headers={"Cache-Control": _THUMB_CACHE}
+        content=content,
+        media_type=info.get("mime", "image/jpeg"),
+        headers={"Cache-Control": _THUMB_CACHE},
     )
 
 

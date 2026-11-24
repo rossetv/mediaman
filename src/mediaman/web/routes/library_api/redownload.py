@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.db import get_db
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.base import ArrError, SeasonsNotListed
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -85,6 +85,8 @@ def _arr_failure(exc: Exception, service: str, title: str) -> JSONResponse:
             text = f"'{title}' already exists in {service}"
             return respond_err(text, status=200, message=text)
         exc = exc.cause
+    if isinstance(exc, SeasonsNotListed):
+        return respond_err(str(exc), status=200, message=str(exc))
     # No exc_info: the traceback's last line would print the client's text raw.
     logger.error(
         "Re-download via %s failed for '%s': %s: %s",

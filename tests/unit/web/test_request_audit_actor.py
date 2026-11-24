@@ -67,7 +67,9 @@ def test_search_tv_detail_names_the_requester(conn):
 def test_recommended_movie_writes_audit_row_naming_the_requester(conn, _reset):
     sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
     client = _make_rec_app(conn)
-    with patch(f"{_REC}.build_radarr_from_db", return_value=MagicMock()):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = None
+    with patch(f"{_REC}.build_radarr_from_db", return_value=radarr):
         assert client.post(f"/api/recommended/{sid}/download").status_code == 200
     (row,) = _audit(conn)
     assert (row["action"], row["actor"]) == ("downloaded", "admin")

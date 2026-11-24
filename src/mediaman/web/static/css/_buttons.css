@@ -1,45 +1,55 @@
+/* One button. Sizes: --sm 32px, default 40px, --lg 44px; --icon is a circle of
+   the same height. Every size takes 44px below 700px, where the bottom nav shows.
+   A transparent border keeps a ghost button the same height as the others. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 16px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
   font-size: 14px;
   font-weight: 500;
   border-radius: var(--r-pill);
   letter-spacing: -.01em;
   white-space: nowrap;
-  transition: background .15s, color .15s, transform .1s, border-color .15s;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
 }
 .btn:active { transform: scale(.97); }
 .btn:disabled,
 .btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 
-.btn--sm { padding: 5px 12px; font-size: 12px; }
-.btn--lg { padding: 12px 22px; font-size: 15px; }
+.btn--sm { min-height: 32px; padding: 0 12px; font-size: 12px; }
+.btn--lg { min-height: 44px; padding: 0 22px; font-size: 15px; }
 
-.btn--primary { background: var(--accent-cta); color: #fff; }
+.btn--primary { background: var(--accent-cta); color: var(--t1); }
 .btn--primary:hover { background: var(--accent-hi); }
 
 .btn--secondary { background: var(--s3); color: var(--t1); }
 .btn--secondary:hover { background: var(--s4); }
 
-.btn--ghost { background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); }
-.btn--ghost:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
+.btn--ghost { background: transparent; color: var(--t1); border-color: var(--hair-strong); }
+.btn--ghost:hover { border-color: var(--hair-hover); background: var(--rgba-overlay-xs); }
 
 .btn--success { background: var(--rgba-success-bg); color: var(--success); }
-.btn--success:hover { background: rgba(48,209,88,.22); }
+.btn--success:hover { background: var(--rgba-success-bg-hover); }
 
-.btn--danger { background: var(--rgba-danger-bg); color: var(--danger); }
-.btn--danger:hover { background: rgba(255,69,58,.2); }
+.btn--danger { background: var(--rgba-danger-bg); color: var(--danger-text); }
+.btn--danger:hover { background: var(--rgba-danger-bg-hover); }
 
 .btn--accent-soft { background: var(--rgba-accent-bg); color: var(--accent); }
-.btn--accent-soft:hover { background: rgba(41,151,255,.24); }
+.btn--accent-soft:hover { background: var(--rgba-accent-bg-hover); }
 
-.btn--icon { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+.btn--icon { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0; }
+.btn--sm.btn--icon { width: 32px; height: 32px; }
+.btn--lg.btn--icon { width: 44px; height: 44px; }
 .btn > .fa-solid, .btn > .fa-regular, .btn > .fa-brands { font-size: 13px; }
 
-.btn.is-error { background: var(--rgba-danger-bg); color: var(--danger); }
+.btn.is-error { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn.is-success { background: var(--rgba-success-bg); color: var(--success); }
 
 /* Library keep/kept trigger — single pill. The whole button opens the
@@ -49,7 +59,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  min-height: 32px;
   padding: 0 12px;
   background: var(--rgba-accent-bg);
   color: var(--accent);
@@ -60,13 +70,15 @@
   border-radius: var(--r-pill);
   white-space: nowrap;
   cursor: pointer;
-  transition: background .15s, color .15s, transform .1s;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
-.keep-trigger:hover { background: rgba(41,151,255,.24); }
+.keep-trigger:hover { background: var(--rgba-accent-bg-hover); }
 .keep-trigger:active { transform: scale(.97); }
 .keep-trigger__chev {
   font-size: 9px;
-  transition: transform .15s;
+  transition: transform var(--dur-fast) var(--ease-out);
   margin-left: 1px;
 }
 .keep-wrapper.is-open .keep-trigger__chev { transform: rotate(180deg); }
@@ -76,7 +88,7 @@
 
 /* Kept variant — success green */
 .keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
-.keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
+.keep-trigger--kept:hover { background: var(--rgba-success-bg-hover); }
 
 /* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed.
    ui-feedback.js now emits `.btn.btn--accent-soft` / `.btn.btn--danger`
@@ -88,16 +100,21 @@
   color: var(--t2);
 }
 
-/* Caret on legacy split button */
+/* The menu caret beside a keep button: a small accent-soft button. */
 .btn-sm-caret {
-  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 8px;
   font-size: 10px;
   border-radius: var(--r-pill);
-  background: rgba(41,151,255,.1);
+  background: var(--rgba-accent-bg);
   color: var(--accent);
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.btn-sm-caret:hover { background: rgba(41,151,255,.2); }
+.btn-sm-caret:hover { background: var(--rgba-accent-bg-hover); }
 
 /* Snooze / scan animation states */
 .btn.scan-running { background: var(--rgba-accent-bg); color: var(--accent); }
@@ -105,7 +122,7 @@
 .scan-btn { min-width: 11em; }
 /* The ghost hover is too faint on its own; lift it to the secondary button's
    hover surface. */
-.scan-btn:hover:not(:disabled):not(.is-error) { background: var(--s4); border-color: rgba(255,255,255,.3); }
+.scan-btn:hover:not(:disabled):not(.is-error) { background: var(--s4); border-color: var(--hair-hover); }
 .scan-btn.scan-running > i { animation: spin 1s linear infinite; }
 .scan-status {
   font-size: 12px; color: var(--t3); margin-left: 8px;
@@ -114,7 +131,7 @@
 }
 .scan-status a { color: var(--accent); }
 .scan-status--success { color: var(--success); }
-.scan-status--error { color: var(--danger); }
+.scan-status--error { color: var(--danger-text); }
 /* Never display:none: the status keeps its place so it can fade in, and on
    wide screens it takes no room beside the button (see below). */
 .scan-status:empty { opacity: 0; transition: none; }
@@ -153,13 +170,13 @@
   text-overflow: ellipsis;
   vertical-align: middle;
 }
-.pill--movie  { background: var(--rgba-orange-bg);  color: var(--orange); }
-.pill--tv     { background: rgba(41,151,255,.18);   color: var(--accent); }
-.pill--anime  { background: var(--rgba-purple-bg);  color: var(--purple); }
-.pill--kept   { background: rgba(48,209,88,.18);    color: var(--success); }
-.pill--stale  { background: rgba(255,69,58,.18);    color: var(--danger); }
+.pill--movie  { background: var(--rgba-orange-bg); color: var(--orange); }
+.pill--tv     { background: var(--rgba-accent-chip); color: var(--accent); }
+.pill--anime  { background: var(--rgba-purple-bg); color: var(--purple); }
+.pill--kept   { background: var(--rgba-success-chip); color: var(--success); }
+.pill--stale  { background: var(--rgba-danger-chip); color: var(--danger-text); }
 .pill--queued { background: var(--rgba-warning-bg); color: var(--warning); }
-.pill--neutral{ background: rgba(255,255,255,.08); color: var(--t2); }
+.pill--neutral{ background: var(--rgba-overlay-md); color: var(--t2); }
 
 .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -173,8 +190,8 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: -.01em;
-  background: #d70015; /* opaque: white text is 5.4:1 whatever sits behind */
-  color: #fff;
+  background: var(--danger-solid); /* opaque: white text is 5.4:1 whatever sits behind */
+  color: var(--t1);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
@@ -182,7 +199,7 @@
   content: "";
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--t1);
   animation: countdown-pulse 1.6s infinite;
 }
 @keyframes countdown-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
@@ -200,11 +217,11 @@
   border: 0;
   font-family: var(--font-text);
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   white-space: nowrap;
   text-decoration: none;
 }
-.fpill:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.fpill:hover { color: var(--t1); background: var(--rgba-overlay-xs); }
 
 .fpill.on { background: var(--t1); color: #000; }
 .fpill--movie.on { background: var(--orange); color: #1a0d00; }
@@ -213,17 +230,15 @@
 .fpill--kept.on  { background: var(--success); color: #002210; }
 .fpill--stale.on { background: var(--danger); color: #2a0706; }
 
-/* Mobile touch target — a 44px minimum hit area for filter pills up to the
-   width where the bottom nav gives way to the top nav. */
+/* Touch targets: 44px on every button up to the width where the bottom nav
+   gives way to the top nav. */
 @media (max-width: 699.98px) {
-  .fpill { min-height: 44px; }
-}
-
-/* Phone tap targets: a 40px hit area on small buttons and the keep menu. */
-@media (max-width: 639.98px) {
-  .btn { min-height: 40px; }
-  .btn.btn--icon { width: 40px; height: 40px; flex-shrink: 0; }
-  .keep-trigger { height: 40px; }
+  .fpill,
+  .btn,
+  .keep-trigger,
+  .btn-sm-caret { min-height: 44px; }
+  .btn.btn--icon,
+  .btn-sm-caret { min-width: 44px; min-height: 44px; }
   /* Links inside empty-state text get a larger hit area without moving the text. */
   .empty p a { position: relative; }
   .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }

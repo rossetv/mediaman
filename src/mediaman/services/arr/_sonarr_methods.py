@@ -12,7 +12,7 @@ import logging
 from collections.abc import Sequence
 from typing import cast
 
-from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
+from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError, SeasonsNotListed
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
 from mediaman.services.infra import SafeHTTPError
 
@@ -288,16 +288,18 @@ class _SonarrMixin:
         tvdb_id: int,
         title: str,
         monitored_seasons: list[int],
-        search_seasons: list[int],
         quality_profile_id: int | None = None,
     ) -> SonarrSeries:
-        """Add a series with an explicit per-season monitor/search plan.
+        """Add a series with only the given seasons monitored.
 
         Seasons listed in *monitored_seasons* are added with
         ``monitored=True``; every other season (including season 0) is
-        added with ``monitored=False``.  The full-series auto-search is
-        suppressed; instead a ``SeasonSearch`` command is issued for
-        each season number in *search_seasons*.
+        added with ``monitored=False``.  ``monitor: skip`` keeps exactly those
+        seasons (``none`` would unmonitor them all after the first scan) and
+        Sonarr itself searches the monitored missing episodes once it has
+        scanned the series, so no search command is posted here: one sent
+        straight after the add finds no episodes yet. What Sonarr searches
+        follows *monitored_seasons* alone.
         """
         self._require_series("add_series_with_seasons")  # type: ignore[attr-defined]
         if tvdb_id <= 0:
@@ -305,14 +307,7 @@ class _SonarrMixin:
         body = self._prepare_series_with_seasons_body(
             tvdb_id, title, monitored_seasons, quality_profile_id
         )
-        new_series = cast(SonarrSeries, self._post("/api/v3/series", body))  # type: ignore[attr-defined]
-        series_id = new_series.get("id")
-        for season_number in search_seasons:
-            self._post(  # type: ignore[attr-defined]
-                "/api/v3/command",
-                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-            )
-        return new_series
+        return cast(SonarrSeries, self._post("/api/v3/series", body))  # type: ignore[attr-defined]
 
     def _prepare_series_with_seasons_body(
         self,
@@ -334,6 +329,11 @@ class _SonarrMixin:
             raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]
 
+        # A season the lookup omits would be dropped from the add without a word.
+        listed = {s["seasonNumber"] for s in meta.get("seasons", [])}
+        if missing := set(monitored_seasons) - listed:
+            raise SeasonsNotListed(list(missing))
+
         monitored_set = set(monitored_seasons)
         seasons_payload = [
             {
@@ -348,11 +348,13 @@ class _SonarrMixin:
             "qualityProfileId": profile_id,
             "rootFolderPath": root_path,
             "monitored": True,
+            # Sonarr's default monitors every season announced later; only the ones picked are wanted.
+            "monitorNewItems": "none",
             "seasonFolder": True,
             "seasons": seasons_payload,
             "addOptions": {
-                "searchForMissingEpisodes": False,
-                "monitor": "none",
+                "searchForMissingEpisodes": True,
+                "monitor": "skip",
             },
         }
 

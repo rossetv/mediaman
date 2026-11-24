@@ -479,3 +479,34 @@ def _reset_download_status_cache():
     from mediaman.web.routes.download.status import _reset_status_cache_for_tests
 
     _reset_status_cache_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_disk_cache(monkeypatch):
+    """Start every test with no disk cache root and no in-flight or failed fetches.
+
+    ``create_app`` points the cache at the test's data dir and a failed fetch
+    is remembered for a backoff; both are process-wide, so without this an
+    earlier test on the same worker decides what a later one reads.
+    """
+    from mediaman.services.infra import disk_cache
+
+    monkeypatch.setattr(disk_cache, "_root", None)
+    monkeypatch.setattr(disk_cache, "_failed", {})
+    monkeypatch.setattr(disk_cache, "_inflight", {})
+
+
+@pytest.fixture(autouse=True)
+def _reset_watch_arr_state():
+    """Forget the Arr view held by the Watch catalog, and any build in flight."""
+    from mediaman.services.watch_catalog import _arr
+
+    def reset() -> None:
+        with _arr._lock:
+            _arr._memo.clear()
+            _arr._building.clear()
+            _arr._generation[0] = 0
+
+    reset()
+    yield
+    reset()

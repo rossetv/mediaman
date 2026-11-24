@@ -182,7 +182,7 @@ def test_component_primitives_present():
         ".tbl",
         ".storage",
         ".stat",
-        ".lib-stat",
+        ".wl-stat",
         ".search-box",
         ".inp",
         ".setg-card",
@@ -215,8 +215,11 @@ def test_single_shadow_token():
     css = _css()
     assert "--shadow-card:" in css
     box_shadows = re.findall(r"box-shadow:\s*([^;]+);", css)
+    tokens = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", css))
     for value in box_shadows:
         v = value.strip()
+        # A shadow token is held to the same rule as a literal.
+        v = re.sub(r"^var\((--glow-[\w-]+)\)$", lambda m: tokens[m.group(1)].strip(), v)
         if "var(--shadow-card)" in v or v in ("none", "inherit"):
             continue
         # Status-dot / focus-ring style glows: small radius (≤12px) with
@@ -244,16 +247,14 @@ def test_nav_template_emits_all_surfaces():
     # Every primary destination still routes from the nav.
     for href in (
         'href="/"',
-        'href="/library"',
-        'href="/search"',
-        'href="/recommended"',
+        'href="/watch"',
         'href="/downloads"',
         'href="/history"',
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
-    # Bottom tabs + More sheet must contain the five primary tabs.
-    for label in (">Watch<", ">Library<", ">Search<", ">Downloads<", ">More<"):
+    # Bottom tabs + More sheet must contain the primary tabs.
+    for label in (">Watch<", ">Dashboard<", ">Downloads<", ">More<"):
         assert label in nav, f"missing bottom-tab label: {label}"
 
 
@@ -289,13 +290,9 @@ def test_every_page_uses_default_container():
     `--wide` modifiers is forbidden after the width-consistency pass."""
     for name in (
         "dashboard.html",
-        "library.html",
-        "search.html",
-        "recommended.html",
         "downloads.html",
         "history.html",
         "settings.html",
-        "protected.html",
     ):
         tpl = _tpl(name)
         # Every page must mount its content inside .container (no modifier).
@@ -303,3 +300,10 @@ def test_every_page_uses_default_container():
         # And must not silently re-introduce the legacy modifiers.
         for legacy in ("container--narrow", "container--wide"):
             assert legacy not in tpl, f"{name}: legacy {legacy} re-introduced"
+
+    # The Watch page lays itself out on its own .watch-page rail; it must not
+    # reach for the legacy container modifiers either.
+    watch = _tpl("watch.html")
+    assert 'class="watch-page"' in watch, "watch.html: missing .watch-page rail"
+    for legacy in ("container--narrow", "container--wide"):
+        assert legacy not in watch, f"watch.html: legacy {legacy} re-introduced"

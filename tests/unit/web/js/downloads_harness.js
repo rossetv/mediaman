@@ -57,7 +57,7 @@ class El {
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   // what the browser sends when a transition or animation on this element ends
   emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
-  get offsetHeight() { return this.style.display === 'none' ? 0 : 50; }
+  get offsetHeight() { return this.hidden ? 0 : 50; }
   get nextElementSibling() { const p = this.parentNode; return p ? p.children[p.children.indexOf(this) + 1] || null : null; }
   closest(sel) { let e = this; while (e && e.matches) { if (e.matches(sel)) return e; e = e.parentNode; } return null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
@@ -90,8 +90,8 @@ function build(pollGet) {
   const ph = new El('div', doc); ph.className = 'ph'; root.appendChild(ph);
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise,
-    setTimeout: (fn) => { ctx.timers.push(fn); return ctx.timers.length; },
-    clearTimeout: () => {}, CustomEvent: class {},
+    setTimeout: (fn) => { fn.tid = ++ctx.timerSeq; ctx.timers.push(fn); return fn.tid; },
+    clearTimeout: (id) => { ctx.timers = ctx.timers.filter((f) => f.tid !== id); }, timerSeq: 0, CustomEvent: class {},
     timers: [], MM: {}, MM_API: pollGet, reduce: false,
     matchMedia: () => ({ matches: ctx.reduce }),
     getComputedStyle: (e) => ({ opacity: e.style.opacity || '1', paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' }),
@@ -231,6 +231,17 @@ scenarios.abandon = async function () {
   r.posts[0].reject(new Error('x'));
   await r.settle();
   return { idle, working, disabled, after: r.label.textContent, reenabled: r.confirm.getAttribute('aria-disabled') };
+};
+
+// the season picker is shown for a multi-season show only
+scenarios.abandonList = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  const movie = !!r.list.hidden;
+  r.openItem('s1', 'series', SEASONS);
+  const picker = !!r.list.hidden;
+  r.openItem('m2', 'movie');
+  return { movie, picker, movieAgain: !!r.list.hidden };
 };
 
 scenarios.abandonSuccess = async function () {
@@ -386,40 +397,101 @@ scenarios.episodes = async function () {
   const list = p.byId('dl-hero-container').querySelector('[data-v="ep-list"]');
   const click = () => p.h.fire('click', { target: toggle });
   click();
-  const opening = { display: list.style.display || '', ...p.folding(list) };
+  const opening = { hidden: !!list.hidden, ...p.folding(list) };
   list.emit('transitionend', { propertyName: 'height' });
-  const open = { display: list.style.display || '', ...p.folding(list) };
+  const open = { hidden: !!list.hidden, ...p.folding(list) };
   click();
-  const closing = list.style.display || '';
+  const closing = !!list.hidden;
   list.emit('transitionend', { propertyName: 'height' });
-  return { opening, open, closing, closed: list.style.display };
+  return { opening, open, closing, closed: !!list.hidden };
 };
 
-// the shared modal: a backdrop fades out before it hides, and reopening cancels the hide
-scenarios.modal = async function () {
+// the shared modal: a backdrop plays its exit before it hides
+function modalRig(opts) {
   const h = build(() => Promise.resolve({}));
   h.load('core/modal.js');
-  const mk = (cls) => { const e = new El('div', h.doc); e.className = cls; return e; };
-  const backdrop = mk('modal-backdrop'); const sheet = mk('modal-sheet'); backdrop.appendChild(sheet);
-  backdrop.style.display = 'none';
-  const opts = { manageBodyOverflow: false, useModalA11y: false };
-  const m = h.ctx.MM.modal.setupDetail(backdrop, opts);
-  const look = () => ({ display: backdrop.style.display, leaving: backdrop.classList.contains('is-leaving'), hidden: backdrop.getAttribute('aria-hidden') });
-  m.open(); m.close();
-  const closing = look();
-  sheet.parentNode.emit('animationend', { target: sheet, animationName: 'modal-sheet-out' });
-  backdrop.emit('animationend', { animationName: 'modal-backdrop-in' });
-  const otherEnds = look();
-  backdrop.emit('animationend', { animationName: 'modal-backdrop-out' });
-  const closed = look();
-  m.open(); m.close(); m.open();
-  h.ctx.timers.forEach((f) => f());
-  const reopened = look();
+  const a11y = [];
+  h.ctx.ModalA11y = { register() {}, onOpened: () => a11y.push('opened'), onClosed: () => a11y.push('closed') };
+  const backdrop = new El('div', h.doc); backdrop.className = 'modal-backdrop'; backdrop.id = 'm';
+  const sheet = new El('div', h.doc); sheet.className = 'modal-sheet'; backdrop.appendChild(sheet);
+  backdrop.hidden = true;
+  const m = h.ctx.MM.modal.setupDetail(backdrop, { manageBodyOverflow: false, ...opts });
+  const look = () => ({ hidden: !!backdrop.hidden, closing: backdrop.classList.contains('is-closing'), aria: backdrop.getAttribute('aria-hidden') });
+  return { h, backdrop, sheet, m, look, a11y };
+}
+
+scenarios.modal = async function () {
+  const r = modalRig();
+  const initial = r.look();
+  r.m.open();
+  const opened = r.look();
+  r.m.close();
+  const closing = r.look();
+  const a11yAtClose = r.a11y.slice();
+  r.sheet.emit('animationend', { target: r.sheet });
+  const sheetEnd = r.look();
+  r.backdrop.emit('animationend');
+  const closed = r.look();
+  // the fallback timer ends the exit when no animationend arrives
+  r.m.open(); r.m.close();
+  r.h.ctx.timers.forEach((f) => f());
+  const afterTimer = r.look();
   // a dialog that is not a .modal-backdrop hides at once
-  const plain = mk('delete-modal-overlay');
-  const pm = h.ctx.MM.modal.setupDetail(plain, { ...opts, activeClass: 'is-visible' });
+  const plain = new El('div', r.h.doc); plain.className = 'delete-modal-overlay';
+  const pm = r.h.ctx.MM.modal.setupDetail(plain, { manageBodyOverflow: false, useModalA11y: false, activeClass: 'is-visible' });
   pm.open(); pm.close();
-  return { closing, otherEnds, closed, reopened, plainShown: plain.classList.contains('is-visible') };
+  return { initial, opened, closing, a11yAtClose, sheetEnd, closed, afterTimer, plainShown: plain.classList.contains('is-visible') };
+};
+
+// reopening while the exit plays cancels it: shown, no leftover timer, a late animationend is harmless
+scenarios.modalReopen = async function () {
+  const r = modalRig();
+  r.m.open(); r.m.close();
+  r.m.open();
+  const reopened = { ...r.look(), timers: r.h.ctx.timers.length, listeners: (r.backdrop.listeners.animationend || []).length };
+  r.backdrop.emit('animationend');
+  const afterLateEnd = r.look();
+  // a second close after the reopen still exits normally
+  r.m.close();
+  const closingAgain = r.look();
+  r.backdrop.emit('animationend');
+  return { reopened, afterLateEnd, closingAgain, closed: r.look() };
+};
+
+// under reduced motion the dialog hides at once, with no exit and no timer
+scenarios.modalReduced = async function () {
+  const r = modalRig();
+  r.h.ctx.reduce = true;
+  r.m.open();
+  const opened = r.look().hidden;
+  r.m.close();
+  return { opened, ...r.look(), timers: r.h.ctx.timers.length };
+};
+
+// the Watch admin dialogs (.keep-dialog-overlay, shown by the `active` class) leave through the same exit
+scenarios.modalKeepOverlay = async function () {
+  const mk = () => {
+    const h = build(() => Promise.resolve({}));
+    h.load('core/modal.js');
+    const root = new El('div', h.doc); root.className = 'keep-dialog-overlay wl-dialog';
+    const m = h.ctx.MM.modal.setupDetail(root, { manageBodyOverflow: false, useModalA11y: false, activeClass: 'active' });
+    const look = () => ({ active: root.classList.contains('active'), closing: root.classList.contains('is-closing') });
+    return { h, root, m, look };
+  };
+  const r = mk();
+  r.m.open();
+  const opened = r.look();
+  r.m.close();
+  const closing = r.look();
+  r.root.emit('animationend');
+  const closed = r.look();
+  r.m.open(); r.m.close();
+  r.m.open();
+  const reopened = { ...r.look(), timers: r.h.ctx.timers.length };
+  const q = mk();
+  q.h.ctx.reduce = true;
+  q.m.open(); q.m.close();
+  return { opened, closing, closed, reopened, reduced: { ...q.look(), timers: q.h.ctx.timers.length } };
 };
 
 // Escape closes a modal that has no ModalA11y every time it is opened, not just the first
@@ -427,7 +499,7 @@ scenarios.modalEscape = async function () {
   const h = build(() => Promise.resolve({}));
   h.load('core/modal.js');
   const backdrop = new El('div', h.doc); backdrop.className = 'modal-backdrop';
-  backdrop.style.display = 'none';
+  backdrop.hidden = true;
   const m = h.ctx.MM.modal.setupDetail(backdrop, { manageBodyOverflow: false, useModalA11y: false });
   const esc = () => h.fire('keydown', { key: 'Escape' });
   const hidden = () => backdrop.getAttribute('aria-hidden');
@@ -457,9 +529,9 @@ scenarios.reauth = async function () {
   h.ctx.MM.reauth.openModal({ onSubmit: () => Promise.resolve({ ok: true }), onCancel: () => { cancelled++; } });
   const backdrop = body.children[0];
   const cancel = backdrop.querySelectorAll('button')[0];
-  const opened = { display: backdrop.style.display, leaving: backdrop.classList.contains('is-leaving') };
+  const opened = { hidden: !!backdrop.hidden, closing: backdrop.classList.contains('is-closing') };
   cancel.emit('click');
-  const closing = { attached: backdrop.parentNode === body, leaving: backdrop.classList.contains('is-leaving'), cancelled };
+  const closing = { attached: backdrop.parentNode === body, closing: backdrop.classList.contains('is-closing'), cancelled };
   backdrop.emit('animationend', { animationName: 'modal-backdrop-out' });
   h.ctx.timers.splice(0).forEach((f) => f());
   const gone = body.children.length;
@@ -520,7 +592,7 @@ scenarios.reauthSecond = async function () {
   const again = () => Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } });
   const second = r.outcome(r.h.ctx.MM.reauth.run(again));
   await r.flush();
-  return { first: first.code ?? null, second: second.code ?? null, dialogs: r.body.querySelectorAll('.reauth-backdrop').filter((b) => !b.classList.contains('is-leaving')).length };
+  return { first: first.code ?? null, second: second.code ?? null, dialogs: r.body.querySelectorAll('.reauth-backdrop').filter((b) => !b.classList.contains('is-closing')).length };
 };
 
 // the subtitle line folds away and grows back in place

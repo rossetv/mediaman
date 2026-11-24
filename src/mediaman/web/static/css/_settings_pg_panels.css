@@ -112,7 +112,7 @@
   outline-offset: -2px;
 }
 .setg-pg .intg-card-hd { transition: background var(--dur-fast) var(--ease-out); }
-.setg-pg .intg-card-hd:active { background: rgba(255,255,255,.04); }
+.setg-pg .intg-card-hd:active { background: var(--rgba-overlay-xs); }
 .setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
 .setg-pg .intg-card-hd .glyph {
   width: 36px; height: 36px; border-radius: var(--r-sm);
@@ -141,7 +141,9 @@
   padding: 6px 14px; font-size: 12.5px; font-weight: 500;
   background: var(--s2); border: 1px solid var(--hair);
   border-radius: var(--r-pill); color: var(--t2);
-  cursor: pointer; transition: all .15s;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .setg-pg .lib-pill:hover { background: var(--s3); color: var(--t1); }
 .setg-pg .lib-pill:active { background: var(--s4); color: var(--t1); transform: scale(.97); }
@@ -170,7 +172,7 @@
   display: grid; place-items: center;
   font-size: 13px; font-weight: 700;
   font-family: var(--font-display); flex-shrink: 0;
-  background: rgba(41,151,255,.14); color: var(--accent);
+  background: var(--rgba-accent-bg); color: var(--accent);
 }
 .setg-pg .lp-head .lp-title { flex: 1; min-width: 0; }
 .setg-pg .lp-head .lp-name-txt { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
@@ -184,10 +186,10 @@
   color: var(--t1); letter-spacing: -.02em; line-height: 1;
 }
 .setg-pg .lp-head .lp-usage .pct.warn { color: var(--warning); }
-.setg-pg .lp-head .lp-usage .pct.crit { color: var(--danger); }
+.setg-pg .lp-head .lp-usage .pct.crit { color: var(--danger-text); }
 .setg-pg .lp-head .lp-usage .bytes { font-size: 12px; color: var(--t3); font-variant-numeric: tabular-nums; }
 .setg-pg .lp-bar2 { height: 4px; background: var(--s3); position: relative; overflow: hidden; }
-.setg-pg .lp-bar2 .fill { position: absolute; top: 0; left: 0; bottom: 0; background: var(--accent); transition: width .3s; }
+.setg-pg .lp-bar2 .fill { position: absolute; top: 0; left: 0; bottom: 0; background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
 .setg-pg .lp-bar2 .fill.warn { background: var(--warning); }
 .setg-pg .lp-bar2 .fill.crit { background: var(--danger); }
 .setg-pg .lp-bar2 .thresh-mark {
@@ -218,7 +220,7 @@
 .setg-pg .lp-foot .ok::before   { content: "●"; margin-right: 6px; }
 .setg-pg .lp-foot .warn { color: var(--warning); }
 .setg-pg .lp-foot .warn::before { content: "▲"; margin-right: 6px; font-size: 10px; }
-.setg-pg .lp-foot .crit { color: var(--danger); }
+.setg-pg .lp-foot .crit { color: var(--danger-text); }
 .setg-pg .lp-foot .crit::before { content: "●"; margin-right: 6px; }
 .setg-pg .lp-foot .untested { color: var(--t3); }
 .setg-pg .lp-foot .untested::before { content: "○"; margin-right: 6px; }
@@ -229,13 +231,13 @@
   padding: 12px 14px;
   background: var(--s2);
   border-radius: var(--r-sm);
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .setg-pg .sub-row:hover { background: var(--s3); }
 .setg-pg .sub-row .av {
   width: 30px; height: 30px; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 11px; font-weight: 600; color: #fff;
+  font-size: 11px; font-weight: 600; color: var(--t1);
   flex-shrink: 0;
   background: var(--s3);
 }
@@ -247,14 +249,14 @@
   background: var(--s3); text-transform: uppercase; letter-spacing: .04em;
   flex-shrink: 0; white-space: nowrap;
 }
-.setg-pg .sub-row .sub-stat.active  { color: var(--success); background: rgba(48,209,88,.12); }
-.setg-pg .sub-row .sub-stat.bounced { color: var(--danger);  background: rgba(255,69,58,.10); }
+.setg-pg .sub-row .sub-stat.active  { color: var(--success); background: var(--rgba-success-bg); }
+.setg-pg .sub-row .sub-stat.bounced { color: var(--danger-text);  background: var(--rgba-danger-bg-soft); }
 .setg-pg .sub-row .link-danger {
-  font-size: 11px; color: var(--danger); padding: 4px 8px;
+  font-size: 11px; color: var(--danger-text); padding: 0 8px;
   border-radius: var(--r-pill); background: transparent;
   flex-shrink: 0;
 }
-.setg-pg .sub-row .link-danger:hover { background: rgba(255,69,58,.10); }
+.setg-pg .sub-row .link-danger:hover { background: var(--rgba-danger-bg-soft); }
 .setg-pg .sub-add { display: flex; gap: 10px; margin-top: 14px; }
 .setg-pg .sub-add .inp { flex: 1; }
 
@@ -274,7 +276,7 @@
   border-radius: var(--r-sm);
   min-height: 44px;
   background: transparent;
-  transition: background .15s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .setg-pg .recipient-item:hover { background: var(--s3); }
 .setg-pg .recipient-item:active { background: var(--s4); }
@@ -296,7 +298,8 @@
   background: var(--s1);
   cursor: pointer;
   position: relative;
-  transition: background .15s, border-color .15s;
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
 }
 .setg-pg .recipient-item input[type="checkbox"]:hover {
   border-color: rgba(255,255,255,.28);
@@ -310,7 +313,7 @@
   position: absolute;
   left: 5px; top: 1px;
   width: 6px; height: 11px;
-  border: solid #fff;
+  border: solid var(--t1);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
@@ -319,7 +322,7 @@
 .setg-pg .usr-self-head .av {
   width: 44px; height: 44px; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 15px; font-weight: 600; color: #fff;
+  font-size: 15px; font-weight: 600; color: var(--t1);
   flex-shrink: 0;
   background: var(--s3);
 }
@@ -337,7 +340,7 @@
 .setg-pg .usr-row .av {
   width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 14px; font-weight: 600; color: #fff; flex-shrink: 0;
+  font-size: 14px; font-weight: 600; color: var(--t1); flex-shrink: 0;
   background: var(--s3);
 }
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
@@ -362,7 +365,6 @@
   border-radius: var(--r-md);
   border: 1px solid var(--hair);
 }
-.setg-pg .inline-form[hidden] { display: none; }
 .setg-pg .inline-form-grid {
   display: grid; gap: 12px;
   grid-template-columns: 1fr;
@@ -375,8 +377,8 @@
 .setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
 .setg-pg .inline-form-msg.ok  { color: var(--success); }
-.setg-pg .inline-form-msg.err { color: var(--danger); }
-.setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger); }
+.setg-pg .inline-form-msg.err { color: var(--danger-text); }
+.setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger-text); }
 /* On a phone the message takes its own line under the buttons instead of a narrow column beside them.
    The line stays reserved while the form is open, so a message appearing or clearing moves nothing. */
 @media (max-width: 639.98px) {
@@ -386,11 +388,13 @@
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
 .setg-pg .setg-fold {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out), margin var(--dur) var(--ease-out),
-              padding var(--dur) var(--ease-out), border-width var(--dur) var(--ease-out);
+  transition: grid-template-rows var(--dur) var(--ease-out),
+              opacity var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out),
+              margin var(--dur) var(--ease-out),
+              padding var(--dur) var(--ease-out),
+              border-width var(--dur) var(--ease-out);
 }
-.setg-pg .setg-fold[hidden] { display: none; }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
 /* Clipped only while folding, so focus rings show when it is open. */
 .setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }
@@ -410,20 +414,24 @@
 .setg-pg .fpc-meter-fill {
   display: block; height: 100%; width: 0;
   background: var(--danger);
-  transition: width .2s, background .2s;
+  transition: width var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
 }
 .setg-pg .fpc-meter-fill.ok     { background: var(--warning); }
 .setg-pg .fpc-meter-fill.strong { background: var(--success); }
 .setg-pg .fpc-caption { font-size: 11px; color: var(--t3); margin-top: 2px; }
-.setg-pg .fpc-caption-weak   { color: var(--danger); }
+.setg-pg .fpc-caption-weak   { color: var(--danger-text); }
 .setg-pg .fpc-caption-ok     { color: var(--warning); }
 .setg-pg .fpc-caption-strong { color: var(--success); }
 
+/* A text-only danger button, sized as a small .btn. */
 .setg-pg .link-danger {
-  font-size: 12px; color: var(--danger);
-  background: transparent; padding: 6px 12px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 32px;
+  font-size: 12px; color: var(--danger-text);
+  background: transparent; padding: 0 12px; border-radius: var(--r-pill);
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.setg-pg .link-danger:hover { background: rgba(255,69,58,.10); }
+.setg-pg .link-danger:hover { background: var(--rgba-danger-bg-soft); }
 
 /* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
 .setg-pg .sub-row.is-entering,
@@ -439,8 +447,10 @@
 .setg-pg .usr-row.is-leaving {
   overflow: hidden; opacity: 0;
   padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
-  transition: height var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out),
-              padding var(--dur) var(--ease-out), margin var(--dur) var(--ease-out);
+  transition: height var(--dur) var(--ease-out),
+              opacity var(--dur-fast) var(--ease-out),
+              padding var(--dur) var(--ease-out),
+              margin var(--dur) var(--ease-out);
 }
 /* The list's 6px gap folds away with the row. */
 .setg-pg .sub-row.is-leaving { margin-top: -6px; }
@@ -462,7 +472,7 @@
   .setg-pg .usr-self-head .usr-self-actions { flex-basis: 100%; }
 }
 
-@media (max-width: 639.98px) {
+@media (max-width: 699.98px) {
   .setg-pg .btn--sm,
   .setg-pg .recipient-toggles .btn { min-height: 44px; }
   .setg-pg .link-danger,

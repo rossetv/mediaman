@@ -7,6 +7,7 @@ import requests
 
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 
@@ -185,20 +186,22 @@ class TestSearchMulti:
 
 
 class TestDetails:
-    def test_movie_details_appends_videos_and_credits(self, fake_http, fake_response):
+    def test_movie_details_appends_videos_credits_and_release_dates(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data=_movie_details_payload()))
         client = TmdbClient("token")
         data = client.details("movie", 438631)
         assert data["id"] == 438631
         _, url, kwargs = fake_http.calls[0]
         assert url.endswith("/movie/438631")
-        assert kwargs["params"]["append_to_response"] == "videos,credits"
+        assert kwargs["params"]["append_to_response"] == "videos,credits,release_dates"
 
     def test_tv_details_uses_tv_endpoint(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data=_tv_details_payload()))
         client = TmdbClient("token")
         client.details("tv", 12345)
         assert fake_http.calls[0][1].endswith("/tv/12345")
+        params = fake_http.calls[0][2]["params"]
+        assert params["append_to_response"] == "videos,credits,content_ratings,external_ids"
 
     def test_returns_none_on_http_error(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(status=500))
@@ -209,6 +212,68 @@ class TestDetails:
         fake_http.raise_on("GET", requests.ConnectionError("down"))
         client = TmdbClient("token")
         assert client.details("movie", 1) is None
+
+
+class TestFindByTvdb:
+    def test_returns_first_tv_result_id(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"tv_results": [{"id": 77}, {"id": 8}]}))
+        assert TmdbClient("token").find_by_tvdb(555) == 77
+        _, url, kwargs = fake_http.calls[0]
+        assert url.endswith("/find/555")
+        assert kwargs["params"] == {"external_source": "tvdb_id"}
+
+    def test_returns_none_when_no_match(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"tv_results": []}))
+        assert TmdbClient("token").find_by_tvdb(1) is None
+
+    def test_an_http_error_raises_rather_than_reading_as_no_match(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=500))
+        with pytest.raises(SafeHTTPError):
+            TmdbClient("token").find_by_tvdb(1)
+
+    def test_a_connection_failure_raises_rather_than_reading_as_no_match(self, fake_http):
+        fake_http.raise_on("GET", requests.ConnectionError("down"))
+        with pytest.raises(SafeHTTPError):
+            TmdbClient("token").find_by_tvdb(1)
+
+
+class TestCertificate:
+    def test_movie_prefers_us_and_skips_blank(self):
+        details = {
+            "release_dates": {
+                "results": [
+                    {"iso_3166_1": "GB", "release_dates": [{"certification": "15"}]},
+                    {
+                        "iso_3166_1": "US",
+                        "release_dates": [{"certification": ""}, {"certification": "PG-13"}],
+                    },
+                ]
+            }
+        }
+        assert TmdbClient.certificate(details, "movie") == "PG-13"
+
+    def test_movie_without_us_is_none(self):
+        details = {
+            "release_dates": {
+                "results": [{"iso_3166_1": "GB", "release_dates": [{"certification": "15"}]}]
+            }
+        }
+        assert TmdbClient.certificate(details, "movie") is None
+
+    def test_tv_uses_us_content_rating(self):
+        details = {
+            "content_ratings": {
+                "results": [
+                    {"iso_3166_1": "DE", "rating": "12"},
+                    {"iso_3166_1": "US", "rating": "TV-MA"},
+                ]
+            }
+        }
+        assert TmdbClient.certificate(details, "tv") == "TV-MA"
+
+    def test_missing_data_is_none(self):
+        assert TmdbClient.certificate({}, "movie") is None
+        assert TmdbClient.certificate({}, "tv") is None
 
 
 class TestShapeCard:

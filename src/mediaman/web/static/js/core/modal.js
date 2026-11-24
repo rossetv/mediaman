@@ -18,14 +18,9 @@
  *                          are set and ModalA11y.onOpened has fired.
  *     onClose()          — called when the modal closes (any route).
  *     activeClass        — when set, toggles this class on the modal element
- *                          to show/hide instead of writing ``style.display``.
+ *                          to show/hide instead of the ``hidden`` attribute.
  *                          Used by the ``.is-visible`` / ``.active`` modals
  *                          where the CSS owns the display rule.
- *     displayValue       — when no ``activeClass`` is set, the inline
- *                          ``style.display`` value applied on open
- *                          (default ``'flex'``). The empty string is
- *                          honoured so the modal falls back to whatever
- *                          the stylesheet specifies.
  *     manageBodyOverflow — when true (the default), sets
  *                          ``body.style.overflow = 'hidden'`` on open and
  *                          restores it on close. Disable for inline modals
@@ -55,7 +50,7 @@
    *
    * @param {HTMLElement} modalEl  - The modal root (the backdrop element).
    * @param {object}      [opts]   - Optional hooks: { onOpen, onClose,
-   *                                  activeClass, displayValue,
+   *                                  activeClass,
    *                                  manageBodyOverflow, useModalA11y,
    *                                  closeSelectors }.
    * @returns {{ open: function, close: function }}
@@ -63,50 +58,56 @@
   function setupDetail(modalEl, opts) {
     opts = opts || {};
     var activeClass = opts.activeClass || null;
-    var displayValue = (typeof opts.displayValue === 'string')
-      ? opts.displayValue
-      : 'flex';
     var manageBodyOverflow = (opts.manageBodyOverflow !== false);
     var useModalA11y = (opts.useModalA11y !== false);
 
-    /* A .modal-backdrop fades out (see _modal.css) before it is hidden;
-       reopening while it fades cancels the hide. */
+    /* A .modal-backdrop or .keep-dialog-overlay plays its exit (`.is-closing`) before it is hidden.
+       The dialog counts as closed from the moment close() runs; reopening
+       during the exit cancels it. */
     var _leaving = null;
+    var _timer = null;
+    var _onEnd = null;
 
-    function _show() {
+    function _cancelExit() {
       _leaving = null;
-      modalEl.classList.remove('is-leaving');
+      if (_onEnd) { modalEl.removeEventListener('animationend', _onEnd); _onEnd = null; }
+      if (_timer !== null) { clearTimeout(_timer); _timer = null; }
+      modalEl.classList.remove('is-closing');
+    }
+    function _show() {
+      _cancelExit();
       if (activeClass) modalEl.classList.add(activeClass);
-      else modalEl.style.display = displayValue;
+      else modalEl.hidden = false;
     }
     function _hideAfterExit() {
+      if (_leaving) return;
       var reduce = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduce || !modalEl.classList.contains('modal-backdrop') || !_isVisible()) {
+      var exits = modalEl.classList.contains('modal-backdrop') || modalEl.classList.contains('keep-dialog-overlay');
+      if (reduce || !exits || !_isVisible()) {
+        _cancelExit();
         _hide();
         return;
       }
-      var token = {};
-      _leaving = token;
+      _leaving = {};
       function done(e) {
-        if (e && (e.target !== modalEl || e.animationName !== 'modal-backdrop-out')) return;
-        modalEl.removeEventListener('animationend', done);
-        if (_leaving !== token) return;
-        _leaving = null;
-        modalEl.classList.remove('is-leaving');
+        if (e && e.target !== modalEl) return;
+        _cancelExit();
         _hide();
       }
-      modalEl.classList.add('is-leaving');
+      modalEl.classList.add('is-closing');
+      _onEnd = done;
       modalEl.addEventListener('animationend', done);
       /* animationend never comes if the page is hidden mid-way. */
-      setTimeout(done, 400);
+      _timer = setTimeout(done, 250);
     }
     function _hide() {
       if (activeClass) modalEl.classList.remove(activeClass);
-      else modalEl.style.display = 'none';
+      else modalEl.hidden = true;
     }
     function _isVisible() {
+      if (_leaving) return false;
       if (activeClass) return modalEl.classList.contains(activeClass);
-      return modalEl.style.display && modalEl.style.display !== 'none';
+      return !modalEl.hidden;
     }
 
     /* Without ModalA11y the modal handles Escape itself, but only while it

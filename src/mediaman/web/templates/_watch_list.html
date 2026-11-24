@@ -1,0 +1,213 @@
+{# The admin list view of the library: stats, filters, table and pager. Every
+   control is a link or a form, so it works without the page script, which
+   swaps the parts marked data-list-part in place instead. #}
+{% import "_components.html" as c %}
+{% set type_nouns = {"": "titles", "movie": "movies", "tv": "TV shows", "anime": "anime", "kept": "kept titles", "stale": "stale titles"} %}
+<div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}">
+
+  {# An active tile's link clears its filter, so a second click undoes the first. #}
+  <div class="wl-stats" data-list-part="stats">
+    {% for value, label, count, size in [
+      ("movie", "Movies", stats.movies, stats.movies_size),
+      ("tv", "TV shows", stats.tv, stats.tv_size),
+      ("anime", "Anime", stats.anime, stats.anime_size),
+    ] %}
+    <a class="wl-stat{% if current_type == value %} wl-stat--on{% endif %}" data-stat="{{ value }}" href="{{ href(type='' if current_type == value else value, page=1) }}" data-list-nav{% if current_type == value %} aria-current="true"{% endif %}>
+      <span class="wl-stat__value">{{ count }}</span>
+      <span class="wl-stat__label">{{ label }}</span>
+      <span class="wl-stat__size">{{ size }}</span>
+    </a>
+    {% endfor %}
+    <a class="wl-stat{% if current_type == 'stale' %} wl-stat--on{% endif %}" data-stat="stale" href="{{ href(type='' if current_type == 'stale' else 'stale', page=1) }}" data-list-nav{% if current_type == 'stale' %} aria-current="true"{% endif %}>
+      <span class="wl-stat__value{% if stats.stale > 0 %} wl-stat__value--stale{% endif %}">{{ stats.stale }}</span>
+      <span class="wl-stat__label">Stale ({{ stats.stale_min_age }}+ days, unwatched)</span>
+    </a>
+  </div>
+
+  <p class="wl-summary" data-list-part="summary">{{ stats.total }} title{{ 's' if stats.total != 1 else '' }} · {{ stats.total_size }} on disk · {{ stats.due_soon }} scheduled for deletion in the next {{ stats.due_soon_days }} days</p>
+
+  <form class="wl-toolbar" data-list-part="toolbar" method="get" action="/watch">
+    <input type="hidden" name="view" value="list">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if current_type %}<input type="hidden" name="type" value="{{ current_type }}">{% endif %}
+    {% if per_page != 20 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <div class="pill-row wl-pills" role="group" aria-label="Type">
+      {% for value, label in [("", "All"), ("movie", "Movies"), ("tv", "TV"), ("anime", "Anime"), ("kept", "Kept"), ("stale", "Stale")] %}
+      <a class="fpill{% if value %} fpill--{{ value }}{% endif %}{% if current_type == value %} on{% endif %}" href="{{ href(type=value, page=1) }}" data-list-nav data-type="{{ value }}"{% if current_type == value %} aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </div>
+    {% if items %}
+    <div class="wl-sort">
+      <label for="watch-list-sort">Sort by</label>
+      <select id="watch-list-sort" name="sort" class="inp" data-list-sort>
+        {% for value, label in sort_options %}
+        <option value="{{ value }}"{% if current_sort == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn--secondary btn--sm">Sort</button></noscript>
+    </div>
+    {% endif %}
+  </form>
+
+  <div class="wl-results" data-list-part="results">
+  {% if items %}
+    {% macro sort_header(label, col, asc, desc, first, extra="") -%}
+    {%- set state = "ascending" if current_sort == asc else ("descending" if current_sort == desc else "none") -%}
+    {%- set next = (desc if current_sort == asc else (asc if current_sort == desc else first)) -%}
+    <th class="sortable{% if extra %} {{ extra }}{% endif %}" aria-sort="{{ state }}">
+      <a class="th-sort" href="{{ href(sort=next, page=1) }}" data-list-nav data-sort-col="{{ col }}">{{ label }}{% if state == "ascending" %} <span aria-hidden="true">▲</span>{% elif state == "descending" %} <span aria-hidden="true">▼</span>{% endif %}</a>
+    </th>
+    {%- endmacro %}
+    <div class="card card--bordered">
+      <table class="tbl wl-table">
+        <thead>
+          <tr>
+            <th class="col-thumb"><span class="sr-only">Poster</span></th>
+            {{ sort_header("Title", "name", "name_asc", "name_desc", "name_asc") }}
+            <th>Type</th>
+            {{ sort_header("Size", "size", "size_asc", "size_desc", "size_desc") }}
+            {{ sort_header("Last watched", "watched", "watched_asc", "watched_desc", "watched_desc") }}
+            {{ sort_header("Deletion", "deletion", "deletion_asc", "deletion_desc", "deletion_asc", "col-del") }}
+            <th class="col-act">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          {% set row_key = ("show:" ~ item.show_rating_key) if item.is_tv else ("id:" ~ item.id) %}
+          <tr class="wl-row{% if item.protected %} wl-row--kept{% endif %}" data-row-key="{{ row_key }}" data-id="{{ item.id }}"{% if item.is_tv %} data-show-rk="{{ item.show_rating_key }}"{% endif %}>
+            <td>
+              <div class="thumb">
+                {% if item.plex_rating_key %}<img src="/api/poster/{{ item.plex_rating_key }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
+              </div>
+            </td>
+            <td class="title-cell">
+              {% if item.ref %}<a class="wl-title" href="/watch#title={{ item.ref }}" data-title-ref="{{ item.ref }}">{{ item.title }}</a>{% else %}<span class="wl-title">{{ item.title }}</span>{% endif %}
+              <div class="sub">
+                {{ item.subtitle }}
+                {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}
+                <span class="wl-sub-watched"> · {% if item.last_watched %}watched {{ item.last_watched }}{% else %}<span class="text-danger">never watched</span>{% endif %}</span>
+              </div>
+            </td>
+            <td>{{ c.pill("Movie" if item.media_type == "movie" else ("TV" if item.media_type == "tv" else "Anime"), variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}</td>
+            <td>{{ item.file_size }}</td>
+            <td class="u-small">{% if item.last_watched %}{{ item.last_watched }}{% else %}<span class="text-danger">Never</span>{% endif %}</td>
+            <td>
+              {% if item.protected %}
+              <span class="wl-del wl-del--kept">Kept</span>
+              {% elif item.deletion_at %}
+              <span class="wl-del{% if item.deletion_days <= soon_days %} wl-del--soon{% endif %}">{{ item.deletion_label }}</span>
+              <span class="wl-del__sub">{% if item.deletion_days == 0 %}today{% elif item.deletion_days == 1 %}tomorrow{% else %}in {{ item.deletion_days }} days{% endif %}</span>
+              {% else %}
+              <span class="wl-del wl-del--none"><span aria-hidden="true">—</span><span class="sr-only">Not scheduled</span></span>
+              {% endif %}
+            </td>
+            <td class="wl-act">
+              <div class="u-flex u-gap-sm wl-actions">
+                <div class="keep-wrapper"
+                  data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
+                  data-show-rk="{{ item.show_rating_key }}" data-has-rk="{{ item.has_rating_key | tojson }}" data-show-title="{{ item.show_title_raw | e }}"
+                  data-title='{{ item.title | tojson }}' data-kept='{{ item.protected | tojson }}' data-deletion='{{ (item.deletion_at is not none) | tojson }}'>
+                {% if item.protected %}
+                  <button type="button" class="keep-trigger keep-trigger--kept"
+                    aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep on {{ item.title }}">
+                    <i class="fa-solid fa-check keep-trigger__tick" aria-hidden="true"></i>
+                    <span>Kept</span>
+                    <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
+                  </button>
+                  <div class="snooze-dropdown" role="menu">
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7 days">Keep 7 days</button>
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30 days">Keep 30 days</button>
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90 days">Keep 90 days</button>
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="forever">Keep forever</button>
+                    {# A show row's keeps can sit on several seasons and on the show
+                       itself; the Keep dialog's Remove all clears every one. #}
+                    {% if item.is_tv and (item.season_count != 1 or item.show_kept) %}
+                    <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-dialog>Remove keep</button>
+                    {% else %}
+                    <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-id='{{ item.id | tojson }}'>Remove keep</button>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  <button type="button" class="keep-trigger"
+                    aria-haspopup="menu" aria-expanded="false" aria-label="Keep {{ item.title }}">
+                    <span>Keep</span>
+                    <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
+                  </button>
+                  <div class="snooze-dropdown" role="menu">
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7 days">7 days</button>
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30 days">30 days</button>
+                    <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90 days">90 days</button>
+                    <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" data-keep-dur="forever">Forever</button>
+                  </div>
+                {% endif %}
+                </div>
+                {% if not item.protected %}
+                {# A show row stands for several seasons, so its Delete carries no
+                   item id, only the show key that opens the season list. #}
+                {% if item.is_tv and item.season_count != 1 %}
+                <button type="button" class="btn btn--danger btn--sm" aria-haspopup="dialog" aria-label="Delete seasons of {{ item.title }}"
+                  data-show-rk="{{ item.show_rating_key }}" data-title='{{ item.title | tojson }}'
+                  data-action="pick-season-delete">Delete</button>
+                {% else %}
+                <button type="button" class="btn btn--danger btn--sm" aria-label="Delete {{ item.title }}"
+                  data-id="{{ item.id }}" data-title='{{ item.title | tojson }}' data-size="{{ item.file_size }}"
+                  data-kind="{{ 'season' if item.is_tv else 'movie' }}"{% if item.is_tv %} data-show-rk="{{ item.show_rating_key }}"{% endif %}
+                  data-action="confirm-delete">Delete</button>
+                {% endif %}
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <nav class="pagination" aria-label="Pages">
+      {% if page > 1 %}
+      <a class="page-btn" href="{{ href(page=page - 1) }}" data-list-nav aria-label="Previous page">‹</a>
+      {% else %}
+      <button type="button" class="page-btn disabled" disabled aria-label="Previous page">‹</button>
+      {% endif %}
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+      <button class="page-btn active" aria-current="page">{{ p }}</button>
+        {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
+      <a class="page-btn" href="{{ href(page=p) }}" data-list-nav>{{ p }}</a>
+        {% elif p == 4 and page > 5 %}
+      <span class="page-btn page-btn--ellipsis" aria-hidden="true">…</span>
+        {% elif p == total_pages - 3 and page < total_pages - 4 %}
+      <span class="page-btn page-btn--ellipsis" aria-hidden="true">…</span>
+        {% endif %}
+      {% endfor %}
+      <span class="page-of" aria-hidden="true">Page {{ page }} of {{ total_pages }}</span>
+      <span class="page-info">{{ page_start }}–{{ page_end }} of {{ total }}</span>
+      {% if page < total_pages %}
+      <a class="page-btn" href="{{ href(page=page + 1) }}" data-list-nav aria-label="Next page">›</a>
+      {% else %}
+      <button type="button" class="page-btn disabled" disabled aria-label="Next page">›</button>
+      {% endif %}
+    </nav>
+    {% endif %}
+
+  {% elif q or current_type %}
+    <div class="empty wl-empty">
+      <div class="empty-ico"><i class="fa-solid fa-filter" aria-hidden="true"></i></div>
+      <h3>{% if q %}No {{ type_nouns[current_type] }} match “{{ q }}”{% else %}No {{ type_nouns[current_type] }}{% endif %}</h3>
+      <p>Try another search, or show everything again.</p>
+      <a class="btn btn--secondary" href="/watch?view=list" data-list-clear>Clear search and filters</a>
+    </div>
+  {% elif not plex_configured %}
+    <div class="empty wl-empty">
+      <h3>Connect Plex to get started</h3>
+      <p><a href="/settings">Open Settings</a> to add your Plex URL and token.</p>
+    </div>
+  {% else %}
+    <div class="empty wl-empty">
+      <h3>Your library is empty</h3>
+      <p>Run a scan to pull in media from Plex.</p>
+    </div>
+  {% endif %}
+  </div>
+</div>

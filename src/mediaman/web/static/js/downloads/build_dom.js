@@ -273,14 +273,14 @@
     var searchHint = document.createElement('div');
     searchHint.className = 'dl-search-hint';
     searchHint.setAttribute('data-v', 'search-hint');
-    searchHint.style.display = 'none';
+    searchHint.hidden = true;
     info.appendChild(searchHint);
 
     /* Progress wrap (hidden entirely while searching) */
     var progressWrap = document.createElement('div');
     progressWrap.className = 'dl-hero-progress';
     progressWrap.setAttribute('data-v', 'progress-wrap');
-    if (state === 'searching') progressWrap.style.display = 'none';
+    if (state === 'searching') progressWrap.hidden = true;
 
     var bar = document.createElement('div');
     bar.className = 'dl-hero-bar dl-bar';
@@ -422,7 +422,7 @@
     meta.appendChild(pill);
     var sizeInfo = el('span');
     sizeInfo.setAttribute('data-v', 'size-info');
-    if (item.state === 'searching') sizeInfo.style.display = 'none';
+    if (item.state === 'searching') sizeInfo.hidden = true;
     var done = el('span', '', item.size_done || '');
     done.setAttribute('data-v', 'size-done');
     var total = el('span', '', item.size_total || '');
@@ -440,7 +440,7 @@
 
     var hint = el('div', 'dl-search-hint');
     hint.setAttribute('data-v', 'search-hint');
-    hint.style.display = 'none';
+    hint.hidden = true;
     info.appendChild(hint);
 
     var bar = el('div', 'dl-compact-bar dl-row-bar');
@@ -476,7 +476,7 @@
       card.appendChild(toggle);
       var list = el('div', 'dl-compact-episodes');
       list.setAttribute('data-v', 'ep-list');
-      list.style.display = 'none';
+      list.hidden = true;
       for (var i = 0; i < episodes.length; i++) {
         list.appendChild(MM.downloads.renderHero.buildEpisodeRow(episodes[i]));
       }

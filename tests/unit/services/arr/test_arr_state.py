@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from mediaman.services.arr.state import compute_download_state
+from unittest.mock import MagicMock
+
+import pytest
+
+from mediaman.services.arr.state import (
+    ExistingMovieError,
+    add_or_remonitor_movie,
+    compute_download_state,
+)
+from mediaman.services.infra import SafeHTTPError
 
 
 def _movie_caches(in_library=False, in_queue=False, tmdb_id=100, monitored=True):
@@ -169,7 +178,6 @@ def test_tv_season_without_statistics_key_is_skipped():
 
 
 # Tests for cache builders
-from unittest.mock import MagicMock  # noqa: E402 — grouped after test classes intentionally
 
 from mediaman.services.arr.state import build_radarr_cache, build_sonarr_cache  # noqa: E402
 
@@ -185,7 +193,11 @@ def test_radarr_cache_keyed_by_tmdb_id():
 
 def test_build_radarr_cache_handles_none_client():
     cache = build_radarr_cache(None)
-    assert cache == {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+    assert cache == {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "radarr_queue_progress": {},
+    }
 
 
 def test_sonarr_cache_keyed_by_tmdb_id():
@@ -199,7 +211,11 @@ def test_sonarr_cache_keyed_by_tmdb_id():
 
 def test_build_sonarr_cache_handles_none_client():
     cache = build_sonarr_cache(None)
-    assert cache == {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
+    assert cache == {
+        "sonarr_series": {},
+        "sonarr_queue_tmdb_ids": set(),
+        "sonarr_queue_progress": {},
+    }
 
 
 def test_build_radarr_cache_filters_null_tmdb_ids_and_handles_none_queue_movie():
@@ -725,3 +741,198 @@ def test_tv_unmonitored_aired_season_is_ignored():
         "sonarr_queue_tmdb_ids": set(),
     }
     assert compute_download_state("tv", 800, caches) == "in_library"
+
+
+def test_radarr_cache_queue_progress_from_size_and_sizeleft():
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 2}, {"tmdbId": 3}]
+    radarr.get_queue.return_value = [
+        {"movie": {"tmdbId": 2}, "size": 1000, "sizeleft": 580},
+        {"movie": {"tmdbId": 3}, "size": 100, "sizeleft": 150},  # over-reported: clamps to 0
+    ]
+    cache = build_radarr_cache(radarr)
+    assert cache["radarr_queue_progress"] == {2: 42, 3: 0}
+
+
+def test_sonarr_cache_queue_progress_sums_episodes_per_series():
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [{"tmdbId": 9}]
+    sonarr.get_queue.return_value = [
+        {"series": {"tmdbId": 9}, "size": 100, "sizeleft": 100},
+        {"series": {"tmdbId": 9}, "size": 100, "sizeleft": 0},
+        {"series": None, "size": 5, "sizeleft": 0},
+    ]
+    cache = build_sonarr_cache(sonarr)
+    assert cache["sonarr_queue_progress"] == {9: 50}
+    assert cache["sonarr_queue_tmdb_ids"] == {9}
+
+
+def test_annotate_download_states_sets_pct_on_queued_and_downloading(monkeypatch):
+    from mediaman.services.arr import build, state
+
+    monkeypatch.setattr(build, "build_radarr_from_db", lambda conn, key: None)
+    monkeypatch.setattr(build, "build_sonarr_from_db", lambda conn, key: None)
+    monkeypatch.setattr(
+        state,
+        "build_radarr_cache",
+        lambda client: {
+            "radarr_movies": {1: {"tmdbId": 1, "monitored": True}, 2: {"tmdbId": 2}},
+            "radarr_queue_tmdb_ids": {1},
+            "radarr_queue_progress": {1: 42},
+        },
+    )
+    monkeypatch.setattr(
+        state,
+        "build_sonarr_cache",
+        lambda client: {
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+            "sonarr_queue_progress": {},
+        },
+    )
+    results = [
+        {"tmdb_id": 1, "media_type": "movie"},  # downloading
+        {"tmdb_id": 2, "media_type": "movie"},  # queued, not in the queue yet
+        {"tmdb_id": 3, "media_type": "movie"},  # untracked
+    ]
+    state.annotate_download_states(results, None, "k")
+    assert results[0]["download_state"] == "downloading" and results[0]["download_pct"] == 42
+    assert results[1]["download_state"] == "queued" and results[1]["download_pct"] == 0
+    assert results[2]["download_state"] is None and "download_pct" not in results[2]
+
+
+def _tv_caches(series, queued=False):
+    return {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "sonarr_series": {500: series},
+        "sonarr_queue_tmdb_ids": {500} if queued else set(),
+    }
+
+
+def _season(number, monitored=True, total=8, files=0, next_airing=None):
+    stats = {"episodeCount": total, "episodeFileCount": files}
+    if next_airing:
+        stats["nextAiring"] = next_airing
+    return {"seasonNumber": number, "monitored": monitored, "statistics": stats}
+
+
+class TestSonarrQueuedOnlyWhenItWillFetch:
+    def test_an_unmonitored_series_is_not_queued(self):
+        series = {"tmdbId": 500, "monitored": False, "seasons": [_season(1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_a_series_whose_every_season_is_unmonitored_is_not_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            # Sonarr counts monitored episodes only, so an unmonitored season counts none.
+            "seasons": [
+                _season(1, monitored=False, total=0),
+                _season(2, monitored=False, total=0),
+            ],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_a_monitored_season_that_lacks_files_keeps_it_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, monitored=False), _season(2, total=8, files=3)],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_monitored_seasons_that_are_complete_leave_nothing_to_fetch(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(1, total=8, files=8)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_an_unmonitored_series_in_the_queue_is_still_downloading(self):
+        series = {"tmdbId": 500, "monitored": False, "seasons": [_season(1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series, queued=True)) == "downloading"
+
+    def test_an_entry_with_no_seasons_or_monitored_flag_stays_queued(self):
+        assert compute_download_state("tv", 500, _tv_caches({"tmdbId": 500})) == "queued"
+
+    def test_a_monitored_season_with_no_counts_stays_queued(self):
+        series = {"tmdbId": 500, "seasons": [{"seasonNumber": 1, "monitored": True}]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_season_with_single_monitored_episodes_stays_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(1, False, total=1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_season_with_a_monitored_episode_still_to_air_stays_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, False, total=0, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_one_early_file_with_the_rest_unaired_stays_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, True, total=1, files=1, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_complete_specials_alone_are_not_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(0, True, total=3, files=3)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_missing_specials_stay_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(0, True, total=3, files=1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_series_with_an_episode_to_air_is_still_none(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": False,
+            "seasons": [_season(1, True, total=1, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+
+class TestAddOrRemonitorMovieWhenTheSearchFails:
+    def _radarr(self):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(400, "search refused", "radarr/command")
+        return radarr
+
+    def test_the_movie_is_put_back_to_unmonitored_and_the_error_still_raised(self):
+        radarr = self._radarr()
+
+        with pytest.raises(ExistingMovieError):
+            add_or_remonitor_movie(radarr, 603, "The Matrix")
+
+        radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
+
+    def test_a_failing_put_back_is_logged_and_does_not_hide_the_error(self, caplog):
+        radarr = self._radarr()
+        radarr.unmonitor_movie.side_effect = SafeHTTPError(500, "down", "radarr/movie")
+
+        with pytest.raises(ExistingMovieError):
+            add_or_remonitor_movie(radarr, 603, "The Matrix")
+
+        assert "back to unmonitored" in caplog.text
+
+    def test_a_movie_that_re_monitored_cleanly_is_left_monitored(self):
+        radarr = self._radarr()
+        radarr.remonitor_movie.side_effect = None
+
+        assert add_or_remonitor_movie(radarr, 603, "The Matrix") == "remonitored"
+        radarr.unmonitor_movie.assert_not_called()

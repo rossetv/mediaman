@@ -1,0 +1,56 @@
+/* Watch page: search results in two groups. */
+
+.results-group + .results-group,
+.results-groups > * + * { margin-top: 40px; }
+.results-groups > :empty { display: none; }
+.results-group__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.results-group__title { font-size: 19px; font-weight: 600; }
+.results-group__count { font-size: 13px; color: var(--t3); }
+
+/* What is being replaced dims until the library answers. The page-wide grid
+   dimming in _watch.css would dim a second time inside a group. */
+.results-groups,
+.watch-results__msg { transition: opacity var(--dur) var(--ease-out); }
+.watch-results[aria-busy="true"] .results-groups,
+.watch-results[aria-busy="true"] .watch-results__msg { opacity: .5; transition-delay: .1s; }
+.watch-results .results-groups .watch-grid { opacity: 1; }
+
+/* The group heading is not part of the grid, so the retry line sits under it. */
+.results-group .watch-results__msg--error { margin-bottom: 0; }
+
+/* Said above a TMDB error when the library has nothing. */
+.results-none { margin-bottom: 14px; color: var(--t2); font-size: 15px; }
+
+/* A quiet line, under the library results, when only the library is searched. */
+.results-hint {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 640px;
+  margin-top: 36px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hair);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.watch-results__msg--empty + .results-hint { margin-top: 12px; margin-inline: auto; }
+.results-hint > .fa-solid { flex: none; font-size: 13px; }
+.results-hint a { position: relative; color: var(--accent); font-weight: 500; white-space: nowrap; }
+/* 44px to tap without making the line taller. */
+.results-hint a::after { content: ""; position: absolute; inset: -12px -6px; }
+.results-hint a:hover { color: var(--accent-hi); }
+
+/* Where a download is in its course, top right of a poster. */
+.watch-badge--state { right: 8px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.watch-badge--state > .fa-solid { font-size: 9px; }
+.watch-badge--in { background: color-mix(in srgb, var(--success) 90%, transparent); color: #00210b; }
+.watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
+.watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
+
+@media (max-width: 599.98px) {
+  .results-group__title { font-size: 17px; }
+  .watch-badge--state { right: 6px; }
+  /* Three across on a phone. */
+  .watch-results .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+}

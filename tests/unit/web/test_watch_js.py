@@ -46,21 +46,58 @@ def test_the_kept_line_is_marked_kept_until_undo() -> None:
 def test_an_empty_search_shows_a_hint_and_reads_out_only_the_line() -> None:
     out = _run("searchEmpty")
     assert out["empty"] is True
-    assert out["parts"][1] == "Nothing found for “zzqx”."
+    assert out["parts"][1] == "No matches for “zzqx”"
     assert out["parts"][2] != ""
-    assert out["status"] == "Nothing found for “zzqx”."
+    assert out["status"] == "No matches for “zzqx”"
 
 
 def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_content() -> None:
     out = _run("cardExit")
-    assert out["duration"] <= 350
-    assert out["lastOpen"] < out["faded"]
+    # The whole exit fits --dur-slow (250ms); the slot starts closing at 0.6 of it.
+    assert out["duration"] == 250
+    assert out["lastOpen"] == 0.6
+    assert out["lastOpen"] < out["faded"] <= 1
     assert all(width == "20px" for width in out["pinned"])
 
 
-def test_a_failed_search_is_laid_out_like_an_empty_one_and_still_read_out() -> None:
+def test_a_failed_search_says_so_in_one_alert_line_and_still_read_out() -> None:
     out = _run("searchError")
-    assert (out["centred"], out["icon"]) == (True, True)
-    assert out["line"] == "Search failed."
-    assert out["status"] == "Search failed."
+    assert (out["error"], out["alert"]) == (True, "alert")
+    assert out["line"] == "Couldn’t search just now."
+    assert out["status"] == "Couldn’t search just now."
     assert (out["retried"], out["focus"]) == (True, True)
+
+
+def test_a_swap_stacks_both_nodes_while_they_cross_fade_then_leaves_only_the_new_one() -> None:
+    out = _run("swap")
+    assert out["stacked"] is True
+    assert out["cell"] == ["1 / 1", "1 / 1"]
+    assert sorted(out["faded"]) == [["new", 0, 1], ["old", 1, 0]]
+    assert out["after"] == ["new"]
+    assert out["oldGone"] is True
+
+
+def test_a_drop_or_a_newer_swap_during_a_fade_wins_over_the_older_fades_end() -> None:
+    out = _run("swapInterrupted")
+    assert out["dropped"] == []
+    for ending in (out["olderEndsFirst"], out["newerEndsFirst"]):
+        assert (ending["newerCell"], ending["oneStack"]) == ("1 / 1", True)
+        assert "v2" in ending["between"]
+        assert (ending["after"], ending["direct"], ending["cell"]) == (["v2"], True, "")
+
+
+def test_a_swap_given_the_node_fading_out_still_ends_with_only_the_newest_view() -> None:
+    out = _run("swapLeaving")
+    for ending in (out["oldestEndsFirst"], out["newestEndsFirst"]):
+        assert ending["during"]["shown"] == ["v3"]
+        assert (ending["after"], ending["direct"], ending["inert"]) == (["v3"], True, False)
+
+
+def test_a_swap_with_reduced_motion_is_immediate() -> None:
+    out = _run("swapReduced")
+    assert out == {"after": ["new"], "animated": False}
+
+
+def test_flip_slides_only_the_nodes_that_moved_from_where_they_were() -> None:
+    out = _run("flip")
+    assert out["moved"] == [["a", "translate(-30px, -10px)", "none"]]

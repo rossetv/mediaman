@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -89,6 +90,7 @@ class TestDownloadPageGet:
 
         token = _valid_token(secret_key)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.get_movies.return_value = [{"tmdbId": 42, "hasFile": True, "title": "Dune"}]
         mock_radarr.get_queue.return_value = []
 
@@ -148,6 +150,7 @@ class TestDownloadPagePost:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -191,6 +194,7 @@ class TestDownloadPagePost:
         token = _valid_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -228,6 +232,7 @@ class TestDownloadPagePost:
         cap = _download_submit._DOWNLOAD_LIMITER_POST._max_attempts
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         try:
@@ -287,6 +292,7 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         # Use a transport-shaped exception — the submit handler narrows
         # its broad ``except Exception`` to network/DB errors so unrelated
         # control exceptions (CancelledError, KeyboardInterrupt) propagate.
@@ -302,6 +308,7 @@ class TestTwoPhaseConsumption:
 
         # Token must have been released; a second attempt must not return 409
         mock_radarr2 = MagicMock()
+        mock_radarr2.get_movie_by_tmdb.return_value = None
         mock_radarr2.add_movie.return_value = None
 
         with patch(
@@ -356,6 +363,7 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -401,6 +409,7 @@ class TestTwoPhaseConsumption:
         # First: Radarr says 409 (already exists). Redownload semantics say
         # "release the token so the page can re-issue the click".
         mock_radarr_409 = MagicMock()
+        mock_radarr_409.get_movie_by_tmdb.return_value = None
         mock_radarr_409.add_movie.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
         )
@@ -415,6 +424,7 @@ class TestTwoPhaseConsumption:
         # Second click on the same redownload link must succeed because
         # the token was released — the user is allowed to retry.
         mock_radarr_ok = MagicMock()
+        mock_radarr_ok.get_movie_by_tmdb.return_value = None
         mock_radarr_ok.add_movie.return_value = None
         with patch(
             "mediaman.web.routes.download.submit.build_radarr_from_db",
@@ -443,6 +453,7 @@ class TestPollingCapability:
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -469,6 +480,7 @@ class TestPollingCapability:
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -493,6 +505,7 @@ class TestPollingCapability:
         # Mint a poll_token via a download
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -531,6 +544,7 @@ class TestPollingCapability:
         # Mint token for tmdb_id=99
         token99 = _valid_token(secret_key, title="Other", media_type="movie", tmdb_id=99)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -643,6 +657,39 @@ class TestYoutubeTrailerKeyValidation:
         assert ctx["item"]["trailer_key"] is None
 
 
+def _render_queued_page(
+    app_factory, conn, secret_key, email: str | None, recommendation_id: int | None = None
+) -> str:
+    from pathlib import Path
+
+    from fastapi.templating import Jinja2Templates
+
+    template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+    app = app_factory(
+        download_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(template_dir))},
+    )
+    token = generate_download_token(
+        email=email,
+        action="download",
+        title="Dune",
+        media_type="movie",
+        tmdb_id=42,
+        recommendation_id=recommendation_id,
+        secret_key=secret_key,
+    )
+    queued_in_radarr = {
+        "radarr_movies": {42: {"hasFile": False, "monitored": True}},
+        "radarr_queue_tmdb_ids": set(),
+    }
+    with patch.object(_download_confirm, "_get_radarr_cache_cached", return_value=queued_in_radarr):
+        resp = TestClient(app).get(f"/download/{token}")
+    assert resp.status_code == 200
+    assert "dl-hint" in resp.text
+    return resp.text
+
+
 class TestDownloadPageEmailPromise:
     """The page only promises an email when the link carries an address to send it to."""
 
@@ -651,46 +698,48 @@ class TestDownloadPageEmailPromise:
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def _render_queued_page(self, app_factory, conn, secret_key, email: str | None) -> str:
-        from pathlib import Path
-
-        from fastapi.templating import Jinja2Templates
-
-        template_dir = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
-        app = app_factory(
-            download_router,
-            conn=conn,
-            state_extras={"templates": Jinja2Templates(directory=str(template_dir))},
-        )
-        token = generate_download_token(
-            email=email,
-            action="download",
-            title="Dune",
-            media_type="movie",
-            tmdb_id=42,
-            recommendation_id=None,
-            secret_key=secret_key,
-        )
-        queued_in_radarr = {
-            "radarr_movies": {42: {"hasFile": False, "monitored": True}},
-            "radarr_queue_tmdb_ids": set(),
-        }
-        with patch.object(
-            _download_confirm, "_get_radarr_cache_cached", return_value=queued_in_radarr
-        ):
-            resp = TestClient(app).get(f"/download/{token}")
-        assert resp.status_code == 200
-        assert "dl-hint" in resp.text
-        return resp.text
-
     def test_link_without_email_promises_no_email(self, app_factory, conn, secret_key):
-        page = self._render_queued_page(app_factory, conn, secret_key, email=None)
+        page = _render_queued_page(app_factory, conn, secret_key, email=None)
 
         assert "notified by email" not in page
         assert '"notify_by_email": false' in page
 
     def test_link_with_email_still_promises_one(self, app_factory, conn, secret_key):
-        page = self._render_queued_page(app_factory, conn, secret_key, email="a@example.com")
+        page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
         assert "notified by email" in page
         assert '"notify_by_email": true' in page
+
+
+class TestDownloadPageTrailer:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_trailer_iframe_uses_no_cookie_origin(self, app_factory, conn, secret_key):
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            trailer_key="dQw4w9WgXcQ",
+            created_at="2026-01-01",
+        )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        iframe = re.search(r'<iframe src="([^"]+)"', page)
+        assert iframe is not None
+        assert iframe.group(1) == "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0"
+        sandbox = re.search(r'<iframe[^>]*\ssandbox="([^"]+)"', page)
+        assert sandbox is not None
+        # popups let the player's own "Watch on YouTube" link open, outside the sandbox
+        assert set(sandbox.group(1).split()) == {
+            "allow-scripts",
+            "allow-same-origin",
+            "allow-presentation",
+            "allow-popups",
+            "allow-popups-to-escape-sandbox",
+        }

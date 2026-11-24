@@ -79,8 +79,8 @@
   {% if item.trailer_key %}
   <div class="dl-trailer">
     <div class="eyebrow">Trailer</div>
-    <iframe src="https://www.youtube.com/embed/{{ item.trailer_key }}?rel=0"
-            sandbox="allow-scripts allow-same-origin allow-presentation"
+    <iframe src="https://www.youtube-nocookie.com/embed/{{ item.trailer_key }}?rel=0"
+            sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
             allow="autoplay; encrypted-media; fullscreen"
             referrerpolicy="strict-origin"
             allowfullscreen loading="lazy"></iframe>
@@ -118,6 +118,14 @@
       <div class="dl-result-detail">This title is available to watch in Plex.</div>
     </div>
 
+  {% elif item.download_state == "tracked" %}
+    {# Held by Sonarr but not set to fetch: nothing to download from here #}
+    <div class="dl-result">
+      <i class="fa-solid fa-circle-check dl-result-icon dl-result-icon--success" aria-hidden="true"></i>
+      <div class="dl-result-title dl-result-title--success">Already tracked by Sonarr</div>
+      <div class="dl-result-detail">Sonarr is not set to download it. Choose what to fetch there.</div>
+    </div>
+
   {% elif item.download_state != "queued" %}
     {# Normal confirm — download button #}
     <div class="dl-action" id="download-action">
@@ -136,7 +144,7 @@
 
 {# Hero card wrapper + result sit outside dl-content so hiding dl-content doesn't hide them #}
 {% if item.download_state != "in_library" %}
-<div id="dl-hero-wrapper" style="{% if item.download_state != 'queued' %}display:none;{% endif %}">
+<div id="dl-hero-wrapper" {% if item.download_state != 'queued' %}hidden{% endif %}>
   {% if item.download_state == "queued" and hero_item %}
     {# When queued the .dl-cinema h1 above is hidden; expose the title to AT here. #}
     <h1 class="sr-only">{{ hero_item.title }}</h1>
@@ -154,7 +162,7 @@
     </div>
   {% endif %}
 </div>
-<div id="download-result" class="dl-result" style="display:none;"></div>
+<div id="download-result" class="dl-result" hidden></div>
 {% endif %}
 
 {% else %}

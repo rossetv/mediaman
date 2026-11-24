@@ -94,22 +94,57 @@ def test_with_reduced_motion_the_recent_section_goes_at_once() -> None:
 
 def test_an_episode_list_folds_open_and_shut() -> None:
     out = _run("episodes")
-    assert out["opening"]["display"] == ""
+    assert out["opening"]["hidden"] is False
     assert "dl-fold" in out["opening"]["cls"]
     assert "dl-fold" not in out["open"]["cls"]
-    assert out["closing"] == ""
-    assert out["closed"] == "none"
+    assert out["closing"] is False
+    assert out["closed"] is True
 
 
-def test_the_shared_modal_fades_out_before_it_hides() -> None:
+def test_the_shared_modal_plays_its_exit_before_it_hides() -> None:
     out = _run("modal")
-    assert out["closing"] == {"display": "flex", "leaving": True, "hidden": "true"}
-    # the sheet's own animation and a late open animation do not end the fade
-    assert out["otherEnds"] == out["closing"]
-    assert out["closed"] == {"display": "none", "leaving": False, "hidden": "true"}
-    # reopening during the fade keeps it shown
-    assert out["reopened"] == {"display": "flex", "leaving": False, "hidden": "false"}
+    assert out["initial"] == {"hidden": True, "closing": False, "aria": None}
+    assert out["opened"] == {"hidden": False, "closing": False, "aria": "false"}
+    # closing is decided at once: focus is handed back before the exit ends
+    assert out["closing"] == {"hidden": False, "closing": True, "aria": "true"}
+    assert out["a11yAtClose"] == ["opened", "closed"]
+    # the sheet's own animation does not end the exit; the backdrop's does
+    assert out["sheetEnd"] == out["closing"]
+    assert out["closed"] == {"hidden": True, "closing": False, "aria": "true"}
+    # with no animationend, the fallback timer ends it
+    assert out["afterTimer"] == {"hidden": True, "closing": False, "aria": "true"}
     assert out["plainShown"] is False
+
+
+def test_reopening_a_closing_modal_cancels_the_exit() -> None:
+    out = _run("modalReopen")
+    assert out["reopened"] == {
+        "hidden": False,
+        "closing": False,
+        "aria": "false",
+        "timers": 0,
+        "listeners": 0,
+    }
+    assert out["afterLateEnd"] == {"hidden": False, "closing": False, "aria": "false"}
+    assert out["closingAgain"]["closing"] is True
+    assert out["closed"]["hidden"] is True
+
+
+def test_the_shared_modal_hides_at_once_under_reduced_motion() -> None:
+    out = _run("modalReduced")
+    assert out == {"opened": False, "hidden": True, "closing": False, "aria": "true", "timers": 0}
+
+
+def test_the_watch_admin_dialogs_fade_out_before_they_hide() -> None:
+    out = _run("modalKeepOverlay")
+    assert out["opened"] == {"active": True, "closing": False}
+    # still shown (and still `active`) while the exit plays
+    assert out["closing"] == {"active": True, "closing": True}
+    assert out["closed"] == {"active": False, "closing": False}
+    # reopening during the exit cancels it and leaves no timer behind
+    assert out["reopened"] == {"active": True, "closing": False, "timers": 0}
+    # reduced motion hides at once, with no timer
+    assert out["reduced"] == {"active": False, "closing": False, "timers": 0}
 
 
 def test_poll_now_during_a_poll_runs_another_straight_after() -> None:
@@ -212,9 +247,9 @@ def test_escape_closes_a_modal_every_time_it_is_opened() -> None:
 
 def test_the_reauth_dialog_leaves_through_the_shared_fade() -> None:
     out = _run("reauth")
-    assert out["opened"] == {"display": "flex", "leaving": False}
+    assert out["opened"] == {"hidden": False, "closing": False}
     # cancelling starts the fade and reports the cancel, the node stays until it ends
-    assert out["closing"] == {"attached": True, "leaving": True, "cancelled": 1}
+    assert out["closing"] == {"attached": True, "closing": True, "cancelled": 1}
     assert out["gone"] == 0
     assert out["cancelledAfterEsc"] == 2
 
@@ -231,3 +266,8 @@ def test_a_second_reauth_cancels_the_first() -> None:
     assert out["first"] == "reauth_cancelled"
     assert out["second"] is None
     assert out["dialogs"] == 1
+
+
+def test_the_season_picker_is_hidden_unless_a_show_has_several_stuck_seasons() -> None:
+    out = _run("abandonList")
+    assert out == {"movie": True, "picker": False, "movieAgain": True}

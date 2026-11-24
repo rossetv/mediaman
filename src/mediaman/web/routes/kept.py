@@ -92,18 +92,18 @@ def _fetch_protected(
 
 @router.get("/kept")
 def redirect_kept_to_library(request: Request) -> RedirectResponse:
-    """Redirect /kept to the library Kept filter, auth-gated."""
+    """Redirect /kept to the Watch list's Kept filter, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
-    return RedirectResponse("/library?type=kept", status_code=301)
+    return RedirectResponse("/watch?view=list&type=kept", status_code=301)
 
 
 @router.get("/kept/page")
 def redirect_kept_page(request: Request) -> RedirectResponse:
-    """Redirect legacy /kept/page to /library?type=kept, auth-gated."""
+    """Redirect legacy /kept/page to the Watch list's Kept filter, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
-    return RedirectResponse("/library?type=kept", status_code=301)
+    return RedirectResponse("/watch?view=list&type=kept", status_code=301)
 
 
 @router.get("/api/kept")
@@ -195,7 +195,7 @@ def api_show_seasons(
 
 @router.get("/protected")
 def redirect_protected_page(request: Request) -> RedirectResponse:
-    """Redirect old /protected URL to the library kept filter, auth-gated."""
+    """Redirect old /protected URL to the Watch list's Kept filter, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
-    return RedirectResponse("/library?type=kept", status_code=301)
+    return RedirectResponse("/watch?view=list&type=kept", status_code=301)

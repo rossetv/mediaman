@@ -24,6 +24,14 @@ from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.state import (
+    ExistingMovieError,
+    add_or_remonitor_movie,
+    radarr_fetches_movie,
+    radarr_holds_movie,
+    sonarr_fetches_series,
+    sonarr_tracks_series,
+)
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -104,6 +112,17 @@ def _record_and_respond(
     )
 
 
+class _HeldNotFetched(SafeHTTPError):
+    """A 409 for a title the Arr holds but will not fetch: nothing was started, so the
+    link is released rather than burned."""
+
+
+def _held_error(exc: SafeHTTPError, fetched: bool) -> SafeHTTPError:
+    """The 409 for a refused add of a title the Arr holds."""
+    cls = SafeHTTPError if fetched else _HeldNotFetched
+    return cls(409, exc.body_snippet, exc.url)
+
+
 def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
     """Add a movie to Radarr and return the poll-token response; raises SafeHTTPError on
     Arr-level failures for the caller to handle. conn is passed explicitly so
@@ -132,7 +151,17 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         _unmark_token_used(token)
         return respond_failure("Radarr not configured", status=503)
 
-    client.add_movie(tmdb_id, title)
+    try:
+        outcome = add_or_remonitor_movie(client, tmdb_id, title, keep_filed=True)
+    except SafeHTTPError as exc:
+        # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
+        if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):
+            raise _held_error(exc, radarr_fetches_movie(client, tmdb_id)) from exc
+        raise
+    if outcome == "already_tracked":
+        raise SafeHTTPError(409, "already tracked", "radarr/api/v3/movie")
+    if outcome == "bad_entry":
+        raise ExistingMovieError("Radarr holds the movie with no usable id")
     logger.info(
         "Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email
     )
@@ -185,7 +214,13 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         _unmark_token_used(token)
         return respond_failure("No TVDB ID found for this series", status=422)
 
-    client.add_series(tvdb_id, title)
+    try:
+        client.add_series(tvdb_id, title)
+    except SafeHTTPError as exc:
+        # Sonarr answers 400, not 409, for a series it tracks: same path.
+        if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
+            raise _held_error(exc, sonarr_fetches_series(client, tvdb_id)) from exc
+        raise
     logger.info(
         "Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email
     )
@@ -370,7 +405,13 @@ def download_submit(request: Request, token: str) -> JSONResponse:
 
     except SafeHTTPError as exc:
         return _handle_already_exists_error(
-            exc, token, title, media_type, tmdb_id, is_redownload, config.secret_key
+            exc,
+            token,
+            title,
+            media_type,
+            tmdb_id,
+            is_redownload or isinstance(exc, _HeldNotFetched),
+            config.secret_key,
         )
     except (requests.RequestException, ArrError, ValueError, sqlite3.Error) as exc:
         # ``ArrError`` covers the Arr-domain failures (``ArrConfigError`` from

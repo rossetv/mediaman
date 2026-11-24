@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import threading
-import time
 from collections.abc import Callable
 from concurrent.futures import (
     CancelledError,
@@ -28,9 +26,10 @@ from mediaman.db import get_db
 from mediaman.services.arr.state import (
     annotate_download_states,
 )
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.services.watch_catalog import TmdbUnavailable
 from mediaman.web.repository.search import (
     RatingsCacheRow,
     fetch_ratings_cache,
@@ -40,14 +39,9 @@ from mediaman.web.repository.search import (
 logger = logging.getLogger(__name__)
 
 _RATINGS_TTL_DAYS = 30
-_DISCOVER_TMDB_TTL_SECONDS = 3600
+_DISCOVER_FRESH_S = 6 * 3600
+_DISCOVER_STALE_S = 7 * 24 * 3600
 _MAX_QUERY_LEN = 100
-_DISCOVER_CACHE_MAX_ENTRIES = 32
-
-# Per-process TMDB discover shelf cache; must be process-global to serve
-# cache hits across requests in the same worker without a DB round-trip.
-_discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
-_discover_cache_lock = threading.Lock()
 
 
 def _fetch_discover_shelf(
@@ -56,29 +50,28 @@ def _fetch_discover_shelf(
     inject_media_type: str | None,
     page: int,
 ) -> list[dict[str, object]]:
-    """Fetch one page of a discover shelf from a TTL cache, stamping media_type on each item
-    when inject_media_type is set (the popular endpoints omit it). On overflow the cache is
-    cleared wholesale: the TTL makes stale entries refresh anyway, so a coarse clear is
-    acceptable. Lives here because the cache and lock are this module's singletons.
+    """Fetch one page of a discover shelf through the disk cache (fresh 6 h, served stale up
+    to 7 d), stamping media_type on each item when inject_media_type is set (the popular
+    endpoints omit it). The client answers [] on a failure, so an empty page is not cached
+    and the shelf comes back empty. The key matches Watch's discover rows for page 1, so both
+    raise the same TmdbUnavailable: the cache hands a stored failure to whoever asks next.
     """
-    cache_key = f"{shelf_key}?page={page}"
-    now = time.monotonic()
-    with _discover_cache_lock:
-        entry = _discover_cache.get(cache_key)
-        if entry and now - entry[0] < _DISCOVER_TMDB_TTL_SECONDS:
-            return entry[1]
-    raw = fetch_fn(page)
-    if inject_media_type:
-        for tmdb_item in raw:
-            tmdb_item["media_type"] = inject_media_type
-    with _discover_cache_lock:
-        # rationale: bounded to prevent unbounded growth on malformed inputs;
-        # small clear-on-overflow is fine because TTL means stale entries
-        # refresh on next read.
-        if len(_discover_cache) >= _DISCOVER_CACHE_MAX_ENTRIES:
-            _discover_cache.clear()
-        _discover_cache[cache_key] = (now, raw)
-    return raw
+
+    def fetch() -> list[dict[str, object]]:
+        raw = fetch_fn(page)
+        if not raw:
+            raise TmdbUnavailable(shelf_key)
+        if inject_media_type:
+            return [{**item, "media_type": inject_media_type} for item in raw]
+        return raw
+
+    try:
+        shelf: list[dict[str, object]] = disk_cache.meta().get_or_fetch(
+            f"tmdb:discover:{shelf_key}:{page}", _DISCOVER_FRESH_S, _DISCOVER_STALE_S, fetch
+        )
+    except TmdbUnavailable:
+        return []
+    return shelf
 
 
 @lru_cache(maxsize=1)

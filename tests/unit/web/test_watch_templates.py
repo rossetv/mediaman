@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import jinja2
 import pytest
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
 
 # The nav belongs to another page's concerns; an empty one keeps these tests
 # about the Watch templates only.
@@ -42,7 +44,18 @@ def _card(**over: object) -> dict:
 
 
 def _watch(**over: object) -> str:
-    ctx: dict = {"banner": None, "rows": [], "watch_error": None, "is_admin": False}
+    ctx: dict = {
+        "banner": None,
+        "rows": [],
+        "watch_error": None,
+        "is_admin": False,
+        "view": "rows",
+        "q": "",
+        "tmdb_configured": False,
+        "picks_on": False,
+        "list_html": None,
+        "page_data": {},
+    }
     ctx.update(over)
     return _render("watch.html", **ctx)
 
@@ -218,6 +231,7 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
 
 def test_banner_shows_episodes_button_only_when_given() -> None:
     banner = {
+        "kicker": "Continue watching",
         "title": "The Long Coast",
         "line": "Season 2 · Episode 4",
         "progress_pct": 38,
@@ -232,19 +246,20 @@ def test_banner_shows_episodes_button_only_when_given() -> None:
     assert ">Episodes<" in with_eps
 
 
-def test_banner_without_progress_is_a_recently_added_pick() -> None:
-    html = _watch(
-        banner={
-            "title": "Salt & Iron",
-            "line": "Movie",
-            "progress_pct": None,
-            "primary": {"label": "Play", "href": "/watch/play/1"},
-            "episodes_href": None,
-            "backdrop_url": None,
-        }
-    )
-    assert "Recently added" in html
-    assert "Continue watching" not in html
+def test_banner_shows_the_label_it_is_given_and_none_when_it_has_none() -> None:
+    banner = {
+        "kicker": "From your library",
+        "title": "Salt & Iron",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+        "backdrop_url": None,
+    }
+    html = _watch(banner=banner)
+    assert '<span class="watch-banner__kicker">From your library</span>' in html
+    assert "Recently added" not in html and "Continue watching" not in html
+    assert "watch-banner__kicker" not in _watch(banner={**banner, "kicker": None})
 
 
 def test_not_set_up_links_to_settings_for_admins_only() -> None:
@@ -435,3 +450,100 @@ def test_show_page_names_another_leaving_season_without_a_keep(days: int, text: 
     assert text in html
     assert "watch-leaving--other" in html
     assert "data-watch-keep" not in html
+
+
+def test_discover_skeleton_puts_recommended_first_with_its_tools_height() -> None:
+    html = _watch(tmdb_configured=True, picks_on=True)
+    skeleton = html.split('class="watch-discover-skel"', 1)[1].split('id="watch-results"', 1)[0]
+    rows = skeleton.split('class="watch-row watch-row--skel')[1:]
+    assert len(rows) == 4
+    assert rows[0].startswith(" watch-row--skel-tools")
+    assert not any("skel-tools" in r for r in rows[1:])
+    assert "watch-discover-skel" not in _watch()
+
+
+def test_banner_details_opens_the_title_overlay() -> None:
+    banner = {
+        "title": "The Long Coast",
+        "ref": "show-500",
+        "line": "",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/9"},
+        "episodes_href": "/watch/show/500",
+        "backdrop_url": None,
+    }
+    html = _watch(banner=banner)
+    actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
+    details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>', actions)
+    assert details is not None
+    assert 'href="/watch#title=show-500"' in details.group(0)
+    assert 'data-title="The Long Coast"' in details.group(0)
+    assert "watch-btn--grey" in details.group(0)
+    assert "Details</a>" in actions
+
+
+def _phone_rules(sheet: str) -> list[tuple[str, str]]:
+    """(selectors, declarations) of every rule inside a `@media (max-width: 699.98px)` block."""
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(r"@media \(max-width: 699\.98px\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    return [
+        (head.strip(), body)
+        for block in blocks
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block)
+    ]
+
+
+def test_the_picks_batch_and_refresh_tools_are_44px_tall_below_700px() -> None:
+    rules = _phone_rules("_watch_browse.css")
+    assert any(
+        head == ".row-tool" and re.search(r"(?<![\w-])height:\s*44px", body) for head, body in rules
+    )
+    # The skeleton's Recommended heading matches the 44px tools, so nothing moves when they load.
+    skel = [
+        body
+        for head, body in rules
+        if head.endswith(".watch-row--skel-tools .watch-row__title-skel")
+    ]
+    assert skel and "44px" in skel[0]
+
+
+def test_the_icon_only_row_tool_is_44px_wide_below_700px() -> None:
+    # Below 600px the long label drops away and only the icon is left: padding alone is 35px.
+    rules = _phone_rules("_watch_browse.css")
+    assert any(
+        head == ".row-tool" and re.search(r"(?<![\w-])min-width:\s*44px", body)
+        for head, body in rules
+    )
+
+
+def _declarations_of(sheet: str, selector: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(encoding="utf-8"), flags=re.S)
+    return "".join(
+        body
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if selector in [s.strip() for s in head.split(",")]
+    )
+
+
+@pytest.mark.parametrize("selector", [".ttl-rating--rt", ".ttl__error"])
+def test_the_title_overlay_sets_red_text_on_the_one_red_text_token(selector: str) -> None:
+    # A pink --danger-soft beside the coral leaving line made three reds on one panel.
+    body = _declarations_of("_watch_detail.css", selector)
+    assert re.search(r"(?<![\w-])color:\s*var\(--danger-text\)", body), body
+    assert "danger-soft" not in (CSS / "_watch_detail.css").read_text(encoding="utf-8")
+
+
+def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -> None:
+    sheet = "_watch_detail.css"
+    button = _declarations_of(sheet, ".ttl__share")
+    assert "display: inline-grid" in button and "place-items: center" in button
+    # The unseen longest label and the group share one grid cell, so the cell is as wide as the
+    # longest state and the group sits in the middle of it.
+    group = _declarations_of(sheet, ".ttl__share-group")
+    sizer = _declarations_of(sheet, ".ttl__share::after")
+    assert "grid-area: 1 / 1" in group and "grid-area: 1 / 1" in sizer
+    assert "visibility: hidden" in sizer and "content: attr(data-widest)" in sizer
+    # The sizer is as wide as the icon and the gap before the label, which the group also has.
+    assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
+    assert "gap: var(--share-gap)" in group
+    assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .fa-solid")

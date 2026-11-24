@@ -20,6 +20,7 @@ from mediaman.web.routes.library_api import (
 )
 from mediaman.web.routes.library_api import router as library_api_router
 from tests.helpers.factories import insert_scheduled_action
+from tests.helpers.library_index import library_movies
 from tests.unit.web.test_library_mutations import (
     RADARR,
     SONARR,
@@ -81,6 +82,18 @@ class TestDeleteIntentPersistence:
         ).fetchall()
         assert len(all_intents) >= 1
         assert all(row["completed_at"] is not None for row in all_intents)
+
+    def test_a_deleted_title_leaves_the_held_library_index_at_once(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_movie(conn)
+        assert library_movies(conn) == {550: "movie-m1"}
+        client = authed_client(_app(app_factory, conn), conn)
+
+        with patch(RADARR, return_value=_radarr()):
+            assert client.post("/api/media/m1/delete").status_code == 200
+
+        assert library_movies(conn) == {}
 
     def test_intent_completed_after_successful_delete(self, app_factory, authed_client, conn):
         _insert_movie(conn)
@@ -179,6 +192,15 @@ class TestReconcilePendingDeleteIntents:
             (audit["id"],),
         ).fetchone()
         assert tuple(deleted) == ("movie", 550, "Test Movie")
+
+    def test_a_title_verified_gone_leaves_the_held_library_index_at_once(self, conn):
+        _insert_movie(conn, "m2", radarr_id=None)
+        _record_delete_intent(conn, "m2", "radarr", "none")
+        assert library_movies(conn) == {550: "movie-m2"}
+
+        reconcile_pending_delete_intents(conn, verify_gone=lambda _i: True)
+
+        assert library_movies(conn) == {}
 
     def test_verified_gone_is_not_booked_while_a_tracked_file_is_still_on_disk(
         self, conn, tmp_path

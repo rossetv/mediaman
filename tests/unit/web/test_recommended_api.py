@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import validate_download_token
 from mediaman.db import set_connection
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.routes.recommended.api import (
@@ -134,6 +135,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
         client = _make_rec_app(conn)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -156,6 +158,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
         client = _make_rec_app(conn)
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -244,3 +247,174 @@ class TestShareTokenCarriesNoEmail:
         assert payload is not None
         assert payload["email"] is None
         assert payload["tmdb"] == 27205
+
+
+class TestDownloadRecommendationAlreadyThere:
+    """An Arr answering 409 says the title is already in the Arr, not on a page."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        reset_download_action_limiter()
+
+    def test_movie_409_names_radarr(self, conn):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
+        client = _make_rec_app(conn)
+        mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
+        mock_radarr.add_movie.side_effect = SafeHTTPError(409, "exists", "radarr/api/v3/movie")
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_radarr_from_db",
+            return_value=mock_radarr,
+        ):
+            resp = client.post(f"/api/recommended/{sid}/download")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+
+    def test_tv_409_names_sonarr(self, conn):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        sid = insert_suggestion(conn, title="Severance", tmdb_id=136315, media_type="tv")
+        client = _make_rec_app(conn)
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        mock_sonarr.add_series.side_effect = SafeHTTPError(409, "exists", "sonarr/api/v3/series")
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_sonarr_from_db",
+            return_value=mock_sonarr,
+        ):
+            resp = client.post(f"/api/recommended/{sid}/download")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Severance' is already tracked by Sonarr — manage it there"
+
+
+class TestDownloadRecommendationAsksTheArrFirst:
+    """Radarr and Sonarr answer 400, not 409, for a title they hold."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        reset_download_action_limiter()
+
+    @staticmethod
+    def _post(conn, kind, tmdb_id, arr):
+        if not conn.execute("SELECT 1 FROM admin_users WHERE username='admin'").fetchone():
+            create_user(conn, "admin", "password1234", enforce_policy=False)
+        title = "Inception" if kind == "movie" else "Severance"
+        sid = insert_suggestion(conn, title=title, tmdb_id=tmdb_id, media_type=kind)
+        builder = "build_radarr_from_db" if kind == "movie" else "build_sonarr_from_db"
+        with patch(f"mediaman.web.routes.recommended.api.{builder}", return_value=arr):
+            return _make_rec_app(conn).post(f"/api/recommended/{sid}/download")
+
+    def test_a_movie_radarr_holds_is_already_there_without_an_add(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": True}
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+        radarr.add_movie.assert_not_called()
+
+    def test_a_series_sonarr_tracks_is_already_there_without_an_add(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.return_value = [{"tvdbId": 999}]
+
+        resp = self._post(conn, "tv", 136315, sonarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Severance' is already tracked by Sonarr — manage it there"
+        sonarr.add_series.assert_not_called()
+
+    def test_a_movie_add_that_races_with_a_400_ends_as_already_there(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = [None, {"id": 4, "monitored": True}]
+        radarr.add_movie.side_effect = SafeHTTPError(400, "has already been added", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+
+    def test_a_series_add_that_races_with_a_400_ends_as_already_there(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.side_effect = [[], [{"tvdbId": 999}]]
+        sonarr.add_series.side_effect = SafeHTTPError(400, "has already been added", "sonarr/s")
+
+        resp = self._post(conn, "tv", 136315, sonarr)
+
+        assert resp.status_code == 409
+
+    def test_a_400_for_a_title_the_arr_does_not_hold_stays_a_failure(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.add_movie.side_effect = SafeHTTPError(400, "Invalid root folder", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to download queue"
+
+    def test_a_movie_radarr_holds_unmonitored_is_remonitored_like_search(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        set_user_email(conn, "admin", "admin@example.com")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "message": "Added 'Inception' to Radarr"}
+        radarr.remonitor_movie.assert_called_once_with(4)
+        radarr.add_movie.assert_not_called()
+        row = conn.execute("SELECT downloaded_at FROM suggestions").fetchone()
+        assert row["downloaded_at"] is not None
+        audit = conn.execute("SELECT detail FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
+        assert audit["detail"] == "Added 'Inception' to Radarr by admin"
+        note = conn.execute("SELECT email, service FROM download_notifications").fetchone()
+        assert (note["email"], note["service"]) == ("admin@example.com", "radarr")
+
+    def test_an_unmonitored_movie_with_no_usable_id_is_a_failure_not_a_dead_end_409(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": None, "monitored": False}
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        radarr.remonitor_movie.assert_not_called()
+
+    @pytest.mark.parametrize("status", [400, 409, 422])
+    def test_a_failed_remonitor_ends_as_a_failure_and_records_nothing(self, conn, status):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
+        radarr.remonitor_movie.side_effect = SafeHTTPError(status, "refused", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "Failed to add to download queue"
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+        radarr.unmonitor_movie.assert_called_once_with(4, max_retries=1)
+        assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == 0
+
+    @pytest.mark.parametrize("status", [409, 422])
+    def test_a_refused_read_of_the_arr_is_not_read_as_already_there(self, conn, status):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = SafeHTTPError(status, "refused", "radarr/m")
+
+        resp = self._post(conn, "movie", 27205, radarr)
+
+        assert resp.status_code == 502
+
+    def test_a_refused_read_of_sonarr_is_not_read_as_already_there(self, conn):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.side_effect = SafeHTTPError(409, "refused", "sonarr/s")
+
+        resp = self._post(conn, "tv", 136315, sonarr)
+
+        assert resp.status_code == 502

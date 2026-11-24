@@ -28,7 +28,7 @@
 /* Semantic colour utilities — preferred over inline style="color:…" */
 .text-t1      { color: var(--t1); }
 .text-success { color: var(--success); }
-.text-danger  { color: var(--danger); }
+.text-danger  { color: var(--danger-text); }
 .text-warning { color: var(--warning); }
 .text-accent  { color: var(--accent); }
 .text-muted   { color: var(--t3); }

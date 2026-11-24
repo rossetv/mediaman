@@ -23,6 +23,8 @@ VALID_SORTS = {
     "size_asc",
     "watched_desc",
     "watched_asc",
+    "deletion_asc",
+    "deletion_desc",
 }
 VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
@@ -111,6 +113,18 @@ _SHOW_KEPT_SQL = """EXISTS(
             )"""
 
 
+# The soonest pending deletion of a media item, by the rule of
+# watch_library.pending_deletions; NULL when none is scheduled.
+_ITEM_DELETION_SQL = """(
+                SELECT MIN(da.execute_at) FROM scheduled_actions da
+                WHERE da.media_item_id = filtered.id
+                AND da.action = 'scheduled_deletion'
+                AND da.token_used = 0
+                AND (da.delete_status IS NULL OR da.delete_status = 'pending')
+                AND da.execute_at >= (SELECT now FROM clock)
+            )"""
+
+
 def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     """Build the CTE SQL block and the ORDER BY expression.
 
@@ -129,6 +143,9 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
         "size_asc": "file_size_bytes ASC",
         "watched_desc": "COALESCE(last_watched_at, '1970-01-01') DESC",
         "watched_asc": "COALESCE(last_watched_at, '1970-01-01') ASC",
+        # Rows with nothing scheduled go last in either direction.
+        "deletion_asc": "deletion_at IS NULL, deletion_at ASC, title COLLATE NOCASE ASC",
+        "deletion_desc": "deletion_at IS NULL, deletion_at DESC, title COLLATE NOCASE ASC",
     }
     order = _CTE_SORT.get(sort, _CTE_SORT["added_desc"])
 
@@ -147,7 +164,8 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             plex_rating_key, added_at, file_size_bytes, last_watched_at,
             show_rating_key, show_title, NULL AS season_count,
             0 AS has_rating_key, id AS item_ids,
-            {_ITEM_KEPT_SQL} AS is_kept
+            {_ITEM_KEPT_SQL} AS is_kept,
+            {_ITEM_DELETION_SQL} AS deletion_at
         FROM filtered WHERE media_type = 'movie'
 
         UNION ALL
@@ -165,7 +183,8 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             COUNT(*) AS season_count,
             MAX(COALESCE(show_rating_key, '') != '') AS has_rating_key,
             GROUP_CONCAT(id, char(31)) AS item_ids,
-            (MAX({_SHOW_KEPT_SQL}) OR MAX({_ITEM_KEPT_SQL})) AS is_kept
+            (MAX({_SHOW_KEPT_SQL}) OR MAX({_ITEM_KEPT_SQL})) AS is_kept,
+            MIN({_ITEM_DELETION_SQL}) AS deletion_at
         FROM filtered
         WHERE media_type IN ('tv_season', 'anime_season', 'season', 'tv', 'anime')
         GROUP BY COALESCE(show_rating_key, show_title)
@@ -254,11 +273,11 @@ def _fetch_protection_maps(
 
 
 # rationale: a repository may return ``list[dict]`` at a documented
-# template-feeding boundary. ``mediaman.web.routes.library.library_page`` passes
-# these display-ready dicts straight onto the ``library.html`` Jinja template as
-# ``items``; the keys are shaped for that template (``type_css``, ``type_label``,
-# ``protection_label``, ...) and a dataclass would add ceremony without removing
-# the template's column coupling.
+# template-feeding boundary. ``mediaman.web.routes.watch.list_page`` passes
+# these display-ready dicts onto the Watch list view's ``_watch_list.html``
+# template as ``items``, and ``/api/library`` answers them as JSON; the keys are
+# display-shaped (``type_label``, ``protection_label``, ...) and a dataclass would
+# add ceremony without removing the template's column coupling.
 def fetch_library(
     conn: sqlite3.Connection,
     q: str = "",

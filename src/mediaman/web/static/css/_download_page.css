@@ -11,7 +11,7 @@
   padding: 18px var(--pad);
   text-align: center;
   border-bottom: 1px solid var(--hair);
-  background: rgba(0,0,0,.7);
+  background: var(--scrim-modal);
   -webkit-backdrop-filter: saturate(180%) blur(24px);
   backdrop-filter: saturate(180%) blur(24px);
   position: sticky;
@@ -69,7 +69,6 @@
   flex-direction: column;
   gap: 20px;
 }
-.dl-content[hidden] { display: none; }
 .dl-quick,
 .dl-ratings {
   display: flex;
@@ -132,17 +131,19 @@
 }
 
 .dl-action { display: flex; justify-content: center; padding: 8px 0 24px; }
+/* Sized as a large .btn. */
 .btn-download-hero {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 36px;
-  font-size: 16px;
+  min-height: 44px;
+  padding: 0 32px;
+  font-size: 15px;
   font-weight: 500;
   border-radius: var(--r-pill);
   background: var(--accent-cta);
-  color: #fff;
-  transition: background .15s, transform .1s;
+  color: var(--t1);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   letter-spacing: -.01em;
 }
 .btn-download-hero:hover { background: var(--accent-hi); }
@@ -209,14 +210,14 @@
   height: 72px;
   margin-bottom: 4px;
   border-radius: 50%;
-  background: rgba(255,255,255,.04);
+  background: var(--rgba-overlay-xs);
   display: grid;
   place-items: center;
 }
 .dl-expired-icon { font-size: 40px; color: rgba(255,255,255,0.3); }
 .dl-result-icon { font-size: 44px; margin-bottom: 8px; }
 .dl-result-icon--success { color: var(--success); }
-.dl-result-icon--error   { color: var(--danger); }
+.dl-result-icon--error   { color: var(--danger-text); }
 .dl-expired-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
 .dl-expired-sub   { color: var(--t3); font-size: 14px; }
 .dl-expired-back  { margin-top: 6px; }
@@ -224,13 +225,13 @@
 
 .u-mt-24 { margin-top: 24px; }
 
-/* Phone: 40px tap area on the brand and dashboard links. */
-@media (max-width: 639.98px) {
+/* Phone: 44px tap area on the brand and dashboard links. */
+@media (max-width: 699.98px) {
   .dl-nav .nav-brand,
   .dl-footer a,
   .dl-expired-back a {
     display: inline-flex;
     align-items: center;
-    min-height: 40px;
+    min-height: 44px;
   }
 }

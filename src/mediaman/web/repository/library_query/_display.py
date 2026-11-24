@@ -11,9 +11,10 @@ import sqlite3
 from datetime import UTC, datetime
 
 from mediaman.core.format import days_ago as _days_ago_fmt
-from mediaman.core.format import format_bytes, relative_day_label
+from mediaman.core.format import format_bytes
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
+from mediaman.services.scheduled_actions.days_left import days_left
 
 
 def days_ago(dt_str: str | None) -> str:
@@ -46,13 +47,14 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
         now = now_utc()
         if execute_at < now:
             return None
-        return relative_day_label(
-            execute_at,
-            now=now,
-            today="Kept for less than a day",
-            tomorrow="Kept for 1 more day",
-            future=lambda days: f"Kept for {days} more days",
-        )
+        # Whole days of elapsed time left, not UTC calendar days: a keep ending in two
+        # hours must not read "1 more day" just because midnight UTC falls in between.
+        days = (execute_at - now).days
+        if days < 1:
+            return "Kept for less than a day"
+        if days == 1:
+            return "Kept for 1 more day"
+        return f"Kept for {days} more days"
     return None
 
 
@@ -101,6 +103,7 @@ def _shape_rows(
     # the 18-key output dict is the natural seam and cannot be split further.
     """
     items = []
+    now = now_utc()
     for r in rows:
         display_type = r["display_type"]
         is_tv = display_type in ("tv", "anime")
@@ -124,6 +127,8 @@ def _shape_rows(
                 type_label = "1 season"
         else:
             type_label = "MOVIE"
+
+        deletion_at = parse_iso_strict_utc(r["deletion_at"])
 
         added_ago = days_ago(r["added_at"])
         subtitle_parts = []
@@ -153,6 +158,8 @@ def _shape_rows(
                 "protected": protected,
                 "protection_label": prot_label,
                 "show_kept": show_kept,
+                "deletion_at": r["deletion_at"] if deletion_at else None,
+                "deletion_days": days_left(deletion_at, now) if deletion_at else None,
             }
         )
     return items

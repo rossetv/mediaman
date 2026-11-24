@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient, ArrConfigError, ArrUpstreamError
+from mediaman.services.arr.base import (
+    ArrClient,
+    ArrConfigError,
+    ArrUpstreamError,
+    SeasonsNotListed,
+)
 from mediaman.services.arr.spec import SONARR_SPEC
 
 
@@ -442,56 +447,47 @@ class TestAddSeriesWithSeasons:
         fake_http.queue("GET", fake_response(json_data=[{"id": 3}]))
         fake_http.queue("GET", fake_response(json_data=lookup_result))
         fake_http.queue("POST", fake_response(status=201, json_data={"id": 42}))
-        fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.add_series_with_seasons(
             tvdb_id=999,
             title="Breaking Bad",
             monitored_seasons=[1, 2],
-            search_seasons=[2],
         )
 
         posts = _calls(fake_http, "POST")
         add_body = posts[0][2]["json"]
-        assert add_body["addOptions"]["searchForMissingEpisodes"] is False
         by_num = {s["seasonNumber"]: s["monitored"] for s in add_body["seasons"]}
         assert by_num == {0: False, 1: True, 2: True, 3: False, 4: False, 5: False}
         assert add_body["qualityProfileId"] == 3
+        # "skip" keeps the seasons sent ("none" unmonitors every one after the first scan),
+        # and Sonarr searches the monitored missing episodes itself after it has scanned.
+        assert add_body["addOptions"] == {"monitor": "skip", "searchForMissingEpisodes": True}
+        # A season announced later is not one of the seasons picked, so it is not monitored.
+        assert add_body["monitorNewItems"] == "none"
+        # A command straight after the add finds no episodes yet, so none is sent.
+        assert len(posts) == 1
 
-        search_calls = [c for c in posts if "/api/v3/command" in c[1]]
-        assert len(search_calls) == 1
-        assert search_calls[0][2]["json"] == {
-            "name": "SeasonSearch",
-            "seriesId": 42,
-            "seasonNumber": 2,
-        }
-
-    def test_no_search_when_search_seasons_empty(self, client, fake_http, fake_response):
+    @pytest.mark.parametrize(
+        ("listed", "picked", "message"),
+        [
+            ([1], [1, 2], "Season 2 isn't in Sonarr's listing."),
+            ([], [1, 2], "Seasons 1 and 2 aren't in Sonarr's listing."),
+            ([1], [2, 3, 4], "Seasons 2, 3 and 4 aren't in Sonarr's listing."),
+        ],
+    )
+    def test_a_picked_season_the_lookup_omits_adds_nothing(
+        self, client, fake_http, fake_response, listed, picked, message
+    ):
+        lookup = [{"tvdbId": 10, "title": "X", "seasons": [{"seasonNumber": n} for n in listed]}]
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
         fake_http.queue("GET", fake_response(json_data=[{"id": 9}]))
-        fake_http.queue(
-            "GET",
-            fake_response(
-                json_data=[
-                    {
-                        "tvdbId": 10,
-                        "title": "X",
-                        "seasons": [{"seasonNumber": 1}, {"seasonNumber": 2}],
-                    }
-                ]
-            ),
-        )
-        fake_http.queue("POST", fake_response(status=201, json_data={"id": 7}))
+        fake_http.queue("GET", fake_response(json_data=lookup))
 
-        client.add_series_with_seasons(
-            tvdb_id=10,
-            title="X",
-            monitored_seasons=[1, 2],
-            search_seasons=[],
-        )
+        with pytest.raises(SeasonsNotListed) as raised:
+            client.add_series_with_seasons(tvdb_id=10, title="X", monitored_seasons=picked)
 
-        command_calls = [c for c in _calls(fake_http, "POST") if "/api/v3/command" in c[1]]
-        assert command_calls == []
+        assert str(raised.value) == message
+        assert _calls(fake_http, "POST") == []
 
     def test_rejects_non_positive_tvdb_id(self, client, fake_http):
         with pytest.raises(ValueError, match="tvdb_id must be positive"):
@@ -499,7 +495,6 @@ class TestAddSeriesWithSeasons:
                 tvdb_id=0,
                 title="X",
                 monitored_seasons=[],
-                search_seasons=[],
             )
 
 

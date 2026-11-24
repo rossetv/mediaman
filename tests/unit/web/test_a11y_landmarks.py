@@ -8,6 +8,7 @@ keyboard-accessible table sort.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
@@ -116,20 +117,16 @@ def test_dashboard_posters_use_empty_alt():
     assert 'alt="{{ item.title }}"' not in dash
 
 
-def test_protected_uses_poster_macro():
-    """Poster rendering for protected items is delegated to
-    c.tile (which owns the alt-empty contract via the poster_alt param).  Raw
-    inline img tags and the intermediate c.poster calls are gone."""
-    prot = _tpl("protected.html")
-    # No raw poster img tags with a non-empty alt on these plex-proxied images.
-    assert 'alt="{{ item.show_title }}"' not in prot
-    assert 'alt="{{ item.title }}"' not in prot
-    # c.tile is used in three spots (kept-shows, forever, snoozed); each passes
-    # poster_url so the macro's img (with empty poster_alt) handles rendering.
-    assert prot.count("call c.tile(") == 3
-    assert prot.count('poster_url="/api/poster/"') == 3
-    # The standalone c.poster calls are retired — the macro is the single source.
-    assert "{{ c.poster(item) }}" not in prot
+def test_watch_list_uses_empty_alt_posters():
+    """The list view's thumbnails sit beside the title as text, so the poster
+    img is decorative: alt is empty and the title is never repeated in it."""
+    lst = _tpl("_watch_list.html")
+    assert 'alt="{{ item.show_title }}"' not in lst
+    assert 'alt="{{ item.title }}"' not in lst
+    thumb_imgs = [line for line in lst.splitlines() if "/api/poster/" in line and "<img" in line]
+    assert thumb_imgs, "list view must render poster thumbnails"
+    for line in thumb_imgs:
+        assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
 def test_components_exposes_poster_macro():
@@ -149,65 +146,33 @@ def test_components_warns_about_safe_filter():
     assert "user-supplied" in comps
 
 
-def test_library_table_sort_uses_buttons():
-    """<th onclick=...> is not keyboard-activatable. Each
-    sortable header now wraps its content in a real <button> with an
-    aria-sort attribute."""
-    lib = _tpl("library.html")
-    # Inline onclick on the <th> must be gone.
-    assert "onclick=\"toggleSort('name')\"" not in lib
-    assert "onclick=\"toggleSort('size')\"" not in lib
-    assert "onclick=\"toggleSort('watched')\"" not in lib
-    # The buttons must exist and carry the sort metadata.
-    assert lib.count('class="th-sort"') == 3
-    assert 'data-sort-col="name"' in lib
-    assert 'data-sort-col="size"' in lib
-    assert 'data-sort-col="watched"' in lib
-    # aria-sort lets AT announce the current sort state.
-    assert "aria-sort=" in lib
+def test_watch_list_table_sort_uses_links():
+    """<th onclick=...> is not keyboard-activatable. Each sortable header
+    wraps its content in a real link carrying the sort column, and the
+    header carries aria-sort so AT can announce the current sort state."""
+    lst = _tpl("_watch_list.html")
+    assert "onclick=" not in lst
+    assert lst.count('class="th-sort"') == 1  # one macro, used for each sortable header
+    for col in ("name", "size", "watched", "deletion"):
+        assert f'"{col}"' in lst
+    assert 'data-sort-col="{{ col }}"' in lst
+    assert "aria-sort=" in lst
 
 
 def test_library_table_sort_button_styled():
-    """The .th-sort button must visually match the cell — the
+    """The .th-sort control must visually match the cell — the
     rule sets are what guarantees that."""
     css = _css()
     assert ".tbl thead th.sortable .th-sort" in css
 
 
-def test_detail_modal_labelled_by_visible_title():
-    """The dialog's aria-labelledby points at #detail-modal-title
-    (the visible <h2> injected by the page script). The hidden literal
-    ``<h2 class="sr-only">Details</h2>`` is gone."""
-    modal = _tpl("_detail_modal.html")
-    assert 'aria-labelledby="detail-modal-title"' in modal
-    # There is no placeholder sr-only h2.
-    assert '<h2 id="detail-modal-title" class="sr-only">Details</h2>' not in modal
-
-
-def test_search_inline_script_renders_modal_title_as_h2():
-    """Search.html's modal-render must build an
-    <h2 id="detail-modal-title"> so aria-labelledby resolves. The detail-modal rendering lives in
-    static/js/search/detail_modal.js; search.html must load that sub-module
-    before search.js so the h2 is still guaranteed to be built."""
-    search = _tpl("search.html")
-    assert '<script src="/static/js/search/detail_modal.js" defer></script>' in search
-    assert '<script src="/static/js/search.js" defer></script>' in search
-    detail_js = (REPO / "src/mediaman/web/static/js/search/detail_modal.js").read_text(
-        encoding="utf-8"
-    )
-    assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in detail_js
-
-
-def test_recommended_inline_script_renders_modal_title_as_h2():
-    """Recommended.html builds the title via DOM methods —
-    it must instantiate an h2 with the matching id. The script lives
-    in static/js/recommended.js; the template references it via a
-    <script src> tag."""
-    rec = _tpl("recommended.html")
-    assert '<script src="/static/js/recommended.js" defer></script>' in rec
-    rec_js = (REPO / "src/mediaman/web/static/js/recommended.js").read_text(encoding="utf-8")
-    assert "createElement('h2')" in rec_js
-    assert "heroTitle.id = 'detail-modal-title'" in rec_js
+def test_title_detail_labelled_by_visible_title():
+    """The detail dialog's aria-labelledby points at a real, visible <h2>
+    in the template; no placeholder sr-only heading stands in for it."""
+    detail = _tpl("_watch_detail.html")
+    assert 'aria-labelledby="ttl-title"' in detail
+    assert re.search(r'<h2 class="ttl__title" id="ttl-title"[^>]*></h2>', detail)
+    assert 'class="sr-only">Details</h2>' not in detail
 
 
 def test_force_password_change_policy_issues_announce_each_item():

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.plex_watch import (
     PlexItemNotFound,
     PlexUnavailable,
@@ -18,6 +19,15 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import save_progress
 from mediaman.web.routes.watch import browse_api, pages
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
+
+
+@pytest.fixture(autouse=True)
+def cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(disk_cache, "_root", None)
+    monkeypatch.setattr(disk_cache, "_failed", {})
+    monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "sync", True)
+    disk_cache.init(tmp_path)
 
 
 @pytest.fixture
@@ -106,6 +116,15 @@ class TestSearch:
 
         assert _search(client, "glass")[0]["watched"] is False
 
+    def test_each_card_carries_its_title_ref(self, client, conn):
+        _movie(conn, "100", "The Glasshouse")
+        _season(conn, "501", "500", "Glass Coast")
+
+        assert {i["title"]: i["ref"] for i in _search(client, "glass")} == {
+            "The Glasshouse": "movie-100",
+            "Glass Coast": "show-500",
+        }
+
 
 def _fake_plex(monkeypatch, *, section="1", thumb="/library/metadata/511/thumb/1", error=None):
     def get_item(key):
@@ -113,11 +132,15 @@ def _fake_plex(monkeypatch, *, section="1", thumb="/library/metadata/511/thumb/1
             raise error
         return SimpleNamespace(rating_key=key, library_section_id=section, thumb=thumb)
 
-    fake = SimpleNamespace(
-        get_item=get_item,
-        fetch_image=lambda path: (b"\xff\xd8jpeg-bytes", "image/jpeg"),
-    )
+    calls = []
+
+    def fetch_image(path):
+        calls.append(path)
+        return b"\xff\xd8jpeg-bytes", "image/jpeg"
+
+    fake = SimpleNamespace(get_item=get_item, fetch_image=fetch_image)
     monkeypatch.setattr(pages, "PlexWatch", lambda *_a, **_k: fake)
+    return calls
 
 
 class TestThumb:
@@ -150,12 +173,41 @@ class TestThumb:
         assert "plex.invalid" not in resp.text
 
     def test_a_person_past_the_cap_gets_429_and_no_plex_call(self, client, monkeypatch):
-        _fake_plex(monkeypatch)
+        fetches = _fake_plex(monkeypatch)
         monkeypatch.setattr(browse_api, "_THUMB_LIMITER", ActionRateLimiter(2, 60))
+
+        codes = [client.get(f"/api/watch/thumb/{key}").status_code for key in (511, 512, 513)]
+
+        assert codes == [200, 200, 429]
+        assert len(fetches) == 2
+
+    def test_a_cached_thumb_is_served_without_plex_or_the_cap(self, client, monkeypatch):
+        fetches = _fake_plex(monkeypatch)
+        monkeypatch.setattr(browse_api, "_THUMB_LIMITER", ActionRateLimiter(1, 60))
 
         codes = [client.get("/api/watch/thumb/511").status_code for _ in range(3)]
 
-        assert codes == [200, 200, 429]
+        assert codes == [200, 200, 200]
+        assert len(fetches) == 1
+
+    def test_a_cached_thumb_is_refused_once_its_library_is_no_longer_scanned(
+        self, client, conn, monkeypatch
+    ):
+        _fake_plex(monkeypatch)
+        client.get("/api/watch/thumb/511")
+        conn.execute("UPDATE settings SET value = '[\"2\"]' WHERE key = 'plex_libraries'")
+        conn.commit()
+
+        assert client.get("/api/watch/thumb/511").status_code == 404
+
+    def test_a_failed_fetch_is_not_cached(self, client, monkeypatch):
+        monkeypatch.setattr(disk_cache, "BACKOFF_S", 0.0)
+        _fake_plex(monkeypatch, error=PlexUnavailable("Plex could not be reached"))
+        assert client.get("/api/watch/thumb/511").status_code == 503
+
+        _fake_plex(monkeypatch)
+
+        assert client.get("/api/watch/thumb/511").status_code == 200
 
     def test_needs_a_session(self, client):
         client.cookies.clear()

@@ -274,6 +274,9 @@ def _resolve_download_state(
             caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
             caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
         state = compute_download_state(mt, tmdb_id, caches)
+        # A show Sonarr holds but will not fetch has no state: say it is tracked, not queued.
+        if state is None and mt != "movie" and tmdb_id in caches["sonarr_series"]:
+            state = "tracked"
         if state is not None:
             item["download_state"] = state
     except (requests.RequestException, SafeHTTPError, ArrError):

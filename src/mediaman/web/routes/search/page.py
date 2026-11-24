@@ -8,11 +8,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import cast
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.db import get_db
@@ -43,21 +42,14 @@ def _normalise_shelf(raw: Iterable[dict[str, object]], limit: int) -> list[dict[
     return [item for item in normalised if item is not None][:limit]
 
 
-@router.get("/search", response_class=HTMLResponse)
-def search_page(request: Request) -> Response:
+@router.get("/search")
+def search_page(request: Request, q: str = "") -> Response:
+    """Send the old search page to the Watch page, keeping a usable query."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, _conn = resolved
-    templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
-        request,
-        "search.html",
-        {
-            "username": username,
-            "nav_active": "search",
-        },
-    )
+    q = q.strip()[:_MAX_QUERY_LEN]
+    return RedirectResponse(f"/watch?{urlencode({'q': q})}" if q else "/watch", status_code=302)
 
 
 @router.get("/api/search")

@@ -130,10 +130,6 @@
                           Renders instead of media_pill_label / countdown_label
                           when non-empty.  MUST be a server-side literal — never
                           pass user-supplied content.
-     poster_overlay_html — pre-rendered HTML appended inside .tile-poster after
-                          img / pills / rating (|safe); used for call sites that
-                          need poster-chips, poster-state, or other overlays the
-                          standard params don't cover.  Same XSS rule as above.
      tile_hit_label     — if non-empty, renders a full-width keyboard-accessible
                           overlay button (<button class="tile-hit">) as the first
                           child of .tile, before .tile-poster.
@@ -145,7 +141,6 @@
               media_pill_label="", media_pill_variant="neutral", countdown_label="",
               rating="",
               pills_html="",
-              poster_overlay_html="",
               tile_hit_label="",
               raw_data_attrs={}) -%}
 <div class="tile"
@@ -164,7 +159,6 @@
     </div>
     {% endif %}
     {% if rating %}<div class="tile-rating"><span class="star">★</span> {{ rating }}</div>{% endif %}
-    {{ poster_overlay_html | safe }}
   </div>
   <div>
     <div class="tile-title">{{ title }}</div>

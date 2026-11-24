@@ -43,17 +43,28 @@ def test_buttons_whose_label_changes_have_a_minimum_width() -> None:
     assert "min-width" in _declarations(".setg-pg #btn-send-newsletter")
 
 
+def _phone_block_with(selector: str) -> str:
+    """The body of the phone `@media` block that holds a rule for `selector`."""
+    for m in re.finditer(r"@media \(max-width: 699\.98px\)\s*\{", PANELS):
+        depth, i = 1, m.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(PANELS[i], 0)
+            i += 1
+        body = PANELS[m.end() : i - 1]
+        if selector in body:
+            return body
+    raise AssertionError(f"no phone block holds {selector}")
+
+
 def test_save_error_stays_visible_on_phones() -> None:
-    phone = PANELS[PANELS.index("max-width: 699.98px") :]
+    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
     assert ".setg-pg .savebar:not(.is-error) .sb-sub" in phone
-    assert ".setg-pg .savebar.is-error .sb-sub" in phone
-    assert "min-height: 44px" in phone
+    assert ".setg-pg .savebar .btn { min-height: 44px; }" in phone
 
 
 def test_small_buttons_are_44px_on_phones() -> None:
-    phone = PANELS[PANELS.rindex("max-width: 639.98px") :]
-    assert ".setg-pg .btn--sm" in phone
-    assert "min-height: 44px" in phone
+    phone = _phone_block_with(".setg-pg .btn--sm")
+    assert re.search(r"\.setg-pg \.btn--sm,[^{}]*\{[^{}]*min-height:\s*44px", phone)
 
 
 def test_integration_chevron_uses_the_motion_tokens() -> None:

@@ -37,7 +37,7 @@
     var pct = d.q('[data-v="pct"]', row);
     if (pct) d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
     var sizeInfo = d.q('[data-v="size-info"]', row);
-    if (sizeInfo) sizeInfo.style.display = (item.state === 'searching') ? 'none' : '';
+    if (sizeInfo) sizeInfo.hidden = (item.state === 'searching');
     var sizeDone = d.q('[data-v="size-done"]', row);
     if (sizeDone) d.setText(sizeDone, item.size_done || '');
     var sizeTotal = d.q('[data-v="size-total"]', row);

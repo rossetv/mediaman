@@ -62,6 +62,7 @@ class TestDownloadSubmitHappyPath:
         token = _make_movie_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -103,6 +104,7 @@ class TestDownloadSubmitReplay:
         token = _make_movie_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.return_value = None
 
         with patch(
@@ -132,6 +134,7 @@ class TestDownloadSubmitAlreadyExists:
         token = _make_movie_token(secret_key)
 
         mock_radarr = MagicMock()
+        mock_radarr.get_movie_by_tmdb.return_value = None
         mock_radarr.add_movie.side_effect = SafeHTTPError(409, "Conflict", "http://radarr.local")
 
         with patch(

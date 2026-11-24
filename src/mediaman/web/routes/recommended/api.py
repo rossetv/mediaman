@@ -15,8 +15,15 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.state import (
+    add_or_remonitor_movie,
+    is_series_already_tracked,
+    radarr_holds_movie,
+    sonarr_tracks_series,
+)
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
@@ -136,6 +143,15 @@ def _sanitise_title(title: str | None) -> str:
     return cleaned[:256]
 
 
+def _already_there(row: SuggestionDetail) -> JSONResponse:
+    already = (
+        f"'{row.title}' is already in Radarr"
+        if row.media_type == "movie"
+        else f"'{row.title}' is already tracked by Sonarr — manage it there"
+    )
+    return respond_failure(already, status=409)
+
+
 def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
@@ -156,7 +172,21 @@ def _add_rec_to_radarr(
     if not tmdb_id:
         return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
     safe_title = _sanitise_title(row.title)
-    client.add_movie(tmdb_id, safe_title)
+    try:
+        outcome = add_or_remonitor_movie(client, tmdb_id, safe_title)
+    except SafeHTTPError as exc:
+        # Only a failed add can mean "already there": Radarr answers 409, 422 or,
+        # for a movie it holds, 400, so an add that raced the check above ends
+        # as already there and any other 400 stays a failure.
+        if exc.status_code in (409, 422) or (
+            exc.status_code == 400 and radarr_holds_movie(client, tmdb_id)
+        ):
+            return _already_there(row)
+        raise
+    if outcome == "already_tracked":
+        return _already_there(row)
+    if outcome == "bad_entry":
+        return respond_failure("Radarr entry is in an unexpected state", status=502)
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
@@ -223,7 +253,17 @@ def _add_rec_to_sonarr(
         return respond_failure("Invalid TVDB ID for this show", status=200)
     if tvdb_id <= 0:
         return respond_failure("Invalid TVDB ID for this show", status=200)
-    client.add_series(tvdb_id, safe_title)
+    if is_series_already_tracked(client, tvdb_id):
+        return _already_there(row)
+    try:
+        client.add_series(tvdb_id, safe_title)
+    except SafeHTTPError as exc:
+        # Same as Radarr, for a series Sonarr already tracks.
+        if exc.status_code in (409, 422) or (
+            exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id)
+        ):
+            return _already_there(row)
+        raise
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
@@ -288,8 +328,6 @@ def api_download_recommendation(
         )
 
     except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return respond_failure(f"'{row.title}' already exists in your library", status=409)
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row.title,
@@ -299,3 +337,6 @@ def api_download_recommendation(
     except (ArrError, ValueError):
         logger.exception("Failed to add recommendation '%s'", row.title)
         return respond_failure("Failed to add to download queue", status=502)
+    finally:
+        # Watch holds Radarr and Sonarr state briefly; drop it so the title shows queued.
+        watch_catalog.invalidate()

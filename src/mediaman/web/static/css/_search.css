@@ -11,10 +11,9 @@
   padding: 0 16px;
   height: 52px;
   border: 1px solid var(--hair);
-  transition: border-color .15s, background .15s;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
 }
-/* Error / empty state under the search box. */
-#shelves .empty { margin-top: 24px; }
 .search-box:focus-within,
 .search-wrap:focus-within { border-color: var(--accent); background: var(--s3); }
 

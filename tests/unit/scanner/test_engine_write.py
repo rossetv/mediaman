@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -10,10 +11,12 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.scanner.deletions import DeletionExecutor
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.library_index import library_movies
 
 
 @pytest.fixture
@@ -379,6 +382,154 @@ class TestArrIdsAndTrackedFiles:
         assert row["tmdb_id"] == 603
         assert json.loads(row["tracked_files"]) == self._movie()["tracked_files"]
 
+    def test_a_library_sync_shows_a_new_title_in_the_held_library_index_at_once(
+        self, conn, mock_plex
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        ).sync_library()
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_scan_shows_a_new_title_in_the_held_library_index_at_once(self, conn, mock_plex):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        self._scan(conn, mock_plex, "movie")
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_scan_that_fails_partway_still_drops_the_held_library_index(self, conn, mock_plex):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+
+        with (
+            patch.object(ScanEngine, "_record_deletion_outcome", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            self._scan(conn, mock_plex, "movie")
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_library_sync_that_fails_partway_still_drops_the_held_library_index(
+        self, conn, mock_plex
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        write = ScanEngine._sync_phase_write
+
+        def write_then_fail(engine, *args, **kwargs):
+            write(engine, *args, **kwargs)
+            raise RuntimeError("boom")
+
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", write_then_fail),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
+
+        assert library_movies(conn) == {603: "movie-100"}
+
+    @staticmethod
+    def _half_write_then_fail(conn):
+        """A step that writes a movie into the open transaction and then raises."""
+
+        def step(*args, **kwargs):
+            conn.execute(
+                "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+                "plex_rating_key, added_at, file_path, file_size_bytes, last_scanned_at, "
+                "tmdb_id) VALUES ('half', 'Half', 'movie', '1', 'half', "
+                "'2026-01-01T00:00:00+00:00', '/x', 1, '2026-01-01T00:00:00+00:00', 777)"
+            )
+            raise RuntimeError("boom")
+
+        return step
+
+    def _after_the_callers_next_write(self, conn, db_path):
+        """What a second connection sees once the caller commits its own next write."""
+        conn.execute("UPDATE settings SET value = value WHERE key = 'none'")
+        conn.commit()
+        other = sqlite3.connect(db_path)
+        try:
+            return other.execute("SELECT id FROM media_items").fetchall()
+        finally:
+            other.close()
+
+    def test_a_scan_that_fails_mid_library_leaves_no_half_written_rows(
+        self, conn, mock_plex, db_path
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        failing = self._half_write_then_fail(conn)
+
+        with (
+            patch.object(ScanEngine, "_cleanup_orphans_per_library", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            self._scan(conn, mock_plex, "movie")
+
+        assert self._after_the_callers_next_write(conn, db_path) == [("100",)]
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_library_sync_that_fails_mid_library_leaves_no_half_written_rows(
+        self, conn, mock_plex, db_path
+    ):
+        assert library_movies(conn) == {}
+        failing = self._half_write_then_fail(conn)
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
+
+        assert self._after_the_callers_next_write(conn, db_path) == []
+        assert library_movies(conn) == {}
+
+    def test_a_failing_rollback_does_not_hide_the_original_error(self, conn, mock_plex):
+        failing = self._half_write_then_fail(conn)
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+        broken = MagicMock(wraps=conn)
+        broken.rollback.side_effect = sqlite3.OperationalError("disk I/O error")
+        engine._conn = broken
+
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
+
     def test_season_folder_mismatch_gets_no_sonarr_id(self, conn, mock_plex):
         insert_media_item(conn, id="s2", plex_rating_key="s2", media_type="tv_season", sonarr_id=3)
         mock_plex.get_show_seasons.return_value = [
@@ -440,3 +591,116 @@ class TestPostScanFollowupsAreBestEffort:
             engine.run_scan()
 
         mock_news.assert_called_once()
+
+
+class TestAScanKeepsTheRecordOfADeletionThatFailsMidway:
+    """Once the deletion phase has begun a failure rolls nothing back: the file is gone
+    from disk and recovery books it only from the record the deletion wrote."""
+
+    @staticmethod
+    def _scan(conn, items):
+        plex = MagicMock()
+        plex.get_movie_items.return_value = items
+        plex.get_watch_history.return_value = []
+        with (
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+        ):
+            return ScanEngine(
+                conn=conn,
+                plex_client=plex,
+                library_ids=["1"],
+                library_types={"1": "movie"},
+                secret_key="k",
+            ).run_scan()
+
+    @staticmethod
+    def _item(key, path, size):
+        return {
+            "plex_rating_key": key,
+            "title": f"T{key}",
+            "added_at": datetime.now(UTC),
+            "file_path": path,
+            "file_size_bytes": size,
+            "poster_path": None,
+            "tmdb_id": 600,
+            "tracked_files": [{"path": path, "size": size}],
+        }
+
+    def _fail_a_deletion_at(self, conn, tmp_path, monkeypatch, step, plex_lists_it):
+        root = tmp_path / "media"
+        (root / "Film").mkdir(parents=True)
+        (root / "Other").mkdir()
+        film = root / "Film" / "film.mkv"
+        film.write_bytes(b"data" * 10)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        others = []
+        for i in range(20):
+            (root / "Other" / f"{i}.mkv").write_bytes(b"x")
+            others.append(self._item(f"x{i}", str(root / "Other" / f"{i}.mkv"), 1))
+        movie = self._item("m1", str(film), 40)
+        insert_media_item(
+            conn,
+            id="m1",
+            title="Tm1",
+            plex_rating_key="m1",
+            plex_library_id=1,
+            file_path=str(film),
+            file_size_bytes=40,
+        )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = 'm1'",
+            (json.dumps(movie["tracked_files"]),),
+        )
+        conn.commit()
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="t",
+            execute_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+            token_used=False,
+        )
+        real = getattr(DeletionExecutor, step)
+
+        def then_fail(executor, *args, **kwargs):
+            real(executor, *args, **kwargs)
+            raise sqlite3.OperationalError("database or disk is full")
+
+        with (
+            patch.object(DeletionExecutor, step, then_fail),
+            pytest.raises(sqlite3.OperationalError),
+        ):
+            self._scan(conn, [movie, *others])
+        assert not film.exists()
+        # What the manual scan does next on the same connection.
+        conn.execute("UPDATE settings SET value = value WHERE key = 'none'")
+        conn.commit()
+        return [movie, *others] if plex_lists_it else others
+
+    @staticmethod
+    def _deleted_audits(conn):
+        return conn.execute("SELECT 1 FROM audit_log WHERE action = 'deleted'").fetchall()
+
+    def test_the_removal_record_survives_a_failure_right_after_it_is_written(
+        self, conn, tmp_path, monkeypatch
+    ):
+        items = self._fail_a_deletion_at(conn, tmp_path, monkeypatch, "_record_removal", True)
+
+        row = conn.execute(
+            "SELECT removed_files FROM scheduled_actions WHERE media_item_id = 'm1'"
+        ).fetchone()
+        assert row is not None and row["removed_files"] is not None
+        for _ in range(2):
+            self._scan(conn, items)
+        assert self._deleted_audits(conn)
+
+    def test_the_deleted_booking_survives_a_failure_right_after_the_deletion_settles(
+        self, conn, tmp_path, monkeypatch
+    ):
+        items = self._fail_a_deletion_at(conn, tmp_path, monkeypatch, "_settle", False)
+
+        assert self._deleted_audits(conn)
+        for _ in range(2):
+            self._scan(conn, items)
+        assert self._deleted_audits(conn)

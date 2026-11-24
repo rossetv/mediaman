@@ -68,6 +68,45 @@ def test_a_new_route_under_api_watch_is_refused_to_a_viewer(guarded_app, conn, v
     assert reached == []
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/watch/img/tmdb/w342/a.jpg",
+        "/api/watch/search/tmdb?q=x",
+        "/api/watch/discover",
+        "/api/watch/title/movie-1",
+        "/api/watch/title/show-1/season/2",
+        "/api/watch/recommended",
+    ],
+)
+def test_a_viewer_reaches_the_watch_catalog(guarded_app, conn, viewer_client, path):
+    app, reached = guarded_app
+    client = viewer_client(app, conn)
+
+    assert client.get(path).status_code == 204
+    assert len(reached) == 1
+
+
+def test_a_viewer_cannot_read_a_titles_admin_facts(guarded_app, conn, viewer_client):
+    app, reached = guarded_app
+    client = viewer_client(app, conn)
+
+    resp = client.get("/api/watch/admin/title/movie-1")
+
+    assert (resp.status_code, resp.json()) == (403, {"error": "forbidden"})
+    assert reached == []
+
+
+def test_a_viewer_asking_for_the_list_view_is_sent_back_to_watch(guarded_app, conn, viewer_client):
+    app, reached = guarded_app
+    client = viewer_client(app, conn)
+
+    resp = client.get("/watch/list?type=kept", follow_redirects=False)
+
+    assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
+    assert reached == []
+
+
 def test_a_viewer_cannot_use_another_method_on_a_watch_route(guarded_app, conn, viewer_client):
     app, reached = guarded_app
     client = viewer_client(app, conn)

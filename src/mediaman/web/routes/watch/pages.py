@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
-from mediaman.services.infra import allowed_outbound_hosts, get_string_setting
+from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
@@ -36,6 +36,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexWatch,
     is_in_libraries,
 )
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import resolve_page_session
@@ -48,6 +49,7 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
+from mediaman.web.routes.watch import list_page
 
 router = APIRouter()
 
@@ -76,8 +78,11 @@ _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
 _ORIGIN_RE = re.compile(
-    r"/watch|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
+    r"/watch(#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|rec-[0-9]{1,10}))?"
+    r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
+# A search typed into the page's field is never this long; a longer ?q= is cut.
+_QUERY_MAX = 200
 
 
 def open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
@@ -389,7 +394,7 @@ def _continue_watching(
                 )
             )
             if banner is None:
-                banner = _banner(movie.title, left_text, pct, href, movie.key)
+                banner = _banner(movie.title, left_text, pct, href, movie.key, "movie")
             continue
 
         show = shows.get(progress.show_rating_key)
@@ -439,21 +444,31 @@ def _continue_watching(
                 line = line_short = left_text
                 episodes_href = f"/watch/show/{show.key}"
             banner = _banner(
-                show.title, line, pct, play_href(key, resume=True, origin="/watch"), show.key
+                show.title,
+                line,
+                pct,
+                play_href(key, resume=True, origin="/watch"),
+                show.key,
+                "show",
             )
             banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
     return cards, banner
 
 
-def _banner(title: str, line: str, pct: int | None, href: str, poster_key: str) -> dict[str, Any]:
+def _banner(
+    title: str, line: str, pct: int | None, href: str, key: str, kind: str
+) -> dict[str, Any]:
+    """The banner for a library title; its ref opens the title's detail overlay."""
     return {
+        "kicker": "Continue watching",
         "title": title,
+        "ref": f"{kind}-{key}",
         "line": line,
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        "backdrop_url": poster_url(poster_key),
+        "backdrop_url": poster_url(key),
     }
 
 
@@ -476,11 +491,15 @@ def _leaving_card(pending: lib.PendingDeletion, now: datetime) -> dict[str, Any]
 
 
 @router.get("/watch", response_class=HTMLResponse)
-def watch_page(request: Request) -> Response:
+def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved
+    is_admin = _is_admin(conn, username)
+    view = "list" if is_admin and view == "list" else "rows"
+    q = q.strip()[:_QUERY_MAX]
+    tmdb_configured = TmdbClient.from_db(conn, request.app.state.config.secret_key) is not None
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
     set_up = plex_is_configured(conn)
@@ -498,22 +517,29 @@ def watch_page(request: Request) -> Response:
     plex.check_reachable()
     leaving_row = [_leaving_card(p, now) for p in pending]
 
-    # (added, card, where the banner's Play goes): a movie plays, a show opens its page.
+    # (added, card, where the banner's Play goes, its detail ref): a movie plays, a show
+    # opens its page.
     newest = sorted(
         [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"))
+            (_added(m.added_at), c, play_href(m.key, origin="/watch"), f"movie-{m.key}")
             for m, c in zip(movies, movie_row, strict=True)
         ]
-        + [(_added(s.added_at), c, c["href"]) for s, c in zip(shows, show_row, strict=True)],
+        + [
+            (_added(s.added_at), c, c["href"], f"show-{s.key}")
+            for s, c in zip(shows, show_row, strict=True)
+        ],
         key=lambda entry: entry[0],
         reverse=True,
     )
     cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, _ in newest if added >= cutoff]
+    recent_row = [c for added, c, _, _ in newest if added >= cutoff]
     if banner is None and newest:
-        _, latest, play = newest[0]
+        added, latest, play, ref = newest[0]
         banner = {
+            # Only as true as the Recently added row: an older newest title gets a neutral label.
+            "kicker": "Recently added" if added >= cutoff else "From your library",
             "title": latest["title"],
+            "ref": ref,
             "line": latest["subtitle"],
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},
@@ -521,26 +547,47 @@ def watch_page(request: Request) -> Response:
             "backdrop_url": latest["poster_url"],
         }
 
+    # (title, cards, under the "Your library" divider); Discover goes between the two groups.
     rows = [
-        ("Continue watching", continue_row),
-        ("Leaving soon", leaving_row),
-        ("Recently added", recent_row),
-        ("Movies", movie_row),
-        ("TV", [c for s, c in zip(shows, show_row, strict=True) if not s.anime]),
-        ("Anime", [c for s, c in zip(shows, show_row, strict=True) if s.anime]),
+        ("Continue watching", continue_row, False),
+        ("Leaving soon", leaving_row, False),
+        ("Recently added", recent_row, False),
+        ("Movies", movie_row, True),
+        ("TV", [c for s, c in zip(shows, show_row, strict=True) if not s.anime], True),
+        ("Anime", [c for s, c in zip(shows, show_row, strict=True) if s.anime], True),
     ]
+    # The list view's own context, included by watch.html; its q is the trimmed search term.
+    list_ctx = list_page.list_context(conn, request.query_params) if view == "list" else {}
+    list_q = list_ctx.pop("q", "")
     return _render(
         request,
         "watch.html",
         {
             "username": username,
             "banner": banner,
-            "rows": [{"title": title, "items": items} for title, items in rows if items],
-            # Not set up blanks the page (nothing can play); a failure part way only drops
-            # what came from Plex and shows a notice above the rows.
+            "rows": [
+                {"title": title, "items": items, "library": in_library}
+                for title, items, in_library in rows
+                if items
+            ],
+            # Not set up blanks the browse rows (nothing can play); a failure part way only
+            # drops what came from Plex and shows a notice above the rows.
             "watch_error": None if set_up else "not_set_up",
             "plex_unreachable": set_up and plex.error is not None,
-            "is_admin": _is_admin(conn, username),
+            "is_admin": is_admin,
+            "view": view,
+            "q": q,
+            "tmdb_configured": tmdb_configured,
+            "picks_on": get_bool_setting(conn, "suggestions_enabled", default=True),
+            **list_ctx,
+            "list_q": list_q,
+            "page_data": {
+                "is_admin": is_admin,
+                "tmdb_configured": tmdb_configured,
+                "view": view,
+                "q": q,
+                "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
+            },
         },
     )
 

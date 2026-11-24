@@ -1,4 +1,4 @@
-// Runs the real watch.js against a tiny fake DOM and prints the outcome of one
+// Runs the real scripts under static/js/watch against a tiny fake DOM and prints the outcome of one
 // scenario as JSON. Usage: node watch_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -7,176 +7,8 @@ const vm = require('vm');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-/* ── Fake DOM ── */
+const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
-function parseCompound(text) {
-  const out = { tag: null, id: null, classes: [], attrs: [] };
-  const re = /^([a-z]+)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]/gi;
-  let m;
-  while ((m = re.exec(text))) {
-    if (m[1]) out.tag = m[1].toUpperCase();
-    else if (m[2]) out.id = m[2];
-    else if (m[3]) out.classes.push(m[3]);
-    else out.attrs.push([m[4], m[5]]);
-  }
-  return out;
-}
-
-function matchesCompound(el, c) {
-  if (el.nodeType !== 1) return false;
-  if (c.tag && el.tagName !== c.tag) return false;
-  if (c.id && el.id !== c.id) return false;
-  if (!c.classes.every((k) => el.classList.contains(k))) return false;
-  return c.attrs.every(([k, v]) => el.hasAttribute(k) && (v === undefined || el.getAttribute(k) === v));
-}
-
-function matchesSelector(el, sel) {
-  return sel.split(',').some((one) => {
-    const parts = one.trim().split(/\s+/).map(parseCompound);
-    if (!matchesCompound(el, parts[parts.length - 1])) return false;
-    let i = parts.length - 2;
-    for (let a = el.parentNode; a && i >= 0; a = a.parentNode) {
-      if (matchesCompound(a, parts[i])) i--;
-    }
-    return i < 0;
-  });
-}
-
-class Node {
-  constructor(doc, tag) {
-    this.ownerDocument = doc;
-    this.nodeType = tag.toLowerCase() === '#text' ? 3 : 1;
-    this.tagName = tag.toUpperCase();
-    this.childNodes = [];
-    this.parentNode = null;
-    this.attrs = {};
-    this.listeners = {};
-    this.style = {};
-    this._text = '';
-    this.inert = false;
-  }
-  get id() { return this.attrs.id || ''; }
-  get className() { return this.attrs.class || ''; }
-  set className(v) { this.attrs.class = String(v); }
-  get classList() {
-    const el = this;
-    const list = () => el.className.split(/\s+/).filter(Boolean);
-    return {
-      contains: (c) => list().includes(c),
-      add: (...cs) => { el.className = [...new Set(list().concat(cs))].join(' '); },
-      remove: (...cs) => { el.className = list().filter((x) => !cs.includes(x)).join(' '); },
-      toggle: (c, on) => {
-        const want = on === undefined ? !list().includes(c) : on;
-        if (want) el.classList.add(c); else el.classList.remove(c);
-        return want;
-      },
-    };
-  }
-  get tabIndex() { return this.hasAttribute('tabindex') ? Number(this.attrs.tabindex) : -1; }
-  set tabIndex(v) { this.attrs.tabindex = String(v); }
-  setAttribute(k, v) { this.attrs[k] = String(v); }
-  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
-  hasAttribute(k) { return k in this.attrs; }
-  removeAttribute(k) { delete this.attrs[k]; }
-  get children() { return this.childNodes.filter((n) => n.nodeType === 1); }
-  get textContent() { return this.nodeType === 3 ? this._text : this.childNodes.map((c) => c.textContent).join(''); }
-  set textContent(t) {
-    this.childNodes.forEach((c) => { c.parentNode = null; });
-    this.childNodes = [];
-    if (this.nodeType === 3) { this._text = String(t); return; }
-    if (t !== '' && t !== null && t !== undefined) this.appendChild(this.ownerDocument.createTextNode(String(t)));
-  }
-  sibling(step, elementsOnly) {
-    if (!this.parentNode) return null;
-    const list = this.parentNode.childNodes;
-    for (let i = list.indexOf(this) + step; i >= 0 && i < list.length; i += step) {
-      if (!elementsOnly || list[i].nodeType === 1) return list[i];
-    }
-    return null;
-  }
-  get nextSibling() { return this.sibling(1, false); }
-  get nextElementSibling() { return this.sibling(1, true); }
-  get previousElementSibling() { return this.sibling(-1, true); }
-  appendChild(c) { return this.insertBefore(c, null); }
-  insertBefore(c, ref) {
-    if (c.parentNode) c.remove();
-    c.parentNode = this;
-    const i = ref ? this.childNodes.indexOf(ref) : -1;
-    if (i < 0) this.childNodes.push(c); else this.childNodes.splice(i, 0, c);
-    return c;
-  }
-  remove() {
-    if (!this.parentNode) return;
-    const p = this.parentNode;
-    p.childNodes.splice(p.childNodes.indexOf(this), 1);
-    this.parentNode = null;
-  }
-  before(c) { this.parentNode.insertBefore(c, this); }
-  replaceWith(c) { const p = this.parentNode; p.insertBefore(c, this); this.remove(); }
-  contains(n) { for (let a = n; a; a = a.parentNode) if (a === this) return true; return false; }
-  descendants() { return this.childNodes.flatMap((c) => (c.nodeType === 1 ? [c, ...c.descendants()] : [])); }
-  matches(sel) { return matchesSelector(this, sel); }
-  closest(sel) { for (let a = this; a && a.nodeType === 1; a = a.parentNode) if (a.matches(sel)) return a; return null; }
-  querySelectorAll(sel) { return this.descendants().filter((e) => e.matches(sel)); }
-  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
-  addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
-  focus() { this.ownerDocument.activeElement = this; }
-  blur() { this.ownerDocument.activeElement = this.ownerDocument.body; }
-  getBoundingClientRect() { return { top: 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 }; }
-  getClientRects() { return this.ownerDocument.body.contains(this) ? [this.getBoundingClientRect()] : []; }
-  get offsetWidth() { return 20; }
-  get offsetHeight() { return 20; }
-  cloneNode() {
-    const copy = this.ownerDocument.createElement(this.tagName);
-    copy.attrs = { ...this.attrs };
-    copy._text = this._text;
-    copy.nodeType = this.nodeType;
-    this.childNodes.forEach((c) => copy.appendChild(c.cloneNode(true)));
-    return copy;
-  }
-}
-
-function makeDocument() {
-  const doc = {
-    listeners: {},
-    createElement: (t) => new Node(doc, t),
-    createTextNode: (t) => { const n = new Node(doc, '#text'); n._text = t; return n; },
-    addEventListener: (t, fn) => { (doc.listeners[t] = doc.listeners[t] || []).push(fn); },
-    getElementById: (id) => doc.documentElement.querySelector('#' + id),
-    querySelector: (s) => doc.documentElement.querySelector(s),
-    querySelectorAll: (s) => doc.documentElement.querySelectorAll(s),
-  };
-  doc.documentElement = new Node(doc, 'html');
-  doc.body = doc.documentElement.appendChild(new Node(doc, 'body'));
-  doc.activeElement = doc.body;
-  doc.importNode = (n) => {
-    const copy = n.cloneNode(true);
-    const adopt = (x) => { x.ownerDocument = doc; x.childNodes.forEach(adopt); };
-    adopt(copy);
-    return copy;
-  };
-  return doc;
-}
-
-/* Build markup from [tag, attrs, ...children] arrays; a string is a text node. */
-function build(doc, spec) {
-  if (typeof spec === 'string') return doc.createTextNode(spec);
-  const [tag, attrs, ...kids] = spec;
-  const el = doc.createElement(tag);
-  Object.keys(attrs || {}).forEach((k) => el.setAttribute(k, attrs[k]));
-  kids.forEach((k) => el.appendChild(build(doc, k)));
-  return el;
-}
-
-/* Bubble a click from *target* up to the document. */
-function click(doc, target) {
-  const e = { target, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-  for (let a = target; a; a = a.parentNode) (a.listeners.click || []).forEach((fn) => fn(e));
-  (doc.listeners.click || []).forEach((fn) => fn(e));
-}
-
-const flush = () => new Promise((r) => setImmediate(r));
-async function settle() { for (let i = 0; i < 6; i++) await flush(); }
 
 /* ── The show page ── */
 
@@ -241,7 +73,8 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, timers, run: () => vm.runInContext(fs.readFileSync(path.join(JS, 'watch.js'), 'utf8'), ctx) };
+  return { ctx, doc, toasts, timers, run: () => ['watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
+    .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx)) };
 }
 
 function lineState(doc) {
@@ -294,6 +127,8 @@ const scenarios = {
   // Keep the first card of the Leaving soon row, with motion on.
   async cardExit() {
     const page = load({ motion: true });
+    const tokens = { '--dur-fast': '150ms', '--dur': '200ms', '--dur-slow': '.25s' };
+    page.ctx.getComputedStyle = () => ({ getPropertyValue: (n) => tokens[n] || '', display: 'block' });
     const anims = [];
     page.doc.body.appendChild(leavingRowPage(page.doc));
     Node.prototype.animate = function (frames, timing) {
@@ -349,9 +184,9 @@ const scenarios = {
     await settle();
     const msg = page.doc.getElementById('watch-results-msg');
     const out = {
-      centred: msg.classList.contains('watch-results__msg--failed'),
-      icon: msg.children[0].tagName === 'I' && msg.children[0].getAttribute('aria-hidden') === 'true',
-      line: msg.querySelector('.watch-results__line') && msg.querySelector('.watch-results__line').textContent,
+      error: msg.classList.contains('watch-results__msg--error'),
+      alert: msg.getAttribute('role'),
+      line: msg.children[0] && msg.children[0].textContent,
       status: page.doc.getElementById('watch-search-status').textContent,
     };
     click(page.doc, msg.querySelector('button'));
@@ -359,6 +194,141 @@ const scenarios = {
     out.retried = calls === 2;
     out.focus = page.doc.activeElement === input;
     return out;
+  },
+
+  // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.
+  async swap() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames, timing) {
+      const anim = { node: this, frames, timing, cancel() {} };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const doc = page.doc;
+    const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'old' }, 'old']]);
+    doc.body.appendChild(host);
+    const oldNode = doc.getElementById('old');
+    const fresh = build(doc, ['p', { id: 'new' }, 'new']);
+    const done = page.ctx.MMWatch.core.swap(oldNode, fresh);
+    const stacked = oldNode.parentNode === fresh.parentNode && oldNode.parentNode !== host;
+    const cell = [oldNode.style.gridArea, fresh.style.gridArea];
+    const faded = anims.map((a) => [a.node.id, a.frames[0].opacity, a.frames[1].opacity]);
+    anims.find((a) => a.node === oldNode).onfinish();
+    await done;
+    return { stacked, cell, faded, after: host.children.map((c) => c.id), oldGone: !host.contains(oldNode) };
+  },
+
+  // A drop or a newer swap while a fade runs wins: the older fade's end never puts back a dropped
+  // view, nor loses the newer one (whichever fade ends first).
+  async swapInterrupted() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const anim = { node: this, frames, cancel() {} };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const doc = page.doc;
+    const swap = page.ctx.MMWatch.core.swap;
+    const fadeOut = (node) => anims.find((a) => a.node === node && a.frames[0].opacity === 1).onfinish();
+    const ids = (host) => host.descendants().filter((n) => /^v/.test(n.id)).map((n) => n.id);
+    const stage = () => {
+      const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'v0' }, 'v0']]);
+      doc.body.appendChild(host);
+      return { host, v0: doc.getElementById('v0'), v1: build(doc, ['p', { id: 'v1' }, 'v1']), v2: build(doc, ['p', { id: 'v2' }, 'v2']) };
+    };
+
+    let t = stage();
+    swap(t.v0, t.v1);
+    t.v1.remove();
+    fadeOut(t.v0);
+    await settle();
+    const dropped = ids(t.host);
+    t.host.remove();
+
+    const order = async (firstEnds) => {
+      t = stage();
+      swap(t.v0, t.v1);
+      swap(t.v1, t.v2);
+      const newerCell = t.v2.style.gridArea;
+      const oneStack = t.v2.parentNode === t.v0.parentNode && t.v1.parentNode === t.v0.parentNode;
+      const [a, b] = firstEnds === 'older' ? [t.v0, t.v1] : [t.v1, t.v0];
+      fadeOut(a);
+      await settle();
+      const between = ids(t.host);
+      fadeOut(b);
+      await settle();
+      const out = { newerCell, oneStack, between, after: ids(t.host), direct: t.v2.parentNode === t.host, cell: t.v2.style.gridArea || '' };
+      t.host.remove();
+      return out;
+    };
+    return { dropped, olderEndsFirst: await order('older'), newerEndsFirst: await order('newer') };
+  },
+
+  // A swap given the node still fading out (a caller that found it first) ends with one view, the
+  // newest, in any order of fade ends; while it runs only the newest is not inert.
+  async swapLeaving() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const anim = { node: this, frames, cancel() { this.cancelled = true; } };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const doc = page.doc;
+    const swap = page.ctx.MMWatch.core.swap;
+    const ids = (host) => host.descendants().filter((n) => /^v/.test(n.id)).map((n) => n.id);
+    const run = async (endFirst) => {
+      anims.length = 0;
+      const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'v0' }, 'v0']]);
+      doc.body.appendChild(host);
+      const v = [doc.getElementById('v0'), build(doc, ['p', { id: 'v1' }, 'v1']), build(doc, ['p', { id: 'v2' }, 'v2']), build(doc, ['p', { id: 'v3' }, 'v3'])];
+      let done = swap(v[0], v[1]);
+      done = swap(v[0], v[2]);
+      swap(v[0], v[3]);
+      const during = { shown: v.filter((n) => !n.hasAttribute('inert') && host.contains(n)).map((n) => n.id), all: ids(host) };
+      const outs = anims.filter((a) => a.frames[1].opacity === 0 && !a.cancelled);
+      (endFirst === 'oldest' ? outs : outs.slice().reverse()).forEach((a) => a.onfinish && a.onfinish());
+      await done;
+      const out = { during, after: ids(host), direct: v[3].parentNode === host, inert: v.some((n) => n.hasAttribute('inert')) };
+      host.remove();
+      return out;
+    };
+    return { oldestEndsFirst: await run('oldest'), newestEndsFirst: await run('newest') };
+  },
+
+  // With reduced motion the swap is immediate and runs no animation.
+  async swapReduced() {
+    const page = load();
+    let animated = false;
+    Node.prototype.animate = function () { animated = true; return {}; };
+    page.run();
+    const doc = page.doc;
+    const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'old' }, 'old']]);
+    doc.body.appendChild(host);
+    await page.ctx.MMWatch.core.swap(doc.getElementById('old'), build(doc, ['p', { id: 'new' }, 'new']));
+    return { after: host.children.map((c) => c.id), animated };
+  },
+
+  // FLIP: a node that moved slides from its old place; one that stayed is left alone.
+  async flip() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) { anims.push({ node: this, frames }); return {}; };
+    page.run();
+    const doc = page.doc;
+    const a = build(doc, ['i', { id: 'a' }]);
+    const b = build(doc, ['i', { id: 'b' }]);
+    const at = { a: { left: 0, top: 0 }, b: { left: 50, top: 0 } };
+    [a, b].forEach((n) => { n.getBoundingClientRect = () => at[n.id]; });
+    const play = page.ctx.MMWatch.core.flip([a, b]);
+    at.a = { left: 30, top: 10 };
+    play();
+    return { moved: anims.map((x) => [x.node.id, x.frames[0].transform, x.frames[1].transform]) };
   },
 
   // Season 1 is leaving, Season 2 is not: the line's slot stays through the swap and back.

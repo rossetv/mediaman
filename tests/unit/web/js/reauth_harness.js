@@ -27,7 +27,7 @@ class El {
   appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   emit(t, extra) { (this.listeners[t] || []).forEach((f) => f({ target: this, ...extra })); }
-  focus() {}
+  focus() { doc.activeElement = this; }
   select() {}
   remove() {}
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
@@ -35,16 +35,18 @@ class El {
 }
 
 const timers = [];
+const closers = [];
 const doc = {
   body: new El('body'),
   createElement: (t) => new El(t),
   querySelectorAll: () => [],
+  activeElement: null,
 };
 const ctx = {
   document: doc, Promise, TypeError,
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
   clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = () => {}; },
-  MM: { modal: { setupDetail: () => ({ open() {}, close() {} }) } },
+  MM: { modal: { setupDetail: (_el, o) => { closers.push(o.onClose); return { open() {}, close() { o.onClose(); } }; } } },
 };
 ctx.window = ctx;
 vm.createContext(ctx);
@@ -63,6 +65,16 @@ function open(result) {
 }
 
 const scenarios = {
+  // Cancel hands focus back to the control that asked for the password
+  async focusReturn() {
+    const asker = new El('button');
+    doc.activeElement = asker;
+    open({ ok: true });
+    doc.activeElement = doc.body.children[doc.body.children.length - 1];
+    const cancel = doc.activeElement.children[0].querySelector('.btn--ghost');
+    cancel.emit('click');
+    return { restored: doc.activeElement === asker };
+  },
   // a refusal and an empty password both fade the message in
   async error() {
     const wrong = open({ ok: false, error: 'Password is incorrect' });

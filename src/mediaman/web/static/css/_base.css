@@ -40,6 +40,9 @@ html, body {
    only cover it. */
 * { -webkit-tap-highlight-color: transparent; }
 
+/* `hidden` always hides, whatever display a component gives itself. */
+[hidden] { display: none !important; }
+
 img { display: block; max-width: 100%; }
 img[data-broken] { display: none; }
 
@@ -58,7 +61,7 @@ h1, h2, h3, h4 {
 :focus-visible {
   outline: 2px solid var(--accent-cta);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--r-xxs);
 }
 
 /* Visually hidden — screen reader only. */
@@ -217,17 +220,17 @@ main:focus { outline: none; }
   width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--success) 60%, transparent);
+  box-shadow: var(--glow-success);
   flex-shrink: 0;
   display: inline-block;
 }
 .conn-dot.off  { background: var(--t4); box-shadow: none; }
-.conn-dot.warn { background: var(--warning); box-shadow: 0 0 10px color-mix(in srgb, var(--warning) 60%, transparent); }
+.conn-dot.warn { background: var(--warning); box-shadow: var(--glow-warning); }
 /* ok/err modifier classes — JS sets these instead of writing inline boxShadow.
    The default (no modifier) dot already uses --success; .ok is explicit for
    the setConnStatus path so it can remove .err without an inline style reset. */
-.conn-dot.ok   { background: var(--success); box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent); }
-.conn-dot.err  { background: var(--danger);  box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 60%, transparent); }
+.conn-dot.ok   { background: var(--success); box-shadow: var(--glow-success); }
+.conn-dot.err  { background: var(--danger);  box-shadow: var(--glow-danger); }
 
 .empty {
   padding: 60px 20px;

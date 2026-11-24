@@ -12,8 +12,8 @@ States:
 - ``partial`` — TV only; at least one aired season has files but not
   all aired episodes are present.
 - ``downloading`` — item is in the Arr download queue.
-- ``queued`` — item is added to Radarr/Sonarr but has no files yet
-  and is not in the queue.
+- ``queued`` — item is added to Radarr/Sonarr but has no files yet, is
+  not in the queue and is set to be fetched (an unmonitored one is not).
 - ``None`` — item is not tracked at all.
 
 ``ACTION_*`` constants are the canonical strings used as the ``action``
@@ -25,14 +25,19 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import TYPE_CHECKING, Final, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
+import requests
+
+from mediaman.services.arr._transport import ArrError
 from mediaman.services.arr._types import (
     ArrSeason,
     ArrSeasonStatistics,
     RadarrMovie,
     SonarrSeries,
 )
+from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -52,11 +57,14 @@ ACTION_QUEUED: Final = "queued"
 class RadarrCaches(TypedDict):
     radarr_movies: dict[int, RadarrMovie]
     radarr_queue_tmdb_ids: set[int]
+    #: tmdbId -> download percentage 0-100; absent in hand-built caches.
+    radarr_queue_progress: NotRequired[dict[int, int]]
 
 
 class SonarrCaches(TypedDict):
     sonarr_series: dict[int, SonarrSeries]
     sonarr_queue_tmdb_ids: set[int]
+    sonarr_queue_progress: NotRequired[dict[int, int]]
 
 
 class ArrCaches(RadarrCaches, SonarrCaches):
@@ -139,7 +147,34 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
         return ACTION_DOWNLOADING
-    return ACTION_QUEUED
+    return ACTION_QUEUED if _sonarr_will_fetch(series) else None
+
+
+def _sonarr_will_fetch(series: SonarrSeries) -> bool:
+    """Whether Sonarr, as set, is going to fetch something for *series*.
+
+    Sonarr picks episodes, not seasons: a season left unmonitored can still
+    hold single monitored episodes. So in any season, a monitored episode
+    without a file (``episodeCount`` above ``episodeFileCount``) or one still
+    to air (``nextAiring``) is something to fetch. An unmonitored series, or
+    one with nothing of either kind, will never be fetched, so "queued" would
+    be false. A monitored season that does not show itself complete, and a
+    series that lists no seasons, stay queued.
+    """
+    if series.get("monitored") is False:
+        return False
+    seasons = series.get("seasons")
+    if not isinstance(seasons, list) or not seasons:
+        return True
+    for season in seasons:
+        stats = _season_stats(season)
+        total = stats.get("episodeCount", 0)
+        files = stats.get("episodeFileCount", 0)
+        if total > files or stats.get("nextAiring"):
+            return True
+        if season.get("monitored", True) is not False and not (total > 0 and files >= total):
+            return True
+    return False
 
 
 def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> str | None:
@@ -222,6 +257,23 @@ def _build_arr_index(
     return index
 
 
+def _queue_progress(queue: Sequence[Mapping[str, Any]], media_key: str) -> dict[int, int]:
+    """Return ``{tmdbId: pct}`` for queue entries, summing ``size``/``sizeleft`` per item
+    so a series with several queued episodes reports one overall percentage.
+    """
+    from mediaman.services.arr.fetcher._base import clamp_progress
+
+    totals: dict[int, list[int]] = {}
+    for q in queue:
+        tid = (q.get(media_key) or {}).get("tmdbId")
+        if not tid:
+            continue
+        acc = totals.setdefault(tid, [0, 0])
+        acc[0] += q.get("size") or 0
+        acc[1] += q.get("sizeleft") or 0
+    return {tid: clamp_progress(size, left) for tid, (size, left) in totals.items()}
+
+
 def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
@@ -236,17 +288,24 @@ def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     deliberate (matches dict-update semantics) and stable across calls.
     """
     if client is None:
-        return {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+        return {
+            "radarr_movies": {},
+            "radarr_queue_tmdb_ids": set(),
+            "radarr_queue_progress": {},
+        }
     movies = _build_arr_index(
         client,
         items_getter="get_movies",
         queue_tmdb_key="movie",
         cache_name="build_radarr_cache",
     )
-    queue_ids: set[int] = {
-        tid for q in client.get_queue() if (tid := (q.get("movie") or {}).get("tmdbId"))
+    queue = client.get_queue()
+    progress = _queue_progress(queue, "movie")
+    return {
+        "radarr_movies": movies,  # type: ignore[typeddict-item]
+        "radarr_queue_tmdb_ids": set(progress),
+        "radarr_queue_progress": progress,
     }
-    return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
@@ -258,17 +317,24 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     See ``build_radarr_cache`` for the duplicate-tmdb-id handling.
     """
     if client is None:
-        return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
+        return {
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+            "sonarr_queue_progress": {},
+        }
     series = _build_arr_index(
         client,
         items_getter="get_series",
         queue_tmdb_key="series",
         cache_name="build_sonarr_cache",
     )
-    queue_ids: set[int] = {
-        tid for q in client.get_queue() if (tid := (q.get("series") or {}).get("tmdbId"))
+    queue = client.get_queue()
+    progress = _queue_progress(queue, "series")
+    return {
+        "sonarr_series": series,  # type: ignore[typeddict-item]
+        "sonarr_queue_tmdb_ids": set(progress),
+        "sonarr_queue_progress": progress,
     }
-    return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def annotate_download_states(
@@ -276,7 +342,8 @@ def annotate_download_states(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
-    """Stamp ``download_state`` onto each result dict in *results*, in place.
+    """Stamp ``download_state`` onto each result dict in *results*, in place; queued and
+    downloading items also get ``download_pct`` (0-100, 0 when not yet in the queue).
 
     Builds the Radarr and Sonarr caches from DB settings, then walks
     *results* and calls ``compute_download_state`` for each item that
@@ -319,7 +386,15 @@ def annotate_download_states(
         tmdb_id = r.get("tmdb_id")
         if tmdb_id and isinstance(tmdb_id, int):
             media_type = r["media_type"]
-            r["download_state"] = compute_download_state(str(media_type), tmdb_id, caches)
+            state = compute_download_state(str(media_type), tmdb_id, caches)
+            r["download_state"] = state
+            if state in (ACTION_QUEUED, ACTION_DOWNLOADING):
+                progress = (
+                    caches.get("radarr_queue_progress", {})
+                    if media_type == "movie"
+                    else caches.get("sonarr_queue_progress", {})
+                )
+                r["download_pct"] = progress.get(tmdb_id, 0)
 
 
 def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
@@ -341,6 +416,109 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
         ``True`` when the series is already tracked; ``False`` otherwise.
     """
     return any(s.get("tvdbId") == tvdb_id for s in sonarr_client.get_series())
+
+
+def radarr_holds_movie(radarr_client: ArrClient, tmdb_id: int) -> bool:
+    """Whether Radarr holds *tmdb_id*; an unreadable answer counts as no.
+
+    For telling a refused add (Radarr answers 400, not 409, for a movie it
+    holds) from one that failed for another reason.
+    """
+    try:
+        return radarr_client.get_movie_by_tmdb(tmdb_id) is not None
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+
+
+def sonarr_tracks_series(sonarr_client: ArrClient, tvdb_id: int) -> bool:
+    """Whether Sonarr tracks *tvdb_id*; an unreadable answer counts as no."""
+    try:
+        return is_series_already_tracked(sonarr_client, tvdb_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+
+
+def radarr_fetches_movie(radarr_client: ArrClient, tmdb_id: int) -> bool:
+    """Whether Radarr holds *tmdb_id* and will have it: monitored, or already with a file."""
+    try:
+        movie = radarr_client.get_movie_by_tmdb(tmdb_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+    return movie is not None and bool(movie.get("monitored") or movie.get("hasFile"))
+
+
+def sonarr_fetches_series(sonarr_client: ArrClient, tvdb_id: int) -> bool:
+    """Whether Sonarr tracks *tvdb_id* and is going to fetch something for it."""
+    try:
+        series = next((s for s in sonarr_client.get_series() if s.get("tvdbId") == tvdb_id), None)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+    return series is not None and _sonarr_will_fetch(series)
+
+
+MovieAddOutcome = Literal["added", "remonitored", "already_tracked", "bad_entry"]
+
+
+class ExistingMovieError(ArrError):
+    """Radarr refused to be read or re-monitored for a movie it holds.
+
+    Kept apart from a failed add: Radarr's 409, 422 and 400 on an add mean
+    "already there", but on these calls they mean nothing of the kind.
+    """
+
+
+def add_or_remonitor_movie(
+    radarr_client: ArrClient, tmdb_id: int, title: str, *, keep_filed: bool = False
+) -> MovieAddOutcome:
+    """Get a movie wanted in Radarr: add it, or re-monitor the entry it already holds.
+
+    A monitored entry is genuinely tracked (``"already_tracked"``), so a
+    double-click does not churn it. An unmonitored one is the residue of an
+    abandon: re-monitoring it (which also searches) is what pressing Download
+    again means. An entry with no usable id is ``"bad_entry"``. With
+    *keep_filed* an entry that already has its file is left alone too.
+
+    Raises:
+        SafeHTTPError: On a non-2xx response to the add only.
+        ExistingMovieError: On a non-2xx response reading or re-monitoring the entry.
+        requests.RequestException: On transport failures.
+        ArrError: On configuration failures.
+    """
+    try:
+        existing = radarr_client.get_movie_by_tmdb(tmdb_id)
+    except SafeHTTPError as exc:
+        raise ExistingMovieError(f"Radarr lookup failed: HTTP {exc.status_code}") from exc
+    if existing is None:
+        radarr_client.add_movie(tmdb_id, title)
+        return "added"
+    if existing.get("monitored") or (keep_filed and existing.get("hasFile")):
+        return "already_tracked"
+    movie_id = existing.get("id")
+    if not isinstance(movie_id, int) or movie_id <= 0:
+        logger.warning(
+            "unmonitored radarr entry has bad id=%r for tmdb=%s",
+            movie_id,
+            tmdb_id,
+        )
+        return "bad_entry"
+    try:
+        radarr_client.remonitor_movie(movie_id)
+    except (SafeHTTPError, requests.RequestException, ArrError) as exc:
+        # The monitor may have landed before the search failed. Left monitored the
+        # movie would read as already tracked, and the same press could never search it.
+        _put_back_unmonitored(radarr_client, movie_id)
+        if isinstance(exc, SafeHTTPError):
+            raise ExistingMovieError(f"Radarr re-monitor failed: HTTP {exc.status_code}") from exc
+        raise
+    return "remonitored"
+
+
+def _put_back_unmonitored(radarr_client: ArrClient, movie_id: int) -> None:
+    """Best effort: a failure here is logged, so the error being raised is not hidden."""
+    try:
+        radarr_client.unmonitor_movie(movie_id, max_retries=1)
+    except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+        logger.exception("Could not put radarr movie_id=%s back to unmonitored", movie_id)
 
 
 class LazyArrClients:
@@ -423,6 +601,22 @@ def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCache
             exc_info=True,
         )
         return build_sonarr_cache(None), False
+
+
+def clear_stale_downloaded_at(conn: sqlite3.Connection, ids: Sequence[object]) -> None:
+    """Clear ``downloaded_at`` on the suggestions *ids* that Radarr/Sonarr no longer track.
+
+    Runs in one transaction so a locked database rolls back cleanly on a render path.
+    """
+    if not ids:
+        return
+    placeholders = ",".join("?" * len(ids))
+    with conn:
+        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
+        conn.execute(  # nosec B608
+            f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
+            list(ids),
+        )
 
 
 # NOTE: this module hosts several concepts — state constants, state
@@ -535,17 +729,7 @@ def attach_download_states(
 
             all_recs[item["id"]] = item
 
-    if conn is not None and stale_flag_ids:
-        placeholders = ",".join("?" * len(stale_flag_ids))
-        # The in-memory ``downloaded_at = None`` self-heal above and this DB
-        # write are one fact (clear the stale badge); run the write inside an
-        # explicit transaction so a locked-DB failure rolls back cleanly
-        # rather than leaving a half-applied state on this render path.
-        with conn:
-            # rationale: placeholders is purely "?" * len(stale_flag_ids) — no user value ever enters the SQL text
-            conn.execute(
-                f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
-                stale_flag_ids,
-            )
+    if conn is not None:
+        clear_stale_downloaded_at(conn, stale_flag_ids)
 
     return all_recs

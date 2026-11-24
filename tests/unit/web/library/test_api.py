@@ -117,3 +117,28 @@ class TestApiLibraryList:
         client = authed_client(app, conn)
         resp = client.get("/api/library?per_page=9999")
         assert resp.status_code == 422
+
+
+class TestApiLibraryListDeletion:
+    def test_rows_stats_and_sort_carry_the_deletion_data(self, app_factory, authed_client, conn):
+        from datetime import UTC, datetime, timedelta
+
+        from tests.helpers.factories import insert_scheduled_action
+
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
+        _insert_movie(conn, "m1", "Alpha")
+        _insert_movie(conn, "m2", "Beta")
+        insert_scheduled_action(
+            conn,
+            media_item_id="m2",
+            action="scheduled_deletion",
+            token="tok-m2",
+            execute_at=(datetime.now(UTC) + timedelta(days=3)).isoformat(),
+        )
+        body = client.get("/api/library?sort=deletion_asc").json()
+        assert [i["id"] for i in body["items"]] == ["m2", "m1"]
+        assert body["items"][0]["deletion_days"] in (2, 3)
+        assert body["items"][1]["deletion_at"] is None
+        assert body["stats"]["due_soon"] == 1
+        assert "movies_size" in body["stats"]

@@ -41,7 +41,7 @@
   background: var(--rgba-overlay-sm);
   margin-bottom: 18px;
 }
-.storage-bar .seg { height: 100%; flex: 0 0 var(--seg-pct, 0%); transition: flex .3s, width .3s; }
+.storage-bar .seg { height: 100%; flex: 0 0 var(--seg-pct, 0%); transition: flex var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out); }
 .storage-bar .seg--mov   { background: var(--orange); }
 .storage-bar .seg--tv    { background: var(--accent); }
 .storage-bar .seg--anime { background: var(--purple); }

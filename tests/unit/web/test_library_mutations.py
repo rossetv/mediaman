@@ -11,6 +11,7 @@ import requests
 from fastapi.testclient import TestClient
 
 from mediaman.db import get_db
+from mediaman.services.arr.base import SeasonsNotListed
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import set_user_email
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
@@ -1363,8 +1364,18 @@ class TestMediaRedownload:
         sonarr = self._sonarr_without_series()
         resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
         assert resp.json()["ok"] is True
-        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2], [2])
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2])
         sonarr.remonitor_season.assert_not_called()
+
+    def test_a_season_sonarr_does_not_list_is_refused_by_name_and_records_nothing(self, post, conn):
+        sonarr = self._sonarr_without_series()
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed([2])
+
+        resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
+
+        assert resp.json()["ok"] is False
+        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing."
+        assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 're_downloaded'").fetchone()
 
     @pytest.mark.parametrize("held", [True, False], ids=["remonitored", "added"])
     def test_a_season_redownload_is_audited_under_the_token_the_dashboard_matches(

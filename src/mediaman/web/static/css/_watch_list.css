@@ -1,0 +1,188 @@
+/* Watch page: the admin list view of the library (stats, filters, table,
+   pager), its phone cards below 700px, the busy and leaving rows, and the
+   keep and season dialogs admin.js opens. */
+
+.wl { padding: 24px var(--pad) 0; }
+
+/* ── Stats tiles: each one is a link that filters the list ── */
+.wl-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.wl-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 44px;
+  padding: 18px 20px;
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  color: inherit;
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.wl-stat:hover { background: var(--s2); border-color: var(--hair-strong); }
+.wl-stat--on { background: var(--s2); border-color: var(--accent); }
+.wl-stat__value {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.wl-stat__value--stale { color: var(--danger-text); }
+.wl-stat__label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
+.wl-stat__size { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+
+.wl-summary { margin-bottom: 22px; font-size: 14px; color: var(--t3); }
+
+/* ── Toolbar: type pills, then Sort by at the right ── */
+.wl-toolbar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.wl-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+.wl-sort { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: 13px; color: var(--t2); }
+.wl-sort .inp { min-height: 40px; padding-block: 0; width: auto; }
+
+/* ── Table ── */
+.wl-results { display: block; }
+.wl-table .col-del { width: 120px; }
+.wl-table .col-act { width: 236px; }
+.wl-table thead th.sortable .th-sort { text-decoration: none; }
+.wl-table tbody td:nth-child(4) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wl-table td.wl-act { white-space: nowrap; }
+.wl-title { color: inherit; text-decoration: none; }
+.wl-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wl-sub-watched { display: none; }
+.wl-row--kept { background: rgba(48,209,88,.04); }
+
+.wl-del { display: block; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.wl-del--soon { color: var(--danger-text); }
+.wl-del--kept { color: var(--success); }
+.wl-del--none { color: var(--t3); }
+.wl-del__sub { display: block; font-size: 12px; color: var(--t3); }
+
+.wl-actions { flex-wrap: nowrap; }
+.wl-table .keep-trigger,
+.wl-table .btn--sm { height: 32px; min-height: 32px; }
+.wl-table .btn--sm { padding-inline: 14px; }
+/* 44px actions below 700px, and on touch screens wider than that (tablets). */
+@media (pointer: coarse), (max-width: 699.98px) {
+  .wl-table .keep-trigger,
+  .wl-table .btn--sm { height: 44px; min-height: 44px; }
+}
+
+/* ── Row motion: busy, kept in place, leaving ── */
+.wl-table tbody tr {
+  transition: background var(--dur-fast) var(--ease-out),
+              opacity var(--dur) var(--ease-out),
+              transform var(--dur-slow) var(--ease-out);
+}
+.wl-table tbody tr.is-busy { opacity: .5; }
+.wl-table tbody tr.is-busy .wl-actions { pointer-events: none; }
+.wl-table tbody tr.is-leaving { opacity: 0; transform: translateX(-12px); pointer-events: none; }
+.wl-table .is-just-kept { animation: wl-pill-in var(--dur) var(--ease-out); }
+@keyframes wl-pill-in { from { opacity: 0; transform: scale(.92); } }
+
+/* A page, filter or sort change dims the rows until the new ones arrive. */
+.wl-results { transition: opacity var(--dur) var(--ease-out); }
+.wl[aria-busy="true"] .wl-results { opacity: .5; transition-delay: .1s; }
+
+/* ── Loading skeleton, the size of the real list ── */
+.wl-skel { padding: 24px var(--pad) 0; pointer-events: none; }
+.wl-skel__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.wl-skel__stat { height: 110px; border-radius: var(--r-lg); }
+.wl-skel__summary { width: min(460px, 70%); margin-bottom: 30px; }
+.wl-skel__bar { width: min(420px, 100%); margin-bottom: 18px; }
+.wl-skel__rows { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--hair); border-radius: var(--r-lg); overflow: hidden; }
+.wl-skel__row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: center; padding: 14px; background: var(--s1); }
+.wl-skel__row .skel--poster { height: 66px; border-radius: var(--r-xs); }
+.wl-skel__row .skel--line { width: 40%; }
+
+/* ── Empty states ── */
+.wl-empty .btn { margin-top: 18px; min-height: 44px; }
+
+/* ── Pager ── */
+.wl .pagination { margin-top: 20px; }
+.wl .page-btn { min-width: 44px; height: 44px; }
+.wl .page-of { display: none; }
+
+/* ── Dialogs admin.js opens (TV keep, season delete) ── */
+.keep-dialog-note { margin: 14px 0 0; font-size: 12px; color: var(--t3); }
+.keep-dialog-note:empty { display: none; }
+.wl-dialog.active { animation: wl-dialog-scrim var(--dur) var(--ease-out); }
+.wl-dialog.active > .keep-dialog { animation: wl-dialog-in var(--dur) var(--ease-out); }
+@keyframes wl-dialog-scrim { from { opacity: 0; } }
+@keyframes wl-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+
+/* ── Tablet: last watched folds into the title's sub-line, and the
+   actions column gives the title what Keep and Delete do not need ── */
+@media (max-width: 1023.98px) {
+  .wl-table thead th,
+  .wl-table tbody td { padding-left: 8px; padding-right: 8px; }
+}
+@media (min-width: 700px) and (max-width: 1023.98px) {
+  .wl-table .col-del { width: 104px; }
+  .wl-table .col-act { width: auto; }
+  .wl-table thead th:nth-child(5),
+  .wl-table tbody td:nth-child(5) { display: none; }
+  .wl-sub-watched { display: inline; }
+}
+
+/* Two tiles to a line before the cards. */
+@media (max-width: 767.98px) {
+  .wl-stats,
+  .wl-skel__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Phone, and narrow windows too tight for seven columns: each row is a card ── */
+@media (max-width: 699.98px) {
+  .wl,
+  .wl-skel { padding-top: 18px; }
+  .wl-stat { padding: 14px 16px; }
+  .wl-stat__value { font-size: 26px; }
+  .wl-toolbar .wl-pills { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 0; }
+  .wl-toolbar .fpill { padding-inline: 10px; min-width: 44px; justify-content: center; }
+  .wl-sort { width: 100%; margin-left: 0; }
+  .wl-sort .inp { flex: 1; min-height: 44px; }
+
+  .wl-table thead { display: none; }
+  .wl-table,
+  .wl-table tbody { display: block; }
+  .wl-table tbody tr {
+    display: grid;
+    grid-template-columns: 44px auto auto 1fr;
+    column-gap: 12px;
+    row-gap: 6px;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .wl-table tbody tr:last-child { border-bottom: 0; }
+  .wl-table tbody td { display: block; padding: 0; border-bottom: 0; min-width: 0; }
+  .wl-table tbody td:nth-child(1) { grid-row: 1 / 3; grid-column: 1; align-self: start; }
+  .wl-table tbody td:nth-child(2) { grid-row: 1; grid-column: 2 / 5; align-self: start; }
+  .wl-table tbody td:nth-child(3) { grid-row: 2; grid-column: 2; }
+  .wl-table tbody td:nth-child(4) { grid-row: 2; grid-column: 3; font-size: 13px; color: var(--t2); }
+  .wl-table tbody td:nth-child(5) { display: none; }
+  .wl-table tbody td:nth-child(6) { grid-row: 2; grid-column: 4; justify-self: end; text-align: right; }
+  .wl-table tbody td:nth-child(7) { grid-row: 3; grid-column: 1 / 5; margin-top: 8px; text-align: left; }
+  /* The title is the one way into the detail: a hit area past its text. */
+  .wl-title { position: relative; }
+  a.wl-title::after { content: ""; position: absolute; inset: -14px -6px; }
+  .wl-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
+  .wl-actions > .keep-wrapper { display: flex; }
+  .wl-actions .keep-trigger { flex: 1; justify-content: center; }
+  .wl-table .keep-trigger,
+  .wl-table .btn--sm { height: 44px; min-height: 44px; font-size: 14px; }
+  .card--bordered > table.wl-table > tbody > tr:last-child > td { border-radius: 0; }
+
+  .wl-skel__row { grid-template-columns: 44px minmax(0, 1fr); }
+
+  .wl .pagination { justify-content: center; }
+  .wl .pagination > :not(:first-child):not(:last-child):not(.page-of):not(.page-info) { display: none; }
+  .wl .page-of { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
+  .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
+}

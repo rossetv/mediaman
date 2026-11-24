@@ -58,6 +58,7 @@ from mediaman.scanner.deletions import (
 from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher, PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.services import watch_catalog
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import NewsletterConfigError
@@ -182,9 +183,16 @@ class ScanEngine:
            worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
-        per_lib_fetches = self._sync_phase_fetch(summary)
-        self._arr_cache.ensure_loaded()
-        self._sync_phase_write(per_lib_fetches, summary)
+        try:
+            per_lib_fetches = self._sync_phase_fetch(summary)
+            self._arr_cache.ensure_loaded()
+            self._sync_phase_write(per_lib_fetches, summary)
+        except BaseException:
+            self._roll_back_failed_run()
+            raise
+        finally:
+            # Libraries committed before a failure are already in the DB.
+            watch_catalog.clear_library_index()
         logger.info(
             "Library sync complete: %d synced, %d orphans removed, %d errors",
             summary["synced"],
@@ -192,6 +200,20 @@ class ScanEngine:
             summary["errors"],
         )
         return summary
+
+    def _roll_back_failed_run(self) -> None:
+        """Drop the half-written library a failed sync phase leaves open on the connection.
+
+        Callers that do not roll back (the manual scan, the sync route) would
+        otherwise commit it with their next write. Each library is committed
+        as it goes, so only the in-flight one is lost. A failing rollback is
+        logged: it must not hide the error being raised.
+        """
+        try:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+        except sqlite3.Error:
+            logger.exception("Rollback after a failed scan or library sync failed")
 
     def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, FetchedLibrary]:
         """Pull every library's items + watch history from Plex into memory.
@@ -309,11 +331,21 @@ class ScanEngine:
             "errors": 0,
             "removed": 0,
         }
-        # Radarr/Sonarr reads happen here, never inside a write transaction.
-        self._arr_cache.ensure_loaded()
-        seen_by_lib = self._scan_all_libraries(summary)
-        self._cleanup_orphans_per_library(seen_by_lib, summary)
-        self._record_deletion_outcome(summary)
+        try:
+            try:
+                # Radarr/Sonarr reads happen here, never inside a write transaction.
+                self._arr_cache.ensure_loaded()
+                seen_by_lib = self._scan_all_libraries(summary)
+                self._cleanup_orphans_per_library(seen_by_lib, summary)
+            except BaseException:
+                self._roll_back_failed_run()
+                raise
+            # Not rolled back: a deletion may have removed files whose record is
+            # still open, and recovery books it from that record.
+            self._record_deletion_outcome(summary)
+        finally:
+            # Libraries committed before a failure are already in the DB.
+            watch_catalog.clear_library_index()
         self._run_post_scan_followups()
         return summary
 

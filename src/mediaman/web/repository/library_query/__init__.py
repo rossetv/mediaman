@@ -10,7 +10,7 @@ Three private modules, one concept each:
   ``protection_label``, ``_shape_rows``) that convert raw DB values into
   Jinja-template-ready strings and dicts.
 * `._stats` — simple ``COUNT`` / ``SUM`` queries for the library stats bar
-  (``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
+  (``fetch_stats``, ``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
   ``sum_total_size_bytes``).
 
 This barrel re-exports the full public surface so callers import
@@ -38,6 +38,7 @@ from mediaman.web.repository.library_query._stats import (
     count_movies,
     count_stale,
     count_tv_shows,
+    fetch_stats,
     sum_total_size_bytes,
 )
 
@@ -54,6 +55,7 @@ __all__ = [
     "count_tv_shows",
     "days_ago",
     "fetch_library",
+    "fetch_stats",
     "protection_label",
     "sum_total_size_bytes",
     "type_css",

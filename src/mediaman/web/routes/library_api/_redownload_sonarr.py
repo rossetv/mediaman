@@ -42,7 +42,7 @@ def _redownload_season(
         message = f"Re-monitored season {season_number} of '{title}' in Sonarr and started a search"
     else:
         try:
-            client.add_series_with_seasons(tvdb_id, title, [season_number], [season_number])
+            client.add_series_with_seasons(tvdb_id, title, [season_number])
         except SafeHTTPError as exc:
             raise AddRefused(exc) from exc
         message = f"Added season {season_number} of '{title}' to Sonarr"

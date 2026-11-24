@@ -6,7 +6,7 @@
 ``name="duration" value="..."`` template literal, or a JS default fallback for
 a duration value, that still uses the short form ("7d") sends a request the
 route rejects with 400 ``invalid_duration`` — the "quick keep" buttons on the
-dashboard, library, and token-keep pages silently fail for every duration
+dashboard, Watch list and token-keep pages silently fail for every duration
 except Forever.
 """
 
@@ -31,7 +31,7 @@ _BUTTON_VALUE_RE = re.compile(r'name="duration"[^>]*\svalue="([^"]+)"')
 
 # The JS default fallback for a duration value, e.g.
 # `keepBtn.dataset.duration || '30d'` or `_keepDialogState.duration || "30d"`.
-# Not anchored to `dataset.` — library.js's `submitKeep`/`confirmKeepDialog`
+# Not anchored to `dataset.` — watch/admin.js's keep-dialog submit
 # fall back on a bare `duration` variable and on `_keepDialogState.duration`,
 # neither of which reads a `dataset.` property at the fallback expression.
 _JS_FALLBACK_RE = re.compile(r"""(?:duration|keepDur)\s*\|\|\s*['"]([^'"]+)['"]""")
@@ -64,6 +64,7 @@ def _js_duration_fallbacks() -> dict[str, list[str]]:
 def test_template_duration_literals_are_valid_keep_durations() -> None:
     literals = _template_duration_literals()
     assert literals != {}, "expected duration literals in the templates"
+    assert "src/mediaman/web/templates/_watch_list.html" in literals
     for path, values in literals.items():
         for value in values:
             assert value in VALID_KEEP_DURATIONS, (
@@ -77,6 +78,7 @@ def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
     assert fallbacks != {}, (
         "expected a duration fallback (e.g. `duration || '30 days'`) in static/js"
     )
+    assert "src/mediaman/web/static/js/watch/admin.js" in fallbacks
     for path, values in fallbacks.items():
         for value in values:
             assert value in VALID_KEEP_DURATIONS, (

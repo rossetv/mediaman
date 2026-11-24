@@ -13,10 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.core.audit import log_audit
 from mediaman.db import get_db
+from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import ArrClient, SeasonsNotListed
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.state import is_series_already_tracked
+from mediaman.services.arr.state import add_or_remonitor_movie, is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
@@ -172,31 +173,11 @@ def _submit_movie(
     if not radarr:
         return respond_failure("Radarr not configured", status=503)
     try:
-        existing_movie = radarr.get_movie_by_tmdb(body.tmdb_id)
-        if existing_movie is not None:
-            # The movie is in Radarr's library. Two sub-cases:
-            #
-            # * Monitored — genuinely already tracked. Reject so a
-            #   double-click doesn't churn the existing entry.
-            # * Unmonitored — the residue of a manual or auto abandon.
-            #   Reusing the same entry by re-monitoring + re-searching
-            #   is what the user meant when they pressed Download
-            #   again. Without this branch they were wedged: the
-            #   search button showed "Queued" and the API rejected
-            #   their click with 409.
-            if existing_movie.get("monitored"):
-                return respond_failure(f"'{body.title}' is already in your library", status=409)
-            movie_id_raw = existing_movie.get("id")
-            if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
-                logger.warning(
-                    "search.download: unmonitored radarr entry has bad id=%r for tmdb=%s",
-                    movie_id_raw,
-                    body.tmdb_id,
-                )
-                return respond_failure("Radarr entry is in an unexpected state", status=502)
-            radarr.remonitor_movie(movie_id_raw)
-        else:
-            radarr.add_movie(body.tmdb_id, body.title)
+        outcome = add_or_remonitor_movie(radarr, body.tmdb_id, body.title)
+        if outcome == "already_tracked":
+            return respond_failure(f"'{body.title}' is already in Radarr", status=409)
+        if outcome == "bad_entry":
+            return respond_failure("Radarr entry is in an unexpected state", status=502)
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
         # responses, RequestException covers transport failures, ValueError
@@ -270,21 +251,28 @@ def _submit_tv(
         )
     if already_tracked:
         return respond_failure(
-            f"'{body.title}' is already tracked by Sonarr — manage it from the Library page or Sonarr directly",
+            f"'{body.title}' is already tracked by Sonarr — manage it there",
             status=409,
         )
-    if body.search_seasons is not None and not body.search_seasons:
+    # Sonarr searches every monitored season it is missing files for, so a season not
+    # asked to be searched is not monitored. A show Sonarr already holds was refused
+    # above, so no season of it is held to keep monitored.
+    seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
+    if seasons is not None and not seasons:
         return respond_failure("Pick at least one season", status=400)
     try:
-        if body.monitored_seasons is None:
+        if seasons is None:
             sonarr.add_series(tvdb_id, body.title)
         else:
-            sonarr.add_series_with_seasons(
-                tvdb_id,
-                body.title,
-                body.monitored_seasons,
-                body.search_seasons or [],
+            sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
+    except SeasonsNotListed as exc:
+        # The person's own pick, not a fault: nothing was added, and not "already there".
+        message = str(exc)
+        if set(seasons or []) - set(exc.seasons):
+            message += (
+                " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
             )
+        return respond_failure(message, status=422)
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return respond_failure("Failed to add to Sonarr", status=502)
@@ -337,4 +325,7 @@ def api_download(
         raise
     if resp.status_code >= 400:
         _release_download(admin, body.tmdb_id, body.media_type, _dedup_token(body))
+    # A 409 says the Arr holds the title, which the held view may not yet show.
+    if resp.status_code < 400 or resp.status_code == 409:
+        watch_catalog.invalidate()
     return resp

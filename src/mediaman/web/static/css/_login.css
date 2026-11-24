@@ -79,18 +79,24 @@
   background: var(--s3);
 }
 
+/* Sized and pressed as a large primary .btn. */
 .login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  padding: 12px 22px;
+  min-height: 44px;
+  padding: 0 22px;
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
   border-radius: var(--r-pill);
   background: var(--accent-cta);
-  color: #fff;
-  transition: background .15s;
+  color: var(--t1);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .login-btn:hover { background: var(--accent-hi); }
+.login-btn:active { transform: scale(.97); }
 
 /* Pending state set by submit-guard.js */
 form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
@@ -125,10 +131,10 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 .error-msg {
   margin-bottom: 14px;
   padding: 10px 12px;
-  background: rgba(255,69,58,.1);
-  border: 1px solid rgba(255,69,58,.3);
+  background: var(--rgba-danger-bg-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--r-sm);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: 13px;
 }
 
@@ -172,14 +178,14 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   height: 100%;
   width: 0;
   background: var(--danger);
-  transition: width .25s, background .25s;
+  transition: width var(--dur-slow) var(--ease-out), background var(--dur-slow) var(--ease-out);
 }
 .fpc-meter-fill.weak   { background: var(--danger); }
 .fpc-meter-fill.ok     { background: var(--warning); }
 .fpc-meter-fill.strong { background: var(--success); }
 
 .fpc-caption { color: var(--t3); font-size: 11px; margin-top: 4px; min-height: 14px; }
-.fpc-caption-weak   { color: var(--danger); }
+.fpc-caption-weak   { color: var(--danger-text); }
 .fpc-caption-ok     { color: var(--warning); }
 .fpc-caption-strong { color: var(--success); }
 .fpc-hint { margin: -8px 0 16px; }
@@ -207,12 +213,12 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 .fpc-checklist li.is-ok::before { content: "✓"; color: var(--success); }
 
 .policy-issues {
-  background: rgba(255,69,58,.08);
-  border: 1px solid rgba(255,69,58,.25);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: var(--r-sm);
   padding: 12px 14px;
   margin-bottom: 14px;
 }
-.policy-issues-title { font-size: 12px; font-weight: 600; color: var(--danger); margin-bottom: 6px; }
-.policy-issues ul { list-style: none; font-size: 12px; color: var(--danger); display: flex; flex-direction: column; gap: 4px; }
+.policy-issues-title { font-size: 12px; font-weight: 600; color: var(--danger-text); margin-bottom: 6px; }
+.policy-issues ul { list-style: none; font-size: 12px; color: var(--danger-text); display: flex; flex-direction: column; gap: 4px; }
 .policy-issues li::before { content: "• "; }
