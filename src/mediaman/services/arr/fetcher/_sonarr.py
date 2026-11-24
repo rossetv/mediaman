@@ -212,10 +212,11 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     return items
 
 
-def _monitored_seasons(
+def _searched_seasons(
     series: SonarrSeries, episodes: Sequence[ArrEpisode]
 ) -> list[dict[str, int]]:
-    """Return the monitored seasons of a series without files, with the episodes each misses.
+    """Return the seasons searched of a series without files, with the episodes each misses:
+    the monitored ones, and any other with an episode monitored by itself.
 
     A season still to air counts none missing but is listed: left monitored, it keeps
     the series searching after the others are abandoned.
@@ -233,7 +234,8 @@ def _monitored_seasons(
             "aired": _season_has_aired(season) or season["seasonNumber"] in aired,
         }
         for season in series.get("seasons") or []
-        if season.get("monitored") and isinstance(season.get("seasonNumber"), int)
+        if (season.get("monitored") or missing_episodes(season) > 0)
+        and isinstance(season.get("seasonNumber"), int)
     ]
 
 
@@ -294,7 +296,7 @@ def _build_still_searching_cards(
             episodes_raw = []
 
         wanted = _wanted_episodes(series, episodes_raw)
-        seasons = _monitored_seasons(series, episodes_raw)
+        seasons = _searched_seasons(series, episodes_raw)
         # A series listing no episode may only be waiting for Sonarr to refresh it.
         none_aired = bool(episodes_raw) and not any(season["aired"] for season in seasons)
         is_upcoming, release_label = classify_series_upcoming(series, wanted, none_aired=none_aired)

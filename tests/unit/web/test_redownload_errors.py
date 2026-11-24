@@ -213,6 +213,33 @@ def test_a_search_nobody_can_tell_the_state_of_is_a_failure_that_unmonitors_noth
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
 
 
+def test_a_season_that_was_never_monitored_keeps_its_lone_monitored_episode(
+    app_factory, authed_client, conn
+):
+    class _RefusesWrites(_OneTitleArr):
+        writes: list[str] = []
+
+        def _get(self, path):
+            if path.startswith("/api/v3/episode?"):
+                return [{"id": 21, "seasonNumber": 2, "monitored": True}]
+            return super()._get(path)
+
+        def _put(self, path, data):
+            if path == "/api/v3/episode/monitor":
+                self.writes.append(path)
+                return
+            raise _err(400)
+
+    sonarr = _RefusesWrites(SONARR_SPEC, _series(False), _err(400))
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json()["ok"] is False
+    assert sonarr.writes == []
+
+
 def test_a_title_monitored_before_a_failed_search_stays_monitored(app_factory, authed_client, conn):
     client = _client(app_factory, authed_client, conn)
     radarr = _OneTitleArr(RADARR_SPEC, _movie(True), _err(503))

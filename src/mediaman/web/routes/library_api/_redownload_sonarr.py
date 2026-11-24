@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 def _put_back_unmonitored(client: ArrClient, series_id: int, season_number: int) -> None:
     """Best effort: a failure here is logged, so the error being raised is not hidden."""
     try:
-        client.unmonitor_season(series_id, season_number, max_retries=1)
+        client.unmonitor_season(series_id, season_number, max_retries=1, lone_episodes=False)
     except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as exc:
         logger.error(
             "Could not put sonarr series_id=%s season=%s back to unmonitored: %s",

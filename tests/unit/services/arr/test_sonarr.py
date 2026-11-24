@@ -70,7 +70,7 @@ class TestArrClientSonarr:
         assert season_2["monitored"] is False
 
     def test_unmonitor_season_noop_when_already_unmonitored(self, client, fake_http, fake_response):
-        """Already-unmonitored seasons short-circuit before issuing a PUT."""
+        """Already-unmonitored seasons with no monitored episode issue no PUT."""
         fake_http.queue(
             "GET",
             fake_response(
@@ -81,8 +81,36 @@ class TestArrClientSonarr:
                 }
             ),
         )
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data=[
+                    {"id": 20, "seasonNumber": 2, "monitored": False},
+                    {"id": 10, "seasonNumber": 1, "monitored": True},
+                ]
+            ),
+        )
         client.unmonitor_season(series_id=1, season_number=2)
         assert _calls(fake_http, "PUT") == []
+
+    def test_a_lone_monitored_episode_is_unmonitored_with_its_season(
+        self, client, fake_http, fake_response
+    ):
+        series = {"id": 1, "seasons": [{"seasonNumber": 2, "monitored": False}]}
+        episodes = [
+            {"id": 10, "seasonNumber": 1, "monitored": True},
+            {"id": 20, "seasonNumber": 2, "monitored": False},
+            {"id": 21, "seasonNumber": 2, "monitored": True},
+        ]
+        fake_http.queue("GET", fake_response(json_data=series))
+        fake_http.queue("GET", fake_response(json_data=episodes))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+
+        client.unmonitor_season(series_id=1, season_number=2)
+
+        (put,) = _calls(fake_http, "PUT")
+        assert put[1].endswith("/api/v3/episode/monitor")
+        assert put[2]["json"] == {"episodeIds": [21], "monitored": False}
 
     def test_unmonitor_season_raises_when_season_missing(self, client, fake_http, fake_response):
         """Missing season number fails loudly rather than silently no-oping."""
