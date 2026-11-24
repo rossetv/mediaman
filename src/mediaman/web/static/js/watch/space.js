@@ -381,7 +381,8 @@
   var held = [];
   var hideTimer = null;
 
-  /* The page is out of reach under the panel; its menus and toasts are not. */
+  /* The page is out of reach under the panel; its menus and toasts are not, so the
+     panel is no aria-modal, which would hide them from a screen reader. */
   function holdPage() {
     toArray(document.body.children).forEach(function (node) {
       if (node === root || node.inert || node.id === 'watch-keep-menu' || node.id === 'ui-toast-host') return;
@@ -416,7 +417,6 @@
     isOpen = true;
     root.hidden = false;
     root.inert = false;
-    panel.setAttribute('aria-modal', 'true');
     root.classList.remove('is-under');
     panel.style.transform = '';
     releasePage();
@@ -453,7 +453,6 @@
     clearTimeout(leaveTimer);
     watch.keep.closeMenu(false);
     root.inert = true;
-    panel.removeAttribute('aria-modal');
     root.classList.remove('is-open');
     root.classList.toggle('is-under', !!under);
     panel.style.transform = '';
