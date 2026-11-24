@@ -942,6 +942,32 @@ const scenarios = {
     return p.doc.querySelector('.explore-facts').textContent;
   },
 
+  // Less: cut short only once what stands below has closed over the text, unless More is pressed first.
+  async storyCloses() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    const bio = p.doc.querySelector('.explore-bio');
+    bio.clientHeight = 69;
+    bio.scrollHeight = 140;
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: { ...MARA, biography: 'A long life.' }, known_for: [], items: [TM], total: 1, in_library: 0, next_page: null });
+    const finish = withMotion(p);
+    const press = () => click(p.doc, p.doc.querySelector('.explore-more'));
+    const look = () => [bio.classList.contains('is-whole'), bio.classList.contains('is-closing')];
+    try {
+      press();
+      const out = [look()];
+      press();
+      out.push(look());
+      press();
+      out.push(look());
+      press();
+      finish();
+      out.push(look());
+      return out;
+    } finally {
+      delete Node.prototype.animate;
+    }
+  },
+
   // People and no titles: they lead, and that no title matches is a line of text.
   async peopleLead() {
     const find = async (p, q, people, items) => {

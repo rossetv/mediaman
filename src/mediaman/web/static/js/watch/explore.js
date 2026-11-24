@@ -677,19 +677,46 @@
     more.classList.add('is-unknown');
     known.setAttribute('aria-hidden', 'true');
 
+    var gliding = [];
+
+    /* Make *change*; what it moved glides from where it is on the screen this instant. */
     function moving(change) {
       var nodes = [f.text, more, known, f.host];
       var was = nodes.map(function (n) { return n.getBoundingClientRect().top; });
-      var tall = bio.offsetHeight;
+      gliding.forEach(function (a) { a.cancel(); });
+      gliding = [];
+      bio.classList.remove('is-closing');
       change();
       if (core.reduceMotion() || !f.host.animate) return;
-      var how = { duration: core.tokenMs('--dur', 250), easing: 'cubic-bezier(.2, .8, .2, 1)' };
       nodes.forEach(function (n, at) {
         var by = was[at] - n.getBoundingClientRect().top;
-        if (n.getClientRects().length && Math.abs(by) >= 1) n.animate([{ transform: 'translateY(' + by + 'px)' }, { transform: 'none' }], how);
+        if (n.getClientRects().length && Math.abs(by) >= 1) glide(n, [{ transform: 'translateY(' + by + 'px)' }, { transform: 'none' }]);
       });
-      // The rest of the text comes out from under what slides away.
-      if (bio.classList.contains('is-whole')) bio.animate([{ clipPath: 'inset(0 0 ' + Math.max(0, bio.offsetHeight - tall) + 'px)' }, { clipPath: 'inset(0)' }], how);
+    }
+
+    function glide(node, frames) {
+      var a = node.animate(frames, { duration: core.tokenMs('--dur', 250), easing: core.token('--ease-out', 'ease-out') });
+      gliding.push(a);
+      return a;
+    }
+
+    /* The text's edge goes along with the button under it. */
+    function turn(whole) {
+      var gap = more.getBoundingClientRect().top - bio.getBoundingClientRect().top;
+      moving(function () {
+        gap -= more.getBoundingClientRect().top - bio.getBoundingClientRect().top;
+        var resting = bio.offsetHeight;
+        bio.classList.toggle('is-whole', whole);
+        more.textContent = whole ? 'Less' : 'More';
+        more.setAttribute('aria-expanded', whole ? 'true' : 'false');
+        fit();
+        if (core.reduceMotion() || !bio.animate) return;
+        bio.classList.toggle('is-closing', !whole);
+        var seen = resting + gap;
+        glide(bio, [{ clipPath: 'inset(0 0 ' + (bio.offsetHeight - seen) + 'px)' }, { clipPath: 'inset(0)' }]).onfinish = function () {
+          bio.classList.remove('is-closing');
+        };
+      });
     }
 
     /* Open, it keeps its way back. */
@@ -698,12 +725,7 @@
     }
 
     more.addEventListener('click', function () {
-      moving(function () {
-        var whole = bio.classList.toggle('is-whole');
-        more.textContent = whole ? 'Less' : 'More';
-        more.setAttribute('aria-expanded', whole ? 'true' : 'false');
-        fit();
-      });
+      turn(!bio.classList.contains('is-whole'));
     });
     if (window.ResizeObserver) new window.ResizeObserver(fit).observe(bio);
 

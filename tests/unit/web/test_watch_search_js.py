@@ -385,6 +385,10 @@ def test_no_titles_are_counted_of_a_person_who_has_none() -> None:
     assert _run("personBare") == "Actor"
 
 
+def test_a_persons_story_is_cut_only_once_it_has_closed() -> None:
+    assert _run("storyCloses") == [[True, False], [False, True], [True, False], [False, False]]
+
+
 def test_people_lead_where_no_title_matches() -> None:
     out = _run("peopleLead")
     assert out["person"] == {
