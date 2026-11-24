@@ -228,6 +228,10 @@ def _maybe_record_completions(
         carried = {k: v for k, v in previous_snapshot.items() if _service_of(k) in unreachable}
         stored = {**carried, **current_map}
         carry_queued_since(previous_snapshot, stored, now_utc())
+        for dl_id, item in stored.items():
+            tmdb_id = previous_snapshot.get(dl_id, {}).get("tmdb_id")
+            if tmdb_id and "tmdb_id" not in item:
+                item["tmdb_id"] = tmdb_id
         _previous_queue = stored
         _previous_initialised = True
 

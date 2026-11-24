@@ -236,6 +236,25 @@ def test_a_film_is_recorded_for_a_file_added_since_it_was_first_seen_queued(
     assert [r["id"] for r in _get(client)["recent"]] == recorded
 
 
+def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(services, client):
+    radarr, _, nzbget = services
+    nzbget.get_queue.return_value = [_loading("Dune.2021.1080p")]
+    radarr.get_movies.return_value = [
+        {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": True, "isAvailable": True}
+    ]
+    _get(client)
+    radarr.get_queue.side_effect = radarr.get_movies.side_effect = _DOWN
+    assert _get(client)["hero"]["id"] == "radarr:Dune"
+
+    radarr.get_queue.side_effect = radarr.get_movies.side_effect = None
+    nzbget.get_queue.return_value = []
+    radarr.get_movies.return_value = [
+        {"id": 1, "tmdbId": 10, "title": "Dune", "hasFile": True, "movieFile": _NEW_FILE},
+        {"id": 2, "tmdbId": 20, "title": "Dune", "monitored": False},
+    ]
+    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+
+
 def _show(title: str, *files: int, monitored: bool = True) -> dict[str, object]:
     """A show of eight-episode seasons, all aired, with *files* of each."""
     seasons = [
