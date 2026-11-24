@@ -59,6 +59,8 @@ _OFTEN = 2
 
 _clock = time.monotonic
 _resume_at = 0.0
+# The token TMDB was left alone with: a new one is tried at once.
+_paused_token: str | None = None
 # Titles TMDB failed on: how many asks, and when the next may come.
 _failed: dict[tuple[str, int], tuple[int, float]] = {}
 # The title TMDB was last down for, and whether that counted as an ask of its own; None once
@@ -106,10 +108,10 @@ def fill_title_meta(
         ).rowcount
     if dropped:
         clear_held()
-    if _clock() < _resume_at:
-        return
     client = _client(conn, secret_key)
-    if client is not None and _fill_due(conn, client, stopped):
+    if client is None or (client.token == _paused_token and _clock() < _resume_at):
+        return
+    if _fill_due(conn, client, stopped):
         clear_held()
 
 
@@ -131,7 +133,7 @@ def _client(conn: sqlite3.Connection, secret_key: str) -> TmdbClient | None:
 
 def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[], bool]) -> int:
     """How many titles were settled."""
-    global _resume_at, _down
+    global _resume_at, _paused_token, _down
     asked = settled = failures = answered = 0
 
     def allow_fetch() -> bool:
@@ -155,7 +157,7 @@ def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[]
         except Exception as exc:
             own = asked > before
             if own and _is_outage(exc, key):
-                _resume_at = _clock() + _PAUSE_S
+                _resume_at, _paused_token = _clock() + _PAUSE_S, client.token
                 # Last from now on, should it be this title alone TMDB fails on.
                 _failed[key] = (_failed.get(key, (0, 0.0))[0], _resume_at)
                 break
@@ -172,7 +174,7 @@ def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[]
                 _down = None
     if failures and not answered:
         # Every title alike is not the titles' fault.
-        _resume_at = _clock() + _PAUSE_S
+        _resume_at, _paused_token = _clock() + _PAUSE_S, client.token
     return settled
 
 
@@ -365,7 +367,7 @@ def _current(conn: sqlite3.Connection) -> _Library:
         with _lock:
             held = _library.get(key)
             generation = _generation
-        if held is not None and held[0] > _clock():
+        if held is not None and held[0] > _clock() and _all_there(conn, held[1]):
             return held[1]
         built = _build(conn)
         with _lock:
@@ -373,6 +375,11 @@ def _current(conn: sqlite3.Connection) -> _Library:
                 _library.clear()
                 _library[key] = (_clock() + _HELD_S, built)
         return built
+
+
+def _all_there(conn: sqlite3.Connection, library: _Library) -> bool:
+    there = {row["ref"] for row in conn.execute(_SELECTED_TITLES)}
+    return all(title["library_ref"] in there for title in library.titles)
 
 
 def _build(conn: sqlite3.Connection) -> _Library:

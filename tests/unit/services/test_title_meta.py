@@ -144,6 +144,17 @@ class TestFill:
 
         assert stub.asked == [f"/{path}/{n}" for n in range(1, asks + 1)]
 
+    def test_a_new_token_is_tried_at_once(self, conn, stub, library, monkeypatch):
+        library(1)
+        stub.pages["/movie/1"] = 401
+        _run(conn)
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: TmdbClient("new"))
+        library(2)
+
+        _run(conn)
+
+        assert _ids(conn) == [2]
+
     def test_tmdb_failing_on_one_title_alone_holds_up_no_other(self, conn, stub, library):
         for n in (1, 2, 3):
             library(n)
@@ -585,6 +596,27 @@ class TestHeld:
         _run(conn)
 
         assert _ids(conn) == []
+
+    def test_a_title_deleted_by_whatever_is_gone_at_once(self, conn, stub, library):
+        library(1, cast=[7])
+        library(2, cast=[7])
+        _run(conn)
+        assert len(_ids(conn)) == 2
+        conn.execute("DELETE FROM media_items WHERE id = '1'")
+
+        assert _ids(conn) == [2]
+        assert catalog.library_people(conn).people == []
+
+    def test_the_other_copy_of_a_deleted_one_stands_in_for_it_at_once(self, conn, stub, library):
+        library(1)
+        insert_media_item(conn, id="50", plex_rating_key="50", title="Copy")
+        conn.execute("UPDATE media_items SET tmdb_id = 1 WHERE id = '50'")
+        _run(conn)
+        _ids(conn)
+        conn.execute("DELETE FROM media_items WHERE id = '1'")
+
+        [item], _ = catalog.library_titles(conn, catalog.GENRES["action"])
+        assert item["library_ref"] == "movie-50"
 
     def test_ticking_other_libraries_shows_at_once(self, conn, stub, library):
         library(1)
