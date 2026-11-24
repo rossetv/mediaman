@@ -9,9 +9,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-CSS = (
-    Path(__file__).parents[5] / "src" / "mediaman" / "web" / "static" / "css" / "_watch_list.css"
-).read_text()
+CSS_DIR = Path(__file__).parents[5] / "src" / "mediaman" / "web" / "static" / "css"
+CSS = (CSS_DIR / "_watch_list.css").read_text()
+MODAL_CSS = (CSS_DIR / "_modal.css").read_text()
 
 
 def _block(query: str) -> str:
@@ -65,3 +65,26 @@ def test_the_empty_list_s_buttons_stand_the_group_s_gap_apart_and_no_more():
     assert re.search(
         r"\.wl-empty > \.btn,\s*\.wl-empty \.watch-actions \{ margin-top: 18px; \}", CSS
     )
+
+
+def test_a_sortable_header_starts_where_its_column_does_on_a_tablet():
+    block = _block("(max-width: 1023.98px)")
+    assert re.search(
+        r"thead th:not\(\.sortable\),\s*\.wl-table thead th\.sortable \.th-sort,", block
+    )
+
+
+def test_the_skeleton_has_the_sort_s_own_bar_on_a_phone():
+    assert re.search(r"\.wl-skel__bar--sort \{ display: block;", _block("(max-width: 699.98px)"))
+
+
+def test_the_page_does_not_scroll_behind_a_keep_or_season_dialog():
+    rule = re.search(
+        r"body:has\(> \.keep-dialog-overlay\.active:not\(\.is-closing\)\) \{([^}]*)\}", MODAL_CSS
+    )
+    assert rule and "overflow: hidden;" in rule[1] and "var(--page-bar" in rule[1]
+
+
+def test_the_season_deletes_are_apart_on_a_phone():
+    phone = MODAL_CSS.split("@media (max-width: 699.98px) {", 1)[1]
+    assert ".keep-season-list { gap: 8px; }" in phone.split("@media", 1)[0]

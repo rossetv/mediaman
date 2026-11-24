@@ -10,14 +10,20 @@ from __future__ import annotations
 
 import pathlib
 import re
-from datetime import UTC, datetime
+import sqlite3
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import list_page
-from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 
 @pytest.fixture
@@ -210,3 +216,26 @@ class TestBulkKeepResponseOk:
         keep = keep[: keep.index("function removeAllKeeps")]
         assert "failed.push(" in keep
         assert "if (!failed.length && !changed.length)" in keep
+
+
+def test_a_row_is_given_the_keep_it_shows_though_another_is_made_as_the_page_is_read(
+    conn, db_path, monkeypatch
+):
+    until = (datetime.now(UTC) + timedelta(days=20)).isoformat()
+    insert_media_item(conn, id="m1", title="Dune")
+    insert_scheduled_action(conn, media_item_id="m1", action="snoozed", execute_at=until)
+    conn.commit()
+    fetch_library = list_page.fetch_library
+
+    def then_kept_forever(*args, **kwargs):
+        found = fetch_library(*args, **kwargs)
+        with sqlite3.connect(db_path) as other:
+            other.execute("UPDATE scheduled_actions SET action = 'protected_forever'")
+        return found
+
+    monkeypatch.setattr(list_page, "fetch_library", then_kept_forever)
+
+    (row,) = list_page.list_context(conn, "admin", {})["items"]
+
+    assert row["protected"] is True
+    assert row["keep"]["action"] == "snoozed"

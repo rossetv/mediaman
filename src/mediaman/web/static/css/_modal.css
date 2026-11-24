@@ -118,6 +118,12 @@
   padding: 20px;
 }
 .keep-dialog-overlay.active { display: flex; }
+/* The page does not scroll behind it and keeps the width its scrollbar leaves. A title's page
+   and the storage panel hold the html already. */
+html:not(.has-space, .has-ttl) body:has(> .keep-dialog-overlay.active:not(.is-closing)) {
+  overflow: hidden;
+  padding-right: var(--page-bar, 0);
+}
 .keep-dialog {
   background: var(--s2);
   border: 1px solid var(--hair-strong);
@@ -136,7 +142,7 @@
 .keep-dur-btn:hover { color: var(--t1); }
 .keep-dur-btn.active { background: var(--s3); color: var(--t1); font-weight: 500; }
 
-.keep-season-list { max-height: 320px; min-height: 0; flex: 0 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.keep-season-list { max-height: 320px; min-height: 0; flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; padding: 4px; margin-inline: -4px; }
 .keep-season-item {
   display: flex;
   align-items: center;
@@ -148,7 +154,10 @@
 }
 .keep-season-item label,
 .keep-season-name { flex-shrink: 0; white-space: nowrap; }
+.keep-season-note { margin: 6px 0 4px; font-size: 13px; color: var(--t2); }
 .keep-season-list > .btn { align-self: flex-start; }
+.keep-season-item--skel { flex: none; height: 40px; }
+.keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
 .keep-season-item input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; margin: 0; accent-color: var(--accent-cta); }
@@ -160,6 +169,8 @@
   .snooze-option { min-height: 44px; }
   /* The label is the tap target for its checkbox: the whole row height, out to the details. */
   .keep-season-item { padding-top: 0; padding-bottom: 0; }
+  .keep-season-item--skel { height: 44px; }
+  .keep-season-list { gap: 8px; }
   .keep-season-item label { display: flex; align-items: center; flex: 1; min-height: 44px; }
 }
 @media (max-width: 639.98px) {

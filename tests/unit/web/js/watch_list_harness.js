@@ -132,6 +132,10 @@ function page(doc, listShown) {
 function load(opts = {}) {
   const doc = makeDocument();
   doc.dispatchEvent = (ev) => { (doc.listeners[ev.type] || []).forEach((fn) => fn(ev)); return true; };
+  Object.assign(doc.documentElement.style, {
+    setProperty(k, v) { this[k] = v; },
+    removeProperty(k) { delete this[k]; },
+  });
   doc.body.appendChild(page(doc));
   const list = doc.getElementById('watch-list');
   const browse = doc.getElementById('watch-browse');
@@ -353,7 +357,7 @@ const scenarios = {
     click(p.doc, keepOption(p, 'id:m1', '30 days'));
     reply.resolve({ ok: true });
     await settle();
-    return { calls: p.calls.length };
+    return { calls: p.calls.length, told: /Still saving/.test(p.toasts[0].message) };
   },
 
   // A keep that fails says so and leaves the row as it was.
@@ -462,6 +466,63 @@ const scenarios = {
       title: p.row('show:77').querySelector('.title-cell').textContent,
       keys: p.rowKeys(),
     };
+  },
+
+  // Cancel in the confirm: the seasons are still there. Then a list that fails to load, and Retry.
+  async seasonDeleteCancelledAndRetried() {
+    const p = load({ list: true });
+    const url = 'get /api/show/77/seasons';
+    p.replies[url] = serverError;
+    const dialog = () => p.doc.getElementById('season-delete-overlay');
+    const list = () => p.doc.getElementById('season-delete-list');
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    await settle();
+    const retry = list().querySelector('button');
+    const out = { failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === retry };
+    p.replies[url] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
+    click(p.doc, retry);
+    await settle();
+    const del = list().querySelector('button');
+    out.back = [del.textContent, p.doc.activeElement === del];
+    p.answerConfirm(false);
+    click(p.doc, del);
+    await settle();
+    out.cancelled = { open: dialog().classList.contains('active'), deletes: list().querySelectorAll('button').length, posts: p.calls.filter((c) => c[0] === 'post').length };
+    return out;
+  },
+
+  // The Keep dialog before its seasons are in: the second show's, after the first's.
+  async keepDialogOpens() {
+    const p = load({ list: true, rows: [...ROWS.filter((r) => !r.showRk),
+      { id: 's1', title: 'Night Shift', showRk: '77', seasons: 1 }, { id: 't1', title: 'Harbour Lights', showRk: '88', seasons: 4 }] });
+    p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: null, seasons: seasonsOf(null) });
+    const reply = deferred();
+    p.replies['get /api/show/88/seasons'] = () => reply.promise;
+    const root = p.doc.documentElement;
+    root.clientWidth = p.ctx.innerWidth - 15;
+    click(p.doc, keepOption(p, 'show:77', '30 days'));
+    await settle();
+    click(p.doc, keepOption(p, 'show:88', 'forever'));
+    await settle();
+    vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
+    p.ctx.ModalA11y.onOpened('keep-dialog-overlay');
+    const bar = [root.style['--page-bar']];
+    const list = p.doc.getElementById('keep-season-list');
+    const look = () => ({ rows: list.querySelectorAll('.keep-season-item--skel').length, busy: list.getAttribute('aria-busy') });
+    const out = {
+      title: p.doc.getElementById('keep-dialog-title').textContent,
+      pressed: p.doc.querySelectorAll('.keep-dur-btn').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+      focus: p.doc.activeElement.textContent,
+      waiting: look(),
+    };
+    reply.resolve({ show_title: 'Harbour Lights', show_kept: null, seasons: seasonsOf(null, null, null, null) });
+    await settle();
+    out.loaded = look();
+    p.doc.getElementById('keep-season-s1').checked = true;
+    click(p.doc, p.doc.getElementById('keep-dialog-confirm'));
+    await settle();
+    out.bar = bar.concat(root.style['--page-bar'] || '');
+    return out;
   },
 
   // Keep a show from its dialog: the dialog closes and the show's row changes in place.

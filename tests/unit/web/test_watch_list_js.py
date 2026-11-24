@@ -58,7 +58,7 @@ def test_changing_an_existing_keep_offers_no_undo() -> None:
 
 
 def test_a_second_press_while_a_keep_runs_sends_nothing() -> None:
-    assert _run("keepTwice") == {"calls": 1}
+    assert _run("keepTwice") == {"calls": 1, "told": True}
 
 
 def test_a_failed_keep_says_why_and_reads_nothing_again() -> None:
@@ -106,6 +106,23 @@ def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_row() -> N
     assert out["call"] == ["post", "/api/media/s1/delete", None]
     assert out["title"] == "Night Shift (1 season)"
     assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_the_season_delete_list_can_be_read_again_and_stays_after_a_cancelled_delete() -> None:
+    out = _run("seasonDeleteCancelledAndRetried")
+    assert (out["failed"], out["retry"], out["focus"]) == (True, "Retry", True)
+    assert out["back"] == ["Delete", True]
+    assert out["cancelled"] == {"open": True, "deletes": 1, "posts": 0}
+
+
+def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() -> None:
+    out = _run("keepDialogOpens")
+    assert out["title"] == "Keep Harbour Lights"
+    assert (out["pressed"], out["focus"]) == (["Forever"], "Forever")
+    assert out["waiting"] == {"rows": 5, "busy": "true"}
+    assert out["loaded"] == {"rows": 0, "busy": None}
+    # The width the page's scrollbar leaves is held only while it is open.
+    assert out["bar"] == ["15px", ""]
 
 
 def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place() -> None:

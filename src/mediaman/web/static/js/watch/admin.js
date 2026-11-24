@@ -28,7 +28,7 @@
 
   /* picked: the ids of the seasons to open with ticked beside the kept ones,
      or null for the one that leaves first. */
-  var _keepDialogState = { showRk: '', hasRk: false, showKept: null, seasons: [], picked: null, showTitle: '', seasonId: '', duration: '30 days' };
+  var _keepDialogState = { showRk: '', hasRk: false, showKept: null, seasons: [], picked: null, showTitle: '', seasonId: '', duration: '30 days', expected: 2 };
   var _keepDialogModal = null;
   var _seasonDeleteModal = null;
 
@@ -64,6 +64,7 @@
         kept: d.kept === 'true',
         deletion: d.deletion === 'true',
         keep: parseJson(d.keep, null),
+        seasons: Number(d.seasons) || 2,
         seasonId: null
       };
     }
@@ -79,6 +80,7 @@
       kept: !!w.kept,
       deletion: !!w.deletion,
       keep: w.keep || null,
+      seasons: 2,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
   }
@@ -160,6 +162,7 @@
     else emit('failed', detail);
   }
 
+  var STILL_SAVING = 'Still saving the last change to this title. Try again in a moment.';
   var KEEP_CHANGED = 'Its keep was changed meanwhile, so it was left as it is now.';
 
   /* The Undo toast of each title's last keep, so a later change to that keep
@@ -209,7 +212,11 @@
       openKeepDialog(w, duration);
       return Promise.resolve(false);
     }
-    if (!w.id || _busy[w.id]) return Promise.resolve(false);
+    if (!w.id) return Promise.resolve(false);
+    if (_busy[w.id]) {
+      explainBusy(w, STILL_SAVING);
+      return Promise.resolve(false);
+    }
     _busy[w.id] = 'keep';
     backToTrigger(w);
     var id = w.id;
@@ -326,6 +333,8 @@
     var d = overlay('keep-dialog-overlay', 'keep-dialog-title', 'Keep Show');
     var bar = el('div', 'keep-duration-bar');
     bar.id = 'keep-duration-bar';
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'Keep for');
     ['7 days', '30 days', '90 days', 'forever'].forEach(function (dur) {
       var b = button('keep-dur-btn', dur === 'forever' ? 'Forever' : dur, { 'data-dur': dur });
       b.addEventListener('click', function () { selectDuration(b); });
@@ -348,7 +357,8 @@
     confirm.addEventListener('click', confirmKeepDialog);
     _keepDialogModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, // _modal.css holds the page
+      onClose: dropPageBar,
       closeSelectors: ['[data-action="close-keep-dialog"]']
     });
   }
@@ -365,12 +375,55 @@
     document.body.appendChild(d.root);
     _seasonDeleteModal = MM.modal.setupDetail(d.root, {
       activeClass: 'active',
-      manageBodyOverflow: false,
+      manageBodyOverflow: false, // _modal.css holds the page
+      onClose: dropPageBar,
       closeSelectors: ['[data-action="close-season-delete"]']
     });
   }
 
   function byId(id) { return document.getElementById(id); }
+
+  /* A dialog holds the page, at the width its scrollbar leaves. */
+  function openHolding(modal) {
+    var root = document.documentElement;
+    var bar = window.innerWidth - root.clientWidth;
+    if (bar > 0) root.style.setProperty('--page-bar', bar + 'px');
+    modal.open();
+  }
+
+  function dropPageBar() { document.documentElement.style.removeProperty('--page-bar'); }
+
+  /* Rows where the seasons will be, as many as are expected; the list then keeps their
+     height until the seasons are in, whatever it says meanwhile. */
+  function seasonSkeleton(list, rows) {
+    list.style.minHeight = '';
+    list.replaceChildren();
+    list.setAttribute('aria-busy', 'true');
+    for (var i = 0; i < rows; i++) {
+      var row = el('div', 'keep-season-item keep-season-item--skel');
+      row.setAttribute('aria-hidden', 'true');
+      row.appendChild(el('span', 'skel skel--line'));
+      list.appendChild(row);
+    }
+    list.appendChild(el('span', 'sr-only', 'Loading the seasons…'));
+    list.style.minHeight = list.offsetHeight + 'px';
+  }
+
+  /* The seasons, or what is said in their place. */
+  function seasonsIn(list) {
+    list.removeAttribute('aria-busy');
+    list.replaceChildren();
+  }
+
+  function seasonsFailed(list, retry) {
+    seasonsIn(list);
+    var line = el('p', 'keep-season-note', "Couldn't load the seasons.");
+    line.setAttribute('role', 'status');
+    list.appendChild(line);
+    list.appendChild(retry);
+    core.fadeIn(line);
+    retry.focus();
+  }
 
   /* The note has a line of its own above the buttons, made on first use. */
   function keepChainNote() {
@@ -424,13 +477,16 @@
     _keepDialogState.seasonId = w.id;
     _keepDialogState.picked = w.seasonId === null ? null : w.seasonId ? [w.seasonId] : [];
     _keepDialogState.duration = duration || '30 days';
+    _keepDialogState.expected = w.seasons;
+    _keepDialogState.seasons = [];
+    byId('keep-dialog-title').textContent = 'Keep ' + (w.showTitle || 'Show');
     /* Close the menu this came from, and park focus on its trigger so
        closing the dialog returns there rather than to a hidden menu item. */
     closeMenus();
     var trigger = triggerOf(w);
     if (trigger) trigger.focus();
-    _keepDialogModal.open();
     selectDurationByValue(_keepDialogState.duration);
+    openHolding(_keepDialogModal);
     loadKeepSeasons();
   }
 
@@ -446,10 +502,11 @@
   /* focusAfter returns the element to focus once the seasons are shown; it
      is used only while focus is still in the list or nowhere. */
   function loadKeepSeasons(focusAfter) {
+    var expected = _keepDialogState.seasons.length || _keepDialogState.expected;
     _keepDialogState.showKept = null;
     _keepDialogState.seasons = [];
     var list = byId('keep-season-list');
-    list.textContent = 'Loading…';
+    seasonSkeleton(list, expected + (_keepDialogState.hasRk ? 1 : 0));
     byId('keep-dialog-remove').classList.remove('is-visible');
     var confirmBtn = byId('keep-dialog-confirm');
     confirmBtn.textContent = 'Keep';
@@ -483,7 +540,6 @@
      pick; Retry reads them again. */
   function showSeasonsLoadFailure(list, confirmBtn) {
     confirmBtn.disabled = true;
-    list.replaceChildren();
     var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'keep-seasons-retry' });
     retry.addEventListener('click', function () {
       /* The button goes with the message; park focus on the list meanwhile. */
@@ -491,9 +547,7 @@
       list.focus();
       loadKeepSeasons(function () { return list.querySelector('input'); });
     });
-    list.appendChild(el('span', null, "Couldn't load the seasons. "));
-    list.appendChild(retry);
-    retry.focus();
+    seasonsFailed(list, retry);
   }
 
   function closeKeepDialog() {
@@ -501,14 +555,18 @@
   }
 
   function selectDuration(btn) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
+    selectDurationByValue(btn.dataset.dur);
     _keepDialogState.duration = btn.dataset.dur;
     document.querySelectorAll('#keep-season-list [data-keep-set]').forEach(labelSet);
   }
 
   function selectDurationByValue(dur) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.dur === dur); });
+    document.querySelectorAll('.keep-dur-btn').forEach(function (b) {
+      var on = b.dataset.dur === dur;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.toggleAttribute('data-modal-focus', on);
+    });
   }
 
   function seasonName(s) { return s.season_number != null ? 'Season ' + s.season_number : s.title; }
@@ -574,7 +632,8 @@
 
   function renderSeasonPicker(seasons, showKept) {
     var list = byId('keep-season-list');
-    list.replaceChildren();
+    seasonsIn(list);
+    list.style.minHeight = '';
     var picked = pickedSeasons(seasons);
 
     /* A tick that goes takes the change to its keep with it. */
@@ -998,12 +1057,16 @@
     return 'This deletes ' + what + files + ". It can't be undone.";
   }
 
-  /* opts: {kind: 'movie'|'season', size, showRk}. Resolves true once the
-     item is gone. */
+  /* opts: {kind: 'movie'|'season', size, showRk, started}, started being called once the
+     person has confirmed. Resolves true once the item is gone. */
   function confirmDelete(mediaId, title, opts) {
     opts = opts || {};
     var id = mediaId == null ? '' : String(mediaId);
-    if (!id || _busy[id]) return Promise.resolve(false);
+    if (!id) return Promise.resolve(false);
+    if (_busy[id]) {
+      window.UIFeedback.toast(STILL_SAVING);
+      return Promise.resolve(false);
+    }
     var detail = { action: 'delete', id: id, showRk: opts.showRk || '' };
     return window.UIFeedback.confirm({
       title: 'Delete ' + (title || 'this item') + '?',
@@ -1012,6 +1075,7 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok || _busy[id]) return false;
+      if (opts.started) opts.started();
       _busy[id] = 'delete';
       retireUndo(id);
       emit('busy', detail);
@@ -1032,26 +1096,42 @@
 
   /* The per-season Delete list for a grouped show. Nothing is deleted from
      here: each season's own Delete goes through confirmDelete. */
-  function pickSeasonDelete(showRk, showTitle) {
+  function pickSeasonDelete(showRk, showTitle, seasons) {
     if (!_seasonDeleteModal) buildSeasonDeleteDialog();
-    var list = byId('season-delete-list');
     byId('season-delete-title').textContent = 'Delete from ' + (showTitle || 'show');
-    _seasonDeleteModal.open();
+    openHolding(_seasonDeleteModal);
+    loadSeasonDeletes(showRk, showTitle, seasons);
+  }
+
+  /* focusAfter: whether the focus goes on to the first season once they are in. */
+  function loadSeasonDeletes(showRk, showTitle, seasons, focusAfter) {
+    var list = byId('season-delete-list');
     var request = ++_seasonDeleteRequest;
     if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
-    list.textContent = 'Loading…';
+    seasonSkeleton(list, seasons || 2);
     MM.api.get('/api/show/' + encodeURIComponent(showRk) + '/seasons')
       .then(function (data) {
-        if (request === _seasonDeleteRequest) renderSeasonDeleteList(data, showRk, showTitle);
+        if (request !== _seasonDeleteRequest) return;
+        renderSeasonDeleteList(data, showRk, showTitle);
+        var first = list.querySelector('button');
+        if (focusAfter && first && MM.dom.focusStillIn(list)) first.focus();
       })
       .catch(function () {
-        if (request === _seasonDeleteRequest) list.textContent = "Couldn't load seasons.";
+        if (request !== _seasonDeleteRequest) return;
+        var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'season-delete-retry' });
+        retry.addEventListener('click', function () {
+          list.tabIndex = -1;
+          list.focus();
+          loadSeasonDeletes(showRk, showTitle, seasons, true);
+        });
+        seasonsFailed(list, retry);
       });
   }
 
   function renderSeasonDeleteList(data, showRk, showTitle) {
     var list = byId('season-delete-list');
-    list.replaceChildren();
+    seasonsIn(list);
+    list.style.minHeight = '';
     if (!data.seasons.length) { list.textContent = 'No seasons found.'; return; }
     var title = data.show_title || showTitle;
 
@@ -1066,9 +1146,8 @@
       } else {
         var del = button('btn btn--danger btn--sm', 'Delete');
         del.addEventListener('click', function () {
-          _seasonDeleteModal.close();
           confirmDelete(String(s.id), title + ' — ' + name.textContent,
-            { kind: 'season', size: s.file_size, showRk: showRk });
+            { kind: 'season', size: s.file_size, showRk: showRk, started: function () { _seasonDeleteModal.close(); } });
         });
         row.appendChild(del);
       }

@@ -3,7 +3,8 @@
  *   - Tab-focus trap inside any element with data-modal="true"
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
- *   - On open, first focusable element inside the modal receives focus
+ *   - On open, the focusable element marked data-modal-focus receives focus, or else
+ *     the first one inside the modal
  *   - On close, focus returns to the element that was focused when the
  *     modal opened (the trigger)
  *
@@ -51,7 +52,7 @@
 
   function focusFirst(modal) {
     var focusables = getFocusable(modal);
-    var target = focusables[0] || modal;
+    var target = focusables.filter(function (el) { return el.hasAttribute('data-modal-focus'); })[0] || focusables[0] || modal;
     if (target && typeof target.focus === 'function') {
       // Ensure the modal itself is focusable as a last resort
       if (target === modal && !modal.hasAttribute('tabindex')) {
