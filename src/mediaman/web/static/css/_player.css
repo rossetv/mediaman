@@ -344,6 +344,9 @@
   box-shadow: var(--shadow-card);
   max-width: calc(100% - 32px);
 }
+/* A pill in the card's own colour would look like bare text. */
+.player-card .player-pill:not(.player-pill--primary)::before { background: var(--s5); }
+.player-card .player-pill:not(.player-pill--primary):hover::before { background: color-mix(in srgb, var(--t1) 12%, var(--s5)); }
 .player-card-title { font-size: 17px; font-weight: 600; }
 .player-card-line { font-size: 14px; color: var(--t2); }
 .player-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }

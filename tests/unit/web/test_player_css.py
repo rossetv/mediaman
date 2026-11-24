@@ -69,3 +69,15 @@ def test_text_over_a_white_frame_keeps_aa_contrast(bar: str, row: str, reach: st
     token = re.search(r"color:\s*var\(--([\w-]+)\)", _rule(css, row)).group(1)
     share = int(re.search(rf"--{token}:[^;]*?(\d+)%", css).group(1)) / 100
     assert _contrast(255 * share + frame * (1 - share), frame) >= 4.5
+
+
+def test_a_quiet_button_in_a_card_stands_out_from_the_card() -> None:
+    css = _text("_player.css")
+    tokens = _text("_tokens.css")
+
+    def grey(body: str) -> int:
+        name = re.search(r"background:[^;]*var\(--(s\d)\)", body).group(1)
+        return int(re.search(rf"--{name}:\s*#(..)", tokens).group(1), 16)
+
+    pill = _rule(css, ".player-card .player-pill:not(.player-pill--primary)::before")
+    assert _contrast(grey(pill), grey(_rule(css, ".player-card"))) >= 1.4
