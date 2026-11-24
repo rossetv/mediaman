@@ -451,3 +451,13 @@ def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -
 
 def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:
     assert _run("rowsMovedIn") == {"before": True, "after": False, "left": 300}
+
+
+def test_refresh_of_the_shared_picks_is_off_without_a_key_and_says_why() -> None:
+    out = _run("sharedWithoutAKey")
+    for case in (out["ready"], out["cooling"]):
+        assert (case["label"], case["disabled"], case["posts"]) == ("Refresh shared", "true", 0)
+        assert case["why"] == "New ones need an OpenAI key, set in Settings."
+        assert case["toasts"] == [case["why"]]
+    assert "fetch the first ones" not in out["none"]
+    assert (out["withKey"]["posts"], out["withKey"]["why"]) == (1, None)

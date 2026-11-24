@@ -24,6 +24,7 @@
   var STATUS_URL = '/api/recommended/refresh/status';
   var OWN_URL = '/api/watch/picks/refresh';
   var SETTINGS_HREF = '/settings#setg-general';
+  var NO_KEY = 'New ones need an OpenAI key, set in Settings.';
   var REC_TITLE = 'Recommended for you';
   var DISCOVER_ROWS = [
     ['trending', 'Trending this week'],
@@ -463,6 +464,8 @@
     return button;
   }
 
+  function noKey(payload) { return payload.my_refresh.reason === 'not_configured'; }
+
   function refreshOf(kind) { return rec && rec.section.querySelector('[' + REFRESH[kind].attr + ']'); }
 
   function setRefresh(kind, state, nextAt) {
@@ -470,14 +473,17 @@
     if (!button) return;
     var words = REFRESH[kind];
     clearTimeout(timers[kind]);
-    var left = state === 'cooldown' ? waitText(nextAt) : '';
+    var off = kind === 'shared' && state !== 'busy' && noKey(rec.payload);
+    var left = state === 'cooldown' && !off ? waitText(nextAt) : '';
     if (state === 'cooldown' && !left) state = 'ready';
     var face = { ready: ['i-rotate-right', words.name], busy: ['i-rotate-right', 'Refreshing…'],
       cooldown: ['i-clock-regular', 'Refresh in ' + left] }[state];
     button.textContent = '';
     button.classList.toggle('is-busy', state === 'busy');
-    if (state === 'ready') button.removeAttribute('aria-disabled');
+    if (state === 'ready' && !off) button.removeAttribute('aria-disabled');
     else button.setAttribute('aria-disabled', 'true');
+    if (off) button.setAttribute('title', NO_KEY);
+    else button.removeAttribute('title');
     button.setAttribute('aria-label', { ready: words.name, busy: words.busy,
       cooldown: words.name + ', available in ' + left }[state]);
     var shown = el('span', 'row-tool__face');
@@ -541,7 +547,7 @@
       return note('Recommendations are switched off.', link);
     }
     var empty = note('No recommendations yet.');
-    if (payload.refresh) empty.appendChild(el('span', 'watch-row__hint', 'Refresh shared to fetch the first ones.'));
+    if (payload.refresh && !noKey(payload)) empty.appendChild(el('span', 'watch-row__hint', 'Refresh shared to fetch the first ones.'));
     return empty;
   }
 
@@ -634,7 +640,7 @@
     if (state === 'busy') return 'Making yours. It can take a minute or two.';
     if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
-    if (mine.reason === 'not_configured' && isAdmin) return 'New ones need an OpenAI key, set in Settings.';
+    if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
     if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
     var items = payload.items || [];
     if (ownOf(payload)) {
@@ -832,7 +838,8 @@
     if (polling || button.getAttribute('aria-disabled') === 'true') {
       // On a phone the button is its icon alone, so it says how long when pressed.
       var left = rec.payload.refresh && waitText(rec.payload.refresh.next_available_at);
-      if (!polling && left) core.toast(againText(left));
+      if (!polling && noKey(rec.payload)) core.toast(NO_KEY);
+      else if (!polling && left) core.toast(againText(left));
       return;
     }
     setRefresh('shared', 'busy');

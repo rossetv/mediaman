@@ -572,6 +572,21 @@ const scenarios = {
     return { before, after: p.doc.querySelector('.watch-discover-layer') !== null, left };
   },
 
+  // Without a key the shared picks cannot be made either.
+  async sharedWithoutAKey() {
+    const at = async (opts) => {
+      const p = load({ admin: true, mine: MINE.noKey, ...opts });
+      await settle();
+      const button = p.doc.querySelector('[data-picks-refresh]');
+      click(p.doc, button);
+      return { label: text(button), disabled: button.getAttribute('aria-disabled'), why: button.getAttribute('title'),
+        toasts: p.toasts.map((t) => t.message), posts: p.calls.filter((c) => /^POST/.test(c)).length, row: text(rec(p.doc)) };
+    };
+    const next = new Date(Date.now() + 14 * HOUR - 60000).toISOString();
+    return { ready: await at({}), cooling: await at({ refresh: { available: false, next_available_at: next, running: false } }),
+      none: (await at({ items: [] })).row, withKey: await at({ mine: MINE.ready }) };
+  },
+
   // A batch with no picks.
   async noPicks() {
     const viewer = load({ items: [] });
