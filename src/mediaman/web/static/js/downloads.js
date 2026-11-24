@@ -44,9 +44,9 @@
 
   var lastHero = null;
 
-  function heroHeld(dom, box, unreachable) {
+  function heroHeld(dom, box, data) {
     var card = box && !dom.isCollapsing(box) && box.querySelector('.dl-hero');
-    return !!card && dom.held(card.getAttribute('data-dl-id'), unreachable);
+    return !!card && dom.held(card.getAttribute('data-dl-id'), '', data);
   }
 
   function update(data) {
@@ -94,7 +94,7 @@
         if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
         renderHero().updateHero(heroContainer, data.hero);
       }
-    } else if (heroHeld(dom, heroContainer, data.unreachable)) {
+    } else if (heroHeld(dom, heroContainer, data)) {
       held = true;
     } else {
       lastHero = null;
@@ -107,7 +107,7 @@
     var queue = data.queue || [];
     /* A hero whose service went down gives way to another item and becomes a row. */
     if (data.hero && lastHero && lastHero.id !== data.hero.id &&
-        dom.held(lastHero.id, data.unreachable)) {
+        dom.held(lastHero.id, lastHero.title, data)) {
       queue = queue.concat(lastHero);
     }
     if (data.hero) lastHero = data.hero;
@@ -144,10 +144,10 @@
           if (!opening) dom.reveal(row);
         }
       }
-      dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data.unreachable);
+      dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data);
       if (opening) dom.reveal(queueContainer);
     } else if (queueContainer && !dom.isCollapsing(queueContainer) &&
-        dom.dropAbsent(queueContainer.querySelectorAll('.dl-compact'), present, data.unreachable)) {
+        dom.dropAbsent(queueContainer.querySelectorAll('.dl-compact'), present, data)) {
       held = true;
     } else {
       closeSection(dom, queueContainer);

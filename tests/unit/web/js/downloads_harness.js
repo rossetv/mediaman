@@ -474,6 +474,21 @@ scenarios.outageRows = async function () {
   return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
 };
 
+// a held download that NZBGet still lists under its own name is shown once
+scenarios.outageNzb = async function () {
+  const p = pageRig(true);
+  p.upd({
+    hero: item('radarr:h1', { title: 'Ember Coast' }),
+    queue: [item('radarr:q1', { title: 'It' }), item('radarr:q2', { title: 'Dune: Part Two' }), item('sonarr:q3', { title: 'Dune' })],
+  });
+  p.upd({
+    hero: item('Ember.Coast.2021', { title: 'Ember Coast' }),
+    queue: [item('Dune.Part.Two.2024', { title: 'dune part two' }), item('Edit.2020', { title: 'Edit' }), item('sonarr:q3', { title: 'It' })],
+    unreachable: ['Radarr'], outage: "Can't reach Radarr",
+  });
+  return { rows: p.rows() };
+};
+
 // an episode list opens, and on close stays shown until it has folded away
 scenarios.episodes = async function () {
   const p = pageRig();

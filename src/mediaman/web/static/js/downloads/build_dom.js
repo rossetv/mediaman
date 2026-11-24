@@ -17,8 +17,8 @@
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
- *   MM.downloads.buildDom.held(id, unreachable)    the item's service does not answer
- *   MM.downloads.buildDom.dropAbsent(rows, present, unreachable)  close departed rows, say how many are held
+ *   MM.downloads.buildDom.held(id, title, data)    the item's service does not answer and nothing stands in for it
+ *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, say how many are held
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
@@ -496,20 +496,38 @@
     if (hero && hero.updateSearchHint) hero.updateSearchHint(card, item);
   }
 
+  function serviceOf(id) {
+    return id.indexOf('radarr:') === 0 ? 'Radarr' : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
+  }
+
+  function words(title) {
+    var run = (title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return run ? ' ' + run + ' ' : '';
+  }
+
   /* A service that cannot be reached leaves its items out of the payload, which
-     says nothing about them: they are not over. */
-  function held(id, unreachable) {
-    if (!id || !unreachable) return false;
-    var service = id.indexOf('radarr:') === 0 ? 'Radarr'
-      : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
-    return unreachable.indexOf(service) !== -1;
+     says nothing about them: they are not over. The download of one may still
+     be listed, by NZBGet's name for it, and is then not shown twice. */
+  function held(id, title, data) {
+    if (!id || !data.unreachable || data.unreachable.indexOf(serviceOf(id)) === -1) return false;
+    var mine = words(title);
+    var listed = (data.queue || []).concat(data.hero || []);
+    return !listed.some(function (item) {
+      var its = serviceOf(item.id) === 'NZBGet' ? words(item.title) : '';
+      return mine && its && (mine.indexOf(its) !== -1 || its.indexOf(mine) !== -1);
+    });
+  }
+
+  function titleOf(row) {
+    var title = row.querySelector('.dl-compact-title');
+    return title ? title.textContent : '';
   }
 
   /* Close the rows whose item is gone. `present` maps the ids the payload has
      to true, or to false for one shown elsewhere on the page. Returns how many
      rows stay because their service did not answer; with none left to show,
      the rows are not closed one by one, since the section closes with them. */
-  function dropAbsent(rows, present, unreachable) {
+  function dropAbsent(rows, present, data) {
     var kept = 0;
     var gone = [];
     var shown = 0;
@@ -517,7 +535,7 @@
       var id = rows[i].getAttribute('data-dl-id');
       if (!id || isCollapsing(rows[i])) continue;
       if (present[id]) shown += 1;
-      else if (!(id in present) && held(id, unreachable)) kept += 1;
+      else if (!(id in present) && held(id, titleOf(rows[i]), data)) kept += 1;
       else gone.push(rows[i]);
     }
     if (shown || kept) gone.forEach(collapseAway);

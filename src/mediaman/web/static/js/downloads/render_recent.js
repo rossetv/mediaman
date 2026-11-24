@@ -88,8 +88,7 @@
 
     var shown = container ? container.querySelectorAll('.dl-upcoming-row') : [];
     if (upcoming.length === 0) {
-      if (container && !d.isCollapsing(container) &&
-          !d.dropAbsent(shown, {}, data.unreachable)) {
+      if (container && !d.isCollapsing(container) && !d.dropAbsent(shown, {}, data)) {
         d.collapseAway(container);
       }
       return;
@@ -133,7 +132,7 @@
         if (!opening) d.reveal(rowEl);
       }
     }
-    d.dropAbsent(shown, present, data.unreachable);
+    d.dropAbsent(shown, present, data);
     if (opening) d.reveal(container);
   }
 

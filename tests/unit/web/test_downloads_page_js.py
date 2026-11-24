@@ -110,6 +110,15 @@ def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> Non
     assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
 
 
+def test_a_held_download_that_nzbget_still_lists_is_shown_once() -> None:
+    assert _run("outageNzb")["rows"] == [
+        "radarr:q1",
+        "sonarr:q3",
+        "Dune.Part.Two.2024",
+        "Edit.2020",
+    ]
+
+
 def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
     out = _run("pillSize")
     assert "dl-state-pill--xs" in out["before"]
