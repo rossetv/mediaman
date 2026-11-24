@@ -50,6 +50,22 @@ def _record_delete_intent(
     return cur.lastrowid  # type: ignore[return-value]
 
 
+def _confirm_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
+    """Note that Radarr/Sonarr confirmed the delete, which is then only left to be booked.
+
+    A failed write is logged, never raised: the cleanup that follows may still
+    go through.
+    """
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE delete_intents SET confirmed_at = ? WHERE id = ?",
+                (now_utc().isoformat(), intent_id),
+            )
+    except sqlite3.Error:
+        logger.exception("delete_intent.confirm_failed intent_id=%s", intent_id)
+
+
 def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
     with conn:
         conn.execute(
@@ -184,7 +200,8 @@ def _reconcile_one_intent(
     media_item_id = intent["media_item_id"]
     last_error = intent["last_error"]
     item = conn.execute(
-        "SELECT title, media_type, tmdb_id, tvdb_id, season_number FROM media_items WHERE id = ?",
+        "SELECT title, media_type, tmdb_id, tvdb_id, season_number, file_size_bytes "
+        "FROM media_items WHERE id = ?",
         (media_item_id,),
     ).fetchone()
     if item is None:
@@ -216,8 +233,10 @@ def _reconcile_one_intent(
     # backlog; every error must roll back the current intent's transaction
     # and leave it pending so the next run retries without aborting the rest.
     try:
-        arr_gone = verify_gone is not None and bool(verify_gone(intent))
-        if arr_gone and _tracked_file_on_disk(conn, media_item_id, delete_roots or []):
+        confirmed = intent["confirmed_at"] is not None
+        arr_gone = confirmed or (verify_gone is not None and bool(verify_gone(intent)))
+        on_disk = arr_gone and _tracked_file_on_disk(conn, media_item_id, delete_roots or [])
+        if on_disk and not confirmed:
             detail = _FILE_LEFT_DETAIL.format(service=str(intent["target_kind"]).title())
             _fail_delete_intent(conn, intent_id, media_item_id, detail, detail)
             logger.info(
@@ -229,7 +248,11 @@ def _reconcile_one_intent(
         if arr_gone:
             with conn:
                 audit_id = log_audit(
-                    conn, media_item_id, "deleted", "Confirmed gone by Radarr/Sonarr"
+                    conn,
+                    media_item_id,
+                    "deleted",
+                    "Confirmed gone by Radarr/Sonarr",
+                    space_bytes=item["file_size_bytes"] if confirmed else None,
                 )
                 record_deleted_media(
                     conn,
@@ -240,13 +263,27 @@ def _reconcile_one_intent(
                     season_number=item["season_number"],
                     title=item["title"],
                 )
+                if on_disk:
+                    # A new copy came since, or may have, so the item and its keeps stay;
+                    # only the old copy's schedule is over.
+                    conn.execute(
+                        "DELETE FROM scheduled_actions WHERE media_item_id = ? "
+                        "AND action = 'scheduled_deletion' AND delete_status IS NOT 'deleting'",
+                        (media_item_id,),
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
+                    )
+                    conn.execute(
+                        "DELETE FROM watch_progress WHERE media_item_id = ?", (media_item_id,)
+                    )
+                    conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
                 conn.execute(
-                    "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
+                    "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
+                    (now_utc().isoformat(), intent_id),
                 )
-                conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_item_id,))
-                conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
             watch_catalog.clear_library_index()
-            _complete_delete_intent(conn, intent_id)
             logger.info(
                 "delete_intent.reconciled intent_id=%s media_id=%s reason=verified_gone",
                 intent_id,
@@ -285,7 +322,8 @@ def reconcile_pending_delete_intents(
     """Find unresolved delete intents and close each one.
 
     An interrupted intent whose item the optional *verify_gone* cannot
-    confirm gone is closed as failed; the media row stays.
+    confirm gone is closed as failed; the media row stays. One Radarr/Sonarr
+    confirmed before its cleanup failed is booked without asking again.
 
     With *started_before* (an ISO timestamp as ``now_utc().isoformat()``
     writes it) only intents started earlier are touched, so a run that
@@ -300,7 +338,7 @@ def reconcile_pending_delete_intents(
     Returns the number of intents resolved during this call.
     """
     sql = (
-        "SELECT id, media_item_id, target_kind, target_id, last_error "
+        "SELECT id, media_item_id, target_kind, target_id, last_error, confirmed_at "
         "FROM delete_intents WHERE completed_at IS NULL"
     )
     params: tuple[str, ...] = ()

@@ -298,7 +298,8 @@ CREATE TABLE IF NOT EXISTS delete_intents (
     target_id TEXT NOT NULL,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    last_error TEXT
+    last_error TEXT,
+    confirmed_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media ON scheduled_actions(media_item_id);

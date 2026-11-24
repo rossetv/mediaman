@@ -99,6 +99,7 @@ _ADDED_COLUMNS = (
     ("scheduled_actions", "removed_files", "TEXT"),
     ("admin_users", "role", "TEXT NOT NULL DEFAULT 'admin'"),
     ("download_notifications", "season_number", "INTEGER"),
+    ("delete_intents", "confirmed_at", "TEXT"),
 )
 
 

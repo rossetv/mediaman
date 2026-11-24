@@ -325,6 +325,73 @@ class TestReconcilePendingDeleteIntents:
         assert conn.execute("SELECT title FROM deleted_media").fetchone()
         assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
 
+    def _delete_season_with_failing_cleanup(self, app_factory, authed_client, conn):
+        client = authed_client(_app(app_factory, conn), conn)
+        with (
+            patch(SONARR, return_value=_sonarr()),
+            patch(
+                "mediaman.web.routes.library_api.delete.finalise_delete_in_tx",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(sqlite3.OperationalError),
+        ):
+            client.post("/api/media/s1/delete")
+
+    def test_a_season_whose_cleanup_failed_is_booked_though_sonarr_keeps_the_show(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        self._delete_season_with_failing_cleanup(app_factory, authed_client, conn)
+
+        for _ in range(2):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: False)
+
+        booked = conn.execute(
+            "SELECT space_reclaimed_bytes, tvdb_id, season_number FROM audit_log a "
+            "JOIN deleted_media d ON d.audit_id = a.id WHERE media_item_id = 's1'"
+        ).fetchall()
+        assert [tuple(r) for r in booked] == [(2_000_000, 81189, 1)]
+        assert conn.execute("SELECT 1 FROM media_items").fetchone() is None
+
+    def test_a_new_copy_since_the_confirmed_delete_stays_with_its_keep_and_no_schedule(
+        self, app_factory, authed_client, conn, tmp_path
+    ):
+        _insert_tv_season(conn)
+        self._delete_season_with_failing_cleanup(app_factory, authed_client, conn)
+        new = tmp_path / "S01E01.mkv"
+        new.write_bytes(b"x")
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(new), "size": 1}]),),
+        )
+        insert_scheduled_action(conn, media_item_id="s1", action=ACTION_SCHEDULED_DELETION)
+        insert_scheduled_action(
+            conn, media_item_id="s1", action=ACTION_PROTECTED_FOREVER, token="kept"
+        )
+        conn.commit()
+
+        for _ in range(2):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: False)
+
+        assert _audit_actions(conn, "s1") == ["deleted"]
+        assert conn.execute("SELECT 1 FROM media_items").fetchone()
+        actions = [r[0] for r in conn.execute("SELECT action FROM scheduled_actions")]
+        assert actions == [ACTION_PROTECTED_FOREVER]
+
+    def test_a_confirmation_that_cannot_be_written_does_not_stop_the_delete(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_tv_season(conn)
+        conn.execute(
+            "CREATE TRIGGER no_confirm BEFORE UPDATE OF confirmed_at ON delete_intents "
+            "BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+        with patch(SONARR, return_value=_sonarr()):
+            assert client.post("/api/media/s1/delete").status_code == 200
+
+        assert "deleted" in _audit_actions(conn, "s1")
+
     def test_an_item_whose_delete_was_closed_goes_when_plex_drops_it(self, conn):
         _insert_movie(conn)
         _complete_delete_intent(conn, _record_delete_intent(conn, "m1", "radarr", "42"))

@@ -6,6 +6,7 @@ import sqlite3
 
 from mediaman.db import init_db
 from mediaman.services.downloads._notification_claims import _claim_pending_notifications
+from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
 _OLD_MEDIA_ITEMS = """
 CREATE TABLE media_items (
@@ -91,4 +92,32 @@ def test_a_pending_notification_of_an_old_database_can_still_be_claimed(tmp_path
 
     claimed = _claim_pending_notifications(conn)
     assert [(r.tvdb_id, r.season_number) for r in claimed] == [(9, None)]
+    conn.close()
+
+
+_OLD_DELETE_INTENTS = """
+CREATE TABLE delete_intents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    last_error TEXT
+);
+INSERT INTO delete_intents (media_item_id, target_kind, target_id, started_at)
+VALUES ('m1', 'radarr', '1', '2020');
+"""
+
+
+def test_an_open_delete_intent_of_an_old_database_can_still_be_closed(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_DELETE_INTENTS)
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    assert reconcile_pending_delete_intents(conn) == 1
     conn.close()
