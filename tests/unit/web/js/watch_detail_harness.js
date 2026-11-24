@@ -530,6 +530,32 @@ const scenarios = {
     return out;
   },
 
+  // A download ends while its trailer plays: the title goes on under its library ref, and Back, then
+  // Close, go out of it one step at a time without loading it again.
+  async scannedDuringTrailer() {
+    let status = { state: 'queued' };
+    let title = Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued', answered: true }) });
+    const library = Object.assign({}, LIB_MOVIE, { trailer_key: 'abcdefghijk' });
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': () => Promise.resolve(JSON.parse(JSON.stringify(title))),
+      '/api/watch/title/movie-120': library,
+      '/api/download/status?service=radarr&tmdb_id=77': () => Promise.resolve(status),
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('[data-ttl-act="trailer"]'));
+    status = { state: 'ready' };
+    title = Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120', download: null });
+    p.tick();
+    await settle();
+    const loaded = { hash: p.loc.hash, gets: p.gets.length };
+    p.ctx.history.back();
+    await settle();
+    const afterBack = { hash: p.loc.hash, trailer: p.ttl().classList.contains('is-trailer'), busy: p.ttl().getAttribute('aria-busy'), again: p.gets.length - loaded.gets };
+    p.key('Escape');
+    return { loaded: loaded.hash, afterBack, closed: p.ttl().classList.contains('is-leaving'), end: p.loc.hash };
+  },
+
   async noTrailerKey() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { trailer_key: null }) } });
     p.run();

@@ -707,3 +707,15 @@ def test_a_title_outside_the_library_never_stretches_its_poster() -> None:
     poster = "/api/watch/img/tmdb/w500/p.jpg"
     assert (out["posterOnly"]["art"], out["posterOnly"]["poster"]) == (None, poster)
     assert (out["none"]["art"], out["none"]["poster"]) == (None, None)
+
+
+def test_a_title_scanned_while_its_trailer_plays_is_not_opened_again_by_back() -> None:
+    out = _run("scannedDuringTrailer")
+    assert out["loaded"] == "#title=movie-120"
+    assert out["afterBack"] == {
+        "hash": "#title=movie-120",
+        "trailer": False,
+        "busy": None,
+        "again": 0,
+    }
+    assert (out["closed"], out["end"]) == (True, "")

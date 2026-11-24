@@ -234,6 +234,7 @@
       addedNow: false,
       movedAt: 0,
       checkedAt: 0,
+      openedAs: ref,     // a title scanned meanwhile goes on under its library ref
       ctrl: null,
       seq: ++seq
     };
@@ -363,12 +364,15 @@
     learn(c.ref, data);
     fire(c.ref, 'in_library', null);
     c.reason = c.reason || data.reason;
-    if (hashRef() === c.ref) {
-      var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: data.library_ref }) : null;
-      window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(data.library_ref));
-    }
+    if (hashRef() === c.ref) readdress(data.library_ref);
     c.ref = data.library_ref;
     load(c);
+  }
+
+  /* The entry the address is at is the same title's, under another ref. */
+  function readdress(ref) {
+    var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: ref }) : null;
+    window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(ref));
   }
 
   function arrive(c, data) {
@@ -436,10 +440,7 @@
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
         c.justAdded = true;
         c.reason = c.reason || data.reason;
-        if (hashRef() === c.ref) {
-          var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: data.library_ref }) : null;
-          window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(data.library_ref));
-        }
+        if (hashRef() === c.ref) readdress(data.library_ref);
         c.ref = data.library_ref;
         refresh();
         return;
@@ -2018,6 +2019,11 @@
     var ref = hashRef();
     var was = going;
     going = null;
+    // The title's own entry, left as it was when its trailer's took the library ref.
+    if (ref && isOpen && ref === cur.openedAs && ref !== cur.ref) {
+      readdress(cur.ref);
+      ref = cur.ref;
+    }
     if (!ref) close();
     else if (was === 'title' && isOpen) requestClose();
     else if (!isOpen || cur.ref !== ref) openAt(ref);
