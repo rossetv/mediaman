@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mediaman.db import init_db
+from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.services.infra.storage import deletion as storage
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
@@ -276,6 +277,23 @@ class TestNewCopyAfterAnUnbookedRemoval:
         DeletionExecutor(conn=conn).execute()
 
         self._assert_booked_and_spared(conn, new_copy)
+
+    def test_a_film_replaced_between_the_claim_s_read_and_the_removal_is_kept(
+        self, conn, film, monkeypatch
+    ):
+        real = deletions.claim_due_deletion
+
+        def claimed(*args):
+            film.unlink()
+            film.write_bytes(b"a new copy")
+            return real(*args)
+
+        monkeypatch.setattr(deletions, "claim_due_deletion", claimed)
+        DeletionExecutor(conn=conn).execute()
+
+        assert film.read_bytes() == b"a new copy"
+        assert _status(conn) == "pending"
+        assert conn.execute("SELECT removed_files FROM scheduled_actions").fetchone()[0] is None
 
     def test_a_film_that_comes_back_once_claimed_is_kept(self, conn, film, monkeypatch):
         _crash_before_booking(conn, monkeypatch)

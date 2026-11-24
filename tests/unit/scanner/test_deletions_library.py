@@ -177,6 +177,16 @@ def test_a_dry_run_does_not_list_a_held_deletion(conn, root):
     assert _audits(conn, "m1") == []
 
 
+def test_a_dry_run_does_not_list_the_deletions_of_a_library_plex_did_not_answer_for(conn, root):
+    _due(conn, "m1", root / "Film" / "film.mkv")
+    _due(conn, "m2", root / "Other" / "other.mkv", library=2)
+    _select(conn, '["1", "2"]')
+
+    DeletionExecutor(conn=conn, dry_run=True).execute(unread_libraries={"1"})
+
+    assert (_audits(conn, "m1"), _audits(conn, "m2")) == ([], ["dry_run_skip"])
+
+
 def test_an_unselected_librarys_film_inside_a_due_folder_holds_the_folder_back(conn, root):
     folder = root / "Films"
     outer = _due(conn, "m1", folder / "a.mkv", path=folder)
