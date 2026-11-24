@@ -403,7 +403,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; margin-inline: -12px; }
 .ttl .watch-ep:hover { background: var(--s2); }
 .ttl .watch-ep--in-progress { background: var(--s2); }
-.ttl .watch-seasons { margin: 0 0 14px; }
+/* The seasons stand on one line that scrolls to the sheet's edges, as the rows do to the screen's. */
+.ttl-seasons { --pad: 32px; margin: 0 calc(-1 * var(--pad)) 8px; }
+.ttl .watch-seasons { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
+.ttl .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
+.ttl-seasons > .watch-row__arrow { top: 6px; }
 .ttl__seasonsec .ttl__sec-title { margin-bottom: 12px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
 
@@ -455,6 +459,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; margin-inline: -8px; padding: 10px 8px; }
   .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
   .ttl .watch-ep__state { justify-self: start; align-self: end; }
+  .ttl-seasons { --pad: 20px; }
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ttl-cast__avatar { width: 56px; height: 56px; }
   /* Two to a line: the episode count drops under the name. */

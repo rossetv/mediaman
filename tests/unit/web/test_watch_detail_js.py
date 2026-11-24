@@ -516,6 +516,15 @@ def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
     assert out["2"] == {"scroll": 530, "room": ""}
 
 
+def test_the_seasons_are_one_line_that_shows_the_picked_one() -> None:
+    out = _run("seasonLine")
+    assert (out["started"], out["scroller"]) == ([True, True], True)
+    assert out["opened"] == [{"left": 300, "behavior": "auto"}]
+    assert out["inView"] == []
+    assert out["cutOff"] == [{"left": -68, "behavior": "smooth"}]
+    assert out["redrawn"] == {"scroll": 77, "moves": [], "started": 2}
+
+
 def test_a_viewer_never_asks_for_admin_facts() -> None:
     out = _run("viewerNoAdmin")
     assert not any("/admin/" in g for g in out["gets"])

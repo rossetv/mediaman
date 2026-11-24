@@ -1191,6 +1191,47 @@ const scenarios = {
     return out;
   },
 
+  // The line of seasons of a library show: where it stands when the title opens on its second
+  // season, after a press on one wholly in view and one cut off, and after the title is loaded again.
+  async seasonLine() {
+    const eps = { ok: true, episodes: [] };
+    const started = [];
+    const p = load({ admin: true, adminApi: {}, routes: {
+      '/api/watch/title/show-300': LIB_SHOW, '/api/watch/title/show-300/season/1': eps, '/api/watch/title/show-300/season/2': eps,
+      '/api/watch/admin/title/show-300': Object.assign({}, FACTS, { actions: { keep_wrapper: { id: '3010', is_tv: true, show_rk: '300' }, delete: null } }),
+    } });
+    p.run();
+    const at = { 1: 32, 2: 400 };
+    const moves = [];
+    // What the fake DOM has no layout for: a 300px line of 100px pills.
+    p.ctx.MMWatch.rows = { init: (viewport) => { started.push([viewport.classList.contains('watch-row__viewport'), p.ttl().contains(viewport)]); } };
+    Object.defineProperties(Node.prototype, {
+      offsetLeft: { configurable: true, get() { return at[this.getAttribute('data-season')] || 0; } },
+      offsetWidth: { configurable: true, get() { return 100; } },
+      clientWidth: { configurable: true, get() { return 300; } },
+    });
+    const native = Node.prototype.scrollTo;
+    Node.prototype.scrollTo = function (o) {
+      if (!this.classList.contains('watch-seasons')) { native.call(this, o); return; }
+      this.scrollLeft = o.left;
+      moves.push(o);
+    };
+    await openCard(p, 'show-300');
+    const line = () => p.q('.watch-seasons');
+    const out = { started: started[0], scroller: line().classList.contains('watch-row__scroll'), opened: moves.splice(0) };
+    click(p.doc, p.q('.watch-pill[data-season="2"]'));
+    await settle();
+    out.inView = moves.splice(0);
+    click(p.doc, p.q('.watch-pill[data-season="1"]'));
+    await settle();
+    out.cutOff = moves.splice(0);
+    line().scrollLeft = 77;
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: '3010', showRk: '300' } }));
+    await settle();
+    out.redrawn = { scroll: line().scrollLeft, moves: moves.splice(0), started: started.length };
+    return out;
+  },
+
   async viewerNoAdmin() {
     const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
     p.run();

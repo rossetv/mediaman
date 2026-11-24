@@ -683,6 +683,8 @@
   function renderContent(fresh) {
     var d = cur.data;
     var key = focusKey();
+    var line = body.querySelector('.watch-seasons');
+    var lineAt = line ? line.scrollLeft : null;
     root.removeAttribute('aria-busy');
     renderHead(d, fresh);
     body.textContent = '';
@@ -717,6 +719,7 @@
     else cur.seasonLoading = null;
     if (d.cast && d.cast.length) body.appendChild(castSection(d.cast));
     if (hasFacts(cur)) renderFacts(false);
+    startSeasonLine(lineAt);
     if (fresh) {
       toArray(main.children).concat(toArray(body.children).slice(1)).forEach(function (n) {
         n.classList.add('is-swapping-in');
@@ -1580,6 +1583,7 @@
     var pressed = cur.seasonLoading ? cur.seasonLoading.number : cur.season;
     if (d.seasons.length > 1) {
       var nav = el('div', 'watch-seasons');
+      nav.classList.add('watch-row__scroll');
       nav.setAttribute('role', 'group');
       nav.setAttribute('aria-label', 'Seasons');
       d.seasons.forEach(function (s) {
@@ -1592,12 +1596,33 @@
         pill.addEventListener('click', function () { pickSeason(s); });
         nav.appendChild(pill);
       });
-      sec.appendChild(nav);
+      var viewport = el('div', 'watch-row__viewport ttl-seasons');
+      viewport.appendChild(nav);
+      sec.appendChild(viewport);
     }
     var list = episodeList(cur.picked || d.episodes, (shown ? seasonName(shown) : 'Season') + ' episodes');
     if (cur.seasonLoading) list.setAttribute('aria-busy', 'true');
     sec.appendChild(list);
     return sec;
+  }
+
+  /* The seasons stand on one line that scrolls. Once it is on the page it gets
+     the rows' arrows and fades, and stands where it stood (*at*) or shows the
+     picked season. */
+  function startSeasonLine(at) {
+    var line = body.querySelector('.watch-seasons');
+    if (!line) return;
+    if (at === null) showPill(line, 'auto');
+    else line.scrollLeft = at;
+    if (window.MMWatch.rows) window.MMWatch.rows.init(line.parentNode);
+  }
+
+  function showPill(line, behavior) {
+    var pill = line.querySelector('[aria-pressed="true"]');
+    if (!pill) return;
+    var left = pill.offsetLeft - (line.scrollLeft || 0);
+    if (left >= 0 && left + pill.offsetWidth <= line.clientWidth) return;
+    line.scrollTo({ left: pill.offsetLeft - (line.clientWidth - pill.offsetWidth) / 2, behavior: behavior });
   }
 
   function markSeason(sec, number) {
@@ -1630,6 +1655,7 @@
     c.seasonLoading = token;
     var sec = body.querySelector('.ttl__seasonsec');
     markSeason(sec, s.number);
+    showPill(sec.querySelector('.watch-seasons'), core.reduceMotion() ? 'auto' : 'smooth');
     var list = sec.querySelector('.watch-episodes');
     var oldErr = sec.querySelector('.ttl__error');
     if (oldErr) oldErr.remove();
